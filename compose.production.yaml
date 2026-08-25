@@ -9,6 +9,9 @@ services:
     ports: []
     networks: [edge, caddy_public]
 
+  worker:
+    networks: [internal, caddy_public]
+
 networks:
   caddy_public:
     external: true
