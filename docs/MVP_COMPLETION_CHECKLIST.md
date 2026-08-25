@@ -85,19 +85,19 @@ MIME; [x] oversized image; [x] duplicate update idempotency.
 
 ### D. Correct Jago outgoing-transfer semantics
 
-- [~] Incoming Jago, pocket, and RDN/investment movement are already excluded.
-- [~] Unknown outgoing transfers reach review, but the neutral
-  `EXPENSE | TRANSFER | IGNORE` resolution flow is incomplete.
-- [ ] Unresolved outgoing transfer is never an EXPENSE and never counts as spend.
-- [ ] Add household-scoped `known_account` with `OWN_ACCOUNT`,
+- [x] Incoming Jago, pocket, and RDN/investment movement are excluded.
+- [x] Unknown outgoing transfers use the neutral
+  `EXPENSE | TRANSFER | IGNORE` resolution flow.
+- [x] Unresolved outgoing transfer is never an EXPENSE and never counts as spend.
+- [x] Add household-scoped `known_account` with `OWN_ACCOUNT`,
   `HOUSEHOLD_ACCOUNT`, `INVESTMENT_ACCOUNT`, or `OTHER` relationship.
-- [ ] Own/household destinations resolve to TRANSFER; investment remains excluded;
+- [x] Own/household destinations resolve to TRANSFER; investment remains excluded;
   unknown external recipients require explicit classification.
-- [ ] Telegram and web review resolve the same review object; analytics include
+- [x] Telegram and web review resolve the same review object; analytics include
   only confirmed financial state and exclude transfers/unresolved proposals.
 
-Tests: [ ] unknown transfer unresolved/non-spending; [ ] own transfer; [ ]
-household transfer; [ ] external expense; [ ] incoming non-income; [ ] RDN excluded.
+Tests: [x] unknown transfer unresolved/non-spending; [x] own transfer; [x]
+household transfer; [x] external expense; [x] incoming non-income; [x] RDN excluded.
 
 ### E. Explicit merchant learning
 
@@ -218,7 +218,7 @@ Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
 2. [x] Telegram link invite model and `/start` flow.
 3. [x] Household UI (implemented and public route smoke verified).
 4. [x] Telegram image intake and generic pipeline wiring.
-5. [ ] Jago outgoing-transfer semantics and known accounts.
+5. [x] Jago outgoing-transfer semantics and known accounts.
 6. [ ] Explicit merchant remember flow; remove implicit learning.
 7. [ ] Remove budgeting from active UI.
 8. [ ] Build the routed app shell and all V2 pages.

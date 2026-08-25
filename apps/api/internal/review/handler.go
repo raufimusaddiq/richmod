@@ -147,6 +147,9 @@ func reconciliationScore(hours float64, merchantMatch, accountHint, categoryMatc
 }
 
 func reviewReason(value item) string {
+	if value.Type == "UNCLASSIFIED" {
+		return "TRANSFER_CLASSIFICATION"
+	}
 	if len(value.Candidates) > 0 {
 		return "POSSIBLE_DUPLICATE"
 	}
@@ -204,6 +207,10 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 		return
 	}
+	if kind == "UNCLASSIFIED" {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "use transfer classification for this review"})
+		return
+	}
 	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000)); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
@@ -232,6 +239,109 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type transferClassificationInput struct {
+	Classification string  `json:"classification"`
+	CategoryID     *string `json:"categoryId"`
+	Remember       bool    `json:"remember"`
+	Institution    string  `json:"institution"`
+	DisplayName    string  `json:"displayName"`
+	MatchHint      string  `json:"matchHint"`
+}
+
+func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
+	p, household, ok := principalHousehold(w, r)
+	if !ok {
+		return
+	}
+	var input transferClassificationInput
+	if decodeJSON(r, &input) != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid transfer classification"})
+		return
+	}
+	input.Classification = strings.ToUpper(strings.TrimSpace(input.Classification))
+	input.Institution = clean(&input.Institution, 120)
+	input.DisplayName = clean(&input.DisplayName, 160)
+	input.MatchHint = clean(&input.MatchHint, 80)
+	if input.Classification != "EXPENSE" && input.Classification != "OWN_ACCOUNT" && input.Classification != "HOUSEHOLD_ACCOUNT" && input.Classification != "INVESTMENT_ACCOUNT" && input.Classification != "IGNORE" {
+		writeJSON(w, 400, map[string]string{"error": "invalid transfer classification"})
+		return
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	id := r.PathValue("id")
+	var counterparty *string
+	if err = tx.QueryRow(r.Context(), `SELECT counterparty_name FROM transaction WHERE id=$1 AND household_id=$2 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&counterparty); errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, 404, map[string]string{"error": "transfer review not found"})
+		return
+	} else if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
+		return
+	}
+	newType, newStatus, proposalStatus, sourceStatus := "TRANSFER", "CONFIRMED", "ACCEPTED", "PROCESSED"
+	var categoryID *string
+	if input.Classification == "EXPENSE" {
+		newType = "EXPENSE"
+		if input.CategoryID == nil {
+			writeJSON(w, 400, map[string]string{"error": "expense category is required"})
+			return
+		}
+		var valid string
+		if err = tx.QueryRow(r.Context(), `SELECT id FROM category WHERE id=$1 AND household_id=$2 AND active`, *input.CategoryID, household).Scan(&valid); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid household category"})
+			return
+		}
+		categoryID = &valid
+	}
+	if input.Classification == "INVESTMENT_ACCOUNT" || input.Classification == "IGNORE" {
+		newType, newStatus, proposalStatus, sourceStatus = "UNCLASSIFIED", "VOIDED", "REJECTED", "IGNORED"
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE transaction SET type=$2,status=$3,category_id=$4,confirmed_at=CASE WHEN $3='CONFIRMED' THEN now() END,voided_at=CASE WHEN $3='VOIDED' THEN now() END,updated_at=now() WHERE id=$1`, id, newType, newStatus, categoryID); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, id, newType, proposalStatus, categoryID, input.Classification); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to update transfer proposal"})
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id, sourceStatus); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to update transfer evidence"})
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')`, id); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to resolve transfer request"})
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN(SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, id); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to resolve transfer conversation"})
+		return
+	}
+	if input.Remember && input.Classification != "EXPENSE" && input.Classification != "IGNORE" {
+		if len([]rune(input.MatchHint)) < 4 || input.Institution == "" {
+			writeJSON(w, 400, map[string]string{"error": "institution and masked match hint are required to remember account"})
+			return
+		}
+		if input.DisplayName == "" && counterparty != nil {
+			input.DisplayName = clean(counterparty, 160)
+		}
+		if input.DisplayName == "" {
+			input.DisplayName = input.MatchHint
+		}
+		if _, err = tx.Exec(r.Context(), `INSERT INTO known_account(household_id,institution,display_name,match_hint,relationship) VALUES($1,$2,$3,$4,$5) ON CONFLICT(household_id,institution,match_hint) DO UPDATE SET display_name=excluded.display_name,relationship=excluded.relationship,active=true,updated_at=now()`, household, input.Institution, input.DisplayName, input.MatchHint, input.Classification); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to remember known account"})
+			return
+		}
+	}
+	if err = audit(r.Context(), tx, household, p.UserID, "CLASSIFY_TRANSFER", id, map[string]any{"classification": input.Classification, "type": newType, "status": newStatus, "remember": input.Remember}); err != nil || tx.Commit(r.Context()) != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to audit transfer classification"})
+		return
+	}
+	w.WriteHeader(204)
 }
 
 func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {

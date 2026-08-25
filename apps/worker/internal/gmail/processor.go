@@ -324,6 +324,22 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID string, event jago.Event) error {
 	var categoryID *string
 	var categoryConfidence float64
+	resolvedType := "EXPENSE"
+	knownRelationship := ""
+	if event.FinancialEffect == jago.EffectNeedsReview {
+		resolvedType = "UNCLASSIFIED"
+		err := p.pool.QueryRow(ctx, `SELECT relationship FROM known_account WHERE household_id=$1 AND active AND lower($2) LIKE '%'||lower(match_hint)||'%' ORDER BY length(match_hint) DESC,id LIMIT 1`, householdID, strings.TrimSpace(event.ToName)).Scan(&knownRelationship)
+		if err == nil {
+			switch knownRelationship {
+			case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
+				resolvedType, categoryConfidence = "TRANSFER", 1
+			case "INVESTMENT_ACCOUNT":
+				resolvedType, categoryConfidence = "UNCLASSIFIED", 1
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
 	if event.FinancialEffect == jago.EffectExpenseCandidate {
 		var err error
 		categoryID, categoryConfidence, err = p.classifyCategory(ctx, householdID, sourceEventID, event)
@@ -331,10 +347,13 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 			categoryID, categoryConfidence = nil, 0
 		}
 	}
-	autoConfirm := event.FinancialEffect == jago.EffectExpenseCandidate && categoryID != nil && categoryConfidence >= 0.90
+	autoConfirm := (event.FinancialEffect == jago.EffectExpenseCandidate && categoryID != nil && categoryConfidence >= 0.90) || resolvedType == "TRANSFER"
 	proposalStatus, transactionStatus, sourceStatus := "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW"
 	if autoConfirm {
 		proposalStatus, transactionStatus, sourceStatus = "ACCEPTED", "CONFIRMED", "PROCESSED"
+	}
+	if knownRelationship == "INVESTMENT_ACCOUNT" {
+		proposalStatus, transactionStatus, sourceStatus = "REJECTED", "VOIDED", "IGNORED"
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -350,7 +369,7 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 		return err
 	}
 	merchantName := strings.TrimSpace(event.Merchant)
-	if merchantName == "" {
+	if merchantName == "" && resolvedType == "EXPENSE" {
 		merchantName = strings.TrimSpace(event.ToName)
 	}
 	var merchantID *string
@@ -361,19 +380,19 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 		}
 		merchantID = &id
 	}
-	metadata, _ := json.Marshal(map[string]any{"family": event.Family, "channel": event.TransactionChannel, "reference": event.Reference})
+	metadata, _ := json.Marshal(map[string]any{"family": event.Family, "channel": event.TransactionChannel, "reference": event.Reference, "known_account_relationship": knownRelationship})
 	var proposalID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO transaction_proposal (household_id,source_event_id,proposed_type,amount,currency,transaction_at,merchant_raw,counterparty_raw,category_candidate_id,description,confidence,proposal_status,metadata_json)
-		VALUES ($1,$2,'EXPENSE',$3,'IDR',$4,NULLIF($5,''),NULLIF($6,''),$7,$8,0.99,$9,$10::jsonb)
-		RETURNING id`, householdID, sourceEventID, event.Amount, event.TransactionAt, merchantName, event.ToName, categoryID, "Bank Jago "+event.TransactionChannel, proposalStatus, string(metadata)).Scan(&proposalID); err != nil {
+		VALUES ($1,$2,$3,$4,'IDR',$5,NULLIF($6,''),NULLIF($7,''),$8,$9,0.99,$10,$11::jsonb)
+		RETURNING id`, householdID, sourceEventID, resolvedType, event.Amount, event.TransactionAt, merchantName, event.ToName, categoryID, "Bank Jago "+event.TransactionChannel, proposalStatus, string(metadata)).Scan(&proposalID); err != nil {
 		return err
 	}
 	var transactionID string
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO transaction (household_id,account_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at)
-		VALUES ($1,$2,'EXPENSE',$3,$4,'IDR',$5,$6,$7,$8,NULLIF($9,''),NULLIF($10,''),0.99,$11,CASE WHEN $3='CONFIRMED' THEN now() END)
-		RETURNING id`, householdID, accountID, transactionStatus, event.Amount, event.TransactionAt, merchantID, categoryID, "Bank Jago "+event.TransactionChannel, event.ToName, event.Reference, categoryConfidence).Scan(&transactionID); err != nil {
+		INSERT INTO transaction (household_id,account_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at,voided_at)
+		VALUES ($1,$2,$3,$4,$5,'IDR',$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,''),0.99,$12,CASE WHEN $4='CONFIRMED' THEN now() END,CASE WHEN $4='VOIDED' THEN now() END)
+		RETURNING id`, householdID, accountID, resolvedType, transactionStatus, event.Amount, event.TransactionAt, merchantID, categoryID, "Bank Jago "+event.TransactionChannel, event.ToName, event.Reference, categoryConfidence).Scan(&transactionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES ($1,$2,'BANK_EMAIL',0.99,jsonb_build_object('proposal_id',$3::uuid))`, transactionID, sourceEventID, proposalID); err != nil {
@@ -385,7 +404,7 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'EMAIL_PARSER','CREATE_FROM_JAGO_EMAIL','transaction',$2,jsonb_build_object('status',$3::text,'proposal_id',$4::uuid,'parser','jago-v1'))`, householdID, transactionID, transactionStatus, proposalID); err != nil {
 		return err
 	}
-	if !autoConfirm {
+	if transactionStatus == "NEEDS_REVIEW" {
 		var chatID int64
 		err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID)
 		if err == nil {
@@ -393,7 +412,11 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 			if event.FinancialEffect == jago.EffectNeedsReview {
 				reviewType = "TRANSFER_CLASSIFICATION"
 			}
-			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, workerTelegram.ReviewQuestion(event.Amount, merchantName)); err != nil {
+			reviewSubject := merchantName
+			if reviewSubject == "" {
+				reviewSubject = strings.TrimSpace(event.ToName)
+			}
+			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, workerTelegram.ReviewQuestion(event.Amount, reviewSubject)); err != nil {
 				return err
 			}
 		} else if !errors.Is(err, pgx.ErrNoRows) {

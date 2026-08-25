@@ -77,6 +77,37 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
 	}
+	if transactionType == "UNCLASSIFIED" {
+		intent := transferReviewIntent(update.Message.Text)
+		switch intent {
+		case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
+			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
+		case "INVESTMENT_ACCOUNT", "IGNORE":
+			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "UNCLASSIFIED", "VOIDED", intent, "Transfer disimpan sebagai bukti non-pengeluaran.", "")
+		case "EXPENSE":
+			categories, categoryErr := p.categories(ctx, householdID)
+			if categoryErr != nil {
+				return true, categoryErr
+			}
+			extracted, extractErr := p.extractReview(ctx, sourceEventID, strings.TrimSpace(update.Message.Text), categories)
+			if extractErr != nil {
+				return true, extractErr
+			}
+			categoryID := ""
+			for _, category := range categories {
+				if category.Slug == extracted.CategorySlug {
+					categoryID = category.ID
+					break
+				}
+			}
+			if categoryID == "" || extracted.Ambiguous || extracted.Confidence < 0.90 {
+				return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Ini pengeluaran. Balas lagi dengan tujuan atau kategori yang lebih jelas, misalnya: renovasi rumah.")
+			}
+			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
+		default:
+			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas: 'pengeluaran untuk ...', 'rekeningku sendiri', 'rekening household', atau 'abaikan'.")
+		}
+	}
 	if transactionType == "INCOME" {
 		switch incomeReviewIntent(update.Message.Text) {
 		case "REJECT":
@@ -110,6 +141,50 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			"Kategorinya belum cukup jelas. Balas pesan ini dengan kategori atau tujuan, misalnya: belanja rumah tangga.")
 	}
 	return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, extracted)
+}
+
+func transferReviewIntent(value string) string {
+	n := normalizeReviewText(value)
+	switch {
+	case strings.Contains(n, "investasi") || strings.Contains(n, "rdn"):
+		return "INVESTMENT_ACCOUNT"
+	case strings.Contains(n, "abaikan") || strings.Contains(n, "bukan pengeluaran"):
+		return "IGNORE"
+	case strings.Contains(n, "rekeningku") || strings.Contains(n, "rekening sendiri") || strings.Contains(n, "milik sendiri"):
+		return "OWN_ACCOUNT"
+	case strings.Contains(n, "household") || strings.Contains(n, "istri") || strings.Contains(n, "suami") || strings.Contains(n, "keluarga"):
+		return "HOUSEHOLD_ACCOUNT"
+	case strings.Contains(n, "pengeluaran") || strings.Contains(n, "bayar") || strings.Contains(n, "belanja"):
+		return "EXPENSE"
+	default:
+		return ""
+	}
+}
+
+func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, newType, newStatus, classification, message, categoryID string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var userID string
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+		return err
+	}
+	proposalStatus, sourceStatus := "ACCEPTED", "PROCESSED"
+	if newStatus == "VOIDED" {
+		proposalStatus, sourceStatus = "REJECTED", "IGNORED"
+	}
+	if _, err = tx.Exec(ctx, `UPDATE transaction SET type=$2,status=$3,category_id=NULLIF($4,'')::uuid,confirmed_at=CASE WHEN $3='CONFIRMED' THEN now() END,voided_at=CASE WHEN $3='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW'; UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$5,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$6::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1); UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$7 AND status='OPEN'; UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$7`, transactionID, newType, newStatus, categoryID, proposalStatus, classification, reviewID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1); UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$3; INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$3,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text)) ON CONFLICT DO NOTHING; INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($6,'TELEGRAM',$7,'CLASSIFY_TRANSFER','transaction',$1,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$8::text,'status',$9::text))`, transactionID, sourceStatus, sourceEventID, reviewID, classification, householdID, userID, newType, newStatus); err != nil {
+		return err
+	}
+	if err = enqueueReply(ctx, tx, update, message); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func incomeReviewIntent(value string) string {
