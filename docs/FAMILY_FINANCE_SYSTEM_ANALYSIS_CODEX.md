@@ -2055,6 +2055,10 @@ POST /auth/logout
 GET  /auth/me
 ```
 
+Web sessions use a 24-hour sliding inactivity window. Every successfully
+authenticated request extends the session for another 24 hours; an idle session
+expires and must sign in again.
+
 ## 35.2 Transactions
 
 ```text

@@ -2,14 +2,16 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 )
 
 type API struct {
-	Address     string
-	DatabaseURL string
-	WebOrigin   string
-	SessionKey  string
+	Address      string
+	DatabaseURL  string
+	WebOrigin    string
+	SessionKey   string
+	SecureCookie bool
 }
 
 func LoadAPI() (API, error) {
@@ -25,6 +27,11 @@ func LoadAPI() (API, error) {
 	if len(cfg.SessionKey) < 32 {
 		return API{}, fmt.Errorf("SESSION_SECRET must contain at least 32 bytes")
 	}
+	origin, err := url.Parse(cfg.WebOrigin)
+	if err != nil || origin.Host == "" {
+		return API{}, fmt.Errorf("WEB_ORIGIN must be an absolute URL")
+	}
+	cfg.SecureCookie = origin.Scheme == "https"
 	return cfg, nil
 }
 
