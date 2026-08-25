@@ -21,6 +21,12 @@ func (s *fakeStore) Link(_ context.Context, input CaptureInput, _ string) (bool,
 	return true, s.err
 }
 
+func (s *fakeStore) CaptureImage(_ context.Context, input ImageInput) (bool, error) {
+	s.calls++
+	s.input = input.CaptureInput
+	return true, s.err
+}
+
 func (s *fakeStore) Capture(_ context.Context, input CaptureInput) (bool, error) {
 	s.calls++
 	s.input = input
@@ -36,6 +42,30 @@ func TestWebhookRoutesStartTokenToLinking(t *testing.T) {
 	handler.Webhook(response, request)
 	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 456 {
 		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
+	}
+}
+
+func TestWebhookCapturesLargestPrivatePhoto(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":44,"message":{"from":{"id":789},"chat":{"type":"private"},"caption":"slip gaji","photo":[{"file_id":"small","width":100,"height":100},{"file_id":"large","width":1000,"height":1000}]}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 789 {
+		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
+	}
+}
+
+func TestWebhookImageDoesNotDiscloseUnauthorizedIdentity(t *testing.T) {
+	store := &fakeStore{err: ErrUnauthorized}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":45,"message":{"from":{"id":999},"chat":{"type":"private"},"photo":[{"file_id":"photo","width":100,"height":100}]}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 

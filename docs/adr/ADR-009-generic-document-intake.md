@@ -10,10 +10,15 @@ All finance images and documents enter one validated attachment pipeline and the
 produce proposals for deterministic validation and reconciliation.
 
 The first production increment accepts JPEG and PNG images up to 10 MiB and 24
-megapixels from the authenticated web API. Classification uses the cloud gateway
-with a strict allowlisted schema; low-confidence and generic financial documents
-enter Review instead of creating ledger mutations. Type-specific extraction is
-handled by subsequent pipeline stages.
+megapixels from the authenticated web API or an authorized private Telegram
+message. Telegram updates first become idempotent `TELEGRAM_IMAGE` source events;
+the worker retrieves the opaque file through Telegram's authenticated API with a
+strict byte bound, applies the same normalization controls, and then creates the
+same attachment, document, and `PROCESS_DOCUMENT` job used by web intake.
+Captions are retained as supplemental evidence metadata only. Classification uses
+the cloud gateway with a strict allowlisted schema; low-confidence and generic
+financial documents enter Review instead of creating ledger mutations.
+Type-specific extraction is handled by subsequent pipeline stages.
 
 Payslips use a second strict vision extraction stage. Go accepts only whole IDR,
 validates the payroll period, positive net pay, gross-versus-net ordering, optional

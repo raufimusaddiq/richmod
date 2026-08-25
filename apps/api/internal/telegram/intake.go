@@ -26,8 +26,17 @@ type CaptureInput struct {
 	RawPayload     []byte
 }
 
+type ImageInput struct {
+	CaptureInput
+	FileID   string
+	FileName string
+	MIMEType string
+	Caption  string
+}
+
 type Store interface {
 	Capture(context.Context, CaptureInput) (bool, error)
+	CaptureImage(context.Context, ImageInput) (bool, error)
 	Link(context.Context, CaptureInput, string) (bool, error)
 }
 
@@ -61,7 +70,18 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		Message  *struct {
 			MessageID int64  `json:"message_id"`
 			Text      string `json:"text"`
-			From      struct {
+			Caption   string `json:"caption"`
+			Photo     []struct {
+				FileID string `json:"file_id"`
+				Width  int    `json:"width"`
+				Height int    `json:"height"`
+			} `json:"photo"`
+			Document *struct {
+				FileID   string `json:"file_id"`
+				FileName string `json:"file_name"`
+				MIMEType string `json:"mime_type"`
+			} `json:"document"`
+			From struct {
 				ID int64 `json:"id"`
 			} `json:"from"`
 			Chat struct {
@@ -73,7 +93,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid webhook payload", http.StatusBadRequest)
 		return
 	}
-	if update.Message == nil || update.Message.Text == "" || update.Message.From.ID == 0 || update.Message.Chat.Type != "private" {
+	if update.Message == nil || update.Message.From.ID == 0 || update.Message.Chat.Type != "private" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -87,6 +107,23 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "webhook processing failed", http.StatusInternalServerError)
 			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if image, ok := imageFromUpdate(update.Message.Photo, update.Message.Document); ok {
+		_, err = h.store.CaptureImage(r.Context(), ImageInput{CaptureInput: CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.Message.From.ID, RawPayload: raw}, FileID: image.fileID, FileName: image.fileName, MIMEType: image.mimeType, Caption: update.Message.Caption})
+		if errors.Is(err, ErrUnauthorized) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if err != nil {
+			http.Error(w, "webhook processing failed", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if update.Message.Text == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -105,6 +142,29 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type telegramImage struct{ fileID, fileName, mimeType string }
+
+func imageFromUpdate(photos []struct {
+	FileID string `json:"file_id"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}, document *struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	MIMEType string `json:"mime_type"`
+}) (telegramImage, bool) {
+	if len(photos) > 0 {
+		selected := photos[len(photos)-1]
+		if selected.FileID != "" {
+			return telegramImage{selected.FileID, "telegram-photo.jpg", "image/jpeg"}, true
+		}
+	}
+	if document != nil && document.FileID != "" && (document.MIMEType == "image/jpeg" || document.MIMEType == "image/png") {
+		return telegramImage{document.FileID, document.FileName, document.MIMEType}, true
+	}
+	return telegramImage{}, false
 }
 
 func startToken(text string) (string, bool) {
@@ -157,6 +217,40 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit telegram intake: %w", err)
+	}
+	return true, nil
+}
+
+func (s *PostgreSQLStore) CaptureImage(ctx context.Context, input ImageInput) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("begin Telegram image intake: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	var householdID, userID string
+	if err = tx.QueryRow(ctx, `SELECT household_id,user_id FROM telegram_identity WHERE telegram_user_id=$1 AND active`, input.TelegramUserID).Scan(&householdID, &userID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, ErrUnauthorized
+		}
+		return false, fmt.Errorf("authorize Telegram image: %w", err)
+	}
+	payloadHash := sha256.Sum256(input.RawPayload)
+	var sourceID string
+	err = tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED') ON CONFLICT DO NOTHING RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), payloadHash[:]).Scan(&sourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("create Telegram image source: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(input.RawPayload)); err != nil {
+		return false, fmt.Errorf("preserve Telegram image payload: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('FETCH_TELEGRAM_IMAGE',jsonb_build_object('source_event_id',$1::uuid,'file_id',$2::text,'file_name',$3::text,'mime_type',$4::text,'caption',$5::text,'telegram_user_id',$6::bigint,'user_id',$7::uuid),5)`, sourceID, input.FileID, input.FileName, input.MIMEType, input.Caption, input.TelegramUserID, userID); err != nil {
+		return false, fmt.Errorf("queue Telegram image: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit Telegram image intake: %w", err)
 	}
 	return true, nil
 }

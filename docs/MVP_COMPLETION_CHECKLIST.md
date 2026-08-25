@@ -37,8 +37,8 @@ endpoint alone does not complete a user-facing feature.
 - [x] Canonical ledger, evidence, lifecycle, audit, reconciliation, and Review APIs.
 - [x] Gmail/Jago ingestion with sender authentication and idempotency.
 - [x] Telegram text transaction intake and bound review replies.
-- [x] Generic web document intake for payslips, receipts, screenshots, transfer
-  proof, and invoices.
+- [x] Generic web and Telegram document intake for payslips, receipts,
+  screenshots, transfer proof, and invoices.
 - [x] Deterministic analytics and aggregate-only insights using model `primary`.
 - [x] Caddy TLS/security, private ports, health, logs, limits, local encrypted
   backups, and security regression coverage.
@@ -72,16 +72,16 @@ Tests: [x] expiry; [x] single use/reuse; [x] revocation; [x] household isolation
 
 ### C. Telegram image intake
 
-- [ ] Supported Telegram images create one `TELEGRAM_IMAGE` source event and job.
-- [ ] Authenticated bounded file retrieval passes through the same MIME, size,
+- [x] Supported Telegram images create one `TELEGRAM_IMAGE` source event and job.
+- [x] Authenticated bounded file retrieval passes through the same MIME, size,
   dimension, metadata, storage, and validation controls as web uploads.
-- [ ] Images enter the existing generic document pipeline, not a parallel pipeline.
-- [ ] Payslips can yield validated income; receipts enrich a unique match or go to
+- [x] Images enter the existing generic document pipeline, not a parallel pipeline.
+- [x] Payslips can yield validated income; receipts enrich a unique match or go to
   review; unsupported/ambiguous documents fail safely.
-- [ ] Unauthorized senders receive no household/document data.
+- [x] Unauthorized senders receive no household/document data.
 
-Tests: [ ] authorized/unauthorized image; [ ] payslip; [ ] receipt; [ ] invalid
-MIME; [ ] oversized image; [ ] duplicate update idempotency.
+Tests: [x] authorized/unauthorized image; [x] payslip; [x] receipt; [x] invalid
+MIME; [x] oversized image; [x] duplicate update idempotency.
 
 ### D. Correct Jago outgoing-transfer semantics
 
@@ -216,8 +216,8 @@ Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
 
 1. [x] Household member APIs/domain model.
 2. [x] Telegram link invite model and `/start` flow.
-3. [~] Household UI (implemented; production smoke pending).
-4. [ ] Telegram image intake and generic pipeline wiring.
+3. [x] Household UI (implemented and public route smoke verified).
+4. [x] Telegram image intake and generic pipeline wiring.
 5. [ ] Jago outgoing-transfer semantics and known accounts.
 6. [ ] Explicit merchant remember flow; remove implicit learning.
 7. [ ] Remove budgeting from active UI.

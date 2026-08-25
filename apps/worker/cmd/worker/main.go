@@ -68,6 +68,10 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("configure Gmail worker: %w", err)
 	}
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
+	imageProcessor, err := telegram.NewImageProcessor(pool, bot, os.Getenv("DOCUMENT_STORAGE_PATH"))
+	if err != nil {
+		return fmt.Errorf("configure Telegram image worker: %w", err)
+	}
 	jobs := queue.New(pool)
 	hostname, _ := os.Hostname()
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())
@@ -84,7 +88,7 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID); err != nil {
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID); err != nil {
 			logger.Error("job polling failed", "error", err)
 		}
 		select {
@@ -121,13 +125,13 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
-func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) error {
+func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) error {
 	for {
 		job, found, err := jobs.Claim(ctx, workerID)
 		if err != nil || !found {
 			return err
 		}
-		err = processJob(ctx, processor, gmailProcessor, documentProcessor, insightProcessor, bot, job)
+		err = processJob(ctx, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, job)
 		if err == nil {
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
@@ -141,7 +145,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 	}
 }
 
-func processJob(ctx context.Context, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, job queue.Job) error {
+func processJob(ctx context.Context, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, job queue.Job) error {
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
 		payload, err := telegram.DecodeProcessPayload(job.Payload)
@@ -149,6 +153,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, gmailProcess
 			return err
 		}
 		return processor.Process(ctx, payload.SourceEventID)
+	case "FETCH_TELEGRAM_IMAGE":
+		payload, err := telegram.DecodeImagePayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return imageProcessor.Process(ctx, payload)
 	case "SEND_TELEGRAM_MESSAGE":
 		payload, err := telegram.DecodeSendPayload(job.Payload)
 		if err != nil {
