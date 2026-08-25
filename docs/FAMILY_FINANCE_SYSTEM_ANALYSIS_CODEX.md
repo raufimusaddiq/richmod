@@ -2071,6 +2071,10 @@ POST   /transactions/:id/void
 GET    /transactions/:id/evidence
 ```
 
+Manual income and expense entry creates a confirmed canonical transaction only
+alongside a retained `WEB_MANUAL` source event, transaction evidence, and audit
+record in one database transaction.
+
 ## 35.3 Accounts
 
 ```text
