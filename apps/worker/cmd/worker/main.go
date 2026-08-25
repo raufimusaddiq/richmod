@@ -162,6 +162,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, gmailProcess
 			return err
 		}
 		return documentProcessor.Process(ctx, payload.DocumentID)
+	case "PROCESS_PAYSLIP":
+		payload, err := workerDocument.DecodePayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return documentProcessor.ProcessPayslip(ctx, payload.DocumentID)
 	default:
 		return fmt.Errorf("unsupported job type %q", job.Type)
 	}

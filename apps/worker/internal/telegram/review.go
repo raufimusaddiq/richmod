@@ -259,10 +259,10 @@ func ReviewQuestion(amount, merchant string) string {
 	if strings.TrimSpace(merchant) == "" {
 		merchant = "transaksi ini"
 	}
-	return "🟡 Butuh sedikit bantuan\n\nRp" + formatIDR(amount) + " → " + merchant + "\n\nBalas pesan ini: pengeluaran ini untuk apa?"
+	return "🟡 Butuh sedikit bantuan\n\nRp" + FormatIDR(amount) + " → " + merchant + "\n\nBalas pesan ini: pengeluaran ini untuk apa?"
 }
 
-func formatIDR(value string) string {
+func FormatIDR(value string) string {
 	if len(value) <= 3 {
 		return value
 	}
