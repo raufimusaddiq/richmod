@@ -6,12 +6,14 @@ RUN go mod download
 WORKDIR /src
 COPY apps/api ./apps/api
 WORKDIR /src/apps/api
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/finance-api ./cmd/api \
+RUN mkdir -p /out/attachments \
+    && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/finance-api ./cmd/api \
     && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/bootstrap ./cmd/bootstrap
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/finance-api /finance-api
 COPY --from=build /out/bootstrap /bootstrap
+COPY --chown=65532:65532 --from=build /out/attachments /var/lib/finance/attachments
 EXPOSE 8080
 USER nonroot:nonroot
 ENTRYPOINT ["/finance-api"]

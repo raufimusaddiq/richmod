@@ -16,6 +16,7 @@ export default function Home() {
   const [transactions, setTransactions] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [error, setError] = useState("");
   const [working, setWorking] = useState("");
 
@@ -26,16 +27,18 @@ export default function Home() {
       return;
     }
     setUser(await me.json());
-    const [summary, ledger, reviewResponse, categoryResponse] = await Promise.all([
+    const [summary, ledger, reviewResponse, categoryResponse, documentResponse] = await Promise.all([
       fetch("/api/v1/analytics/overview"),
       fetch("/api/v1/transactions"),
       fetch("/api/v1/reviews"),
       fetch("/api/v1/categories"),
+      fetch("/api/v1/documents"),
     ]);
     if (summary.ok) setOverview(await summary.json());
     if (ledger.ok) setTransactions(await ledger.json());
     if (reviewResponse.ok) setReviews(await reviewResponse.json());
     if (categoryResponse.ok) setCategories(await categoryResponse.json());
+    if (documentResponse.ok) setDocuments(await documentResponse.json());
   }
 
   useEffect(() => { load(); }, []);
@@ -74,6 +77,22 @@ export default function Home() {
     setWorking("");
   }
 
+  async function uploadDocument(event) {
+    event.preventDefault();
+    setWorking("upload");
+    setError("");
+    const response = await fetch("/api/v1/documents", { method: "POST", body: new FormData(event.currentTarget) });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      setError(result.error || "Dokumen belum dapat diunggah.");
+      setWorking("");
+      return;
+    }
+    event.currentTarget.reset();
+    await load();
+    setWorking("");
+  }
+
   if (user === null) return <main className="center">Memuat…</main>;
   if (user === false) return <main className="login"><section><span className="eyebrow">FAMILY FINANCE</span><h1>Keuangan rumah tangga, tanpa tebakan.</h1><p>Masuk untuk melihat arus kas dan transaksi keluarga.</p><form onSubmit={login}><label>Email<input name="email" type="email" required /></label><label>Kata sandi<input name="password" type="password" required /></label>{error && <p className="error">{error}</p>}<button>Masuk</button></form></section></main>;
 
@@ -82,6 +101,7 @@ export default function Home() {
     <header><div><span className="eyebrow">FAMILY FINANCE</span><h1>Ringkasan {overview?.period || ""}</h1></div><div className="identity">{user.displayName}<small>GMT+7 · IDR</small></div></header>
     <section className="cards">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{rupiah.format(Number(value))}</strong></article>)}<article><span>Perlu ditinjau</span><strong>{reviews.length}</strong></article></section>
     {error && <p className="notice error">{error}</p>}
+    <section className="panel document-panel"><div className="panel-title"><div><span className="eyebrow">DOKUMEN KEUANGAN</span><h2>Unggah satu gambar, biarkan sistem mengenalinya</h2></div><span>JPEG/PNG · maks. 10 MB</span></div><form className="upload-form" onSubmit={uploadDocument}><input name="file" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" required /><button disabled={working === "upload"}>{working === "upload" ? "Mengunggah…" : "Unggah & klasifikasikan"}</button></form>{documents.length > 0 && <div className="document-list">{documents.slice(0, 6).map(document => <a key={document.id} href={`/api/v1/documents/${document.id}/content`} target="_blank" rel="noreferrer"><b>{document.documentType || "Sedang diklasifikasikan"}</b><span>{document.width}×{document.height} · {document.status}</span></a>)}</div>}</section>
     {reviews.length > 0 && <section className="panel review-panel"><div className="panel-title"><div><span className="eyebrow">REVIEW INBOX</span><h2>Butuh keputusan Anda</h2></div><span>{reviews.length} item</span></div><div className="review-grid">{reviews.map(item => <ReviewCard key={item.id} item={item} categories={categories} disabled={working === item.id} action={reviewAction} />)}</div></section>}
     <section className="panel"><div className="panel-title"><h2>Transaksi terbaru</h2><span>{transactions.length} tercatat</span></div><div className="transactions">{transactions.slice(0, 12).map(item => <div className="row" key={item.id}><div><b>{item.description || (item.type === "INCOME" ? "Pemasukan" : "Pengeluaran")}</b><small>{new Date(item.transactionAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}</small></div><div className={item.type === "INCOME" ? "positive" : "negative"}>{item.type === "INCOME" ? "+" : "−"}{rupiah.format(Number(item.amount))}<small>{item.status}</small></div></div>)}{transactions.length === 0 && <p className="empty">Belum ada transaksi.</p>}</div></section>
   </main>;
