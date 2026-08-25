@@ -14,6 +14,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 )
 
 func main() {
@@ -42,6 +43,7 @@ func run(logger *slog.Logger) error {
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
 	ledgerHandler := ledger.NewHandler(pool)
+	settingsHandler := settings.NewHandler(pool)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -60,6 +62,10 @@ func run(logger *slog.Logger) error {
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("POST /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.CreateManualTransaction)))
+	mux.Handle("GET /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
+	mux.Handle("POST /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
+	mux.Handle("GET /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
+	mux.Handle("POST /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
 
 	server := &http.Server{
 		Addr:              cfg.Address,
