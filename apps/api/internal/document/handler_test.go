@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -33,5 +35,29 @@ func TestNormalizeImageValidatesAndStripsMetadata(t *testing.T) {
 func TestNormalizeImageRejectsMismatchedExtension(t *testing.T) {
 	if _, _, _, _, _, err := normalizeImage(testPNG(t, 10, 10), "receipt.jpg"); err == nil {
 		t.Fatal("expected MIME and extension mismatch to fail")
+	}
+}
+
+func TestReadUploadRejectsOversizedBody(t *testing.T) {
+	if _, err := readUpload(bytes.NewReader(make([]byte, maxUploadBytes+1))); err == nil {
+		t.Fatal("oversized upload was accepted")
+	}
+}
+
+func TestMaliciousFilenameCannotControlStoragePath(t *testing.T) {
+	normalized, _, _, _, extension, err := normalizeImage(testPNG(t, 10, 10), "../../outside.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	handler := &Handler{root: root}
+	ref, path, err := handler.store("household-id", normalized, extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || filepath.IsAbs(ref) || filepath.Base(path) == "outside.png" {
+		t.Fatalf("unsafe storage result: ref=%q path=%q relative=%q", ref, path, relative)
 	}
 }

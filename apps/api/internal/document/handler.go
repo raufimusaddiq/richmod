@@ -54,8 +54,8 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer part.Close()
-	raw, err := io.ReadAll(io.LimitReader(part, maxUploadBytes+1))
-	if err != nil || len(raw) == 0 || len(raw) > maxUploadBytes {
+	raw, err := readUpload(part)
+	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": "image must be between 1 byte and 10 MB"})
 		return
 	}
@@ -89,6 +89,14 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		removeNew = false
 	}
 	writeJSON(w, 201, map[string]any{"id": documentID, "status": "RECEIVED", "mediaType": mediaType, "width": width, "height": height})
+}
+
+func readUpload(source io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(source, maxUploadBytes+1))
+	if err != nil || len(raw) == 0 || len(raw) > maxUploadBytes {
+		return nil, fmt.Errorf("image must be between 1 byte and 10 MB")
+	}
+	return raw, nil
 }
 
 func uploadPart(r *http.Request) (*multipart.Part, error) {
