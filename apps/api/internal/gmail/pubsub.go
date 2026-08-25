@@ -97,7 +97,7 @@ func (h *Handler) captureNotification(ctx context.Context, messageID, historyID 
 	}
 	digest := sha256.Sum256(raw)
 	var sourceID string
-	err = tx.QueryRow(ctx, `INSERT INTO source_event (household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES ($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') ON CONFLICT DO NOTHING RETURNING id`, householdID, "gmail-pubsub:"+messageID, digest[:]).Scan(&sourceID)
+	err = tx.QueryRow(ctx, `INSERT INTO source_event (household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES ($1,'SYSTEM',$2,now(),$3,'RECEIVED') ON CONFLICT DO NOTHING RETURNING id`, householdID, "gmail-pubsub:"+messageID, digest[:]).Scan(&sourceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return tx.Commit(ctx)
 	}

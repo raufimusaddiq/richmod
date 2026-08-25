@@ -20,6 +20,10 @@ services:
         aliases: [finance-web]
 
   worker:
+    environment:
+      GMAIL_OAUTH_CLIENT_PATH: /run/secrets/google-oauth-client.json
+    volumes:
+      - /opt/family-finance/google-oauth-client.json:/run/secrets/google-oauth-client.json:ro
     networks: [internal, caddy_public]
 
 networks:
