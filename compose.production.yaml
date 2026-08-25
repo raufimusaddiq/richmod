@@ -1,0 +1,13 @@
+services:
+  api:
+    ports: []
+    networks: [edge, internal, caddy_public]
+
+  web:
+    ports: []
+    networks: [edge, caddy_public]
+
+networks:
+  caddy_public:
+    external: true
+    name: idx_default
