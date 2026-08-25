@@ -26,6 +26,7 @@ export default function Home() {
   const [categorySpending, setCategorySpending] = useState([]);
   const [merchantSpending, setMerchantSpending] = useState([]);
   const [memberSpending, setMemberSpending] = useState([]);
+  const [insights, setInsights] = useState([]);
   const [error, setError] = useState("");
   const [working, setWorking] = useState("");
 
@@ -36,7 +37,7 @@ export default function Home() {
       return;
     }
     setUser(await me.json());
-    const [summary, ledger, reviewResponse, categoryResponse, documentResponse, budgetResponse, cashflowResponse, categoryAnalytics, merchantAnalytics, memberAnalytics] = await Promise.all([
+    const [summary, ledger, reviewResponse, categoryResponse, documentResponse, budgetResponse, cashflowResponse, categoryAnalytics, merchantAnalytics, memberAnalytics, insightResponse] = await Promise.all([
       fetch("/api/v1/analytics/overview"),
       fetch("/api/v1/transactions"),
       fetch("/api/v1/reviews"),
@@ -47,6 +48,7 @@ export default function Home() {
       fetch("/api/v1/analytics/categories"),
       fetch("/api/v1/analytics/merchants"),
       fetch("/api/v1/analytics/members"),
+      fetch("/api/v1/insights"),
     ]);
     if (summary.ok) setOverview(await summary.json());
     if (ledger.ok) setTransactions(await ledger.json());
@@ -58,6 +60,7 @@ export default function Home() {
     if (categoryAnalytics.ok) setCategorySpending(await categoryAnalytics.json());
     if (merchantAnalytics.ok) setMerchantSpending(await merchantAnalytics.json());
     if (memberAnalytics.ok) setMemberSpending(await memberAnalytics.json());
+    if (insightResponse.ok) setInsights(await insightResponse.json());
   }
 
   useEffect(() => { load(); }, []);
@@ -136,6 +139,21 @@ export default function Home() {
     setWorking("");
   }
 
+  async function generateInsight() {
+    setWorking("insight");
+    setError("");
+    const response = await fetch("/api/v1/insights/generate", { method: "POST" });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      setError(result.error || "Insight belum dapat dibuat.");
+      setWorking("");
+      return;
+    }
+    await load();
+    setTimeout(load, 3500);
+    setWorking("");
+  }
+
   if (user === null) return <main className="center">Memuat…</main>;
   if (user === false) return <main className="login"><section><span className="eyebrow">FAMILY FINANCE</span><h1>Keuangan rumah tangga, tanpa tebakan.</h1><p>Masuk untuk melihat arus kas dan transaksi keluarga.</p><form onSubmit={login}><label>Email<input name="email" type="email" required /></label><label>Kata sandi<input name="password" type="password" required /></label>{error && <p className="error">{error}</p>}<button>Masuk</button></form></section></main>;
 
@@ -152,6 +170,7 @@ export default function Home() {
       <AnalyticsPanel title="Kontribusi anggota" items={memberSpending} />
     </section>
     <section className="panel budget-panel"><div className="panel-title"><div><span className="eyebrow">ANGGARAN BULANAN</span><h2>Batas pengeluaran per kategori</h2></div><span>{budgets.length} aktif</span></div>{user.memberships?.[0]?.role === "OWNER" && <form className="budget-form" onSubmit={createBudget}><select name="categoryId" required defaultValue=""><option value="" disabled>Pilih kategori</option>{categories.filter(category => category.active).map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select><input name="monthlyAmount" inputMode="numeric" pattern="[0-9]+" placeholder="Batas IDR, contoh 2000000" required /><button disabled={working === "budget"}>Tambah anggaran</button></form>}<div className="budget-list">{budgets.map(item => <article key={item.id}><div><b>{item.categoryName}</b><small>{money(item.spent)} dari {money(item.monthlyAmount)}</small></div><div className="budget-meter"><i style={{ width: `${Math.min(100, Math.max(0, Number(item.utilization) * 100))}%` }} /></div><div><strong>{percent(item.utilization)}</strong>{user.memberships?.[0]?.role === "OWNER" && <button className="text-button" disabled={working === item.id} onClick={() => closeBudget(item.id)}>Nonaktifkan</button>}</div></article>)}{budgets.length === 0 && <p className="empty">Belum ada anggaran aktif.</p>}</div></section>
+    <section className="panel insight-panel"><div className="panel-title"><div><span className="eyebrow">INSIGHT</span><h2>Ringkasan dari metrik terverifikasi</h2></div><button disabled={working === "insight"} onClick={generateInsight}>{working === "insight" ? "Meminta…" : "Buat insight"}</button></div>{insights[0]?.status === "SUCCEEDED" ? <article><p>{insights[0].text}</p><small>Kelengkapan data {percent(insights[0].dataCompleteness)} · keyakinan {percent(insights[0].confidence)}</small></article> : insights[0]?.status === "PENDING" ? <p className="empty">Insight sedang dibuat dari agregat bulan ini…</p> : insights[0]?.status === "FAILED" ? <p className="empty">Insight gagal dibuat. Data keuangan tidak berubah.</p> : <p className="empty">Belum ada insight untuk bulan ini.</p>}</section>
     {reviews.length > 0 && <section className="panel review-panel"><div className="panel-title"><div><span className="eyebrow">REVIEW INBOX</span><h2>Butuh keputusan Anda</h2></div><span>{reviews.length} item</span></div><div className="review-grid">{reviews.map(item => <ReviewCard key={item.id} item={item} categories={categories} disabled={working === item.id} action={reviewAction} />)}</div></section>}
     <section className="panel"><div className="panel-title"><h2>Transaksi terbaru</h2><span>{transactions.length} tercatat</span></div><div className="transactions">{transactions.slice(0, 12).map(item => <div className="row" key={item.id}><div><b>{item.description || (item.type === "INCOME" ? "Pemasukan" : "Pengeluaran")}</b><small>{new Date(item.transactionAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}</small></div><div className={item.type === "INCOME" ? "positive" : "negative"}>{item.type === "INCOME" ? "+" : "−"}{money(item.amount)}<small>{item.status}</small></div></div>)}{transactions.length === 0 && <p className="empty">Belum ada transaksi.</p>}</div></section>
   </main>;

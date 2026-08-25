@@ -82,6 +82,7 @@ services:
       GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
       DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
       LLM_MODEL_DOCUMENT_VISION: ${LLM_MODEL_DOCUMENT_VISION:-}
+      LLM_MODEL_INSIGHTS: ${LLM_MODEL_INSIGHTS:-}
     volumes:
       - attachment_data:/var/lib/finance/attachments:ro
     depends_on:
