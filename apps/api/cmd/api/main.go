@@ -16,6 +16,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/insight"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
@@ -57,6 +58,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	insightHandler := insight.NewHandler(pool)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	var gmailHandler *gmail.Handler
 	if cfg.GmailOAuthClientPath != "" || cfg.GmailMailbox != "" || cfg.GmailTokenKey != "" {
@@ -118,6 +120,8 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.List)))
 	mux.Handle("POST /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Create)))
 	mux.Handle("PATCH /api/v1/budgets/{id}", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Patch)))
+	mux.Handle("GET /api/v1/insights", authHandler.RequireSession(http.HandlerFunc(insightHandler.List)))
+	mux.Handle("POST /api/v1/insights/generate", authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate)))
 	mux.HandleFunc("POST /webhooks/telegram", telegramHandler.Webhook)
 	if gmailHandler != nil {
 		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))
