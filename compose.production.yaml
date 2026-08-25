@@ -1,13 +1,20 @@
 services:
   api:
-    ports: []
+    ports: !reset []
     environment:
       WEB_ORIGIN: https://finance.investdx.biz.id
-    networks: [edge, internal, caddy_public]
+    networks:
+      edge:
+      internal:
+      caddy_public:
+        aliases: [finance-api]
 
   web:
-    ports: []
-    networks: [edge, caddy_public]
+    ports: !reset []
+    networks:
+      edge:
+      caddy_public:
+        aliases: [finance-web]
 
   worker:
     networks: [internal, caddy_public]

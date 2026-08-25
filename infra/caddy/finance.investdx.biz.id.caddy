@@ -11,7 +11,7 @@ finance.investdx.biz.id {
         -Server
     }
 
-    @api path /api/*
+    @api path /api/* /webhooks/*
     handle @api {
         reverse_proxy finance-api:8080
     }
