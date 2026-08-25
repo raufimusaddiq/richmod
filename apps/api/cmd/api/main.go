@@ -12,6 +12,7 @@ import (
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 )
 
@@ -40,6 +41,7 @@ func run(logger *slog.Logger) error {
 
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
+	ledgerHandler := ledger.NewHandler(pool)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -57,6 +59,7 @@ func run(logger *slog.Logger) error {
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
+	mux.Handle("POST /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.CreateManualTransaction)))
 
 	server := &http.Server{
 		Addr:              cfg.Address,
