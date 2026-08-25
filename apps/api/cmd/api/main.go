@@ -125,6 +125,8 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))
+	mux.Handle("GET /api/v1/merchant-aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.MerchantAliases)))
+	mux.Handle("PATCH /api/v1/merchant-aliases/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchMerchantAlias)))
 	mux.Handle("GET /api/v1/known-accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.KnownAccounts)))
 	mux.Handle("POST /api/v1/known-accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.KnownAccounts)))
 	mux.Handle("PATCH /api/v1/known-accounts/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchKnownAccount)))

@@ -68,3 +68,19 @@ func TestTransferReviewIntentIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestMerchantRememberIntentRequiresExplicitReply(t *testing.T) {
+	tests := map[string]string{
+		"ingat merchant": "REMEMBER",
+		"ya ingat":       "REMEMBER",
+		"tidak":          "DECLINE",
+		"sekali saja":    "DECLINE",
+		"oke":            "",
+		"mungkin":        "",
+	}
+	for input, want := range tests {
+		if got := merchantRememberIntent(input); got != want {
+			t.Fatalf("%q = %q, want %q", input, got, want)
+		}
+	}
+}

@@ -33,6 +33,11 @@ classified. Masked known-account hints can resolve owned/household destinations
 to TRANSFER and investment destinations to non-spending. Unknown destinations are
 resolved through the same Review Inbox object on web or Telegram.
 
+Confirming a category applies only to that transaction. A permanent merchant
+category rule is created only when the user separately chooses “remember this
+merchant” on the web or explicitly confirms the bound Telegram follow-up. OWNERs
+can inspect and disable these household-scoped rules at `/settings`.
+
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.
 

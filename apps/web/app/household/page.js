@@ -44,7 +44,7 @@ export default function HouseholdPage() {
   }
 
   return <main className="shell household-page">
-    <header><div><span className="eyebrow">HOUSEHOLD</span><h1>{household?.name || "Rumah tangga"}</h1><p>Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p></div><a className="back-link" href="/">← Ringkasan</a></header>
+    <header><div><span className="eyebrow">HOUSEHOLD</span><h1>{household?.name || "Rumah tangga"}</h1><p>Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p></div><div><a className="back-link" href="/">← Ringkasan</a> · <a className="back-link" href="/settings">Settings</a></div></header>
     {error && <p className="notice error">{error}</p>}
     {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2><span>Role MEMBER</span></div><form className="member-form" onSubmit={addMember}><input name="displayName" placeholder="Nama anggota" maxLength="120" required /><input name="email" type="email" placeholder="Email anggota" required /><button>Tambahkan</button></form></section>}
     {invite && <section className="panel invite-panel"><div><span className="eyebrow">UNDANGAN TELEGRAM</span><h2>Berlaku 15 menit dan hanya sekali pakai</h2><p>Kirim tautan ini langsung kepada anggota yang dituju.</p></div><div className="invite-actions"><a href={invite.link} target="_blank" rel="noreferrer">Buka undangan Telegram</a><button className="danger" onClick={() => revokeInvite(invite.memberId)}>Cabut</button></div></section>}
