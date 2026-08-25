@@ -18,7 +18,9 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/insight"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/operations"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
@@ -59,7 +61,10 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	insightHandler := insight.NewHandler(pool)
+	operationsHandler := operations.NewHandler(pool)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
+	loginLimiter := httpmw.NewLimiter(10, time.Minute)
+	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
 	var gmailHandler *gmail.Handler
 	if cfg.GmailOAuthClientPath != "" || cfg.GmailMailbox != "" || cfg.GmailTokenKey != "" {
 		client, err := gmail.LoadOAuthClient(cfg.GmailOAuthClientPath)
@@ -86,7 +91,7 @@ func run(logger *slog.Logger) error {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
-	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.Handle("POST /api/v1/auth/login", loginLimiter.Handler(http.HandlerFunc(authHandler.Login)))
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("POST /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.CreateManualTransaction)))
@@ -122,16 +127,22 @@ func run(logger *slog.Logger) error {
 	mux.Handle("PATCH /api/v1/budgets/{id}", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Patch)))
 	mux.Handle("GET /api/v1/insights", authHandler.RequireSession(http.HandlerFunc(insightHandler.List)))
 	mux.Handle("POST /api/v1/insights/generate", authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate)))
-	mux.HandleFunc("POST /webhooks/telegram", telegramHandler.Webhook)
+	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
+	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
 	if gmailHandler != nil {
 		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))
 		mux.HandleFunc("GET /api/v1/integrations/gmail/callback", gmailHandler.Callback)
-		mux.HandleFunc("POST /webhooks/gmail/pubsub", gmailHandler.PubSub)
+		mux.Handle("POST /webhooks/gmail/pubsub", webhookLimiter.Handler(http.HandlerFunc(gmailHandler.PubSub)))
 	}
+	var handler http.Handler = mux
+	handler = httpmw.SameOrigin(cfg.WebOrigin, handler)
+	handler = httpmw.AccessLog(logger, handler)
+	handler = httpmw.RequestID(handler)
+	handler = securityHeaders(handler)
 
 	server := &http.Server{
 		Addr:              cfg.Address,
-		Handler:           securityHeaders(mux),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
