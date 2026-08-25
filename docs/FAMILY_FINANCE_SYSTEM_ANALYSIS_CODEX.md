@@ -1735,6 +1735,13 @@ Ask via Telegram
 
 The web dashboard and Telegram review must point to the same underlying review item.
 
+Current implementation uses the `NEEDS_REVIEW` canonical transaction as the web
+review identifier and keeps its proposal and source evidence linked. Confirm and
+reject update all three records atomically. Reconciliation candidates use the
+documented deterministic score and merge only same-household, same-direction,
+same-currency, exact-amount records within 72 hours. Merge records are audited
+and reversible; original transactions and evidence are retained.
+
 ---
 
 # 28. Cloud LLM Gateway
