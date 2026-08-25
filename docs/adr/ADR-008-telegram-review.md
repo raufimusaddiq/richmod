@@ -8,3 +8,9 @@ Accepted.
 
 Telegram is finance-only. Review replies bind to the stored Telegram message ID,
 not inferred LLM conversation context.
+
+Telegram webhook intake authenticates `X-Telegram-Bot-Api-Secret-Token`, accepts
+only private text messages from an active numeric Telegram user mapping, preserves
+the source update as evidence, and atomically enqueues PostgreSQL-backed work.
+Duplicate update IDs are acknowledged without creating duplicate jobs. LLM work
+never runs synchronously in the webhook request.
