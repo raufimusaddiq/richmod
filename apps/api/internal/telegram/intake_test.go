@@ -15,10 +15,28 @@ type fakeStore struct {
 	calls int
 }
 
+func (s *fakeStore) Link(_ context.Context, input CaptureInput, _ string) (bool, error) {
+	s.calls++
+	s.input = input
+	return true, s.err
+}
+
 func (s *fakeStore) Capture(_ context.Context, input CaptureInput) (bool, error) {
 	s.calls++
 	s.input = input
 	return true, s.err
+}
+
+func TestWebhookRoutesStartTokenToLinking(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":43,"message":{"from":{"id":456},"chat":{"type":"private"},"text":"/start abcdefghijklmnopqrstuvwxyz"}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 456 {
+		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
+	}
 }
 
 func TestWebhookAuthenticatesAndCapturesPrivateText(t *testing.T) {

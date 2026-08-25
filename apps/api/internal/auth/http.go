@@ -87,6 +87,11 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 	return principal, ok
 }
 
+// ContextWithPrincipal is used by authenticated internal handlers and tests.
+func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
+	return context.WithValue(ctx, contextKey{}, principal)
+}
+
 func (h *Handler) setSessionCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
