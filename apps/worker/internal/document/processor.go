@@ -109,6 +109,11 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','CLASSIFY_DOCUMENT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'confidence',$5::numeric,'validated',$6::boolean))`, householdID, sourceID, documentID, result.DocumentType, result.Confidence, validated); err != nil {
 		return err
 	}
+	if validated && result.DocumentType == "PAYSLIP" {
+		if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_PAYSLIP',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 
