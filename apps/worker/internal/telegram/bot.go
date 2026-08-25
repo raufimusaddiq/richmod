@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -19,42 +20,55 @@ type SendPayload struct {
 	ChatID           int64  `json:"chat_id"`
 	ReplyToMessageID int64  `json:"reply_to_message_id"`
 	Text             string `json:"text"`
+	ReviewRequestID  string `json:"review_request_id,omitempty"`
 }
 
 func NewBot(token string) *Bot {
 	return &Bot{token: token, http: &http.Client{Timeout: 15 * time.Second}}
 }
 
-func (b *Bot) Send(ctx context.Context, payload SendPayload) error {
+func (b *Bot) Send(ctx context.Context, payload SendPayload) (int64, error) {
 	if b.token == "" {
-		return fmt.Errorf("Telegram bot token is not configured")
+		return 0, fmt.Errorf("Telegram bot token is not configured")
 	}
-	body, err := json.Marshal(map[string]any{
+	requestBody := map[string]any{
 		"chat_id": payload.ChatID,
 		"text":    clean(payload.Text, 4000),
-		"reply_parameters": map[string]any{
+	}
+	if payload.ReplyToMessageID != 0 {
+		requestBody["reply_parameters"] = map[string]any{
 			"message_id":                  payload.ReplyToMessageID,
 			"allow_sending_without_reply": true,
-		},
-	})
+		}
+	}
+	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return fmt.Errorf("encode Telegram response: %w", err)
+		return 0, fmt.Errorf("encode Telegram response: %w", err)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+b.token+"/sendMessage", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create Telegram response: %w", err)
+		return 0, fmt.Errorf("create Telegram response: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := b.http.Do(request)
 	if err != nil {
 		// The request URL contains the bot token, so never wrap the transport error.
-		return fmt.Errorf("send Telegram response failed")
+		return 0, fmt.Errorf("send Telegram response failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("Telegram API returned HTTP %d", response.StatusCode)
+		return 0, fmt.Errorf("Telegram API returned HTTP %d", response.StatusCode)
 	}
-	return nil
+	var result struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil || !result.OK || result.Result.MessageID == 0 {
+		return 0, fmt.Errorf("Telegram API returned an invalid response")
+	}
+	return result.Result.MessageID, nil
 }
 
 func DecodeSendPayload(raw json.RawMessage) (SendPayload, error) {
