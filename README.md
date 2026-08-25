@@ -9,6 +9,9 @@ Phase 1 is establishing the canonical ledger. The schema is IDR-only and uses
 PostgreSQL `NUMERIC(20,0)` for all financial amounts. The next increment adds
 the one-time owner bootstrap command and authenticated ledger mutation APIs.
 
+All finance calendar logic and database sessions operate in `Asia/Jakarta`
+(GMT+7), while persisted instants use `TIMESTAMPTZ`.
+
 ## Local startup
 
 1. Copy `.env.example` to `.env` and replace every placeholder with secure values.

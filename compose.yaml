@@ -3,10 +3,12 @@ name: family-finance
 services:
   db:
     image: postgres:17.4-alpine
+    command: ["postgres", "-c", "timezone=Asia/Jakarta"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: Asia/Jakarta
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,6 +24,7 @@ services:
       context: .
       dockerfile: infra/docker/migrate.Dockerfile
     environment:
+      TZ: Asia/Jakarta
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
     command: ["-dir", "/migrations", "postgres", "${DATABASE_URL:?set DATABASE_URL in .env}", "up"]
     depends_on:
@@ -35,6 +38,7 @@ services:
       context: .
       dockerfile: infra/docker/api.Dockerfile
     environment:
+      TZ: Asia/Jakarta
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       API_ADDR: ${API_ADDR:-:8080}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
@@ -54,6 +58,7 @@ services:
       context: .
       dockerfile: infra/docker/worker.Dockerfile
     environment:
+      TZ: Asia/Jakarta
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
     depends_on:
       db:
@@ -67,6 +72,8 @@ services:
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile
+    environment:
+      TZ: Asia/Jakarta
     depends_on:
       api:
         condition: service_started

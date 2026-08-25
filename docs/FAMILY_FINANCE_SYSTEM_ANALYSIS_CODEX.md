@@ -381,6 +381,10 @@ Household display timezone:
 Asia/Jakarta
 ```
 
+All finance application and database sessions operate in `Asia/Jakarta` (GMT+7).
+Store instants as `TIMESTAMPTZ`; resolve relative dates, calendar periods, and
+user-facing timestamps in that timezone.
+
 ## 7.4 Background Jobs
 
 Use PostgreSQL-backed jobs first.
