@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 )
@@ -38,6 +39,7 @@ func run(logger *slog.Logger) error {
 	defer pool.Close()
 
 	mux := http.NewServeMux()
+	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -52,6 +54,9 @@ func run(logger *slog.Logger) error {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
+	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
+	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
 
 	server := &http.Server{
 		Addr:              cfg.Address,

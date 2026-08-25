@@ -24,6 +24,9 @@ printf '%s\n' 'use-a-unique-12-plus-character-password' | docker compose exec -T
 The command creates the owner and household atomically, seeds Indonesian
 categories, and refuses to run again after an owner exists.
 
+Web sessions expire after 24 hours of inactivity. Each authenticated request
+renews the expiry by another 24 hours.
+
 ## Local startup
 
 1. Copy `.env.example` to `.env` and replace every placeholder with secure values.
