@@ -21,6 +21,11 @@ the API to issue `Secure` session cookies. Do not override it with an HTTP URL.
 - Deployment secrets are injected from a restricted `.env` file or secret store.
 - The working tree is updated `main`; deploy only from that worktree.
 
+Required integration settings are `LLM_GATEWAY_BASE_URL`, `LLM_GATEWAY_API_KEY`,
+`LLM_MODEL_TELEGRAM_EXTRACT`, `TELEGRAM_BOT_TOKEN`, and a random
+`TELEGRAM_WEBHOOK_SECRET`. The worker joins `idx_default` only to reach the cloud
+gateway; PostgreSQL remains on the internal network. Never commit the real values.
+
 ## Deploy
 
 ```text
@@ -28,6 +33,11 @@ docker compose --env-file /path/to/finance.env -f compose.yaml -f compose.produc
 docker exec idx-caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 docker exec idx-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
+
+Before first login, run the one-time owner bootstrap and supply the owner's numeric
+Telegram user ID with `--telegram-user-id`. Then register
+`https://finance.investdx.biz.id/webhooks/telegram` with Telegram using the same
+webhook secret. The bootstrap refuses to run after an owner exists.
 
 Verify `https://finance.investdx.biz.id` after deployment. Do not expose the
 database, worker, API, or web ports directly in production.

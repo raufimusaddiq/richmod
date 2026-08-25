@@ -14,3 +14,9 @@ only private text messages from an active numeric Telegram user mapping, preserv
 the source update as evidence, and atomically enqueues PostgreSQL-backed work.
 Duplicate update IDs are acknowledged without creating duplicate jobs. LLM work
 never runs synchronously in the webhook request.
+
+The worker treats the message as untrusted data, requests strict structured output,
+and validates type, whole-IDR amount, Asia/Jakarta time, category membership, and
+confidence before mutation. Every valid extraction first creates a proposal. Only
+unambiguous high-confidence output can be confirmed automatically; all other valid
+transactions enter `NEEDS_REVIEW`. Bot replies are separate queued jobs.

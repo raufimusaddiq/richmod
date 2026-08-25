@@ -59,12 +59,16 @@ func (c *Client) Structured(ctx context.Context, request StructuredRequest, out 
 	if request.SchemaName == "" || len(request.Schema) == 0 || out == nil {
 		return Metadata{}, fmt.Errorf("schema name, schema, and output destination are required")
 	}
+	userContent, err := normalizeContent(request.UserContent)
+	if err != nil {
+		return Metadata{}, err
+	}
 
 	payload := map[string]any{
 		"model": model,
 		"input": []map[string]any{
 			{"role": "system", "content": request.SystemPrompt},
-			{"role": "user", "content": request.UserContent},
+			{"role": "user", "content": userContent},
 		},
 		"stream": false,
 		"text": map[string]any{
@@ -158,6 +162,19 @@ func (c *Client) Structured(ctx context.Context, request StructuredRequest, out 
 		OutputTokens: envelope.Usage.Output,
 		Cost:         envelope.Cost,
 	}, nil
+}
+
+func normalizeContent(content any) (any, error) {
+	switch content.(type) {
+	case string, []map[string]any:
+		return content, nil
+	default:
+		encoded, err := json.Marshal(content)
+		if err != nil {
+			return nil, fmt.Errorf("encode gateway user content: %w", err)
+		}
+		return string(encoded), nil
+	}
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {

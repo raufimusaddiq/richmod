@@ -31,6 +31,11 @@ func TestStructuredUsesNonStreamingResponses(t *testing.T) {
 		if body["model"] != "test-model" {
 			t.Errorf("model = %v", body["model"])
 		}
+		input := body["input"].([]any)
+		user := input[1].(map[string]any)
+		if _, ok := user["content"].(string); !ok {
+			t.Errorf("structured user content type = %T, want string", user["content"])
+		}
 		metadata, _ := body["metadata"].(map[string]any)
 		if metadata["task"] != "classification" {
 			t.Errorf("task metadata = %v", metadata["task"])
@@ -54,6 +59,7 @@ func TestStructuredUsesNonStreamingResponses(t *testing.T) {
 		ModelPolicy: "finance.test",
 		SchemaName:  "test",
 		Schema:      map[string]any{"type": "object"},
+		UserContent: map[string]any{"message": "test"},
 	}, &out)
 	if err != nil {
 		t.Fatalf("Structured() error = %v", err)
