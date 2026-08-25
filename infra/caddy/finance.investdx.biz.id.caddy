@@ -1,0 +1,30 @@
+# Include this site block in the host-managed Caddyfile.
+# finance-api and finance-web must join the external idx_default Docker network.
+finance.investdx.biz.id {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "same-origin"
+        -Server
+    }
+
+    @api path /api/*
+    handle @api {
+        reverse_proxy finance-api:8080
+    }
+
+    handle {
+        reverse_proxy finance-web:3000
+    }
+
+    log {
+        output file /var/log/caddy/finance-access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+        format json
+    }
+}
