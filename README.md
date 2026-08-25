@@ -12,6 +12,18 @@ the one-time owner bootstrap command and authenticated ledger mutation APIs.
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.
 
+## First owner bootstrap
+
+Once migrations have run, create the initial owner exactly once. Pass the
+password through standard input so it is not recorded in shell history:
+
+```text
+printf '%s\n' 'use-a-unique-12-plus-character-password' | docker compose exec -T api /bootstrap --email owner@example.com --name 'Owner Name' --household 'My Household'
+```
+
+The command creates the owner and household atomically, seeds Indonesian
+categories, and refuses to run again after an owner exists.
+
 ## Local startup
 
 1. Copy `.env.example` to `.env` and replace every placeholder with secure values.
