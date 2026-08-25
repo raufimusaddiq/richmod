@@ -5,9 +5,9 @@ financial state; Go performs all financial mutations.
 
 ## Current phase
 
-Phase 0 provides containerized PostgreSQL, API, worker, web scaffolding, and
-forward-only Goose migrations. Phase 1 will add the canonical ledger and the
-one-time owner bootstrap command.
+Phase 1 is establishing the canonical ledger. The schema is IDR-only and uses
+PostgreSQL `NUMERIC(20,0)` for all financial amounts. The next increment adds
+the one-time owner bootstrap command and authenticated ledger mutation APIs.
 
 ## Local startup
 
