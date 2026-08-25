@@ -11,6 +11,9 @@ the existing external Docker network, `idx_default`. Add the reviewed site block
 from `infra/caddy/finance.investdx.biz.id.caddy` to the host-managed Caddyfile
 and validate it before reloading Caddy.
 
+The production override also sets `WEB_ORIGIN` to the public HTTPS URL, causing
+the API to issue `Secure` session cookies. Do not override it with an HTTP URL.
+
 ## Preconditions
 
 - `idx_default` Docker network exists.

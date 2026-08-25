@@ -1,6 +1,8 @@
 services:
   api:
     ports: []
+    environment:
+      WEB_ORIGIN: https://finance.investdx.biz.id
     networks: [edge, internal, caddy_public]
 
   web:
