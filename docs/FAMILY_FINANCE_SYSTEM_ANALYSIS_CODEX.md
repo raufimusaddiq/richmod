@@ -1498,6 +1498,11 @@ created_at
 
 Categories may be seeded and customizable.
 
+The initial household seed uses Indonesian expense categories, including food and
+drink, household, transport, health, family, education, personal spending,
+entertainment, subscriptions, travel, bills, donations, tax/fees, and other.
+The seed is idempotent and never overwrites user-customized categories.
+
 ---
 
 # 24. Transaction Proposal Layer
