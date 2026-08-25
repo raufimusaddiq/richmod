@@ -71,6 +71,9 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("GET /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
 	mux.Handle("POST /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
+	mux.Handle("GET /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
+	mux.Handle("POST /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
+	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))
 
 	server := &http.Server{
 		Addr:              cfg.Address,
