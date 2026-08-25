@@ -31,11 +31,14 @@ type OAuthClient struct {
 }
 
 type Handler struct {
-	pool       *pgxpool.Pool
-	client     OAuthClient
-	mailbox    string
-	key        []byte
-	httpClient *http.Client
+	pool                 *pgxpool.Pool
+	client               OAuthClient
+	mailbox              string
+	key                  []byte
+	httpClient           *http.Client
+	pubsubAudience       string
+	pubsubServiceAccount string
+	verifyToken          func(context.Context, string, string) (tokenClaims, error)
 }
 
 func LoadOAuthClient(path string) (OAuthClient, error) {
