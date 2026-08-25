@@ -1,7 +1,8 @@
 # Family Finance OS — System Analysis, Product Specification, and Codex Development Guide
 
-**Status:** Source of truth for MVP requirements; implementation status is tracked
-in [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md)
+**Status:** Historical MVP blueprint. Current product direction is governed by
+[`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md), and delivery
+status is tracked in [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md).
 **Primary implementation target:** Codex  
 **Backend:** Go  
 **Frontend:** JavaScript / Next.js / React  
@@ -11,6 +12,12 @@ in [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md)
 **Primary automated spending source:** Bank Jago transaction email  
 **MVP scope:** Household income + expense tracking only  
 **Explicitly deferred:** Assets, stocks, mutual funds, gold, crypto, portfolio valuation, broker integration
+
+> Product Alignment v2 supersedes conflicting product-experience requirements in
+> this blueprint. Budgeting is dormant/optional rather than part of the active UI,
+> outgoing Jago transfers remain neutral until classified, and merchant
+> auto-learning requires a separate explicit opt-in. The deterministic
+> architecture and evidence/audit requirements below remain binding.
 
 ---
 

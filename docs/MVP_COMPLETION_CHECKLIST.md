@@ -1,219 +1,230 @@
-# Family Finance MVP completion checklist
+# Richmod Product Alignment v2 implementation checklist
 
-**Audit date:** 2026-08-25
+**Alignment date:** 2026-08-25
 
-**Repository baseline:** `ff941e7`
+**Governing document:** [`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 
 **Production:** `https://finance.investdx.biz.id`, schema version 12
-
 **Scope:** household income and expense tracking, IDR only, `Asia/Jakarta`
 
-This is the live implementation checklist. It records repository and production
-evidence; roadmap phase names alone are not evidence of completion.
+This is the living delivery checklist for Product Alignment v2. A backend
+endpoint alone does not complete a user-facing feature.
 
-Status key:
+- `[x]` implemented and verified
+- `[~]` partially implemented
+- `[ ]` not implemented or not verified
+- `[-]` outside the current iteration
 
-- `[x]` implemented and verified;
-- `[~]` partially implemented or dependent on an external production choice;
-- `[ ]` not implemented or not verified;
-- `[-]` deliberately outside the current MVP.
+## Product invariants
 
-## Scope and invariants
+- [x] PostgreSQL is canonical; Go owns financial state transitions and validates
+  all untrusted LLM output.
+- [x] Evidence is retained, financial records are never hard-deleted, and
+  ambiguity goes to Review Inbox.
+- [x] Mutations are audited and household-scoped; webhooks/jobs are idempotent.
+- [x] Deterministic flows continue without the LLM gateway.
+- [x] Money is whole-rupiah IDR backed by `NUMERIC`; finance time uses
+  `Asia/Jakarta` and `TIMESTAMPTZ`.
+- [x] Jago is `SPENDING_ONLY`; incoming funding is not household income.
+- [x] Telegram authorization and review binding use deterministic numeric/message
+  identities.
+- [-] Assets, market data, payment execution, and general-purpose assistant
+  behavior are outside the iteration.
 
-- [x] Household-scoped canonical financial state is stored in PostgreSQL.
-- [x] Go owns financial state transitions; handlers never accept LLM output as
-  direct mutation authority.
-- [x] Income and expense are the only current user-facing ledger flows.
-- [x] The ledger accepts whole-rupiah IDR only (`NUMERIC`, never float).
-- [x] Household time is interpreted and displayed in `Asia/Jakarta` (GMT+7).
-- [x] Source events and evidence are retained during deduplication and review.
-- [x] Canonical transactions use lifecycle states and are voided, not deleted.
-- [x] Ambiguity is routed to Review Inbox instead of guessed.
-- [x] Financial mutations and review decisions are audited and household-scoped.
-- [x] Webhooks and PostgreSQL jobs use stable idempotency boundaries.
-- [x] Deterministic manual, Jago parsing, and analytics flows work without LLM.
-- [x] Bank Jago uses `SPENDING_ONLY`; incoming money is not household income.
-- [x] LLM access is through the configured Cloud LLM Gateway only.
-- [x] No Redis, message broker, vector database, local model runtime, or asset
-  module was introduced.
-- [-] Canonical transfer, refund, and adjustment creation workflows are deferred.
-  Jago pocket/own-account movement is still recognized so it can be ignored as
-  spending.
-- [-] Assets, stocks, funds, gold, crypto, broker integrations, valuation, and
-  investment P&L remain outside the MVP.
+## Existing production baseline
 
-## Acceptance criteria audit
+- [x] Owner bootstrap, Argon2id auth, sliding 24-hour sessions, and roles.
+- [x] Canonical ledger, evidence, lifecycle, audit, reconciliation, and Review APIs.
+- [x] Gmail/Jago ingestion with sender authentication and idempotency.
+- [x] Telegram text transaction intake and bound review replies.
+- [x] Generic web document intake for payslips, receipts, screenshots, transfer
+  proof, and invoices.
+- [x] Deterministic analytics and aggregate-only insights using model `primary`.
+- [x] Caddy TLS/security, private ports, health, logs, limits, local encrypted
+  backups, and security regression coverage.
+- [~] Backups passed an isolated restore drill but have no off-host replica. This
+  is operational hardening, not an Alignment v2 product blocker.
 
-### Foundation
+## P0 — Correctness and household onboarding
 
-- [x] API, web, worker, PostgreSQL, and migration containers start in Compose.
-- [x] Forward-only Goose migrations apply through version 12.
-- [x] Public `/healthz` and `/readyz` endpoints work through Caddy.
-- [x] Runtime secrets are external to Git; CI includes secret scanning.
-- [x] One-time owner bootstrap, Argon2id login, secure sliding 24-hour sessions,
-  logout, and membership-backed authorization work.
-- [x] API and worker tests, Go vet, frontend build, Compose validation, secret
-  scanning, and production image builds run in CI.
-- [ ] sqlc is not configured even though it appears in the original development
-  order. Current code uses parameterized pgx queries. Resolve through adoption
-  or an ADR before calling the original order fully complete.
+### A. Household member management
 
-### Household and settings
+- [ ] Household and member list APIs expose roles and Telegram connection state.
+- [ ] OWNER can add and safely deactivate a MEMBER; non-owners cannot.
+- [ ] Operations are household-scoped, audited, and preserve history.
+- [ ] `/household` renders members, roles, connections, and owner actions.
 
-- [x] Household, owner user, membership, accounts, categories, merchants, and
-  confirmed merchant aliases exist.
-- [~] OWNER/MEMBER roles are enforced, but there is no member invitation or
-  membership-management flow after bootstrap.
-- [~] Account, category, and merchant list/create operations work and are audited.
-- [ ] Account/category/merchant update and safe deactivation endpoints are absent.
-- [ ] The frontend has no settings/member-management interface.
+Tests: [ ] owner adds member; [ ] non-owner rejected; [ ] cross-household access
+rejected; [ ] deactivation preserves attribution; [ ] member state renders.
 
-### Core ledger
+### B. Secure Telegram self-link invite
 
-- [x] Manual income and expense creation works through the authenticated API.
-- [x] Every manual transaction receives a source event, evidence, and audit row.
-- [x] Transaction list/detail, evidence, confirm, and void operations exist.
-- [x] Money validation requires a positive whole-IDR string.
-- [x] Canonical transactions are never hard-deleted.
-- [ ] The frontend has no manual income/expense entry form or transaction-detail
-  view.
+- [ ] Add `telegram_link_invite` with token hash only, household/member scope,
+  expiry, revocation, single use, and audited state transitions.
+- [ ] OWNER can generate/revoke an invite; `/start <token>` binds the actual
+  sender's numeric Telegram ID to the intended member.
+- [ ] Expired, consumed, reused, revoked, and cross-household tokens are rejected;
+  raw tokens are never logged.
+- [ ] Spouse onboarding requires no manual Telegram ID discovery.
 
-### Bank Jago and Gmail
+Tests: [ ] expiry; [ ] single use/reuse; [ ] revocation; [ ] household isolation;
+[ ] correct sender binding; [ ] duplicate update idempotency.
 
-- [x] Gmail OAuth, encrypted refresh-token storage, Pub/Sub authentication, watch
-  renewal, and history processing are implemented and active in production.
-- [x] Gmail notifications and Jago messages become idempotent source events/jobs.
-- [x] Known authenticated Jago payment templates parse deterministically first.
-- [x] Incoming money, pocket movement, and RDN/investment movement do not become
-  MVP income or expense.
-- [x] Ambiguous external outgoing transfers go to review.
-- [x] Sender authentication and parser-policy fixtures exist.
-- [~] Failed/stale jobs retry safely, but there is no owner-visible command to
-  explicitly reprocess a selected source event after a parser fix.
+### C. Telegram image intake
 
-### Telegram text and review
+- [ ] Supported Telegram images create one `TELEGRAM_IMAGE` source event and job.
+- [ ] Authenticated bounded file retrieval passes through the same MIME, size,
+  dimension, metadata, storage, and validation controls as web uploads.
+- [ ] Images enter the existing generic document pipeline, not a parallel pipeline.
+- [ ] Payslips can yield validated income; receipts enrich a unique match or go to
+  review; unsupported/ambiguous documents fail safely.
+- [ ] Unauthorized senders receive no household/document data.
 
-- [x] Telegram authorization uses numeric Telegram user ID.
-- [x] Unauthorized identities receive no household data or identity disclosure.
-- [x] Secret-authenticated, private-chat, finance-only text intake works.
-- [x] Natural-language IDR income/expense extraction uses a strict schema and Go
-  validation; ambiguous output becomes review.
-- [x] Review push, stored Telegram message binding, `reply_to_message_id`, exact
-  transaction binding, deterministic category selection, audit, and concurrent
-  conversation separation are implemented.
-- [x] Confirmed merchant/category mappings can be learned only from explicit user
-  confirmation.
-- [ ] Telegram photo/document intake is not implemented; the webhook currently
-  ignores messages without text. Images must currently be uploaded in the web UI.
+Tests: [ ] authorized/unauthorized image; [ ] payslip; [ ] receipt; [ ] invalid
+MIME; [ ] oversized image; [ ] duplicate update idempotency.
 
-### Generic documents, payslips, receipts, and screenshots
+### D. Correct Jago outgoing-transfer semantics
 
-- [x] Authenticated JPEG/PNG web upload validates size, dimensions, MIME/extension,
-  strips metadata through re-encoding, hashes content, and stores opaque evidence.
-- [x] One generic classification pipeline covers supported financial documents.
-- [x] Payslip extraction validates IDR arithmetic and creates income through Go;
-  payroll deductions remain metadata and never become household expenses.
-- [x] Receipt extraction validates totals and only enriches a unique strong match;
-  unmatched or ambiguous receipts go to review instead of duplicating expense.
-- [x] Bank/e-wallet/history/transfer screenshots support multiple independent
-  proposals, strict validation, reconciliation, and Jago spending-only handling.
-- [x] Bills/invoices are classified but do not become paid transactions merely
-  because the document exists.
+- [~] Incoming Jago, pocket, and RDN/investment movement are already excluded.
+- [~] Unknown outgoing transfers reach review, but the neutral
+  `EXPENSE | TRANSFER | IGNORE` resolution flow is incomplete.
+- [ ] Unresolved outgoing transfer is never an EXPENSE and never counts as spend.
+- [ ] Add household-scoped `known_account` with `OWN_ACCOUNT`,
+  `HOUSEHOLD_ACCOUNT`, `INVESTMENT_ACCOUNT`, or `OTHER` relationship.
+- [ ] Own/household destinations resolve to TRANSFER; investment remains excluded;
+  unknown external recipients require explicit classification.
+- [ ] Telegram and web review resolve the same review object; analytics include
+  only confirmed financial state and exclude transfers/unresolved proposals.
 
-### Reconciliation and Review Inbox
+Tests: [ ] unknown transfer unresolved/non-spending; [ ] own transfer; [ ]
+household transfer; [ ] external expense; [ ] incoming non-income; [ ] RDN excluded.
 
-- [x] Candidate generation and scoring are deterministic and tested.
-- [x] Only a unique high-confidence match can auto-link evidence.
-- [x] Ambiguous candidates remain visible in Review Inbox.
-- [x] Confirm/reject/merge decisions are household-scoped and audited.
-- [x] Evidence merge is reversible and original source evidence is retained.
+### E. Explicit merchant learning
 
-### Dashboard, budgets, analytics, and insights
+- [ ] Category confirmation changes only that transaction by default and creates
+  no enabled `auto_apply` alias.
+- [ ] A separate explicit “remember this merchant” action creates a
+  household-scoped, audited, visible, reversible rule.
+- [ ] Web and Telegram expose the explicit remember choice where appropriate.
 
-- [x] Deterministic queries provide monthly income, expense, net cashflow, savings
-  rate, category spending, top merchants, six-month cashflow, member contribution,
-  and review count.
-- [x] The web dashboard displays income, expense, net cashflow, Review Inbox,
-  category/merchant/member trends, document intake, budgets, insights, and recent
-  transactions.
-- [ ] Savings rate is returned by the API but is not displayed by the frontend.
-- [~] Transaction provenance/evidence is available through authenticated APIs but
-  is not exposed in a transaction-detail frontend view.
-- [x] Recurring monthly whole-IDR category budgets include descendant categories,
-  net refunds in analytics, and can be deactivated by an owner.
-- [x] LLM insights receive aggregate metrics only, are non-authoritative, enforce
-  completeness thresholds, and use model route `primary` in production.
-- [~] The intended multi-page navigation is represented as one functional dashboard
-  rather than separate Overview/Transactions/Spending/Settings pages.
+Tests: [ ] one-off confirmation creates no rule; [ ] explicit remember creates
+rule; [ ] household isolation; [ ] disabled rule stops auto-application.
 
-### Security regression matrix
+## P1 — Web product experience
 
-- [x] Unauthorized Telegram identity and forged Telegram webhook tests.
-- [x] Authenticated Gmail Pub/Sub audience/service-account/mailbox tests.
-- [x] Secure cookie, Argon2id, request security headers, request correlation,
-  same-origin mutation, and rate-limit tests.
-- [x] Invalid MIME/extension, metadata stripping, and document dimension tests.
-- [x] Strict LLM schemas reject missing/unknown fields and invalid IDR values.
-- [x] Oversized upload input has an explicit boundary regression test.
-- [x] Parameterized SQL and household filters have database-backed SQL-injection
-  and cross-household transaction-access regression coverage.
-- [x] Receipt/merchant and authenticated Jago email prompt-injection fixtures
-  prove adversarial strings remain data under deterministic validation.
-- [x] CSP is tested and an adversarial transaction description is verified to be
-  safely JSON-escaped instead of reflected as executable markup.
-- [x] Telegram replay is tested against PostgreSQL to produce exactly one source
-  event and one job.
-- [x] Malicious filename/path traversal, gateway secret/error redaction, and fake
-  Jago sender cases are represented in the automated suite.
+### F. Budgeting dormant
 
-### Production operations
+- [ ] Remove budget creation/utilization/fetching from active UI and navigation.
+- [ ] Keep existing backend/tables dormant; do not destructively migrate solely
+  for alignment.
+- [ ] Docs describe budgeting as optional/future and a test verifies budget UI is
+  absent.
 
-- [x] Public TLS is managed by Caddy at `finance.investdx.biz.id`.
-- [x] PostgreSQL, API, worker, and web expose no public host ports.
-- [x] HSTS, security headers, request-body limits, CSRF origin checks, login/webhook
-  rate limits, and framework/server header suppression are active.
-- [x] Services use restart policies, process/memory limits, and
-  `no-new-privileges` where compatible.
-- [x] Structured API/worker logs, request IDs, readiness, worker heartbeat, job
-  failure/backlog, Review backlog, and Gmail freshness are available.
-- [x] Daily encrypted restic backup is enabled at 02:30 `Asia/Jakarta` with
-  14 daily, 8 weekly, and 12 monthly retention.
-- [x] A production snapshot passed archive verification, restic integrity check,
-  isolated PostgreSQL restore, and canonical/restored financial count comparison
-  on 2026-08-25.
-- [~] The active repository is still a Docker volume on the application host.
-  Off-host storage is required to survive loss or compromise of the server.
-- [~] Owner-visible operational status exists, but there is no external alert
-  delivery for failed jobs, stale heartbeat, Gmail staleness, or backup failure.
+### G. Responsive app shell
 
-## Roadmap phase status
+- [ ] Desktop and mobile navigation are usable across `/`, `/transactions`,
+  `/analytics`, `/reviews`, `/documents`, `/household`, and `/settings`.
+- [ ] Auth/session behavior is consistent and route rendering is tested.
 
-| Phase | Status | Remaining work |
-|---|---|---|
-| 0 — Bootstrap | `[~]` | Resolve the sqlc deviation. |
-| 1 — Core Ledger | `[~]` | Settings lifecycle, member management, and frontend manual entry/detail. |
-| 2 — Minimal Dashboard | `[x]` | Acceptance met; later UI gaps are tracked under Phase 10. |
-| 3 — Telegram Manual Input | `[~]` | Telegram photo/document intake. |
-| 4 — Bank Jago Automation | `[~]` | Explicit source-event reprocessing control. |
-| 5 — Reconciliation | `[x]` | Acceptance met. |
-| 6 — Telegram Interactive Review | `[x]` | Acceptance met for text-based review. |
-| 7 — Generic Image Intake | `[x]` | Web intake complete; Telegram transport remains Phase 3 work. |
-| 8 — Payslip | `[x]` | Acceptance met. |
-| 9 — Receipt / Screenshot | `[x]` | Acceptance met. |
-| 10 — Budgets and Analytics | `[~]` | Savings-rate card, provenance/detail, settings/manual-entry UI. |
-| 11 — LLM Insights | `[x]` | Acceptance met; aggregate-only boundary documented in ADR-015. |
-| 12 — Production Hardening | `[~]` | Off-host backup and external alert delivery. |
+### H. Overview
 
-## Fix order before declaring the MVP complete
+- [ ] KPIs show monthly income, expense, net cashflow, and review count.
+- [ ] Prominent review action, category visualization, and linked recent
+  transactions are present without budget utilization.
+- [ ] A responsive real chart renders 6–12 months of income, expense, and net with
+  animation, tooltip, month labels, and IDR formatting.
+- [ ] Go/SQL owns all authoritative calculations.
 
-1. Add Telegram photo intake into the existing generic document pipeline.
-2. Add owner-controlled source-event reprocessing with an audit trail.
-3. Complete safe settings lifecycle and household member management.
-4. Add frontend manual entry, transaction evidence/provenance detail, settings,
-   and the savings-rate card.
-5. Configure external alert delivery for operational failures.
-6. Configure and restore-test the encrypted off-host repository.
-7. Resolve the sqlc roadmap deviation through implementation or an ADR.
+### I. Transactions
 
-The MVP is not considered complete while any P0 or production item above remains
-`[ ]` or `[~]`. Optional UI refinement may continue after those gaps close.
+- [ ] Full ledger shows date, description/merchant, category, member/source,
+  account, status, and amount.
+- [ ] Query-backed date/type/category/member/status/account/source/text filters work.
+- [ ] Detail exposes evidence, provenance, review state, and audit/corrections.
+
+### J. Analytics
+
+- [ ] Dedicated page shows cashflow, monthly spending, category, merchant, member,
+  and refund-adjusted analytics.
+- [ ] 3-, 6-, 12-month and custom ranges use deterministic APIs.
+
+### K. Review Inbox
+
+- [ ] Dedicated page shows reason, amount, counterparty, date, source, candidates,
+  and proposal/transaction state.
+- [ ] Valid actions include confirm, categorize, classify transfer, merge, reject,
+  ignore, and open evidence against the shared review object.
+
+### L. Documents
+
+- [ ] Page shows thumbnail, source, type, status, confidence, summary, links,
+  review state, and received date.
+- [ ] Payslip detail retains deductions as metadata; receipt detail shows totals,
+  items, and matched transaction.
+
+### M. Settings
+
+- [ ] Expose Accounts, Categories, Merchants, Integrations, and System status.
+- [ ] Manage Jago/known accounts; safe category hierarchy/lifecycle; transparent,
+  reversible merchant rules; Gmail/Telegram/sync/gateway state.
+
+Required web tests: [ ] routes render; [ ] budget UI absent; [ ] chart uses API;
+[ ] transaction filters; [ ] shared review action; [ ] household/Telegram state.
+
+## P1 — Telegram finance assistant
+
+### N. Finance-scoped intents
+
+- [x] `ADD_EXPENSE`, `ADD_INCOME`, `CLARIFY_TRANSACTION`, and `HELP` foundation.
+- [ ] Add `CORRECT_TRANSACTION`, `SEARCH_TRANSACTIONS`, `GET_SPENDING`,
+  `GET_CASHFLOW`, `GET_REVIEW_ITEMS`, and `UPLOAD_FINANCIAL_DOCUMENT`.
+- [ ] LLM interpretation yields validated parameters; Go/SQL selects records and
+  computes totals; ledger disclosure is minimized.
+- [ ] Ambiguous correction/search asks a follow-up instead of guessing.
+
+Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
+[ ] ambiguity; [ ] LLM cannot invent totals; [ ] review binding remains intact.
+
+### O. Inline Telegram actions
+
+- [ ] Category, transfer, and confirmation prompts use inline buttons.
+- [ ] Numeric sender/household authorization and exact callback binding are
+  deterministic; natural-language replies remain supported.
+
+## P2 — UX polish
+
+- [ ] Skeletons, useful empty states, toast feedback, and recoverable errors.
+- [ ] Subtle chart/page motion that never obscures financial values.
+- [ ] Responsive tables/cards and fully usable mobile layouts.
+- [ ] Accessible focus states and keyboard navigation.
+- [ ] Visual review confirms a calm, household-friendly, data-focused experience.
+
+## Documentation and release gates
+
+- [x] Product Alignment v2 and this V2 checklist are tracked.
+- [ ] README/current docs stay synchronized after each cohesive merge.
+- [ ] Member onboarding, image intake, transfer classification, merchant opt-in,
+  and dormant budgeting are documented with relevant ADRs when implemented.
+- [ ] Schema changes are additive, migrated, and tested.
+- [ ] Each phase passes relevant Go tests and, when applicable, frontend build.
+- [ ] Final release passes full Go tests, frontend build, Compose validation,
+  migrations, public smoke checks, and production state checks.
+- [ ] Each phase is committed, pushed, merged `--no-ff`, pushed to `main`, deployed
+  only from updated `main`, and verified on the public URL.
+
+## Execution order
+
+1. [ ] Household member APIs/domain model.
+2. [ ] Telegram link invite model and `/start` flow.
+3. [ ] Household UI.
+4. [ ] Telegram image intake and generic pipeline wiring.
+5. [ ] Jago outgoing-transfer semantics and known accounts.
+6. [ ] Explicit merchant remember flow; remove implicit learning.
+7. [ ] Remove budgeting from active UI.
+8. [ ] Build the routed app shell and all V2 pages.
+9. [ ] Expand Telegram intents and inline actions.
+10. [ ] Apply P2 polish and run final release verification.
+
+Alignment v2 is complete only when every applicable criterion is `[x]` and the
+intended flow is verified in production. Backend-only or UI-only fragments remain
+partial until wired end to end.
