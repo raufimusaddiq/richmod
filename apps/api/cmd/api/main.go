@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
@@ -42,6 +43,7 @@ func run(logger *slog.Logger) error {
 
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
+	analyticsHandler := analytics.NewHandler(pool)
 	ledgerHandler := ledger.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -74,6 +76,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))
+	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
 
 	server := &http.Server{
 		Addr:              cfg.Address,
