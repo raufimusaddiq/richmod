@@ -5,9 +5,9 @@ financial state; Go performs all financial mutations.
 
 ## Current phase
 
-Phase 1 is establishing the canonical ledger. The schema is IDR-only and uses
-PostgreSQL `NUMERIC(20,0)` for all financial amounts. The next increment adds
-the one-time owner bootstrap command and authenticated ledger mutation APIs.
+The canonical ledger, owner bootstrap, authentication, and initial dashboard are
+implemented. The dashboard shows deterministic monthly IDR cashflow and recent
+transactions; external automation phases follow after the ledger foundation.
 
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.
