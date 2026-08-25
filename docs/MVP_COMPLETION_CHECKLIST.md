@@ -154,18 +154,17 @@ Status key:
   same-origin mutation, and rate-limit tests.
 - [x] Invalid MIME/extension, metadata stripping, and document dimension tests.
 - [x] Strict LLM schemas reject missing/unknown fields and invalid IDR values.
-- [~] Oversized request/upload limits exist, but an explicit regression test for
-  the oversized-upload response is missing.
-- [~] Parameterized SQL and household filters are used, but dedicated SQL-injection
-  and cross-household integration tests are missing.
-- [~] Prompts identify document/email/user text as untrusted, but dedicated prompt-
-  injection fixtures for receipts, email, and merchant names are missing.
-- [~] CSP and escaped React rendering are active, but an explicit XSS regression
-  fixture is missing.
-- [~] Webhook/source idempotency constraints exist, but a replay integration test
-  proving one canonical result is missing.
-- [ ] Malicious filename/path traversal, secret-redaction, and fake-sender end-to-
-  end regression cases are not all represented in the automated suite.
+- [x] Oversized upload input has an explicit boundary regression test.
+- [x] Parameterized SQL and household filters have database-backed SQL-injection
+  and cross-household transaction-access regression coverage.
+- [x] Receipt/merchant and authenticated Jago email prompt-injection fixtures
+  prove adversarial strings remain data under deterministic validation.
+- [x] CSP is tested and an adversarial transaction description is verified to be
+  safely JSON-escaped instead of reflected as executable markup.
+- [x] Telegram replay is tested against PostgreSQL to produce exactly one source
+  event and one job.
+- [x] Malicious filename/path traversal, gateway secret/error redaction, and fake
+  Jago sender cases are represented in the automated suite.
 
 ### Production operations
 
@@ -203,19 +202,18 @@ Status key:
 | 9 — Receipt / Screenshot | `[x]` | Acceptance met. |
 | 10 — Budgets and Analytics | `[~]` | Savings-rate card, provenance/detail, settings/manual-entry UI. |
 | 11 — LLM Insights | `[x]` | Acceptance met; aggregate-only boundary documented in ADR-015. |
-| 12 — Production Hardening | `[~]` | Off-host backup, external alerts, and missing security regression cases. |
+| 12 — Production Hardening | `[~]` | Off-host backup and external alert delivery. |
 
 ## Fix order before declaring the MVP complete
 
-1. Add the missing security and household-isolation regression tests.
-2. Add Telegram photo intake into the existing generic document pipeline.
-3. Add owner-controlled source-event reprocessing with an audit trail.
-4. Complete safe settings lifecycle and household member management.
-5. Add frontend manual entry, transaction evidence/provenance detail, settings,
+1. Add Telegram photo intake into the existing generic document pipeline.
+2. Add owner-controlled source-event reprocessing with an audit trail.
+3. Complete safe settings lifecycle and household member management.
+4. Add frontend manual entry, transaction evidence/provenance detail, settings,
    and the savings-rate card.
-6. Configure external alert delivery for operational failures.
-7. Configure and restore-test the encrypted off-host repository.
-8. Resolve the sqlc roadmap deviation through implementation or an ADR.
+5. Configure external alert delivery for operational failures.
+6. Configure and restore-test the encrypted off-host repository.
+7. Resolve the sqlc roadmap deviation through implementation or an ADR.
 
 The MVP is not considered complete while any P0 or production item above remains
 `[ ]` or `[~]`. Optional UI refinement may continue after those gaps close.
