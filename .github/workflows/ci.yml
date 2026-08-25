@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.1
+          cache-dependency-path: |
+            apps/api/go.sum
+            apps/worker/go.sum
+      - name: Test API
+        working-directory: apps/api
+        run: go test ./...
+      - name: Test worker
+        working-directory: apps/worker
+        run: go test ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build web
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose
+        env:
+          POSTGRES_DB: family_finance
+          POSTGRES_USER: family_finance
+          POSTGRES_PASSWORD: ci-only-password
+          DATABASE_URL: postgres://family_finance:ci-only-password@db:5432/family_finance?sslmode=disable
+          SESSION_SECRET: 12345678901234567890123456789012
+        run: docker compose config --quiet
+      - name: Build production images
+        run: |
+          docker build -f infra/docker/api.Dockerfile -t family-finance-api:ci .
+          docker build -f infra/docker/worker.Dockerfile -t family-finance-worker:ci .
+          docker build -f infra/docker/migrate.Dockerfile -t family-finance-migrate:ci .
+          docker build -f infra/docker/web.Dockerfile -t family-finance-web:ci .
