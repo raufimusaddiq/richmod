@@ -4,7 +4,7 @@
 
 **Governing document:** [`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 
-**Production:** `https://finance.investdx.biz.id`, schema version 12
+**Production:** `https://finance.investdx.biz.id`, schema version 14
 **Scope:** household income and expense tracking, IDR only, `Asia/Jakarta`
 
 This is the living delivery checklist for Product Alignment v2. A backend
@@ -101,14 +101,14 @@ household transfer; [x] external expense; [x] incoming non-income; [x] RDN exclu
 
 ### E. Explicit merchant learning
 
-- [ ] Category confirmation changes only that transaction by default and creates
+- [x] Category confirmation changes only that transaction by default and creates
   no enabled `auto_apply` alias.
-- [ ] A separate explicit “remember this merchant” action creates a
+- [x] A separate explicit “remember this merchant” action creates a
   household-scoped, audited, visible, reversible rule.
-- [ ] Web and Telegram expose the explicit remember choice where appropriate.
+- [x] Web and Telegram expose the explicit remember choice where appropriate.
 
-Tests: [ ] one-off confirmation creates no rule; [ ] explicit remember creates
-rule; [ ] household isolation; [ ] disabled rule stops auto-application.
+Tests: [x] one-off confirmation creates no rule; [x] explicit remember creates
+rule; [x] household isolation; [x] disabled rule stops auto-application.
 
 ## P1 — Web product experience
 
@@ -219,7 +219,7 @@ Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
 3. [x] Household UI (implemented and public route smoke verified).
 4. [x] Telegram image intake and generic pipeline wiring.
 5. [x] Jago outgoing-transfer semantics and known accounts.
-6. [ ] Explicit merchant remember flow; remove implicit learning.
+6. [x] Explicit merchant remember flow; remove implicit learning.
 7. [ ] Remove budgeting from active UI.
 8. [ ] Build the routed app shell and all V2 pages.
 9. [ ] Expand Telegram intents and inline actions.

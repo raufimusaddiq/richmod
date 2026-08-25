@@ -159,7 +159,7 @@ export default function Home() {
 
   const cards = overview ? [["Pemasukan", overview.income], ["Pengeluaran", overview.expense], ["Arus kas bersih", overview.netCashflow]] : [];
   return <main className="shell">
-    <header><div><span className="eyebrow">FAMILY FINANCE</span><h1>Ringkasan {overview?.period || ""}</h1></div><div className="identity">{user.displayName}<small>GMT+7 · IDR</small><a href="/household">Kelola household</a></div></header>
+    <header><div><span className="eyebrow">FAMILY FINANCE</span><h1>Ringkasan {overview?.period || ""}</h1></div><div className="identity">{user.displayName}<small>GMT+7 · IDR</small><a href="/household">Kelola household</a> · <a href="/settings">Settings</a></div></header>
     <section className="cards">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{money(value)}</strong></article>)}<article><span>Perlu ditinjau</span><strong>{reviews.length}</strong></article></section>
     {error && <p className="notice error">{error}</p>}
     <section className="panel document-panel"><div className="panel-title"><div><span className="eyebrow">DOKUMEN KEUANGAN</span><h2>Unggah satu gambar, biarkan sistem mengenalinya</h2></div><span>JPEG/PNG · maks. 10 MB</span></div><form className="upload-form" onSubmit={uploadDocument}><input name="file" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" required /><button disabled={working === "upload"}>{working === "upload" ? "Mengunggah…" : "Unggah & klasifikasikan"}</button></form>{documents.length > 0 && <div className="document-list">{documents.slice(0, 6).map(document => <a key={document.id} href={`/api/v1/documents/${document.id}/content`} target="_blank" rel="noreferrer"><b>{document.documentType || "Sedang diklasifikasikan"}</b><span>{document.width}×{document.height} · {document.status}</span></a>)}</div>}</section>
@@ -180,7 +180,7 @@ function ReviewCard({ item, categories, disabled, action }) {
   function confirm(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    action(item.id, "confirm", { categoryId: form.get("categoryId") || null, note: form.get("note") || null });
+    action(item.id, "confirm", { categoryId: form.get("categoryId") || null, note: form.get("note") || null, rememberMerchant: form.get("rememberMerchant") === "on" });
   }
   if (item.type === "UNCLASSIFIED") return <TransferReviewCard item={item} categories={categories} disabled={disabled} action={action} />;
   return <article className="review-card">
@@ -191,6 +191,7 @@ function ReviewCard({ item, categories, disabled, action }) {
     <form className="review-form" onSubmit={confirm}>
       {item.type === "EXPENSE" && <label>Kategori<select name="categoryId" defaultValue={item.categoryId || ""} required><option value="" disabled>Pilih kategori</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>}
       <label>Catatan opsional<input name="note" defaultValue={item.note || ""} maxLength="1000" /></label>
+      {item.type === "EXPENSE" && item.merchantName && <label className="remember-rule"><input name="rememberMerchant" type="checkbox" /> Ingat kategori ini untuk merchant tersebut</label>}
       <div className="review-actions"><button disabled={disabled}>{disabled ? "Memproses…" : "Konfirmasi"}</button><button className="danger" type="button" disabled={disabled} onClick={() => { if (window.confirm("Abaikan transaksi ini? Bukti tetap disimpan.")) action(item.id, "reject"); }}>Abaikan</button></div>
     </form>
   </article>;
