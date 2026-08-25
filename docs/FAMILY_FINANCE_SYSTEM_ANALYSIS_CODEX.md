@@ -1,6 +1,7 @@
 # Family Finance OS — System Analysis, Product Specification, and Codex Development Guide
 
-**Status:** Source of truth for MVP development  
+**Status:** Source of truth for MVP requirements; implementation status is tracked
+in [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md)
 **Primary implementation target:** Codex  
 **Backend:** Go  
 **Frontend:** JavaScript / Next.js / React  
@@ -97,9 +98,6 @@ MVP includes:
 - canonical transaction ledger;
 - income;
 - expense;
-- transfers;
-- refunds;
-- adjustments;
 - Bank Jago email ingestion;
 - Jago-specific `SPENDING_ONLY` policy;
 - Telegram bot;
@@ -129,6 +127,9 @@ MVP includes:
 
 Do NOT implement during MVP:
 
+- canonical transfer creation and transfer-ledger workflows;
+- refund creation workflows;
+- adjustment creation workflows;
 - stock portfolio;
 - broker API;
 - broker statement processing;
@@ -2832,6 +2833,10 @@ Required:
 ---
 
 # 52. Acceptance Criteria
+
+Current completion evidence and known gaps are maintained in
+[`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md). The criteria below
+remain normative; a roadmap phase heading does not itself indicate completion.
 
 ## 52.1 Foundation
 

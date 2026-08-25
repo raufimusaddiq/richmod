@@ -94,6 +94,18 @@ and 12 monthly snapshots.
 
 Never print the restic password or repository credentials in logs.
 
+### Current deployment state (2026-08-25)
+
+- The daily systemd timer is enabled for 02:30 `Asia/Jakarta`, with randomized
+  delay.
+- The encrypted repository is currently the local `family-finance_backup_data`
+  Docker volume.
+- A production snapshot passed `pg_restore --list`, restic integrity checking,
+  and an isolated database restore with matching financial table counts.
+- Off-host repository configuration remains open. The local volume does not
+  protect against server loss or host compromise and therefore does not complete
+  production backup acceptance.
+
 ## Restore drill
 
 Run the drill against an isolated PostgreSQL instance. The script refuses any
