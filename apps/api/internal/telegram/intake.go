@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +28,7 @@ type CaptureInput struct {
 
 type Store interface {
 	Capture(context.Context, CaptureInput) (bool, error)
+	Link(context.Context, CaptureInput, string) (bool, error)
 }
 
 type Handler struct {
@@ -57,8 +59,9 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	var update struct {
 		UpdateID int64 `json:"update_id"`
 		Message  *struct {
-			Text string `json:"text"`
-			From struct {
+			MessageID int64  `json:"message_id"`
+			Text      string `json:"text"`
+			From      struct {
 				ID int64 `json:"id"`
 			} `json:"from"`
 			Chat struct {
@@ -71,6 +74,19 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if update.Message == nil || update.Message.Text == "" || update.Message.From.ID == 0 || update.Message.Chat.Type != "private" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if token, ok := startToken(update.Message.Text); ok {
+		_, err = h.store.Link(r.Context(), CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.Message.From.ID, RawPayload: raw}, token)
+		if errors.Is(err, ErrUnauthorized) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if err != nil {
+			http.Error(w, "webhook processing failed", http.StatusInternalServerError)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -89,6 +105,14 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func startToken(text string) (string, bool) {
+	parts := strings.Fields(strings.TrimSpace(text))
+	if len(parts) != 2 || (parts[0] != "/start" && !strings.HasPrefix(parts[0], "/start@")) || len(parts[1]) < 20 || len(parts[1]) > 128 {
+		return "", false
+	}
+	return parts[1], true
 }
 
 type PostgreSQLStore struct{ pool *pgxpool.Pool }
@@ -133,6 +157,45 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit telegram intake: %w", err)
+	}
+	return true, nil
+}
+
+func (s *PostgreSQLStore) Link(ctx context.Context, input CaptureInput, token string) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("begin Telegram link: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	digest := sha256.Sum256([]byte(token))
+	var inviteID, householdID, userID string
+	err = tx.QueryRow(ctx, `SELECT id,household_id,user_id FROM telegram_link_invite WHERE token_hash=$1 AND status='PENDING' AND expires_at>now() FOR UPDATE`, digest[:]).Scan(&inviteID, &householdID, &userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, _ = tx.Exec(ctx, `UPDATE telegram_link_invite SET status='EXPIRED' WHERE token_hash=$1 AND status='PENDING' AND expires_at<=now()`, digest[:])
+		_ = tx.Commit(ctx)
+		return false, ErrUnauthorized
+	}
+	if err != nil {
+		return false, fmt.Errorf("validate Telegram invite: %w", err)
+	}
+	var active bool
+	if err = tx.QueryRow(ctx, `SELECT active FROM household_member WHERE household_id=$1 AND user_id=$2`, householdID, userID).Scan(&active); err != nil || !active {
+		return false, ErrUnauthorized
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, input.TelegramUserID, householdID, userID); err != nil {
+		return false, ErrUnauthorized
+	}
+	if _, err = tx.Exec(ctx, `UPDATE telegram_link_invite SET status='CONSUMED',consumed_at=now() WHERE id=$1`, inviteID); err != nil {
+		return false, fmt.Errorf("consume Telegram invite: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM','LINK','telegram_identity',$2,jsonb_build_object('userId',$3::text,'telegramUserId',$4::bigint))`, householdID, userID, userID, input.TelegramUserID); err != nil {
+		return false, fmt.Errorf("audit Telegram link: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text','Telegram berhasil terhubung ke Richmod.'))`, input.TelegramUserID); err != nil {
+		return false, fmt.Errorf("queue Telegram confirmation: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit Telegram link: %w", err)
 	}
 	return true, nil
 }

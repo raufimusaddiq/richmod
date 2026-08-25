@@ -109,7 +109,7 @@ func (s *Service) principal(ctx context.Context, userID string) (Principal, erro
 	if err := s.pool.QueryRow(ctx, `SELECT email, display_name FROM "user" WHERE id = $1 AND active = TRUE`, userID).Scan(&principal.Email, &principal.DisplayName); err != nil {
 		return Principal{}, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT household_id, role FROM household_member WHERE user_id = $1 ORDER BY created_at`, userID)
+	rows, err := s.pool.Query(ctx, `SELECT household_id, role FROM household_member WHERE user_id = $1 AND active ORDER BY created_at`, userID)
 	if err != nil {
 		return Principal{}, err
 	}

@@ -17,6 +17,11 @@ dormant backend capability, not part of the active product experience. Progress
 and verification evidence are maintained in
 [`docs/MVP_COMPLETION_CHECKLIST.md`](docs/MVP_COMPLETION_CHECKLIST.md).
 
+OWNER users can manage household members at `/household`. Telegram is linked by
+an expiring, single-use bot invitation; the recipient proves ownership by opening
+the invite and sending `/start` from their own Telegram account. Raw invitation
+tokens are returned only at creation and are stored as hashes.
+
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.
 

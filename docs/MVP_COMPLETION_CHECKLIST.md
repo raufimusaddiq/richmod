@@ -49,26 +49,26 @@ endpoint alone does not complete a user-facing feature.
 
 ### A. Household member management
 
-- [ ] Household and member list APIs expose roles and Telegram connection state.
-- [ ] OWNER can add and safely deactivate a MEMBER; non-owners cannot.
-- [ ] Operations are household-scoped, audited, and preserve history.
-- [ ] `/household` renders members, roles, connections, and owner actions.
+- [x] Household and member list APIs expose roles and Telegram connection state.
+- [x] OWNER can add and safely deactivate a MEMBER; non-owners cannot.
+- [x] Operations are household-scoped, audited, and preserve history.
+- [x] `/household` renders members, roles, connections, and owner actions.
 
-Tests: [ ] owner adds member; [ ] non-owner rejected; [ ] cross-household access
-rejected; [ ] deactivation preserves attribution; [ ] member state renders.
+Tests: [x] owner adds member; [x] non-owner rejected; [x] cross-household access
+rejected; [x] deactivation preserves attribution; [~] member state production smoke.
 
 ### B. Secure Telegram self-link invite
 
-- [ ] Add `telegram_link_invite` with token hash only, household/member scope,
+- [x] Add `telegram_link_invite` with token hash only, household/member scope,
   expiry, revocation, single use, and audited state transitions.
-- [ ] OWNER can generate/revoke an invite; `/start <token>` binds the actual
+- [x] OWNER can generate/revoke an invite; `/start <token>` binds the actual
   sender's numeric Telegram ID to the intended member.
-- [ ] Expired, consumed, reused, revoked, and cross-household tokens are rejected;
+- [x] Expired, consumed, reused, revoked, and cross-household tokens are rejected;
   raw tokens are never logged.
-- [ ] Spouse onboarding requires no manual Telegram ID discovery.
+- [x] Spouse onboarding requires no manual Telegram ID discovery.
 
-Tests: [ ] expiry; [ ] single use/reuse; [ ] revocation; [ ] household isolation;
-[ ] correct sender binding; [ ] duplicate update idempotency.
+Tests: [x] expiry; [x] single use/reuse; [x] revocation; [x] household isolation;
+[x] correct sender binding; [x] duplicate update idempotency.
 
 ### C. Telegram image intake
 
@@ -214,9 +214,9 @@ Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
 
 ## Execution order
 
-1. [ ] Household member APIs/domain model.
-2. [ ] Telegram link invite model and `/start` flow.
-3. [ ] Household UI.
+1. [x] Household member APIs/domain model.
+2. [x] Telegram link invite model and `/start` flow.
+3. [~] Household UI (implemented; production smoke pending).
 4. [ ] Telegram image intake and generic pipeline wiring.
 5. [ ] Jago outgoing-transfer semantics and known accounts.
 6. [ ] Explicit merchant remember flow; remove implicit learning.

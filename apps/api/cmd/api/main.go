@@ -16,6 +16,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/household"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/insight"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/operations"
@@ -56,6 +57,7 @@ func run(logger *slog.Logger) error {
 	ledgerHandler := ledger.NewHandler(pool)
 	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
+	householdHandler := household.NewHandler(pool, cfg.TelegramBotUsername)
 	documentHandler, err := document.NewHandler(pool, cfg.DocumentStoragePath)
 	if err != nil {
 		return err
@@ -94,6 +96,12 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/auth/login", loginLimiter.Handler(http.HandlerFunc(authHandler.Login)))
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
+	mux.Handle("GET /api/v1/household", authHandler.RequireSession(http.HandlerFunc(householdHandler.Get)))
+	mux.Handle("GET /api/v1/household/members", authHandler.RequireSession(http.HandlerFunc(householdHandler.Members)))
+	mux.Handle("POST /api/v1/household/members", authHandler.RequireSession(http.HandlerFunc(householdHandler.Members)))
+	mux.Handle("PATCH /api/v1/household/members/{id}", authHandler.RequireSession(http.HandlerFunc(householdHandler.PatchMember)))
+	mux.Handle("POST /api/v1/household/members/{id}/telegram-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.CreateInvite)))
+	mux.Handle("DELETE /api/v1/household/members/{id}/telegram-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.RevokeInvite)))
 	mux.Handle("POST /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.CreateManualTransaction)))
 	mux.Handle("GET /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ListTransactions)))
 	mux.Handle("GET /api/v1/transactions/{id}", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.GetTransaction)))
