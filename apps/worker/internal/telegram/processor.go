@@ -54,9 +54,12 @@ type extraction struct {
 
 type telegramUpdate struct {
 	Message struct {
-		MessageID int64  `json:"message_id"`
-		Text      string `json:"text"`
-		From      struct {
+		MessageID      int64  `json:"message_id"`
+		Text           string `json:"text"`
+		ReplyToMessage *struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"reply_to_message"`
+		From struct {
 			ID int64 `json:"id"`
 		} `json:"from"`
 		Chat struct {
@@ -88,6 +91,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	text := strings.TrimSpace(update.Message.Text)
 	if text == "" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesan kosong diabaikan.")
+	}
+	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
+		return err
 	}
 	if strings.HasPrefix(strings.ToLower(text), "/help") || strings.HasPrefix(strings.ToLower(text), "/start") {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kirim transaksi seperti: makan siang 50rb, atau gaji 8 juta hari ini.")
@@ -287,16 +293,22 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','CREATE_FROM_TELEGRAM','transaction',$2,jsonb_build_object('status',$3::text,'proposal_id',$4::uuid))`, householdID, transactionID, transactionStatus, proposalID); err != nil {
 		return err
 	}
-	message := value.ResponseMessage
-	if message == "" {
-		if autoConfirm {
+	if autoConfirm {
+		message := value.ResponseMessage
+		if message == "" {
 			message = "Tercatat."
-		} else {
-			message = "Transaksi masuk ke Review Inbox karena kategorinya belum cukup pasti."
 		}
-	}
-	if err := enqueueReply(ctx, tx, update, message); err != nil {
-		return err
+		if err := enqueueReply(ctx, tx, update, message); err != nil {
+			return err
+		}
+	} else {
+		reviewType := "AMBIGUOUS_CATEGORY"
+		if value.Merchant == "" {
+			reviewType = "UNKNOWN_MERCHANT"
+		}
+		if err := EnqueueReviewRequest(ctx, tx, transactionID, reviewType, update.Message.Chat.ID, update.Message.MessageID, ReviewQuestion(value.Amount, value.Merchant)); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

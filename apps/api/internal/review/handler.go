@@ -216,6 +216,10 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
+	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN'); UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, id); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to resolve Telegram review"})
+		return
+	}
 	if merchantID != nil && categoryID != nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO merchant_alias (household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,normalized_name,id,$3,true,true FROM merchant WHERE id=$2 ON CONFLICT (household_id,raw_name) DO UPDATE SET default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true`, household, merchantID, categoryID)
 		if err != nil {
@@ -249,6 +253,10 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE source_event_id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1); UPDATE source_event SET processing_status='IGNORED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='CANCELLED' WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN'); UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1 AND status='CANCELLED')`, id); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
 		return
 	}
 	if err := audit(r.Context(), tx, household, p.UserID, "REJECT_REVIEW", id, nil); err != nil || tx.Commit(r.Context()) != nil {
@@ -338,6 +346,10 @@ func (h *Handler) Merge(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1; UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE source_event_id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, r.PathValue("id"), input.TargetTransactionID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to merge review"})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='CANCELLED' WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN'); UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1 AND status='CANCELLED')`, r.PathValue("id")); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
 		return
 	}
 	if err := audit(r.Context(), tx, household, p.UserID, "MERGE_REVIEW", r.PathValue("id"), map[string]any{"target_transaction_id": input.TargetTransactionID, "merge_id": mergeID}); err != nil || tx.Commit(r.Context()) != nil {

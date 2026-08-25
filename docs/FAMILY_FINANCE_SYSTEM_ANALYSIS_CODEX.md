@@ -1417,6 +1417,14 @@ RESOLVED
 
 Do not keep financial conversation state only in LLM context.
 
+Current implementation persists `review_request` and `review_conversation`.
+Outbound Telegram message IDs are written back after `sendMessage` succeeds, and
+incoming replies bind by the exact private chat ID plus `reply_to_message_id`.
+Deterministic category-name matching runs before the cloud gateway; Go validates
+all gateway suggestions against active household categories. Web confirmation,
+web rejection, and reconciliation merges resolve or cancel the same Telegram
+review record atomically.
+
 ---
 
 # 22. Merchant and Category Learning

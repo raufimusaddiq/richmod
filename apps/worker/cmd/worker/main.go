@@ -124,7 +124,14 @@ func processJob(ctx context.Context, processor *telegram.Processor, gmailProcess
 		if err != nil {
 			return err
 		}
-		return bot.Send(ctx, payload)
+		messageID, err := bot.Send(ctx, payload)
+		if err != nil {
+			return err
+		}
+		if payload.ReviewRequestID != "" {
+			return processor.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID)
+		}
+		return nil
 	case "PROCESS_GMAIL_HISTORY":
 		if gmailProcessor == nil {
 			return fmt.Errorf("Gmail worker is not configured")

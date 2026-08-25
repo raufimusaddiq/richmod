@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/jago"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 const categoryPrompt = `Classify one trusted Bank Jago expense into exactly one allowed Indonesian household expense category.
@@ -383,6 +384,21 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'EMAIL_PARSER','CREATE_FROM_JAGO_EMAIL','transaction',$2,jsonb_build_object('status',$3::text,'proposal_id',$4::uuid,'parser','jago-v1'))`, householdID, transactionID, transactionStatus, proposalID); err != nil {
 		return err
+	}
+	if !autoConfirm {
+		var chatID int64
+		err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID)
+		if err == nil {
+			reviewType := "AMBIGUOUS_CATEGORY"
+			if event.FinancialEffect == jago.EffectNeedsReview {
+				reviewType = "TRANSFER_CLASSIFICATION"
+			}
+			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, workerTelegram.ReviewQuestion(event.Amount, merchantName)); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
