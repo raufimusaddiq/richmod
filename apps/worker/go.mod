@@ -2,7 +2,10 @@ module github.com/raufimusaddiq/richmod/apps/worker
 
 go 1.24.1
 
-require github.com/jackc/pgx/v5 v5.7.2
+require (
+	github.com/jackc/pgx/v5 v5.7.2
+	golang.org/x/net v0.33.0
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
