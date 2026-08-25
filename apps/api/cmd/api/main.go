@@ -13,6 +13,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
@@ -48,6 +49,17 @@ func run(logger *slog.Logger) error {
 	ledgerHandler := ledger.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
+	var gmailHandler *gmail.Handler
+	if cfg.GmailOAuthClientPath != "" || cfg.GmailMailbox != "" || cfg.GmailTokenKey != "" {
+		client, err := gmail.LoadOAuthClient(cfg.GmailOAuthClientPath)
+		if err != nil {
+			return err
+		}
+		gmailHandler, err = gmail.NewHandler(pool, client, cfg.GmailMailbox, cfg.GmailTokenKey)
+		if err != nil {
+			return err
+		}
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -80,6 +92,10 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
 	mux.HandleFunc("POST /webhooks/telegram", telegramHandler.Webhook)
+	if gmailHandler != nil {
+		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))
+		mux.HandleFunc("GET /api/v1/integrations/gmail/callback", gmailHandler.Callback)
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Address,
