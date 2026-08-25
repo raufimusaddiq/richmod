@@ -59,6 +59,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		gmailHandler.ConfigurePubSub(cfg.GmailPubSubAudience, cfg.GmailPubSubServiceAccount)
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -95,6 +96,7 @@ func run(logger *slog.Logger) error {
 	if gmailHandler != nil {
 		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))
 		mux.HandleFunc("GET /api/v1/integrations/gmail/callback", gmailHandler.Callback)
+		mux.HandleFunc("POST /webhooks/gmail/pubsub", gmailHandler.PubSub)
 	}
 
 	server := &http.Server{

@@ -21,3 +21,7 @@ Gmail authorization uses the minimum read-only scope. OAuth state is single-use
 and expires after ten minutes; the callback verifies the authorized Gmail profile
 matches the configured mailbox. Refresh tokens are encrypted with AES-256-GCM and
 household-bound associated data before PostgreSQL storage.
+
+Pub/Sub push requests require a Google-signed OIDC bearer token with the exact
+configured audience and verified service-account email. Notifications are deduped
+by Pub/Sub message ID, preserved as evidence, and queued before acknowledgement.
