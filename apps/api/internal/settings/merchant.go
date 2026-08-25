@@ -52,8 +52,18 @@ func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id string
-	if h.pool.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, household, in.NormalizedName).Scan(&id) != nil {
+	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		jsonError(w, 500, "unable to create merchant")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, household, in.NormalizedName).Scan(&id) != nil {
 		jsonError(w, 400, "unable to create merchant")
+		return
+	}
+	if auditCreate(r.Context(), tx, household, p.UserID, "merchant", id, map[string]any{"normalizedName": in.NormalizedName}) != nil || tx.Commit(r.Context()) != nil {
+		jsonError(w, 500, "unable to audit merchant")
 		return
 	}
 	jsonOut(w, 201, map[string]string{"id": id})

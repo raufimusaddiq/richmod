@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
@@ -59,8 +60,18 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id string
-	if err := h.pool.QueryRow(r.Context(), `INSERT INTO account (household_id,name,account_type,tracking_policy) VALUES($1,$2,$3,$4) RETURNING id`, household, in.Name, in.AccountType, in.TrackingPolicy).Scan(&id); err != nil {
+	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		jsonError(w, 500, "unable to create account")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if err := tx.QueryRow(r.Context(), `INSERT INTO account (household_id,name,account_type,tracking_policy) VALUES($1,$2,$3,$4) RETURNING id`, household, in.Name, in.AccountType, in.TrackingPolicy).Scan(&id); err != nil {
 		jsonError(w, 400, "unable to create account")
+		return
+	}
+	if auditCreate(r.Context(), tx, household, p.UserID, "account", id, map[string]any{"name": in.Name, "accountType": in.AccountType, "trackingPolicy": in.TrackingPolicy}) != nil || tx.Commit(r.Context()) != nil {
+		jsonError(w, 500, "unable to audit account")
 		return
 	}
 	jsonOut(w, 201, map[string]string{"id": id})
@@ -115,8 +126,18 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id string
-	if err := h.pool.QueryRow(r.Context(), `INSERT INTO category(household_id,parent_id,name,slug) VALUES($1,$2,$3,$4) RETURNING id`, household, in.ParentID, in.Name, in.Slug).Scan(&id); err != nil {
+	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		jsonError(w, 500, "unable to create category")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if err := tx.QueryRow(r.Context(), `INSERT INTO category(household_id,parent_id,name,slug) VALUES($1,$2,$3,$4) RETURNING id`, household, in.ParentID, in.Name, in.Slug).Scan(&id); err != nil {
 		jsonError(w, 400, "unable to create category")
+		return
+	}
+	if auditCreate(r.Context(), tx, household, p.UserID, "category", id, map[string]any{"name": in.Name, "slug": in.Slug, "parentId": in.ParentID}) != nil || tx.Commit(r.Context()) != nil {
+		jsonError(w, 500, "unable to audit category")
 		return
 	}
 	jsonOut(w, 201, map[string]string{"id": id})
