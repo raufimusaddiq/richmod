@@ -36,3 +36,6 @@ renews the expiry by another 24 hours.
 The compose ports bind to loopback only. Production uses the host-managed Caddy
 instance for TLS at `finance.investdx.biz.id`; see the production deployment
 runbook. Secrets must be supplied externally.
+
+Every push to `main` and pull request runs Go tests, the Next.js production
+build, Compose validation, and all four production container builds.
