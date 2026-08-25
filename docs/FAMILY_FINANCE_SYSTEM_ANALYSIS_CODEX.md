@@ -365,6 +365,10 @@ NUMERIC / DECIMAL
 
 Never use floating point for financial amounts.
 
+MVP ledger currency is IDR only. Store amounts as whole-rupiah `NUMERIC(20,0)`
+and reject every non-`IDR` canonical transaction at the database boundary.
+Multi-currency support is deferred and requires a future ADR and migration.
+
 Time must use:
 
 ```text
