@@ -85,7 +85,7 @@ services:
       LLM_MODEL_DOCUMENT_VISION: ${LLM_MODEL_DOCUMENT_VISION:-}
       LLM_MODEL_INSIGHTS: ${LLM_MODEL_INSIGHTS:-}
     volumes:
-      - attachment_data:/var/lib/finance/attachments:ro
+      - attachment_data:/var/lib/finance/attachments
     depends_on:
       db:
         condition: service_healthy

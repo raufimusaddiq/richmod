@@ -22,6 +22,12 @@ an expiring, single-use bot invitation; the recipient proves ownership by openin
 the invite and sending `/start` from their own Telegram account. Raw invitation
 tokens are returned only at creation and are stored as hashes.
 
+Authorized household members may send a JPEG/PNG photo or image document directly
+to the Telegram bot. It is downloaded asynchronously with strict size and image
+validation, normalized into the generic finance-document pipeline, and then
+classified as a payslip, receipt, screenshot, transfer proof, invoice, or other
+supported document. A caption is context metadata, never mutation authority.
+
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.
 
