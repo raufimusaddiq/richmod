@@ -12,8 +12,10 @@ reconciliation, deterministic analytics, and aggregate-only LLM insights.
 Current delivery follows
 [`docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md):
 household onboarding and financial correctness first, followed by a routed web
-experience and a broader finance-scoped Telegram assistant. Budgeting remains a
-dormant backend capability, not part of the active product experience. Progress
+experience and a broader finance-scoped Telegram assistant. The responsive web
+application now separates Overview, Transactions, Analytics, Review Inbox,
+Documents, Household, and Settings. Budgeting remains a dormant backend
+capability, is not fetched by the frontend, and is not part of the active product experience. Progress
 and verification evidence are maintained in
 [`docs/MVP_COMPLETION_CHECKLIST.md`](docs/MVP_COMPLETION_CHECKLIST.md).
 
@@ -37,6 +39,12 @@ Confirming a category applies only to that transaction. A permanent merchant
 category rule is created only when the user separately chooses “remember this
 merchant” on the web or explicitly confirms the bound Telegram follow-up. OWNERs
 can inspect and disable these household-scoped rules at `/settings`.
+
+The Transactions page provides household-scoped date, type, category, member,
+status, account, source, and text filters plus evidence/audit detail. Analytics
+supports deterministic 3-, 6-, 12-month and bounded custom ranges. Recharts is
+used only to render Go/SQL-calculated values; the browser does not calculate
+authoritative financial totals.
 
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AppShell from "../components/AppShell";
 
 export default function HouseholdPage() {
   const [household, setHousehold] = useState(null);
@@ -43,11 +44,12 @@ export default function HouseholdPage() {
     if (!response.ok) { setError("Anggota belum dapat dinonaktifkan."); return; } await load();
   }
 
-  return <main className="shell household-page">
-    <header><div><span className="eyebrow">HOUSEHOLD</span><h1>{household?.name || "Rumah tangga"}</h1><p>Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p></div><div><a className="back-link" href="/">← Ringkasan</a> · <a className="back-link" href="/settings">Settings</a></div></header>
+  if (!me) return <main className="loading">Memuat…</main>;
+  return <AppShell user={me} eyebrow="HOUSEHOLD" title={household?.name || "Rumah tangga"} actions={<span className="header-meta">{members.filter(member => member.active).length} anggota aktif</span>}>
+    <p className="page-intro">Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p>
     {error && <p className="notice error">{error}</p>}
     {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2><span>Role MEMBER</span></div><form className="member-form" onSubmit={addMember}><input name="displayName" placeholder="Nama anggota" maxLength="120" required /><input name="email" type="email" placeholder="Email anggota" required /><button>Tambahkan</button></form></section>}
     {invite && <section className="panel invite-panel"><div><span className="eyebrow">UNDANGAN TELEGRAM</span><h2>Berlaku 15 menit dan hanya sekali pakai</h2><p>Kirim tautan ini langsung kepada anggota yang dituju.</p></div><div className="invite-actions"><a href={invite.link} target="_blank" rel="noreferrer">Buka undangan Telegram</a><button className="danger" onClick={() => revokeInvite(invite.memberId)}>Cabut</button></div></section>}
     <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{members.length} akun</span></div><div className="member-list">{members.map(member => <article key={member.id}><div><b>{member.displayName}</b><small>{member.email}</small></div><span className="role">{member.role}</span><span className={member.telegramConnected ? "connected" : "muted"}>{member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"}</span><span>{member.active ? "Aktif" : "Nonaktif"}</span>{owner && member.role === "MEMBER" && member.active && <div className="member-actions">{!member.telegramConnected && <button onClick={() => createInvite(member.id)}>Undang Telegram</button>}<button className="danger" onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}</article>)}</div></section>
-  </main>;
+  </AppShell>;
 }

@@ -59,6 +59,10 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid account fields")
 		return
 	}
+	if message := accountPolicyError("", in.Name, in.TrackingPolicy); message != "" {
+		jsonError(w, 400, message)
+		return
+	}
 	var id string
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
@@ -75,6 +79,73 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, 201, map[string]string{"id": id})
+}
+
+func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || len(p.Memberships) == 0 {
+		jsonError(w, 403, "household membership required")
+		return
+	}
+	if !owner(p) {
+		jsonError(w, 403, "owner role required")
+		return
+	}
+	var in struct {
+		Name           *string `json:"name"`
+		TrackingPolicy *string `json:"trackingPolicy"`
+		Active         *bool   `json:"active"`
+	}
+	if json.NewDecoder(r.Body).Decode(&in) != nil || (in.Name == nil && in.TrackingPolicy == nil && in.Active == nil) {
+		jsonError(w, 400, "account change is required")
+		return
+	}
+	if in.Name != nil {
+		value := strings.TrimSpace(*in.Name)
+		if value == "" {
+			jsonError(w, 400, "account name is required")
+			return
+		}
+		in.Name = &value
+	}
+	if in.TrackingPolicy != nil && !oneOf(*in.TrackingPolicy, "FULL_LEDGER", "SPENDING_ONLY", "REFERENCE_ONLY") {
+		jsonError(w, 400, "invalid tracking policy")
+		return
+	}
+	household := p.Memberships[0].HouseholdID
+	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		jsonError(w, 500, "unable to update account")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var currentName, currentPolicy string
+	if err = tx.QueryRow(r.Context(), `SELECT name,tracking_policy FROM account WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&currentName, &currentPolicy); err != nil {
+		jsonError(w, 404, "account not found")
+		return
+	}
+	resultName, resultPolicy := currentName, currentPolicy
+	if in.Name != nil {
+		resultName = *in.Name
+	}
+	if in.TrackingPolicy != nil {
+		resultPolicy = *in.TrackingPolicy
+	}
+	if message := accountPolicyError(currentName, resultName, resultPolicy); message != "" {
+		jsonError(w, 400, message)
+		return
+	}
+	var id string
+	err = tx.QueryRow(r.Context(), `UPDATE account SET name=COALESCE($3,name),tracking_policy=COALESCE($4,tracking_policy),active=COALESCE($5,active),updated_at=now() WHERE id=$1 AND household_id=$2 RETURNING id`, r.PathValue("id"), household, in.Name, in.TrackingPolicy, in.Active).Scan(&id)
+	if err != nil {
+		jsonError(w, 404, "account not found")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'UPDATE','account',$3,jsonb_build_object('name',$4::text,'tracking_policy',$5::text,'active',$6::boolean))`, household, p.UserID, id, in.Name, in.TrackingPolicy, in.Active); err != nil || tx.Commit(r.Context()) != nil {
+		jsonError(w, 500, "unable to update account")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +212,52 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, 201, map[string]string{"id": id})
+}
+
+func (h *Handler) PatchCategory(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || len(p.Memberships) == 0 {
+		jsonError(w, 403, "household membership required")
+		return
+	}
+	if !owner(p) {
+		jsonError(w, 403, "owner role required")
+		return
+	}
+	var in struct {
+		Name   *string `json:"name"`
+		Active *bool   `json:"active"`
+	}
+	if json.NewDecoder(r.Body).Decode(&in) != nil || (in.Name == nil && in.Active == nil) {
+		jsonError(w, 400, "category change is required")
+		return
+	}
+	if in.Name != nil {
+		value := strings.TrimSpace(*in.Name)
+		if value == "" {
+			jsonError(w, 400, "category name is required")
+			return
+		}
+		in.Name = &value
+	}
+	household := p.Memberships[0].HouseholdID
+	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
+	if err != nil {
+		jsonError(w, 500, "unable to update category")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var id string
+	err = tx.QueryRow(r.Context(), `UPDATE category SET name=COALESCE($3,name),active=COALESCE($4,active),updated_at=now() WHERE id=$1 AND household_id=$2 RETURNING id`, r.PathValue("id"), household, in.Name, in.Active).Scan(&id)
+	if err != nil {
+		jsonError(w, 404, "category not found")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'UPDATE','category',$3,jsonb_build_object('name',$4::text,'active',$5::boolean))`, household, p.UserID, id, in.Name, in.Active); err != nil || tx.Commit(r.Context()) != nil {
+		jsonError(w, 500, "unable to update category")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 func owner(p auth.Principal) bool { return p.Memberships[0].Role == "OWNER" }
 func oneOf(v string, xs ...string) bool {

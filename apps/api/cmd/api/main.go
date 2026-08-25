@@ -63,7 +63,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	insightHandler := insight.NewHandler(pool)
-	operationsHandler := operations.NewHandler(pool)
+	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "")
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
@@ -108,6 +108,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/transactions/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ConfirmTransaction)))
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
+	mux.Handle("GET /api/v1/transactions/{id}/audit", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Audit)))
 	mux.Handle("GET /api/v1/reviews", authHandler.RequireSession(http.HandlerFunc(reviewHandler.List)))
 	mux.Handle("POST /api/v1/reviews/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Confirm)))
 	mux.Handle("POST /api/v1/reviews/{id}/reject", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Reject)))
@@ -120,8 +121,10 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/documents/{id}/extraction", authHandler.RequireSession(http.HandlerFunc(documentHandler.Extraction)))
 	mux.Handle("GET /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("POST /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
+	mux.Handle("PATCH /api/v1/accounts/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchAccount)))
 	mux.Handle("GET /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
 	mux.Handle("POST /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
+	mux.Handle("PATCH /api/v1/categories/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchCategory)))
 	mux.Handle("GET /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))

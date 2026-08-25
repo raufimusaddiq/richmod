@@ -1,13 +1,13 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Family Finance",
-  description: "Household financial inbox",
+  title: "Richmod Family Finance",
+  description: "Keuangan household yang terverifikasi",
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="id">
       <body>{children}</body>
     </html>
   );
