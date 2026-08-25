@@ -16,6 +16,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
 )
@@ -47,6 +48,7 @@ func run(logger *slog.Logger) error {
 	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
 	analyticsHandler := analytics.NewHandler(pool)
 	ledgerHandler := ledger.NewHandler(pool)
+	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	var gmailHandler *gmail.Handler
@@ -84,6 +86,11 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/transactions/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ConfirmTransaction)))
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
+	mux.Handle("GET /api/v1/reviews", authHandler.RequireSession(http.HandlerFunc(reviewHandler.List)))
+	mux.Handle("POST /api/v1/reviews/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Confirm)))
+	mux.Handle("POST /api/v1/reviews/{id}/reject", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Reject)))
+	mux.Handle("POST /api/v1/reviews/{id}/merge", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Merge)))
+	mux.Handle("POST /api/v1/reconciliation-merges/{id}/reverse", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Unmerge)))
 	mux.Handle("GET /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("POST /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("GET /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
