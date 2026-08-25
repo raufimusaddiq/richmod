@@ -5,9 +5,17 @@ financial state; Go performs all financial mutations.
 
 ## Current phase
 
-The canonical ledger, owner bootstrap, authentication, and initial dashboard are
-implemented. The dashboard shows deterministic monthly IDR cashflow and recent
-transactions; external automation phases follow after the ledger foundation.
+The production baseline includes the canonical ledger, authentication, Gmail/Jago
+automation, Telegram text intake and review, generic financial-document intake,
+reconciliation, deterministic analytics, and aggregate-only LLM insights.
+
+Current delivery follows
+[`docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md):
+household onboarding and financial correctness first, followed by a routed web
+experience and a broader finance-scoped Telegram assistant. Budgeting remains a
+dormant backend capability, not part of the active product experience. Progress
+and verification evidence are maintained in
+[`docs/MVP_COMPLETION_CHECKLIST.md`](docs/MVP_COMPLETION_CHECKLIST.md).
 
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.
