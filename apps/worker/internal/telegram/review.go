@@ -77,6 +77,18 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
 	}
+	if transactionType == "INCOME" {
+		switch incomeReviewIntent(update.Message.Text) {
+		case "REJECT":
+			return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
+		case "CONFIRM":
+			value := reviewExtraction{Description: "Penghasilan dari bukti transaksi", Note: clean(update.Message.Text, 1000), Confidence: 1}
+			return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, "", update, value)
+		default:
+			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update,
+				"Balas dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk menolak.")
+		}
+	}
 
 	categories, err := p.categories(ctx, householdID)
 	if err != nil {
@@ -98,6 +110,39 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			"Kategorinya belum cukup jelas. Balas pesan ini dengan kategori atau tujuan, misalnya: belanja rumah tangga.")
 	}
 	return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, extracted)
+}
+
+func incomeReviewIntent(value string) string {
+	normalized := normalizeReviewText(value)
+	if strings.Contains(normalized, "transfer") || strings.Contains(normalized, "tolak") || strings.Contains(normalized, "bukan penghasilan") {
+		return "REJECT"
+	}
+	if normalized == "ya" || normalized == "konfirmasi" || strings.Contains(normalized, "penghasilan") {
+		return "CONFIRM"
+	}
+	return ""
+}
+
+func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var userID string
+	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'; UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id'); UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$2 AND status='OPEN'; UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$2`, transactionID, reviewID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1); UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$2; INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid)) ON CONFLICT DO NOTHING; INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($4,'TELEGRAM',$5,'REJECT_REVIEW','transaction',$1,jsonb_build_object('review_request_id',$3::uuid,'reason','own_transfer_or_not_income'))`, transactionID, sourceEventID, reviewID, householdID, userID); err != nil {
+		return err
+	}
+	if err := enqueueReply(ctx, tx, update, "Tidak dicatat sebagai penghasilan."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (p *Processor) extractReview(ctx context.Context, sourceEventID, text string, categories []categoryChoice) (reviewExtraction, error) {
@@ -177,7 +222,7 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' RETURNING merchant_id`, transactionID, categoryID, value.Description, value.Note).Scan(&merchantID); err != nil {
 		return fmt.Errorf("confirm reviewed transaction: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=COALESCE(NULLIF($2,'')::uuid,category_candidate_id),updated_at=now() WHERE source_event_id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1); UPDATE source_event SET processing_status='PROCESSED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, categoryID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=COALESCE(NULLIF($2,'')::uuid,category_candidate_id),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id'); UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, categoryID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'; UPDATE review_conversation SET state='RESOLVED',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, categoryID); err != nil {

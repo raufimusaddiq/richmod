@@ -114,6 +114,16 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			return err
 		}
 	}
+	if validated && result.DocumentType == "RECEIPT" {
+		if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_RECEIPT',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
+			return err
+		}
+	}
+	if validated && screenshotType(result.DocumentType) {
+		if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_TRANSACTION_SCREENSHOT',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 
