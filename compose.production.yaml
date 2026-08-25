@@ -1,4 +1,13 @@
 services:
+  db:
+    mem_limit: 1g
+    pids_limit: 256
+
+  migrate:
+    mem_limit: 256m
+    pids_limit: 128
+    security_opt: [no-new-privileges:true]
+
   api:
     ports: !reset []
     environment:
@@ -11,6 +20,9 @@ services:
       internal:
       caddy_public:
         aliases: [finance-api]
+    mem_limit: 768m
+    pids_limit: 256
+    security_opt: [no-new-privileges:true]
 
   web:
     ports: !reset []
@@ -18,6 +30,9 @@ services:
       edge:
       caddy_public:
         aliases: [finance-web]
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt: [no-new-privileges:true]
 
   worker:
     environment:
@@ -25,6 +40,19 @@ services:
     volumes:
       - /opt/family-finance/google-oauth-client.json:/run/secrets/google-oauth-client.json:ro
     networks: [internal, caddy_public]
+    mem_limit: 1g
+    pids_limit: 256
+    security_opt: [no-new-privileges:true]
+
+  backup:
+    volumes:
+      - /opt/family-finance/restic-password:/run/secrets/restic-password:ro
+      - backup_data:/repository
+      - attachment_data:/var/lib/finance/attachments:ro
+    networks: [internal, caddy_public]
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt: [no-new-privileges:true]
 
 networks:
   caddy_public:

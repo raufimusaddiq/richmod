@@ -73,6 +73,7 @@ func run(logger *slog.Logger) error {
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())
 
 	logger.Info("worker started", "worker_id", workerID)
+	go maintainHeartbeat(ctx, logger, pool, workerID)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	maintenanceTicker := time.NewTicker(time.Minute)
@@ -96,6 +97,26 @@ func run(logger *slog.Logger) error {
 					logger.Error("Gmail watch maintenance failed", "error", err)
 				}
 			}
+		}
+	}
+}
+
+func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, workerID string) {
+	startedAt := time.Now()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	_, _ = pool.Exec(ctx, `DELETE FROM worker_heartbeat WHERE last_seen_at<now()-interval '7 days'`)
+	for {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO worker_heartbeat(worker_id,started_at,last_seen_at)
+			VALUES($1,$2,now())
+			ON CONFLICT(worker_id) DO UPDATE SET last_seen_at=now(),updated_at=now()`, workerID, startedAt); err != nil && ctx.Err() == nil {
+			logger.Error("worker heartbeat failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

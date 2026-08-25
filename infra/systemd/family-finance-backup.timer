@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily family-finance backup timer
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Asia/Jakarta
+Persistent=true
+RandomizedDelaySec=15m
+Unit=family-finance-backup.service
+
+[Install]
+WantedBy=timers.target

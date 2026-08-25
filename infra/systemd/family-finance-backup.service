@@ -1,0 +1,10 @@
+[Unit]
+Description=Encrypted family-finance backup
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/richmod
+EnvironmentFile=/opt/family-finance/finance.env
+ExecStart=/usr/bin/docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml --profile operations run --rm backup
