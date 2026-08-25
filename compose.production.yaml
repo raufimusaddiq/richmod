@@ -3,6 +3,9 @@ services:
     ports: !reset []
     environment:
       WEB_ORIGIN: https://finance.investdx.biz.id
+      GMAIL_OAUTH_CLIENT_PATH: /run/secrets/google-oauth-client.json
+    volumes:
+      - /opt/family-finance/google-oauth-client.json:/run/secrets/google-oauth-client.json:ro
     networks:
       edge:
       internal:

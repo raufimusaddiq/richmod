@@ -15,6 +15,9 @@ type API struct {
 	LLMGatewayBaseURL     string
 	LLMGatewayAPIKey      string
 	TelegramWebhookSecret string
+	GmailOAuthClientPath  string
+	GmailMailbox          string
+	GmailTokenKey         string
 }
 
 func LoadAPI() (API, error) {
@@ -26,6 +29,9 @@ func LoadAPI() (API, error) {
 		LLMGatewayBaseURL:     os.Getenv("LLM_GATEWAY_BASE_URL"),
 		LLMGatewayAPIKey:      os.Getenv("LLM_GATEWAY_API_KEY"),
 		TelegramWebhookSecret: os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
+		GmailOAuthClientPath:  os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
+		GmailMailbox:          os.Getenv("GMAIL_MAILBOX"),
+		GmailTokenKey:         os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
 	}
 	if cfg.DatabaseURL == "" {
 		return API{}, fmt.Errorf("DATABASE_URL is required")
