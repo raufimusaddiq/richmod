@@ -425,6 +425,10 @@ Never hard-delete financial transactions.
 
 Corrections must be auditable.
 
+The HTTP API enforces explicit status transitions: `PENDING` or `NEEDS_REVIEW`
+may become `CONFIRMED`, while any non-voided transaction may become `VOIDED`.
+Every transition is household-scoped and audited; no endpoint hard-deletes it.
+
 ## 8.3 Core Transaction Fields
 
 Suggested fields:
