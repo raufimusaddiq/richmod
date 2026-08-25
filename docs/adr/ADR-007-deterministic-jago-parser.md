@@ -25,3 +25,9 @@ household-bound associated data before PostgreSQL storage.
 Pub/Sub push requests require a Google-signed OIDC bearer token with the exact
 configured audience and verified service-account email. Notifications are deduped
 by Pub/Sub message ID, preserved as evidence, and queued before acknowledgement.
+Notification evidence uses the `SYSTEM` source type; fetched Gmail messages use
+`BANK_EMAIL` and retain the Gmail message ID for idempotency. The worker refreshes
+the encrypted OAuth credential, walks `history.list`, fetches only added messages,
+and only parses the exact trusted sender. Learned merchant aliases are applied
+first; otherwise the cloud gateway may suggest an allowed category, with Go
+validating the slug and confidence before any automatic confirmation.

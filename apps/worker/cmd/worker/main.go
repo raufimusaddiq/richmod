@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	workerGmail "github.com/raufimusaddiq/richmod/apps/worker/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
@@ -47,6 +48,16 @@ func run(logger *slog.Logger) error {
 
 	llm := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT"))
 	processor := telegram.NewProcessor(pool, llm)
+	gmailProcessor, err := workerGmail.NewProcessor(pool, llm, workerGmail.Config{
+		OAuthClientPath: os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
+		TokenKeyHex:     os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
+		Mailbox:         os.Getenv("GMAIL_MAILBOX"),
+		TrustedSender:   os.Getenv("GMAIL_TRUSTED_SENDER"),
+		PubSubTopic:     os.Getenv("GMAIL_PUBSUB_TOPIC"),
+	})
+	if err != nil {
+		return fmt.Errorf("configure Gmail worker: %w", err)
+	}
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	jobs := queue.New(pool)
 	hostname, _ := os.Hostname()
@@ -55,25 +66,38 @@ func run(logger *slog.Logger) error {
 	logger.Info("worker started", "worker_id", workerID)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	maintenanceTicker := time.NewTicker(time.Minute)
+	defer maintenanceTicker.Stop()
+	if gmailProcessor != nil {
+		if err := gmailProcessor.SeedRenewalJobs(ctx); err != nil {
+			logger.Error("Gmail watch maintenance failed", "error", err)
+		}
+	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, bot, workerID); err != nil {
+		if err := processAvailable(ctx, logger, jobs, processor, gmailProcessor, bot, workerID); err != nil {
 			logger.Error("job polling failed", "error", err)
 		}
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+		case <-maintenanceTicker.C:
+			if gmailProcessor != nil {
+				if err := gmailProcessor.SeedRenewalJobs(ctx); err != nil {
+					logger.Error("Gmail watch maintenance failed", "error", err)
+				}
+			}
 		}
 	}
 }
 
-func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, bot *telegram.Bot, workerID string) error {
+func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, bot *telegram.Bot, workerID string) error {
 	for {
 		job, found, err := jobs.Claim(ctx, workerID)
 		if err != nil || !found {
 			return err
 		}
-		err = processJob(ctx, processor, bot, job)
+		err = processJob(ctx, processor, gmailProcessor, bot, job)
 		if err == nil {
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
@@ -87,7 +111,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 	}
 }
 
-func processJob(ctx context.Context, processor *telegram.Processor, bot *telegram.Bot, job queue.Job) error {
+func processJob(ctx context.Context, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, bot *telegram.Bot, job queue.Job) error {
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
 		payload, err := telegram.DecodeProcessPayload(job.Payload)
@@ -101,6 +125,24 @@ func processJob(ctx context.Context, processor *telegram.Processor, bot *telegra
 			return err
 		}
 		return bot.Send(ctx, payload)
+	case "PROCESS_GMAIL_HISTORY":
+		if gmailProcessor == nil {
+			return fmt.Errorf("Gmail worker is not configured")
+		}
+		payload, err := workerGmail.DecodeHistoryPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return gmailProcessor.ProcessHistory(ctx, payload)
+	case "RENEW_GMAIL_WATCH":
+		if gmailProcessor == nil {
+			return fmt.Errorf("Gmail worker is not configured")
+		}
+		payload, err := workerGmail.DecodeRenewPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return gmailProcessor.RenewWatch(ctx, payload.HouseholdID)
 	default:
 		return fmt.Errorf("unsupported job type %q", job.Type)
 	}
