@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerGmail "github.com/raufimusaddiq/richmod/apps/worker/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
@@ -48,6 +49,11 @@ func run(logger *slog.Logger) error {
 
 	llm := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT"))
 	processor := telegram.NewProcessor(pool, llm)
+	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION"))
+	documentProcessor, err := workerDocument.NewProcessor(pool, documentLLM, os.Getenv("DOCUMENT_STORAGE_PATH"))
+	if err != nil {
+		return fmt.Errorf("configure document worker: %w", err)
+	}
 	gmailProcessor, err := workerGmail.NewProcessor(pool, llm, workerGmail.Config{
 		OAuthClientPath: os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
 		TokenKeyHex:     os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
@@ -74,7 +80,7 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, gmailProcessor, bot, workerID); err != nil {
+		if err := processAvailable(ctx, logger, jobs, processor, gmailProcessor, documentProcessor, bot, workerID); err != nil {
 			logger.Error("job polling failed", "error", err)
 		}
 		select {
@@ -91,13 +97,13 @@ func run(logger *slog.Logger) error {
 	}
 }
 
-func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, bot *telegram.Bot, workerID string) error {
+func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, bot *telegram.Bot, workerID string) error {
 	for {
 		job, found, err := jobs.Claim(ctx, workerID)
 		if err != nil || !found {
 			return err
 		}
-		err = processJob(ctx, processor, gmailProcessor, bot, job)
+		err = processJob(ctx, processor, gmailProcessor, documentProcessor, bot, job)
 		if err == nil {
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
@@ -111,7 +117,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 	}
 }
 
-func processJob(ctx context.Context, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, bot *telegram.Bot, job queue.Job) error {
+func processJob(ctx context.Context, processor *telegram.Processor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, bot *telegram.Bot, job queue.Job) error {
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
 		payload, err := telegram.DecodeProcessPayload(job.Payload)
@@ -150,6 +156,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, gmailProcess
 			return err
 		}
 		return gmailProcessor.RenewWatch(ctx, payload.HouseholdID)
+	case "PROCESS_DOCUMENT":
+		payload, err := workerDocument.DecodePayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return documentProcessor.Process(ctx, payload.DocumentID)
 	default:
 		return fmt.Errorf("unsupported job type %q", job.Type)
 	}

@@ -20,6 +20,7 @@ type API struct {
 	GmailTokenKey             string
 	GmailPubSubAudience       string
 	GmailPubSubServiceAccount string
+	DocumentStoragePath       string
 }
 
 func LoadAPI() (API, error) {
@@ -36,6 +37,7 @@ func LoadAPI() (API, error) {
 		GmailTokenKey:             os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
 		GmailPubSubAudience:       os.Getenv("GMAIL_PUBSUB_AUDIENCE"),
 		GmailPubSubServiceAccount: os.Getenv("GMAIL_PUBSUB_SERVICE_ACCOUNT"),
+		DocumentStoragePath:       valueOr("DOCUMENT_STORAGE_PATH", "/var/lib/finance/attachments"),
 	}
 	if cfg.DatabaseURL == "" {
 		return API{}, fmt.Errorf("DATABASE_URL is required")

@@ -51,6 +51,9 @@ services:
       GMAIL_TOKEN_ENCRYPTION_KEY: ${GMAIL_TOKEN_ENCRYPTION_KEY:-}
       GMAIL_PUBSUB_AUDIENCE: ${GMAIL_PUBSUB_AUDIENCE:-}
       GMAIL_PUBSUB_SERVICE_ACCOUNT: ${GMAIL_PUBSUB_SERVICE_ACCOUNT:-}
+      DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+    volumes:
+      - attachment_data:/var/lib/finance/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -77,6 +80,10 @@ services:
       GMAIL_TOKEN_ENCRYPTION_KEY: ${GMAIL_TOKEN_ENCRYPTION_KEY:-}
       GMAIL_TRUSTED_SENDER: ${GMAIL_TRUSTED_SENDER:-}
       GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
+      DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+      LLM_MODEL_DOCUMENT_VISION: ${LLM_MODEL_DOCUMENT_VISION:-}
+    volumes:
+      - attachment_data:/var/lib/finance/attachments:ro
     depends_on:
       db:
         condition: service_healthy
@@ -106,3 +113,4 @@ networks:
 
 volumes:
   postgres_data:
+  attachment_data:
