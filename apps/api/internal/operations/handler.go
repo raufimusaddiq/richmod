@@ -9,9 +9,18 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-type Handler struct{ pool *pgxpool.Pool }
+type Handler struct {
+	pool              *pgxpool.Pool
+	gatewayConfigured bool
+}
 
-func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool} }
+func NewHandler(pool *pgxpool.Pool, gatewayConfigured ...bool) *Handler {
+	handler := &Handler{pool: pool}
+	if len(gatewayConfigured) > 0 {
+		handler.gatewayConfigured = gatewayConfigured[0]
+	}
+	return handler
+}
 
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
@@ -59,6 +68,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		"jobs":          map[string]int{"pending": pendingJobs, "running": runningJobs, "failed": failedJobs},
 		"reviewBacklog": openReviews,
 		"gmail":         map[string]any{"status": gmailStatus, "updatedAt": gmailUpdated},
+		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only"},
 		"checkedAt":     time.Now(),
 	})
 }

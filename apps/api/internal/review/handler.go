@@ -28,22 +28,23 @@ type candidate struct {
 }
 
 type item struct {
-	ID            string      `json:"id"`
-	Type          string      `json:"type"`
-	Amount        string      `json:"amount"`
-	Currency      string      `json:"currency"`
-	TransactionAt time.Time   `json:"transactionAt"`
-	Description   *string     `json:"description"`
-	Note          *string     `json:"note"`
-	CategoryID    *string     `json:"categoryId"`
-	AccountID     *string     `json:"accountId"`
-	CategoryName  *string     `json:"categoryName"`
-	MerchantName  *string     `json:"merchantName"`
-	Counterparty  *string     `json:"counterparty"`
-	SourceType    *string     `json:"sourceType"`
-	Confidence    *string     `json:"confidence"`
-	Reason        string      `json:"reason"`
-	Candidates    []candidate `json:"candidates"`
+	ID             string      `json:"id"`
+	Type           string      `json:"type"`
+	Amount         string      `json:"amount"`
+	Currency       string      `json:"currency"`
+	TransactionAt  time.Time   `json:"transactionAt"`
+	Description    *string     `json:"description"`
+	Note           *string     `json:"note"`
+	CategoryID     *string     `json:"categoryId"`
+	AccountID      *string     `json:"accountId"`
+	CategoryName   *string     `json:"categoryName"`
+	MerchantName   *string     `json:"merchantName"`
+	Counterparty   *string     `json:"counterparty"`
+	SourceType     *string     `json:"sourceType"`
+	Confidence     *string     `json:"confidence"`
+	ProposalStatus *string     `json:"proposalStatus"`
+	Reason         string      `json:"reason"`
+	Candidates     []candidate `json:"candidates"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +54,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
-		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text
+		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status
 		FROM transaction t
 		LEFT JOIN category c ON c.id=t.category_id
 		LEFT JOIN merchant m ON m.id=t.merchant_id
@@ -73,7 +74,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	items := make([]item, 0)
 	for rows.Next() {
 		var value item
-		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence); err != nil {
+		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence, &value.ProposalStatus); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 			return
 		}

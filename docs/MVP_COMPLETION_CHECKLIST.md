@@ -114,62 +114,62 @@ rule; [x] household isolation; [x] disabled rule stops auto-application.
 
 ### F. Budgeting dormant
 
-- [ ] Remove budget creation/utilization/fetching from active UI and navigation.
-- [ ] Keep existing backend/tables dormant; do not destructively migrate solely
+- [x] Remove budget creation/utilization/fetching from active UI and navigation.
+- [x] Keep existing backend/tables dormant; do not destructively migrate solely
   for alignment.
-- [ ] Docs describe budgeting as optional/future and a test verifies budget UI is
+- [x] Docs describe budgeting as optional/future and a test verifies budget UI is
   absent.
 
 ### G. Responsive app shell
 
-- [ ] Desktop and mobile navigation are usable across `/`, `/transactions`,
+- [x] Desktop and mobile navigation are usable across `/`, `/transactions`,
   `/analytics`, `/reviews`, `/documents`, `/household`, and `/settings`.
-- [ ] Auth/session behavior is consistent and route rendering is tested.
+- [x] Auth/session behavior is consistent and route rendering is tested.
 
 ### H. Overview
 
-- [ ] KPIs show monthly income, expense, net cashflow, and review count.
-- [ ] Prominent review action, category visualization, and linked recent
+- [x] KPIs show monthly income, expense, net cashflow, and review count.
+- [x] Prominent review action, category visualization, and linked recent
   transactions are present without budget utilization.
-- [ ] A responsive real chart renders 6–12 months of income, expense, and net with
+- [x] A responsive real chart renders 6–12 months of income, expense, and net with
   animation, tooltip, month labels, and IDR formatting.
-- [ ] Go/SQL owns all authoritative calculations.
+- [x] Go/SQL owns all authoritative calculations.
 
 ### I. Transactions
 
-- [ ] Full ledger shows date, description/merchant, category, member/source,
+- [x] Full ledger shows date, description/merchant, category, member/source,
   account, status, and amount.
-- [ ] Query-backed date/type/category/member/status/account/source/text filters work.
-- [ ] Detail exposes evidence, provenance, review state, and audit/corrections.
+- [x] Query-backed date/type/category/member/status/account/source/text filters work.
+- [x] Detail exposes evidence, provenance, review state, and audit/corrections.
 
 ### J. Analytics
 
-- [ ] Dedicated page shows cashflow, monthly spending, category, merchant, member,
+- [x] Dedicated page shows cashflow, monthly spending, category, merchant, member,
   and refund-adjusted analytics.
-- [ ] 3-, 6-, 12-month and custom ranges use deterministic APIs.
+- [x] 3-, 6-, 12-month and custom ranges use deterministic APIs.
 
 ### K. Review Inbox
 
-- [ ] Dedicated page shows reason, amount, counterparty, date, source, candidates,
+- [x] Dedicated page shows reason, amount, counterparty, date, source, candidates,
   and proposal/transaction state.
-- [ ] Valid actions include confirm, categorize, classify transfer, merge, reject,
+- [x] Valid actions include confirm, categorize, classify transfer, merge, reject,
   ignore, and open evidence against the shared review object.
 
 ### L. Documents
 
-- [ ] Page shows thumbnail, source, type, status, confidence, summary, links,
+- [x] Page shows thumbnail, source, type, status, confidence, summary, links,
   review state, and received date.
-- [ ] Payslip detail retains deductions as metadata; receipt detail shows totals,
+- [x] Payslip detail retains deductions as metadata; receipt detail shows totals,
   items, and matched transaction.
 
 ### M. Settings
 
-- [ ] Expose Accounts, Categories, Merchants, Integrations, and System status.
-- [ ] Manage Jago/known accounts; safe category hierarchy/lifecycle; transparent,
+- [x] Expose Accounts, Categories, Merchants, Integrations, and System status.
+- [x] Manage Jago/known accounts; safe category hierarchy/lifecycle; transparent,
   reversible merchant rules; Gmail/Telegram/sync/gateway state.
 
-Required web tests: [ ] routes render; [ ] budget UI absent; [ ] chart uses API;
-[ ] transaction filters; [ ] shared review action; [ ] household/Telegram state.
+Required web tests: [x] routes render; [x] budget UI absent; [x] chart uses API;
+[x] transaction filters; [x] shared review action; [x] household/Telegram state.
 
 ## P1 — Telegram finance assistant
 
@@ -202,11 +202,11 @@ Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
 ## Documentation and release gates
 
 - [x] Product Alignment v2 and this V2 checklist are tracked.
-- [ ] README/current docs stay synchronized after each cohesive merge.
-- [ ] Member onboarding, image intake, transfer classification, merchant opt-in,
+- [x] README/current docs stay synchronized after each cohesive merge.
+- [x] Member onboarding, image intake, transfer classification, merchant opt-in,
   and dormant budgeting are documented with relevant ADRs when implemented.
-- [ ] Schema changes are additive, migrated, and tested.
-- [ ] Each phase passes relevant Go tests and, when applicable, frontend build.
+- [x] Schema changes are additive, migrated, and tested.
+- [x] Each phase passes relevant Go tests and, when applicable, frontend build.
 - [ ] Final release passes full Go tests, frontend build, Compose validation,
   migrations, public smoke checks, and production state checks.
 - [ ] Each phase is committed, pushed, merged `--no-ff`, pushed to `main`, deployed
@@ -220,8 +220,8 @@ Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
 4. [x] Telegram image intake and generic pipeline wiring.
 5. [x] Jago outgoing-transfer semantics and known accounts.
 6. [x] Explicit merchant remember flow; remove implicit learning.
-7. [ ] Remove budgeting from active UI.
-8. [ ] Build the routed app shell and all V2 pages.
+7. [x] Remove budgeting from active UI.
+8. [x] Build the routed app shell and all V2 pages.
 9. [ ] Expand Telegram intents and inline actions.
 10. [ ] Apply P2 polish and run final release verification.
 
