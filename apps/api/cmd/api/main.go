@@ -12,6 +12,7 @@ import (
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/budget"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
@@ -48,6 +49,7 @@ func run(logger *slog.Logger) error {
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
 	analyticsHandler := analytics.NewHandler(pool)
+	budgetHandler := budget.NewHandler(pool)
 	ledgerHandler := ledger.NewHandler(pool)
 	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
@@ -108,6 +110,14 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
+	mux.Handle("GET /api/v1/analytics/spending", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Spending)))
+	mux.Handle("GET /api/v1/analytics/cashflow", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cashflow)))
+	mux.Handle("GET /api/v1/analytics/categories", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Categories)))
+	mux.Handle("GET /api/v1/analytics/merchants", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Merchants)))
+	mux.Handle("GET /api/v1/analytics/members", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Members)))
+	mux.Handle("GET /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.List)))
+	mux.Handle("POST /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Create)))
+	mux.Handle("PATCH /api/v1/budgets/{id}", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Patch)))
 	mux.HandleFunc("POST /webhooks/telegram", telegramHandler.Webhook)
 	if gmailHandler != nil {
 		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))

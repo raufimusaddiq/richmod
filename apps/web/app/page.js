@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 
 const rupiah = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
+const money = value => {
+  try { return rupiah.format(BigInt(value || "0")); } catch { return "Rp0"; }
+};
+const percent = value => `${Math.round(Number(value || 0) * 100)}%`;
 const reasonLabels = {
   AMBIGUOUS_CATEGORY: "Kategori belum pasti",
   POSSIBLE_DUPLICATE: "Kemungkinan transaksi ganda",
@@ -17,6 +21,11 @@ export default function Home() {
   const [reviews, setReviews] = useState([]);
   const [categories, setCategories] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [budgets, setBudgets] = useState([]);
+  const [cashflow, setCashflow] = useState([]);
+  const [categorySpending, setCategorySpending] = useState([]);
+  const [merchantSpending, setMerchantSpending] = useState([]);
+  const [memberSpending, setMemberSpending] = useState([]);
   const [error, setError] = useState("");
   const [working, setWorking] = useState("");
 
@@ -27,18 +36,28 @@ export default function Home() {
       return;
     }
     setUser(await me.json());
-    const [summary, ledger, reviewResponse, categoryResponse, documentResponse] = await Promise.all([
+    const [summary, ledger, reviewResponse, categoryResponse, documentResponse, budgetResponse, cashflowResponse, categoryAnalytics, merchantAnalytics, memberAnalytics] = await Promise.all([
       fetch("/api/v1/analytics/overview"),
       fetch("/api/v1/transactions"),
       fetch("/api/v1/reviews"),
       fetch("/api/v1/categories"),
       fetch("/api/v1/documents"),
+      fetch("/api/v1/budgets"),
+      fetch("/api/v1/analytics/cashflow"),
+      fetch("/api/v1/analytics/categories"),
+      fetch("/api/v1/analytics/merchants"),
+      fetch("/api/v1/analytics/members"),
     ]);
     if (summary.ok) setOverview(await summary.json());
     if (ledger.ok) setTransactions(await ledger.json());
     if (reviewResponse.ok) setReviews(await reviewResponse.json());
     if (categoryResponse.ok) setCategories(await categoryResponse.json());
     if (documentResponse.ok) setDocuments(await documentResponse.json());
+    if (budgetResponse.ok) setBudgets(await budgetResponse.json());
+    if (cashflowResponse.ok) setCashflow(await cashflowResponse.json());
+    if (categoryAnalytics.ok) setCategorySpending(await categoryAnalytics.json());
+    if (merchantAnalytics.ok) setMerchantSpending(await merchantAnalytics.json());
+    if (memberAnalytics.ok) setMemberSpending(await memberAnalytics.json());
   }
 
   useEffect(() => { load(); }, []);
@@ -93,17 +112,48 @@ export default function Home() {
     setWorking("");
   }
 
+  async function createBudget(event) {
+    event.preventDefault();
+    setWorking("budget");
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const response = await fetch("/api/v1/budgets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categoryId: form.get("categoryId"), monthlyAmount: form.get("monthlyAmount"), startMonth: overview?.period || "" }) });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      setError(result.error || "Anggaran belum dapat dibuat.");
+    } else {
+      event.currentTarget.reset();
+      await load();
+    }
+    setWorking("");
+  }
+
+  async function closeBudget(id) {
+    setWorking(id);
+    const response = await fetch(`/api/v1/budgets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: false }) });
+    if (!response.ok) setError("Anggaran belum dapat dinonaktifkan.");
+    else await load();
+    setWorking("");
+  }
+
   if (user === null) return <main className="center">Memuat…</main>;
   if (user === false) return <main className="login"><section><span className="eyebrow">FAMILY FINANCE</span><h1>Keuangan rumah tangga, tanpa tebakan.</h1><p>Masuk untuk melihat arus kas dan transaksi keluarga.</p><form onSubmit={login}><label>Email<input name="email" type="email" required /></label><label>Kata sandi<input name="password" type="password" required /></label>{error && <p className="error">{error}</p>}<button>Masuk</button></form></section></main>;
 
   const cards = overview ? [["Pemasukan", overview.income], ["Pengeluaran", overview.expense], ["Arus kas bersih", overview.netCashflow]] : [];
   return <main className="shell">
     <header><div><span className="eyebrow">FAMILY FINANCE</span><h1>Ringkasan {overview?.period || ""}</h1></div><div className="identity">{user.displayName}<small>GMT+7 · IDR</small></div></header>
-    <section className="cards">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{rupiah.format(Number(value))}</strong></article>)}<article><span>Perlu ditinjau</span><strong>{reviews.length}</strong></article></section>
+    <section className="cards">{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{money(value)}</strong></article>)}<article><span>Perlu ditinjau</span><strong>{reviews.length}</strong></article></section>
     {error && <p className="notice error">{error}</p>}
     <section className="panel document-panel"><div className="panel-title"><div><span className="eyebrow">DOKUMEN KEUANGAN</span><h2>Unggah satu gambar, biarkan sistem mengenalinya</h2></div><span>JPEG/PNG · maks. 10 MB</span></div><form className="upload-form" onSubmit={uploadDocument}><input name="file" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" required /><button disabled={working === "upload"}>{working === "upload" ? "Mengunggah…" : "Unggah & klasifikasikan"}</button></form>{documents.length > 0 && <div className="document-list">{documents.slice(0, 6).map(document => <a key={document.id} href={`/api/v1/documents/${document.id}/content`} target="_blank" rel="noreferrer"><b>{document.documentType || "Sedang diklasifikasikan"}</b><span>{document.width}×{document.height} · {document.status}</span></a>)}</div>}</section>
+    <section className="analytics-grid">
+      <AnalyticsPanel title="Arus kas 6 bulan" items={cashflow.map(item => ({ name: item.period, amount: item.netCashflow }))} />
+      <AnalyticsPanel title="Pengeluaran per kategori" items={categorySpending} />
+      <AnalyticsPanel title="Merchant teratas" items={merchantSpending} />
+      <AnalyticsPanel title="Kontribusi anggota" items={memberSpending} />
+    </section>
+    <section className="panel budget-panel"><div className="panel-title"><div><span className="eyebrow">ANGGARAN BULANAN</span><h2>Batas pengeluaran per kategori</h2></div><span>{budgets.length} aktif</span></div>{user.memberships?.[0]?.role === "OWNER" && <form className="budget-form" onSubmit={createBudget}><select name="categoryId" required defaultValue=""><option value="" disabled>Pilih kategori</option>{categories.filter(category => category.active).map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select><input name="monthlyAmount" inputMode="numeric" pattern="[0-9]+" placeholder="Batas IDR, contoh 2000000" required /><button disabled={working === "budget"}>Tambah anggaran</button></form>}<div className="budget-list">{budgets.map(item => <article key={item.id}><div><b>{item.categoryName}</b><small>{money(item.spent)} dari {money(item.monthlyAmount)}</small></div><div className="budget-meter"><i style={{ width: `${Math.min(100, Math.max(0, Number(item.utilization) * 100))}%` }} /></div><div><strong>{percent(item.utilization)}</strong>{user.memberships?.[0]?.role === "OWNER" && <button className="text-button" disabled={working === item.id} onClick={() => closeBudget(item.id)}>Nonaktifkan</button>}</div></article>)}{budgets.length === 0 && <p className="empty">Belum ada anggaran aktif.</p>}</div></section>
     {reviews.length > 0 && <section className="panel review-panel"><div className="panel-title"><div><span className="eyebrow">REVIEW INBOX</span><h2>Butuh keputusan Anda</h2></div><span>{reviews.length} item</span></div><div className="review-grid">{reviews.map(item => <ReviewCard key={item.id} item={item} categories={categories} disabled={working === item.id} action={reviewAction} />)}</div></section>}
-    <section className="panel"><div className="panel-title"><h2>Transaksi terbaru</h2><span>{transactions.length} tercatat</span></div><div className="transactions">{transactions.slice(0, 12).map(item => <div className="row" key={item.id}><div><b>{item.description || (item.type === "INCOME" ? "Pemasukan" : "Pengeluaran")}</b><small>{new Date(item.transactionAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}</small></div><div className={item.type === "INCOME" ? "positive" : "negative"}>{item.type === "INCOME" ? "+" : "−"}{rupiah.format(Number(item.amount))}<small>{item.status}</small></div></div>)}{transactions.length === 0 && <p className="empty">Belum ada transaksi.</p>}</div></section>
+    <section className="panel"><div className="panel-title"><h2>Transaksi terbaru</h2><span>{transactions.length} tercatat</span></div><div className="transactions">{transactions.slice(0, 12).map(item => <div className="row" key={item.id}><div><b>{item.description || (item.type === "INCOME" ? "Pemasukan" : "Pengeluaran")}</b><small>{new Date(item.transactionAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}</small></div><div className={item.type === "INCOME" ? "positive" : "negative"}>{item.type === "INCOME" ? "+" : "−"}{money(item.amount)}<small>{item.status}</small></div></div>)}{transactions.length === 0 && <p className="empty">Belum ada transaksi.</p>}</div></section>
   </main>;
 }
 
@@ -114,7 +164,7 @@ function ReviewCard({ item, categories, disabled, action }) {
     action(item.id, "confirm", { categoryId: form.get("categoryId") || null, note: form.get("note") || null });
   }
   return <article className="review-card">
-    <div className="review-heading"><span className="review-reason">{reasonLabels[item.reason] || item.reason}</span><strong>{rupiah.format(Number(item.amount))}</strong></div>
+    <div className="review-heading"><span className="review-reason">{reasonLabels[item.reason] || item.reason}</span><strong>{money(item.amount)}</strong></div>
     <h3>{item.merchantName || item.counterparty || item.description || "Transaksi tanpa keterangan"}</h3>
     <p>{new Date(item.transactionAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} · {item.sourceType || "INPUT"}</p>
     {item.candidates?.length > 0 && <div className="candidates"><b>Kemungkinan sama dengan:</b>{item.candidates.map(candidate => <button className="candidate" type="button" disabled={disabled} key={candidate.id} onClick={() => action(item.id, "merge", { targetTransactionId: candidate.id })}><span>{candidate.description || "Transaksi sebelumnya"}</span><span>{Math.round(candidate.score * 100)}% cocok</span></button>)}</div>}
@@ -124,4 +174,10 @@ function ReviewCard({ item, categories, disabled, action }) {
       <div className="review-actions"><button disabled={disabled}>{disabled ? "Memproses…" : "Konfirmasi"}</button><button className="danger" type="button" disabled={disabled} onClick={() => { if (window.confirm("Abaikan transaksi ini? Bukti tetap disimpan.")) action(item.id, "reject"); }}>Abaikan</button></div>
     </form>
   </article>;
+}
+
+function AnalyticsPanel({ title, items }) {
+  const positive = items.filter(item => BigInt(item.amount || "0") > 0n);
+  const max = positive.reduce((current, item) => BigInt(item.amount) > current ? BigInt(item.amount) : current, 0n);
+  return <section className="panel mini-panel"><div className="panel-title"><h2>{title}</h2></div><div className="rank-list">{items.slice(0, 6).map((item, index) => { const amount = BigInt(item.amount || "0"); const width = max > 0n && amount > 0n ? Number((amount * 100n) / max) : 0; return <div key={item.id || `${item.name}-${index}`}><span>{item.name}</span><b>{money(item.amount)}</b><i style={{ width: `${width}%` }} /></div>; })}{items.length === 0 && <p className="empty">Belum ada data bulan ini.</p>}</div></section>;
 }
