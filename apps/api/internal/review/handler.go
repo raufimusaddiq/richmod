@@ -58,11 +58,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN category c ON c.id=t.category_id
 		LEFT JOIN merchant m ON m.id=t.merchant_id
 		LEFT JOIN LATERAL (
-			SELECT te.source_event_id FROM transaction_evidence te
+			SELECT te.source_event_id,te.metadata_json FROM transaction_evidence te
 			WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1
 		) evidence ON true
 		LEFT JOIN source_event s ON s.id=evidence.source_event_id
-		LEFT JOIN transaction_proposal p ON p.source_event_id=s.id
+		LEFT JOIN transaction_proposal p ON p.id=NULLIF(evidence.metadata_json->>'proposal_id','')::uuid
 		WHERE t.household_id=$1 AND t.status='NEEDS_REVIEW'
 		ORDER BY t.transaction_at DESC,t.id DESC LIMIT 100`, household)
 	if err != nil {
@@ -208,11 +208,11 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE source_event_id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id, categoryID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, categoryID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='PROCESSED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
@@ -251,7 +251,7 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE source_event_id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1); UPDATE source_event SET processing_status='IGNORED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id'); UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
 		return
 	}
@@ -344,7 +344,7 @@ func (h *Handler) Merge(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1; UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE source_event_id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, r.PathValue("id"), input.TargetTransactionID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1; UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id'); UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, r.PathValue("id"), input.TargetTransactionID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to merge review"})
 		return
 	}
@@ -376,7 +376,7 @@ func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "active merge not found"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `DELETE FROM transaction_evidence WHERE id IN (SELECT copied_evidence_id FROM reconciliation_merge_evidence WHERE merge_id=$1); UPDATE transaction SET status='NEEDS_REVIEW',confirmed_at=NULL,voided_at=NULL,updated_at=now() WHERE id=$2; UPDATE transaction_proposal SET proposal_status='NEEDS_REVIEW',metadata_json=metadata_json-'merged_into',updated_at=now() WHERE source_event_id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$2)`, mergeID, sourceID); err != nil {
+	if _, err := tx.Exec(r.Context(), `DELETE FROM transaction_evidence WHERE id IN (SELECT copied_evidence_id FROM reconciliation_merge_evidence WHERE merge_id=$1); UPDATE transaction SET status='NEEDS_REVIEW',confirmed_at=NULL,voided_at=NULL,updated_at=now() WHERE id=$2; UPDATE transaction_proposal SET proposal_status='NEEDS_REVIEW',metadata_json=metadata_json-'merged_into',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$2 AND metadata_json ? 'proposal_id'); UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$2)`, mergeID, sourceID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}

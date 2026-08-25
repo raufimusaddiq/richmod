@@ -47,3 +47,15 @@ func TestReviewQuestionUsesIndonesianIDRFormat(t *testing.T) {
 		t.Fatalf("question = %q", got)
 	}
 }
+
+func TestIncomeReviewIntentIsDeterministic(t *testing.T) {
+	if got := incomeReviewIntent("ini transfer sendiri"); got != "REJECT" {
+		t.Fatalf("expected rejection, got %q", got)
+	}
+	if got := incomeReviewIntent("ya, ini penghasilan"); got != "CONFIRM" {
+		t.Fatalf("expected confirmation, got %q", got)
+	}
+	if got := incomeReviewIntent("mungkin dari teman"); got != "" {
+		t.Fatalf("ambiguous reply must remain open, got %q", got)
+	}
+}
