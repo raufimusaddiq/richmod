@@ -59,3 +59,12 @@ func TestIncomeReviewIntentIsDeterministic(t *testing.T) {
 		t.Fatalf("ambiguous reply must remain open, got %q", got)
 	}
 }
+
+func TestTransferReviewIntentIsDeterministic(t *testing.T) {
+	tests := map[string]string{"rekeningku sendiri": "OWN_ACCOUNT", "transfer ke istri": "HOUSEHOLD_ACCOUNT", "masuk RDN investasi": "INVESTMENT_ACCOUNT", "abaikan saja": "IGNORE", "buat bayar tukang renovasi": "EXPENSE", "tidak yakin": ""}
+	for input, want := range tests {
+		if got := transferReviewIntent(input); got != want {
+			t.Fatalf("%q = %q, want %q", input, got, want)
+		}
+	}
+}

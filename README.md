@@ -28,6 +28,11 @@ validation, normalized into the generic finance-document pipeline, and then
 classified as a payslip, receipt, screenshot, transfer proof, invoice, or other
 supported document. A caption is context metadata, never mutation authority.
 
+Bank Jago outgoing transfers remain neutral and absent from spending totals until
+classified. Masked known-account hints can resolve owned/household destinations
+to TRANSFER and investment destinations to non-spending. Unknown destinations are
+resolved through the same Review Inbox object on web or Telegram.
+
 All finance calendar logic and database sessions operate in `Asia/Jakarta`
 (GMT+7), while persisted instants use `TIMESTAMPTZ`.
 
