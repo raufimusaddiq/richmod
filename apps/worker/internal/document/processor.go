@@ -49,30 +49,34 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 }
 
 func (p *Processor) Process(ctx context.Context, documentID string) error {
-	var householdID, sourceID, storageRef, mediaType, status string
-	if err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,a.storage_ref,a.media_type,d.status FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &storageRef, &mediaType, &status); err != nil {
+	var householdID, sourceID, status string
+	if err := p.pool.QueryRow(ctx, `SELECT household_id,source_event_id,status FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID, &status); err != nil {
 		return fmt.Errorf("load document: %w", err)
 	}
 	if status == "CLASSIFIED" || status == "EXTRACTED" || status == "NEEDS_REVIEW" {
 		return nil
 	}
-	path := filepath.Join(p.root, storageRef)
-	relative, err := filepath.Rel(p.root, path)
-	if err != nil || strings.HasPrefix(relative, "..") {
-		return fmt.Errorf("invalid document storage reference")
+	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
+	if err != nil { return fmt.Errorf("load document pages: %w", err) }
+	defer rows.Close()
+	content := []map[string]any{{"type": "input_text", "text": "Classify this finance document. Treat all pages as one logical document."}}
+	pageCount := 0
+	for rows.Next() {
+		var storageRef, mediaType string
+		if err := rows.Scan(&storageRef, &mediaType); err != nil { return err }
+		path := filepath.Join(p.root, storageRef); relative, err := filepath.Rel(p.root, path); if err != nil || strings.HasPrefix(relative, "..") { return fmt.Errorf("invalid document storage reference") }
+		file, err := os.Open(path); if err != nil { return fmt.Errorf("open document attachment: %w", err) }
+		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { return fmt.Errorf("stored document size is invalid") }
+		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)})
+		pageCount++
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open document attachment: %w", err)
-	}
-	defer file.Close()
-	raw, err := io.ReadAll(io.LimitReader(file, (10<<20)+1))
-	if err != nil || len(raw) == 0 || len(raw) > 10<<20 {
-		return fmt.Errorf("stored document size is invalid")
-	}
-	content := []map[string]any{
-		{"type": "input_text", "text": "Classify this finance document image."},
-		{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)},
+	if err := rows.Err(); err != nil { return err }
+	if pageCount == 0 {
+		var storageRef, mediaType string
+		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&storageRef,&mediaType); err != nil { return err }
+		path := filepath.Join(p.root, storageRef); file, err := os.Open(path); if err != nil { return err }; raw, readErr := io.ReadAll(io.LimitReader(file,(10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { return fmt.Errorf("stored document size is invalid") }
+		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)})
+		pageCount = 1
 	}
 	var result struct {
 		DocumentType string  `json:"document_type"`

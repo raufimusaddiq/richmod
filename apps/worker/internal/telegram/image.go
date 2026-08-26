@@ -99,6 +99,7 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 	if err = tx.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status) VALUES($1,$2,$3,'RECEIVED') ON CONFLICT(source_event_id) DO UPDATE SET source_event_id=excluded.source_event_id RETURNING id`, householdID, input.SourceEventID, attachmentID).Scan(&documentID); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,0) ON CONFLICT DO NOTHING`, documentID, input.SourceEventID, attachmentID); err != nil { return err }
 	metadata, _ := json.Marshal(map[string]any{"media_type": media, "byte_size": len(normalized), "width": width, "height": height, "caption": input.Caption, "telegram_user_id": input.TelegramUserID})
 	if _, err = tx.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json || $2::jsonb WHERE source_event_id=$1`, input.SourceEventID, string(metadata)); err != nil {
 		return err
