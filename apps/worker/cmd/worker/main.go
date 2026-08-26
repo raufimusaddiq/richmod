@@ -94,8 +94,12 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "DEFAULT"); err != nil { logger.Error("job polling failed", "error", err) }
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "BACKGROUND"); err != nil { logger.Error("job polling failed", "error", err) }
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "DEFAULT"); err != nil {
+			logger.Error("job polling failed", "error", err)
+		}
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "BACKGROUND"); err != nil {
+			logger.Error("job polling failed", "error", err)
+		}
 		select {
 		case <-ctx.Done():
 			return nil
@@ -145,7 +149,6 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
-
 func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string) error {
 	processed := 0
 	for {
@@ -165,7 +168,9 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 		if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
 			return fmt.Errorf("reschedule job: %w", finishErr)
 		}
-		if processed >= 25 { return nil }
+		if processed >= 25 {
+			return nil
+		}
 	}
 }
 
@@ -173,14 +178,22 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 	switch job.Type {
 	case "PROCESS_TELEGRAM_CALLBACK":
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)
-		if err != nil { return err }
-		return processor.Process(ctx, payload.SourceEventID)
+		if err != nil {
+			return err
+		}
+		if err := processor.Process(ctx, payload.SourceEventID); err != nil {
+			return err
+		}
+		return processor.EnsureSourceEventFinal(ctx, payload.SourceEventID)
 	case "PROCESS_TELEGRAM_TEXT":
 		payload, err := telegram.DecodeProcessPayload(job.Payload)
 		if err != nil {
 			return err
 		}
-		return processor.Process(ctx, payload.SourceEventID)
+		if err := processor.Process(ctx, payload.SourceEventID); err != nil {
+			return err
+		}
+		return processor.EnsureSourceEventFinal(ctx, payload.SourceEventID)
 	case "FETCH_TELEGRAM_IMAGE":
 		payload, err := telegram.DecodeImagePayload(job.Payload)
 		if err != nil {
@@ -207,12 +220,16 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		return nil
 	case "EDIT_TELEGRAM_MESSAGE":
 		payload, err := telegram.DecodeEditPayload(job.Payload)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		if err := bot.Edit(ctx, payload); err != nil {
 			// Financial state is already committed; send a repair notification instead
 			// of retrying the mutation.
 			_, sendErr := bot.Send(ctx, telegram.SendPayload{ChatID: payload.ChatID, Text: payload.Text})
-			if sendErr != nil { return fmt.Errorf("edit Telegram message: %v; fallback send: %w", err, sendErr) }
+			if sendErr != nil {
+				return fmt.Errorf("edit Telegram message: %v; fallback send: %w", err, sendErr)
+			}
 		}
 		return nil
 	case "PROCESS_GMAIL_HISTORY":

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,12 +30,12 @@ type CaptureInput struct {
 
 type ImageInput struct {
 	CaptureInput
-	FileID   string
-	FileName string
-	MIMEType string
-	Caption  string
+	FileID       string
+	FileName     string
+	MIMEType     string
+	Caption      string
 	MediaGroupID string
-	MessageID int64
+	MessageID    int64
 }
 
 type Store interface {
@@ -48,18 +49,29 @@ type callbackStore interface {
 }
 
 type Handler struct {
-	store  Store
-	secret string
+	store    Store
+	secret   string
 	botToken string
 }
 
 func NewHandler(store Store, secret string, botToken ...string) *Handler {
 	token := ""
-	if len(botToken) > 0 { token = botToken[0] }
+	if len(botToken) > 0 {
+		token = botToken[0]
+	}
 	return &Handler{store: store, secret: secret, botToken: token}
 }
 
 func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
+	webhookStarted := time.Now()
+	callback := false
+	defer func() {
+		// Structured logs provide callback latency observability without exposing
+		// message contents or Telegram credentials.
+		if callback {
+			slog.Default().Info("telegram callback webhook", "latency_ms", time.Since(webhookStarted).Milliseconds())
+		}
+	}()
 	if h.secret == "" {
 		http.Error(w, "telegram integration unavailable", http.StatusServiceUnavailable)
 		return
@@ -78,11 +90,11 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	var update struct {
 		UpdateID int64 `json:"update_id"`
 		Message  *struct {
-			MessageID int64  `json:"message_id"`
-			Text      string `json:"text"`
-			Caption   string `json:"caption"`
+			MessageID    int64  `json:"message_id"`
+			Text         string `json:"text"`
+			Caption      string `json:"caption"`
 			MediaGroupID string `json:"media_group_id"`
-			Photo     []struct {
+			Photo        []struct {
 				FileID string `json:"file_id"`
 				Width  int    `json:"width"`
 				Height int    `json:"height"`
@@ -119,6 +131,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if update.CallbackQuery != nil {
+		callback = true
 		if update.CallbackQuery.From.ID == 0 || update.CallbackQuery.Message == nil || update.CallbackQuery.Message.Chat.Type != "private" || !validCallbackAction(update.CallbackQuery.Data) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -193,15 +206,23 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func answerCallback(ctx context.Context, token, callbackID string) error {
-	if token == "" || callbackID == "" { return nil }
+	if token == "" || callbackID == "" {
+		return nil
+	}
 	body := strings.NewReader(`{"callback_query_id":"` + strings.ReplaceAll(callbackID, `"`, ``) + `"}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/answerCallbackQuery", body)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 { return fmt.Errorf("Telegram callback ACK returned HTTP %d", resp.StatusCode) }
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Telegram callback ACK returned HTTP %d", resp.StatusCode)
+	}
 	return nil
 }
 
@@ -293,19 +314,37 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 // CaptureCallback durably records a validated inline action without routing it
 // through the general text/LLM pipeline.
 func (s *PostgreSQLStore) CaptureCallback(ctx context.Context, input CaptureInput, callbackID string, chatID, messageID int64) (bool, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{}); if err != nil { return false, err }
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
 	defer tx.Rollback(ctx)
 	var householdID string
 	if err := tx.QueryRow(ctx, `SELECT household_id FROM telegram_identity WHERE telegram_user_id=$1 AND active`, input.TelegramUserID).Scan(&householdID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) { return false, ErrUnauthorized }; return false, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, ErrUnauthorized
+		}
+		return false, err
 	}
 	hash := sha256.Sum256(input.RawPayload)
 	var sourceID string
-	err = tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') ON CONFLICT DO NOTHING RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID,10), hash[:]).Scan(&sourceID)
-	if errors.Is(err, pgx.ErrNoRows) { return false, nil }; if err != nil { return false, err }
-	if _, err = tx.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(input.RawPayload)); err != nil { return false, err }
-	if _, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('PROCESS_TELEGRAM_CALLBACK','INTERACTIVE',jsonb_build_object('source_event_id',$1::uuid,'callback_id',$2::text,'chat_id',$3::bigint,'message_id',$4::bigint))`, sourceID, callbackID, chatID, messageID); err != nil { return false, err }
-	if err = tx.Commit(ctx); err != nil { return false, err }; return true, nil
+	err = tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') ON CONFLICT DO NOTHING RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), hash[:]).Scan(&sourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(input.RawPayload)); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('PROCESS_TELEGRAM_CALLBACK','INTERACTIVE',jsonb_build_object('source_event_id',$1::uuid,'callback_id',$2::text,'chat_id',$3::bigint,'message_id',$4::bigint))`, sourceID, callbackID, chatID, messageID); err != nil {
+		return false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *PostgreSQLStore) CaptureImage(ctx context.Context, input ImageInput) (bool, error) {
