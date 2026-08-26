@@ -13,6 +13,7 @@ func TestValidateExtractionUsesWholeIDRAndJakartaYesterday(t *testing.T) {
 	category := "makan-di-luar"
 
 	validated, err := validateExtraction(extraction{
+		Language: "id",
 		Intent:             "ADD_EXPENSE",
 		Amount:             &amount,
 		Currency:           &currency,
@@ -48,6 +49,7 @@ func TestValidateExtractionRejectsNonIDRAndFractionalAmount(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := validateExtraction(extraction{
+				Language: "id",
 				Intent: "ADD_EXPENSE", Amount: &test.amount, Currency: &test.currency,
 				Confidence: 0.9, CategoryConfidence: 0.9,
 			}, now)
@@ -67,6 +69,14 @@ func TestExtractionSchemaRequiresEveryFieldAndRejectsExtras(t *testing.T) {
 	required := schema["required"].([]string)
 	if len(required) != len(properties) {
 		t.Fatalf("required fields = %d, properties = %d", len(required), len(properties))
+	}
+}
+
+func TestValidateExtractionRejectsUnsupportedLanguage(t *testing.T) {
+	amount, currency := "1000", "IDR"
+	_, err := validateExtraction(extraction{Language: "fr", Intent: "ADD_EXPENSE", Amount: &amount, Currency: &currency}, time.Now().In(jakartaLocation()))
+	if err == nil {
+		t.Fatal("accepted unsupported language")
 	}
 }
 
