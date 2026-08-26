@@ -88,6 +88,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [~] Cycle-aware foundation shipped: authenticated `GET /api/v1/analytics/cycle`
   resolves the current confirmed primary-salary cycle in Asia/Jakarta and
   explicitly falls back to the calendar month when salary setup is absent.
+- [x] Ringkasan KPIs now use the active confirmed salary cycle when configured;
+  Analisis provides explicit Siklus Gaji/Kalender period controls.
 - [ ] Indonesian copy and chart/UI polish.
 - [~] Indonesian copy and chart/UI polish. Primary navigation and document
   intake/detail copy now use Indonesian terminology.
