@@ -83,6 +83,9 @@ func run(logger *slog.Logger) error {
 	maintenanceTicker := time.NewTicker(time.Minute)
 	defer maintenanceTicker.Stop()
 	if gmailProcessor != nil {
+		if err := gmailProcessor.RecoverUnpersisted(ctx); err != nil {
+			logger.Error("recover Gmail source events", "error", err)
+		}
 		if err := gmailProcessor.SeedRenewalJobs(ctx); err != nil {
 			logger.Error("Gmail watch maintenance failed", "error", err)
 		}
