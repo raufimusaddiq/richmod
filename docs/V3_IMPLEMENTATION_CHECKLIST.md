@@ -82,7 +82,9 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   salary-source selection and cycle-aware consumers remain in the next slice.
 - [x] Confirming a document-backed Telegram review atomically marks the linked
   document `EXTRACTED`, preventing stale `NEEDS_REVIEW` document records.
-- [ ] Cycle-aware web, Telegram, and insights behavior.
+- [~] Cycle-aware web, Telegram, and insights behavior. Ringkasan now displays
+  the resolved active salary cycle (or calendar fallback); Telegram and
+  insight consumers remain scheduled.
 - [~] Cycle-aware foundation shipped: authenticated `GET /api/v1/analytics/cycle`
   resolves the current confirmed primary-salary cycle in Asia/Jakarta and
   explicitly falls back to the calendar month when salary setup is absent.
