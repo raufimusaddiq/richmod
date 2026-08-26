@@ -266,7 +266,7 @@ func parseJakartaTime(value string) (time.Time, error) {
 	for indonesia, english := range months {
 		normalized = strings.ReplaceAll(normalized, indonesia, english)
 	}
-	for _, layout := range []string{"2 January 2006, 15:04", "02 January 2006, 15:04", "02/01/2006 15:04", "02-01-2006 15:04"} {
+	for _, layout := range []string{"2 January 2006, 15:04", "02 January 2006, 15:04", "2 January 2006 15:04", "02 January 2006 15:04", "02/01/2006 15:04", "02-01-2006 15:04"} {
 		if parsed, err := time.ParseInLocation(layout, normalized, location); err == nil {
 			return parsed, nil
 		}
