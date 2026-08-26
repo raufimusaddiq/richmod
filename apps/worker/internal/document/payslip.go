@@ -105,12 +105,61 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	if err != nil {
 		return err
 	}
+	// Telegram captions are user-provided evidence. When the payslip image does
+	// not contain a pay date, a deterministic caption date is safer than falling
+	// back to the payroll-period end (which can be several days late).
+	if result.PayDate == nil && sourceID != "" {
+		if captionDate, captionErr := p.captionPayDate(ctx, sourceID); captionErr != nil {
+			return captionErr
+		} else if captionDate != nil {
+			result.PayDate = captionDate
+		}
+	}
 	transactionAt, arithmeticOK, err := validatePayslip(result)
 	if err != nil {
 		return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, err)
 	}
 	autoConfirm := result.Confidence >= 0.95 && result.PayDate != nil && arithmeticOK
 	return p.persistPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, transactionAt, autoConfirm, arithmeticOK)
+}
+
+var captionPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
+
+// captionPayDate extracts an explicit Indonesian/English date from the
+// originating Telegram caption. It intentionally requires a date keyword so
+// arbitrary caption text cannot silently become financial state.
+func (p *Processor) captionPayDate(ctx context.Context, sourceID string) (*string, error) {
+	var caption string
+	err := p.pool.QueryRow(ctx, `SELECT COALESCE(payload_json->>'caption','') FROM source_event_payload WHERE source_event_id=$1`, sourceID).Scan(&caption)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	m := captionPayDatePattern.FindStringSubmatch(strings.TrimSpace(caption))
+	if len(m) != 4 {
+		return nil, nil
+	}
+	months := map[string]time.Month{
+		"januari": 1, "februari": 2, "maret": 3, "april": 4, "mei": 5, "juni": 6, "juli": 7, "agustus": 8, "september": 9, "oktober": 10, "november": 11, "desember": 12,
+		"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6, "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+	}
+	month, ok := months[strings.ToLower(m[2])]
+	if !ok {
+		return nil, nil
+	}
+	day, errDay := strconv.Atoi(m[1])
+	year, errYear := strconv.Atoi(m[3])
+	if errDay != nil || errYear != nil || day < 1 || day > 31 || year < 2000 || year > 2100 {
+		return nil, nil
+	}
+	date := time.Date(year, month, day, 0, 0, 0, 0, jakarta())
+	if date.Day() != day || date.Month() != month || date.Year() != year {
+		return nil, nil
+	}
+	value := date.Format("2006-01-02")
+	return &value, nil
 }
 
 func validatePayslip(value payslipExtraction) (time.Time, bool, error) {
