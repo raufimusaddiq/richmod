@@ -139,9 +139,14 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if err != nil {
 		return err
 	}
+	conversation, err := p.recentConversation(ctx, householdID, update.Message.Chat.ID, sourceEventID)
+	if err != nil {
+		return err
+	}
 	now := p.now().In(jakartaLocation())
 	content := map[string]any{
 		"untrusted_user_message":   "<untrusted_user_message>" + text + "</untrusted_user_message>",
+		"untrusted_recent_context": conversation,
 		"current_jakarta_datetime": now.Format(time.RFC3339),
 		"allowed_category_slugs":   categories,
 		"supported_languages":      []string{"id", "en"},
@@ -168,6 +173,33 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Transaksinya belum cukup jelas. Mohon kirim jenis dan nominal, misalnya: makan 50rb.")
 	}
 	return p.persistTransaction(ctx, sourceEventID, householdID, update, validated, metadata)
+}
+
+// recentConversation supplies a small, bounded context window for references
+// such as “yang tadi”. Historical messages remain untrusted data and are
+// excluded from the current event to avoid self-referential prompt input.
+func (p *Processor) recentConversation(ctx context.Context, householdID string, chatID int64, currentSourceID string) ([]string, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT left(COALESCE(payload_json->'message'->>'text',payload_json->'message'->>'caption',''),500)
+		FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id
+		WHERE s.household_id=$1 AND s.source_type='TELEGRAM_TEXT' AND s.id<>$2
+		  AND COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0)=$3
+		ORDER BY s.received_at DESC LIMIT 6`, householdID, currentSourceID, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("load Telegram conversation context: %w", err)
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var message string
+		if err := rows.Scan(&message); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(message) != "" {
+			result = append(result, "<untrusted_context_message>"+message+"</untrusted_context_message>")
+		}
+	}
+	return result, rows.Err()
 }
 
 type validatedExtraction struct {
