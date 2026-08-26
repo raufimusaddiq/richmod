@@ -41,7 +41,9 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
 	if result.RowsAffected() == 1 {
-		if _, err := p.pool.Exec(ctx, `UPDATE review_request SET status='OPEN' WHERE id=$1 AND status='PENDING_SEND'`, reviewRequestID); err != nil { return fmt.Errorf("open Telegram review request: %w", err) }
+		if _, err := p.pool.Exec(ctx, `UPDATE review_request SET status='OPEN' WHERE id=$1 AND status='PENDING_SEND'`, reviewRequestID); err != nil {
+			return fmt.Errorf("open Telegram review request: %w", err)
+		}
 	}
 	if result.RowsAffected() != 1 {
 		var status string
@@ -441,15 +443,31 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 		LEFT JOIN review_item ri ON ri.id=r.review_item_id
 		WHERE ti.active
 		ORDER BY CASE WHEN ti.user_id=ri.preferred_user_id THEN 0 WHEN hm.role='OWNER' THEN 1 ELSE 2 END, ti.created_at`, reviewID)
-	if err != nil { return err }
-	defer rows.Close()
+	if err != nil {
+		return err
+	}
+	var recipients []int64
 	for rows.Next() {
 		var recipient int64
-		if err := rows.Scan(&recipient); err != nil { return err }
-		if _, err := tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, reviewID, recipient); err != nil { return err }
-		if err := enqueueReviewMessageWithMarkup(ctx, tx, reviewID, recipient, replyTo, message, markup); err != nil { return err }
+		if err := rows.Scan(&recipient); err != nil {
+			return err
+		}
+		recipients = append(recipients, recipient)
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, recipient := range recipients {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, reviewID, recipient); err != nil {
+			return err
+		}
+		if err := enqueueReviewMessageWithMarkup(ctx, tx, reviewID, recipient, replyTo, message, markup); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {
