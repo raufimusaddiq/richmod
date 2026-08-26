@@ -38,6 +38,13 @@ test("ledger request failures are recoverable instead of leaving the page loadin
   assert.match(text("app/components/useAuth.js"), /catch\(unavailable\)/);
 });
 
+test("authenticated app shells are not cached across deployments", () => {
+  const source = text("next.config.mjs");
+  assert.match(source, /Cache-Control/);
+  assert.match(source, /no-store/);
+  assert.match(source, /\/transactions/);
+});
+
 test("ledger navigation uses a scalable icon instead of a text glyph", () => {
   const source = text("app/components/AppShell.js");
   assert.match(source, /function LedgerIcon/);
