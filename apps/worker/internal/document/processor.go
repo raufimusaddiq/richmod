@@ -57,25 +57,53 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		return nil
 	}
 	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
-	if err != nil { return fmt.Errorf("load document pages: %w", err) }
+	if err != nil {
+		return fmt.Errorf("load document pages: %w", err)
+	}
 	defer rows.Close()
 	content := []map[string]any{{"type": "input_text", "text": "Classify this finance document. Treat all pages as one logical document."}}
 	pageCount := 0
 	for rows.Next() {
 		var storageRef, mediaType string
-		if err := rows.Scan(&storageRef, &mediaType); err != nil { return err }
-		path := filepath.Join(p.root, storageRef); relative, err := filepath.Rel(p.root, path); if err != nil || strings.HasPrefix(relative, "..") { return fmt.Errorf("invalid document storage reference") }
-		file, err := os.Open(path); if err != nil { return fmt.Errorf("open document attachment: %w", err) }
-		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { return fmt.Errorf("stored document size is invalid") }
-		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)})
+		if err := rows.Scan(&storageRef, &mediaType); err != nil {
+			return err
+		}
+		path := filepath.Join(p.root, storageRef)
+		relative, err := filepath.Rel(p.root, path)
+		if err != nil || strings.HasPrefix(relative, "..") {
+			return fmt.Errorf("invalid document storage reference")
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("open document attachment: %w", err)
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1))
+		file.Close()
+		if readErr != nil || len(raw) == 0 || len(raw) > 10<<20 {
+			return fmt.Errorf("stored document size is invalid")
+		}
+		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount++
 	}
-	if err := rows.Err(); err != nil { return err }
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	if pageCount == 0 {
 		var storageRef, mediaType string
-		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&storageRef,&mediaType); err != nil { return err }
-		path := filepath.Join(p.root, storageRef); file, err := os.Open(path); if err != nil { return err }; raw, readErr := io.ReadAll(io.LimitReader(file,(10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { return fmt.Errorf("stored document size is invalid") }
-		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)})
+		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&storageRef, &mediaType); err != nil {
+			return err
+		}
+		path := filepath.Join(p.root, storageRef)
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1))
+		file.Close()
+		if readErr != nil || len(raw) == 0 || len(raw) > 10<<20 {
+			return fmt.Errorf("stored document size is invalid")
+		}
+		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount = 1
 	}
 	var result struct {
@@ -107,7 +135,10 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction (document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES ($1,'CLASSIFICATION','1',$2::jsonb,$3,$4,$5) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(output), result.Confidence, metadata.Model, validated); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE document SET document_type=$2,status=$3,updated_at=now() WHERE id=$1; UPDATE source_event SET processing_status=$5,parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$4`, documentID, result.DocumentType, documentStatus, sourceID, sourceStatus); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE document SET document_type=$2,status=$3,updated_at=now() WHERE id=$1`, documentID, result.DocumentType, documentStatus); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1`, sourceID, sourceStatus); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','CLASSIFY_DOCUMENT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'confidence',$5::numeric,'validated',$6::boolean))`, householdID, sourceID, documentID, result.DocumentType, result.Confidence, validated); err != nil {
