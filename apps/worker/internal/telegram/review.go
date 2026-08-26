@@ -312,6 +312,12 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=COALESCE(NULLIF($2,'')::uuid,category_candidate_id),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, categoryID); err != nil {
 		return err
 	}
+	// A confirmed review also completes the document workflow. Evidence keeps
+	// the document link, so this is scoped to documents attached to this exact
+	// transaction and cannot clear unrelated or still-pending documents.
+	if _, err := tx.Exec(ctx, `UPDATE document d SET status='EXTRACTED',updated_at=now() WHERE d.status='NEEDS_REVIEW' AND d.id IN (SELECT NULLIF(te.metadata_json->>'document_id','')::uuid FROM transaction_evidence te WHERE te.transaction_id=$1 AND te.metadata_json ? 'document_id')`, transactionID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID); err != nil {
 		return err
 	}
