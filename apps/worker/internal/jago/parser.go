@@ -5,6 +5,7 @@ import (
 	"html"
 	"io"
 	"math/big"
+	"net/mail"
 	"regexp"
 	"strings"
 	"time"
@@ -33,6 +34,7 @@ type ParsedEmail struct {
 	Subject               string
 	HTMLBody              string
 	AuthenticationResults string
+	EmailDate             string
 }
 
 type Event struct {
@@ -110,6 +112,9 @@ func (p *Parser) Parse(message ParsedEmail) (Event, error) {
 	event.Status = first(fields, "status transaksi", "status")
 
 	amountText := first(fields, "jumlah", "nominal", "total transaksi")
+	if amountText == "" && family == FamilyDebitCard {
+		amountText = debitAmount(message.HTMLBody)
+	}
 	if amountText != "" {
 		amount, err := parseIDR(amountText)
 		if err != nil {
@@ -125,6 +130,12 @@ func (p *Parser) Parse(message ParsedEmail) (Event, error) {
 		}
 		event.TransactionAt = parsed
 	}
+	if event.TransactionAt.IsZero() && message.EmailDate != "" {
+		parsed, err := mailDate(message.EmailDate)
+		if err == nil {
+			event.TransactionAt = parsed
+		}
+	}
 
 	if event.FinancialEffect != EffectIgnore && (event.Amount == "" || event.TransactionAt.IsZero()) {
 		return Event{}, fmt.Errorf("known Jago template is missing amount or transaction time")
@@ -133,6 +144,25 @@ func (p *Parser) Parse(message ParsedEmail) (Event, error) {
 		return Event{}, fmt.Errorf("merchant payment is missing merchant")
 	}
 	return event, nil
+}
+
+var debitAmountPattern = regexp.MustCompile(`(?i)transaksi\s+sebesar\s+Rp\s*([0-9.]+(?:,[0-9]{2})?)`)
+
+func debitAmount(body string) string {
+	text := normalizeSpace(html.UnescapeString(body))
+	matches := debitAmountPattern.FindStringSubmatch(text)
+	if len(matches) != 2 {
+		return ""
+	}
+	return matches[1]
+}
+
+func mailDate(value string) (time.Time, error) {
+	parsed, err := mail.ParseDate(value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.In(time.FixedZone("Asia/Jakarta", 7*60*60)), nil
 }
 
 func subjectFamily(subject string) string {

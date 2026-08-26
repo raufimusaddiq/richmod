@@ -225,7 +225,7 @@ type messageBody struct {
 
 func (c *client) messageMetadata(ctx context.Context, accessToken, messageID string) (gmailMessage, error) {
 	var output gmailMessage
-	query := url.Values{"format": {"metadata"}, "metadataHeaders": {"From", "Subject", "Authentication-Results"}}
+	query := url.Values{"format": {"metadata"}, "metadataHeaders": {"From", "Subject", "Authentication-Results", "Date"}}
 	endpoint := gmailAPI + "/messages/" + url.PathEscape(messageID) + "?" + query.Encode()
 	if err := c.doJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &output); err != nil {
 		return gmailMessage{}, err

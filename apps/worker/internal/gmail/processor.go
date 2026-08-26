@@ -214,6 +214,7 @@ type parsedMessage struct {
 	subject    string
 	auth       string
 	html       string
+	emailDate  string
 }
 
 func parseMessage(message gmailMessage) (parsedMessage, error) {
@@ -227,6 +228,8 @@ func parseMessage(message gmailMessage) (parsedMessage, error) {
 			result.subject = header.Value
 		case "authentication-results":
 			result.auth += " " + header.Value
+		case "date":
+			result.emailDate = header.Value
 		}
 	}
 	address, err := mail.ParseAddress(fromValue)
@@ -275,6 +278,7 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 	bankEmail := jago.ParsedEmail{
 		MessageID: message.ID, Mailbox: p.client.mailbox, FromDomain: parsed.fromDomain,
 		Subject: parsed.subject, HTMLBody: parsed.html, AuthenticationResults: parsed.auth,
+		EmailDate: parsed.emailDate,
 	}
 	var event jago.Event
 	status := "NEEDS_REVIEW"

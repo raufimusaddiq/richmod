@@ -68,6 +68,25 @@ func TestOutgoingTransferNeedsReview(t *testing.T) {
 	}
 }
 
+func TestDebitCardProseTemplateUsesEmailDate(t *testing.T) {
+	parser := NewParser("jago.com", "")
+	event, err := parser.Parse(ParsedEmail{
+		FromDomain: "jago.com", AuthenticationResults: trustedAuth,
+		Subject:   "Kamu telah melakukan transaksi menggunakan kartu debit Jago",
+		HTMLBody:  "<p>Kamu telah melakukan transaksi sebesar Rp20.220 menggunakan kartu debit Jago.</p>",
+		EmailDate: "Wed, 26 Aug 2026 01:48:39 +0000",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if event.FinancialEffect != EffectExpenseCandidate || event.Amount != "20220" {
+		t.Fatalf("event = %#v", event)
+	}
+	if event.TransactionAt.Location().String() != "Asia/Jakarta" || event.TransactionAt.Hour() != 8 {
+		t.Fatalf("transaction time = %v", event.TransactionAt)
+	}
+}
+
 func TestRejectsVisibleFromWithoutAuthentication(t *testing.T) {
 	parser := NewParser("jago.com", "")
 	message := ParsedEmail{FromDomain: "jago.com", Subject: "Kamu telah membayar ke PENIPU", AuthenticationResults: "dkim=fail; dmarc=fail"}
