@@ -20,6 +20,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [~] Native gateway `function_call` protocol is available and parses strict
   tool calls; Go-side registered tool dispatch and tool-result round trips remain
   the next implementation slice.
+- [~] Go-owned native finance tool catalog and strict argument validator now
+  define query, create, propose-edit, confirm-edit, and cancel-edit tools.
 
 - [x] Inline callbacks are persisted as `TELEGRAM_CALLBACK` source events.
 - [x] Callback persistence is idempotent by Telegram update external ID.
