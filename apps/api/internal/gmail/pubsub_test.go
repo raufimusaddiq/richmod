@@ -116,3 +116,10 @@ func TestDecodeNestedCloudEventNotification(t *testing.T) {
 		t.Fatalf("notification=%#v err=%v", notification, err)
 	}
 }
+
+func TestJSONShapeReportsKeysWithoutValues(t *testing.T) {
+	shape := jsonShape([]byte(`{"message":{"data":"c2VjcmV0","messageId":"private-id"},"subscription":"private-project"}`), 0)
+	if !strings.Contains(shape, "keys=message,subscription") || strings.Contains(shape, "private") || strings.Contains(shape, "secret") {
+		t.Fatalf("unsafe shape=%q", shape)
+	}
+}
