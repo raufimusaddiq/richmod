@@ -34,7 +34,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 
 - [~] Multi-image web submissions now accept up to 10 JPEG/PNG pages as one
   logical document; `document_page` preserves order and attachment provenance.
-  Telegram album finalization and multi-page classifier/extractor calls remain.
+  Telegram updates now preserve `media_group_id` and Telegram message ordering
+  metadata. Album finalization and multi-page classifier/extractor calls remain.
 - [ ] Universal review item and deterministic recipient routing.
 - [ ] Payslip salary source, salary events, and dynamic salary cycles.
 - [ ] Cycle-aware web, Telegram, and insights behavior.
