@@ -198,7 +198,7 @@ Tests: [x] spending; [x] cashflow; [x] search; [x] correction; [x] review list;
 - [x] Subtle chart/page motion that never obscures financial values.
 - [x] Responsive tables/cards and fully usable mobile layouts.
 - [x] Accessible focus states and keyboard navigation.
-- [ ] Visual review confirms a calm, household-friendly, data-focused experience.
+- [x] Visual review confirms a calm, household-friendly, data-focused experience.
 
 ## Documentation and release gates
 
@@ -208,9 +208,9 @@ Tests: [x] spending; [x] cashflow; [x] search; [x] correction; [x] review list;
   and dormant budgeting are documented with relevant ADRs when implemented.
 - [x] Schema changes are additive, migrated, and tested.
 - [x] Each phase passes relevant Go tests and, when applicable, frontend build.
-- [ ] Final release passes full Go tests, frontend build, Compose validation,
+- [x] Final release passes full Go tests, frontend build, Compose validation,
   migrations, public smoke checks, and production state checks.
-- [ ] Each phase is committed, pushed, merged `--no-ff`, pushed to `main`, deployed
+- [x] Each phase is committed, pushed, merged `--no-ff`, pushed to `main`, deployed
   only from updated `main`, and verified on the public URL.
 
 ## Execution order
@@ -224,7 +224,7 @@ Tests: [x] spending; [x] cashflow; [x] search; [x] correction; [x] review list;
 7. [x] Remove budgeting from active UI.
 8. [x] Build the routed app shell and all V2 pages.
 9. [x] Expand Telegram intents and inline actions.
-10. [ ] Apply P2 polish and run final release verification.
+10. [x] Apply P2 polish and run final release verification.
 
 Alignment v2 is complete only when every applicable criterion is `[x]` and the
 intended flow is verified in production. Backend-only or UI-only fragments remain
