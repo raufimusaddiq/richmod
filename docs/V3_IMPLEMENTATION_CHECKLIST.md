@@ -20,6 +20,14 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [ ] Original Telegram message edit APIs and callback execution latency metrics.
 - [ ] Reserved concurrent interactive worker loop and end-to-end Telegram latency test.
 
+## P0 — Household-wide review delivery
+
+- [x] One shared review state fans out to every active linked Telegram identity
+  in the household.
+- [x] Each recipient has its own bound Telegram message, while any member action
+  resolves the same review exactly once.
+- [x] Existing review records are backfilled into the recipient mapping.
+
 ## Remaining V3 phases
 
 - [ ] Multi-image logical documents and Telegram album finalization.
