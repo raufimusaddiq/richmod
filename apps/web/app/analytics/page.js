@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
-import { CashflowChart, CategoryChart } from "../components/Charts";
+import { CashflowChart, CategoryChart, DailyCashflowChart } from "../components/Charts";
 import useAuth from "../components/useAuth";
 import { money } from "../lib/format";
 
@@ -31,7 +31,7 @@ export default function AnalyticsPage() {
     {error && <p className="notice error">{error}</p>}
     <section className="analytics-kpis"><article><span>Total pengeluaran</span><b>{money(totalExpense)}</b></article><article><span>Refund</span><b>{money(totalRefund)}</b></article><article><span>Merchant terbesar</span><b>{data.merchants[0]?.name || "—"}</b></article><article><span>Kategori terbesar</span><b>{data.categories[0]?.name || "—"}</b></article></section>
     <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">TREND</span><h2>Pemasukan, pengeluaran, dan net</h2></div></div><CashflowChart items={data.cashflow} height={360}/></section>
-    <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">SIKLUS GAJI · HARIAN</span><h2>Arus kas harian periode aktif</h2></div></div><CashflowChart items={dailyCycle} height={300}/></section>
+    <section className="surface analytics-chart cycle-daily-panel"><div className="section-title"><div><span className="eyebrow">SIKLUS GAJI · HARIAN</span><h2>Arus kas harian periode aktif</h2></div></div><DailyCashflowChart items={dailyCycle} height={300}/></section>
     <section className="analytics-grid"><article className="surface"><div className="section-title"><h2>Distribusi kategori</h2></div><CategoryChart items={data.categories}/></article><Ranked title="Merchant" items={data.merchants}/><Ranked title="Kontribusi anggota" items={data.members}/><Ranked title="Pengeluaran bulanan setelah refund" items={data.spending.map(item => ({ name: item.period, amount: item.netSpending }))}/></section>
   </AppShell>;
 }

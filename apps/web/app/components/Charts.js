@@ -1,6 +1,6 @@
 "use client";
 
-import { Area, AreaChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { money, monthLabel } from "../lib/format";
 
 const colors = ["#2d6a4f", "#5f8f72", "#9ebc8a", "#d7a95b", "#c86b55", "#7188a8"];
@@ -14,4 +14,10 @@ export function CategoryChart({ items, height = 260 }) {
   const data = items.filter(item => Number(item.amount) > 0).map(item => ({ ...item, value: Number(item.amount) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi pada periode ini.</p>;
   return <div className="category-visual"><div className="chart-wrap" style={{ height }}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} animationDuration={800}>{data.map((item, index) => <Cell key={item.id || item.name} fill={colors[index % colors.length]}/>)}</Pie><Tooltip formatter={value => money(String(Math.round(value)))} contentStyle={{ border: "1px solid #dfe6df", borderRadius: 12 }}/></PieChart></ResponsiveContainer></div><div className="legend-list">{data.slice(0, 6).map((item, index) => <div key={item.id || item.name}><i style={{ background: colors[index % colors.length] }}/><span>{item.name}<small>{Math.round(Number(item.share || 0) * 100)}%</small></span><b>{money(item.amount)}</b></div>)}</div></div>;
+}
+
+export function DailyCashflowChart({ items, height = 300 }) {
+  const data = items.map(item => ({ ...item, label: item.period?.slice(8) || "", incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
+  if (!data.length) return <p className="empty compact">Belum ada data pada siklus aktif.</p>;
+  return <div className="chart-wrap" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }} barCategoryGap="22%"><CartesianGrid stroke="#e8ece7" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#6f786f", fontSize: 11 }} interval={data.length > 14 ? 2 : 0}/><YAxis hide/><Tooltip formatter={(value, name) => [money(String(Math.round(value))), { incomeValue: "Pemasukan", expenseValue: "Pengeluaran", netValue: "Bersih" }[name]]} labelFormatter={label => `Tanggal ${label}`} contentStyle={{ border: "1px solid #dfe6df", borderRadius: 12 }}/><Legend formatter={value => ({ incomeValue: "Pemasukan", expenseValue: "Pengeluaran", netValue: "Bersih" }[value])}/><Bar dataKey="incomeValue" fill="#4b9568" radius={[4,4,0,0]} maxBarSize={18}/><Bar dataKey="expenseValue" fill="#d47a66" radius={[4,4,0,0]} maxBarSize={18}/><Line type="monotone" dataKey="netValue" stroke="#526b8b" strokeWidth={2.5} dot={false}/></BarChart></ResponsiveContainer></div>;
 }
