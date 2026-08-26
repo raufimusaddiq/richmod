@@ -27,6 +27,13 @@ type SendPayload struct {
 	CallbackQueryID  string                `json:"callback_query_id,omitempty"`
 }
 
+type EditPayload struct {
+	ChatID          int64                  `json:"chat_id"`
+	MessageID       int64                  `json:"message_id"`
+	Text            string                 `json:"text"`
+	ReplyMarkup     *InlineKeyboardMarkup  `json:"reply_markup,omitempty"`
+}
+
 type InlineKeyboardMarkup struct {
 	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
 }
@@ -105,6 +112,30 @@ func (b *Bot) AnswerCallback(ctx context.Context, callbackQueryID string) error 
 		return fmt.Errorf("Telegram callback API returned HTTP %d", response.StatusCode)
 	}
 	return nil
+}
+
+func (b *Bot) Edit(ctx context.Context, payload EditPayload) error {
+	if b.token == "" || payload.ChatID == 0 || payload.MessageID == 0 || payload.Text == "" { return fmt.Errorf("invalid Telegram edit payload") }
+	markup := payload.ReplyMarkup
+	if markup == nil { markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}} }
+	body, err := json.Marshal(map[string]any{"chat_id": payload.ChatID, "message_id": payload.MessageID, "text": clean(payload.Text, 4000), "reply_markup": markup})
+	if err != nil { return fmt.Errorf("encode Telegram edit: %w", err) }
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/editMessageText", bytes.NewReader(body)); if err != nil { return err }
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.http.Do(req); if err != nil { return fmt.Errorf("edit Telegram message failed") }
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 { return fmt.Errorf("Telegram edit API returned HTTP %d", resp.StatusCode) }
+	var result struct{ OK bool `json:"ok"` }
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result) != nil || !result.OK { return fmt.Errorf("Telegram edit API returned an invalid response") }
+	return nil
+}
+
+func DecodeEditPayload(raw json.RawMessage) (EditPayload, error) {
+	var payload EditPayload
+	decoder := json.NewDecoder(strings.NewReader(string(raw))); decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil { return EditPayload{}, fmt.Errorf("decode edit payload: %w", err) }
+	if payload.ChatID == 0 || payload.MessageID == 0 || payload.Text == "" { return EditPayload{}, fmt.Errorf("invalid edit payload") }
+	return payload, nil
 }
 
 func (b *Bot) Download(ctx context.Context, fileID string, maxBytes int64) ([]byte, string, error) {
