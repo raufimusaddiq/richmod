@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,34 +56,53 @@ func (h *Handler) PubSub(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid notification", 400)
 		return
 	}
-	var envelope struct {
-		Message struct {
-			Data      string `json:"data"`
-			MessageID string `json:"messageId"`
-		} `json:"message"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil || envelope.Message.MessageID == "" {
+	messageID, notification, err := decodePushNotification(raw, r.Header)
+	if err != nil || !strings.EqualFold(notification.EmailAddress, h.mailbox) {
 		http.Error(w, "invalid notification", 400)
 		return
 	}
-	decoded, err := base64.StdEncoding.DecodeString(envelope.Message.Data)
-	if err != nil {
-		http.Error(w, "invalid notification", 400)
-		return
-	}
-	var notification struct {
-		EmailAddress string `json:"emailAddress"`
-		HistoryID    string `json:"historyId"`
-	}
-	if err := json.Unmarshal(decoded, &notification); err != nil || notification.HistoryID == "" || !strings.EqualFold(notification.EmailAddress, h.mailbox) {
-		http.Error(w, "invalid notification", 400)
-		return
-	}
-	if err := h.captureNotification(r.Context(), envelope.Message.MessageID, notification.HistoryID, raw); err != nil {
+	if err := h.captureNotification(r.Context(), messageID, notification.HistoryID, raw); err != nil {
 		http.Error(w, "notification processing failed", 500)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type gmailPushNotification struct {
+	EmailAddress string `json:"emailAddress"`
+	HistoryID    string `json:"historyId"`
+}
+
+func decodePushNotification(raw []byte, header http.Header) (string, gmailPushNotification, error) {
+	var envelope struct {
+		Message struct {
+			Data            string `json:"data"`
+			MessageID       string `json:"messageId"`
+			LegacyMessageID string `json:"message_id"`
+		} `json:"message"`
+	}
+	decoded := raw
+	messageID := strings.TrimSpace(header.Get("X-Goog-Pubsub-Message-Id"))
+	if json.Unmarshal(raw, &envelope) == nil && envelope.Message.Data != "" {
+		var err error
+		decoded, err = base64.StdEncoding.DecodeString(envelope.Message.Data)
+		if err != nil {
+			return "", gmailPushNotification{}, fmt.Errorf("decode wrapped data")
+		}
+		messageID = strings.TrimSpace(envelope.Message.MessageID)
+		if messageID == "" {
+			messageID = strings.TrimSpace(envelope.Message.LegacyMessageID)
+		}
+	}
+	var notification gmailPushNotification
+	if err := json.Unmarshal(decoded, &notification); err != nil || strings.TrimSpace(notification.EmailAddress) == "" || strings.TrimSpace(notification.HistoryID) == "" {
+		return "", gmailPushNotification{}, fmt.Errorf("decode Gmail notification")
+	}
+	if messageID == "" {
+		digest := sha256.Sum256(decoded)
+		messageID = "payload-" + hex.EncodeToString(digest[:])
+	}
+	return messageID, notification, nil
 }
 
 func (h *Handler) captureNotification(ctx context.Context, messageID, historyID string, raw []byte) error {
