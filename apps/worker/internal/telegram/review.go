@@ -468,11 +468,7 @@ func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID stri
 	if err != nil {
 		return err
 	}
-	callbackID := ""
-	if update.CallbackQuery != nil {
-		callbackID = update.CallbackQuery.ID
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'review_request_id',$4::text,'reply_markup',$5::jsonb,'callback_query_id',NULLIF($6,'')))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), reviewID, string(encoded), callbackID)
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded))
 	return err
 }
 

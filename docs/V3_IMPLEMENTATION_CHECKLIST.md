@@ -17,7 +17,9 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] Existing text, image, Gmail, document, and insight jobs retain explicit
   `DEFAULT`/`BACKGROUND` lanes.
 - [x] API and worker production images compile successfully with Docker builds.
-- [ ] Original Telegram message edit APIs and callback execution latency metrics.
+- [x] Original Telegram callback messages are edited and obsolete inline buttons
+  are removed; failed edits use a non-mutating notification fallback.
+- [ ] Callback execution latency metrics.
 - [ ] Reserved concurrent interactive worker loop and end-to-end Telegram latency test.
 
 ## P0 — Household-wide review delivery

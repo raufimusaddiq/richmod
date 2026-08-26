@@ -190,6 +190,16 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return bot.AnswerCallback(ctx, payload.CallbackQueryID)
 		}
 		return nil
+	case "EDIT_TELEGRAM_MESSAGE":
+		payload, err := telegram.DecodeEditPayload(job.Payload)
+		if err != nil { return err }
+		if err := bot.Edit(ctx, payload); err != nil {
+			// Financial state is already committed; send a repair notification instead
+			// of retrying the mutation.
+			_, sendErr := bot.Send(ctx, telegram.SendPayload{ChatID: payload.ChatID, Text: payload.Text})
+			if sendErr != nil { return fmt.Errorf("edit Telegram message: %v; fallback send: %w", err, sendErr) }
+		}
+		return nil
 	case "PROCESS_GMAIL_HISTORY":
 		if gmailProcessor == nil {
 			return fmt.Errorf("Gmail worker is not configured")
