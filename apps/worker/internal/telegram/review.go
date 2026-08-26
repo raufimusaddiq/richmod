@@ -31,16 +31,21 @@ type categoryChoice struct {
 
 func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
 	result, err := p.pool.Exec(ctx, `
-		UPDATE review_request
-		SET telegram_message_id=$3,status='OPEN'
-		WHERE id=$1 AND telegram_chat_id=$2 AND status IN ('PENDING_SEND','OPEN') AND expires_at>now()`,
+		UPDATE review_request_recipient rr
+		SET telegram_message_id=$3
+		FROM review_request r
+		WHERE rr.review_request_id=$1 AND rr.telegram_chat_id=$2
+		  AND r.id=rr.review_request_id AND r.status IN ('PENDING_SEND','OPEN') AND r.expires_at>now()`,
 		reviewRequestID, chatID, messageID)
 	if err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
+	if result.RowsAffected() == 1 {
+		if _, err := p.pool.Exec(ctx, `UPDATE review_request SET status='OPEN' WHERE id=$1 AND status='PENDING_SEND'`, reviewRequestID); err != nil { return fmt.Errorf("open Telegram review request: %w", err) }
+	}
 	if result.RowsAffected() != 1 {
 		var status string
-		if err := p.pool.QueryRow(ctx, `SELECT status FROM review_request WHERE id=$1 AND telegram_chat_id=$2`, reviewRequestID, chatID).Scan(&status); err != nil {
+		if err := p.pool.QueryRow(ctx, `SELECT status FROM review_request WHERE id=$1`, reviewRequestID).Scan(&status); err != nil {
 			return fmt.Errorf("load Telegram review request after send: %w", err)
 		}
 		if status == "RESOLVED" || status == "CANCELLED" || status == "EXPIRED" {
@@ -62,7 +67,8 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		FROM review_request r
 		JOIN review_conversation c ON c.review_request_id=r.id
 		JOIN transaction t ON t.id=r.transaction_id
-		WHERE r.household_id=$1 AND r.telegram_chat_id=$2 AND r.telegram_message_id=$3`,
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`,
 		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).
 		Scan(&reviewID, &transactionID, &reviewState, &transactionType, &requestStatus, &transactionStatus, &expired)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -428,7 +434,16 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 		return err
 	}
 	markup := reviewActionMarkup(ctx, tx, reviewID, reviewType)
-	return enqueueReviewMessageWithMarkup(ctx, tx, reviewID, chatID, replyTo, message, markup)
+	rows, err := tx.Query(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=(SELECT household_id FROM review_request WHERE id=$1) AND active ORDER BY created_at`, reviewID)
+	if err != nil { return err }
+	defer rows.Close()
+	for rows.Next() {
+		var recipient int64
+		if err := rows.Scan(&recipient); err != nil { return err }
+		if _, err := tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, reviewID, recipient); err != nil { return err }
+		if err := enqueueReviewMessageWithMarkup(ctx, tx, reviewID, recipient, replyTo, message, markup); err != nil { return err }
+	}
+	return rows.Err()
 }
 
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {
