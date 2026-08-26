@@ -9,6 +9,7 @@ import { money } from "../lib/format";
 export default function AnalyticsPage() {
   const user = useAuth();
   const [range, setRange] = useState("6");
+  const [mode, setMode] = useState("calendar");
   const [data, setData] = useState({ cashflow: [], spending: [], categories: [], merchants: [], members: [] });
   const [dailyCycle, setDailyCycle] = useState({ daily: [], salary: "0", spent: "0", remaining: "0", daysElapsed: 0, daysTotal: 0 });
   const [error, setError] = useState("");
@@ -18,8 +19,14 @@ export default function AnalyticsPage() {
     const dailyResponse = await fetch("/api/v1/analytics/cycle/daily");
     if (responses.some(item => !item.ok)) { setError("Analytics belum dapat dimuat untuk periode ini."); return; }
     const [cashflow, spending, categories, merchants, members] = await Promise.all(responses.map(item => item.json()));
-    setData({ cashflow, spending, categories, merchants, members }); if (dailyResponse.ok) setDailyCycle(await dailyResponse.json()); setError("");
-  }, [range]);
+    const cycle = dailyResponse.ok ? await dailyResponse.json() : null;
+    setDailyCycle(cycle || { daily: [], salary: "0", spent: "0", remaining: "0", daysElapsed: 0, daysTotal: 0 });
+    if (mode === "cycle" && cycle) {
+      const daily = cycle.daily || [];
+      setData({ cashflow: daily, spending: daily.map(item => ({ period: item.period, expense: item.expense, refund: "0", netSpending: item.expense })), categories, merchants, members });
+    } else setData({ cashflow, spending, categories, merchants, members });
+    setError("");
+  }, [range, mode]);
   useEffect(() => { if (user) load(); }, [user, load]);
   function select(value) { setRange(value); }
   function custom(event) { event.preventDefault(); const form = new FormData(event.currentTarget); load(`from=${form.get("from")}&to=${form.get("to")}`); }
@@ -27,7 +34,7 @@ export default function AnalyticsPage() {
   const totalExpense = data.spending.reduce((sum, item) => sum + BigInt(item.expense || "0"), 0n).toString();
   const totalRefund = data.spending.reduce((sum, item) => sum + BigInt(item.refund || "0"), 0n).toString();
   return <AppShell user={user} eyebrow="ANALYTICS" title="Pola keuangan household">
-    <div className="range-controls"><div>{["3", "6", "12"].map(value => <button className={range === value ? "active" : "secondary"} key={value} onClick={() => select(value)}>{value} bulan</button>)}</div><form onSubmit={custom}><input name="from" type="month" required/><span>—</span><input name="to" type="month" required/><button className="secondary">Custom</button></form></div>
+    <div className="range-controls"><div><button className={mode === "cycle" ? "active" : "secondary"} onClick={() => setMode("cycle")}>Siklus gaji</button><button className={mode === "calendar" ? "active" : "secondary"} onClick={() => setMode("calendar")}>Kalender</button>{mode === "calendar" && ["3", "6", "12"].map(value => <button className={range === value ? "active" : "secondary"} key={value} onClick={() => select(value)}>{value} bulan</button>)}</div><form onSubmit={custom}><input name="from" type="month" required/><span>—</span><input name="to" type="month" required/><button className="secondary">Kustom</button></form></div>
     {error && <p className="notice error">{error}</p>}
     <section className="analytics-kpis"><article><span>Total pengeluaran</span><b>{money(totalExpense)}</b></article><article><span>Refund</span><b>{money(totalRefund)}</b></article><article><span>Merchant terbesar</span><b>{data.merchants[0]?.name || "—"}</b></article><article><span>Kategori terbesar</span><b>{data.categories[0]?.name || "—"}</b></article></section>
     <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">TREND</span><h2>Pemasukan, pengeluaran, dan net</h2></div></div><CashflowChart items={data.cashflow} height={360}/></section>

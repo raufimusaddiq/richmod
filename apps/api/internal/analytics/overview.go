@@ -28,6 +28,9 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	local := h.now().In(clock.HouseholdLocation())
 	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
 	end := start.AddDate(0, 1, 0)
+	var cycleStart, cycleEnd *time.Time
+	_ = h.pool.QueryRow(r.Context(), `WITH anchors AS (SELECT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED') SELECT (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date),(SELECT min(pay_date) FROM anchors WHERE pay_date > $2::date)`, household, local.Format("2006-01-02")).Scan(&cycleStart, &cycleEnd)
+	if cycleStart != nil { start = *cycleStart; if cycleEnd != nil { end = *cycleEnd } else { end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation()) } }
 	var income, expense string
 	var review int
 	err := h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME' AND status='CONFIRMED'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' AND status='CONFIRMED' THEN amount WHEN type='REFUND' AND status='CONFIRMED' THEN -amount ELSE 0 END),0)::text,(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1 AND transaction_at >= $2 AND transaction_at < $3`, household, start, end).Scan(&income, &expense, &review)
@@ -40,7 +43,8 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	if value, ok := ratio(net, income); ok {
 		savings = value
 	}
-	writeJSON(w, 200, map[string]any{"period": start.Format("2006-01"), "currency": "IDR", "income": income, "expense": expense, "netCashflow": net, "savingsRate": savings, "reviewCount": review})
+	kind := "CALENDAR_MONTH"; if cycleStart != nil { kind = "CURRENT_CYCLE" }
+	writeJSON(w, 200, map[string]any{"period": start.Format("2006-01-02"), "periodKind": kind, "periodStart": start.Format("2006-01-02"), "periodEnd": end.Format("2006-01-02"), "currency": "IDR", "income": income, "expense": expense, "netCashflow": net, "savingsRate": savings, "reviewCount": review})
 }
 func subtract(a, b string) string {
 	x, _ := new(big.Int).SetString(a, 10)
