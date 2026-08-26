@@ -40,3 +40,14 @@ test("household route exposes Telegram connection state", () => {
   assert.match(source, /telegramConnected/);
   assert.match(source, /telegram-invite/);
 });
+
+test("shared UX feedback is accessible and motion respects user preference", () => {
+  const feedback = text("app/components/Feedback.js");
+  const styles = text("app/globals.css");
+  assert.match(feedback, /aria-busy="true"/);
+  assert.match(feedback, /role="alert"/);
+  assert.match(feedback, /aria-live="polite"/);
+  assert.match(styles, /prefers-reduced-motion:reduce/);
+  assert.match(styles, /transaction-table \.transaction-row/);
+  assert.match(styles, /:focus-visible/);
+});

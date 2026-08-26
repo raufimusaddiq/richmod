@@ -18,6 +18,11 @@ Desktop uses persistent side navigation and mobile uses bottom navigation.
 Authentication continues to use the existing sliding server session on every
 route.
 
+The shared presentation layer provides loading skeletons, retryable error
+notices, polite success toasts, visible keyboard focus, reduced-motion support,
+and mobile transaction cards. Motion is CSS-only and never changes or hides a
+financial value.
+
 PostgreSQL and Go remain authoritative. Transaction filtering and analytics
 ranges are query-backed and household-scoped. Recharts renders API values but
 does not compute canonical totals. Transaction detail reads evidence and audit
