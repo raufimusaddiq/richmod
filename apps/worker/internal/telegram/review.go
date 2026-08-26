@@ -426,7 +426,7 @@ func (p *Processor) continueRememberMerchant(ctx context.Context, sourceEventID,
 
 func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string) error {
 	var reviewID string
-	err := tx.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status) SELECT household_id,id,$2,'PENDING_SEND' FROM transaction WHERE id=$1 RETURNING id,household_id,transaction_id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT item.id,item.household_id,item.transaction_id,$2,$3,'PENDING_SEND' FROM item RETURNING id`, transactionID, reviewType, chatID).Scan(&reviewID)
+	err := tx.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id) SELECT household_id,id,$2,'PENDING_SEND',created_by_user_id FROM transaction WHERE id=$1 RETURNING id,household_id,transaction_id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT item.id,item.household_id,item.transaction_id,$2,$3,'PENDING_SEND' FROM item RETURNING id`, transactionID, reviewType, chatID).Scan(&reviewID)
 	if err != nil {
 		return err
 	}
@@ -434,7 +434,13 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 		return err
 	}
 	markup := reviewActionMarkup(ctx, tx, reviewID, reviewType)
-	rows, err := tx.Query(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=(SELECT household_id FROM review_request WHERE id=$1) AND active ORDER BY created_at`, reviewID)
+	rows, err := tx.Query(ctx, `SELECT ti.telegram_user_id
+		FROM telegram_identity ti
+		JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active
+		JOIN review_request r ON r.household_id=ti.household_id AND r.id=$1
+		LEFT JOIN review_item ri ON ri.id=r.review_item_id
+		WHERE ti.active
+		ORDER BY CASE WHEN ti.user_id=ri.preferred_user_id THEN 0 WHEN hm.role='OWNER' THEN 1 ELSE 2 END, ti.created_at`, reviewID)
 	if err != nil { return err }
 	defer rows.Close()
 	for rows.Next() {
