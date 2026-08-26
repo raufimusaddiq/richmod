@@ -87,7 +87,7 @@ func decodePushNotification(raw []byte, header http.Header) (string, gmailPushNo
 	messageID := strings.TrimSpace(header.Get("X-Goog-Pubsub-Message-Id"))
 	if json.Unmarshal(raw, &envelope) == nil && envelope.Message.Data != "" {
 		var err error
-		decoded, err = base64.StdEncoding.DecodeString(envelope.Message.Data)
+		decoded, err = decodeBase64Value(envelope.Message.Data)
 		if err != nil {
 			return "", gmailPushNotification{}, fmt.Errorf("decode wrapped data")
 		}
@@ -96,7 +96,7 @@ func decodePushNotification(raw []byte, header http.Header) (string, gmailPushNo
 			messageID = strings.TrimSpace(envelope.Message.LegacyMessageID)
 		}
 	}
-	notification, err := decodeGmailNotification(decoded)
+	notification, err := decodeGmailNotification(decoded, 0)
 	if err != nil {
 		return "", gmailPushNotification{}, err
 	}
@@ -107,20 +107,51 @@ func decodePushNotification(raw []byte, header http.Header) (string, gmailPushNo
 	return messageID, notification, nil
 }
 
-func decodeGmailNotification(raw []byte) (gmailPushNotification, error) {
+func decodeGmailNotification(raw []byte, depth int) (gmailPushNotification, error) {
+	if depth > 3 {
+		return gmailPushNotification{}, fmt.Errorf("notification_nesting")
+	}
 	var notification gmailPushNotification
 	if json.Unmarshal(raw, &notification) == nil && strings.TrimSpace(notification.EmailAddress) != "" && strings.TrimSpace(notification.HistoryID) != "" {
 		return notification, nil
 	}
-	encoded := strings.TrimSpace(string(raw))
-	encodings := []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding}
-	for _, encoding := range encodings {
-		decoded, err := encoding.DecodeString(encoded)
-		if err == nil && json.Unmarshal(decoded, &notification) == nil && strings.TrimSpace(notification.EmailAddress) != "" && strings.TrimSpace(notification.HistoryID) != "" {
-			return notification, nil
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) == nil {
+		for _, key := range []string{"message", "data"} {
+			child, ok := object[key]
+			if !ok {
+				continue
+			}
+			var encoded string
+			if json.Unmarshal(child, &encoded) == nil {
+				decoded, err := decodeBase64Value(encoded)
+				if err == nil {
+					if result, childErr := decodeGmailNotification(decoded, depth+1); childErr == nil {
+						return result, nil
+					}
+				}
+			} else if result, childErr := decodeGmailNotification(child, depth+1); childErr == nil {
+				return result, nil
+			}
+		}
+	}
+	if decoded, err := decodeBase64Value(strings.TrimSpace(string(raw))); err == nil {
+		if result, childErr := decodeGmailNotification(decoded, depth+1); childErr == nil {
+			return result, nil
 		}
 	}
 	return gmailPushNotification{}, fmt.Errorf("notification_json")
+}
+
+func decodeBase64Value(value string) ([]byte, error) {
+	value = strings.TrimSpace(value)
+	encodings := []*base64.Encoding{base64.RawURLEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.StdEncoding}
+	for _, encoding := range encodings {
+		if decoded, err := encoding.DecodeString(value); err == nil {
+			return decoded, nil
+		}
+	}
+	return nil, fmt.Errorf("base64_data")
 }
 
 func errorLabel(err error) string {
