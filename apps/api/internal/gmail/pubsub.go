@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -58,6 +59,7 @@ func (h *Handler) PubSub(w http.ResponseWriter, r *http.Request) {
 	}
 	messageID, notification, err := decodePushNotification(raw, r.Header)
 	if err != nil || !strings.EqualFold(notification.EmailAddress, h.mailbox) {
+		slog.Warn("Gmail Pub/Sub notification rejected", "decode_error", errorLabel(err), "mailbox_match", err == nil && strings.EqualFold(notification.EmailAddress, h.mailbox), "body_bytes", len(raw), "json_body", json.Valid(raw), "message_id_header", strings.TrimSpace(r.Header.Get("X-Goog-Pubsub-Message-Id")) != "", "content_type", cleanHeader(r.Header.Get("Content-Type"), 80))
 		http.Error(w, "invalid notification", 400)
 		return
 	}
@@ -94,15 +96,45 @@ func decodePushNotification(raw []byte, header http.Header) (string, gmailPushNo
 			messageID = strings.TrimSpace(envelope.Message.LegacyMessageID)
 		}
 	}
-	var notification gmailPushNotification
-	if err := json.Unmarshal(decoded, &notification); err != nil || strings.TrimSpace(notification.EmailAddress) == "" || strings.TrimSpace(notification.HistoryID) == "" {
-		return "", gmailPushNotification{}, fmt.Errorf("decode Gmail notification")
+	notification, err := decodeGmailNotification(decoded)
+	if err != nil {
+		return "", gmailPushNotification{}, err
 	}
 	if messageID == "" {
 		digest := sha256.Sum256(decoded)
 		messageID = "payload-" + hex.EncodeToString(digest[:])
 	}
 	return messageID, notification, nil
+}
+
+func decodeGmailNotification(raw []byte) (gmailPushNotification, error) {
+	var notification gmailPushNotification
+	if json.Unmarshal(raw, &notification) == nil && strings.TrimSpace(notification.EmailAddress) != "" && strings.TrimSpace(notification.HistoryID) != "" {
+		return notification, nil
+	}
+	encoded := strings.TrimSpace(string(raw))
+	encodings := []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding}
+	for _, encoding := range encodings {
+		decoded, err := encoding.DecodeString(encoded)
+		if err == nil && json.Unmarshal(decoded, &notification) == nil && strings.TrimSpace(notification.EmailAddress) != "" && strings.TrimSpace(notification.HistoryID) != "" {
+			return notification, nil
+		}
+	}
+	return gmailPushNotification{}, fmt.Errorf("notification_json")
+}
+
+func errorLabel(err error) string {
+	if err == nil {
+		return "none"
+	}
+	return cleanHeader(err.Error(), 80)
+}
+func cleanHeader(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if len(value) > limit {
+		return value[:limit]
+	}
+	return value
 }
 
 func (h *Handler) captureNotification(ctx context.Context, messageID, historyID string, raw []byte) error {
