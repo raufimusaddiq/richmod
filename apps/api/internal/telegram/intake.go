@@ -33,6 +33,8 @@ type ImageInput struct {
 	FileName string
 	MIMEType string
 	Caption  string
+	MediaGroupID string
+	MessageID int64
 }
 
 type Store interface {
@@ -79,6 +81,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 			MessageID int64  `json:"message_id"`
 			Text      string `json:"text"`
 			Caption   string `json:"caption"`
+			MediaGroupID string `json:"media_group_id"`
 			Photo     []struct {
 				FileID string `json:"file_id"`
 				Width  int    `json:"width"`
@@ -156,7 +159,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if image, ok := imageFromUpdate(update.Message.Photo, update.Message.Document); ok {
-		_, err = h.store.CaptureImage(r.Context(), ImageInput{CaptureInput: CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.Message.From.ID, RawPayload: raw}, FileID: image.fileID, FileName: image.fileName, MIMEType: image.mimeType, Caption: update.Message.Caption})
+		_, err = h.store.CaptureImage(r.Context(), ImageInput{CaptureInput: CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.Message.From.ID, RawPayload: raw}, FileID: image.fileID, FileName: image.fileName, MIMEType: image.mimeType, Caption: update.Message.Caption, MediaGroupID: update.Message.MediaGroupID, MessageID: update.Message.MessageID})
 		if errors.Is(err, ErrUnauthorized) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -320,7 +323,7 @@ func (s *PostgreSQLStore) CaptureImage(ctx context.Context, input ImageInput) (b
 	}
 	payloadHash := sha256.Sum256(input.RawPayload)
 	var sourceID string
-	err = tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED') ON CONFLICT DO NOTHING RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), payloadHash[:]).Scan(&sourceID)
+	err = tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_media_group_id,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED',NULLIF($4,''),NULLIF($5,0)) ON CONFLICT DO NOTHING RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), payloadHash[:], input.MediaGroupID, input.MessageID).Scan(&sourceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
