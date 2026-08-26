@@ -99,3 +99,20 @@ func TestDecodeBase64BodyPubSubNotification(t *testing.T) {
 		t.Fatalf("id=%q notification=%#v err=%v", messageID, notification, err)
 	}
 }
+
+func TestDecodeGmailBase64URLWrappedNotification(t *testing.T) {
+	data := base64.RawURLEncoding.EncodeToString([]byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":"1002"}`))
+	messageID, notification, err := decodePushNotification([]byte(`{"message":{"data":"`+data+`","messageId":"url-1"}}`), http.Header{})
+	if err != nil || messageID != "url-1" || notification.HistoryID != "1002" {
+		t.Fatalf("id=%q notification=%#v err=%v", messageID, notification, err)
+	}
+}
+
+func TestDecodeNestedCloudEventNotification(t *testing.T) {
+	data := base64.RawURLEncoding.EncodeToString([]byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":"1003"}`))
+	raw := []byte(`{"data":{"message":{"data":"` + data + `","messageId":"inner-1"}}}`)
+	_, notification, err := decodePushNotification(raw, http.Header{})
+	if err != nil || notification.HistoryID != "1003" {
+		t.Fatalf("notification=%#v err=%v", notification, err)
+	}
+}

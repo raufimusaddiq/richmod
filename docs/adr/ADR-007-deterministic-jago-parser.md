@@ -30,7 +30,8 @@ by Pub/Sub message ID, preserved as evidence, and queued before acknowledgement.
 Both standard wrapped Pub/Sub JSON and authenticated unwrapped payload delivery
 are accepted. Unwrapped messages use `x-goog-pubsub-message-id` when metadata is
 enabled; otherwise a SHA-256 payload identity provides deterministic replay
-deduplication.
+deduplication. Wrapped Gmail data is decoded as the Base64URL format required by
+the Gmail push contract; bounded nested Pub/Sub/CloudEvent wrappers are accepted.
 Notification evidence uses the `SYSTEM` source type; fetched Gmail messages use
 `BANK_EMAIL` and retain the Gmail message ID for idempotency. The worker refreshes
 the encrypted OAuth credential, walks `history.list`, fetches only added messages,
