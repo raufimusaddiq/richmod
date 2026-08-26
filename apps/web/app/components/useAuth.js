@@ -5,14 +5,17 @@ import { useEffect, useState } from "react";
 export default function useAuth(redirect = true) {
   const [user, setUser] = useState(null);
   useEffect(() => {
+    const unavailable = () => {
+      setUser(false);
+      if (redirect) window.location.replace("/");
+    };
     fetch("/api/v1/auth/me").then(async response => {
       if (!response.ok) {
-        if (redirect) window.location.href = "/";
-        setUser(false);
+        unavailable();
         return;
       }
       setUser(await response.json());
-    }).catch(() => setUser(false));
+    }).catch(unavailable);
   }, [redirect]);
   return user;
 }

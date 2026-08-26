@@ -29,6 +29,15 @@ test("transaction filters are query-backed", () => {
   assert.match(source, /URLSearchParams/);
 });
 
+test("ledger request failures are recoverable instead of leaving the page loading", () => {
+  const source = text("app/transactions/page.js");
+  assert.match(source, /catch \{/);
+  assert.match(source, /Koneksi terputus saat memuat ledger/);
+  assert.match(source, /<ErrorNotice message=\{error\} retry=\{load\}\/>/);
+  assert.match(source, /loading \? <Skeleton/);
+  assert.match(text("app/components/useAuth.js"), /catch\(unavailable\)/);
+});
+
 test("ledger navigation uses a scalable icon instead of a text glyph", () => {
   const source = text("app/components/AppShell.js");
   assert.match(source, /function LedgerIcon/);

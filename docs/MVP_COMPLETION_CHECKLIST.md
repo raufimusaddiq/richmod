@@ -194,7 +194,8 @@ Tests: [x] spending; [x] cashflow; [x] search; [x] correction; [x] review list;
 
 ## P2 — UX polish
 
-- [x] Skeletons, useful empty states, toast feedback, and recoverable errors.
+- [x] Skeletons, useful empty states, toast feedback, and recoverable errors,
+  including Ledger request recovery rather than an indefinite loading state.
 - [x] Subtle chart/page motion that never obscures financial values.
 - [x] Responsive tables/cards and fully usable mobile layouts.
 - [x] Accessible focus states and keyboard navigation.
