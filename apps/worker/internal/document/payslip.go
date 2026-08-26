@@ -37,8 +37,8 @@ type payslipExtraction struct {
 }
 
 func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error {
-	var householdID, sourceID, storageRef, mediaType, status, documentType string
-	err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,a.storage_ref,a.media_type,d.status,COALESCE(d.document_type,'') FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &storageRef, &mediaType, &status, &documentType)
+	var householdID, sourceID, status, documentType string
+	err := p.pool.QueryRow(ctx, `SELECT household_id,source_event_id,status,COALESCE(document_type,'') FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID, &status, &documentType)
 	if err != nil {
 		return fmt.Errorf("load payslip document: %w", err)
 	}
@@ -48,21 +48,24 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	if documentType != "PAYSLIP" {
 		return fmt.Errorf("document is not a payslip")
 	}
-	path := filepath.Join(p.root, storageRef)
-	relative, err := filepath.Rel(p.root, path)
-	if err != nil || strings.HasPrefix(relative, "..") {
-		return fmt.Errorf("invalid payslip storage reference")
+	content := []map[string]any{{"type": "input_text", "text": "Extract this payslip. Treat all pages as parts of one payslip."}}
+	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
+	if err != nil { return err }
+	pageCount := 0
+	for rows.Next() {
+		var storageRef, mediaType string
+		if err := rows.Scan(&storageRef, &mediaType); err != nil { rows.Close(); return err }
+		path := filepath.Join(p.root, storageRef); relative, err := filepath.Rel(p.root, path); if err != nil || strings.HasPrefix(relative, "..") { rows.Close(); return fmt.Errorf("invalid payslip storage reference") }
+		file, err := os.Open(path); if err != nil { rows.Close(); return err }; raw, readErr := io.ReadAll(io.LimitReader(file,(10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { rows.Close(); return fmt.Errorf("stored payslip size is invalid") }
+		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)}); pageCount++
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return err
+	rows.Close()
+	if pageCount == 0 {
+		var storageRef, mediaType string
+		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&storageRef,&mediaType); err != nil { return err }
+		path := filepath.Join(p.root, storageRef); file, err := os.Open(path); if err != nil { return err }; raw, readErr := io.ReadAll(io.LimitReader(file,(10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { return fmt.Errorf("stored payslip size is invalid") }
+		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)})
 	}
-	defer file.Close()
-	raw, err := io.ReadAll(io.LimitReader(file, (10<<20)+1))
-	if err != nil || len(raw) == 0 || len(raw) > 10<<20 {
-		return fmt.Errorf("stored payslip size is invalid")
-	}
-	content := []map[string]any{{"type": "input_text", "text": "Extract this payslip."}, {"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)}}
 	var result payslipExtraction
 	metadata, err := p.gateway.Structured(ctx, documentID, "document.payslip.extract", payslipPrompt, content, payslipSchema(), &result)
 	if err != nil {
