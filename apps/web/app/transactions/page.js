@@ -7,6 +7,8 @@ import TransactionList from "../components/TransactionList";
 import useAuth from "../components/useAuth";
 import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 
+export const dynamic = "force-dynamic";
+
 export default function TransactionsPage() {
   const user = useAuth();
   const [items, setItems] = useState([]);

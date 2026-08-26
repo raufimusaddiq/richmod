@@ -35,6 +35,7 @@ test("ledger request failures are recoverable instead of leaving the page loadin
   assert.match(source, /Koneksi terputus saat memuat ledger/);
   assert.match(source, /<ErrorNotice message=\{error\} retry=\{load\}\/>/);
   assert.match(source, /loading \? <Skeleton/);
+  assert.match(source, /dynamic = "force-dynamic"/);
   assert.match(text("app/components/useAuth.js"), /catch\(unavailable\)/);
 });
 
