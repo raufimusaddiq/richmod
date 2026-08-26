@@ -25,7 +25,10 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] Native `function_call_output` round-trip support returns the next tool call
   or final assistant text without granting the model direct database access.
 - [x] Native query and propose-edit calls are wired to bounded Go handlers;
-  edits remain confirmation-gated before mutation.
+  edits remain confirmation-gated before mutation, and native confirm/cancel
+  calls dispatch through the same guarded handlers.
+- [x] Native tool calls now exchange bounded Go-produced function results in a
+  maximum four-step loop until the gateway returns no further tool call.
 - [x] Multi-transaction messages support up to ten IDR entries, stage one
   household/chat-bound pending batch, and require a single yes/ya confirmation
   before atomically recording all entries with individual evidence and audit
