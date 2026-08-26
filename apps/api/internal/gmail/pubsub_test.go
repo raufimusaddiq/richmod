@@ -91,3 +91,11 @@ func TestDecodeUnwrappedPubSubNotificationWithoutMetadataIsIdempotent(t *testing
 		t.Fatalf("ids=%q %q", first, second)
 	}
 }
+
+func TestDecodeBase64BodyPubSubNotification(t *testing.T) {
+	raw := base64.StdEncoding.EncodeToString([]byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":"1001"}`))
+	messageID, notification, err := decodePushNotification([]byte(raw), http.Header{})
+	if err != nil || notification.HistoryID != "1001" || !strings.HasPrefix(messageID, "payload-") {
+		t.Fatalf("id=%q notification=%#v err=%v", messageID, notification, err)
+	}
+}
