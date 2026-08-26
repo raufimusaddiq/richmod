@@ -38,7 +38,7 @@ func (q *Queue) Claim(ctx context.Context, workerID, lane string) (Job, bool, er
 		   OR (status='RUNNING' AND locked_at<now()-interval '5 minutes'))
 		ORDER BY run_after,created_at
 		FOR UPDATE SKIP LOCKED
-		LIMIT 1`).Scan(&job.ID, &job.Type, &job.Payload, &job.Attempts, &job.MaxAttempts)
+		LIMIT 1`, lane).Scan(&job.ID, &job.Type, &job.Payload, &job.Attempts, &job.MaxAttempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, false, nil
 	}
