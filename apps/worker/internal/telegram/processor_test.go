@@ -69,3 +69,32 @@ func TestExtractionSchemaRequiresEveryFieldAndRejectsExtras(t *testing.T) {
 		t.Fatalf("required fields = %d, properties = %d", len(required), len(properties))
 	}
 }
+
+func TestAssistantRangesUseJakartaCalendarBoundaries(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 14, 0, 0, 0, jakartaLocation())
+	period := "THIS_WEEK"
+	got, err := resolveAssistantRange(now, &period, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.From.Format(time.RFC3339) != "2026-08-24T00:00:00+07:00" || got.To.Format(time.RFC3339) != "2026-08-31T00:00:00+07:00" {
+		t.Fatalf("range=%s..%s", got.From.Format(time.RFC3339), got.To.Format(time.RFC3339))
+	}
+}
+
+func TestAssistantCustomRangeIsBounded(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 14, 0, 0, 0, jakartaLocation())
+	period, from, to := "CUSTOM", "2024-01-01", "2026-08-01"
+	if _, err := resolveAssistantRange(now, &period, &from, &to); err == nil {
+		t.Fatal("accepted disclosure range over one year")
+	}
+}
+
+func TestCallbackTextContainsNoTransactionIdentity(t *testing.T) {
+	if got := callbackText("review:own"); got != "rekening sendiri" {
+		t.Fatalf("callback=%q", got)
+	}
+	if got := callbackText("transaction:00000000-0000-0000-0000-000000000000"); got != "" {
+		t.Fatalf("untrusted callback accepted: %q", got)
+	}
+}

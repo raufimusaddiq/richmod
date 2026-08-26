@@ -169,7 +169,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		if payload.ReviewRequestID != "" {
-			return processor.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID)
+			if err := processor.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID); err != nil {
+				return err
+			}
+		}
+		if payload.CallbackQueryID != "" {
+			return bot.AnswerCallback(ctx, payload.CallbackQueryID)
 		}
 		return nil
 	case "PROCESS_GMAIL_HISTORY":
