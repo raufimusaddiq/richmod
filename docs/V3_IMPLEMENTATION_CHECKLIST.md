@@ -39,7 +39,10 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   document, and document processing is debounced for five seconds so all album
   pages can arrive before classification. The classifier, payslip, and receipt
   extractors send all ordered pages in one vision request.
-- [ ] Universal review item and deterministic recipient routing.
+- [x] Universal `review_item` supports transaction, proposal, source-event, and
+  document references; existing Telegram review requests link one-to-one to it.
+- [ ] Deterministic review recipient resolver uses preferred user/source owner
+  priority for sensitive reviews.
 - [ ] Payslip salary source, salary events, and dynamic salary cycles.
 - [ ] Cycle-aware web, Telegram, and insights behavior.
 - [ ] Indonesian copy and chart/UI polish.
