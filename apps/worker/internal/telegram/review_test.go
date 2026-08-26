@@ -42,9 +42,25 @@ func TestDecodeReviewSendPayload(t *testing.T) {
 	}
 }
 
+func TestDecodeInlineReviewPayload(t *testing.T) {
+	payload, err := DecodeSendPayload(json.RawMessage(`{"chat_id":719809965,"text":"review","reply_markup":{"inline_keyboard":[[{"text":"Household","callback_data":"review:household"}]]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.ReplyMarkup == nil || payload.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "review:household" {
+		t.Fatalf("markup=%#v", payload.ReplyMarkup)
+	}
+}
+
 func TestReviewQuestionUsesIndonesianIDRFormat(t *testing.T) {
 	if got := ReviewQuestion("55199", "PAMELLA DUA"); !strings.Contains(got, "Rp55.199") {
 		t.Fatalf("question = %q", got)
+	}
+}
+
+func TestFormatIDRSupportsNegativeCashflow(t *testing.T) {
+	if got := FormatIDR("-125000"); got != "-125.000" {
+		t.Fatalf("formatted=%q", got)
 	}
 }
 

@@ -19,10 +19,20 @@ type Bot struct {
 }
 
 type SendPayload struct {
-	ChatID           int64  `json:"chat_id"`
-	ReplyToMessageID int64  `json:"reply_to_message_id"`
-	Text             string `json:"text"`
-	ReviewRequestID  string `json:"review_request_id,omitempty"`
+	ChatID           int64                 `json:"chat_id"`
+	ReplyToMessageID int64                 `json:"reply_to_message_id"`
+	Text             string                `json:"text"`
+	ReviewRequestID  string                `json:"review_request_id,omitempty"`
+	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	CallbackQueryID  string                `json:"callback_query_id,omitempty"`
+}
+
+type InlineKeyboardMarkup struct {
+	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
+}
+type InlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
 }
 
 func NewBot(token string) *Bot {
@@ -36,6 +46,9 @@ func (b *Bot) Send(ctx context.Context, payload SendPayload) (int64, error) {
 	requestBody := map[string]any{
 		"chat_id": payload.ChatID,
 		"text":    clean(payload.Text, 4000),
+	}
+	if payload.ReplyMarkup != nil {
+		requestBody["reply_markup"] = payload.ReplyMarkup
 	}
 	if payload.ReplyToMessageID != 0 {
 		requestBody["reply_parameters"] = map[string]any{
@@ -71,6 +84,27 @@ func (b *Bot) Send(ctx context.Context, payload SendPayload) (int64, error) {
 		return 0, fmt.Errorf("Telegram API returned an invalid response")
 	}
 	return result.Result.MessageID, nil
+}
+
+func (b *Bot) AnswerCallback(ctx context.Context, callbackQueryID string) error {
+	if b.token == "" || callbackQueryID == "" {
+		return fmt.Errorf("Telegram callback is not configured")
+	}
+	body, _ := json.Marshal(map[string]string{"callback_query_id": callbackQueryID})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/answerCallbackQuery", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create Telegram callback response")
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := b.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("answer Telegram callback failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("Telegram callback API returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func (b *Bot) Download(ctx context.Context, fileID string, maxBytes int64) ([]byte, string, error) {

@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -329,7 +330,8 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 		return err
 	}
 	if askRemember {
-		if err := enqueueReviewMessage(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Tercatat. Ingat kategori ini untuk merchant tersebut? Balas 'ingat merchant' atau 'tidak'."); err != nil {
+		markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat merchant", CallbackData: "review:remember"}, {Text: "Sekali ini", CallbackData: "review:once"}}}}
+		if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Tercatat. Ingat kategori ini untuk merchant tersebut?", markup); err != nil {
 			return err
 		}
 	} else if err := enqueueReply(ctx, tx, update, "Tercatat dan Review Inbox sudah diperbarui."); err != nil {
@@ -425,12 +427,73 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,'AWAITING_CATEGORY')`, reviewID); err != nil {
 		return err
 	}
-	return enqueueReviewMessage(ctx, tx, reviewID, chatID, replyTo, message)
+	markup := reviewActionMarkup(ctx, tx, reviewID, reviewType)
+	return enqueueReviewMessageWithMarkup(ctx, tx, reviewID, chatID, replyTo, message, markup)
 }
 
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'review_request_id',$4::text))`, chatID, replyTo, clean(message, 4000), reviewID)
 	return err
+}
+
+func enqueueReviewMessageWithMarkup(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string, markup *InlineKeyboardMarkup) error {
+	if markup == nil {
+		return enqueueReviewMessage(ctx, tx, reviewID, chatID, replyTo, message)
+	}
+	encoded, err := json.Marshal(markup)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'review_request_id',$4::text,'reply_markup',$5::jsonb))`, chatID, replyTo, clean(message, 4000), reviewID, string(encoded))
+	return err
+}
+
+func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID string, update telegramUpdate, message string, markup *InlineKeyboardMarkup) error {
+	encoded, err := json.Marshal(markup)
+	if err != nil {
+		return err
+	}
+	callbackID := ""
+	if update.CallbackQuery != nil {
+		callbackID = update.CallbackQuery.ID
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'review_request_id',$4::text,'reply_markup',$5::jsonb,'callback_query_id',NULLIF($6,'')))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), reviewID, string(encoded), callbackID)
+	return err
+}
+
+func reviewActionMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string) *InlineKeyboardMarkup {
+	if reviewType == "TRANSFER_CLASSIFICATION" {
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}}}
+	}
+	var transactionType string
+	if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType) == nil && transactionType == "INCOME" {
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Benar", CallbackData: "review:confirm"}, {Text: "Ubah", CallbackData: "review:change"}}}}
+	}
+	rows, err := tx.Query(ctx, `SELECT c.name,c.slug FROM category c JOIN review_request r ON r.household_id=c.household_id WHERE r.id=$1 AND c.active ORDER BY c.sort_order,c.name LIMIT 5`, reviewID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var buttons []InlineKeyboardButton
+	for rows.Next() {
+		var name, slug string
+		if rows.Scan(&name, &slug) == nil {
+			buttons = append(buttons, InlineKeyboardButton{Text: clean(name, 30), CallbackData: "review:category:" + slug})
+		}
+	}
+	if len(buttons) == 0 {
+		return nil
+	}
+	var keyboard [][]InlineKeyboardButton
+	for len(buttons) > 0 {
+		take := 2
+		if len(buttons) < take {
+			take = len(buttons)
+		}
+		keyboard = append(keyboard, buttons[:take])
+		buttons = buttons[take:]
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
 func (p *Processor) categories(ctx context.Context, householdID string) ([]categoryChoice, error) {
@@ -479,8 +542,12 @@ func ReviewQuestion(amount, merchant string) string {
 }
 
 func FormatIDR(value string) string {
+	sign := ""
+	if strings.HasPrefix(value, "-") {
+		sign, value = "-", strings.TrimPrefix(value, "-")
+	}
 	if len(value) <= 3 {
-		return value
+		return sign + value
 	}
 	first := len(value) % 3
 	if first == 0 {
@@ -490,5 +557,5 @@ func FormatIDR(value string) string {
 	for index := first; index < len(value); index += 3 {
 		parts = append(parts, value[index:index+3])
 	}
-	return strings.Join(parts, ".")
+	return sign + strings.Join(parts, ".")
 }

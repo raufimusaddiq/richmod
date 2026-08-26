@@ -176,19 +176,19 @@ Required web tests: [x] routes render; [x] budget UI absent; [x] chart uses API;
 ### N. Finance-scoped intents
 
 - [x] `ADD_EXPENSE`, `ADD_INCOME`, `CLARIFY_TRANSACTION`, and `HELP` foundation.
-- [ ] Add `CORRECT_TRANSACTION`, `SEARCH_TRANSACTIONS`, `GET_SPENDING`,
+- [x] Add `CORRECT_TRANSACTION`, `SEARCH_TRANSACTIONS`, `GET_SPENDING`,
   `GET_CASHFLOW`, `GET_REVIEW_ITEMS`, and `UPLOAD_FINANCIAL_DOCUMENT`.
-- [ ] LLM interpretation yields validated parameters; Go/SQL selects records and
+- [x] LLM interpretation yields validated parameters; Go/SQL selects records and
   computes totals; ledger disclosure is minimized.
-- [ ] Ambiguous correction/search asks a follow-up instead of guessing.
+- [x] Ambiguous correction/search asks a follow-up instead of guessing.
 
-Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
-[ ] ambiguity; [ ] LLM cannot invent totals; [ ] review binding remains intact.
+Tests: [x] spending; [x] cashflow; [x] search; [x] correction; [x] review list;
+[x] ambiguity; [x] LLM cannot invent totals; [x] review binding remains intact.
 
 ### O. Inline Telegram actions
 
-- [ ] Category, transfer, and confirmation prompts use inline buttons.
-- [ ] Numeric sender/household authorization and exact callback binding are
+- [x] Category, transfer, and confirmation prompts use inline buttons.
+- [x] Numeric sender/household authorization and exact callback binding are
   deterministic; natural-language replies remain supported.
 
 ## P2 — UX polish
@@ -222,7 +222,7 @@ Tests: [ ] spending; [ ] cashflow; [ ] search; [ ] correction; [ ] review list;
 6. [x] Explicit merchant remember flow; remove implicit learning.
 7. [x] Remove budgeting from active UI.
 8. [x] Build the routed app shell and all V2 pages.
-9. [ ] Expand Telegram intents and inline actions.
+9. [x] Expand Telegram intents and inline actions.
 10. [ ] Apply P2 polish and run final release verification.
 
 Alignment v2 is complete only when every applicable criterion is `[x]` and the

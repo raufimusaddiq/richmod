@@ -88,9 +88,40 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 				Type string `json:"type"`
 			} `json:"chat"`
 		} `json:"message"`
+		CallbackQuery *struct {
+			ID   string `json:"id"`
+			Data string `json:"data"`
+			From struct {
+				ID int64 `json:"id"`
+			} `json:"from"`
+			Message *struct {
+				MessageID int64 `json:"message_id"`
+				Chat      struct {
+					ID   int64  `json:"id"`
+					Type string `json:"type"`
+				} `json:"chat"`
+			} `json:"message"`
+		} `json:"callback_query"`
 	}
 	if err := json.Unmarshal(raw, &update); err != nil || update.UpdateID == 0 {
 		http.Error(w, "invalid webhook payload", http.StatusBadRequest)
+		return
+	}
+	if update.CallbackQuery != nil {
+		if update.CallbackQuery.From.ID == 0 || update.CallbackQuery.Message == nil || update.CallbackQuery.Message.Chat.Type != "private" || !validCallbackAction(update.CallbackQuery.Data) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, err = h.store.Capture(r.Context(), CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.CallbackQuery.From.ID, RawPayload: raw})
+		if errors.Is(err, ErrUnauthorized) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if err != nil {
+			http.Error(w, "webhook processing failed", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if update.Message == nil || update.Message.From.ID == 0 || update.Message.Chat.Type != "private" {
@@ -142,6 +173,14 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func validCallbackAction(value string) bool {
+	switch value {
+	case "review:expense", "review:own", "review:household", "review:confirm", "review:change", "review:remember", "review:once":
+		return true
+	}
+	return strings.HasPrefix(value, "review:category:") && len(strings.TrimPrefix(value, "review:category:")) <= 120
 }
 
 type telegramImage struct{ fileID, fileName, mimeType string }
