@@ -76,7 +76,9 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [~] Payslip validation now persists IDR salary sources/events for confirmed
   payslips, deduplicates by source and payroll period, and provides a Jakarta
   dynamic-cycle resolver. Payslip images are accepted through both Telegram
-  (including albums) and the web multi-image upload pipeline. Interactive
+  (including albums) and the web multi-image upload pipeline. Explicit
+  Indonesian/English Telegram caption dates (for example, “gajian tanggal 24
+  agustus 2026”) deterministically set pay_date before confirmation. Interactive
   salary-source selection and cycle-aware consumers remain in the next slice.
 - [ ] Cycle-aware web, Telegram, and insights behavior.
 - [ ] Indonesian copy and chart/UI polish.
