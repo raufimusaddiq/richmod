@@ -232,3 +232,9 @@ Tests: [x] spending; [x] cashflow; [x] search; [x] correction; [x] review list;
 Alignment v2 is complete only when every applicable criterion is `[x]` and the
 intended flow is verified in production. Backend-only or UI-only fragments remain
 partial until wired end to end.
+# Multi-user dashboard authentication
+
+- [x] Separate household OWNER/MEMBER roles from global super-admin capability
+- [x] 24-hour single-use dashboard enrollment invite with hashed token
+- [x] Enrollment password initialization and session creation
+- [x] Protected platform admin API and dashboard route

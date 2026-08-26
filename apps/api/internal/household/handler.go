@@ -98,7 +98,7 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var userID string
-	if err = tx.QueryRow(r.Context(), `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,$2,$3) RETURNING id`, in.Email, in.DisplayName, passwordHash).Scan(&userID); err != nil {
+	if err = tx.QueryRow(r.Context(), `INSERT INTO "user"(email,display_name,password_hash,password_initialized_at) VALUES($1,$2,$3,NULL) RETURNING id`, in.Email, in.DisplayName, passwordHash).Scan(&userID); err != nil {
 		out(w, 409, map[string]string{"error": "email already exists"})
 		return
 	}
@@ -114,7 +114,7 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdID string) {
-	rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.display_name,u.email,hm.role,hm.active,ti.telegram_user_id IS NOT NULL FROM household_member hm JOIN "user" u ON u.id=hm.user_id LEFT JOIN telegram_identity ti ON ti.household_id=hm.household_id AND ti.user_id=u.id AND ti.active WHERE hm.household_id=$1 ORDER BY hm.created_at`, householdID)
+	rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.display_name,u.email,hm.role,hm.active,ti.telegram_user_id IS NOT NULL,di.status,di.expires_at FROM household_member hm JOIN "user" u ON u.id=hm.user_id LEFT JOIN telegram_identity ti ON ti.household_id=hm.household_id AND ti.user_id=u.id AND ti.active LEFT JOIN LATERAL (SELECT status,expires_at FROM dashboard_account_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) di ON true WHERE hm.household_id=$1 ORDER BY hm.created_at`, householdID)
 	if err != nil {
 		out(w, 500, map[string]string{"error": "unable to list members"})
 		return
@@ -123,14 +123,29 @@ func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdI
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, name, email, role string
-		var active, connected bool
-		if rows.Scan(&id, &name, &email, &role, &active, &connected) != nil {
+		var active, connected bool; var inviteStatus *string; var inviteExpires *time.Time
+		if rows.Scan(&id, &name, &email, &role, &active, &connected, &inviteStatus, &inviteExpires) != nil {
 			out(w, 500, map[string]string{"error": "unable to list members"})
 			return
 		}
-		items = append(items, map[string]any{"id": id, "displayName": name, "email": email, "role": role, "active": active, "telegramConnected": connected})
+		items = append(items, map[string]any{"id": id, "displayName": name, "email": email, "role": role, "active": active, "telegramConnected": connected, "dashboardInviteStatus": inviteStatus, "dashboardInviteExpiresAt": inviteExpires})
 	}
 	out(w, 200, items)
+}
+
+func (h *Handler) CreateDashboardInvite(w http.ResponseWriter, r *http.Request) {
+	p, householdID, ok := principal(r); if !ok || p.Memberships[0].Role!="OWNER" { out(w,403,map[string]string{"error":"owner role required"}); return }
+	memberID:=r.PathValue("id"); raw:=make([]byte,32); if _,err:=rand.Read(raw); err!=nil { out(w,500,map[string]string{"error":"unable to create invite"}); return }; token:=base64.RawURLEncoding.EncodeToString(raw); d:=sha256.Sum256([]byte(token)); exp:=h.now().Add(24*time.Hour)
+	tx,err:=h.pool.Begin(r.Context()); if err!=nil {out(w,500,map[string]string{"error":"unable to create invite"});return}; defer tx.Rollback(r.Context())
+	_,_=tx.Exec(r.Context(),`UPDATE dashboard_account_invite SET status='EXPIRED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING' AND expires_at<=now()`,householdID,memberID)
+	var id string; err=tx.QueryRow(r.Context(),`INSERT INTO dashboard_account_invite(household_id,user_id,token_hash,status,expires_at,created_by_user_id) SELECT $1,$2,$3,'PENDING',$4,$5 FROM household_member WHERE household_id=$1 AND user_id=$2 AND role='MEMBER' AND active RETURNING id`,householdID,memberID,d[:],exp,p.UserID).Scan(&id); if err!=nil {out(w,409,map[string]string{"error":"member is not eligible or already has a pending invite"});return}
+	if audit(r,tx,householdID,p.UserID,"CREATE","dashboard_account_invite",id,nil,map[string]any{"userId":memberID,"expiresAt":exp})!=nil || tx.Commit(r.Context())!=nil {out(w,500,map[string]string{"error":"unable to create invite"});return}
+	out(w,201,map[string]any{"id":id,"link":"/invite#"+token,"expiresAt":exp})
+}
+
+func (h *Handler) RevokeDashboardInvite(w http.ResponseWriter, r *http.Request) {
+	p, householdID, ok := principal(r); if !ok || p.Memberships[0].Role!="OWNER" { out(w,403,map[string]string{"error":"owner role required"}); return }
+	memberID:=r.PathValue("id"); if _,err:=h.pool.Exec(r.Context(),`UPDATE dashboard_account_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`,householdID,memberID); err!=nil {out(w,500,map[string]string{"error":"unable to revoke invite"});return}; w.WriteHeader(204)
 }
 
 func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {

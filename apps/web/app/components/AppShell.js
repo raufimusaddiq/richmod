@@ -15,6 +15,7 @@ const nav = [
 
 export default function AppShell({ user, title, eyebrow, actions, children }) {
   const pathname = usePathname();
+  const links = user?.isSuperAdmin ? [...nav, ["/admin", "Admin", "⚑"]] : nav;
   async function logout() {
     await fetch("/api/v1/auth/logout", { method: "POST" });
     window.location.href = "/";

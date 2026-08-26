@@ -17,13 +17,16 @@ import (
 
 func main() {
 	var email, name, householdName string
+	var promote bool
 	var telegramUserID int64
 	flag.StringVar(&email, "email", "", "owner email address")
 	flag.StringVar(&name, "name", "", "owner display name")
 	flag.StringVar(&householdName, "household", "", "household name")
 	flag.Int64Var(&telegramUserID, "telegram-user-id", 0, "authorized numeric Telegram user ID (optional)")
+	flag.BoolVar(&promote, "promote-super-admin", false, "grant global super-admin to an existing user")
 	flag.Parse()
 
+	if promote { if err:=promoteSuperAdmin(context.Background(),email); err!=nil { fmt.Fprintln(os.Stderr,"promotion failed:",err); os.Exit(1) }; fmt.Println("super-admin promotion completed"); return }
 	if err := run(context.Background(), email, name, householdName, telegramUserID, os.Stdin); err != nil {
 		fmt.Fprintln(os.Stderr, "bootstrap failed:", err)
 		os.Exit(1)
@@ -79,7 +82,7 @@ func run(ctx context.Context, email, name, householdName string, telegramUserID 
 	if err := tx.QueryRow(ctx, `INSERT INTO household (name) VALUES ($1) RETURNING id`, householdName).Scan(&householdID); err != nil {
 		return fmt.Errorf("create household: %w", err)
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO "user" (email, display_name, password_hash) VALUES ($1, $2, $3) RETURNING id`, email, name, passwordHash).Scan(&userID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO "user" (email, display_name, password_hash, password_initialized_at) VALUES ($1, $2, $3, now()) RETURNING id`, email, name, passwordHash).Scan(&userID); err != nil {
 		return fmt.Errorf("create owner user: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO household_member (household_id, user_id, role) VALUES ($1, $2, 'OWNER')`, householdID, userID); err != nil {
@@ -104,4 +107,8 @@ func run(ctx context.Context, email, name, householdName string, telegramUserID 
 		return fmt.Errorf("commit bootstrap: %w", err)
 	}
 	return nil
+}
+
+func promoteSuperAdmin(ctx context.Context, email string) error {
+	email=strings.ToLower(strings.TrimSpace(email)); if !strings.Contains(email,"@"){return fmt.Errorf("--email must be an email address")}; databaseURL:=os.Getenv("DATABASE_URL");if databaseURL==""{return fmt.Errorf("DATABASE_URL is required")};pool,err:=database.Open(ctx,databaseURL);if err!=nil{return err};defer pool.Close();var id string;if err=pool.QueryRow(ctx,`UPDATE "user" SET is_super_admin=TRUE,updated_at=now() WHERE email=$1 RETURNING id`,email).Scan(&id);err!=nil{return fmt.Errorf("user not found: %w",err)};return nil
 }
