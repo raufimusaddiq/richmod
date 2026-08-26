@@ -32,9 +32,16 @@ type ToolDefinition struct {
 }
 
 type ToolCall struct {
+	ResponseID string
 	CallID    string
 	Name      string
 	Arguments json.RawMessage
+}
+
+type ToolResponse struct {
+	ToolCall *ToolCall
+	Text     string
+	Metadata Metadata
 }
 
 // NativeToolCall asks the gateway for a native function_call. It never
@@ -51,10 +58,27 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	resp, err := c.http.Do(req); if err != nil { return ToolCall{}, Metadata{}, fmt.Errorf("call LLM tool gateway: %w", err) }; defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20)); if err != nil { return ToolCall{}, Metadata{}, err }
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 { return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned HTTP %d", resp.StatusCode) }
-	var envelope struct { Model string `json:"model"`; Cost string `json:"cost"`; Usage struct { Input int `json:"input_tokens"`; Output int `json:"output_tokens"` } `json:"usage"`; Output []struct { Type string `json:"type"`; ID string `json:"id"`; Name string `json:"name"`; CallID string `json:"call_id"`; Arguments json.RawMessage `json:"arguments"` } `json:"output"` }
+	var envelope struct { ID string `json:"id"`; Model string `json:"model"`; Cost string `json:"cost"`; Usage struct { Input int `json:"input_tokens"`; Output int `json:"output_tokens"` } `json:"usage"`; Output []struct { Type string `json:"type"`; ID string `json:"id"`; Name string `json:"name"`; CallID string `json:"call_id"`; Arguments json.RawMessage `json:"arguments"` } `json:"output"` }
 	if err := json.Unmarshal(raw, &envelope); err != nil { return ToolCall{}, Metadata{}, err }
-	for _, item := range envelope.Output { if item.Type == "function_call" && item.Name != "" && len(item.Arguments) > 0 { return ToolCall{CallID:item.CallID,Name:item.Name,Arguments:item.Arguments}, Metadata{Model:envelope.Model,InputTokens:envelope.Usage.Input,OutputTokens:envelope.Usage.Output,Cost:envelope.Cost}, nil } }
+	for _, item := range envelope.Output { if item.Type == "function_call" && item.Name != "" && len(item.Arguments) > 0 { return ToolCall{ResponseID:envelope.ID,CallID:item.CallID,Name:item.Name,Arguments:item.Arguments}, Metadata{Model:envelope.Model,InputTokens:envelope.Usage.Input,OutputTokens:envelope.Usage.Output,Cost:envelope.Cost}, nil } }
 	return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native function_call")
+}
+
+// NativeToolResult continues a native tool-call response after Go execution.
+// The result is opaque to the model and must be produced by a Go-owned tool.
+func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, callID, output string) (ToolResponse, error) {
+	if c.baseURL == "" || c.apiKey == "" || c.model == "" { return ToolResponse{}, fmt.Errorf("LLM gateway is not configured") }
+	payload := map[string]any{"model":c.model,"previous_response_id":responseID,"input":[]map[string]any{{"type":"function_call_output","call_id":callID,"output":output}},"stream":false}
+	body, err := json.Marshal(payload); if err != nil { return ToolResponse{}, err }
+	req, err := http.NewRequestWithContext(ctx,http.MethodPost,c.baseURL+"/responses",bytes.NewReader(body)); if err != nil { return ToolResponse{}, err }
+	req.Header.Set("Authorization","Bearer "+c.apiKey); req.Header.Set("Content-Type","application/json"); req.Header.Set("X-Request-ID",requestID)
+	resp, err := c.http.Do(req); if err != nil { return ToolResponse{}, err }; defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body,4<<20)); if err != nil { return ToolResponse{}, err }; if resp.StatusCode<200 || resp.StatusCode>=300 { return ToolResponse{}, fmt.Errorf("LLM gateway returned HTTP %d",resp.StatusCode) }
+	var envelope struct { ID string `json:"id"`; Model string `json:"model"`; Cost string `json:"cost"`; Usage struct { Input int `json:"input_tokens"`; Output int `json:"output_tokens" } `json:"usage"`; Output []struct { Type string `json:"type"`; Name string `json:"name"`; CallID string `json:"call_id"`; Arguments json.RawMessage `json:"arguments"`; Content []struct { Type string `json:"type"`; Text string `json:"text"` } `json:"content"` } `json:"output"` }
+	if err := json.Unmarshal(raw,&envelope); err != nil { return ToolResponse{}, err }
+	meta := Metadata{Model:envelope.Model,InputTokens:envelope.Usage.Input,OutputTokens:envelope.Usage.Output,Cost:envelope.Cost}
+	for _, item := range envelope.Output { if item.Type=="function_call" { return ToolResponse{ToolCall:&ToolCall{ResponseID:envelope.ID,CallID:item.CallID,Name:item.Name,Arguments:item.Arguments},Metadata:meta},nil }; for _, content := range item.Content { if content.Type=="output_text" { return ToolResponse{Text:content.Text,Metadata:meta},nil } } }
+	return ToolResponse{}, fmt.Errorf("LLM gateway returned no tool call or assistant text")
 }
 
 func New(baseURL, apiKey, model string) *Client {
