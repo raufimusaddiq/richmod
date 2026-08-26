@@ -78,6 +78,9 @@ func run(logger *slog.Logger) error {
 
 	logger.Info("worker started", "worker_id", workerID)
 	go maintainHeartbeat(ctx, logger, pool, workerID)
+	// Keep callback and other interactive work on a reserved execution loop so
+	// long-running vision/Gmail jobs cannot delay Telegram button handling.
+	go runInteractiveLoop(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	maintenanceTicker := time.NewTicker(time.Minute)
@@ -91,9 +94,6 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "INTERACTIVE"); err != nil {
-			logger.Error("job polling failed", "error", err)
-		}
 		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "DEFAULT"); err != nil { logger.Error("job polling failed", "error", err) }
 		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "BACKGROUND"); err != nil { logger.Error("job polling failed", "error", err) }
 		select {
@@ -106,6 +106,21 @@ func run(logger *slog.Logger) error {
 					logger.Error("Gmail watch maintenance failed", "error", err)
 				}
 			}
+		}
+	}
+}
+
+func runInteractiveLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "INTERACTIVE"); err != nil && ctx.Err() == nil {
+			logger.Error("interactive job polling failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }
