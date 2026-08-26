@@ -29,6 +29,13 @@ test("transaction filters are query-backed", () => {
   assert.match(source, /URLSearchParams/);
 });
 
+test("ledger navigation uses a scalable icon instead of a text glyph", () => {
+  const source = text("app/components/AppShell.js");
+  assert.match(source, /function LedgerIcon/);
+  assert.match(source, /<svg viewBox="0 0 24 24"/);
+  assert.equal(source.includes('"↕"'), false);
+});
+
 test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/reviews/page.js"), /\/api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
