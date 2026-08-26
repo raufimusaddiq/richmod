@@ -186,6 +186,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	}
 	defer tx.Rollback(ctx)
 	status, proposalStatus, documentStatus, sourceStatus := "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW"
+	payDate := transactionAt.In(jakarta()).Format("2006-01-02")
 	if autoConfirm {
 		status, proposalStatus, documentStatus, sourceStatus = "CONFIRMED", "ACCEPTED", "EXTRACTED", "PROCESSED"
 	}
@@ -221,11 +222,22 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	}
 	if autoConfirm {
 		normalized := strings.ToLower(strings.Join(strings.Fields(value.Employer), " "))
+		var sourceType string
+		var telegramUser, telegramChat int64
+		_ = tx.QueryRow(ctx, `SELECT source_type,COALESCE((payload_json->'message'->'from'->>'id')::bigint,0),COALESCE((payload_json->'message'->'chat'->>'id')::bigint,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1`, sourceID).Scan(&sourceType, &telegramUser, &telegramChat)
+		var hasPrimary bool
+		_ = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, householdID).Scan(&hasPrimary)
+		if sourceType == "TELEGRAM_IMAGE" && !hasPrimary && telegramUser != 0 && telegramChat != 0 {
+			msg := "Slip gaji berhasil dibaca: Rp" + workerTelegram.FormatIDR(value.NetPay) + " dari " + value.Employer + ". Balas 'gaji utama', 'pemasukan biasa', atau 'abaikan'."
+			_, _ = tx.Exec(ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date) VALUES($1,$2,$3,$4,$5,$6::date,$7::date); INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$8::bigint,'text',$9::text))`, householdID, telegramUser, telegramChat, transactionID, value.Employer, value.Period+"-01", payDate, telegramChat, msg)
+		}
+		if sourceType == "TELEGRAM_IMAGE" && !hasPrimary && telegramUser != 0 && telegramChat != 0 {
+			return tx.Commit(ctx)
+		}
 		var salarySourceID string
 		if err := tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, householdID, value.Employer, normalized).Scan(&salarySourceID); err != nil {
 			return err
 		}
-		payDate := transactionAt.In(jakarta()).Format("2006-01-02")
 		if _, err := tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySourceID, householdID, value.Period+"-01", payDate, value.NetPay, transactionID, sourceID); err != nil {
 			return err
 		}
