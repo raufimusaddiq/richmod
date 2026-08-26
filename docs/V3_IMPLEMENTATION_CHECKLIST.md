@@ -20,7 +20,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] Original Telegram callback messages are edited and obsolete inline buttons
   are removed; failed edits use a non-mutating notification fallback.
 - [ ] Callback execution latency metrics.
-- [ ] Reserved concurrent interactive worker loop and end-to-end Telegram latency test.
+- [x] Reserved concurrent interactive worker loop keeps interactive jobs isolated
+  from long-running default/background work (worker build and Telegram tests pass).
 
 ## P0 — Household-wide review delivery
 
