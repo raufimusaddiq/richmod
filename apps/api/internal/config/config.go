@@ -16,6 +16,7 @@ type API struct {
 	LLMGatewayAPIKey          string
 	TelegramWebhookSecret     string
 	TelegramBotUsername       string
+	TelegramBotToken          string
 	GmailOAuthClientPath      string
 	GmailMailbox              string
 	GmailTokenKey             string
@@ -34,6 +35,7 @@ func LoadAPI() (API, error) {
 		LLMGatewayAPIKey:          os.Getenv("LLM_GATEWAY_API_KEY"),
 		TelegramWebhookSecret:     os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
 		TelegramBotUsername:       os.Getenv("TELEGRAM_BOT_USERNAME"),
+		TelegramBotToken:          os.Getenv("TELEGRAM_BOT_TOKEN"),
 		GmailOAuthClientPath:      os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
 		GmailMailbox:              os.Getenv("GMAIL_MAILBOX"),
 		GmailTokenKey:             os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),

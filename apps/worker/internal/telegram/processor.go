@@ -94,11 +94,11 @@ func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 }
 
 func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
-	var householdID, payloadText, processingStatus string
+	var householdID, payloadText, processingStatus, sourceType string
 	err := p.pool.QueryRow(ctx, `
-		SELECT s.household_id,p.payload_json::text,s.processing_status
+		SELECT s.household_id,p.payload_json::text,s.processing_status,s.source_type
 		FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id
-		WHERE s.id=$1 AND s.source_type='TELEGRAM_TEXT'`, sourceEventID).Scan(&householdID, &payloadText, &processingStatus)
+		WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_TEXT','TELEGRAM_CALLBACK')`, sourceEventID).Scan(&householdID, &payloadText, &processingStatus, &sourceType)
 	if err != nil {
 		return fmt.Errorf("load Telegram source event: %w", err)
 	}
@@ -124,6 +124,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	}
 	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
 		return err
+	}
+	if sourceType == "TELEGRAM_CALLBACK" {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
 	}
 	if strings.HasPrefix(strings.ToLower(text), "/help") || strings.HasPrefix(strings.ToLower(text), "/start") {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kirim transaksi seperti: makan siang 50rb, atau gaji 8 juta hari ini.")

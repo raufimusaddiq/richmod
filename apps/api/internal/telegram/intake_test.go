@@ -33,6 +33,12 @@ func (s *fakeStore) Capture(_ context.Context, input CaptureInput) (bool, error)
 	return true, s.err
 }
 
+func (s *fakeStore) CaptureCallback(_ context.Context, input CaptureInput, _ string, _, _ int64) (bool, error) {
+	s.calls++
+	s.input = input
+	return true, s.err
+}
+
 func TestWebhookRoutesStartTokenToLinking(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewHandler(store, "webhook-secret")

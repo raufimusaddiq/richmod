@@ -23,7 +23,7 @@ type Queue struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Queue { return &Queue{pool: pool} }
 
-func (q *Queue) Claim(ctx context.Context, workerID string) (Job, bool, error) {
+func (q *Queue) Claim(ctx context.Context, workerID, lane string) (Job, bool, error) {
 	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Job{}, false, fmt.Errorf("begin job claim: %w", err)
@@ -34,8 +34,8 @@ func (q *Queue) Claim(ctx context.Context, workerID string) (Job, bool, error) {
 	err = tx.QueryRow(ctx, `
 		SELECT id,type,payload_json,attempts+1,max_attempts
 		FROM job
-		WHERE (status='PENDING' AND run_after<=now())
-		   OR (status='RUNNING' AND locked_at<now()-interval '5 minutes')
+		WHERE lane=$1 AND ((status='PENDING' AND run_after<=now())
+		   OR (status='RUNNING' AND locked_at<now()-interval '5 minutes'))
 		ORDER BY run_after,created_at
 		FOR UPDATE SKIP LOCKED
 		LIMIT 1`).Scan(&job.ID, &job.Type, &job.Payload, &job.Attempts, &job.MaxAttempts)
