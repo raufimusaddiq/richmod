@@ -9,3 +9,9 @@ CREATE TABLE IF NOT EXISTS dashboard_account_invite (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS dashboard_account_invite_pending ON dashboard_account_invite(household_id,user_id) WHERE status='PENDING';
 CREATE INDEX IF NOT EXISTS dashboard_account_invite_user_idx ON dashboard_account_invite(user_id,created_at DESC);
+
+-- +goose Down
+DROP TABLE IF EXISTS dashboard_account_invite;
+ALTER TABLE "user" DROP COLUMN IF EXISTS password_initialized_at;
+ALTER TABLE "user" DROP COLUMN IF EXISTS is_super_admin;
+-- +goose Up
