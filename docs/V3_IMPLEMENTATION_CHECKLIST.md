@@ -7,6 +7,10 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 
 ## P0 — Telegram interaction latency
 
+- [x] Conversational LLM input is explicitly delimited as untrusted data,
+  restricted to Indonesian/English finance intents, and language-validated before
+  deterministic Go processing.
+
 - [x] Inline callbacks are persisted as `TELEGRAM_CALLBACK` source events.
 - [x] Callback persistence is idempotent by Telegram update external ID.
 - [x] Callback actions are queued as `PROCESS_TELEGRAM_CALLBACK`.
