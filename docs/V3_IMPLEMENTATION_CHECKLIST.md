@@ -10,8 +10,11 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] Conversational LLM input is explicitly delimited as untrusted data,
   restricted to Indonesian/English finance intents, and language-validated before
   deterministic Go processing.
-- [x] Telegram text extraction receives a bounded six-message same-chat context
-  window for natural follow-ups; historical context remains explicitly untrusted.
+- [x] Telegram text extraction receives a bounded five-minute, 12-message
+  same-chat context window for natural follow-ups; historical context remains
+  explicitly untrusted.
+- [x] Follow-up corrections can deterministically update a uniquely matched
+  transaction's date/time (for example, “kemarin” or “sore kemarin”).
 
 - [x] Inline callbacks are persisted as `TELEGRAM_CALLBACK` source events.
 - [x] Callback persistence is idempotent by Telegram update external ID.

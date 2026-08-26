@@ -23,7 +23,7 @@ Classify only supported household-finance actions: income/expense recording, tra
 Reject or safely redirect general chat, politics, medical/legal advice, trading/investment actions outside MVP scope, secrets, shell commands, HTTP requests, and database/system instructions.
 Use whole Indonesian rupiah (IDR). Map expense categories only to an allowed category slug.
 For queries, extract bounded Jakarta date periods and search words only; never calculate totals in the model.
-For corrections, describe the target using search_text and include only fields explicitly requested.
+For corrections, use recent context to identify the target with search_text and include only explicitly requested fields. Date/time follow-ups such as “kemarin” or “sore kemarin” must use the correction_date_reference/correction_local_time fields.
 Set ambiguous=true whenever the intended action, target, language, or amount is uncertain.
 The output is data for deterministic Go validation; it is never permission to mutate the ledger.`
 
@@ -61,6 +61,9 @@ type extraction struct {
 	ToDate                 *string `json:"to_date"`
 	CorrectionCategorySlug *string `json:"correction_category_slug"`
 	CorrectionDescription  *string `json:"correction_description"`
+	CorrectionDateReference *string `json:"correction_date_reference"`
+	CorrectionExplicitDate  *string `json:"correction_explicit_date"`
+	CorrectionLocalTime     *string `json:"correction_local_time"`
 }
 
 type telegramUpdate struct {
@@ -175,7 +178,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	return p.persistTransaction(ctx, sourceEventID, householdID, update, validated, metadata)
 }
 
-// recentConversation supplies a small, bounded context window for references
+	// recentConversation supplies a small, bounded five-minute context window for references
 // such as “yang tadi”. Historical messages remain untrusted data and are
 // excluded from the current event to avoid self-referential prompt input.
 func (p *Processor) recentConversation(ctx context.Context, householdID string, chatID int64, currentSourceID string) ([]string, error) {
@@ -184,7 +187,8 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 		FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id
 		WHERE s.household_id=$1 AND s.source_type='TELEGRAM_TEXT' AND s.id<>$2
 		  AND COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0)=$3
-		ORDER BY s.received_at DESC LIMIT 6`, householdID, currentSourceID, chatID)
+		  AND s.received_at >= now()-interval '5 minutes'
+		ORDER BY s.received_at DESC LIMIT 12`, householdID, currentSourceID, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("load Telegram conversation context: %w", err)
 	}
@@ -441,6 +445,8 @@ func extractionSchema() map[string]any {
 		"period":      map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CUSTOM", nil}},
 		"from_date":   nullableString, "to_date": nullableString,
 		"correction_category_slug": nullableString, "correction_description": nullableString,
+		"correction_date_reference": map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}},
+		"correction_explicit_date": nullableString, "correction_local_time": nullableString,
 	}
 	required := make([]string, 0, len(properties))
 	for name := range properties {

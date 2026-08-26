@@ -166,8 +166,17 @@ func (p *Processor) correctTransaction(ctx context.Context, sourceID, householdI
 	query := clean(pointerValue(value.SearchText), 120)
 	categorySlug := clean(pointerValue(value.CorrectionCategorySlug), 120)
 	description := clean(pointerValue(value.CorrectionDescription), 500)
-	if query == "" || (categorySlug == "" && description == "") {
-		return p.finishAssistant(ctx, sourceID, update, "Sebutkan satu transaksi dan koreksinya, misalnya: Pamella tadi ubah kategori menjadi belanja rumah.", nil)
+	dateReference := pointerValue(value.CorrectionDateReference)
+	explicitDate := pointerValue(value.CorrectionExplicitDate)
+	localTime := pointerValue(value.CorrectionLocalTime)
+	if query == "" || (categorySlug == "" && description == "" && dateReference == "") {
+		return p.finishAssistant(ctx, sourceID, update, "Sebutkan satu transaksi dan koreksinya, misalnya: Pamella tadi ubah kategori menjadi belanja rumah, atau: yang tadi pindahkan ke kemarin sore.", nil)
+	}
+	var correctedAt *time.Time
+	if dateReference != "" {
+		at, err := resolveTime(p.now().In(jakartaLocation()), &dateReference, nullablePointer(explicitDate), nullablePointer(localTime))
+		if err != nil { return p.finishAssistant(ctx, sourceID, update, "Tanggal atau waktu koreksinya belum jelas.", nil) }
+		correctedAt = &at
 	}
 	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(t.counterparty_name,t.description,'Transaksi'),t.amount::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.type IN('INCOME','EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 AND (t.counterparty_name ILIKE '%'||$4||'%' OR t.description ILIKE '%'||$4||'%' OR c.name ILIKE '%'||$4||'%') ORDER BY t.transaction_at DESC LIMIT 3`, householdID, r.From, r.To, query)
 	if err != nil {
@@ -206,7 +215,7 @@ func (p *Processor) correctTransaction(ctx context.Context, sourceID, householdI
 		}
 		categoryID = &id
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction SET category_id=COALESCE($2,category_id),description=COALESCE(NULLIF($3,''),description),updated_at=now() WHERE id=$1 AND household_id=$4`, found[0].id, categoryID, description, householdID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE transaction SET category_id=COALESCE($2,category_id),description=COALESCE(NULLIF($3,''),description),transaction_at=COALESCE($4,transaction_at),updated_at=now() WHERE id=$1 AND household_id=$5`, found[0].id, categoryID, description, correctedAt, householdID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CORRECT_TRANSACTION','transaction',$3,jsonb_build_object('category_id',$4::uuid,'description',NULLIF($5,''),'source_event_id',$6::uuid))`, householdID, userID, found[0].id, categoryID, description, sourceID); err != nil {
@@ -219,6 +228,11 @@ func (p *Processor) correctTransaction(ctx context.Context, sourceID, householdI
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func nullablePointer(value string) *string {
+	if value == "" { return nil }
+	return &value
 }
 
 func (p *Processor) finishAssistant(ctx context.Context, sourceID string, update telegramUpdate, message string, markup *InlineKeyboardMarkup) error {
