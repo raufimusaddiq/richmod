@@ -108,11 +108,12 @@ func (p *Processor) RecoverUnpersisted(ctx context.Context) error {
 	defer rows.Close()
 	for rows.Next() {
 		var householdID string
-		var raw []byte
-		if err := rows.Scan(&householdID, &raw); err != nil {
+		var rawText string
+		if err := rows.Scan(&householdID, &rawText); err != nil {
 			return err
 		}
 		var message gmailMessage
+		raw := []byte(rawText)
 		if err := json.Unmarshal(raw, &message); err != nil {
 			return fmt.Errorf("decode stored Gmail message: %w", err)
 		}
