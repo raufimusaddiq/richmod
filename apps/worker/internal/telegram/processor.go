@@ -38,6 +38,10 @@ type nativeGateway interface {
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition) (gateway.ToolCall, gateway.Metadata, error)
 }
 
+type nativeResultGateway interface {
+	NativeToolResult(context.Context, string, string, string, string) (gateway.ToolResponse, error)
+}
+
 type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
@@ -183,13 +187,30 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if ng, ok := p.gateway.(nativeGateway); ok {
 		call, metadata, callErr := ng.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, NativeFinanceTools())
 		if callErr == nil {
-			args, err := ValidateNativeToolCall(call)
-			if err != nil {
-				return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Permintaan alat keuangan tidak valid.")
+			for step := 0; step < 4; step++ {
+				args, err := ValidateNativeToolCall(call)
+				if err != nil {
+					return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Permintaan alat keuangan tidak valid.")
+				}
+				handled, execErr := p.executeNativeTool(ctx, sourceEventID, householdID, update, call, args, metadata, now)
+				if execErr != nil {
+					return execErr
+				}
+				if !handled {
+					break
+				}
+				rg, supportsResults := p.gateway.(nativeResultGateway)
+				if !supportsResults || call.CallID == "" || call.ResponseID == "" {
+					return nil
+				}
+				result, resultErr := rg.NativeToolResult(ctx, sourceEventID, call.ResponseID, call.CallID, `{"status":"handled"}`)
+				if resultErr != nil || result.ToolCall == nil {
+					return nil
+				}
+				call = *result.ToolCall
+				metadata = result.Metadata
 			}
-			if handled, err := p.executeNativeTool(ctx, sourceEventID, householdID, update, call, args, metadata, now); handled {
-				return err
-			}
+			return nil
 		}
 	}
 	var extracted extraction
@@ -319,6 +340,10 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 			return true, err
 		}
 		return true, tx.Commit(ctx)
+	case "confirm_edit":
+		return p.processPendingEdit(ctx, householdID, update, sourceID, "yes")
+	case "cancel_edit":
+		return p.processPendingEdit(ctx, householdID, update, sourceID, "no")
 	default:
 		return false, nil
 	}
