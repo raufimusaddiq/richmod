@@ -194,10 +194,10 @@ Tests: [x] spending; [x] cashflow; [x] search; [x] correction; [x] review list;
 
 ## P2 — UX polish
 
-- [ ] Skeletons, useful empty states, toast feedback, and recoverable errors.
-- [ ] Subtle chart/page motion that never obscures financial values.
-- [ ] Responsive tables/cards and fully usable mobile layouts.
-- [ ] Accessible focus states and keyboard navigation.
+- [x] Skeletons, useful empty states, toast feedback, and recoverable errors.
+- [x] Subtle chart/page motion that never obscures financial values.
+- [x] Responsive tables/cards and fully usable mobile layouts.
+- [x] Accessible focus states and keyboard navigation.
 - [ ] Visual review confirms a calm, household-friendly, data-focused experience.
 
 ## Documentation and release gates
