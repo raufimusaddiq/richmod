@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -30,6 +31,8 @@ type ImagePayload struct {
 	Caption        string `json:"caption"`
 	TelegramUserID int64  `json:"telegram_user_id"`
 	UserID         string `json:"user_id"`
+	MediaGroupID   string `json:"media_group_id"`
+	MessageID      int64  `json:"message_id"`
 }
 
 type ImageProcessor struct {
@@ -91,20 +94,39 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Telegram delivers album images as separate updates. Serialize grouped
+	// updates so concurrent workers converge on one logical document.
+	if input.MediaGroupID != "" {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, householdID+":"+input.MediaGroupID); err != nil {
+			return err
+		}
+	}
 	var attachmentID, actualRef string
 	if err = tx.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(household_id,content_hash) DO UPDATE SET content_hash=excluded.content_hash RETURNING id,storage_ref`, householdID, digest[:], media, len(normalized), width, height, storageRef).Scan(&attachmentID, &actualRef); err != nil {
 		return err
 	}
 	var documentID string
-	if err = tx.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status) VALUES($1,$2,$3,'RECEIVED') ON CONFLICT(source_event_id) DO UPDATE SET source_event_id=excluded.source_event_id RETURNING id`, householdID, input.SourceEventID, attachmentID).Scan(&documentID); err != nil {
+	if input.MediaGroupID != "" {
+		err = tx.QueryRow(ctx, `SELECT d.id FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.household_id=$1 AND s.telegram_media_group_id=$2 ORDER BY d.created_at,d.id LIMIT 1`, householdID, input.MediaGroupID).Scan(&documentID)
+	}
+	if errors.Is(err, pgx.ErrNoRows) || input.MediaGroupID == "" {
+		err = tx.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status) VALUES($1,$2,$3,'RECEIVED') ON CONFLICT(source_event_id) DO UPDATE SET source_event_id=excluded.source_event_id RETURNING id`, householdID, input.SourceEventID, attachmentID).Scan(&documentID)
+	}
+	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,0) ON CONFLICT DO NOTHING`, documentID, input.SourceEventID, attachmentID); err != nil { return err }
+	pageIndex := input.MessageID
+	if input.MediaGroupID == "" {
+		pageIndex = 0
+	} else if pageIndex == 0 {
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(page_index)+1,0) FROM document_page WHERE document_id=$1`, documentID).Scan(&pageIndex); err != nil { return err }
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, documentID, input.SourceEventID, attachmentID, pageIndex); err != nil { return err }
 	metadata, _ := json.Marshal(map[string]any{"media_type": media, "byte_size": len(normalized), "width": width, "height": height, "caption": input.Caption, "telegram_user_id": input.TelegramUserID})
 	if _, err = tx.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json || $2::jsonb WHERE source_event_id=$1`, input.SourceEventID, string(metadata)); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid),5 WHERE NOT EXISTS(SELECT 1 FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1::text)`, documentID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,run_after,max_attempts) SELECT 'PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid),CASE WHEN $2<>'' THEN now()+interval '5 seconds' ELSE now() END,5 WHERE NOT EXISTS(SELECT 1 FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1::text AND status IN ('PENDING','RUNNING'))`, documentID, input.MediaGroupID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSING',parser_name='telegram-image-v1',parser_version='1' WHERE id=$1`, input.SourceEventID); err != nil {

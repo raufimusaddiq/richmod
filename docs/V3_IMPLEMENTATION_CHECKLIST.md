@@ -32,12 +32,12 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 
 ## Remaining V3 phases
 
-- [~] Multi-image web submissions now accept up to 10 JPEG/PNG pages as one
+- [x] Multi-image web submissions and Telegram albums are represented as one
   logical document; `document_page` preserves order and attachment provenance.
-  Telegram updates now preserve `media_group_id` and Telegram message ordering
-  metadata. The classifier now sends all ordered pages in one vision request;
-  payslip and receipt extractors now send all ordered pages in one vision
-  request; Telegram album finalization remains.
+  Telegram media groups are serialized by household/group, grouped into one
+  document, and document processing is debounced for five seconds so all album
+  pages can arrive before classification. The classifier, payslip, and receipt
+  extractors send all ordered pages in one vision request.
 - [ ] Universal review item and deterministic recipient routing.
 - [ ] Payslip salary source, salary events, and dynamic salary cycles.
 - [ ] Cycle-aware web, Telegram, and insights behavior.

@@ -333,7 +333,7 @@ func (s *PostgreSQLStore) CaptureImage(ctx context.Context, input ImageInput) (b
 	if _, err = tx.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(input.RawPayload)); err != nil {
 		return false, fmt.Errorf("preserve Telegram image payload: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('FETCH_TELEGRAM_IMAGE',jsonb_build_object('source_event_id',$1::uuid,'file_id',$2::text,'file_name',$3::text,'mime_type',$4::text,'caption',$5::text,'telegram_user_id',$6::bigint,'user_id',$7::uuid),5)`, sourceID, input.FileID, input.FileName, input.MIMEType, input.Caption, input.TelegramUserID, userID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('FETCH_TELEGRAM_IMAGE',jsonb_build_object('source_event_id',$1::uuid,'file_id',$2::text,'file_name',$3::text,'mime_type',$4::text,'caption',$5::text,'telegram_user_id',$6::bigint,'user_id',$7::uuid,'media_group_id',NULLIF($8,''),'message_id',NULLIF($9,0)),5)`, sourceID, input.FileID, input.FileName, input.MIMEType, input.Caption, input.TelegramUserID, userID, input.MediaGroupID, input.MessageID); err != nil {
 		return false, fmt.Errorf("queue Telegram image: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {
