@@ -76,6 +76,42 @@ type gmailPushNotification struct {
 	HistoryID    string `json:"historyId"`
 }
 
+func (n *gmailPushNotification) UnmarshalJSON(raw []byte) error {
+	var fields struct {
+		EmailAddress string          `json:"emailAddress"`
+		HistoryID    json.RawMessage `json:"historyId"`
+	}
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	var historyID string
+	if json.Unmarshal(fields.HistoryID, &historyID) != nil {
+		var number json.Number
+		if json.Unmarshal(fields.HistoryID, &number) != nil {
+			return fmt.Errorf("history ID must be a string or integer")
+		}
+		historyID = number.String()
+	}
+	if !validHistoryID(historyID) {
+		return fmt.Errorf("history ID must contain only digits")
+	}
+	n.EmailAddress = fields.EmailAddress
+	n.HistoryID = historyID
+	return nil
+}
+
+func validHistoryID(value string) bool {
+	if len(value) == 0 || len(value) > 30 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func decodePushNotification(raw []byte, header http.Header) (string, gmailPushNotification, error) {
 	var envelope struct {
 		Message struct {
