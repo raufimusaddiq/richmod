@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 const nav = [
   ["/", "Overview", "⌂"],
@@ -16,14 +17,18 @@ const nav = [
 export default function AppShell({ user, title, eyebrow, actions, children }) {
   const pathname = usePathname();
   const links = user?.isSuperAdmin ? [...nav, ["/admin", "Admin", "⚑"]] : nav;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const primaryLinks = links.slice(0, 4);
+  const secondaryLinks = links.slice(4);
   async function logout() {
     await fetch("/api/v1/auth/logout", { method: "POST" });
     window.location.href = "/";
   }
   return <div className="app-frame">
-    <aside className="sidebar"><Link className="brand" href="/"><span>R</span><div>Richmod<small>Family Finance</small></div></Link><nav>{nav.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{icon === "ledger" ? <LedgerIcon/> : icon}</i>{label}</Link>)}</nav><div className="sidebar-user"><span>{user?.displayName?.slice(0, 1) || "U"}</span><div><b>{user?.displayName}</b><small>GMT+7 · IDR</small></div><button aria-label="Keluar" onClick={logout}>↪</button></div></aside>
+    <aside className="sidebar"><Link className="brand" href="/"><span>R</span><div>Richmod<small>Family Finance</small></div></Link><nav>{links.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{icon === "ledger" ? <LedgerIcon/> : icon}</i>{label}</Link>)}</nav><div className="sidebar-user"><span>{user?.displayName?.slice(0, 1) || "U"}</span><div><b>{user?.displayName}</b><small>GMT+7 · IDR</small></div><button aria-label="Keluar" onClick={logout}>↪</button></div></aside>
     <main className="app-main"><header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div>{actions && <div className="page-actions">{actions}</div>}</header>{children}</main>
-    <nav className="mobile-nav">{nav.slice(0, 5).map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{icon === "ledger" ? <LedgerIcon/> : icon}</i><span>{label === "Transactions" ? "Ledger" : label === "Review Inbox" ? "Review" : label}</span></Link>)}</nav>
+    <nav className="mobile-nav">{primaryLinks.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{icon === "ledger" ? <LedgerIcon/> : icon}</i><span>{label === "Transactions" ? "Ledger" : label === "Review Inbox" ? "Review" : label}</span></Link>)}<button className={secondaryLinks.some(([href]) => pathname === href) ? "active" : ""} aria-expanded={moreOpen} onClick={() => setMoreOpen(value => !value)}><i>•••</i><span>Lainnya</span></button></nav>
+    {moreOpen && <div className="mobile-more" role="dialog" aria-label="Menu lainnya"><div className="mobile-more-panel"><div className="mobile-more-header"><b>Menu lainnya</b><button aria-label="Tutup menu" onClick={() => setMoreOpen(false)}>×</button></div>{secondaryLinks.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""} onClick={() => setMoreOpen(false)}><i>{icon === "ledger" ? <LedgerIcon/> : icon}</i>{label}</Link>)}</div></div>}
   </div>;
 }
 
