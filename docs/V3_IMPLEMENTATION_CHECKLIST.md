@@ -22,6 +22,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   the next implementation slice.
 - [~] Go-owned native finance tool catalog and strict argument validator now
   define query, create, propose-edit, confirm-edit, and cancel-edit tools.
+- [x] Native `function_call_output` round-trip support returns the next tool call
+  or final assistant text without granting the model direct database access.
 
 - [x] Inline callbacks are persisted as `TELEGRAM_CALLBACK` source events.
 - [x] Callback persistence is idempotent by Telegram update external ID.
