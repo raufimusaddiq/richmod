@@ -123,6 +123,20 @@ func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm, now: time.Now}
 }
 
+// EnsureSourceEventFinal prevents a queue job from being acknowledged when a
+// Telegram event is still unprocessed. This turns orphaned successful jobs
+// into retryable failures instead of silently losing a user message.
+func (p *Processor) EnsureSourceEventFinal(ctx context.Context, sourceEventID string) error {
+	var status string
+	if err := p.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceEventID).Scan(&status); err != nil {
+		return fmt.Errorf("verify Telegram source event: %w", err)
+	}
+	if status == "RECEIVED" || status == "PROCESSING" {
+		return fmt.Errorf("Telegram source event %s remained %s after processing", sourceEventID, status)
+	}
+	return nil
+}
+
 func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	var householdID, payloadText, processingStatus, sourceType string
 	err := p.pool.QueryRow(ctx, `
