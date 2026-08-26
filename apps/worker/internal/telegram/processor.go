@@ -187,6 +187,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if ng, ok := p.gateway.(nativeGateway); ok {
 		call, metadata, callErr := ng.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, NativeFinanceTools())
 		if callErr == nil {
+			nativeHandled := false
 			for step := 0; step < 4; step++ {
 				args, err := ValidateNativeToolCall(call)
 				if err != nil {
@@ -203,18 +204,21 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 				if !handled {
 					break
 				}
+				nativeHandled = true
 				rg, supportsResults := p.gateway.(nativeResultGateway)
 				if !supportsResults || call.CallID == "" || call.ResponseID == "" {
-					return nil
+					break
 				}
 				result, resultErr := rg.NativeToolResult(ctx, sourceEventID, call.ResponseID, call.CallID, `{"status":"handled"}`)
 				if resultErr != nil || result.ToolCall == nil {
-					return nil
+					break
 				}
 				call = *result.ToolCall
 				metadata = result.Metadata
 			}
-			return nil
+			if nativeHandled {
+				return nil
+			}
 		}
 	}
 	var extracted extraction
