@@ -33,6 +33,10 @@ type Gateway interface {
 	Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error)
 }
 
+type nativeGateway interface {
+	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition) (gateway.ToolCall, gateway.Metadata, error)
+}
+
 type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
@@ -157,6 +161,13 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		"allowed_category_slugs":   categories,
 		"supported_languages":      []string{"id", "en"},
 	}
+	if ng, ok := p.gateway.(nativeGateway); ok {
+		call, metadata, callErr := ng.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, NativeFinanceTools())
+		if callErr == nil {
+			args, err := ValidateNativeToolCall(call); if err != nil { return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Permintaan alat keuangan tidak valid.") }
+			if handled, err := p.executeNativeTool(ctx, sourceEventID, householdID, update, call, args, metadata, now); handled { return err }
+		}
+	}
 	var extracted extraction
 	metadata, err := p.gateway.Structured(ctx, sourceEventID, "telegram.transaction.extract", extractionPrompt, content, extractionSchema(), &extracted)
 	if err != nil {
@@ -185,6 +196,17 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	}
 	return p.persistTransaction(ctx, sourceEventID, householdID, update, validated, metadata)
 }
+
+func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID string, update telegramUpdate, call gateway.ToolCall, args map[string]any, metadata gateway.Metadata, now time.Time) (bool, error) {
+	switch call.Name {
+	case "create_transaction":
+		typ, _ := args["type"].(string); amount, _ := args["amount_idr"].(string); merchant, _ := args["merchant"].(string); atText, _ := args["transaction_at"].(string); at, err := time.Parse(time.RFC3339, atText); if err != nil { return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Tanggal transaksi tidak valid.") }
+		value := validatedExtraction{Type: typ, Amount: amount, Merchant: merchant, TransactionAt: at.In(jakartaLocation()), Confidence: 1, CategoryConfidence: 1, ResponseMessage: "Tercatat."}; return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata)
+	default:
+		return false, nil
+	}
+}
+
 
 func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, value validatedExtraction) (bool, error) {
 	if value.Merchant == "" { return false, nil }
