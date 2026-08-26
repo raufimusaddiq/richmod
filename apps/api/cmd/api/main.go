@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/admin"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/budget"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
@@ -58,6 +59,7 @@ func run(logger *slog.Logger) error {
 	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
 	householdHandler := household.NewHandler(pool, cfg.TelegramBotUsername)
+	adminHandler := admin.NewHandler(pool)
 	documentHandler, err := document.NewHandler(pool, cfg.DocumentStoragePath)
 	if err != nil {
 		return err
@@ -94,6 +96,7 @@ func run(logger *slog.Logger) error {
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
 	mux.Handle("POST /api/v1/auth/login", loginLimiter.Handler(http.HandlerFunc(authHandler.Login)))
+	mux.Handle("POST /api/v1/auth/dashboard-invites/accept", loginLimiter.Handler(http.HandlerFunc(authHandler.AcceptDashboardInvite)))
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("GET /api/v1/household", authHandler.RequireSession(http.HandlerFunc(householdHandler.Get)))
@@ -102,6 +105,13 @@ func run(logger *slog.Logger) error {
 	mux.Handle("PATCH /api/v1/household/members/{id}", authHandler.RequireSession(http.HandlerFunc(householdHandler.PatchMember)))
 	mux.Handle("POST /api/v1/household/members/{id}/telegram-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.CreateInvite)))
 	mux.Handle("DELETE /api/v1/household/members/{id}/telegram-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.RevokeInvite)))
+	mux.Handle("POST /api/v1/household/members/{id}/dashboard-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.CreateDashboardInvite)))
+	mux.Handle("DELETE /api/v1/household/members/{id}/dashboard-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.RevokeDashboardInvite)))
+	mux.Handle("GET /api/v1/admin/users", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Users))))
+	mux.Handle("PATCH /api/v1/admin/users/{id}", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.PatchUser))))
+	mux.Handle("GET /api/v1/admin/households", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Households))))
+	mux.Handle("GET /api/v1/admin/households/{householdId}/members", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Members))))
+	mux.Handle("POST /api/v1/admin/households/{householdId}/members", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.AddMember))))
 	mux.Handle("POST /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.CreateManualTransaction)))
 	mux.Handle("GET /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ListTransactions)))
 	mux.Handle("GET /api/v1/transactions/{id}", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.GetTransaction)))
