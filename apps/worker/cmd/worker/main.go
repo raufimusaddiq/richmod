@@ -91,9 +91,11 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID); err != nil {
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "INTERACTIVE"); err != nil {
 			logger.Error("job polling failed", "error", err)
 		}
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "DEFAULT"); err != nil { logger.Error("job polling failed", "error", err) }
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "BACKGROUND"); err != nil { logger.Error("job polling failed", "error", err) }
 		select {
 		case <-ctx.Done():
 			return nil
@@ -128,12 +130,15 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
-func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) error {
+
+func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string) error {
+	processed := 0
 	for {
-		job, found, err := jobs.Claim(ctx, workerID)
+		job, found, err := jobs.Claim(ctx, workerID, lane)
 		if err != nil || !found {
 			return err
 		}
+		processed++
 		err = processJob(ctx, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, job)
 		if err == nil {
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
@@ -145,11 +150,16 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 		if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
 			return fmt.Errorf("reschedule job: %w", finishErr)
 		}
+		if processed >= 25 { return nil }
 	}
 }
 
 func processJob(ctx context.Context, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, job queue.Job) error {
 	switch job.Type {
+	case "PROCESS_TELEGRAM_CALLBACK":
+		payload, err := telegram.DecodeCallbackPayload(job.Payload)
+		if err != nil { return err }
+		return processor.Process(ctx, payload.SourceEventID)
 	case "PROCESS_TELEGRAM_TEXT":
 		payload, err := telegram.DecodeProcessPayload(job.Payload)
 		if err != nil {
