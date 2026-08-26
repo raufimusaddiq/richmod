@@ -29,6 +29,10 @@ type categoryChange struct {
 
 type facts struct {
 	Period           string           `json:"period"`
+	PeriodKind       string           `json:"period_kind"`
+	PeriodStart      string           `json:"period_start"`
+	PeriodEnd        string           `json:"period_end"`
+	PeriodOpen       bool             `json:"period_open"`
 	Currency         string           `json:"currency"`
 	Income           string           `json:"income"`
 	Expense          string           `json:"expense"`
@@ -142,7 +146,8 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 		changes = append(changes, value)
 	}
 	completeness := completenessRatio(categorizedExpense, expense, reviews)
-	result := facts{Period: period.Format("2006-01"), Currency: "IDR", Income: income, Expense: expense, NetCashflow: subtract(income, expense), CategoryChanges: changes, OpenReviewCount: reviews, DataCompleteness: completeness}
+	periodKind := "CALENDAR_MONTH"; if period.Day() != 1 { periodKind = "CURRENT_CYCLE" }
+	result := facts{Period: period.Format("2006-01"), PeriodKind: periodKind, PeriodStart: period.Format("2006-01-02"), PeriodEnd: end.Format("2006-01-02"), PeriodOpen: periodKind == "CURRENT_CYCLE" && end.After(h.now().In(clock.HouseholdLocation())), Currency: "IDR", Income: income, Expense: expense, NetCashflow: subtract(income, expense), CategoryChanges: changes, OpenReviewCount: reviews, DataCompleteness: completeness}
 	if value, ok := divide(result.NetCashflow, income); ok {
 		result.SavingsRate = &value
 	}
