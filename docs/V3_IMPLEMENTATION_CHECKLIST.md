@@ -80,6 +80,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   Indonesian/English Telegram caption dates (for example, “gajian tanggal 24
   agustus 2026”) deterministically set pay_date before confirmation. Interactive
   salary-source selection and cycle-aware consumers remain in the next slice.
+- [x] Confirming a document-backed Telegram review atomically marks the linked
+  document `EXTRACTED`, preventing stale `NEEDS_REVIEW` document records.
 - [ ] Cycle-aware web, Telegram, and insights behavior.
 - [ ] Indonesian copy and chart/UI polish.
 - [ ] Invoice flow, known-account hardening, and off-host backup.
