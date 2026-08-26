@@ -41,8 +41,9 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   extractors send all ordered pages in one vision request.
 - [x] Universal `review_item` supports transaction, proposal, source-event, and
   document references; existing Telegram review requests link one-to-one to it.
-- [ ] Deterministic review recipient resolver uses preferred user/source owner
-  priority for sensitive reviews.
+- [x] Telegram review delivery uses centralized deterministic ordering: preferred
+  review user first, then active household members, with the household owner as
+  the deterministic fallback; all linked household identities still receive it.
 - [ ] Payslip salary source, salary events, and dynamic salary cycles.
 - [ ] Cycle-aware web, Telegram, and insights behavior.
 - [ ] Indonesian copy and chart/UI polish.
