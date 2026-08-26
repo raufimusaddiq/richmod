@@ -89,6 +89,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   resolves the current confirmed primary-salary cycle in Asia/Jakarta and
   explicitly falls back to the calendar month when salary setup is absent.
 - [ ] Indonesian copy and chart/UI polish.
+- [~] Indonesian copy and chart/UI polish. Primary navigation and document
+  intake/detail copy now use Indonesian terminology.
 - [~] Indonesian copy and chart/UI polish. Primary web navigation now uses the
   approved Indonesian labels; broader page copy and chart refinement remain.
 - [ ] Invoice flow, known-account hardening, and off-host backup.
