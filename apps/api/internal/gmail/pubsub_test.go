@@ -59,3 +59,35 @@ func TestPubSubRejectsUnexpectedMailbox(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
 	}
 }
+
+func TestDecodeWrappedPubSubNotification(t *testing.T) {
+	data := base64.StdEncoding.EncodeToString([]byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":"456"}`))
+	messageID, notification, err := decodePushNotification([]byte(`{"message":{"data":"`+data+`","message_id":"legacy-1"}}`), http.Header{})
+	if err != nil || messageID != "legacy-1" || notification.HistoryID != "456" {
+		t.Fatalf("id=%q notification=%#v err=%v", messageID, notification, err)
+	}
+}
+
+func TestDecodeUnwrappedPubSubNotificationWithMetadata(t *testing.T) {
+	header := http.Header{}
+	header.Set("X-Goog-Pubsub-Message-Id", "unwrapped-1")
+	messageID, notification, err := decodePushNotification([]byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":"789"}`), header)
+	if err != nil || messageID != "unwrapped-1" || notification.HistoryID != "789" {
+		t.Fatalf("id=%q notification=%#v err=%v", messageID, notification, err)
+	}
+}
+
+func TestDecodeUnwrappedPubSubNotificationWithoutMetadataIsIdempotent(t *testing.T) {
+	raw := []byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":"999"}`)
+	first, _, err := decodePushNotification(raw, http.Header{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := decodePushNotification(raw, http.Header{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || first != second || !strings.HasPrefix(first, "payload-") {
+		t.Fatalf("ids=%q %q", first, second)
+	}
+}
