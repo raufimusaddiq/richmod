@@ -190,7 +190,11 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			for step := 0; step < 4; step++ {
 				args, err := ValidateNativeToolCall(call)
 				if err != nil {
-					return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Permintaan alat keuangan tidak valid.")
+					// Native arguments are untrusted model output. A malformed native
+					// call must never block the deterministic structured extraction
+					// fallback, which preserves finance availability during gateway
+					// protocol/model drift.
+					break
 				}
 				handled, execErr := p.executeNativeTool(ctx, sourceEventID, householdID, update, call, args, metadata, now)
 				if execErr != nil {
