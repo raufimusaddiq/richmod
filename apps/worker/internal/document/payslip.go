@@ -10,6 +10,8 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -123,7 +125,7 @@ func validatePayslip(value payslipExtraction) (time.Time, bool, error) {
 	if !ok || gross.Cmp(netPay) < 0 {
 		return time.Time{}, false, fmt.Errorf("invalid payslip gross pay")
 	}
-	period, err := time.ParseInLocation("2006-01", value.Period, jakarta())
+	period, err := parsePayslipPeriod(value.Period)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("invalid payslip period")
 	}
@@ -152,6 +154,28 @@ func validatePayslip(value payslipExtraction) (time.Time, bool, error) {
 		transactionAt = parsed.Add(12 * time.Hour)
 	}
 	return transactionAt, arithmeticOK, nil
+}
+
+var payslipPeriodRange = regexp.MustCompile(`(?i)(january|february|march|april|may|june|july|august|september|october|november|december)\s*\([^)]*(?:/|-)\s*([0-9]{2})[/-]([0-9]{2})[/-]([0-9]{2,4})`)
+
+func parsePayslipPeriod(value string) (time.Time, error) {
+	if parsed, err := time.ParseInLocation("2006-01", value, jakarta()); err == nil {
+		return parsed, nil
+	}
+	m := payslipPeriodRange.FindStringSubmatch(strings.TrimSpace(value))
+	if len(m) == 0 {
+		return time.Time{}, fmt.Errorf("invalid payslip period")
+	}
+	month := map[string]time.Month{"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6, "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12}[strings.ToLower(m[1])]
+	year := m[4]
+	if len(year) == 2 {
+		year = "20" + year
+	}
+	y, e := strconv.Atoi(year)
+	if e != nil {
+		return time.Time{}, e
+	}
+	return time.Date(y, month, 1, 0, 0, 0, 0, jakarta()), nil
 }
 
 func wholeMoney(value string, positive bool) (*big.Int, bool) {
