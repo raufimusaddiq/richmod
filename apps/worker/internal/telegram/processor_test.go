@@ -14,7 +14,7 @@ func TestValidateExtractionUsesWholeIDRAndJakartaYesterday(t *testing.T) {
 	category := "makan-di-luar"
 
 	validated, err := validateExtraction(extraction{
-		Language: "id",
+		Language:           "id",
 		Intent:             "ADD_EXPENSE",
 		Amount:             &amount,
 		Currency:           &currency,
@@ -51,7 +51,7 @@ func TestValidateExtractionRejectsNonIDRAndFractionalAmount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := validateExtraction(extraction{
 				Language: "id",
-				Intent: "ADD_EXPENSE", Amount: &test.amount, Currency: &test.currency,
+				Intent:   "ADD_EXPENSE", Amount: &test.amount, Currency: &test.currency,
 				Confidence: 0.9, CategoryConfidence: 0.9,
 			}, now)
 			if err == nil {
@@ -70,6 +70,20 @@ func TestExtractionSchemaRequiresEveryFieldAndRejectsExtras(t *testing.T) {
 	required := schema["required"].([]string)
 	if len(required) != len(properties) {
 		t.Fatalf("required fields = %d, properties = %d", len(required), len(properties))
+	}
+}
+
+func TestExtractionSchemaSupportsMultipleExpenseItems(t *testing.T) {
+	properties := extractionSchema()["properties"].(map[string]any)
+	items := properties["items"].(map[string]any)
+	if items["type"] != "array" || items["maxItems"] != 10 {
+		t.Fatalf("items schema = %#v", items)
+	}
+	itemSchema := items["items"].(map[string]any)
+	itemProperties := itemSchema["properties"].(map[string]any)
+	typeSchema := itemProperties["type"].(map[string]any)
+	if got := typeSchema["enum"].([]string); len(got) != 2 || got[0] != "INCOME" || got[1] != "EXPENSE" {
+		t.Fatalf("batch item types = %#v", got)
 	}
 }
 
