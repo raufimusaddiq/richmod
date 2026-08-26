@@ -16,7 +16,13 @@ func (p *Processor) processAssistantIntent(ctx context.Context, sourceID, househ
 	if value.Ambiguous {
 		return p.finishAssistant(ctx, sourceID, update, "Permintaannya belum cukup jelas. Sebutkan periode atau transaksi yang dimaksud.", nil)
 	}
-	rangeValue, err := resolveAssistantRange(now, value.Period, value.FromDate, value.ToDate)
+	var rangeValue assistantRange
+	var err error
+	if pointerValue(value.Period) == "CURRENT_CYCLE" || pointerValue(value.Period) == "PREVIOUS_CYCLE" {
+		rangeValue, err = p.resolveSalaryCycleRange(ctx, householdID, now, pointerValue(value.Period) == "PREVIOUS_CYCLE")
+	} else {
+		rangeValue, err = resolveAssistantRange(now, value.Period, value.FromDate, value.ToDate)
+	}
 	if err != nil {
 		return p.finishAssistant(ctx, sourceID, update, "Periodenya belum jelas. Contoh: minggu ini, bulan lalu, atau 1–15 Agustus 2026.", nil)
 	}
@@ -36,6 +42,15 @@ func (p *Processor) processAssistantIntent(ctx context.Context, sourceID, househ
 	default:
 		return p.finishAssistant(ctx, sourceID, update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.", nil)
 	}
+}
+
+func (p *Processor) resolveSalaryCycleRange(ctx context.Context, householdID string, now time.Time, previous bool) (assistantRange, error) {
+	var current, next, prior *time.Time
+	err := p.pool.QueryRow(ctx, `WITH anchors AS (SELECT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED') SELECT (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date),(SELECT min(pay_date) FROM anchors WHERE pay_date > $2::date),(SELECT max(pay_date) FROM anchors WHERE pay_date < (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date))`, householdID, now.In(jakartaLocation()).Format("2006-01-02")).Scan(&current, &next, &prior)
+	if err != nil || current == nil { return assistantRange{}, errors.New("salary cycle unavailable") }
+	if previous { if prior == nil { return assistantRange{}, errors.New("previous salary cycle unavailable") }; return assistantRange{From: *prior, To: *current}, nil }
+	if next == nil { nextValue := now.In(jakartaLocation()); nextValue = time.Date(nextValue.Year(), nextValue.Month(), nextValue.Day()+1, 0, 0, 0, 0, jakartaLocation()); next = &nextValue }
+	return assistantRange{From: *current, To: *next}, nil
 }
 
 func resolveAssistantRange(now time.Time, period, fromDate, toDate *string) (assistantRange, error) {
