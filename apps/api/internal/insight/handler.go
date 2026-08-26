@@ -73,6 +73,12 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	local := h.now().In(clock.HouseholdLocation())
 	period := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
+	if r.URL.Query().Get("period") == "cycle" {
+		var anchored *time.Time
+		if err := h.pool.QueryRow(r.Context(), `SELECT max(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date <= $2::date`, household, local.Format("2006-01-02")).Scan(&anchored); err == nil && anchored != nil {
+			period = *anchored
+		}
+	}
 	var existing string
 	err := h.pool.QueryRow(r.Context(), `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND created_at>now()-interval '1 hour' ORDER BY created_at DESC LIMIT 1`, household, period).Scan(&existing)
 	if err == nil {
@@ -109,6 +115,11 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) buildFacts(r *http.Request, household string, period time.Time) (facts, error) {
 	end := period.AddDate(0, 1, 0)
+	if period.Day() != 1 {
+		var next *time.Time
+		_ = h.pool.QueryRow(r.Context(), `SELECT min(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date>$2::date`, household, period.Format("2006-01-02")).Scan(&next)
+		if next != nil { end = *next } else { local := h.now().In(clock.HouseholdLocation()); end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation()) }
+	}
 	previousStart := period.AddDate(0, -3, 0)
 	var income, expense, categorizedExpense string
 	var reviews int
