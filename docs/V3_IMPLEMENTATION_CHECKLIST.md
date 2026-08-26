@@ -36,7 +36,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   logical document; `document_page` preserves order and attachment provenance.
   Telegram updates now preserve `media_group_id` and Telegram message ordering
   metadata. The classifier now sends all ordered pages in one vision request;
-  album finalization and multi-page extraction calls remain.
+  payslip and receipt extractors now send all ordered pages in one vision
+  request; Telegram album finalization remains.
 - [ ] Universal review item and deterministic recipient routing.
 - [ ] Payslip salary source, salary events, and dynamic salary cycles.
 - [ ] Cycle-aware web, Telegram, and insights behavior.
