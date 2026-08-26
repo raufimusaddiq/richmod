@@ -73,7 +73,10 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] Telegram review delivery uses centralized deterministic ordering: preferred
   review user first, then active household members, with the household owner as
   the deterministic fallback; all linked household identities still receive it.
-- [ ] Payslip salary source, salary events, and dynamic salary cycles.
+- [~] Payslip validation now persists IDR salary sources/events for confirmed
+  payslips, deduplicates by source and payroll period, and provides a Jakarta
+  dynamic-cycle resolver. Interactive salary-source selection and cycle-aware
+  consumers remain in the next slice.
 - [ ] Cycle-aware web, Telegram, and insights behavior.
 - [ ] Indonesian copy and chart/UI polish.
 - [ ] Invoice flow, known-account hardening, and off-host backup.

@@ -50,21 +50,53 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	}
 	content := []map[string]any{{"type": "input_text", "text": "Extract this payslip. Treat all pages as parts of one payslip."}}
 	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	pageCount := 0
 	for rows.Next() {
 		var storageRef, mediaType string
-		if err := rows.Scan(&storageRef, &mediaType); err != nil { rows.Close(); return err }
-		path := filepath.Join(p.root, storageRef); relative, err := filepath.Rel(p.root, path); if err != nil || strings.HasPrefix(relative, "..") { rows.Close(); return fmt.Errorf("invalid payslip storage reference") }
-		file, err := os.Open(path); if err != nil { rows.Close(); return err }; raw, readErr := io.ReadAll(io.LimitReader(file,(10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { rows.Close(); return fmt.Errorf("stored payslip size is invalid") }
-		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)}); pageCount++
+		if err := rows.Scan(&storageRef, &mediaType); err != nil {
+			rows.Close()
+			return err
+		}
+		path := filepath.Join(p.root, storageRef)
+		relative, err := filepath.Rel(p.root, path)
+		if err != nil || strings.HasPrefix(relative, "..") {
+			rows.Close()
+			return fmt.Errorf("invalid payslip storage reference")
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1))
+		file.Close()
+		if readErr != nil || len(raw) == 0 || len(raw) > 10<<20 {
+			rows.Close()
+			return fmt.Errorf("stored payslip size is invalid")
+		}
+		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
+		pageCount++
 	}
 	rows.Close()
 	if pageCount == 0 {
 		var storageRef, mediaType string
-		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&storageRef,&mediaType); err != nil { return err }
-		path := filepath.Join(p.root, storageRef); file, err := os.Open(path); if err != nil { return err }; raw, readErr := io.ReadAll(io.LimitReader(file,(10<<20)+1)); file.Close(); if readErr != nil || len(raw)==0 || len(raw)>10<<20 { return fmt.Errorf("stored payslip size is invalid") }
-		content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+mediaType+";base64,"+base64.StdEncoding.EncodeToString(raw)})
+		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&storageRef, &mediaType); err != nil {
+			return err
+		}
+		path := filepath.Join(p.root, storageRef)
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1))
+		file.Close()
+		if readErr != nil || len(raw) == 0 || len(raw) > 10<<20 {
+			return fmt.Errorf("stored payslip size is invalid")
+		}
+		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 	}
 	var result payslipExtraction
 	metadata, err := p.gateway.Structured(ctx, documentID, "document.payslip.extract", payslipPrompt, content, payslipSchema(), &result)
@@ -157,6 +189,19 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	if autoConfirm {
 		status, proposalStatus, documentStatus, sourceStatus = "CONFIRMED", "ACCEPTED", "EXTRACTED", "PROCESSED"
 	}
+	if autoConfirm {
+		normalized := strings.ToLower(strings.Join(strings.Fields(value.Employer), " "))
+		var duplicate bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND se.payroll_period=$2::date AND ss.normalized_employer=$3 AND se.status='CONFIRMED')`, householdID, value.Period+"-01", normalized).Scan(&duplicate); err != nil {
+			return err
+		}
+		if duplicate {
+			if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1; UPDATE source_event SET processing_status='PROCESSED',parser_name='payslip-deduplicated',parser_version='1' WHERE id=$2; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($3,'WORKER','DEDUP_PAYSLIP_SALARY','source_event',$2,jsonb_build_object('period',$4::text,'employer',$5::text))`, documentID, sourceID, householdID, value.Period, value.Employer); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
+		}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
 		return err
 	}
@@ -173,6 +218,17 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid)); UPDATE document SET status=$6,updated_at=now() WHERE id=$5; UPDATE source_event SET processing_status=$7 WHERE id=$2; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($8,'WORKER','CREATE_FROM_PAYSLIP','transaction',$1,jsonb_build_object('status',$6::text,'document_id',$5::uuid,'deductions_posted_as_expense',false))`, transactionID, sourceID, value.Confidence, proposalID, documentID, documentStatus, sourceStatus, householdID); err != nil {
 		return err
+	}
+	if autoConfirm {
+		normalized := strings.ToLower(strings.Join(strings.Fields(value.Employer), " "))
+		var salarySourceID string
+		if err := tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, householdID, value.Employer, normalized).Scan(&salarySourceID); err != nil {
+			return err
+		}
+		payDate := transactionAt.In(jakarta()).Format("2006-01-02")
+		if _, err := tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySourceID, householdID, value.Period+"-01", payDate, value.NetPay, transactionID, sourceID); err != nil {
+			return err
+		}
 	}
 	if !autoConfirm {
 		var chatID int64
