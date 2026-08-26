@@ -15,6 +15,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   explicitly untrusted.
 - [x] Follow-up corrections can deterministically update a uniquely matched
   transaction's date/time (for example, “kemarin” or “sore kemarin”).
+- [x] Matching expense/date follow-ups first create a chat-bound pending edit;
+  only `yes/ya` applies the update, while `no/tidak` cancels it.
 
 - [x] Inline callbacks are persisted as `TELEGRAM_CALLBACK` source events.
 - [x] Callback persistence is idempotent by Telegram update external ID.

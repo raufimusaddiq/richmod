@@ -137,6 +137,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if strings.HasPrefix(strings.ToLower(text), "/help") || strings.HasPrefix(strings.ToLower(text), "/start") {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kirim transaksi seperti: makan siang 50rb, atau gaji 8 juta hari ini.")
 	}
+	if handled, err := p.processPendingEdit(ctx, householdID, update, sourceEventID, text); handled {
+		return err
+	}
 
 	categories, err := p.categorySlugs(ctx, householdID)
 	if err != nil {
@@ -175,7 +178,45 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if err != nil {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Transaksinya belum cukup jelas. Mohon kirim jenis dan nominal, misalnya: makan 50rb.")
 	}
+	if validated.Type == "EXPENSE" {
+		if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceEventID, validated); offered {
+			return err
+		}
+	}
 	return p.persistTransaction(ctx, sourceEventID, householdID, update, validated, metadata)
+}
+
+func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, value validatedExtraction) (bool, error) {
+	if value.Merchant == "" { return false, nil }
+	var transactionID, label string
+	var existingAt time.Time
+	err := p.pool.QueryRow(ctx, `SELECT id,COALESCE(counterparty_name,description,'Transaksi'),transaction_at FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND type='EXPENSE' AND amount=$2 AND transaction_at>=now()-interval '7 days' AND (counterparty_name ILIKE '%'||$3||'%' OR description ILIKE '%'||$3||'%') ORDER BY transaction_at DESC LIMIT 1`, householdID, value.Amount, value.Merchant).Scan(&transactionID, &label, &existingAt)
+	if errors.Is(err, pgx.ErrNoRows) || existingAt.Equal(value.TransactionAt) { return false, nil }
+	if err != nil { return false, err }
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{}); if err != nil { return true, err }; defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,expires_at=now()+interval '5 minutes',created_at=now()`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, value.TransactionAt); err != nil { return true, err }
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-proposal',parser_version='1' WHERE id=$1`, sourceID); err != nil { return true, err }
+	message := fmt.Sprintf("Saya menemukan %s · Rp%s. Ubah tanggalnya ke %s? Balas yes/ya untuk konfirmasi atau no/tidak untuk membatalkan.", label, FormatIDR(value.Amount), value.TransactionAt.In(jakartaLocation()).Format("02 Jan 2006 15:04"))
+	if err = enqueueReply(ctx, tx, update, message); err != nil { return true, err }
+	return true, tx.Commit(ctx)
+}
+
+func (p *Processor) processPendingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID, text string) (bool, error) {
+	answer := strings.ToLower(strings.TrimSpace(text))
+	confirm := answer == "yes" || answer == "ya" || answer == "y" || answer == "confirm" || answer == "konfirmasi"
+	cancel := answer == "no" || answer == "tidak" || answer == "n" || answer == "batal" || answer == "cancel"
+	if !confirm && !cancel { return false, nil }
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{}); if err != nil { return true, err }; defer tx.Rollback(ctx)
+	var actionID, transactionID string; var proposedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT id,transaction_id,proposed_transaction_at FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&actionID,&transactionID,&proposedAt)
+	if errors.Is(err, pgx.ErrNoRows) { return false, nil }; if err != nil { return true, err }
+	status := "CANCELLED"; message := "Perubahan dibatalkan."
+	if confirm { status = "CONFIRMED"; message = "Tanggal transaksi berhasil diubah ke " + proposedAt.In(jakartaLocation()).Format("02 Jan 2006 15:04") + "."; if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, transactionID, proposedAt, householdID); err != nil { return true, err } }
+	if confirm { if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION_DATE','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz) FROM telegram_identity ti WHERE ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active`, householdID, transactionID, proposedAt, update.Message.From.ID); err != nil { return true, err } }
+	if _, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status=$2,resolved_at=now() WHERE id=$1`, actionID,status); err != nil { return true, err }
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-confirmation',parser_version='1' WHERE id=$1`, sourceID); err != nil { return true, err }
+	if err = enqueueReply(ctx, tx, update, message); err != nil { return true, err }
+	return true, tx.Commit(ctx)
 }
 
 	// recentConversation supplies a small, bounded five-minute context window for references
