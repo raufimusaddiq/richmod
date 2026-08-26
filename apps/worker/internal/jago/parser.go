@@ -149,7 +149,8 @@ func (p *Parser) Parse(message ParsedEmail) (Event, error) {
 var debitAmountPattern = regexp.MustCompile(`(?i)transaksi\s+sebesar\s+Rp\s*([0-9.]+(?:,[0-9]{2})?)`)
 
 func debitAmount(body string) string {
-	text := normalizeSpace(html.UnescapeString(body))
+	plain := regexp.MustCompile(`<[^>]+>`).ReplaceAllString(body, " ")
+	text := normalizeSpace(html.UnescapeString(plain))
 	matches := debitAmountPattern.FindStringSubmatch(text)
 	if len(matches) != 2 {
 		return ""
