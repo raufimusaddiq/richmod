@@ -1,3 +1,4 @@
+-- +goose Up
 ALTER TABLE "user" ADD COLUMN IF NOT EXISTS password_initialized_at TIMESTAMPTZ;
 ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE;
 UPDATE "user" u SET password_initialized_at = u.created_at
@@ -14,4 +15,3 @@ CREATE INDEX IF NOT EXISTS dashboard_account_invite_user_idx ON dashboard_accoun
 DROP TABLE IF EXISTS dashboard_account_invite;
 ALTER TABLE "user" DROP COLUMN IF EXISTS password_initialized_at;
 ALTER TABLE "user" DROP COLUMN IF EXISTS is_super_admin;
--- +goose Up
