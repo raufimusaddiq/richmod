@@ -175,6 +175,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if strings.HasPrefix(strings.ToLower(text), "/help") || strings.HasPrefix(strings.ToLower(text), "/start") {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kirim transaksi seperti: makan siang 50rb, atau gaji 8 juta hari ini.")
 	}
+	if handled, err := p.processPendingSalaryChoice(ctx, householdID, update, sourceEventID, text); handled {
+		return err
+	}
 	if handled, err := p.processPendingEdit(ctx, householdID, update, sourceEventID, text); handled {
 		return err
 	}
@@ -268,6 +271,63 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		}
 	}
 	return p.persistTransaction(ctx, sourceEventID, householdID, update, validated, metadata)
+}
+
+func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID string, update telegramUpdate, sourceID, text string) (bool, error) {
+	a := strings.ToLower(strings.TrimSpace(text))
+	choice := ""
+	if strings.Contains(a, "gaji utama") || a == "primary" {
+		choice = "PRIMARY"
+	}
+	if strings.Contains(a, "pemasukan biasa") || a == "ordinary" {
+		choice = "ORDINARY"
+	}
+	if a == "abaikan" || a == "ignore" {
+		choice = "IGNORED"
+	}
+	if choice == "" {
+		return false, nil
+	}
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
+	var id, tid, employer, period, payDate string
+	err = tx.QueryRow(ctx, `SELECT id,transaction_id,employer,payroll_period::text,pay_date::text FROM salary_pending_choice WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&id, &tid, &employer, &period, &payDate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	if choice == "IGNORED" {
+		_, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',updated_at=now() WHERE id=$1 AND household_id=$2; UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE id=$3`, tid, householdID, id)
+	} else {
+		norm := strings.ToLower(strings.Join(strings.Fields(employer), " "))
+		var sid string
+		err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4) ON CONFLICT(household_id,normalized_employer) WHERE active DO UPDATE SET is_primary=excluded.is_primary RETURNING id`, householdID, employer, norm, choice == "PRIMARY").Scan(&sid)
+		if err == nil {
+			_, err = tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 ON CONFLICT DO NOTHING; UPDATE salary_pending_choice SET status=$2,resolved_at=now() WHERE id=$1`, id, choice, period, payDate, sourceID, tid)
+		}
+	}
+	if err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-salary-choice',parser_version='1' WHERE id=$1`, sourceID); err != nil {
+		return true, err
+	}
+	msg := "Gaji disimpan sebagai pemasukan biasa."
+	if choice == "PRIMARY" {
+		msg = "Gaji utama disimpan dan menjadi acuan siklus keuangan."
+	}
+	if choice == "IGNORED" {
+		msg = "Slip gaji diabaikan."
+	}
+	if err = enqueueReply(ctx, tx, update, msg); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
 }
 
 func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID string, update telegramUpdate, call gateway.ToolCall, args map[string]any, metadata gateway.Metadata, now time.Time) (bool, error) {
