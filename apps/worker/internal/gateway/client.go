@@ -32,9 +32,23 @@ type ToolDefinition struct {
 }
 
 type ToolCall struct {
+	ResponseID string
 	CallID    string
 	Name      string
 	Arguments json.RawMessage
+}
+
+type ToolResponse struct { ToolCall *ToolCall; Text string; Metadata Metadata }
+
+// NativeToolResult submits a Go-produced function result and returns the next
+// native call or final assistant text.
+func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, callID, output string) (ToolResponse, error) {
+	if c.baseURL == "" || c.apiKey == "" || c.model == "" { return ToolResponse{}, fmt.Errorf("LLM gateway is not configured") }
+	payload := map[string]any{"model":c.model,"previous_response_id":responseID,"input":[]map[string]any{{"type":"function_call_output","call_id":callID,"output":output}},"stream":false}
+	body, err := json.Marshal(payload); if err != nil { return ToolResponse{}, err }
+	req, err := http.NewRequestWithContext(ctx,http.MethodPost,c.baseURL+"/responses",bytes.NewReader(body)); if err != nil { return ToolResponse{}, err }; req.Header.Set("Authorization","Bearer "+c.apiKey); req.Header.Set("Content-Type","application/json"); req.Header.Set("X-Request-ID",requestID)
+	resp, err := c.http.Do(req); if err != nil { return ToolResponse{}, err }; defer resp.Body.Close(); raw, err := io.ReadAll(io.LimitReader(resp.Body,4<<20)); if err != nil { return ToolResponse{}, err }; if resp.StatusCode<200 || resp.StatusCode>=300 { return ToolResponse{}, fmt.Errorf("LLM gateway returned HTTP %d",resp.StatusCode) }
+	var env struct { ID,Model,Cost string; Usage struct{Input,Output int `json:"input_tokens"`} `json:"usage"`; Output []struct{Type,Name,CallID string; Arguments json.RawMessage `json:"arguments"`; Content []struct{Type,Text string} `json:"content"`} `json:"output"` }; if err=json.Unmarshal(raw,&env); err != nil { return ToolResponse{}, err }; meta:=Metadata{Model:env.Model,Cost:env.Cost,InputTokens:env.Usage.Input,OutputTokens:env.Usage.Output}; for _,item:=range env.Output { if item.Type=="function_call" { return ToolResponse{ToolCall:&ToolCall{ResponseID:env.ID,CallID:item.CallID,Name:item.Name,Arguments:item.Arguments},Metadata:meta},nil }; for _,c:=range item.Content { if c.Type=="output_text" { return ToolResponse{Text:c.Text,Metadata:meta},nil } } }; return ToolResponse{},fmt.Errorf("LLM gateway returned no tool result")
 }
 
 // NativeToolCall asks the gateway for a native function_call. It never
