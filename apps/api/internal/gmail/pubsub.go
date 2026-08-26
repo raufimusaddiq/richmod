@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -59,7 +60,7 @@ func (h *Handler) PubSub(w http.ResponseWriter, r *http.Request) {
 	}
 	messageID, notification, err := decodePushNotification(raw, r.Header)
 	if err != nil || !strings.EqualFold(notification.EmailAddress, h.mailbox) {
-		slog.Warn("Gmail Pub/Sub notification rejected", "decode_error", errorLabel(err), "mailbox_match", err == nil && strings.EqualFold(notification.EmailAddress, h.mailbox), "body_bytes", len(raw), "json_body", json.Valid(raw), "message_id_header", strings.TrimSpace(r.Header.Get("X-Goog-Pubsub-Message-Id")) != "", "content_type", cleanHeader(r.Header.Get("Content-Type"), 80))
+		slog.Warn("Gmail Pub/Sub notification rejected", "decode_error", errorLabel(err), "mailbox_match", err == nil && strings.EqualFold(notification.EmailAddress, h.mailbox), "body_bytes", len(raw), "json_body", json.Valid(raw), "message_id_header", strings.TrimSpace(r.Header.Get("X-Goog-Pubsub-Message-Id")) != "", "content_type", cleanHeader(r.Header.Get("Content-Type"), 80), "shape", jsonShape(raw, 0))
 		http.Error(w, "invalid notification", 400)
 		return
 	}
@@ -166,6 +167,40 @@ func cleanHeader(value string, limit int) string {
 		return value[:limit]
 	}
 	return value
+}
+
+func jsonShape(raw []byte, depth int) string {
+	if depth > 2 {
+		return "depth-limit"
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil {
+		return "non-object"
+	}
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := "keys=" + strings.Join(keys, ",")
+	for _, key := range []string{"message", "data"} {
+		child, ok := object[key]
+		if !ok {
+			continue
+		}
+		var encoded string
+		if json.Unmarshal(child, &encoded) == nil {
+			decoded, err := decodeBase64Value(encoded)
+			if err != nil {
+				result += ";" + key + "=string:" + fmt.Sprint(len(encoded))
+				continue
+			}
+			result += ";" + key + "=b64:" + fmt.Sprint(len(decoded)) + ":" + jsonShape(decoded, depth+1)
+		} else {
+			result += ";" + key + "={" + jsonShape(child, depth+1) + "}"
+		}
+	}
+	return cleanHeader(result, 300)
 }
 
 func (h *Handler) captureNotification(ctx context.Context, messageID, historyID string, raw []byte) error {
