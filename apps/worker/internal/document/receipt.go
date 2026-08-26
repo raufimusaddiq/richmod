@@ -65,9 +65,9 @@ type matchCandidate struct {
 }
 
 func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error {
-	var householdID, sourceID, storageRef, mediaType, status, documentType string
+	var householdID, sourceID, status, documentType string
 	var receivedAt time.Time
-	err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,a.storage_ref,a.media_type,d.status,COALESCE(d.document_type,''),s.received_at FROM document d JOIN attachment a ON a.id=d.attachment_id JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &storageRef, &mediaType, &status, &documentType, &receivedAt)
+	err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,d.status,COALESCE(d.document_type,''),s.received_at FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &status, &documentType, &receivedAt)
 	if err != nil {
 		return fmt.Errorf("load receipt document: %w", err)
 	}
@@ -77,10 +77,8 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	if documentType != "RECEIPT" {
 		return fmt.Errorf("document is not a receipt")
 	}
-	raw, err := p.readDocument(storageRef)
-	if err != nil {
-		return err
-	}
+	pages, err := p.readDocumentPages(ctx, documentID)
+	if err != nil { return err }
 	categories, err := p.documentCategories(ctx, householdID)
 	if err != nil {
 		return err
@@ -90,10 +88,8 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 		slugs = append(slugs, category.Slug)
 	}
 	categoryJSON, _ := json.Marshal(slugs)
-	content := []map[string]any{
-		{"type": "input_text", "text": "Extract this receipt. Allowed category slugs: " + string(categoryJSON)},
-		{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)},
-	}
+	content := []map[string]any{{"type": "input_text", "text": "Extract this receipt. Treat all pages as one receipt. Allowed category slugs: " + string(categoryJSON)}}
+	for _, page := range pages { content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+page.mediaType+";base64,"+base64.StdEncoding.EncodeToString(page.raw)}) }
 	var result receiptExtraction
 	metadata, err := p.gateway.Structured(ctx, documentID, "document.receipt.extract", receiptPrompt, content, receiptSchema(slugs), &result)
 	if err != nil {
@@ -104,6 +100,18 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 		return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "RECEIPT", result, result.Confidence, metadata.Model, err)
 	}
 	return p.persistReceipt(ctx, documentID, householdID, sourceID, result, metadata.Model, validated, categories)
+}
+
+type receiptPage struct { raw []byte; mediaType string }
+
+func (p *Processor) readDocumentPages(ctx context.Context, documentID string) ([]receiptPage, error) {
+	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
+	if err != nil { return nil, err }; defer rows.Close()
+	pages := make([]receiptPage, 0)
+	for rows.Next() { var ref, media string; if err := rows.Scan(&ref,&media); err != nil { return nil, err }; raw, err := p.readDocument(ref); if err != nil { return nil, err }; pages=append(pages, receiptPage{raw,media}) }
+	if err := rows.Err(); err != nil { return nil, err }
+	if len(pages)==0 { var ref, media string; if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&ref,&media); err != nil { return nil, err }; raw, err := p.readDocument(ref); if err != nil { return nil, err }; pages=append(pages, receiptPage{raw,media}) }
+	return pages, nil
 }
 
 func (p *Processor) readDocument(storageRef string) ([]byte, error) {
