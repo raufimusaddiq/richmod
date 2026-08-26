@@ -17,15 +17,19 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   transaction's date/time (for example, “kemarin” or “sore kemarin”).
 - [x] Matching expense/date follow-ups first create a chat-bound pending edit;
   only `yes/ya` applies the update, while `no/tidak` cancels it.
-- [~] Native gateway `function_call` protocol is available and parses strict
-  tool calls; Go-side registered tool dispatch and tool-result round trips remain
-  the next implementation slice.
+- [x] Native gateway `function_call` protocol is available and parses strict
+  tool calls; Go-side registered tool dispatch and tool-result round trips are
+  available for finance actions.
 - [x] Go-owned native finance tool catalog and strict argument validator define
   query, create, propose-edit, confirm-edit, and cancel-edit tools.
 - [x] Native `function_call_output` round-trip support returns the next tool call
   or final assistant text without granting the model direct database access.
 - [x] Native query and propose-edit calls are wired to bounded Go handlers;
   edits remain confirmation-gated before mutation.
+- [x] Multi-transaction messages support up to ten IDR entries, stage one
+  household/chat-bound pending batch, and require a single yes/ya confirmation
+  before atomically recording all entries with individual evidence and audit
+  links.
 
 - [x] Inline callbacks are persisted as `TELEGRAM_CALLBACK` source events.
 - [x] Callback persistence is idempotent by Telegram update external ID.
