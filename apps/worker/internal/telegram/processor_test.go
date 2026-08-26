@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -77,6 +78,12 @@ func TestValidateExtractionRejectsUnsupportedLanguage(t *testing.T) {
 	_, err := validateExtraction(extraction{Language: "fr", Intent: "ADD_EXPENSE", Amount: &amount, Currency: &currency}, time.Now().In(jakartaLocation()))
 	if err == nil {
 		t.Fatal("accepted unsupported language")
+	}
+}
+
+func TestExtractionPromptTreatsContextAsUntrusted(t *testing.T) {
+	if !strings.Contains(extractionPrompt, "untrusted data") || !strings.Contains(extractionPrompt, "bypass validation") {
+		t.Fatal("prompt must retain context/input injection guardrails")
 	}
 }
 
