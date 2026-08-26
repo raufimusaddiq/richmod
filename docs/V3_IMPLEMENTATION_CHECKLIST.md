@@ -46,7 +46,9 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] API and worker production images compile successfully with Docker builds.
 - [x] Original Telegram callback messages are edited and obsolete inline buttons
   are removed; failed edits use a non-mutating notification fallback.
-- [ ] Callback execution latency metrics.
+- [x] Callback webhook latency is emitted as redacted structured logs; queue
+  integrity now rejects successful Telegram jobs whose source event remains
+  RECEIVED/PROCESSING, making orphaned events retryable.
 - [x] Reserved concurrent interactive worker loop keeps interactive jobs isolated
   from long-running default/background work (worker build and Telegram tests pass).
 
