@@ -169,7 +169,16 @@ func (p *Processor) persistInvalidPayslip(ctx context.Context, documentID, house
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,false) ON CONFLICT DO NOTHING; UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1; UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$5; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($6,'WORKER','REJECT_PAYSLIP_EXTRACTION','source_event',$5,jsonb_build_object('document_id',$1::uuid,'reason',$7::text))`, documentID, string(output), value.Confidence, model, sourceID, householdID, cause.Error()); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,false) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_PAYSLIP_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'reason',$4::text))`, householdID, sourceID, documentID, cause.Error()); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -197,7 +206,13 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			return err
 		}
 		if duplicate {
-			if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1; UPDATE source_event SET processing_status='PROCESSED',parser_name='payslip-deduplicated',parser_version='1' WHERE id=$2; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($3,'WORKER','DEDUP_PAYSLIP_SALARY','source_event',$2,jsonb_build_object('period',$4::text,'employer',$5::text))`, documentID, sourceID, householdID, value.Period, value.Employer); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, documentID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='payslip-deduplicated',parser_version='1' WHERE id=$1`, sourceID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DEDUP_PAYSLIP_SALARY','source_event',$2,jsonb_build_object('period',$3::text,'employer',$4::text))`, householdID, sourceID, value.Period, value.Employer); err != nil {
 				return err
 			}
 			return tx.Commit(ctx)
@@ -217,7 +232,16 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,source_confidence,classification_confidence,confirmed_at) VALUES($1,'INCOME',$2,$3,'IDR',$4,'Penghasilan dari slip gaji',NULLIF($5,''),$6,$6,CASE WHEN $2='CONFIRMED' THEN now() END) RETURNING id`, householdID, status, value.NetPay, transactionAt, value.Employer, value.Confidence).Scan(&transactionID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid)); UPDATE document SET status=$6,updated_at=now() WHERE id=$5; UPDATE source_event SET processing_status=$7 WHERE id=$2; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($8,'WORKER','CREATE_FROM_PAYSLIP','transaction',$1,jsonb_build_object('status',$6::text,'document_id',$5::uuid,'deductions_posted_as_expense',false))`, transactionID, sourceID, value.Confidence, proposalID, documentID, documentStatus, sourceStatus, householdID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status=$2,updated_at=now() WHERE id=$1`, documentID, documentStatus); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceID, sourceStatus); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_PAYSLIP','transaction',$2,jsonb_build_object('status',$3::text,'document_id',$4::uuid,'deductions_posted_as_expense',false))`, householdID, transactionID, documentStatus, documentID); err != nil {
 		return err
 	}
 	if autoConfirm {
@@ -229,7 +253,8 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		_ = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, householdID).Scan(&hasPrimary)
 		if sourceType == "TELEGRAM_IMAGE" && !hasPrimary && telegramUser != 0 && telegramChat != 0 {
 			msg := "Slip gaji berhasil dibaca: Rp" + workerTelegram.FormatIDR(value.NetPay) + " dari " + value.Employer + ". Balas 'gaji utama', 'pemasukan biasa', atau 'abaikan'."
-			_, _ = tx.Exec(ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date) VALUES($1,$2,$3,$4,$5,$6::date,$7::date); INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$8::bigint,'text',$9::text))`, householdID, telegramUser, telegramChat, transactionID, value.Employer, value.Period+"-01", payDate, telegramChat, msg)
+			_, _ = tx.Exec(ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date) VALUES($1,$2,$3,$4,$5,$6::date,$7::date)`, householdID, telegramUser, telegramChat, transactionID, value.Employer, value.Period+"-01", payDate)
+			_, _ = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text',$2::text))`, telegramChat, msg)
 		}
 		if sourceType == "TELEGRAM_IMAGE" && !hasPrimary && telegramUser != 0 && telegramChat != 0 {
 			return tx.Commit(ctx)
