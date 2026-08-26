@@ -90,6 +90,39 @@ func (p *Processor) SeedRenewalJobs(ctx context.Context) error {
 	return err
 }
 
+// RecoverUnpersisted replays trusted bank-email source events that were stored
+// before a parser learned a new template but never reached a transaction.
+// It is idempotent: ingestMessage links to the existing source event and
+// skips events that already have a proposal.
+func (p *Processor) RecoverUnpersisted(ctx context.Context) error {
+	rows, err := p.pool.Query(ctx, `
+		SELECT s.household_id,p.payload_json
+		FROM source_event s
+		JOIN source_event_payload p ON p.source_event_id=s.id
+		WHERE s.source_type='BANK_EMAIL'
+		  AND NOT EXISTS (SELECT 1 FROM transaction_evidence e WHERE e.source_event_id=s.id)
+		ORDER BY s.received_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var householdID string
+		var raw []byte
+		if err := rows.Scan(&householdID, &raw); err != nil {
+			return err
+		}
+		var message gmailMessage
+		if err := json.Unmarshal(raw, &message); err != nil {
+			return fmt.Errorf("decode stored Gmail message: %w", err)
+		}
+		if err := p.ingestMessage(ctx, householdID, message, raw); err != nil {
+			return fmt.Errorf("recover stored Gmail message: %w", err)
+		}
+	}
+	return rows.Err()
+}
+
 func (p *Processor) RenewWatch(ctx context.Context, householdID string) error {
 	refreshToken, err := p.refreshToken(ctx, householdID)
 	if err != nil {
