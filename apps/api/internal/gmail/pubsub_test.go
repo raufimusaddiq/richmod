@@ -123,3 +123,18 @@ func TestJSONShapeReportsKeysWithoutValues(t *testing.T) {
 		t.Fatalf("unsafe shape=%q", shape)
 	}
 }
+
+func TestDecodeNumericGmailHistoryID(t *testing.T) {
+	data := base64.RawURLEncoding.EncodeToString([]byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":1004}`))
+	_, notification, err := decodePushNotification([]byte(`{"message":{"data":"`+data+`","messageId":"numeric-1"}}`), http.Header{})
+	if err != nil || notification.HistoryID != "1004" {
+		t.Fatalf("notification=%#v err=%v", notification, err)
+	}
+}
+
+func TestRejectsNonIntegerGmailHistoryID(t *testing.T) {
+	data := base64.RawURLEncoding.EncodeToString([]byte(`{"emailAddress":"ruangkreatif.ekslusif@gmail.com","historyId":1e3}`))
+	if _, _, err := decodePushNotification([]byte(`{"message":{"data":"`+data+`","messageId":"invalid-1"}}`), http.Header{}); err == nil {
+		t.Fatal("accepted non-integer history ID")
+	}
+}
