@@ -25,6 +25,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/salary"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
 )
 
@@ -58,6 +59,7 @@ func run(logger *slog.Logger) error {
 	ledgerHandler := ledger.NewHandler(pool)
 	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
+	salaryHandler := salary.NewHandler(pool)
 	householdHandler := household.NewHandler(pool, cfg.TelegramBotUsername)
 	adminHandler := admin.NewHandler(pool)
 	documentHandler, err := document.NewHandler(pool, cfg.DocumentStoragePath)
@@ -146,6 +148,8 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
 	mux.Handle("GET /api/v1/analytics/spending", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Spending)))
 	mux.Handle("GET /api/v1/analytics/cashflow", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cashflow)))
+	mux.Handle("GET /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
+	mux.Handle("POST /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
 	mux.Handle("GET /api/v1/analytics/cycle", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cycle)))
 	mux.Handle("GET /api/v1/analytics/cycle/daily", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.CycleDaily)))
 	mux.Handle("GET /api/v1/analytics/categories", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Categories)))
