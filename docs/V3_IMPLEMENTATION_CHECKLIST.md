@@ -114,7 +114,10 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   remain `NEEDS_REVIEW`. Due dates are extracted as metadata and the document
   list/detail surfaces Lunas, Belum Lunas, and Jatuh Tempo without treating a
   due date as payment proof.
-- [ ] Known-account hardening and off-host backup.
+- [x] Known-account hardening: owner-created and review-remembered hints now
+  require 4–19 digits, matching strips non-digits from counterparties and uses
+  a household-scoped suffix match, with existing audit coverage preserved.
+- [ ] Off-host backup.
 
 ## 1–4 delivery evidence
 

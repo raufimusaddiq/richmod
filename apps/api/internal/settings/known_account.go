@@ -3,11 +3,14 @@ package settings
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
+
+var maskedAccountHint = regexp.MustCompile(`^[0-9]{4,19}$`)
 
 func (h *Handler) KnownAccounts(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
@@ -55,7 +58,7 @@ func (h *Handler) KnownAccounts(w http.ResponseWriter, r *http.Request) {
 	in.Institution = strings.TrimSpace(in.Institution)
 	in.DisplayName = strings.TrimSpace(in.DisplayName)
 	in.MatchHint = strings.TrimSpace(in.MatchHint)
-	if in.Institution == "" || in.DisplayName == "" || len([]rune(in.MatchHint)) < 4 || !oneOf(in.Relationship, "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "OTHER") {
+	if in.Institution == "" || in.DisplayName == "" || !maskedAccountHint.MatchString(in.MatchHint) || !oneOf(in.Relationship, "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "OTHER") {
 		jsonError(w, 400, "invalid known account fields")
 		return
 	}
