@@ -302,13 +302,19 @@ func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID 
 		return true, err
 	}
 	if choice == "IGNORED" {
-		_, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',updated_at=now() WHERE id=$1 AND household_id=$2; UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE id=$3`, tid, householdID, id)
+		_, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',updated_at=now() WHERE id=$1 AND household_id=$2`, tid, householdID)
+		if err == nil {
+			_, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE id=$1`, id)
+		}
 	} else {
 		norm := strings.ToLower(strings.Join(strings.Fields(employer), " "))
 		var sid string
 		err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4) ON CONFLICT(household_id,normalized_employer) WHERE active DO UPDATE SET is_primary=excluded.is_primary RETURNING id`, householdID, employer, norm, choice == "PRIMARY").Scan(&sid)
 		if err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 ON CONFLICT DO NOTHING; UPDATE salary_pending_choice SET status=$2,resolved_at=now() WHERE id=$1`, id, choice, period, payDate, sourceID, tid)
+			_, err = tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 ON CONFLICT DO NOTHING`, sid, householdID, period, payDate, sourceID, tid)
+			if err == nil {
+				_, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status=$2,resolved_at=now() WHERE id=$1`, id, choice)
+			}
 		}
 	}
 	if err != nil {

@@ -31,14 +31,23 @@ var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(
 
 func parseReviewPayDate(text string) string {
 	m := reviewPayDatePattern.FindStringSubmatch(text)
-	if len(m) != 4 { return "" }
-	months := map[string]time.Month{"januari":1,"februari":2,"maret":3,"april":4,"mei":5,"juni":6,"juli":7,"agustus":8,"september":9,"oktober":10,"november":11,"desember":12,"january":1,"february":2,"march":3,"may":5,"june":6,"july":7,"august":8,"october":10,"december":12}
+	if len(m) != 4 {
+		return ""
+	}
+	months := map[string]time.Month{"januari": 1, "februari": 2, "maret": 3, "april": 4, "mei": 5, "juni": 6, "juli": 7, "agustus": 8, "september": 9, "oktober": 10, "november": 11, "desember": 12, "january": 1, "february": 2, "march": 3, "may": 5, "june": 6, "july": 7, "august": 8, "october": 10, "december": 12}
 	month, ok := months[strings.ToLower(m[2])]
-	if !ok { return "" }
-	day, err1 := strconv.Atoi(m[1]); year, err2 := strconv.Atoi(m[3])
-	if err1 != nil || err2 != nil { return "" }
+	if !ok {
+		return ""
+	}
+	day, err1 := strconv.Atoi(m[1])
+	year, err2 := strconv.Atoi(m[3])
+	if err1 != nil || err2 != nil {
+		return ""
+	}
 	d := time.Date(year, month, day, 0, 0, 0, 0, jakartaLocation())
-	if d.Day() != day || d.Month() != month || d.Year() != year { return "" }
+	if d.Day() != day || d.Month() != month || d.Year() != year {
+		return ""
+	}
 	return d.Format("2006-01-02")
 }
 
@@ -206,10 +215,28 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	if newStatus == "VOIDED" {
 		proposalStatus, sourceStatus = "REJECTED", "IGNORED"
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction SET type=$2,status=$3,category_id=NULLIF($4,'')::uuid,confirmed_at=CASE WHEN $3='CONFIRMED' THEN now() END,voided_at=CASE WHEN $3='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW'; UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$5,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$6::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1); UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$7 AND status='OPEN'; UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$7`, transactionID, newType, newStatus, categoryID, proposalStatus, classification, reviewID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE transaction SET type=$2,status=$3,category_id=NULLIF($4,'')::uuid,confirmed_at=CASE WHEN $3='CONFIRMED' THEN now() END,voided_at=CASE WHEN $3='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW'`, transactionID, newType, newStatus, categoryID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1); UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$3; INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$3,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text)) ON CONFLICT DO NOTHING; INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($6,'TELEGRAM',$7,'CLASSIFY_TRANSFER','transaction',$1,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$8::text,'status',$9::text))`, transactionID, sourceStatus, sourceEventID, reviewID, classification, householdID, userID, newType, newStatus); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, newType, proposalStatus, categoryID, classification); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, sourceStatus); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification',$4::text)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID, classification); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'status',$7::text))`, householdID, userID, transactionID, reviewID, classification, newType, newStatus); err != nil {
 		return err
 	}
 	if err = enqueueReply(ctx, tx, update, message); err != nil {
@@ -239,10 +266,28 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'; UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id'); UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$2 AND status='OPEN'; UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$2`, transactionID, reviewID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'`, transactionID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1); UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$2; INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid)) ON CONFLICT DO NOTHING; INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($4,'TELEGRAM',$5,'REJECT_REVIEW','transaction',$1,jsonb_build_object('review_request_id',$3::uuid,'reason','own_transfer_or_not_income'))`, transactionID, sourceEventID, reviewID, householdID, userID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REJECT_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'reason','own_transfer_or_not_income'))`, householdID, userID, transactionID, reviewID); err != nil {
 		return err
 	}
 	if err := enqueueReply(ctx, tx, update, "Tidak dicatat sebagai penghasilan."); err != nil {
