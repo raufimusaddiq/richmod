@@ -39,6 +39,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] Callback actions are queued as `PROCESS_TELEGRAM_CALLBACK`.
 - [x] Callback jobs use the dedicated `INTERACTIVE` queue lane.
 - [x] Webhook sends `answerCallbackQuery` after durable capture and before HTTP 204.
+- [x] Callback acknowledgement is transport-once: asynchronous reply jobs never
+  re-ACK an already acknowledged callback (avoids Telegram HTTP 400 retries).
 - [x] Callback processing reuses deterministic review handling and does not invoke
   the general text/LLM pipeline for stale or resolved actions.
 - [x] Existing text, image, Gmail, document, and insight jobs retain explicit
