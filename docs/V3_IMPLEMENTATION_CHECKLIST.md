@@ -105,6 +105,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   clearer empty states, accessible labels, stronger tooltip hierarchy, and
   improved visual contrast. Dashboard, login, household, and Review Inbox now
   avoid technical English terms, including internal review status labels.
+  Transaction detail now presents Indonesian labels for source, evidence, and
+  change history while retaining technical values only where necessary.
   Final chart spacing and mobile legend readability are now refined; only
   future visual tuning remains.
 - [~] Invoice flow. Invoice/tagihan documents now enter the transaction-proof
