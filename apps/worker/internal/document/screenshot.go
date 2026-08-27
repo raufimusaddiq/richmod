@@ -32,6 +32,7 @@ type screenshotRow struct {
 type screenshotExtraction struct {
 	AccountHint  string          `json:"account_hint"`
 	Transactions []screenshotRow `json:"transactions"`
+	PaymentStatus string         `json:"payment_status,omitempty"`
 	Confidence   float64         `json:"confidence"`
 }
 
@@ -85,7 +86,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	if err != nil {
 		return err
 	}
-	rows, err := validateScreenshot(result, receivedAt, categories)
+	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, err)
 	}
@@ -131,9 +132,12 @@ func screenshotType(value string) bool {
 	}
 }
 
-func validateScreenshot(value screenshotExtraction, receivedAt time.Time, categories []categoryOption) ([]validatedScreenshotRow, error) {
+func validateScreenshot(value screenshotExtraction, receivedAt time.Time, categories []categoryOption, documentType string) ([]validatedScreenshotRow, error) {
 	if value.Confidence < 0 || value.Confidence > 1 || len(value.Transactions) == 0 || len(value.Transactions) > 50 || len([]rune(value.AccountHint)) > 160 {
 		return nil, fmt.Errorf("invalid screenshot extraction")
+	}
+	if documentType == "BILL_OR_INVOICE" && value.PaymentStatus != "PAID" {
+		return nil, fmt.Errorf("invoice payment status is not confirmed")
 	}
 	categoryIDs := make(map[string]string, len(categories))
 	for _, category := range categories {
@@ -261,5 +265,5 @@ func screenshotSchema(slugs []string) map[string]any {
 		"merchant": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}, "category_slug": map[string]any{"type": []string{"string", "null"}, "enum": categoryValues},
 		"category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 	}, "required": []string{"direction", "amount", "currency", "transaction_at", "merchant", "description", "category_slug", "category_confidence", "confidence"}}
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 0, "maxItems": 50, "items": row}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "confidence"}}
+	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 0, "maxItems": 50, "items": row}, "payment_status": map[string]any{"type": []string{"string", "null"}, "enum": []any{"PAID", "UNPAID", "UNKNOWN", nil}}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "payment_status", "confidence"}}
 }

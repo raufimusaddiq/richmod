@@ -105,10 +105,11 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   clearer empty states, accessible labels, stronger tooltip hierarchy, and
   improved visual contrast. Remaining refinement is still scheduled.
 - [~] Invoice flow. Invoice/tagihan documents now enter the transaction-proof
-  extractor. A row is eligible only when the document explicitly says paid,
-  success, or completed; matching links evidence to an existing expense and
-  unmatched rows use the existing review flow. Unpaid/unclear invoices remain
-  `NEEDS_REVIEW`; due-date handling and richer invoice UX remain scheduled.
+  extractor with an explicit `payment_status` field. A row is eligible only
+  when the document says `PAID`; matching links evidence to an existing expense
+  and unmatched rows use the existing review flow. Unpaid/unclear invoices
+  remain `NEEDS_REVIEW`; due-date handling and richer invoice UX remain
+  scheduled.
 - [ ] Known-account hardening and off-host backup.
 
 ## 1–4 delivery evidence
