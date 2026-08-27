@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 )
+
+type telegramInsightOutput struct {
+	Summary string `json:"summary"`
+	Observations []struct { Title string `json:"title"`; Detail string `json:"detail"` } `json:"observations"`
+	DataQualityWarning string `json:"data_quality_warning"`
+	Confidence float64 `json:"confidence"`
+}
 
 type assistantRange struct{ From, To time.Time }
 
@@ -51,9 +59,25 @@ func (p *Processor) replyCycleInsight(ctx context.Context, sourceID, householdID
 	err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text,(COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0))::text,(SELECT count(*)::text FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&income, &expense, &net, &reviews)
 	if err != nil { return err }
 	_ = p.pool.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Tidak diketahui'),sum(amount)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='EXPENSE' AND transaction_at >= $2 AND transaction_at < $3 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT 1`, householdID, r.From, r.To).Scan(&topName, &topAmount)
+	facts := map[string]any{"period_start": r.From.Format("2006-01-02"), "period_end": r.To.Format("2006-01-02"), "currency":"IDR", "income":income, "expense":expense, "net_cashflow":net, "open_review_count":reviews, "top_expense":map[string]string{"name":topName,"amount":topAmount}}
+	prompt := "Buat insight keuangan keluarga singkat dalam Bahasa Indonesia. Gunakan hanya fakta yang diberikan, jangan mengarang angka atau memberi nasihat investasi. Maksimal empat observasi yang konkret."
+	var generated telegramInsightOutput
+	if raw, marshalErr := json.Marshal(facts); marshalErr == nil {
+		if _, llmErr := p.gateway.Structured(ctx, sourceID, "finance.insight.telegram", prompt, raw, telegramInsightSchema(), &generated); llmErr == nil && strings.TrimSpace(generated.Summary) != "" && generated.Confidence >= 0 && generated.Confidence <= 1 {
+			parts := []string{"Insight siklus gaji\n" + strings.TrimSpace(generated.Summary)}
+			for _, item := range generated.Observations { if strings.TrimSpace(item.Title) != "" && strings.TrimSpace(item.Detail) != "" { parts = append(parts, "• "+clean(item.Title,120)+": "+clean(item.Detail,500)) } }
+			if strings.TrimSpace(generated.DataQualityWarning) != "" { parts = append(parts, "Catatan data: "+clean(generated.DataQualityWarning,400)) }
+			return p.finishAssistant(ctx, sourceID, update, strings.Join(parts, "\n\n"), nil)
+		}
+	}
 	message := "Insight siklus gaji\nPemasukan: Rp"+FormatIDR(income)+"\nPengeluaran: Rp"+FormatIDR(expense)+"\nNeto: Rp"+FormatIDR(net)+"\nReview terbuka: "+reviews
 	if topName != "" { message += "\nTerbesar: "+topName+" (Rp"+FormatIDR(topAmount)+")" }
 	return p.finishAssistant(ctx, sourceID, update, message, nil)
+}
+
+func telegramInsightSchema() map[string]any {
+	observation := map[string]any{"type":"object","additionalProperties":false,"properties":map[string]any{"title":map[string]any{"type":"string"},"detail":map[string]any{"type":"string"}},"required":[]string{"title","detail"}}
+	return map[string]any{"type":"object","additionalProperties":false,"properties":map[string]any{"summary":map[string]any{"type":"string"},"observations":map[string]any{"type":"array","maxItems":4,"items":observation},"data_quality_warning":map[string]any{"type":"string"},"confidence":map[string]any{"type":"number","minimum":0,"maximum":1}},"required":[]string{"summary","observations","data_quality_warning","confidence"}}
 }
 
 func (p *Processor) resolveSalaryCycleRange(ctx context.Context, householdID string, now time.Time, previous bool) (assistantRange, error) {
