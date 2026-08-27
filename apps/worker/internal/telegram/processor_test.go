@@ -36,6 +36,14 @@ func TestValidateExtractionUsesWholeIDRAndJakartaYesterday(t *testing.T) {
 	}
 }
 
+func TestDeterministicTextExtractionHandlesSimpleIDRExpense(t *testing.T) {
+	now := time.Date(2026, 8, 27, 20, 0, 0, 0, jakartaLocation())
+	got, ok := deterministicTextExtraction("order makan 40.700", []string{"makanan-minuman"}, now)
+	if !ok || got.Intent != "ADD_EXPENSE" || got.Amount == nil || *got.Amount != "40700" || got.CategorySlug == nil || *got.CategorySlug != "makanan-minuman" {
+		t.Fatalf("fallback=%+v ok=%v", got, ok)
+	}
+}
+
 func TestValidateExtractionRejectsNonIDRAndFractionalAmount(t *testing.T) {
 	now := time.Date(2026, time.August, 25, 10, 0, 0, 0, jakartaLocation())
 	tests := []struct {
