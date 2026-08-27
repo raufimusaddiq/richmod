@@ -22,9 +22,9 @@ export default function Home() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cashflow?range=12"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions"), fetch("/api/v1/analytics/cycle")]);
+    try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions"), fetch("/api/v1/analytics/cycle")]);
       if (responses.some(response => !response.ok)) setError("Sebagian ringkasan belum dapat dimuat."); else setError("");
-      if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) setCashflow(await responses[1].json()); if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
+      if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(cycleData.daily || []); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
       if (responses[4].ok) setCycle(await responses[4].json());
     } catch { setError("Koneksi terputus saat memuat ringkasan."); } finally { setLoading(false); }
   }, [user]);
@@ -42,7 +42,7 @@ export default function Home() {
     {cycle && <section className="surface" style={{padding:"14px 17px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}><div><span className="eyebrow">PERIODE AKTIF</span><strong style={{display:"block",marginTop:5}}>{cycle.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender"}</strong></div><small style={{color:"#6d776f"}}>{cycle.start}{cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}</small></section>}
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/reviews"><span>!</span><div><b>{overview.reviewCount} transaksi butuh bantuanmu</b><small>Selesaikan keputusan agar ledger tetap akurat.</small></div><strong>Buka Review Inbox →</strong></Link>}
     <section className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{money(value)}</strong><small>Data terkonfirmasi · IDR</small></article>)}<article><span>Review Inbox</span><strong>{overview?.reviewCount ?? "—"}</strong><small>Belum masuk analytics</small></article></section>
-    <section className="dashboard-grid"><article className="surface chart-panel"><div className="section-title"><div><span className="eyebrow">12 BULAN</span><h2>Arus kas</h2></div><Link href="/analytics">Lihat analytics →</Link></div><CashflowChart items={cashflow}/></article><article className="surface category-panel"><div className="section-title"><div><span className="eyebrow">3 BULAN</span><h2>Ke mana uang pergi</h2></div></div><CategoryChart items={categories}/></article></section>
+    <section className="dashboard-grid"><article className="surface chart-panel"><div className="section-title"><div><span className="eyebrow">SIKLUS GAJI · HARIAN</span><h2>Arus kas</h2></div><Link href="/analytics">Lihat analisis →</Link></div><CashflowChart items={cashflow}/></article><article className="surface category-panel"><div className="section-title"><div><span className="eyebrow">3 BULAN</span><h2>Ke mana uang pergi</h2></div></div><CategoryChart items={categories}/></article></section>
     <section className="surface recent-panel"><div className="section-title"><div><span className="eyebrow">LEDGER</span><h2>Transaksi terbaru</h2></div><Link href="/transactions">Lihat semua →</Link></div><TransactionList compact items={transactions.slice(0, 8)}/></section></>}
   </AppShell>;
 }
