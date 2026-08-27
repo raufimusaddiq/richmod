@@ -119,6 +119,10 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   a household-scoped suffix match, with existing audit coverage preserved.
 - [ ] Off-host backup.
 
+- [x] Final regression: API and worker Go test suites pass; Compose production
+  configuration validates; web production build passes in Docker; live
+  `/healthz`, `/readyz`, and public web endpoint return healthy responses.
+
 ## 1–4 delivery evidence
 
 - [x] 1. Telegram callback fast path and dedicated interactive execution lane.
