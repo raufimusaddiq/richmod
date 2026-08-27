@@ -98,9 +98,10 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   explicitly falls back to the calendar month when salary setup is absent.
 - [x] Ringkasan KPIs now use the active confirmed salary cycle when configured;
   Analisis provides explicit Siklus Gaji/Kalender period controls.
-- [~] Indonesian copy and chart/UI polish. Primary navigation, settings,
-  document intake/detail, and cycle labels use Indonesian terminology. A wider
-  page copy sweep and remaining chart refinement are still scheduled.
+- [~] Indonesian copy and chart/UI polish. Primary navigation, settings account
+  creation labels, document intake/detail, and cycle labels use consistent
+  Indonesian title case (including `Siklus Gaji`). A wider page copy sweep and
+  remaining chart refinement are still scheduled.
 - [~] Invoice flow. Invoice/tagihan documents now enter the transaction-proof
   extractor. A row is eligible only when the document explicitly says paid,
   success, or completed; matching links evidence to an existing expense and
