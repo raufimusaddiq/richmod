@@ -72,8 +72,12 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		slugs = append(slugs, category.Slug)
 	}
 	categoryJSON, _ := json.Marshal(slugs)
+	instruction := "Extract all completed transaction rows."
+	if documentType == "BILL_OR_INVOICE" {
+		instruction = "This may be an invoice or bill. Extract a row only when the document explicitly shows payment completed, success, or paid. If it is only an unpaid invoice or due notice, return no transaction rows."
+	}
 	content := []map[string]any{
-		{"type": "input_text", "text": "Extract all completed transaction rows. Allowed category slugs: " + string(categoryJSON)},
+		{"type": "input_text", "text": instruction + " Allowed category slugs: " + string(categoryJSON)},
 		{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)},
 	}
 	var result screenshotExtraction
@@ -120,7 +124,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 
 func screenshotType(value string) bool {
 	switch value {
-	case "BANK_TRANSACTION_SCREENSHOT", "EWALLET_SCREENSHOT", "TRANSACTION_HISTORY_SCREENSHOT", "TRANSFER_PROOF":
+	case "BANK_TRANSACTION_SCREENSHOT", "EWALLET_SCREENSHOT", "TRANSACTION_HISTORY_SCREENSHOT", "TRANSFER_PROOF", "BILL_OR_INVOICE":
 		return true
 	default:
 		return false
@@ -257,5 +261,5 @@ func screenshotSchema(slugs []string) map[string]any {
 		"merchant": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}, "category_slug": map[string]any{"type": []string{"string", "null"}, "enum": categoryValues},
 		"category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 	}, "required": []string{"direction", "amount", "currency", "transaction_at", "merchant", "description", "category_slug", "category_confidence", "confidence"}}
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 1, "maxItems": 50, "items": row}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "confidence"}}
+	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 0, "maxItems": 50, "items": row}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "confidence"}}
 }

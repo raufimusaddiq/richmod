@@ -101,10 +101,11 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [~] Indonesian copy and chart/UI polish. Primary navigation, settings,
   document intake/detail, and cycle labels use Indonesian terminology. A wider
   page copy sweep and remaining chart refinement are still scheduled.
-- [~] Invoice flow. Invoice/tagihan classification and the UI warning that an
-  invoice is not payment evidence are shipped. Payment-proof linking,
-  due-date handling, and invoice review lifecycle remain scheduled; no payment
-  is inferred from an invoice alone.
+- [~] Invoice flow. Invoice/tagihan documents now enter the transaction-proof
+  extractor. A row is eligible only when the document explicitly says paid,
+  success, or completed; matching links evidence to an existing expense and
+  unmatched rows use the existing review flow. Unpaid/unclear invoices remain
+  `NEEDS_REVIEW`; due-date handling and richer invoice UX remain scheduled.
 - [ ] Known-account hardening and off-host backup.
 
 ## 1–4 delivery evidence
