@@ -80,7 +80,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   Indonesian/English Telegram caption dates (for example, “gajian tanggal 24
   agustus 2026”) deterministically set pay_date before confirmation. Web owners
   can select the household's primary salary source. Missing-pay-date review
-  completion and richer salary-source UX remain scheduled.
+  replies now accept an explicit Indonesian/English date and create the linked
+  salary event transactionally; richer salary-source UX remains scheduled.
 - [x] Confirming a document-backed Telegram review atomically marks the linked
   document `EXTRACTED`, preventing stale `NEEDS_REVIEW` document records.
 - [~] Cycle-aware web, Telegram, and insights behavior. Ringkasan and Analisis
@@ -110,5 +111,5 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] 2. Multi-image document intake and ordered page preservation.
 - [x] 3. Universal review routing and household-wide delivery.
 - [x] 4. Payslip-driven salary source/event and dynamic current-cycle views.
-  Missing-pay-date review completion and exact prior-cycle comparisons remain
-  explicit follow-up work under the partial items above.
+  Missing-pay-date review completion is shipped; exact prior-cycle comparisons
+  remain explicit follow-up work under the partial items above.

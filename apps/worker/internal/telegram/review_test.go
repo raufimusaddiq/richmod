@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestParseReviewPayDate(t *testing.T) {
+	if got := parseReviewPayDate("BENAR, gaji masuk tanggal 24 agustus 2026"); got != "2026-08-24" {
+		t.Fatalf("pay date = %q", got)
+	}
+	if got := parseReviewPayDate("BENAR, gunakan tanggal 31 februari 2026"); got != "" {
+		t.Fatalf("invalid pay date = %q", got)
+	}
+}
+
 func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	var update telegramUpdate
 	err := json.Unmarshal([]byte(`{"message":{"message_id":22,"text":"belanja rumah tangga","reply_to_message":{"message_id":17},"from":{"id":719809965},"chat":{"id":719809965}}}`), &update)

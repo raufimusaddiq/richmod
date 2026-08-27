@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -21,6 +24,22 @@ type reviewExtraction struct {
 	Note         string  `json:"note"`
 	Confidence   float64 `json:"confidence"`
 	Ambiguous    bool    `json:"ambiguous"`
+	PayDate      string  `json:"pay_date"`
+}
+
+var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
+
+func parseReviewPayDate(text string) string {
+	m := reviewPayDatePattern.FindStringSubmatch(text)
+	if len(m) != 4 { return "" }
+	months := map[string]time.Month{"januari":1,"februari":2,"maret":3,"april":4,"mei":5,"juni":6,"juli":7,"agustus":8,"september":9,"oktober":10,"november":11,"desember":12,"january":1,"february":2,"march":3,"april":4,"may":5,"june":6,"july":7,"august":8,"september":9,"october":10,"november":11,"december":12}
+	month, ok := months[strings.ToLower(m[2])]
+	if !ok { return "" }
+	day, err1 := strconv.Atoi(m[1]); year, err2 := strconv.Atoi(m[3])
+	if err1 != nil || err2 != nil { return "" }
+	d := time.Date(year, month, day, 0, 0, 0, 0, jakartaLocation())
+	if d.Day() != day || d.Month() != month || d.Year() != year { return "" }
+	return d.Format("2006-01-02")
 }
 
 type categoryChoice struct {
@@ -125,7 +144,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		case "REJECT":
 			return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 		case "CONFIRM":
-			value := reviewExtraction{Description: "Penghasilan dari bukti transaksi", Note: clean(update.Message.Text, 1000), Confidence: 1}
+			value := reviewExtraction{Description: "Penghasilan dari bukti transaksi", Note: clean(update.Message.Text, 1000), Confidence: 1, PayDate: parseReviewPayDate(update.Message.Text)}
 			return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, "", update, value)
 		default:
 			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update,
@@ -317,6 +336,27 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 	// transaction and cannot clear unrelated or still-pending documents.
 	if _, err := tx.Exec(ctx, `UPDATE document d SET status='EXTRACTED',updated_at=now() WHERE d.status='NEEDS_REVIEW' AND d.id IN (SELECT NULLIF(te.metadata_json->>'document_id','')::uuid FROM transaction_evidence te WHERE te.transaction_id=$1 AND te.metadata_json ? 'document_id')`, transactionID); err != nil {
 		return err
+	}
+	if value.PayDate != "" {
+		// A user-supplied pay date completes only a payslip-backed income review.
+		// The date is parsed deterministically; no expected payday is inferred.
+		var employer, period string
+		err = tx.QueryRow(ctx, `SELECT COALESCE(t.counterparty_name,''),COALESCE(de.output_json->>'period','') FROM transaction t JOIN transaction_evidence te ON te.transaction_id=t.id JOIN document_extraction de ON de.document_id=NULLIF(te.metadata_json->>'document_id','')::uuid AND de.stage='PAYSLIP' WHERE t.id=$1 AND t.type='INCOME' AND te.evidence_type='PAYSLIP_IMAGE' LIMIT 1`, transactionID).Scan(&employer, &period)
+		if errors.Is(err, pgx.ErrNoRows) {
+			employer, period = "", ""
+		} else if err != nil {
+			return err
+		}
+		if employer != "" && regexp.MustCompile(`^\d{4}-\d{2}$`).MatchString(period) {
+			normalized := strings.ToLower(strings.Join(strings.Fields(employer), " "))
+			var salarySourceID string
+			if err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, householdID, employer, normalized).Scan(&salarySourceID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) SELECT $1,$2,to_date($3,'YYYY-MM'),$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySourceID, householdID, period, value.PayDate, sourceEventID, transactionID); err != nil {
+				return err
+			}
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID); err != nil {
 		return err
