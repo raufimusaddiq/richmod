@@ -441,6 +441,21 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		atText, _ := args["transaction_at"].(string)
 		at, err := time.Parse(time.RFC3339, atText)
 		if err != nil {
+			// Models commonly return bounded relative dates for a tool argument.
+			// Resolve those deterministically in the household timezone instead of
+			// rejecting an otherwise valid native call and falling through to the
+			// incompatible structured-output endpoint.
+			relative := strings.ToLower(strings.TrimSpace(atText))
+			switch relative {
+			case "today", "hari ini":
+				at = now
+				err = nil
+			case "yesterday", "kemarin":
+				at = now.AddDate(0, 0, -1)
+				err = nil
+			}
+		}
+		if err != nil {
 			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Tanggal transaksi tidak valid.")
 		}
 		value := validatedExtraction{Type: typ, Amount: amount, Merchant: merchant, TransactionAt: at.In(jakartaLocation()), Confidence: 1, CategoryConfidence: 1, ResponseMessage: "Tercatat."}
