@@ -33,6 +33,7 @@ type screenshotExtraction struct {
 	AccountHint  string          `json:"account_hint"`
 	Transactions []screenshotRow `json:"transactions"`
 	PaymentStatus string         `json:"payment_status,omitempty"`
+	DueDate       *string        `json:"due_date,omitempty"`
 	Confidence   float64         `json:"confidence"`
 }
 
@@ -265,5 +266,5 @@ func screenshotSchema(slugs []string) map[string]any {
 		"merchant": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}, "category_slug": map[string]any{"type": []string{"string", "null"}, "enum": categoryValues},
 		"category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 	}, "required": []string{"direction", "amount", "currency", "transaction_at", "merchant", "description", "category_slug", "category_confidence", "confidence"}}
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 0, "maxItems": 50, "items": row}, "payment_status": map[string]any{"type": []string{"string", "null"}, "enum": []any{"PAID", "UNPAID", "UNKNOWN", nil}}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "payment_status", "confidence"}}
+	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 0, "maxItems": 50, "items": row}, "payment_status": map[string]any{"type": []string{"string", "null"}, "enum": []any{"PAID", "UNPAID", "UNKNOWN", nil}}, "due_date": map[string]any{"type": []string{"string", "null"}, "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "payment_status", "due_date", "confidence"}}
 }

@@ -110,8 +110,9 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   extractor with an explicit `payment_status` field. A row is eligible only
   when the document says `PAID`; matching links evidence to an existing expense
   and unmatched rows use the existing review flow. Unpaid/unclear invoices
-  remain `NEEDS_REVIEW`; due-date handling and richer invoice UX remain
-  scheduled.
+  remain `NEEDS_REVIEW`. Due dates are extracted as metadata and the document
+  list/detail surfaces Lunas, Belum Lunas, and Jatuh Tempo without treating a
+  due date as payment proof.
 - [ ] Known-account hardening and off-host backup.
 
 ## 1–4 delivery evidence
