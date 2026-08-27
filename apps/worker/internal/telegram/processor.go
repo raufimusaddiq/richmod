@@ -241,7 +241,16 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	var extracted extraction
 	metadata, err := p.gateway.Structured(ctx, sourceEventID, "telegram.transaction.extract", extractionPrompt, content, extractionSchema(), &extracted)
 	if err != nil {
-		return err
+		// Keep simple, unambiguous finance messages available when the gateway
+		// returns malformed structured output or is temporarily unavailable.
+		// The fallback is deliberately conservative: unclear messages still go
+		// to the normal ignored/review path and never mutate the ledger directly.
+		fallback, ok := deterministicTextExtraction(text, categories, now)
+		if !ok {
+			return err
+		}
+		extracted = fallback
+		metadata = gateway.Metadata{Model: "deterministic-text-fallback"}
 	}
 	if extracted.Intent == "HELP" || extracted.Intent == "NON_FINANCE" || extracted.Intent == "UNKNOWN" {
 		status := "IGNORED"
@@ -272,6 +281,66 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	}
 	return p.persistTransaction(ctx, sourceEventID, householdID, update, validated, metadata)
 }
+
+var deterministicAmountPattern = regexp.MustCompile(`(?i)(?:rp\s*)?([0-9][0-9.,]*)(?:\s*(rb|ribu|k|jt|juta))?\b`)
+
+// deterministicTextExtraction handles only obvious one-line IDR entries. It
+// intentionally does not attempt conversational intent resolution or batch
+// parsing; those remain LLM/review responsibilities.
+func deterministicTextExtraction(text string, categories []string, now time.Time) (extraction, bool) {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	match := deterministicAmountPattern.FindStringSubmatchIndex(lower)
+	if match == nil {
+		return extraction{}, false
+	}
+	rawAmount := lower[match[2]:match[3]]
+	digits := strings.ReplaceAll(strings.ReplaceAll(rawAmount, ".", ""), ",", "")
+	if digits == "" {
+		return extraction{}, false
+	}
+	amount, ok := new(big.Int).SetString(digits, 10)
+	if !ok || amount.Sign() <= 0 {
+		return extraction{}, false
+	}
+	suffix := ""
+	if match[4] >= 0 {
+		suffix = strings.ToLower(lower[match[4]:match[5]])
+	}
+	if suffix == "rb" || suffix == "ribu" || suffix == "k" {
+		amount.Mul(amount, big.NewInt(1000))
+	} else if suffix == "jt" || suffix == "juta" {
+		amount.Mul(amount, big.NewInt(1000000))
+	}
+	isIncome := strings.Contains(lower, "gaji") || strings.Contains(lower, "salary") || strings.Contains(lower, "income") || strings.Contains(lower, "pemasukan") || strings.Contains(lower, "terima")
+	if !isIncome && !(strings.Contains(lower, "beli") || strings.Contains(lower, "bayar") || strings.Contains(lower, "makan") || strings.Contains(lower, "order") || strings.Contains(lower, "expense") || strings.Contains(lower, "pengeluaran")) {
+		return extraction{}, false
+	}
+	intent := "ADD_EXPENSE"
+	if isIncome {
+		intent = "ADD_INCOME"
+	}
+	merchant := strings.TrimSpace(strings.Trim(lower[:match[0]]+lower[match[1]:], " -:,"))
+	merchant = strings.Join(strings.Fields(merchant), " ")
+	if merchant == "" {
+		merchant = "Transaksi"
+	}
+	result := extraction{Language: "id", Intent: intent, Amount: strPtr(amount.String()), Currency: strPtr("IDR"), Merchant: strPtr(merchant), Description: strPtr(merchant), DateReference: strPtr("TODAY"), Confidence: 0.95, CategoryConfidence: 0, ResponseMessage: "Tercatat."}
+	if intent == "ADD_EXPENSE" {
+		for _, slug := range categories {
+			n := strings.ReplaceAll(strings.ToLower(slug), "-", " ")
+			if (strings.Contains(lower, "makan") || strings.Contains(lower, "order")) && (strings.Contains(n, "makan") || strings.Contains(n, "food") || strings.Contains(n, "minum")) {
+				result.CategorySlug, result.CategoryConfidence = strPtr(slug), 0.95
+				break
+			}
+		}
+		if result.CategorySlug == nil {
+			result.Ambiguous = true
+		}
+	}
+	return result, true
+}
+
+func strPtr(value string) *string { return &value }
 
 func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID string, update telegramUpdate, sourceID, text string) (bool, error) {
 	a := strings.ToLower(strings.TrimSpace(text))
