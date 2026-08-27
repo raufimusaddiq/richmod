@@ -26,6 +26,7 @@ type categoryChange struct {
 	PreviousThreeMonthAvg string `json:"previous_three_month_average"`
 	Change                string `json:"change_vs_three_month_average"`
 }
+type distribution struct { Name string `json:"name"`; Amount string `json:"amount"` }
 
 type facts struct {
 	Period           string           `json:"period"`
@@ -41,6 +42,10 @@ type facts struct {
 	CategoryChanges  []categoryChange `json:"category_changes"`
 	OpenReviewCount  int              `json:"open_review_count"`
 	DataCompleteness string           `json:"data_completeness"`
+	MerchantDistribution []distribution `json:"merchant_distribution"`
+	MemberDistribution []distribution `json:"member_distribution"`
+	PreviousExpense string `json:"previous_expense"`
+	PreviousNetCashflow string `json:"previous_net_cashflow"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -125,6 +130,7 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 		if next != nil { end = *next } else { local := h.now().In(clock.HouseholdLocation()); end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation()) }
 	}
 	previousStart := period.AddDate(0, -3, 0)
+	if period.Day() != 1 { previousStart = period.Add(-end.Sub(period)) }
 	var income, expense, categorizedExpense string
 	var reviews int
 	err := h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3 THEN amount WHEN type='REFUND' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3 THEN -amount ELSE 0 END),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND category_id IS NOT NULL AND transaction_at>=$2 AND transaction_at<$3),0)::text,(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, household, period, end).Scan(&income, &expense, &categorizedExpense, &reviews)
@@ -146,8 +152,17 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 		changes = append(changes, value)
 	}
 	completeness := completenessRatio(categorizedExpense, expense, reviews)
+	var previousIncome, previousExpense string
+	_ = r.Context()
+	_ = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, household, previousStart, period).Scan(&previousIncome, &previousExpense)
+	merchants := make([]distribution, 0)
+	merchantRows, _ := h.pool.Query(r.Context(), `SELECT COALESCE(NULLIF(counterparty_name,''),description,'Tidak diketahui'),sum(amount)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='EXPENSE' AND transaction_at >= $2 AND transaction_at < $3 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT 10`, household, period, end)
+	if merchantRows != nil { defer merchantRows.Close(); for merchantRows.Next() { var d distribution; if merchantRows.Scan(&d.Name,&d.Amount)==nil { merchants=append(merchants,d) } } }
+	members := make([]distribution, 0)
+	memberRows, _ := h.pool.Query(r.Context(), `SELECT COALESCE(u.display_name,'Anggota'),sum(t.amount)::text FROM transaction t LEFT JOIN "user" u ON u.id=t.created_by_user_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type='EXPENSE' AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY 1 ORDER BY sum(t.amount) DESC`, household, period, end)
+	if memberRows != nil { defer memberRows.Close(); for memberRows.Next() { var d distribution; if memberRows.Scan(&d.Name,&d.Amount)==nil { members=append(members,d) } } }
 	periodKind := "CALENDAR_MONTH"; if period.Day() != 1 { periodKind = "CURRENT_CYCLE" }
-	result := facts{Period: period.Format("2006-01"), PeriodKind: periodKind, PeriodStart: period.Format("2006-01-02"), PeriodEnd: end.Format("2006-01-02"), PeriodOpen: periodKind == "CURRENT_CYCLE" && end.After(h.now().In(clock.HouseholdLocation())), Currency: "IDR", Income: income, Expense: expense, NetCashflow: subtract(income, expense), CategoryChanges: changes, OpenReviewCount: reviews, DataCompleteness: completeness}
+	result := facts{Period: period.Format("2006-01"), PeriodKind: periodKind, PeriodStart: period.Format("2006-01-02"), PeriodEnd: end.Format("2006-01-02"), PeriodOpen: periodKind == "CURRENT_CYCLE" && end.After(h.now().In(clock.HouseholdLocation())), Currency: "IDR", Income: income, Expense: expense, NetCashflow: subtract(income, expense), CategoryChanges: changes, OpenReviewCount: reviews, DataCompleteness: completeness, MerchantDistribution: merchants, MemberDistribution: members, PreviousExpense: previousExpense, PreviousNetCashflow: subtract(previousIncome, previousExpense)}
 	if value, ok := divide(result.NetCashflow, income); ok {
 		result.SavingsRate = &value
 	}
