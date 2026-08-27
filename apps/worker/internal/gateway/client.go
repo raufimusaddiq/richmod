@@ -183,7 +183,72 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 			}
 		}
 	}
-	return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native function_call")
+	return c.nativeChatCompletion(ctx, requestID, systemPrompt, userContent, encodedTools)
+}
+
+// nativeChatCompletion is the protocol adapter fallback for routers/models
+// that expose OpenAI Chat Completions rather than Responses. It returns the
+// same internal ToolCall shape, so callers do not need protocol-specific
+// financial logic.
+func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, tools []map[string]any) (ToolCall, Metadata, error) {
+	functions := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		fn := map[string]any{"type": "function", "function": map[string]any{"name": tool["name"], "description": tool["description"], "parameters": tool["parameters"]}}
+		functions = append(functions, fn)
+	}
+	payload := map[string]any{"model": c.model, "messages": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": functions, "tool_choice": "auto", "stream": false}
+	return c.doChatToolCall(ctx, requestID, payload)
+}
+
+func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload map[string]any) (ToolCall, Metadata, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return ToolCall{}, Metadata{}, fmt.Errorf("encode chat completion request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return ToolCall{}, Metadata{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", requestID)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return ToolCall{}, Metadata{}, fmt.Errorf("call chat completion gateway: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return ToolCall{}, Metadata{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ToolCall{}, Metadata{}, fmt.Errorf("LLM chat completion returned HTTP %d", resp.StatusCode)
+	}
+	var env struct {
+		ID, Model, Cost string
+		Usage           struct {
+			Input, Output int `json:"prompt_tokens"`
+		} `json:"usage"`
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID, Type string
+					Function struct{ Name, Arguments string } `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return ToolCall{}, Metadata{}, err
+	}
+	for _, choice := range env.Choices {
+		for _, call := range choice.Message.ToolCalls {
+			if call.Type == "function" && call.Function.Name != "" && call.Function.Arguments != "" {
+				return ToolCall{ResponseID: env.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)}, Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost}, nil
+			}
+		}
+	}
+	return ToolCall{}, Metadata{}, fmt.Errorf("LLM chat completion returned no native function_call")
 }
 
 func New(baseURL, apiKey, model string) *Client {
@@ -275,9 +340,60 @@ func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt s
 	decoder := json.NewDecoder(strings.NewReader(structured))
 	decoder.DisallowUnknownFields()
 	if structured == "" || decoder.Decode(out) != nil {
-		return Metadata{}, fmt.Errorf("LLM gateway returned invalid structured output")
+		return c.structuredChatCompletion(ctx, requestID, systemPrompt, userContent, schema, out)
 	}
 	return Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost}, nil
+}
+
+func (c *Client) structuredChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, schema map[string]any, out any) (Metadata, error) {
+	payload := map[string]any{"model": c.model, "messages": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "finance_output", "strict": true, "schema": schema}}, "stream": false}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return Metadata{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return Metadata{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", requestID)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return Metadata{}, fmt.Errorf("call chat completion gateway: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return Metadata{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return Metadata{}, fmt.Errorf("LLM chat completion returned HTTP %d", resp.StatusCode)
+	}
+	var env struct {
+		Model, Cost string
+		Usage       struct {
+			Input, Output int `json:"prompt_tokens"`
+		} `json:"usage"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return Metadata{}, err
+	}
+	for _, choice := range env.Choices {
+		if choice.Message.Content != "" {
+			dec := json.NewDecoder(strings.NewReader(choice.Message.Content))
+			dec.DisallowUnknownFields()
+			if dec.Decode(out) == nil {
+				return Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost}, nil
+			}
+		}
+	}
+	return Metadata{}, fmt.Errorf("LLM gateway returned invalid structured output")
 }
 
 func normalizeContent(content any) (any, error) {
