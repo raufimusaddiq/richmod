@@ -78,21 +78,37 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   dynamic-cycle resolver. Payslip images are accepted through both Telegram
   (including albums) and the web multi-image upload pipeline. Explicit
   Indonesian/English Telegram caption dates (for example, “gajian tanggal 24
-  agustus 2026”) deterministically set pay_date before confirmation. Interactive
-  salary-source selection and cycle-aware consumers remain in the next slice.
+  agustus 2026”) deterministically set pay_date before confirmation. Web owners
+  can select the household's primary salary source. Missing-pay-date review
+  completion and richer salary-source UX remain scheduled.
 - [x] Confirming a document-backed Telegram review atomically marks the linked
   document `EXTRACTED`, preventing stale `NEEDS_REVIEW` document records.
-- [~] Cycle-aware web, Telegram, and insights behavior. Ringkasan and Analisis now show salary baseline, spent, remaining, elapsed days, daily expense bars, and cumulative spend. Telegram now resolves `CURRENT_CYCLE` and `PREVIOUS_CYCLE` from confirmed primary salary anchors. Insights accept `period=cycle` and receive cycle-bounded deterministic facts; richer cycle comparisons remain scheduled.
-  the resolved active salary cycle (or calendar fallback); Telegram and
-  insight consumers remain scheduled.
-- [~] Cycle-aware foundation shipped: authenticated `GET /api/v1/analytics/cycle`
+- [~] Cycle-aware web, Telegram, and insights behavior. Ringkasan and Analisis
+  show salary baseline, spent, remaining, elapsed days, daily expense bars, and
+  cumulative spend. Telegram resolves `CURRENT_CYCLE` and `PREVIOUS_CYCLE` from
+  confirmed primary salary anchors. Insights accept `period=cycle` and receive
+  cycle-bounded deterministic facts, including period metadata and merchant /
+  member attribution. A true prior-anchor comparison and dedicated Telegram
+  cycle-insight command remain scheduled.
+- [x] Cycle-aware foundation: authenticated `GET /api/v1/analytics/cycle`
   resolves the current confirmed primary-salary cycle in Asia/Jakarta and
   explicitly falls back to the calendar month when salary setup is absent.
 - [x] Ringkasan KPIs now use the active confirmed salary cycle when configured;
   Analisis provides explicit Siklus Gaji/Kalender period controls.
-- [ ] Indonesian copy and chart/UI polish.
-- [~] Indonesian copy and chart/UI polish. Primary navigation and document
-  intake/detail copy now use Indonesian terminology.
-- [~] Indonesian copy and chart/UI polish. Primary web navigation now uses the
-  approved Indonesian labels; broader page copy and chart refinement remain.
-- [ ] Invoice flow, known-account hardening, and off-host backup.
+- [~] Indonesian copy and chart/UI polish. Primary navigation, settings,
+  document intake/detail, and cycle labels use Indonesian terminology. A wider
+  page copy sweep and remaining chart refinement are still scheduled.
+- [~] Invoice flow. Invoice/tagihan classification and the UI warning that an
+  invoice is not payment evidence are shipped. Payment-proof linking,
+  due-date handling, and invoice review lifecycle remain scheduled; no payment
+  is inferred from an invoice alone.
+- [ ] Known-account hardening and off-host backup.
+
+## 1–4 delivery evidence
+
+- [x] 1. Telegram callback fast path and dedicated interactive execution lane.
+- [x] 2. Multi-image document intake and ordered page preservation.
+- [x] 3. Universal review routing and household-wide delivery.
+- [x] 4. Payslip-driven salary source/event and dynamic current-cycle views.
+  Missing-pay-date review completion and exact prior-cycle comparisons remain
+  explicit follow-up work under the partial items above.
