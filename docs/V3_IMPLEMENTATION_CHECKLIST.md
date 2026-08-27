@@ -101,8 +101,9 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   Analisis provides explicit Siklus Gaji/Kalender period controls.
 - [~] Indonesian copy and chart/UI polish. Primary navigation, settings,
   document intake/detail, analytics headings, and cycle labels now use
-  consistent Indonesian title case (including `Siklus Gaji`). Remaining chart
-  refinement is still scheduled.
+  consistent Indonesian title case (including `Siklus Gaji`). Charts now have
+  clearer empty states, accessible labels, stronger tooltip hierarchy, and
+  improved visual contrast. Remaining refinement is still scheduled.
 - [~] Invoice flow. Invoice/tagihan documents now enter the transaction-proof
   extractor. A row is eligible only when the document explicitly says paid,
   success, or completed; matching links evidence to an existing expense and
