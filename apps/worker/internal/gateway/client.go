@@ -155,6 +155,18 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 			CallID    string          `json:"call_id"`
 			Arguments json.RawMessage `json:"arguments"`
 		} `json:"output"`
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return ToolCall{}, Metadata{}, err
@@ -162,6 +174,13 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	for _, item := range envelope.Output {
 		if item.Type == "function_call" && item.Name != "" && len(item.Arguments) > 0 {
 			return ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: item.Arguments}, Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost}, nil
+		}
+	}
+	for _, choice := range envelope.Choices {
+		for _, call := range choice.Message.ToolCalls {
+			if call.Type == "function" && call.Function.Name != "" && call.Function.Arguments != "" {
+				return ToolCall{ResponseID: envelope.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)}, Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost}, nil
+			}
 		}
 	}
 	return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native function_call")
@@ -228,6 +247,11 @@ func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt s
 				Text string `json:"text"`
 			} `json:"content"`
 		} `json:"output"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return Metadata{}, fmt.Errorf("decode LLM response: %w", err)
@@ -237,6 +261,14 @@ func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt s
 		for _, content := range item.Content {
 			if item.Type == "message" && content.Type == "output_text" {
 				structured = content.Text
+			}
+		}
+	}
+	if structured == "" {
+		for _, choice := range envelope.Choices {
+			if choice.Message.Content != "" {
+				structured = choice.Message.Content
+				break
 			}
 		}
 	}
