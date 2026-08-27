@@ -46,7 +46,7 @@ export default function HouseholdPage() {
   }
 
   if (!me) return <main className="loading">Memuat…</main>;
-  return <AppShell user={me} eyebrow="HOUSEHOLD" title={household?.name || "Rumah tangga"} actions={<span className="header-meta">{members.filter(member => member.active).length} anggota aktif</span>}>
+  return <AppShell user={me} eyebrow="KELUARGA" title={household?.name || "Rumah Tangga"} actions={<span className="header-meta">{members.filter(member => member.active).length} anggota aktif</span>}>
     <p className="page-intro">Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p>
     {error && <p className="notice error">{error}</p>}
     {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2><span>Role MEMBER</span></div><form className="member-form" onSubmit={addMember}><input name="displayName" placeholder="Nama anggota" maxLength="120" required /><input name="email" type="email" placeholder="Email anggota" required /><button>Tambahkan</button></form></section>}
