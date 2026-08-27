@@ -890,11 +890,11 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 }
 
 func enqueueReply(ctx context.Context, tx pgx.Tx, update telegramUpdate, message string) error {
-	callbackID := ""
-	if update.CallbackQuery != nil {
-		callbackID = update.CallbackQuery.ID
-	}
-	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'callback_query_id',NULLIF($4,'')))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), callbackID)
+	// Callback queries are acknowledged synchronously by the webhook after
+	// durable capture. Do not enqueue a second ACK: Telegram rejects duplicate
+	// answerCallbackQuery calls with HTTP 400 once the callback is answered or
+	// expires. The reply job only sends the resulting user-facing message.
+	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000))
 	return err
 }
 
@@ -903,11 +903,7 @@ func enqueueReplyMarkup(ctx context.Context, tx pgx.Tx, update telegramUpdate, m
 	if err != nil {
 		return err
 	}
-	callbackID := ""
-	if update.CallbackQuery != nil {
-		callbackID = update.CallbackQuery.ID
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'callback_query_id',NULLIF($5,'')))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded), callbackID)
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded))
 	return err
 }
 
