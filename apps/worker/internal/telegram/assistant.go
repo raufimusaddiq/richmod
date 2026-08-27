@@ -31,6 +31,8 @@ func (p *Processor) processAssistantIntent(ctx context.Context, sourceID, househ
 		return p.replySpending(ctx, sourceID, householdID, update, rangeValue)
 	case "GET_CASHFLOW":
 		return p.replyCashflow(ctx, sourceID, householdID, update, rangeValue)
+	case "GET_INSIGHTS":
+		return p.replyCycleInsight(ctx, sourceID, householdID, update, rangeValue)
 	case "SEARCH_TRANSACTIONS":
 		return p.replySearch(ctx, sourceID, householdID, update, rangeValue, clean(pointerValue(value.SearchText), 120))
 	case "CORRECT_TRANSACTION":
@@ -42,6 +44,16 @@ func (p *Processor) processAssistantIntent(ctx context.Context, sourceID, househ
 	default:
 		return p.finishAssistant(ctx, sourceID, update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.", nil)
 	}
+}
+
+func (p *Processor) replyCycleInsight(ctx context.Context, sourceID, householdID string, update telegramUpdate, r assistantRange) error {
+	var income, expense, net, reviews, topName, topAmount string
+	err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text,(COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0))::text,(SELECT count(*)::text FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&income, &expense, &net, &reviews)
+	if err != nil { return err }
+	_ = p.pool.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Tidak diketahui'),sum(amount)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='EXPENSE' AND transaction_at >= $2 AND transaction_at < $3 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT 1`, householdID, r.From, r.To).Scan(&topName, &topAmount)
+	message := "Insight siklus gaji\nPemasukan: Rp"+FormatIDR(income)+"\nPengeluaran: Rp"+FormatIDR(expense)+"\nNeto: Rp"+FormatIDR(net)+"\nReview terbuka: "+reviews
+	if topName != "" { message += "\nTerbesar: "+topName+" (Rp"+FormatIDR(topAmount)+")" }
+	return p.finishAssistant(ctx, sourceID, update, message, nil)
 }
 
 func (p *Processor) resolveSalaryCycleRange(ctx context.Context, householdID string, now time.Time, previous bool) (assistantRange, error) {

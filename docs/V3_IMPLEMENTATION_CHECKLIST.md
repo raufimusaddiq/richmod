@@ -90,8 +90,7 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   confirmed primary salary anchors. Insights accept `period=cycle` and receive
   cycle-bounded deterministic facts, including period metadata and merchant /
   member attribution. Insights now compare against the actual preceding
-  confirmed salary anchor; a dedicated Telegram cycle-insight command remains
-  scheduled.
+  confirmed salary anchor, and Telegram supports a bounded cycle-insight query.
 - [x] Cycle-aware foundation: authenticated `GET /api/v1/analytics/cycle`
   resolves the current confirmed primary-salary cycle in Asia/Jakarta and
   explicitly falls back to the calendar month when salary setup is absent.
@@ -112,5 +111,5 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] 2. Multi-image document intake and ordered page preservation.
 - [x] 3. Universal review routing and household-wide delivery.
 - [x] 4. Payslip-driven salary source/event and dynamic current-cycle views.
-  Missing-pay-date review completion and exact prior-cycle comparisons are
-  shipped; dedicated Telegram cycle insights remain explicit follow-up work.
+  Missing-pay-date review completion, exact prior-cycle comparisons, and the
+  dedicated Telegram cycle-insight query are shipped.
