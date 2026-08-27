@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 )
 
 type Handler struct{ pool *pgxpool.Pool }
+
+var maskedHintPattern = regexp.MustCompile(`^[0-9]{4,19}$`)
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool} }
 
@@ -332,7 +335,7 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Remember && input.Classification != "EXPENSE" && input.Classification != "IGNORE" {
-		if len([]rune(input.MatchHint)) < 4 || input.Institution == "" {
+		if !maskedHintPattern.MatchString(input.MatchHint) || input.Institution == "" {
 			writeJSON(w, 400, map[string]string{"error": "institution and masked match hint are required to remember account"})
 			return
 		}

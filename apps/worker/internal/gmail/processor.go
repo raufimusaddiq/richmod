@@ -366,7 +366,7 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 	knownRelationship := ""
 	if event.FinancialEffect == jago.EffectNeedsReview {
 		resolvedType = "UNCLASSIFIED"
-		err := p.pool.QueryRow(ctx, `SELECT relationship FROM known_account WHERE household_id=$1 AND active AND lower($2) LIKE '%'||lower(match_hint)||'%' ORDER BY length(match_hint) DESC,id LIMIT 1`, householdID, strings.TrimSpace(event.ToName)).Scan(&knownRelationship)
+		err := p.pool.QueryRow(ctx, `SELECT relationship FROM known_account WHERE household_id=$1 AND active AND regexp_replace($2,'[^0-9]','','g') LIKE '%'||match_hint ORDER BY length(match_hint) DESC,id LIMIT 1`, householdID, strings.TrimSpace(event.ToName)).Scan(&knownRelationship)
 		if err == nil {
 			switch knownRelationship {
 			case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
