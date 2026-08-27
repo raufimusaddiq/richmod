@@ -81,7 +81,8 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
   agustus 2026”) deterministically set pay_date before confirmation. Web owners
   can select the household's primary salary source. Missing-pay-date review
   replies now accept an explicit Indonesian/English date and create the linked
-  salary event transactionally; richer salary-source UX remains scheduled.
+  salary event transactionally; Pengaturan now shows the active source plus
+  primary/backup state and keeps selection owner-only.
 - [x] Confirming a document-backed Telegram review atomically marks the linked
   document `EXTRACTED`, preventing stale `NEEDS_REVIEW` document records.
 - [~] Cycle-aware web, Telegram, and insights behavior. Ringkasan and Analisis
