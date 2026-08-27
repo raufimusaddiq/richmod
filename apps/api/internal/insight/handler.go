@@ -129,8 +129,20 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 		_ = h.pool.QueryRow(r.Context(), `SELECT min(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date>$2::date`, household, period.Format("2006-01-02")).Scan(&next)
 		if next != nil { end = *next } else { local := h.now().In(clock.HouseholdLocation()); end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation()) }
 	}
+	// Keep the three-month baseline for category trend calculations, but use the
+	// actual preceding salary anchor for cycle-to-cycle comparison.
 	previousStart := period.AddDate(0, -3, 0)
-	if period.Day() != 1 { previousStart = period.Add(-end.Sub(period)) }
+	previousPeriodStart := period.AddDate(0, -1, 0)
+	if period.Day() != 1 {
+		previousStart = period.Add(-end.Sub(period))
+		var prior *time.Time
+		_ = h.pool.QueryRow(r.Context(), `SELECT max(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date<$2::date`, household, period.Format("2006-01-02")).Scan(&prior)
+		if prior != nil {
+			previousPeriodStart = *prior
+		} else {
+			previousPeriodStart = previousStart
+		}
+	}
 	var income, expense, categorizedExpense string
 	var reviews int
 	err := h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3 THEN amount WHEN type='REFUND' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3 THEN -amount ELSE 0 END),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND category_id IS NOT NULL AND transaction_at>=$2 AND transaction_at<$3),0)::text,(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, household, period, end).Scan(&income, &expense, &categorizedExpense, &reviews)
@@ -154,7 +166,7 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 	completeness := completenessRatio(categorizedExpense, expense, reviews)
 	var previousIncome, previousExpense string
 	_ = r.Context()
-	_ = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, household, previousStart, period).Scan(&previousIncome, &previousExpense)
+	_ = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, household, previousPeriodStart, period).Scan(&previousIncome, &previousExpense)
 	merchants := make([]distribution, 0)
 	merchantRows, _ := h.pool.Query(r.Context(), `SELECT COALESCE(NULLIF(counterparty_name,''),description,'Tidak diketahui'),sum(amount)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='EXPENSE' AND transaction_at >= $2 AND transaction_at < $3 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT 10`, household, period, end)
 	if merchantRows != nil { defer merchantRows.Close(); for merchantRows.Next() { var d distribution; if merchantRows.Scan(&d.Name,&d.Amount)==nil { merchants=append(merchants,d) } } }
