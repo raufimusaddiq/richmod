@@ -70,7 +70,20 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		status = "NEEDS_REVIEW"
 	}
 	if payload.Shadow {
-		_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result) VALUES($1,$2,'native_tool',$3,$4,$5::jsonb,'VALID',$6) ON CONFLICT(source_event_id) DO UPDATE SET output_json=excluded.output_json,gateway_model=excluded.gateway_model,validation_status=excluded.validation_status,policy_result=excluded.policy_result`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion, string(output), status)
+		baseline, baselineErr := p.shadowBaseline(ctx, payload.SourceEventID)
+		shadowOutput := "null"
+		agreement := "NO_BASELINE"
+		if baselineErr == nil {
+			fields, equal := CompareShadow(extraction, result, baseline)
+			encoded, _ := json.Marshal(map[string]any{"baseline": baseline, "fields": fields})
+			shadowOutput = string(encoded)
+			if equal {
+				agreement = "AGREE"
+			} else {
+				agreement = "DISAGREE"
+			}
+		}
+		_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result,shadow_output_json,shadow_agreement) VALUES($1,$2,'native_tool',$3,$4,$5::jsonb,'VALID',$6,$7::jsonb,$8) ON CONFLICT(source_event_id) DO UPDATE SET output_json=excluded.output_json,gateway_model=excluded.gateway_model,validation_status=excluded.validation_status,policy_result=excluded.policy_result,shadow_output_json=excluded.shadow_output_json,shadow_agreement=excluded.shadow_agreement`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion, string(output), status, shadowOutput, agreement)
 		return err
 	}
 	if _, err = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result) VALUES($1,$2,'native_tool',$3,$4,$5::jsonb,'VALID',$6) ON CONFLICT(source_event_id) DO UPDATE SET output_json=excluded.output_json,gateway_model=excluded.gateway_model,validation_status=excluded.validation_status,policy_result=excluded.policy_result`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion, string(output), status); err != nil {
@@ -85,6 +98,36 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	return p.persist(ctx, listener, payload.SourceEventID, extraction, result)
+}
+
+func (p *Processor) shadowBaseline(ctx context.Context, sourceEventID string) (ShadowBaseline, error) {
+	var baseline ShadowBaseline
+	var channel string
+	var status, transactionType string
+	if err := p.pool.QueryRow(ctx, `SELECT t.type,t.status,regexp_replace(t.amount::text,'[.]0+$',''),t.transaction_at,COALESCE(m.normalized_name,''),COALESCE(te.metadata_json->>'channel','') FROM transaction t JOIN transaction_evidence te ON te.transaction_id=t.id LEFT JOIN merchant m ON m.id=t.merchant_id WHERE te.source_event_id=$1 ORDER BY t.created_at LIMIT 1`, sourceEventID).Scan(&transactionType, &status, &baseline.Amount, &baseline.TransactionAt, &baseline.Merchant, &channel); err != nil {
+		return ShadowBaseline{}, err
+	}
+	baseline.Direction = "OUTGOING"
+	if transactionType == "INCOME" {
+		baseline.Direction = "INCOMING"
+	}
+	switch strings.ToUpper(channel) {
+	case "MERCHANT":
+		baseline.Channel = "MERCHANT_PAYMENT"
+	default:
+		baseline.Channel = strings.ToUpper(channel)
+	}
+	switch {
+	case status == "VOIDED":
+		baseline.Policy = "IGNORE"
+	case transactionType == "TRANSFER":
+		baseline.Policy = "TRANSFER"
+	case transactionType == "EXPENSE":
+		baseline.Policy = "EXPENSE"
+	default:
+		baseline.Policy = "NEEDS_REVIEW"
+	}
+	return baseline, nil
 }
 
 func (p *Processor) persist(ctx context.Context, listener Listener, sourceID string, extraction Extraction, result PolicyResult) error {

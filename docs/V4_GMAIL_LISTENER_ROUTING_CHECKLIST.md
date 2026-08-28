@@ -9,5 +9,6 @@
 - [x] Primary mode writes proposal, transaction, evidence, audit, and review records
 - [x] Known-account matching is household-scoped and suffix-based
 - [x] Existing worker and Jago regression tests pass
-- [ ] Jago-v1 shadow comparison and promotion evidence
+- [x] Jago-v1 shadow comparison records amount, direction, channel, time, merchant, and policy agreement
+- [ ] Jago-v1 promotion evidence and generic-primary rollout
 - [ ] Live native-tool smoke test against `ocg/minimax-m3`
