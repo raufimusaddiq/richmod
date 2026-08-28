@@ -1,4 +1,5 @@
 import "./globals.css";
+import AuthProvider from "./components/AuthProvider";
 
 // The browser-authenticated app must not reuse an HTML shell from an older
 // deployment whose client chunks may have been replaced.
@@ -12,7 +13,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
-      <body>{children}</body>
+      <body><AuthProvider>{children}</AuthProvider></body>
     </html>
   );
 }

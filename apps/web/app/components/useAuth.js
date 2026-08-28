@@ -1,21 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useAuthContext } from "./AuthProvider";
 
 export default function useAuth(redirect = true) {
-  const [user, setUser] = useState(null);
+  const { user, loaded } = useAuthContext();
+
   useEffect(() => {
-    const unavailable = () => {
-      setUser(false);
-      if (redirect) window.location.replace("/");
-    };
-    fetch("/api/v1/auth/me").then(async response => {
-      if (!response.ok) {
-        unavailable();
-        return;
-      }
-      setUser(await response.json());
-    }).catch(unavailable);
-  }, [redirect]);
-  return user;
+    if (loaded && user === false && redirect) {
+      window.location.replace("/");
+    }
+  }, [loaded, redirect, user]);
+
+  return loaded ? user : null;
 }
