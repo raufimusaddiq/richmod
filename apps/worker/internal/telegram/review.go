@@ -728,10 +728,16 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,'AWAITING_CATEGORY')`, reviewID); err != nil {
+	state, reviewMessage, markupMode := reviewInitialState(reviewType, message)
+	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
 		return err
 	}
-	markup := reviewActionMarkup(ctx, tx, reviewID, reviewType)
+	var markup *InlineKeyboardMarkup
+	if markupMode == "category" {
+		markup = reviewActionMarkup(ctx, tx, reviewID, reviewType)
+	} else {
+		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
+	}
 	rows, err := tx.Query(ctx, `SELECT ti.telegram_user_id
 		FROM telegram_identity ti
 		JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active
@@ -759,11 +765,25 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 		if _, err := tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, reviewID, recipient); err != nil {
 			return err
 		}
-		if err := enqueueReviewMessageWithMarkup(ctx, tx, reviewID, recipient, replyTo, message, markup); err != nil {
+		if err := enqueueReviewMessageWithMarkup(ctx, tx, reviewID, recipient, replyTo, reviewMessage, markup); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// reviewInitialState keeps the first question aligned with the policy result.
+// A missing merchant must collect that fact before category selection; it is
+// not safe to present category selection as the first required action.
+func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
+	switch reviewType {
+	case "UNKNOWN_MERCHANT":
+		return "AWAITING_MERCHANT", "Nama merchant belum tersedia. Balas pesan ini dengan nama merchant.", "detail"
+	case "UNKNOWN_PURPOSE":
+		return "AWAITING_DETAIL", "Keterangan transaksi belum tersedia. Balas pesan ini dengan detail transaksi.", "detail"
+	default:
+		return "AWAITING_CATEGORY", message, "category"
+	}
 }
 
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {
