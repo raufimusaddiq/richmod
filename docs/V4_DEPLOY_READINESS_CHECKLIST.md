@@ -20,4 +20,4 @@ current deploy gate without changing historical iteration documentation.
 - [x] Existing spending bank accounts are reused by matching listeners; empty migration duplicates are deactivated without deleting transaction history.
 - [ ] One controlled configured-bank message completes generic extraction and audit verification.
 - [ ] A second configured-bank sender is verified through the same generic path.
-- [ ] Telegram multi-recipient live verification passes.
+- [x] Telegram multi-recipient live verification passes; production bank-review runs delivered the same review to both active linked identities and a member callback resolved the shared review once.

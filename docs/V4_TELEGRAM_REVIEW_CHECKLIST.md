@@ -12,4 +12,4 @@
 - [x] Merchant/detail updates write evidence and audit records
 - [x] Missing merchant blocks category confirmation until completed
 - [x] Bank partial extraction starts in the matching merchant/detail state before category selection
-- [ ] Live multi-recipient Telegram verification
+- [x] Live multi-recipient Telegram verification; production evidence shows both active linked identities received the same bound review and the shared review resolved after one member action.
