@@ -23,7 +23,7 @@ func (e *Extractor) Extract(ctx context.Context, sourceEventID string, listener 
 		return Extraction{}, gateway.Metadata{}, fmt.Errorf("bank email gateway is unavailable")
 	}
 	content := map[string]any{"configured_bank_name": listener.BankName, "sender_address": emailFrom(listener, email), "household_timezone": "Asia/Jakarta", "email_subject": email.Subject, "email_date": email.Date, "authentication_results": email.AuthenticationResults, "email_body": "<untrusted_email_body>" + email.Body + "</untrusted_email_body>"}
-	call, meta, err := e.gateway.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, []gateway.ToolDefinition{EmitBankTransactionTool()}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, meta, err := e.gateway.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, []gateway.ToolDefinition{EmitBankTransactionTool()}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1, ReasoningEffort: "none"})
 	if err != nil {
 		return Extraction{}, meta, err
 	}
