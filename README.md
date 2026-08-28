@@ -9,6 +9,12 @@ The production baseline includes the canonical ledger, authentication, Gmail/Jag
 automation, Telegram text intake and review, generic financial-document intake,
 reconciliation, deterministic analytics, and aggregate-only LLM insights.
 
+The 2026 end-to-end remediation ships durable three-lane Telegram processing,
+bounded single-protocol LLM calls, canonical source/document review records,
+first-payslip confirmation before income creation, shared salary-cycle bounds,
+manual ledger creation, and multipage document viewing. Real second-sender bank
+acceptance and off-host backup verification remain explicitly pending.
+
 Telegram webhook ingress is database-only. Callback actions are durably queued on
 an isolated interactive lane and acknowledged by the worker before deterministic
 review processing. Queue lane assignment is enforced by PostgreSQL.
