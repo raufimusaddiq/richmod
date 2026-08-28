@@ -383,7 +383,10 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 			return err
 		}
 	}
-	if listenerFound && !legacy {
+	// Generic-primary owns every matched listener, including legacy Jago. Do
+	// not continue into the deterministic parser or the same email can create
+	// two financial records.
+	if listenerFound && (!legacy || p.genericPrimary) {
 		return tx.Commit(ctx)
 	}
 	if parseErr != nil || !p.parser.CanParse(bankEmail) || status == "IGNORED" {
@@ -480,19 +483,23 @@ func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID
 		}
 		merchantID = &id
 	}
+	description := merchantName
+	if description == "" {
+		description = "Transaksi bank"
+	}
 	metadata, _ := json.Marshal(map[string]any{"family": event.Family, "channel": event.TransactionChannel, "reference": event.Reference, "known_account_relationship": knownRelationship})
 	var proposalID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO transaction_proposal (household_id,source_event_id,proposed_type,amount,currency,transaction_at,merchant_raw,counterparty_raw,category_candidate_id,description,confidence,proposal_status,metadata_json)
 		VALUES ($1,$2,$3,$4,'IDR',$5,NULLIF($6,''),NULLIF($7,''),$8,$9,0.99,$10,$11::jsonb)
-		RETURNING id`, householdID, sourceEventID, resolvedType, event.Amount, event.TransactionAt, merchantName, event.ToName, categoryID, "Bank Jago "+event.TransactionChannel, proposalStatus, string(metadata)).Scan(&proposalID); err != nil {
+		RETURNING id`, householdID, sourceEventID, resolvedType, event.Amount, event.TransactionAt, merchantName, event.ToName, categoryID, description, proposalStatus, string(metadata)).Scan(&proposalID); err != nil {
 		return err
 	}
 	var transactionID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO transaction (household_id,account_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at,voided_at)
 		VALUES ($1,$2,$3,$4,$5,'IDR',$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,''),0.99,$12,CASE WHEN $4='CONFIRMED' THEN now() END,CASE WHEN $4='VOIDED' THEN now() END)
-		RETURNING id`, householdID, accountID, resolvedType, transactionStatus, event.Amount, event.TransactionAt, merchantID, categoryID, "Bank Jago "+event.TransactionChannel, event.ToName, event.Reference, categoryConfidence).Scan(&transactionID); err != nil {
+		RETURNING id`, householdID, accountID, resolvedType, transactionStatus, event.Amount, event.TransactionAt, merchantID, categoryID, description, event.ToName, event.Reference, categoryConfidence).Scan(&transactionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES ($1,$2,'BANK_EMAIL',0.99,jsonb_build_object('proposal_id',$3::uuid))`, transactionID, sourceEventID, proposalID); err != nil {

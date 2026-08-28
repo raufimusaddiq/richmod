@@ -46,9 +46,10 @@ Jago uses `SPENDING_ONLY` policy.
 - Jago pocket movement -> internal transfer, not expense/income.
 - RDN/investment movement -> ignore from MVP spending.
 - V4 bank listeners use the required generic native-tool extractor after Gmail
-  sender/authentication trust checks. During rollout, known Jago templates may
-  remain as the canonical shadow/fallback path; generic output is untrusted
-  until deterministic Go validation and policy evaluation succeed.
+  sender/authentication trust checks. Generic native extraction is now the
+  normal path for matched listeners; its output remains untrusted until
+  deterministic Go validation and policy evaluation succeed. The deterministic
+  Jago parser is compatibility-only and must not run alongside generic-primary.
 
 ## Telegram
 
