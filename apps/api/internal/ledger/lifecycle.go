@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,7 +70,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		  AND ($8='' OR t.account_id::text=$8)
 		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND s2.source_type=$9))
 		  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
-		ORDER BY t.transaction_at DESC,t.id DESC LIMIT 250`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search)
+		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return
@@ -95,6 +96,7 @@ type transactionFilters struct {
 	Start, End                         *time.Time
 	Type, CategoryID, MemberID, Status string
 	AccountID, Source, Search          string
+	Limit                              int
 }
 
 func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) {
@@ -104,6 +106,14 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 		MemberID: strings.TrimSpace(query.Get("memberId")), Status: strings.TrimSpace(query.Get("status")),
 		AccountID: strings.TrimSpace(query.Get("accountId")), Source: strings.TrimSpace(query.Get("source")),
 		Search: strings.TrimSpace(query.Get("q")),
+		Limit:  250,
+	}
+	if value := strings.TrimSpace(query.Get("limit")); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil || limit < 1 || limit > 250 {
+			return result, errors.New("limit must be between 1 and 250")
+		}
+		result.Limit = limit
 	}
 	if len(result.Search) > 100 {
 		return result, errors.New("search is too long")

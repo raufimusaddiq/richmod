@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,29 +47,15 @@ type callbackStore interface {
 }
 
 type Handler struct {
-	store    Store
-	secret   string
-	botToken string
+	store  Store
+	secret string
 }
 
-func NewHandler(store Store, secret string, botToken ...string) *Handler {
-	token := ""
-	if len(botToken) > 0 {
-		token = botToken[0]
-	}
-	return &Handler{store: store, secret: secret, botToken: token}
+func NewHandler(store Store, secret string) *Handler {
+	return &Handler{store: store, secret: secret}
 }
 
 func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
-	webhookStarted := time.Now()
-	callback := false
-	defer func() {
-		// Structured logs provide callback latency observability without exposing
-		// message contents or Telegram credentials.
-		if callback {
-			slog.Default().Info("telegram callback webhook", "latency_ms", time.Since(webhookStarted).Milliseconds())
-		}
-	}()
 	if h.secret == "" {
 		http.Error(w, "telegram integration unavailable", http.StatusServiceUnavailable)
 		return
@@ -131,7 +115,6 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if update.CallbackQuery != nil {
-		callback = true
 		if update.CallbackQuery.From.ID == 0 || update.CallbackQuery.Message == nil || update.CallbackQuery.Message.Chat.Type != "private" || !validCallbackAction(update.CallbackQuery.Data) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -150,7 +133,6 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "webhook processing failed", http.StatusInternalServerError)
 			return
 		}
-		_ = answerCallback(r.Context(), h.botToken, update.CallbackQuery.ID)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -205,33 +187,45 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func answerCallback(ctx context.Context, token, callbackID string) error {
-	if token == "" || callbackID == "" {
-		return nil
-	}
-	body := strings.NewReader(`{"callback_query_id":"` + strings.ReplaceAll(callbackID, `"`, ``) + `"}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/answerCallbackQuery", body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("Telegram callback ACK returned HTTP %d", resp.StatusCode)
-	}
-	return nil
-}
-
 func validCallbackAction(value string) bool {
 	switch value {
 	case "review:expense", "review:own", "review:household", "review:confirm", "review:change", "review:remember", "review:once":
 		return true
 	}
-	return strings.HasPrefix(value, "review:category:") && len(strings.TrimPrefix(value, "review:category:")) <= 120
+	for _, action := range []string{"edit", "merchant", "description", "category", "ignore"} {
+		if value == "review:"+action {
+			return true
+		}
+	}
+	if strings.HasPrefix(value, "review:cat:") {
+		return validCallbackToken(strings.TrimPrefix(value, "review:cat:"), 64)
+	}
+	if strings.HasPrefix(value, "review:catpage:") {
+		page := strings.TrimPrefix(value, "review:catpage:")
+		if len(page) == 0 || len(page) > 4 {
+			return false
+		}
+		for _, r := range page {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+		_, err := strconv.Atoi(page)
+		return err == nil
+	}
+	return strings.HasPrefix(value, "review:category:") && validCallbackToken(strings.TrimPrefix(value, "review:category:"), 64)
+}
+
+func validCallbackToken(value string, max int) bool {
+	if value == "" || len(value) > max {
+		return false
+	}
+	for _, r := range value {
+		if !(r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 type telegramImage struct{ fileID, fileName, mimeType string }

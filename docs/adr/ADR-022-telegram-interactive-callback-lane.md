@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — V3 P0 phase 1.
+Superseded by ADR-026.
 
 ## Decision
 
@@ -20,5 +20,6 @@ vision/document processing cannot indefinitely starve button actions.
 
 - Callback acknowledgement is transport feedback, not proof of financial success.
 - Replay remains idempotent through the existing source-event external ID.
-- Telegram bot credentials are available to the API only for the narrow ACK call.
+- Historical implementation note: Telegram bot credentials were available to the
+  API for ACK. ADR-026 removes that network dependency from ingress.
 - Message editing/retry repair remains a follow-up V3 phase.

@@ -9,11 +9,16 @@ type ProcessPayload struct {
 	SourceEventID string `json:"source_event_id"`
 }
 
-type CallbackPayload struct { SourceEventID string `json:"source_event_id"` }
+type CallbackPayload struct {
+	SourceEventID   string `json:"source_event_id"`
+	CallbackQueryID string `json:"callback_id"`
+}
 
 func DecodeCallbackPayload(raw json.RawMessage) (CallbackPayload, error) {
 	var payload CallbackPayload
-	if err := json.Unmarshal(raw, &payload); err != nil || payload.SourceEventID == "" { return CallbackPayload{}, fmt.Errorf("invalid callback payload") }
+	if err := json.Unmarshal(raw, &payload); err != nil || payload.SourceEventID == "" || payload.CallbackQueryID == "" {
+		return CallbackPayload{}, fmt.Errorf("invalid callback payload")
+	}
 	return payload, nil
 }
 

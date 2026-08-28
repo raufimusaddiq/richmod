@@ -88,7 +88,8 @@ func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, ca
 	var env struct {
 		ID, Model, Cost string
 		Usage           struct {
-			Input, Output int `json:"input_tokens"`
+			Input  int `json:"input_tokens"`
+			Output int `json:"output_tokens"`
 		} `json:"usage"`
 		Output []struct {
 			Type, Name, CallID string
@@ -295,7 +296,8 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 	var env struct {
 		ID, Model, Cost string
 		Usage           struct {
-			Input, Output int `json:"prompt_tokens"`
+			Input  int `json:"prompt_tokens"`
+			Output int `json:"completion_tokens"`
 		} `json:"usage"`
 		Choices []struct {
 			Message struct {
@@ -473,7 +475,8 @@ func (c *Client) structuredChatCompletion(ctx context.Context, requestID, system
 	var env struct {
 		Model, Cost string
 		Usage       struct {
-			Input, Output int `json:"prompt_tokens"`
+			Input  int `json:"prompt_tokens"`
+			Output int `json:"completion_tokens"`
 		} `json:"usage"`
 		Choices []struct {
 			Message struct {

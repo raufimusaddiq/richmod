@@ -40,7 +40,7 @@ func TestTransactionAccessIsHouseholdScopedAndInjectionSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	email := fmt.Sprintf("security-%d@example.test", stamp)
-	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Security Test',$2) RETURNING id`, email, hash).Scan(&userID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,password_initialized_at) VALUES($1,'Security Test',$2,now()) RETURNING id`, email, hash).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdA, userID); err != nil {

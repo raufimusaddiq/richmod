@@ -18,7 +18,9 @@ test("active frontend contains no budget requests or budget interface", () => {
 });
 
 test("overview chart is backed by deterministic analytics API", () => {
-  assert.match(text("app/page.js"), /analytics\/cashflow\?range=12/);
+  const source = text("app/page.js");
+  assert.match(source, /analytics\/cycle\/daily/);
+  assert.match(source, /transactions\?limit=8/);
   assert.match(text("app/components/Charts.js"), /recharts/);
   assert.match(text("app/components/Charts.js"), /ResponsiveContainer/);
 });
@@ -32,11 +34,21 @@ test("transaction filters are query-backed", () => {
 test("ledger request failures are recoverable instead of leaving the page loading", () => {
   const source = text("app/transactions/page.js");
   assert.match(source, /catch \{/);
-  assert.match(source, /Koneksi terputus saat memuat ledger/);
+  assert.match(source, /Koneksi terputus saat memuat riwayat transaksi/);
   assert.match(source, /<ErrorNotice message=\{error\} retry=\{load\}\/>/);
   assert.match(source, /loading \? <Skeleton/);
   assert.match(source, /dynamic = "force-dynamic"/);
-  assert.match(text("app/components/useAuth.js"), /catch\(unavailable\)/);
+  const auth = text("app/components/AuthProvider.js");
+  assert.match(auth, /catch \{/);
+  assert.match(auth, /setLoaded\(true\)/);
+});
+
+test("manual transactions use an accessible dialog and refresh the ledger", () => {
+  const source = text("app/transactions/page.js");
+  assert.match(source, /<dialog/);
+  assert.match(source, /aria-labelledby="create-transaction-title"/);
+  assert.match(source, /fetch\("\/api\/v1\/transactions", \{ method: "POST"/);
+  assert.match(source, /await load\(\)/);
 });
 
 test("authenticated app shells are not cached across deployments", () => {

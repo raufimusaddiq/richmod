@@ -81,9 +81,12 @@ func run(logger *slog.Logger) error {
 	go maintainHeartbeat(ctx, logger, pool, workerID)
 	// Keep callback and other interactive work on a reserved execution loop so
 	// long-running vision/Gmail jobs cannot delay Telegram button handling.
-	go runInteractiveLoop(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID)
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	for _, lane := range []struct {
+		name     string
+		interval time.Duration
+	}{{"INTERACTIVE", 200 * time.Millisecond}, {"DEFAULT", time.Second}, {"BACKGROUND", time.Second}} {
+		go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, lane.name, lane.interval)
+	}
 	maintenanceTicker := time.NewTicker(time.Minute)
 	defer maintenanceTicker.Stop()
 	if gmailProcessor != nil {
@@ -92,16 +95,9 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, "DEFAULT"); err != nil {
-			logger.Error("job polling failed", "error", err)
-		}
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, "BACKGROUND"); err != nil {
-			logger.Error("job polling failed", "error", err)
-		}
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
 		case <-maintenanceTicker.C:
 			if gmailProcessor != nil {
 				if err := gmailProcessor.SeedRenewalJobs(ctx); err != nil {
@@ -112,12 +108,12 @@ func run(logger *slog.Logger) error {
 	}
 }
 
-func runInteractiveLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) {
-	ticker := time.NewTicker(200 * time.Millisecond)
+func runLaneLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, "INTERACTIVE"); err != nil && ctx.Err() == nil {
-			logger.Error("interactive job polling failed", "error", err)
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, lane); err != nil && ctx.Err() == nil {
+			logger.Error("job polling failed", "lane", lane, "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -160,11 +156,11 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
 			}
-			continue
-		}
-		logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
-		if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
-			return fmt.Errorf("reschedule job: %w", finishErr)
+		} else {
+			logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
+			if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
+				return fmt.Errorf("reschedule job: %w", finishErr)
+			}
 		}
 		if processed >= 25 {
 			return nil
@@ -178,6 +174,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)
 		if err != nil {
 			return err
+		}
+		ackCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		ackErr := bot.AnswerCallback(ackCtx, payload.CallbackQueryID)
+		cancel()
+		if ackErr != nil {
+			slog.Default().Warn("Telegram callback ACK failed", "error", ackErr)
 		}
 		if err := processor.Process(ctx, payload.SourceEventID); err != nil {
 			return err

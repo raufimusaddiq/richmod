@@ -55,7 +55,7 @@ func TestAccountAndCategoryLifecyclePreservesRecords(t *testing.T) {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
 	}
-	call("/api/v1/accounts/", accountID, `{"trackingPolicy":"FULL_LEDGER"}`, http.StatusBadRequest, handler.PatchAccount)
+	call("/api/v1/accounts/", accountID, `{"trackingPolicy":"FULL_LEDGER"}`, http.StatusConflict, handler.PatchAccount)
 	call("/api/v1/accounts/", accountID, `{"active":false}`, http.StatusNoContent, handler.PatchAccount)
 	call("/api/v1/categories/", categoryID, `{"name":"Belanja Harian","active":false}`, http.StatusNoContent, handler.PatchCategory)
 	var accountActive, categoryActive bool

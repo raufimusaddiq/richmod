@@ -47,7 +47,7 @@ func TestTelegramInviteLifecycle(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	validToken := "valid-telegram-link-token-123456"
+	validToken := fmt.Sprintf("valid-telegram-link-token-%d", stamp)
 	createInvite(validToken, "PENDING", time.Now().Add(time.Hour))
 	telegramID := int64(stamp%8_000_000_000 + 1_000_000_000)
 	linked, err := store.Link(ctx, CaptureInput{UpdateID: stamp, TelegramUserID: telegramID}, validToken)
@@ -62,12 +62,12 @@ func TestTelegramInviteLifecycle(t *testing.T) {
 		t.Fatalf("reused err=%v", err)
 	}
 
-	revoked := "revoked-telegram-link-token-123"
+	revoked := fmt.Sprintf("revoked-telegram-link-token-%d", stamp)
 	createInvite(revoked, "REVOKED", time.Now().Add(time.Hour))
 	if _, err = store.Link(ctx, CaptureInput{UpdateID: stamp + 2, TelegramUserID: telegramID + 2}, revoked); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("revoked err=%v", err)
 	}
-	expired := "expired-telegram-link-token-123"
+	expired := fmt.Sprintf("expired-telegram-link-token-%d", stamp)
 	createInvite(expired, "PENDING", time.Now().Add(-time.Minute))
 	if _, err = store.Link(ctx, CaptureInput{UpdateID: stamp + 3, TelegramUserID: telegramID + 3}, expired); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("expired err=%v", err)
