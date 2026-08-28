@@ -69,6 +69,9 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("configure Gmail worker: %w", err)
 	}
+	if err := gmailProcessor.SeedLegacyListener(ctx); err != nil {
+		return fmt.Errorf("seed legacy bank email listener: %w", err)
+	}
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(llm))
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	imageProcessor, err := telegram.NewImageProcessor(pool, bot, os.Getenv("DOCUMENT_STORAGE_PATH"))

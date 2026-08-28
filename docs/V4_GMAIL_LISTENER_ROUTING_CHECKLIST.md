@@ -12,5 +12,6 @@
 - [x] Existing worker and Jago regression tests pass
 - [x] Jago-v1 shadow comparison records amount, direction, channel, time, merchant, and policy agreement
 - [x] Jago-v1 shadow comparison and primary smoke evidence collected
+- [x] Legacy trusted sender is seeded into a household-scoped system-managed listener
 - [ ] Remove deterministic Jago compatibility parser after rollback window
 - [ ] Live native-tool smoke test against `ocg/minimax-m3`

@@ -91,6 +91,48 @@ func (p *Processor) SeedRenewalJobs(ctx context.Context) error {
 	return err
 }
 
+// SeedLegacyListener migrates the process-level trusted sender into the
+// household listener registry. It is idempotent and only creates a listener
+// when the household does not already have an active listener for that sender.
+func (p *Processor) SeedLegacyListener(ctx context.Context) error {
+	if p.client == nil || p.client.sender == "" {
+		return nil
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT household_id,connected_by_user_id FROM gmail_integration WHERE status <> 'DISCONNECTED'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var householdID, userID, accountID, listenerID string
+		if err = rows.Scan(&householdID, &userID); err != nil {
+			return err
+		}
+		if err = tx.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,'Bank · Bank Jago','BANK','SPENDING_ONLY',true,$2) ON CONFLICT(household_id,system_key) DO UPDATE SET active=true,tracking_policy='SPENDING_ONLY',updated_at=now() RETURNING id`, householdID, "bank-email:"+p.client.sender).Scan(&accountID); err != nil {
+			return err
+		}
+		err = tx.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) SELECT $1,'Bank Jago',$2,$3,$4 WHERE NOT EXISTS (SELECT 1 FROM bank_email_listener WHERE household_id=$1 AND sender_address=$2 AND active) RETURNING id`, householdID, p.client.sender, accountID, userID).Scan(&listenerID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'SYSTEM','SEED_LEGACY_BANK_EMAIL_LISTENER','bank_email_listener',$2,jsonb_build_object('bankName','Bank Jago','senderAddress',$3::text,'trackingPolicy','SPENDING_ONLY'))`, householdID, listenerID, p.client.sender); err != nil {
+			return err
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // RecoverUnpersisted replays trusted bank-email source events that were stored
 // before a parser learned a new template but never reached a transaction.
 // It is idempotent: ingestMessage links to the existing source event and
