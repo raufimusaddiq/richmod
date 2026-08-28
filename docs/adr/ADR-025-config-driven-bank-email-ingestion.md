@@ -17,6 +17,8 @@ Adding a supported bank sender is a settings operation. Jago's deterministic
 parser remains available during shadow rollout and as a temporary fallback,
 while generic extraction evidence is retained for comparison and audit.
 
-The rollout is controlled by `GMAIL_GENERIC_PRIMARY`: false queues generic
-extraction as shadow evidence, while true allows the generic worker to own the
-proposal/review path for matched listeners. The default remains false.
+The rollout is controlled by `GMAIL_GENERIC_PRIMARY`: true is now the default
+and lets the generic worker own every matched listener, including the legacy
+Jago sender. False is an explicit compatibility rollback that queues generic
+extraction as shadow evidence and leaves the deterministic Jago path canonical.
+The legacy parser is never run alongside generic-primary for the same event.
