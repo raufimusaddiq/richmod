@@ -7,14 +7,14 @@ import { dateTime } from "../lib/format";
 
 export default function SettingsPage() {
   const user = useAuth();
-  const [data, setData] = useState({ accounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [] });
+  const [data, setData] = useState({ accounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [] });
   const [error, setError] = useState(""); const [working, setWorking] = useState("");
   const owner = user?.memberships?.[0]?.role === "OWNER";
   const load = useCallback(async () => {
-    const endpoints = ["accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources"];
+    const endpoints = ["accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners"];
     const responses = await Promise.all(endpoints.map(value => fetch(`/api/v1/${value}`)));
     const values = await Promise.all(responses.map(response => response.ok ? response.json() : null));
-    setData({ accounts: values[0] || [], categories: values[1] || [], aliases: values[2] || [], known: values[3] || [], members: values[4] || [], operations: values[5], salarySources: values[6] || [] });
+    setData({ accounts: values[0] || [], categories: values[1] || [], aliases: values[2] || [], known: values[3] || [], members: values[4] || [], operations: values[5], salarySources: values[6] || [], listeners: values[7] || [] });
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
 
@@ -23,6 +23,7 @@ export default function SettingsPage() {
   async function createCategory(event) { event.preventDefault(); const form = new FormData(event.currentTarget); if (await request("category-new", "/api/v1/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.get("name"), slug: form.get("slug"), parentId: form.get("parentId") || null }) })) event.currentTarget.reset(); }
   async function createKnown(event) { event.preventDefault(); const form = new FormData(event.currentTarget); if (await request("known-new", "/api/v1/known-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ institution: form.get("institution"), displayName: form.get("displayName"), matchHint: form.get("matchHint"), relationship: form.get("relationship"), userId: form.get("userId") || null }) })) event.currentTarget.reset(); }
   function selectSalary(event) { request("salary-source", "/api/v1/salary/sources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceId: event.target.value }) }); }
+  async function createListener(event) { event.preventDefault(); const form = new FormData(event.currentTarget); if (await request("listener-new", "/api/v1/bank-email-listeners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bankName: form.get("bankName"), senderAddress: form.get("senderAddress") }) })) event.currentTarget.reset(); }
   const patch = (key, path, body) => request(key, `/api/v1/${path}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   function rename(item, kind) { const name = window.prompt(`Nama ${kind} baru`, item.name); if (name?.trim() && name.trim() !== item.name) patch(item.id, `${kind === "rekening" ? "accounts" : "categories"}/${item.id}`, { name: name.trim() }); }
   if (!user) return <main className="loading">Memuat…</main>;
@@ -37,6 +38,10 @@ export default function SettingsPage() {
       <SettingsSection eyebrow="REKENING DIKENAL" title="Tujuan transfer yang dikenal" description="Petunjuk tersamar membantu membedakan transfer sendiri, keluarga, dan investasi.">
         {owner && <form className="inline-form known-form" onSubmit={createKnown}><input name="institution" placeholder="Institusi, mis. BCA" required/><input name="displayName" placeholder="Nama tampilan" required/><input name="matchHint" placeholder="4+ digit terakhir" minLength="4" required/><select name="relationship" defaultValue="OWN_ACCOUNT"><option value="OWN_ACCOUNT">Rekening sendiri</option><option value="HOUSEHOLD_ACCOUNT">Household</option><option value="INVESTMENT_ACCOUNT">Investasi / RDN</option><option value="OTHER">Lainnya</option></select><select name="userId" defaultValue=""><option value="">Tanpa pemilik khusus</option>{data.members.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.displayName}</option>)}</select><button disabled={working === "known-new"}>Tambah</button></form>}
         <div className="settings-list">{data.known.map(item => <article key={item.id}><div><b>{item.displayName}</b><small>{item.institution} · ••••{item.matchHint}</small></div><span>{item.relationship}</span>{owner && <button className={item.active ? "danger" : "secondary"} onClick={() => patch(item.id, `known-accounts/${item.id}`, { active: !item.active })}>{item.active ? "Nonaktifkan" : "Aktifkan"}</button>}</article>)}</div>
+      </SettingsSection>
+      <SettingsSection eyebrow="EMAIL BANK" title="Notifikasi bank" description="Tambahkan pengirim notifikasi yang dipercaya. Kebijakan semua sumber: Pengeluaran Saja.">
+        {owner && <form className="inline-form" onSubmit={createListener}><input name="bankName" placeholder="Nama bank" required/><input name="senderAddress" type="email" placeholder="Alamat pengirim" required/><button disabled={working === "listener-new"}>Tambah</button></form>}
+        <div className="settings-list">{data.listeners.map(item => <article key={item.id}><div><b>{item.bankName}</b><small>{item.senderAddress}</small></div><span>{item.active ? "Aktif" : "Nonaktif"} · Pengeluaran Saja</span>{owner && <button className={item.active ? "danger" : "secondary"} onClick={() => patch(item.id, `bank-email-listeners/${item.id}`, { active: !item.active })}>{item.active ? "Nonaktifkan" : "Aktifkan"}</button>}</article>)}</div>
       </SettingsSection>
       <SettingsSection eyebrow="KATEGORI" title="Kategori keluarga" description="Kategori nonaktif tetap tersimpan pada riwayat transaksi.">
         {owner && <form className="inline-form" onSubmit={createCategory}><input name="name" placeholder="Nama kategori" required/><input name="slug" placeholder="slug-kategori" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required/><select name="parentId" defaultValue=""><option value="">Kategori utama</option>{data.categories.filter(item => !item.parentId && item.active).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button disabled={working === "category-new"}>Tambah</button></form>}

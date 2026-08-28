@@ -31,6 +31,13 @@ type ToolDefinition struct {
 	Parameters  map[string]any
 }
 
+// NativeToolOptions controls the protocol-level tool contract. Optional
+// options preserve the V3 call shape for existing conversational callers.
+type NativeToolOptions struct {
+	Required     bool
+	MaxToolCalls int
+}
+
 type ToolCall struct {
 	ResponseID string
 	CallID     string
@@ -104,7 +111,7 @@ func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, ca
 
 // NativeToolCall asks the gateway for a native function_call. It never
 // executes a tool; callers must validate and dispatch it in Go.
-func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition) (ToolCall, Metadata, error) {
+func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (ToolCall, Metadata, error) {
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway is not configured")
 	}
@@ -112,11 +119,27 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	if err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
+	options := NativeToolOptions{MaxToolCalls: 1}
+	if len(optionValues) > 0 {
+		options = optionValues[0]
+	}
+	if options.MaxToolCalls <= 0 {
+		options.MaxToolCalls = 1
+	}
 	encodedTools := make([]map[string]any, 0, len(tools))
+	allowed := make(map[string]bool, len(tools))
 	for _, tool := range tools {
 		encodedTools = append(encodedTools, map[string]any{"type": "function", "name": tool.Name, "description": tool.Description, "parameters": tool.Parameters, "strict": true})
+		allowed[tool.Name] = true
 	}
-	payload := map[string]any{"model": c.model, "input": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": encodedTools, "tool_choice": "auto", "stream": false}
+	toolChoice := any("auto")
+	if options.Required {
+		toolChoice = "required"
+	}
+	payload := map[string]any{"model": c.model, "input": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": encodedTools, "tool_choice": toolChoice, "stream": false}
+	if options.MaxToolCalls == 1 {
+		payload["parallel_tool_calls"] = false
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return ToolCall{}, Metadata{}, fmt.Errorf("encode tool request: %w", err)
@@ -138,6 +161,9 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 		return ToolCall{}, Metadata{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusNotFound {
+			return c.nativeChatCompletion(ctx, requestID, systemPrompt, userContent, encodedTools, options)
+		}
 		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned HTTP %d", resp.StatusCode)
 	}
 	var envelope struct {
@@ -171,36 +197,47 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
+	var calls []ToolCall
 	for _, item := range envelope.Output {
-		if item.Type == "function_call" && item.Name != "" && len(item.Arguments) > 0 {
-			return ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: item.Arguments}, Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost}, nil
+		if item.Type == "function_call" {
+			calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: item.Arguments})
 		}
 	}
 	for _, choice := range envelope.Choices {
 		for _, call := range choice.Message.ToolCalls {
-			if call.Type == "function" && call.Function.Name != "" && call.Function.Arguments != "" {
-				return ToolCall{ResponseID: envelope.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)}, Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost}, nil
+			if call.Type == "function" {
+				calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)})
 			}
 		}
 	}
-	return c.nativeChatCompletion(ctx, requestID, systemPrompt, userContent, encodedTools)
+	if len(calls) == 0 {
+		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native tool call")
+	}
+	return validateNativeCalls(calls, allowed, options, Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost})
 }
 
 // nativeChatCompletion is the protocol adapter fallback for routers/models
 // that expose OpenAI Chat Completions rather than Responses. It returns the
 // same internal ToolCall shape, so callers do not need protocol-specific
 // financial logic.
-func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, tools []map[string]any) (ToolCall, Metadata, error) {
+func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, tools []map[string]any, options NativeToolOptions) (ToolCall, Metadata, error) {
 	functions := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
 		fn := map[string]any{"type": "function", "function": map[string]any{"name": tool["name"], "description": tool["description"], "parameters": tool["parameters"]}}
 		functions = append(functions, fn)
 	}
-	payload := map[string]any{"model": c.model, "messages": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": functions, "tool_choice": "auto", "stream": false}
-	return c.doChatToolCall(ctx, requestID, payload)
+	choice := any("auto")
+	if options.Required {
+		choice = "required"
+	}
+	payload := map[string]any{"model": c.model, "messages": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": functions, "tool_choice": choice, "stream": false}
+	if options.MaxToolCalls == 1 {
+		payload["parallel_tool_calls"] = false
+	}
+	return c.doChatToolCall(ctx, requestID, payload, options)
 }
 
-func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload map[string]any) (ToolCall, Metadata, error) {
+func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload map[string]any, options NativeToolOptions) (ToolCall, Metadata, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return ToolCall{}, Metadata{}, fmt.Errorf("encode chat completion request: %w", err)
@@ -241,14 +278,38 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
+	var calls []ToolCall
+	allowed := map[string]bool{}
+	for _, raw := range payload["tools"].([]map[string]any) {
+		fn := raw["function"].(map[string]any)
+		allowed[fn["name"].(string)] = true
+	}
 	for _, choice := range env.Choices {
 		for _, call := range choice.Message.ToolCalls {
-			if call.Type == "function" && call.Function.Name != "" && call.Function.Arguments != "" {
-				return ToolCall{ResponseID: env.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)}, Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost}, nil
+			if call.Type == "function" {
+				calls = append(calls, ToolCall{ResponseID: env.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)})
 			}
 		}
 	}
-	return ToolCall{}, Metadata{}, fmt.Errorf("LLM chat completion returned no native function_call")
+	return validateNativeCalls(calls, allowed, options, Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost})
+}
+
+func validateNativeCalls(calls []ToolCall, allowed map[string]bool, options NativeToolOptions, metadata Metadata) (ToolCall, Metadata, error) {
+	if len(calls) == 0 {
+		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native tool call")
+	}
+	if len(calls) > options.MaxToolCalls {
+		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned too many native tool calls")
+	}
+	for _, call := range calls {
+		if !allowed[call.Name] {
+			return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned unknown tool")
+		}
+		if len(call.Arguments) == 0 || !json.Valid(call.Arguments) {
+			return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned invalid tool arguments")
+		}
+	}
+	return calls[0], metadata, nil
 }
 
 func New(baseURL, apiKey, model string) *Client {

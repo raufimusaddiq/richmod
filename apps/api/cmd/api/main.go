@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/admin"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/budget"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
@@ -24,8 +24,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/salary"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
 )
 
@@ -145,6 +145,9 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/known-accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.KnownAccounts)))
 	mux.Handle("POST /api/v1/known-accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.KnownAccounts)))
 	mux.Handle("PATCH /api/v1/known-accounts/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchKnownAccount)))
+	mux.Handle("GET /api/v1/bank-email-listeners", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
+	mux.Handle("POST /api/v1/bank-email-listeners", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
+	mux.Handle("PATCH /api/v1/bank-email-listeners/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
 	mux.Handle("GET /api/v1/analytics/spending", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Spending)))
 	mux.Handle("GET /api/v1/analytics/cashflow", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cashflow)))

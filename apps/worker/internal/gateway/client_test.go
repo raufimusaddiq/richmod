@@ -56,3 +56,32 @@ func TestNativeToolCallAdaptsChatCompletionsEnvelope(t *testing.T) {
 		t.Fatalf("call=%+v metadata=%+v", call, metadata)
 	}
 }
+
+func TestNativeToolCallRequiredRejectsProseAndSetsRequiredChoice(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if json.NewDecoder(r.Body).Decode(&request) != nil {
+			t.Fatal("invalid request")
+		}
+		if request["tool_choice"] != "required" || request["parallel_tool_calls"] != false {
+			t.Fatalf("request contract = %#v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","output":[{"type":"message","content":[{"type":"output_text","text":"not a tool"}]}]}`))
+	}))
+	defer server.Close()
+	_, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
+	if err == nil {
+		t.Fatal("prose should fail closed")
+	}
+}
+
+func TestValidateNativeCallsRejectsMultipleAndUnknown(t *testing.T) {
+	valid := json.RawMessage(`{}`)
+	if _, _, err := validateNativeCalls([]ToolCall{{Name: "a", Arguments: valid}, {Name: "a", Arguments: valid}}, map[string]bool{"a": true}, NativeToolOptions{MaxToolCalls: 1}, Metadata{}); err == nil {
+		t.Fatal("multiple calls should fail")
+	}
+	if _, _, err := validateNativeCalls([]ToolCall{{Name: "other", Arguments: valid}}, map[string]bool{"a": true}, NativeToolOptions{MaxToolCalls: 1}, Metadata{}); err == nil {
+		t.Fatal("unknown call should fail")
+	}
+}
