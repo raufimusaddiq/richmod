@@ -61,7 +61,7 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	}
 	var at *time.Time
 	if raw.TransactionAt != nil {
-		parsed, err := time.Parse(time.RFC3339, *raw.TransactionAt)
+		parsed, err := parseTransactionTime(*raw.TransactionAt)
 		if err != nil {
 			return Extraction{}, fmt.Errorf("invalid transaction time")
 		}
@@ -86,6 +86,29 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 		return Extraction{}, fmt.Errorf("invalid confidence")
 	}
 	return Extraction{Kind: raw.Kind, Direction: raw.Direction, Channel: raw.Channel, AmountIDR: raw.AmountIDR, TransactionAt: at, Merchant: raw.Merchant, Counterparty: raw.Counterparty, Reference: raw.Reference, Description: raw.Description, MissingFields: raw.MissingFields, Confidence: raw.Confidence}, nil
+}
+
+func parseTransactionTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05-0700",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	} {
+		if strings.Contains(layout, "Z07") {
+			if parsed, err := time.Parse(layout, value); err == nil {
+				return parsed, nil
+			}
+			continue
+		}
+		if parsed, err := time.ParseInLocation(layout, value, time.FixedZone("Asia/Jakarta", 7*60*60)); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported timestamp")
 }
 
 func oneOf(value string, values ...string) bool {
