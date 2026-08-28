@@ -22,7 +22,7 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 	}
 	household := p.Memberships[0].HouseholdID
 	if r.Method == http.MethodGet {
-		rows, err := h.pool.Query(r.Context(), `SELECT id,name,account_type,tracking_policy,active FROM account WHERE household_id=$1 ORDER BY name`, household)
+		rows, err := h.pool.Query(r.Context(), `SELECT id,name,account_type,tracking_policy,active FROM account WHERE household_id=$1 AND NOT system_managed ORDER BY name`, household)
 		if err != nil {
 			jsonError(w, 500, "unable to list accounts")
 			return
@@ -116,12 +116,12 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var currentID string
-	if err = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&currentID); err != nil {
+	if err = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE id=$1 AND household_id=$2 AND NOT system_managed FOR UPDATE`, r.PathValue("id"), household).Scan(&currentID); err != nil {
 		jsonError(w, 404, "account not found")
 		return
 	}
 	var id string
-	err = tx.QueryRow(r.Context(), `UPDATE account SET name=COALESCE($3,name),tracking_policy=COALESCE($4,tracking_policy),active=COALESCE($5,active),updated_at=now() WHERE id=$1 AND household_id=$2 RETURNING id`, r.PathValue("id"), household, in.Name, in.TrackingPolicy, in.Active).Scan(&id)
+	err = tx.QueryRow(r.Context(), `UPDATE account SET name=COALESCE($3,name),tracking_policy=COALESCE($4,tracking_policy),active=COALESCE($5,active),updated_at=now() WHERE id=$1 AND household_id=$2 AND NOT system_managed RETURNING id`, r.PathValue("id"), household, in.Name, in.TrackingPolicy, in.Active).Scan(&id)
 	if err != nil {
 		jsonError(w, 404, "account not found")
 		return
