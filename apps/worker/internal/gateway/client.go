@@ -220,7 +220,7 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	}
 	for _, item := range envelope.Output {
 		if item.Type == "function_call" {
-			calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: item.Arguments})
+			calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: normalizeToolArguments(item.Arguments)})
 		}
 	}
 	for _, choice := range envelope.Choices {
@@ -234,6 +234,14 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native tool call")
 	}
 	return validateNativeCalls(calls, allowed, options, Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost})
+}
+
+func normalizeToolArguments(raw json.RawMessage) json.RawMessage {
+	var encoded string
+	if json.Unmarshal(raw, &encoded) == nil {
+		return json.RawMessage(encoded)
+	}
+	return raw
 }
 
 // nativeChatCompletion is the protocol adapter fallback for routers/models
