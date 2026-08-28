@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/bankemail"
+	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerGmail "github.com/raufimusaddiq/richmod/apps/worker/internal/gmail"
 	workerInsight "github.com/raufimusaddiq/richmod/apps/worker/internal/insight"
@@ -64,6 +64,7 @@ func run(logger *slog.Logger) error {
 		Mailbox:         os.Getenv("GMAIL_MAILBOX"),
 		TrustedSender:   os.Getenv("GMAIL_TRUSTED_SENDER"),
 		PubSubTopic:     os.Getenv("GMAIL_PUBSUB_TOPIC"),
+		GenericPrimary:  parseBoolEnv("GMAIL_GENERIC_PRIMARY"),
 	})
 	if err != nil {
 		return fmt.Errorf("configure Gmail worker: %w", err)
@@ -114,6 +115,11 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}
+}
+
+func parseBoolEnv(name string) bool {
+	value, err := strconv.ParseBool(os.Getenv(name))
+	return err == nil && value
 }
 
 func runInteractiveLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) {
@@ -254,7 +260,9 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		return gmailProcessor.RenewWatch(ctx, payload.HouseholdID)
 	case "PROCESS_BANK_EMAIL":
 		payload, err := bankemail.DecodePayload(job.Payload)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		return bankProcessor.Process(ctx, payload)
 	case "PROCESS_DOCUMENT":
 		payload, err := workerDocument.DecodePayload(job.Payload)
