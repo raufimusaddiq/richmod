@@ -123,7 +123,15 @@ func (p *Processor) SeedLegacyListener(ctx context.Context) error {
 	for _, integration := range integrations {
 		householdID, userID := integration[0], integration[1]
 		var accountID, listenerID string
-		if err = tx.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,'Bank · Bank Jago','BANK','SPENDING_ONLY',true,$2) ON CONFLICT(household_id,system_key) DO UPDATE SET active=true,tracking_policy='SPENDING_ONLY',updated_at=now() RETURNING id`, householdID, "bank-email:"+p.client.sender).Scan(&accountID); err != nil {
+		accountKey := "bank-email:" + p.client.sender
+		err = tx.QueryRow(ctx, `SELECT id FROM account WHERE household_id=$1 AND system_key=$2`, householdID, accountKey).Scan(&accountID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			if err = tx.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,'Bank · Bank Jago','BANK','SPENDING_ONLY',true,$2) RETURNING id`, householdID, accountKey).Scan(&accountID); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else if _, err = tx.Exec(ctx, `UPDATE account SET active=true,tracking_policy='SPENDING_ONLY',updated_at=now() WHERE id=$1`, accountID); err != nil {
 			return err
 		}
 		err = tx.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) SELECT $1,'Bank Jago',$2,$3,$4 WHERE NOT EXISTS (SELECT 1 FROM bank_email_listener WHERE household_id=$1 AND sender_address=$2 AND active) RETURNING id`, householdID, p.client.sender, accountID, userID).Scan(&listenerID)
