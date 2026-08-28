@@ -107,12 +107,22 @@ func (p *Processor) SeedLegacyListener(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	var integrations [][2]string
 	for rows.Next() {
-		var householdID, userID, accountID, listenerID string
+		var householdID, userID string
 		if err = rows.Scan(&householdID, &userID); err != nil {
 			return err
 		}
+		integrations = append(integrations, [2]string{householdID, userID})
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, integration := range integrations {
+		householdID, userID := integration[0], integration[1]
+		var accountID, listenerID string
 		if err = tx.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,'Bank · Bank Jago','BANK','SPENDING_ONLY',true,$2) ON CONFLICT(household_id,system_key) DO UPDATE SET active=true,tracking_policy='SPENDING_ONLY',updated_at=now() RETURNING id`, householdID, "bank-email:"+p.client.sender).Scan(&accountID); err != nil {
 			return err
 		}
@@ -126,9 +136,6 @@ func (p *Processor) SeedLegacyListener(ctx context.Context) error {
 		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'SYSTEM','SEED_LEGACY_BANK_EMAIL_LISTENER','bank_email_listener',$2,jsonb_build_object('bankName','Bank Jago','senderAddress',$3::text,'trackingPolicy','SPENDING_ONLY'))`, householdID, listenerID, p.client.sender); err != nil {
 			return err
 		}
-	}
-	if err = rows.Err(); err != nil {
-		return err
 	}
 	return tx.Commit(ctx)
 }
