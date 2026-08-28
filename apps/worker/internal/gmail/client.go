@@ -25,6 +25,7 @@ type Config struct {
 	Mailbox         string
 	TrustedSender   string
 	PubSubTopic     string
+	GenericPrimary  bool
 }
 
 type oauthClient struct {
@@ -42,7 +43,7 @@ type client struct {
 }
 
 func newClient(config Config) (*client, error) {
-	if config.OAuthClientPath == "" || config.TokenKeyHex == "" || config.Mailbox == "" || config.TrustedSender == "" || config.PubSubTopic == "" {
+	if config.OAuthClientPath == "" || config.TokenKeyHex == "" || config.Mailbox == "" || config.PubSubTopic == "" {
 		return nil, nil
 	}
 	raw, err := os.ReadFile(config.OAuthClientPath)

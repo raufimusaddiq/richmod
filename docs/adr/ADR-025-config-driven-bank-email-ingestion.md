@@ -16,3 +16,7 @@ the fixed `SPENDING_ONLY` policy. LLM output cannot mutate the ledger.
 Adding a supported bank sender is a settings operation. Jago's deterministic
 parser remains available during shadow rollout and as a temporary fallback,
 while generic extraction evidence is retained for comparison and audit.
+
+The rollout is controlled by `GMAIL_GENERIC_PRIMARY`: false queues generic
+extraction as shadow evidence, while true allows the generic worker to own the
+proposal/review path for matched listeners. The default remains false.

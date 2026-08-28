@@ -29,10 +29,11 @@ type Gateway interface {
 }
 
 type Processor struct {
-	pool    *pgxpool.Pool
-	client  *client
-	parser  *jago.Parser
-	gateway Gateway
+	pool           *pgxpool.Pool
+	client         *client
+	parser         *jago.Parser
+	gateway        Gateway
+	genericPrimary bool
 }
 
 type HistoryPayload struct {
@@ -51,7 +52,7 @@ func NewProcessor(pool *pgxpool.Pool, llm Gateway, config Config) (*Processor, e
 	}
 	return &Processor{
 		pool: pool, client: apiClient, gateway: llm,
-		parser: jago.NewParser(senderDomain(apiClient.sender), apiClient.mailbox),
+		parser: jago.NewParser(senderDomain(apiClient.sender), apiClient.mailbox), genericPrimary: config.GenericPrimary,
 	}, nil
 }
 
@@ -223,8 +224,12 @@ func (p *Processor) ProcessHistory(ctx context.Context, payload HistoryPayload) 
 }
 
 func (p *Processor) isTrustedSender(message gmailMessage) bool {
-	address, err := mail.ParseAddress(header(message, "From"))
-	return err == nil && strings.EqualFold(address.Address, p.client.sender)
+	_, err := mail.ParseAddress(header(message, "From"))
+	if err != nil {
+		return false
+	}
+	auth := strings.ToLower(header(message, "Authentication-Results"))
+	return strings.Contains(auth, "dkim=pass") && strings.Contains(auth, "dmarc=pass")
 }
 
 func (p *Processor) refreshToken(ctx context.Context, householdID string) (string, error) {
@@ -305,7 +310,12 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 	parsed, parseErr := parseMessage(message)
 	fromAddress := header(message, "From")
 	address, addressErr := mail.ParseAddress(fromAddress)
-	if addressErr != nil || !strings.EqualFold(address.Address, p.client.sender) {
+	if addressErr != nil {
+		return nil
+	}
+	listenerID, listenerFound := p.listener(ctx, householdID, address.Address, parsed.auth)
+	legacy := p.client.sender != "" && strings.EqualFold(address.Address, p.client.sender)
+	if !listenerFound && !legacy {
 		return nil
 	}
 
@@ -317,7 +327,7 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 	var event jago.Event
 	status := "NEEDS_REVIEW"
 	parserName := "gmail-filter"
-	if parseErr == nil && p.parser.CanParse(bankEmail) {
+	if legacy && parseErr == nil && p.parser.CanParse(bankEmail) {
 		parserName = p.parser.Name()
 		event, parseErr = p.parser.Parse(bankEmail)
 		if parseErr == nil && event.FinancialEffect == jago.EffectIgnore {
@@ -343,6 +353,17 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 	if _, err := tx.Exec(ctx, `INSERT INTO source_event_payload (source_event_id,payload_json) VALUES ($1,$2::jsonb) ON CONFLICT DO NOTHING`, sourceEventID, string(raw)); err != nil {
 		return err
 	}
+	if listenerFound {
+		if _, err := tx.Exec(ctx, `INSERT INTO bank_email_event(source_event_id,listener_id,observed_sender,gmail_message_id,subject,email_date,authentication_results,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, sourceEventID, listenerID, address.Address, message.ID, parsed.subject, parsed.emailDate, parsed.auth, parsed.html); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json,max_attempts) SELECT 'PROCESS_BANK_EMAIL','BACKGROUND',jsonb_build_object('source_event_id',$1::uuid,'shadow',$2::boolean),5 WHERE NOT EXISTS (SELECT 1 FROM job WHERE type='PROCESS_BANK_EMAIL' AND payload_json->>'source_event_id'=$1::text AND status IN ('PENDING','RUNNING','SUCCEEDED'))`, sourceEventID, !p.genericPrimary); err != nil {
+			return err
+		}
+	}
+	if listenerFound && !legacy {
+		return tx.Commit(ctx)
+	}
 	if parseErr != nil || !p.parser.CanParse(bankEmail) || status == "IGNORED" {
 		return tx.Commit(ctx)
 	}
@@ -357,6 +378,25 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 		return nil
 	}
 	return p.persistEvent(ctx, householdID, sourceEventID, event)
+}
+
+// listener is the Gmail trust boundary for config-driven bank sources. It
+// requires both authentication results before returning a listener; callers
+// never send unmatched or unauthenticated mail to the LLM.
+func (p *Processor) listener(ctx context.Context, householdID, sender, authentication string) (string, bool) {
+	auth := strings.ToLower(authentication)
+	if !strings.Contains(auth, "dkim=pass") || !strings.Contains(auth, "dmarc=pass") {
+		return "", false
+	}
+	var id string
+	err := p.pool.QueryRow(ctx, `SELECT id FROM bank_email_listener WHERE household_id=$1 AND sender_address=lower($2) AND active`, householdID, strings.TrimSpace(sender)).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false
+	}
+	if err != nil {
+		return "", false
+	}
+	return id, id != ""
 }
 
 func (p *Processor) persistEvent(ctx context.Context, householdID, sourceEventID string, event jago.Event) error {
