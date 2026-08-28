@@ -117,6 +117,12 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
 	}
+	if reviewState == "AWAITING_MERCHANT" {
+		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
+	}
+	if reviewState == "AWAITING_DETAIL" {
+		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "description")
+	}
 	if transactionType == "UNCLASSIFIED" {
 		intent := transferReviewIntent(update.Message.Text)
 		switch intent {
@@ -183,6 +189,138 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, extracted)
 }
 
+// processReviewDetailCallback is the deterministic callback lane for review
+// editing. These callbacks never enter the conversational LLM pipeline.
+func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
+	if data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:ignore" {
+		return false, nil
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
+	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status
+		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
+	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
+		_, _ = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID)
+		return true, tx.Commit(ctx)
+	}
+	if err != nil {
+		return true, err
+	}
+	if data == "review:ignore" {
+		if err = tx.Commit(ctx); err != nil {
+			return true, err
+		}
+		return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
+	}
+	var message string
+	var markup *InlineKeyboardMarkup
+	state := "AWAITING_DETAIL"
+	switch data {
+	case "review:edit":
+		message = "Pilih detail yang ingin diubah:"
+		markup = reviewDetailMarkup()
+	case "review:merchant":
+		message = "Balas pesan ini dengan nama merchant."
+		state = "AWAITING_MERCHANT"
+	case "review:description":
+		message = "Balas pesan ini dengan keterangan transaksi."
+	case "review:category":
+		message = "Pilih kategori pengeluaran:"
+		state = "AWAITING_CATEGORY"
+		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'detail_action',$4::text)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID, data); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state=$2,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, state); err != nil {
+		return true, err
+	}
+	original := update
+	original.Message.MessageID = update.CallbackQuery.Message.MessageID
+	if markup == nil {
+		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Kembali", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
+	}
+	if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, original, message, markup); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
+}
+
+func reviewDetailMarkup() *InlineKeyboardMarkup {
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+		{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}},
+		{{Text: "Kategori", CallbackData: "review:category"}},
+		{{Text: "Abaikan", CallbackData: "review:ignore"}},
+	}}
+}
+
+func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, field string) error {
+	value := clean(strings.TrimSpace(update.Message.Text), 500)
+	if value == "" {
+		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas dengan nilai detail yang ingin disimpan.")
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var userID string
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+		return err
+	}
+	if field == "merchant" {
+		var merchantID string
+		if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
+			return err
+		}
+	} else {
+		if _, err = tx.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, value, householdID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET description=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field',$4::text,'value',$5::text)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID, field, value); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_DETAIL','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'field',$5::text,'value',$6::text))`, householdID, userID, transactionID, reviewID, field, value); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+		return err
+	}
+	var reviewType string
+	if err = tx.QueryRow(ctx, `SELECT review_type FROM review_request WHERE id=$1`, reviewID).Scan(&reviewType); err != nil {
+		return err
+	}
+	original := update
+	original.Message.MessageID = update.Message.ReplyToMessage.MessageID
+	if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, original, "Detail disimpan. Pilih kategori pengeluaran:", reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // processReviewCategoryCallback handles category buttons without converting
 // them into user text or invoking the conversational LLM. The category UUID
 // is checked against the review's household inside the same lookup.
@@ -192,12 +330,12 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status
+	var reviewID, transactionID, reviewType, requestStatus, transactionStatus, merchantID string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); e != nil {
 			return e
@@ -230,6 +368,18 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	var validCategory string
 	if err = tx.QueryRow(ctx, `SELECT c.id FROM category c WHERE c.id=$1 AND c.household_id=$2 AND c.active`, categoryID, householdID).Scan(&validCategory); err != nil {
+		return tx.Commit(ctx)
+	}
+	if merchantID == "" {
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT',last_message_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+			return err
+		}
+		if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Nama merchant belum tersedia. Balas pesan ini dengan nama merchant.", &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -695,6 +845,7 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 	if len(navigation) > 0 {
 		keyboard = append(keyboard, navigation)
 	}
+	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
