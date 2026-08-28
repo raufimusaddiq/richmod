@@ -164,6 +164,11 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
 			return p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
+			if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+				return err
+			}
+		}
 	}
 	text := strings.TrimSpace(update.Message.Text)
 	if text == "" {
