@@ -36,6 +36,10 @@ type ToolDefinition struct {
 type NativeToolOptions struct {
 	Required     bool
 	MaxToolCalls int
+	// ReasoningEffort is forwarded when the selected model supports it. Bank
+	// extraction uses "none" so the required native-call response contains no
+	// reasoning prose alongside the tool call.
+	ReasoningEffort string
 }
 
 type ToolCall struct {
@@ -137,6 +141,9 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 		toolChoice = "required"
 	}
 	payload := map[string]any{"model": c.model, "input": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": encodedTools, "tool_choice": toolChoice, "stream": false}
+	if options.ReasoningEffort != "" {
+		payload["reasoning_effort"] = options.ReasoningEffort
+	}
 	if options.MaxToolCalls == 1 {
 		payload["parallel_tool_calls"] = false
 	}
@@ -244,6 +251,9 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 		choice = "required"
 	}
 	payload := map[string]any{"model": c.model, "messages": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": functions, "tool_choice": choice, "stream": false}
+	if options.ReasoningEffort != "" {
+		payload["reasoning_effort"] = options.ReasoningEffort
+	}
 	if options.MaxToolCalls == 1 {
 		payload["parallel_tool_calls"] = false
 	}

@@ -70,7 +70,7 @@ func TestNativeToolCallRequiredRejectsProseAndSetsRequiredChoice(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"resp-1","output":[{"type":"message","content":[{"type":"output_text","text":"not a tool"}]}]}`))
 	}))
 	defer server.Close()
-	_, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
+	_, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true, MaxToolCalls: 1, ReasoningEffort: "none"})
 	if err == nil {
 		t.Fatal("prose should fail closed")
 	}
