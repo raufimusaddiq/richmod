@@ -183,6 +183,61 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, extracted)
 }
 
+// processReviewCategoryCallback handles category buttons without converting
+// them into user text or invoking the conversational LLM. The category UUID
+// is checked against the review's household inside the same lookup.
+func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status
+		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
+	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
+		if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); e != nil {
+			return e
+		}
+		return tx.Commit(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(data, "review:catpage:") {
+		page, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:catpage:"))
+		if parseErr != nil || page < 0 || page > 1000 {
+			return tx.Commit(ctx)
+		}
+		markup := reviewActionMarkupPage(ctx, tx, reviewID, reviewType, page)
+		if markup == nil {
+			return tx.Commit(ctx)
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return err
+		}
+		if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih kategori pengeluaran:", markup); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	categoryID := strings.TrimPrefix(data, "review:cat:")
+	if !regexp.MustCompile(`^[0-9a-fA-F-]{36}$`).MatchString(categoryID) {
+		return tx.Commit(ctx)
+	}
+	var validCategory string
+	if err = tx.QueryRow(ctx, `SELECT c.id FROM category c WHERE c.id=$1 AND c.household_id=$2 AND c.active`, categoryID, householdID).Scan(&validCategory); err != nil {
+		return tx.Commit(ctx)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	return p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, validCategory, update, reviewExtraction{Confidence: 1})
+}
+
 func transferReviewIntent(value string) string {
 	n := normalizeReviewText(value)
 	switch {
@@ -588,6 +643,10 @@ func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID stri
 }
 
 func reviewActionMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string) *InlineKeyboardMarkup {
+	return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
+}
+
+func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, page int) *InlineKeyboardMarkup {
 	if reviewType == "TRANSFER_CLASSIFICATION" {
 		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}}}
 	}
@@ -595,17 +654,24 @@ func reviewActionMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType str
 	if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType) == nil && transactionType == "INCOME" {
 		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Benar", CallbackData: "review:confirm"}, {Text: "Ubah", CallbackData: "review:change"}}}}
 	}
-	rows, err := tx.Query(ctx, `SELECT c.name,c.slug FROM category c JOIN review_request r ON r.household_id=c.household_id WHERE r.id=$1 AND c.active ORDER BY c.sort_order,c.name LIMIT 5`, reviewID)
+	if page < 0 {
+		page = 0
+	}
+	rows, err := tx.Query(ctx, `SELECT c.id,c.name FROM category c JOIN review_request r ON r.household_id=c.household_id WHERE r.id=$1 AND c.active ORDER BY c.sort_order,c.name,c.id LIMIT 9 OFFSET $2`, reviewID, page*8)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	var buttons []InlineKeyboardButton
 	for rows.Next() {
-		var name, slug string
-		if rows.Scan(&name, &slug) == nil {
-			buttons = append(buttons, InlineKeyboardButton{Text: clean(name, 30), CallbackData: "review:category:" + slug})
+		var id, name string
+		if rows.Scan(&id, &name) == nil {
+			buttons = append(buttons, InlineKeyboardButton{Text: clean(name, 30), CallbackData: "review:cat:" + id})
 		}
+	}
+	hasNext := len(buttons) > 8
+	if hasNext {
+		buttons = buttons[:8]
 	}
 	if len(buttons) == 0 {
 		return nil
@@ -618,6 +684,16 @@ func reviewActionMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType str
 		}
 		keyboard = append(keyboard, buttons[:take])
 		buttons = buttons[take:]
+	}
+	navigation := []InlineKeyboardButton{}
+	if page > 0 {
+		navigation = append(navigation, InlineKeyboardButton{Text: "Sebelumnya", CallbackData: fmt.Sprintf("review:catpage:%d", page-1)})
+	}
+	if hasNext {
+		navigation = append(navigation, InlineKeyboardButton{Text: "Berikutnya", CallbackData: fmt.Sprintf("review:catpage:%d", page+1)})
+	}
+	if len(navigation) > 0 {
+		keyboard = append(keyboard, navigation)
 	}
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
