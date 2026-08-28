@@ -3,6 +3,7 @@ package bankemail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -12,6 +13,16 @@ type recordingGateway struct {
 	called  bool
 	request string
 	options gateway.NativeToolOptions
+}
+
+type retryGateway struct{ calls int }
+
+func (g *retryGateway) NativeToolCall(_ context.Context, _ string, _ string, _ any, _ []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	g.calls++
+	if g.calls < 2 {
+		return gateway.ToolCall{}, gateway.Metadata{}, errors.New("LLM gateway returned prose with required native tool call")
+	}
+	return gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(`{"kind":"NON_TRANSACTION","direction":null,"channel":null,"amount_idr":null,"transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":null,"missing_fields":[],"confidence":0.9}`)}, gateway.Metadata{Model: "retry-model"}, nil
 }
 
 func (g *recordingGateway) NativeToolCall(_ context.Context, requestID, systemPrompt string, content any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -56,5 +67,16 @@ func TestExtractorRequiresOneNativeBankToolCall(t *testing.T) {
 	}
 	if len(llm.request) == 0 {
 		t.Fatal("extractor did not pass trusted context and email content to gateway")
+	}
+}
+
+func TestExtractorRetriesTransientNativeContractFailure(t *testing.T) {
+	llm := &retryGateway{}
+	_, _, err := NewExtractor(llm).Extract(context.Background(), "source-retry", Listener{BankName: "Jago", SenderAddress: "notify@example.test"}, TrustedEmail{Body: "notice"})
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if llm.calls != 2 {
+		t.Fatalf("native call attempts = %d, want 2", llm.calls)
 	}
 }
