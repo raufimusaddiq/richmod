@@ -27,3 +27,9 @@
 .chart-wrap .recharts-legend-item-text{font-size:11px;color:#526057}
 .chart-wrap .recharts-tooltip-wrapper{outline:none}
 @media(max-width:560px){.chart-wrap{min-height:210px}.chart-wrap .recharts-legend-wrapper{font-size:10px}}
+dialog { border: 0; border-radius: 20px; padding: 0; width: min(560px, calc(100% - 32px)); background: var(--surface, #fff); color: inherit; }
+dialog::backdrop { background: rgba(20, 24, 30, .55); }
+.transaction-form { display: grid; gap: 14px; padding: 24px; }
+.transaction-form label { display: grid; gap: 6px; font-weight: 600; }
+.transaction-form input, .transaction-form select, .transaction-form textarea { width: 100%; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }

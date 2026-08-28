@@ -68,7 +68,7 @@ func run(logger *slog.Logger) error {
 	}
 	insightHandler := insight.NewHandler(pool)
 	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "")
-	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret, cfg.TelegramBotToken)
+	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
 	var gmailHandler *gmail.Handler

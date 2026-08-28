@@ -9,6 +9,10 @@ The production baseline includes the canonical ledger, authentication, Gmail/Jag
 automation, Telegram text intake and review, generic financial-document intake,
 reconciliation, deterministic analytics, and aggregate-only LLM insights.
 
+Telegram webhook ingress is database-only. Callback actions are durably queued on
+an isolated interactive lane and acknowledged by the worker before deterministic
+review processing. Queue lane assignment is enforced by PostgreSQL.
+
 Current delivery follows
 [`docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md):
 household onboarding and financial correctness first, followed by a routed web
@@ -74,5 +78,6 @@ The compose ports bind to loopback only. Production uses the host-managed Caddy
 instance for TLS at `finance.investdx.biz.id`; see the production deployment
 runbook. Secrets must be supplied externally.
 
-Every push to `main` and pull request runs Go tests, the Next.js production
-build, Compose validation, and all four production container builds.
+Every push to `main` and pull request runs Go tests and vet, database-backed
+integration tests, frontend tests, the Next.js production build, Compose
+validation, and all production container builds.

@@ -28,7 +28,7 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer rows.Close()
-		var out []map[string]any
+		out := make([]map[string]any, 0)
 		for rows.Next() {
 			var id, n, t, policy string
 			var active, systemManaged bool
@@ -104,10 +104,6 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Name = &value
 	}
-	if in.TrackingPolicy != nil && !oneOf(*in.TrackingPolicy, "FULL_LEDGER", "SPENDING_ONLY", "REFERENCE_ONLY") {
-		jsonError(w, 400, "invalid tracking policy")
-		return
-	}
 	household := p.Memberships[0].HouseholdID
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
@@ -115,13 +111,17 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var currentID string
-	if err = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE id=$1 AND household_id=$2 AND NOT system_managed FOR UPDATE`, r.PathValue("id"), household).Scan(&currentID); err != nil {
+	var currentID, currentPolicy string
+	if err = tx.QueryRow(r.Context(), `SELECT id,tracking_policy FROM account WHERE id=$1 AND household_id=$2 AND NOT system_managed FOR UPDATE`, r.PathValue("id"), household).Scan(&currentID, &currentPolicy); err != nil {
 		jsonError(w, 404, "account not found")
 		return
 	}
+	if in.TrackingPolicy != nil && *in.TrackingPolicy != currentPolicy {
+		jsonOut(w, http.StatusConflict, map[string]string{"error": "Tracking policy tidak dapat diubah setelah akun dibuat.", "code": "ACCOUNT_TRACKING_POLICY_IMMUTABLE"})
+		return
+	}
 	var id string
-	err = tx.QueryRow(r.Context(), `UPDATE account SET name=COALESCE($3,name),tracking_policy=COALESCE($4,tracking_policy),active=COALESCE($5,active),updated_at=now() WHERE id=$1 AND household_id=$2 AND NOT system_managed RETURNING id`, r.PathValue("id"), household, in.Name, in.TrackingPolicy, in.Active).Scan(&id)
+	err = tx.QueryRow(r.Context(), `UPDATE account SET name=COALESCE($3,name),active=COALESCE($4,active),updated_at=now() WHERE id=$1 AND household_id=$2 AND NOT system_managed RETURNING id`, r.PathValue("id"), household, in.Name, in.Active).Scan(&id)
 	if err != nil {
 		jsonError(w, 404, "account not found")
 		return
@@ -147,7 +147,7 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer rows.Close()
-		var out []map[string]any
+		out := make([]map[string]any, 0)
 		for rows.Next() {
 			var id, name, slug string
 			var parent *string

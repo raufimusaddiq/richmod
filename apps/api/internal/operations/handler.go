@@ -47,7 +47,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		SELECT
 		  (SELECT count(*) FROM job WHERE status='PENDING'),
 		  (SELECT count(*) FROM job WHERE status='RUNNING'),
-		  (SELECT count(*) FROM job WHERE status='FAILED'),
+		  (SELECT count(*) FROM job WHERE status='FAILED' AND updated_at>=now()-interval '24 hours'),
 		  (SELECT count(*) FROM review_request WHERE household_id=$1 AND status IN ('PENDING_SEND','OPEN')),
 		  (SELECT max(last_seen_at) FROM worker_heartbeat),
 		  (SELECT status FROM gmail_integration WHERE household_id=$1),
@@ -62,10 +62,40 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	if !workerHealthy || failedJobs > 0 {
 		status = "degraded"
 	}
+	lanes := map[string]any{}
+	rows, laneErr := h.pool.Query(r.Context(), `
+		SELECT lane,
+		 count(*) FILTER (WHERE status='PENDING'),
+		 count(*) FILTER (WHERE status='RUNNING'),
+		 min(run_after) FILTER (WHERE status='PENDING' AND run_after<=now()),
+		 coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0),
+		 coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0)
+		FROM job GROUP BY lane ORDER BY lane`)
+	if laneErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load job lanes"})
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var lane string
+		var pending, running int
+		var oldest *time.Time
+		var p50, p95 float64
+		if rows.Scan(&lane, &pending, &running, &oldest, &p50, &p95) != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load job lanes"})
+			return
+		}
+		var oldestAge *int64
+		if oldest != nil {
+			age := max(int64(0), time.Since(*oldest).Milliseconds())
+			oldestAge = &age
+		}
+		lanes[lane] = map[string]any{"pending": pending, "running": running, "oldestDueAgeMs": oldestAge, "executionP50Ms": p50, "executionP95Ms": p95}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":        status,
 		"worker":        map[string]any{"healthy": workerHealthy, "lastHeartbeatAt": lastHeartbeat},
-		"jobs":          map[string]int{"pending": pendingJobs, "running": runningJobs, "failed": failedJobs},
+		"jobs":          map[string]any{"pending": pendingJobs, "running": runningJobs, "recentFailures": failedJobs, "lanes": lanes},
 		"reviewBacklog": openReviews,
 		"gmail":         map[string]any{"status": gmailStatus, "updatedAt": gmailUpdated},
 		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only"},

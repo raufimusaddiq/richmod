@@ -116,6 +116,25 @@ func TestWebhookCapturesOnlyAllowlistedPrivateCallback(t *testing.T) {
 	}
 }
 
+func TestEveryWorkerReviewCallbackPassesIngressValidation(t *testing.T) {
+	valid := []string{
+		"review:expense", "review:own", "review:household", "review:confirm", "review:change",
+		"review:remember", "review:once", "review:edit", "review:merchant", "review:description",
+		"review:category", "review:ignore", "review:cat:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
+		"review:catpage:0", "review:catpage:12",
+	}
+	for _, action := range valid {
+		if !validCallbackAction(action) {
+			t.Errorf("generated callback %q was rejected", action)
+		}
+	}
+	for _, action := range []string{"review:cat:", "review:cat:../../admin", "review:catpage:-1", "review:catpage:99999", "admin:delete"} {
+		if validCallbackAction(action) {
+			t.Errorf("unsafe callback %q was accepted", action)
+		}
+	}
+}
+
 func TestWebhookRejectsWrongSecret(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewHandler(store, "webhook-secret")

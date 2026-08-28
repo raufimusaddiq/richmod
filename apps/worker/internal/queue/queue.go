@@ -45,7 +45,7 @@ func (q *Queue) Claim(ctx context.Context, workerID, lane string) (Job, bool, er
 	if err != nil {
 		return Job{}, false, fmt.Errorf("select job: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE job SET status='RUNNING',attempts=$2,locked_at=now(),locked_by=$3,updated_at=now() WHERE id=$1`, job.ID, job.Attempts, workerID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE job SET status='RUNNING',attempts=$2,locked_at=now(),locked_by=$3,started_at=now(),finished_at=NULL,updated_at=now() WHERE id=$1`, job.ID, job.Attempts, workerID); err != nil {
 		return Job{}, false, fmt.Errorf("lock job: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -55,7 +55,7 @@ func (q *Queue) Claim(ctx context.Context, workerID, lane string) (Job, bool, er
 }
 
 func (q *Queue) Succeed(ctx context.Context, jobID string) error {
-	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,updated_at=now() WHERE id=$1 AND status='RUNNING'`, jobID)
+	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING'`, jobID)
 	return err
 }
 
@@ -65,7 +65,7 @@ func (q *Queue) Fail(ctx context.Context, job Job, processErr error) error {
 		status = "FAILED"
 	}
 	delaySeconds := int(time.Duration(1<<min(job.Attempts, 8)) * time.Second / time.Second)
-	_, err := q.pool.Exec(ctx, `UPDATE job SET status=$2,run_after=now()+$3*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$4,updated_at=now() WHERE id=$1 AND status='RUNNING'`, job.ID, status, delaySeconds, truncate(processErr.Error(), 1000))
+	_, err := q.pool.Exec(ctx, `UPDATE job SET status=$2,run_after=now()+$3*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$4,finished_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND status='RUNNING'`, job.ID, status, delaySeconds, truncate(processErr.Error(), 1000))
 	return err
 }
 

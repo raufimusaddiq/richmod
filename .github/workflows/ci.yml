@@ -79,6 +79,9 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
         run: npm run build
+      - name: Test web
+        working-directory: apps/web
+        run: npm test
 
   containers:
     runs-on: ubuntu-latest
