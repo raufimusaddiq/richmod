@@ -66,7 +66,12 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		accountKey := "bank-email:" + in.SenderAddress
 		e = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE household_id=$1 AND system_key=$2`, hid, accountKey).Scan(&aid)
 		if e == pgx.ErrNoRows {
-			e = tx.QueryRow(r.Context(), `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,$2,'BANK','SPENDING_ONLY',true,$3) RETURNING id`, hid, "Bank · "+in.BankName, accountKey).Scan(&aid)
+			e = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE household_id=$1 AND account_type='BANK' AND tracking_policy='SPENDING_ONLY' AND active AND lower(name) IN (lower($2),lower('Bank · '||$2)) ORDER BY system_managed DESC,created_at LIMIT 1 FOR UPDATE`, hid, in.BankName).Scan(&aid)
+			if e == pgx.ErrNoRows {
+				e = tx.QueryRow(r.Context(), `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,$2,'BANK','SPENDING_ONLY',true,$3) RETURNING id`, hid, "Bank · "+in.BankName, accountKey).Scan(&aid)
+			} else if e == nil {
+				_, e = tx.Exec(r.Context(), `UPDATE account SET system_managed=true,system_key=$2,updated_at=now() WHERE id=$1`, aid, accountKey)
+			}
 		} else if e == nil {
 			_, e = tx.Exec(r.Context(), `UPDATE account SET active=true,tracking_policy='SPENDING_ONLY',updated_at=now() WHERE id=$1`, aid)
 		}
