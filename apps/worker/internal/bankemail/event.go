@@ -40,7 +40,7 @@ func EmitBankTransactionTool() gateway.ToolDefinition {
 			"kind":       map[string]any{"type": "string", "enum": []string{"TRANSACTION", "NON_TRANSACTION", "UNKNOWN"}},
 			"direction":  nullableEnum([]string{"OUTGOING", "INCOMING", "INTERNAL", "UNKNOWN"}),
 			"channel":    nullableEnum([]string{"DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "TRANSFER", "ATM", "BANK_FEE", "INTERNAL_TRANSFER", "RDN", "OTHER", "UNKNOWN"}),
-			"amount_idr": map[string]any{"type": []string{"string", "null"}}, "transaction_at": map[string]any{"type": []string{"string", "null"}},
+			"amount_idr": map[string]any{"type": []string{"string", "null"}, "pattern": "^[0-9]+$"}, "transaction_at": map[string]any{"type": []string{"string", "null"}},
 			"merchant": map[string]any{"type": []string{"string", "null"}}, "counterparty": map[string]any{"type": []string{"string", "null"}},
 			"reference": map[string]any{"type": []string{"string", "null"}}, "description": map[string]any{"type": []string{"string", "null"}},
 			"missing_fields": map[string]any{"type": "array", "maxItems": 8, "items": map[string]any{"type": "string", "enum": []string{"amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "direction", "channel"}}},
