@@ -253,6 +253,7 @@ type parsedMessage struct {
 	subject    string
 	auth       string
 	html       string
+	body       string
 	emailDate  string
 }
 
@@ -277,6 +278,10 @@ func parseMessage(message gmailMessage) (parsedMessage, error) {
 	}
 	result.fromDomain = senderDomain(address.Address)
 	result.html = htmlBody(message.Payload.MimeType, message.Payload.Body.Data, message.Payload.Parts)
+	result.body = result.html
+	if result.body == "" {
+		result.body = textBody(message.Payload.MimeType, message.Payload.Body.Data, message.Payload.Parts)
+	}
 	return result, nil
 }
 
@@ -289,6 +294,21 @@ func htmlBody(mimeType, body string, parts []messagePart) string {
 			return decodeBody(part.Body.Data)
 		}
 		if nested := htmlBody(part.MimeType, part.Body.Data, part.Parts); nested != "" {
+			return nested
+		}
+	}
+	return ""
+}
+
+func textBody(mimeType, body string, parts []messagePart) string {
+	if strings.EqualFold(mimeType, "text/plain") && body != "" {
+		return decodeBody(body)
+	}
+	for _, part := range parts {
+		if strings.EqualFold(part.MimeType, "text/plain") && part.Body.Data != "" {
+			return decodeBody(part.Body.Data)
+		}
+		if nested := textBody(part.MimeType, part.Body.Data, part.Parts); nested != "" {
 			return nested
 		}
 	}
@@ -314,7 +334,9 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 		return nil
 	}
 	listenerID, listenerFound := p.listener(ctx, householdID, address.Address, parsed.auth)
-	legacy := p.client.sender != "" && strings.EqualFold(address.Address, p.client.sender)
+	// The legacy Jago parser is still a temporary fallback, but it must use the
+	// same authenticated sender boundary as the generic listener path.
+	legacy := p.client.sender != "" && strings.EqualFold(address.Address, p.client.sender) && p.isTrustedSender(message)
 	if !listenerFound && !legacy {
 		return nil
 	}
@@ -354,7 +376,7 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 		return err
 	}
 	if listenerFound {
-		if _, err := tx.Exec(ctx, `INSERT INTO bank_email_event(source_event_id,listener_id,observed_sender,gmail_message_id,subject,email_date,authentication_results,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, sourceEventID, listenerID, address.Address, message.ID, parsed.subject, parsed.emailDate, parsed.auth, parsed.html); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO bank_email_event(source_event_id,listener_id,observed_sender,gmail_message_id,subject,email_date,authentication_results,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, sourceEventID, listenerID, address.Address, message.ID, parsed.subject, parsed.emailDate, parsed.auth, parsed.body); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json,max_attempts) SELECT 'PROCESS_BANK_EMAIL','BACKGROUND',jsonb_build_object('source_event_id',$1::uuid,'shadow',$2::boolean),5 WHERE NOT EXISTS (SELECT 1 FROM job WHERE type='PROCESS_BANK_EMAIL' AND payload_json->>'source_event_id'=$1::text AND status IN ('PENDING','RUNNING','SUCCEEDED'))`, sourceEventID, !p.genericPrimary); err != nil {
