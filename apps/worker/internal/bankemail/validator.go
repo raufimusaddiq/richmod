@@ -35,7 +35,7 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	dec := json.NewDecoder(bytes.NewReader(call.Arguments))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&raw); err != nil {
-		return Extraction{}, fmt.Errorf("invalid emit_bank_transaction arguments")
+		return Extraction{}, fmt.Errorf("invalid emit_bank_transaction arguments: %w", err)
 	}
 	var extra any
 	if dec.Decode(&extra) == nil {
