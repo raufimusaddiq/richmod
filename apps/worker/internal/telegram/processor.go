@@ -30,6 +30,11 @@ The output is data for deterministic Go validation; it is never permission to mu
 
 var localTimePattern = regexp.MustCompile(`^(?:[01][0-9]|2[0-3]):[0-5][0-9]$`)
 
+// Telegram must remain responsive when a gateway model stalls. Each LLM
+// strategy gets its own bounded attempt; a fallback must not inherit the
+// gateway client's much longer transport timeout.
+const telegramLLMAttemptTimeout = 10 * time.Second
+
 type Gateway interface {
 	Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error)
 }
@@ -210,7 +215,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		"supported_languages":      []string{"id", "en"},
 	}
 	if ng, ok := p.gateway.(nativeGateway); ok {
-		call, metadata, callErr := ng.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, NativeFinanceTools(), gateway.NativeToolOptions{Required: false, MaxToolCalls: 4})
+		attemptCtx, cancel := context.WithTimeout(ctx, telegramLLMAttemptTimeout)
+		call, metadata, callErr := ng.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(), gateway.NativeToolOptions{Required: false, MaxToolCalls: 4})
+		cancel()
 		if callErr == nil {
 			nativeHandled := false
 			for step := 0; step < 4; step++ {
@@ -234,7 +241,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 				if !supportsResults || call.CallID == "" || call.ResponseID == "" {
 					break
 				}
-				result, resultErr := rg.NativeToolResult(ctx, sourceEventID, call.ResponseID, call.CallID, `{"status":"handled"}`)
+				resultCtx, resultCancel := context.WithTimeout(ctx, telegramLLMAttemptTimeout)
+				result, resultErr := rg.NativeToolResult(resultCtx, sourceEventID, call.ResponseID, call.CallID, `{"status":"handled"}`)
+				resultCancel()
 				if resultErr != nil || result.ToolCall == nil {
 					break
 				}
@@ -247,7 +256,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		}
 	}
 	var extracted extraction
-	metadata, err := p.gateway.Structured(ctx, sourceEventID, "telegram.transaction.extract", extractionPrompt, content, extractionSchema(), &extracted)
+	attemptCtx, cancel := context.WithTimeout(ctx, telegramLLMAttemptTimeout)
+	metadata, err := p.gateway.Structured(attemptCtx, sourceEventID, "telegram.transaction.extract", extractionPrompt, content, extractionSchema(), &extracted)
+	cancel()
 	if err != nil {
 		// Keep simple, unambiguous finance messages available when the gateway
 		// returns malformed structured output or is temporarily unavailable.
