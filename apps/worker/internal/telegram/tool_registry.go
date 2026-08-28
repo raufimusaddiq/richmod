@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math/big"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -32,11 +37,103 @@ func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
 	if !allowed[call.Name] {
 		return nil, fmt.Errorf("unregistered finance tool %q", call.Name)
 	}
-	var args map[string]any
+	var target any
+	switch call.Name {
+	case "create_transaction":
+		target = &createArgs{}
+	case "create_transaction_batch":
+		target = &batchArgs{}
+	case "query_transactions":
+		target = &queryArgs{}
+	case "propose_transaction_edit":
+		target = &editArgs{}
+	case "confirm_edit", "cancel_edit":
+		target = &pendingArgs{}
+	}
 	decoder := json.NewDecoder(bytes.NewReader(call.Arguments))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&args); err != nil || args == nil {
+	if err := decoder.Decode(target); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		return nil, fmt.Errorf("invalid arguments for %s", call.Name)
 	}
+	if err := validateTypedArgs(target); err != nil {
+		return nil, fmt.Errorf("invalid arguments for %s: %w", call.Name, err)
+	}
+	encoded, _ := json.Marshal(target)
+	var args map[string]any
+	_ = json.Unmarshal(encoded, &args)
 	return args, nil
+}
+
+type createArgs struct {
+	Type          string  `json:"type"`
+	Amount        string  `json:"amount_idr"`
+	Merchant      *string `json:"merchant"`
+	TransactionAt string  `json:"transaction_at"`
+}
+type batchArgs struct {
+	Items []createArgs `json:"items"`
+}
+type queryArgs struct {
+	Mode       string  `json:"mode"`
+	Period     string  `json:"period"`
+	SearchText *string `json:"search_text"`
+}
+type editArgs struct {
+	TransactionID string  `json:"transaction_id"`
+	TransactionAt *string `json:"transaction_at"`
+	Description   *string `json:"description"`
+}
+type pendingArgs struct {
+	PendingActionID string `json:"pending_action_id"`
+}
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
+
+func validateCreate(v createArgs) error {
+	if v.Type != "INCOME" && v.Type != "EXPENSE" {
+		return fmt.Errorf("type")
+	}
+	n, ok := new(big.Int).SetString(v.Amount, 10)
+	if !ok || n.Sign() <= 0 || n.String() != v.Amount {
+		return fmt.Errorf("amount")
+	}
+	if _, err := time.Parse(time.RFC3339, v.TransactionAt); err != nil {
+		return fmt.Errorf("timestamp")
+	}
+	return nil
+}
+func validateTypedArgs(value any) error {
+	switch v := value.(type) {
+	case *createArgs:
+		return validateCreate(*v)
+	case *batchArgs:
+		if len(v.Items) < 1 || len(v.Items) > 10 {
+			return fmt.Errorf("batch size")
+		}
+		for _, item := range v.Items {
+			if err := validateCreate(item); err != nil {
+				return err
+			}
+		}
+	case *queryArgs:
+		if !map[string]bool{"spending": true, "cashflow": true, "search": true, "reviews": true}[v.Mode] || strings.TrimSpace(v.Period) == "" {
+			return fmt.Errorf("query")
+		}
+	case *editArgs:
+		if !uuidPattern.MatchString(v.TransactionID) || (v.TransactionAt == nil && v.Description == nil) {
+			return fmt.Errorf("edit")
+		}
+		if v.TransactionAt != nil {
+			if _, err := time.Parse(time.RFC3339, *v.TransactionAt); err != nil {
+				return err
+			}
+		}
+	case *pendingArgs:
+		if !uuidPattern.MatchString(v.PendingActionID) {
+			return fmt.Errorf("pending id")
+		}
+	default:
+		return fmt.Errorf("unsupported")
+	}
+	return nil
 }

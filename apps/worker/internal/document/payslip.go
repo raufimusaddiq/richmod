@@ -269,8 +269,20 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	defer tx.Rollback(ctx)
 	status, proposalStatus, documentStatus, sourceStatus := "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW"
 	payDate := transactionAt.In(jakarta()).Format("2006-01-02")
+	var hasPrimary bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, householdID).Scan(&hasPrimary); err != nil {
+		return err
+	}
+	reviewWithoutTransaction := !hasPrimary || value.PayDate == nil
+	reviewType := "PAYSLIP_CONFIRMATION"
+	if value.PayDate == nil {
+		reviewType = "MISSING_PAY_DATE"
+	}
 	if autoConfirm {
 		status, proposalStatus, documentStatus, sourceStatus = "CONFIRMED", "ACCEPTED", "EXTRACTED", "PROCESSED"
+	}
+	if reviewWithoutTransaction {
+		status, proposalStatus, documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
 	if autoConfirm {
 		normalized := strings.ToLower(strings.Join(strings.Fields(value.Employer), " "))
@@ -300,6 +312,12 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			return nil
 		}
 		return err
+	}
+	if reviewWithoutTransaction {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status) VALUES($1,$2,$3,$4,$5,'OPEN') ON CONFLICT DO NOTHING; UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$4; UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$3; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_PAYSLIP_REVIEW','document',$4,jsonb_build_object('review_type',$5::text,'proposal_id',$2::uuid))`, householdID, proposalID, sourceID, documentID, reviewType); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
 	}
 	var transactionID string
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,source_confidence,classification_confidence,confirmed_at) VALUES($1,'INCOME',$2,$3,'IDR',$4,'Penghasilan dari slip gaji',NULLIF($5,''),$6,$6,CASE WHEN $2='CONFIRMED' THEN now() END) RETURNING id`, householdID, status, value.NetPay, transactionAt, value.Employer, value.Confidence).Scan(&transactionID); err != nil {

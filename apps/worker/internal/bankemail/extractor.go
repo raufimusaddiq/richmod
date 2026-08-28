@@ -3,6 +3,9 @@ package bankemail
 import (
 	"context"
 	"fmt"
+	"html"
+	"regexp"
+	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -19,6 +22,12 @@ type Gateway interface {
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
 type Extractor struct{ gateway Gateway }
+type SchemaError struct{ Err error }
+
+func (e SchemaError) Error() string {
+	return "bank extraction schema validation failed: " + e.Err.Error()
+}
+func (e SchemaError) Unwrap() error { return e.Err }
 
 func NewExtractor(client Gateway) *Extractor { return &Extractor{gateway: client} }
 
@@ -26,11 +35,10 @@ func (e *Extractor) Extract(ctx context.Context, sourceEventID string, listener 
 	if e == nil || e.gateway == nil {
 		return Extraction{}, gateway.Metadata{}, fmt.Errorf("bank email gateway is unavailable")
 	}
-	content := map[string]any{"configured_bank_name": listener.BankName, "sender_address": emailFrom(listener, email), "household_timezone": "Asia/Jakarta", "email_subject": email.Subject, "email_date": email.Date, "authentication_results": email.AuthenticationResults, "email_body": "<untrusted_email_body>" + email.Body + "</untrusted_email_body>"}
+	content := map[string]any{"configured_bank_name": listener.BankName, "sender_address": emailFrom(listener, email), "household_timezone": "Asia/Jakarta", "email_subject": email.Subject, "email_date": email.Date, "authentication_results": email.AuthenticationResults, "email_body": "<untrusted_email_body>" + normalizeVisibleText(email.Body) + "</untrusted_email_body>"}
 	options := gateway.NativeToolOptions{Required: true, MaxToolCalls: 1, ReasoningEffort: "none"}
 	var lastMeta gateway.Metadata
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < 2; attempt++ {
 		prompt := extractionPrompt
 		requestID := sourceEventID
 		if attempt > 0 {
@@ -40,16 +48,28 @@ func (e *Extractor) Extract(ctx context.Context, sourceEventID string, listener 
 		call, meta, err := e.gateway.NativeToolCall(ctx, requestID, prompt, content, []gateway.ToolDefinition{EmitBankTransactionTool()}, options)
 		lastMeta = meta
 		if err != nil {
-			lastErr = err
-			continue
+			return Extraction{}, meta, err
 		}
 		result, validationErr := ValidateEmitBankTransaction(call)
 		if validationErr == nil {
 			return result, meta, nil
 		}
-		lastErr = validationErr
+		if attempt == 1 {
+			return Extraction{}, meta, SchemaError{validationErr}
+		}
 	}
-	return Extraction{}, lastMeta, lastErr
+	return Extraction{}, lastMeta, fmt.Errorf("bank extraction failed validation")
+}
+
+var htmlTag = regexp.MustCompile(`(?s)<[^>]*>`)
+
+func normalizeVisibleText(raw string) string {
+	visible := html.UnescapeString(htmlTag.ReplaceAllString(raw, " "))
+	visible = strings.Join(strings.Fields(visible), " ")
+	if len(visible) <= 32<<10 {
+		return visible
+	}
+	return strings.ToValidUTF8(visible[:32<<10], "")
 }
 func emailFrom(listener Listener, email TrustedEmail) string {
 	if listener.SenderAddress != "" {
