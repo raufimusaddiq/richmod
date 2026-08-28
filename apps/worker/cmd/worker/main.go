@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/bankemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerGmail "github.com/raufimusaddiq/richmod/apps/worker/internal/gmail"
 	workerInsight "github.com/raufimusaddiq/richmod/apps/worker/internal/insight"
@@ -67,6 +68,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("configure Gmail worker: %w", err)
 	}
+	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(llm))
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	imageProcessor, err := telegram.NewImageProcessor(pool, bot, os.Getenv("DOCUMENT_STORAGE_PATH"))
 	if err != nil {
@@ -80,7 +82,7 @@ func run(logger *slog.Logger) error {
 	go maintainHeartbeat(ctx, logger, pool, workerID)
 	// Keep callback and other interactive work on a reserved execution loop so
 	// long-running vision/Gmail jobs cannot delay Telegram button handling.
-	go runInteractiveLoop(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID)
+	go runInteractiveLoop(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	maintenanceTicker := time.NewTicker(time.Minute)
@@ -94,10 +96,10 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "DEFAULT"); err != nil {
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, "DEFAULT"); err != nil {
 			logger.Error("job polling failed", "error", err)
 		}
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "BACKGROUND"); err != nil {
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, "BACKGROUND"); err != nil {
 			logger.Error("job polling failed", "error", err)
 		}
 		select {
@@ -114,11 +116,11 @@ func run(logger *slog.Logger) error {
 	}
 }
 
-func runInteractiveLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) {
+func runInteractiveLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, workerID, "INTERACTIVE"); err != nil && ctx.Err() == nil {
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, "INTERACTIVE"); err != nil && ctx.Err() == nil {
 			logger.Error("interactive job polling failed", "error", err)
 		}
 		select {
@@ -149,7 +151,7 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
-func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string) error {
+func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string) error {
 	processed := 0
 	for {
 		job, found, err := jobs.Claim(ctx, workerID, lane)
@@ -157,7 +159,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			return err
 		}
 		processed++
-		err = processJob(ctx, processor, imageProcessor, gmailProcessor, documentProcessor, insightProcessor, bot, job)
+		err = processJob(ctx, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, job)
 		if err == nil {
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
@@ -174,7 +176,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 	}
 }
 
-func processJob(ctx context.Context, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, job queue.Job) error {
+func processJob(ctx context.Context, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, job queue.Job) error {
 	switch job.Type {
 	case "PROCESS_TELEGRAM_CALLBACK":
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)
@@ -250,6 +252,10 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		return gmailProcessor.RenewWatch(ctx, payload.HouseholdID)
+	case "PROCESS_BANK_EMAIL":
+		payload, err := bankemail.DecodePayload(job.Payload)
+		if err != nil { return err }
+		return bankProcessor.Process(ctx, payload)
 	case "PROCESS_DOCUMENT":
 		payload, err := workerDocument.DecodePayload(job.Payload)
 		if err != nil {

@@ -45,7 +45,10 @@ Jago uses `SPENDING_ONLY` policy.
 - Transfers to known own/household accounts -> transfer, not expense.
 - Jago pocket movement -> internal transfer, not expense/income.
 - RDN/investment movement -> ignore from MVP spending.
-- Parse known Jago email templates deterministically first; use LLM only as fallback.
+- V4 bank listeners use the required generic native-tool extractor after Gmail
+  sender/authentication trust checks. During rollout, known Jago templates may
+  remain as the canonical shadow/fallback path; generic output is untrusted
+  until deterministic Go validation and policy evaluation succeed.
 
 ## Telegram
 

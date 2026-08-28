@@ -35,7 +35,7 @@ type Gateway interface {
 }
 
 type nativeGateway interface {
-	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition) (gateway.ToolCall, gateway.Metadata, error)
+	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
 
 type nativeResultGateway interface {
@@ -202,7 +202,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		"supported_languages":      []string{"id", "en"},
 	}
 	if ng, ok := p.gateway.(nativeGateway); ok {
-		call, metadata, callErr := ng.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, NativeFinanceTools())
+		call, metadata, callErr := ng.NativeToolCall(ctx, sourceEventID, extractionPrompt, content, NativeFinanceTools(), gateway.NativeToolOptions{Required: false, MaxToolCalls: 4})
 		if callErr == nil {
 			nativeHandled := false
 			for step := 0; step < 4; step++ {
