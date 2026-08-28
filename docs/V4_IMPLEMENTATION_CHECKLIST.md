@@ -7,8 +7,8 @@
 - [x] No bank extraction tool-result loop exists
 - [x] Generic extractor uses the gateway abstraction only
 - [x] Listener schema and owner API are in place
-- [ ] Real primary/ocg/minimax native-tool smoke test
+- [x] Real primary native-tool smoke test (synthetic, non-mutating)
 - [x] Gmail sender/auth trust boundary and generic listener routing
 - [x] Go policy matrix baseline exists
 - [ ] Partial extraction reaches Review Inbox and Telegram merchant/detail/category completion
-- [ ] Full API/worker/web/Compose regression
+- [x] Full API/worker/web/Compose regression

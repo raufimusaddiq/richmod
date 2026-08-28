@@ -10,4 +10,4 @@ or personal recipient data.
 - [x] Sender matching is based on the listener registry, not a bank-specific parser.
 - [x] Unmatched or unauthenticated messages are rejected before extraction.
 - [ ] A second directly authenticated sender should be configured and smoke-tested.
-- [ ] Live native-tool smoke test against `ocg/minimax-m3` remains gated and non-mutating.
+- [x] Live native-tool smoke test against the production `primary` model completed with a synthetic email and no database write.
