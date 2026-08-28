@@ -55,7 +55,7 @@ function Login({ onSuccess }) {
     if (!response.ok) { setError("Email atau kata sandi tidak cocok."); return; }
     onSuccess();
   }
-  return <main className="login"><section><div className="login-brand"><span>R</span><b>Richmod</b></div><span className="eyebrow">KEUANGAN KELUARGA</span><h1>Uang keluarga,<br/>lebih mudah dipahami.</h1><p>Buku keuangan rumah tangga yang menyatukan Jago, Telegram, dan dokumen keuangan—tanpa menebak.</p><form onSubmit={login}><label>Email<input name="email" type="email" autoComplete="email" required /></label><label>Kata sandi<input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="error">{error}</p>}<button>Masuk ke Richmod</button></form><small>IDR · Waktu Indonesia Barat (GMT+7)</small></section></main>;
+  return <main className="login"><section><div className="login-brand"><span>R</span><b>Richmod</b></div><span className="eyebrow">KEUANGAN KELUARGA</span><h1>Uang keluarga,<br/>lebih mudah dipahami.</h1><p>Buku keuangan rumah tangga yang menyatukan email bank, Telegram, dan dokumen keuangan—tanpa menebak.</p><form onSubmit={login}><label>Email<input name="email" type="email" autoComplete="email" required /></label><label>Kata sandi<input name="password" type="password" autoComplete="current-password" required /></label>{error && <p className="error">{error}</p>}<button>Masuk ke Richmod</button></form><small>IDR · Waktu Indonesia Barat (GMT+7)</small></section></main>;
 }
 
 function Loading() { return <main className="loading"><div className="spinner"/><span>Memuat Richmod…</span></main>; }

@@ -62,7 +62,13 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(r.Context())
 		var aid, lid string
-		e = tx.QueryRow(r.Context(), `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,$2,'BANK','SPENDING_ONLY',true,$3) ON CONFLICT(household_id,system_key) DO UPDATE SET active=true,updated_at=now() RETURNING id`, hid, "Bank · "+in.BankName, "bank-email:"+in.SenderAddress).Scan(&aid)
+		accountKey := "bank-email:" + in.SenderAddress
+		e = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE household_id=$1 AND system_key=$2`, hid, accountKey).Scan(&aid)
+		if e == pgx.ErrNoRows {
+			e = tx.QueryRow(r.Context(), `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,$2,'BANK','SPENDING_ONLY',true,$3) RETURNING id`, hid, "Bank · "+in.BankName, accountKey).Scan(&aid)
+		} else if e == nil {
+			_, e = tx.Exec(r.Context(), `UPDATE account SET active=true,tracking_policy='SPENDING_ONLY',updated_at=now() WHERE id=$1`, aid)
+		}
 		if e == nil {
 			e = tx.QueryRow(r.Context(), `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) VALUES($1,$2,$3,$4,$5) RETURNING id`, hid, in.BankName, in.SenderAddress, aid, p.UserID).Scan(&lid)
 		}

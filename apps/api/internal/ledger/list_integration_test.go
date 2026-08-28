@@ -36,7 +36,7 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Jago','BANK','SPENDING_ONLY') RETURNING id`, householdID).Scan(&accountID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Primary bank','BANK','SPENDING_ONLY') RETURNING id`, householdID).Scan(&accountID); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Groceries','groceries') RETURNING id`, householdID).Scan(&categoryID); err != nil {
@@ -73,7 +73,7 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &items); err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].ID != transactionID || value(items[0].CategoryName) != "Groceries" || value(items[0].MerchantName) != "PAMELLA DUA" || value(items[0].AccountName) != "Jago" || value(items[0].MemberName) != "Raufi Test" || value(items[0].SourceType) != "BANK_EMAIL" {
+	if len(items) != 1 || items[0].ID != transactionID || value(items[0].CategoryName) != "Groceries" || value(items[0].MerchantName) != "PAMELLA DUA" || value(items[0].AccountName) != "Primary bank" || value(items[0].MemberName) != "Raufi Test" || value(items[0].SourceType) != "BANK_EMAIL" {
 		t.Fatalf("unexpected items: %#v", items)
 	}
 

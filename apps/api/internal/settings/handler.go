@@ -59,10 +59,6 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "invalid account fields")
 		return
 	}
-	if message := accountPolicyError("", in.Name, in.TrackingPolicy); message != "" {
-		jsonError(w, 400, message)
-		return
-	}
 	var id string
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
@@ -119,20 +115,9 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var currentName, currentPolicy string
-	if err = tx.QueryRow(r.Context(), `SELECT name,tracking_policy FROM account WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&currentName, &currentPolicy); err != nil {
+	var currentID string
+	if err = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&currentID); err != nil {
 		jsonError(w, 404, "account not found")
-		return
-	}
-	resultName, resultPolicy := currentName, currentPolicy
-	if in.Name != nil {
-		resultName = *in.Name
-	}
-	if in.TrackingPolicy != nil {
-		resultPolicy = *in.TrackingPolicy
-	}
-	if message := accountPolicyError(currentName, resultName, resultPolicy); message != "" {
-		jsonError(w, 400, message)
 		return
 	}
 	var id string

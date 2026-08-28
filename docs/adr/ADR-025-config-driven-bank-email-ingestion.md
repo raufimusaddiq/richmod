@@ -13,12 +13,7 @@ the fixed `SPENDING_ONLY` policy. LLM output cannot mutate the ledger.
 
 ## Consequences
 
-Adding a supported bank sender is a settings operation. Jago's deterministic
-parser remains available during shadow rollout and as a temporary fallback,
-while generic extraction evidence is retained for comparison and audit.
-
-The rollout is controlled by `GMAIL_GENERIC_PRIMARY`: true is now the default
-and lets the generic worker own every matched listener, including the legacy
-Jago sender. False is an explicit compatibility rollback that queues generic
-extraction as shadow evidence and leaves the deterministic Jago path canonical.
-The legacy parser is never run alongside generic-primary for the same event.
+Adding any bank sender is a settings operation. There is no bank-specific
+parser, sender environment variable, migration seed, model prompt, or
+compatibility flag in the active ingestion path. Every matched listener uses
+the same generic extraction and policy pipeline.
