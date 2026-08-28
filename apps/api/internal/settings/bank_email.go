@@ -2,11 +2,12 @@ package settings
 
 import (
 	"encoding/json"
-	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"net/http"
 	"net/mail"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
 func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
@@ -119,13 +120,49 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var found string
-	e = tx.QueryRow(r.Context(), `UPDATE bank_email_listener SET bank_name=COALESCE($3,bank_name),sender_address=COALESCE($4,sender_address),active=COALESCE($5,active),updated_at=now() WHERE id=$1 AND household_id=$2 RETURNING id`, id, hid, in.BankName, in.SenderAddress, in.Active).Scan(&found)
+	var currentAccountID, currentBankName, currentSender string
+	var currentActive bool
+	e = tx.QueryRow(r.Context(), `SELECT COALESCE(account_id::text,''),bank_name,sender_address,active FROM bank_email_listener WHERE id=$1 AND household_id=$2 FOR UPDATE`, id, hid).Scan(&currentAccountID, &currentBankName, &currentSender, &currentActive)
 	if e != nil {
 		jsonError(w, 404, "listener not found")
 		return
 	}
-	if auditCreate(r.Context(), tx, hid, p.UserID, "bank_email_listener", id, map[string]any{"bankName": in.BankName, "senderAddress": in.SenderAddress, "active": in.Active}) != nil || tx.Commit(r.Context()) != nil {
+	bankName := currentBankName
+	if in.BankName != nil {
+		bankName = *in.BankName
+	}
+	senderAddress := currentSender
+	if in.SenderAddress != nil {
+		senderAddress = *in.SenderAddress
+	}
+	active := currentActive
+	if in.Active != nil {
+		active = *in.Active
+	}
+	if active {
+		var duplicate bool
+		if e = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM bank_email_listener WHERE household_id=$1 AND sender_address=$2 AND active AND id<>$3)`, hid, senderAddress, id).Scan(&duplicate); e != nil {
+			jsonError(w, 500, "unable to check listener sender")
+			return
+		}
+		if duplicate {
+			jsonError(w, 409, "active sender already exists")
+			return
+		}
+	}
+	if currentAccountID != "" {
+		if _, e = tx.Exec(r.Context(), `UPDATE account SET system_key=CASE WHEN system_managed AND $2<>'' THEN $2 ELSE system_key END,name=CASE WHEN system_managed THEN $3 ELSE name END,updated_at=now() WHERE id=$1`, currentAccountID, "bank-email:"+senderAddress, "Bank · "+bankName); e != nil {
+			jsonError(w, 409, "listener account is unavailable")
+			return
+		}
+	}
+	var found string
+	e = tx.QueryRow(r.Context(), `UPDATE bank_email_listener SET bank_name=$3,sender_address=$4,active=$5,updated_at=now() WHERE id=$1 AND household_id=$2 RETURNING id`, id, hid, bankName, senderAddress, active).Scan(&found)
+	if e != nil {
+		jsonError(w, 409, "active sender already exists")
+		return
+	}
+	if auditCreate(r.Context(), tx, hid, p.UserID, "bank_email_listener", id, map[string]any{"bankName": bankName, "senderAddress": senderAddress, "active": active, "trackingPolicy": "SPENDING_ONLY"}) != nil || tx.Commit(r.Context()) != nil {
 		jsonError(w, 500, "unable to audit listener")
 		return
 	}
