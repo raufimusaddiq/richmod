@@ -11,4 +11,5 @@
 - [x] Bound merchant and description replies update only the exact review transaction
 - [x] Merchant/detail updates write evidence and audit records
 - [x] Missing merchant blocks category confirmation until completed
+- [x] Bank partial extraction starts in the matching merchant/detail state before category selection
 - [ ] Live multi-recipient Telegram verification
