@@ -76,6 +76,18 @@ func TestNativeToolCallRequiredRejectsProseAndSetsRequiredChoice(t *testing.T) {
 	}
 }
 
+func TestNativeToolCallRequiredRejectsProseAlongsideResponsesToolCall(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","output":[{"type":"message","content":[{"type":"output_text","text":"thinking aloud"}]},{"type":"function_call","name":"emit_bank_transaction","call_id":"call-1","arguments":"{}"}]}`))
+	}))
+	defer server.Close()
+	_, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction"}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
+	if err == nil {
+		t.Fatal("prose alongside a required tool call should fail closed")
+	}
+}
+
 func TestValidateNativeCallsRejectsMultipleAndUnknown(t *testing.T) {
 	valid := json.RawMessage(`{}`)
 	if _, _, err := validateNativeCalls([]ToolCall{{Name: "a", Arguments: valid}, {Name: "a", Arguments: valid}}, map[string]bool{"a": true}, NativeToolOptions{MaxToolCalls: 1}, Metadata{}); err == nil {

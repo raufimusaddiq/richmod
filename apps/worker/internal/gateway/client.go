@@ -180,6 +180,10 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 			Name      string          `json:"name"`
 			CallID    string          `json:"call_id"`
 			Arguments json.RawMessage `json:"arguments"`
+			Content   []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
 		} `json:"output"`
 		Choices []struct {
 			Message struct {
@@ -198,6 +202,15 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 		return ToolCall{}, Metadata{}, err
 	}
 	var calls []ToolCall
+	if options.Required {
+		for _, item := range envelope.Output {
+			for _, content := range item.Content {
+				if strings.TrimSpace(content.Text) != "" {
+					return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned prose with required native tool call")
+				}
+			}
+		}
+	}
 	for _, item := range envelope.Output {
 		if item.Type == "function_call" {
 			calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: item.Arguments})
@@ -268,6 +281,7 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 		} `json:"usage"`
 		Choices []struct {
 			Message struct {
+				Content   string `json:"content"`
 				ToolCalls []struct {
 					ID, Type string
 					Function struct{ Name, Arguments string } `json:"function"`
@@ -280,6 +294,13 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 	}
 	var calls []ToolCall
 	allowed := map[string]bool{}
+	if options.Required {
+		for _, choice := range env.Choices {
+			if strings.TrimSpace(choice.Message.Content) != "" {
+				return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned prose with required native tool call")
+			}
+		}
+	}
 	for _, raw := range payload["tools"].([]map[string]any) {
 		fn := raw["function"].(map[string]any)
 		allowed[fn["name"].(string)] = true
