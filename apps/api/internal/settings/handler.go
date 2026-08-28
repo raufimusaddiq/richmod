@@ -22,7 +22,7 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 	}
 	household := p.Memberships[0].HouseholdID
 	if r.Method == http.MethodGet {
-		rows, err := h.pool.Query(r.Context(), `SELECT id,name,account_type,tracking_policy,active FROM account WHERE household_id=$1 AND NOT system_managed ORDER BY name`, household)
+		rows, err := h.pool.Query(r.Context(), `SELECT id,name,account_type,tracking_policy,active,system_managed FROM account WHERE household_id=$1 AND (NOT system_managed OR active) ORDER BY name`, household)
 		if err != nil {
 			jsonError(w, 500, "unable to list accounts")
 			return
@@ -31,12 +31,12 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 		var out []map[string]any
 		for rows.Next() {
 			var id, n, t, policy string
-			var active bool
-			if rows.Scan(&id, &n, &t, &policy, &active) != nil {
+			var active, systemManaged bool
+			if rows.Scan(&id, &n, &t, &policy, &active, &systemManaged) != nil {
 				jsonError(w, 500, "unable to list accounts")
 				return
 			}
-			out = append(out, map[string]any{"id": id, "name": n, "accountType": t, "trackingPolicy": policy, "active": active})
+			out = append(out, map[string]any{"id": id, "name": n, "accountType": t, "trackingPolicy": policy, "active": active, "systemManaged": systemManaged})
 		}
 		jsonOut(w, 200, out)
 		return
