@@ -8,7 +8,7 @@
 - [x] Generic extractor uses the gateway abstraction only
 - [x] Listener schema and owner API are in place
 - [ ] Real primary/ocg/minimax native-tool smoke test
-- [ ] Gmail sender/auth trust boundary and Jago shadow comparison
+- [x] Gmail sender/auth trust boundary and generic listener routing
 - [x] Go policy matrix baseline exists
 - [ ] Partial extraction reaches Review Inbox and Telegram merchant/detail/category completion
 - [ ] Full API/worker/web/Compose regression

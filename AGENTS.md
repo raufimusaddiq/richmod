@@ -36,20 +36,13 @@ Do not treat an initial design document as permanently authoritative.
 - Webhooks and jobs must be idempotent.
 - Deterministic flows must keep working when the LLM gateway is unavailable.
 
-## Bank Jago
+## Bank email ingestion
 
-Jago uses `SPENDING_ONLY` policy.
-
-- Merchant/QR/debit-card outgoing -> expense candidate.
-- Incoming Jago money -> not income.
-- Transfers to known own/household accounts -> transfer, not expense.
-- Jago pocket movement -> internal transfer, not expense/income.
-- RDN/investment movement -> ignore from MVP spending.
-- V4 bank listeners use the required generic native-tool extractor after Gmail
-  sender/authentication trust checks. Generic native extraction is now the
-  normal path for matched listeners; its output remains untrusted until
-  deterministic Go validation and policy evaluation succeed. The deterministic
-  Jago parser is compatibility-only and must not run alongside generic-primary.
+Bank email sources are configured as household-scoped listeners and all use
+the generic native-tool extraction pipeline with fixed `SPENDING_ONLY` policy.
+Do not add bank-specific parsers, sender environment variables, or provider
+branches to the active ingestion path. Ambiguous or incomplete facts go to
+review and are never guessed.
 
 ## Telegram
 

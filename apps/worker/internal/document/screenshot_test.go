@@ -45,13 +45,13 @@ func TestValidateInvoiceRequiresPaidStatus(t *testing.T) {
 	}
 }
 
-func TestJagoIncomingScreenshotIsIgnoredBySpendingOnlyPolicy(t *testing.T) {
-	input := screenshotExtraction{AccountHint: "Bank Jago", Confidence: .95, Transactions: []screenshotRow{{Direction: "IN", Amount: "100000", Currency: "IDR", Confidence: .95}}}
+func TestIncomingScreenshotRowsRemainIncomeCandidates(t *testing.T) {
+	input := screenshotExtraction{AccountHint: "Primary bank", Confidence: .95, Transactions: []screenshotRow{{Direction: "IN", Amount: "100000", Currency: "IDR", Confidence: .95}}}
 	rows, err := validateScreenshot(input, time.Now().In(jakarta()), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || !rows[0].Ignored {
-		t.Fatalf("Jago incoming row must be retained but ignored: %+v", rows)
+	if len(rows) != 1 || rows[0].Type != "INCOME" {
+		t.Fatalf("incoming row must remain an income candidate: %+v", rows)
 	}
 }

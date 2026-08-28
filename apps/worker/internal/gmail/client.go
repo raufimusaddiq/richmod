@@ -23,9 +23,7 @@ type Config struct {
 	OAuthClientPath string
 	TokenKeyHex     string
 	Mailbox         string
-	TrustedSender   string
 	PubSubTopic     string
-	GenericPrimary  bool
 }
 
 type oauthClient struct {
@@ -37,7 +35,6 @@ type client struct {
 	oauth      oauthClient
 	key        []byte
 	mailbox    string
-	sender     string
 	topic      string
 	httpClient *http.Client
 }
@@ -70,7 +67,6 @@ func newClient(config Config) (*client, error) {
 		oauth:      oauthClient{ClientID: document.Web.ClientID, ClientSecret: document.Web.ClientSecret},
 		key:        key,
 		mailbox:    strings.ToLower(strings.TrimSpace(config.Mailbox)),
-		sender:     strings.ToLower(strings.TrimSpace(config.TrustedSender)),
 		topic:      strings.TrimSpace(config.PubSubTopic),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}, nil

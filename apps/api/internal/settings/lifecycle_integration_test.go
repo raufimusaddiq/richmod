@@ -36,7 +36,7 @@ func TestAccountAndCategoryLifecyclePreservesRecords(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Jago','BANK','SPENDING_ONLY') RETURNING id`, householdID).Scan(&accountID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Primary bank','BANK','SPENDING_ONLY') RETURNING id`, householdID).Scan(&accountID); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Belanja','belanja') RETURNING id`, householdID).Scan(&categoryID); err != nil {

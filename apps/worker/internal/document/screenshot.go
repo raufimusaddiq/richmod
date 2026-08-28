@@ -30,11 +30,11 @@ type screenshotRow struct {
 }
 
 type screenshotExtraction struct {
-	AccountHint  string          `json:"account_hint"`
-	Transactions []screenshotRow `json:"transactions"`
-	PaymentStatus string         `json:"payment_status,omitempty"`
-	DueDate       *string        `json:"due_date,omitempty"`
-	Confidence   float64         `json:"confidence"`
+	AccountHint   string          `json:"account_hint"`
+	Transactions  []screenshotRow `json:"transactions"`
+	PaymentStatus string          `json:"payment_status,omitempty"`
+	DueDate       *string         `json:"due_date,omitempty"`
+	Confidence    float64         `json:"confidence"`
 }
 
 type validatedScreenshotRow struct {
@@ -45,7 +45,6 @@ type validatedScreenshotRow struct {
 	CategoryID    *string
 	Candidates    []matchCandidate
 	Matched       *matchCandidate
-	Ignored       bool
 }
 
 func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) error {
@@ -93,9 +92,6 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	}
 	usedMatches := make(map[string]bool)
 	for index := range rows {
-		if rows[index].Ignored {
-			continue
-		}
 		matches, err := p.findMatches(ctx, householdID, rows[index].Type, rows[index].Value.Amount, rows[index].TransactionAt, rows[index].Value.Merchant, rows[index].DateKnown)
 		if err != nil {
 			return err
@@ -168,7 +164,6 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 		if row.Direction == "IN" {
 			transactionType = "INCOME"
 		}
-		ignored := row.Direction == "IN" && strings.Contains(normalizeMerchant(value.AccountHint), "jago")
 		var categoryID *string
 		if row.Direction == "OUT" && row.CategorySlug != nil && row.CategoryConfidence >= .90 {
 			if id, ok := categoryIDs[*row.CategorySlug]; ok {
@@ -176,7 +171,7 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 				categoryID = &value
 			}
 		}
-		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, Ignored: ignored})
+		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID})
 	}
 	return result, nil
 }
@@ -191,12 +186,6 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	needsReview := false
 	for index, row := range rows {
 		proposalKey := fmt.Sprintf("row-%03d", index+1)
-		if row.Ignored {
-			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','IGNORE_JAGO_INCOMING_SCREENSHOT_ROW','source_event',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'amount',$5::text))`, householdID, sourceID, documentID, index, row.Value.Amount); err != nil {
-				return err
-			}
-			continue
-		}
 		if row.Matched != nil {
 			var proposalID string
 			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),NULLIF($8,''),$9,'MERGED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'matched_transaction_id',$12::uuid,'match_score',$13::numeric)) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.Value.Description, row.Value.Confidence, documentID, index, row.Matched.ID, row.Matched.Score).Scan(&proposalID); err != nil {

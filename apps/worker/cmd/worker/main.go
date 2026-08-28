@@ -58,19 +58,14 @@ func run(logger *slog.Logger) error {
 	}
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS"))
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
-	gmailProcessor, err := workerGmail.NewProcessor(pool, llm, workerGmail.Config{
+	gmailProcessor, err := workerGmail.NewProcessor(pool, workerGmail.Config{
 		OAuthClientPath: os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
 		TokenKeyHex:     os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
 		Mailbox:         os.Getenv("GMAIL_MAILBOX"),
-		TrustedSender:   os.Getenv("GMAIL_TRUSTED_SENDER"),
 		PubSubTopic:     os.Getenv("GMAIL_PUBSUB_TOPIC"),
-		GenericPrimary:  parseBoolEnv("GMAIL_GENERIC_PRIMARY"),
 	})
 	if err != nil {
 		return fmt.Errorf("configure Gmail worker: %w", err)
-	}
-	if err := gmailProcessor.SeedLegacyListener(ctx); err != nil {
-		return fmt.Errorf("seed legacy bank email listener: %w", err)
 	}
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(llm))
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
@@ -92,9 +87,6 @@ func run(logger *slog.Logger) error {
 	maintenanceTicker := time.NewTicker(time.Minute)
 	defer maintenanceTicker.Stop()
 	if gmailProcessor != nil {
-		if err := gmailProcessor.RecoverUnpersisted(ctx); err != nil {
-			logger.Error("recover Gmail source events", "error", err)
-		}
 		if err := gmailProcessor.SeedRenewalJobs(ctx); err != nil {
 			logger.Error("Gmail watch maintenance failed", "error", err)
 		}
@@ -118,11 +110,6 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}
-}
-
-func parseBoolEnv(name string) bool {
-	value, err := strconv.ParseBool(os.Getenv(name))
-	return err == nil && value
 }
 
 func runInteractiveLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID string) {

@@ -44,11 +44,11 @@ func TestExtractorRequiresOneNativeBankToolCall(t *testing.T) {
 	llm := &recordingGateway{}
 	extractor := NewExtractor(llm)
 	got, metadata, err := extractor.Extract(context.Background(), "source-1", Listener{
-		BankName:      "Jenius",
-		SenderAddress: "jenius_noreply@smbci.com",
+		BankName:      "Example Bank",
+		SenderAddress: "notify@example.com",
 	}, TrustedEmail{
 		MessageID:             "message-1",
-		Subject:               "d-Card Credit Card Transaction",
+		Subject:               "Card Transaction Notification",
 		Date:                  "Fri, 28 Aug 2026 09:59:36 +0700",
 		AuthenticationResults: "dkim=pass; dmarc=pass",
 		Body:                  "Merchant: TOKOPEDIA\nTotal: IDR 378,075.00",
@@ -72,7 +72,7 @@ func TestExtractorRequiresOneNativeBankToolCall(t *testing.T) {
 
 func TestExtractorRetriesTransientNativeContractFailure(t *testing.T) {
 	llm := &retryGateway{}
-	_, _, err := NewExtractor(llm).Extract(context.Background(), "source-retry", Listener{BankName: "Jago", SenderAddress: "notify@example.test"}, TrustedEmail{Body: "notice"})
+	_, _, err := NewExtractor(llm).Extract(context.Background(), "source-retry", Listener{BankName: "Example Bank", SenderAddress: "notify@example.test"}, TrustedEmail{Body: "notice"})
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}
