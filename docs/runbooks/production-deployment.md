@@ -22,6 +22,7 @@ the API to issue `Secure` session cookies. Do not override it with an HTTP URL.
 - The working tree is updated `main`; deploy only from that worktree.
 
 Required integration settings are `LLM_GATEWAY_BASE_URL`, `LLM_GATEWAY_API_KEY`,
+`LLM_GATEWAY_PROTOCOL=responses`,
 `LLM_MODEL_TELEGRAM_EXTRACT`, `LLM_MODEL_DOCUMENT_VISION`,
 `LLM_MODEL_INSIGHTS`, `TELEGRAM_BOT_TOKEN`, and a random
 `TELEGRAM_WEBHOOK_SECRET`. The worker joins `idx_default` only to reach the cloud

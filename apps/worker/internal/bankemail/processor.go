@@ -3,6 +3,7 @@ package bankemail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -49,7 +50,12 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		if payload.Shadow {
 			return err
 		}
-		_, _ = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, payload.SourceEventID, ToolSchemaVersion)
+		var schemaErr SchemaError
+		if errors.As(err, &schemaErr) {
+			_, persistErr := p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result) VALUES($1,$2,'native_tool',$3,$4,'{}','INVALID','NEEDS_REVIEW') ON CONFLICT(source_event_id) DO UPDATE SET gateway_model=excluded.gateway_model,validation_status='INVALID',policy_result='NEEDS_REVIEW'; UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='bank-email-generic',parser_version=$4 WHERE id=$1`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion)
+			return persistErr
+		}
+		_, _ = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result) VALUES($1,$2,'native_tool',$3,$4,'{}','TRANSPORT_FAILED','RETRY') ON CONFLICT(source_event_id) DO UPDATE SET gateway_model=excluded.gateway_model,validation_status='TRANSPORT_FAILED',policy_result='RETRY'; UPDATE source_event SET processing_status='FAILED',parser_name='bank-email-generic',parser_version=$4 WHERE id=$1`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion)
 		return err
 	}
 	output, _ := json.Marshal(extraction)
@@ -87,14 +93,14 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	if status == "IGNORED" {
-		_, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, payload.SourceEventID, ToolSchemaVersion)
+		_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result) VALUES($1,$2,'native_tool',$3,$4,$5::jsonb,'VALID','IGNORED') ON CONFLICT(source_event_id) DO UPDATE SET output_json=excluded.output_json,gateway_model=excluded.gateway_model,validation_status='VALID',policy_result='IGNORED'; UPDATE source_event SET processing_status='IGNORED',parser_name='bank-email-generic',parser_version=$4 WHERE id=$1`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion, string(output))
 		return err
 	}
 	if _, err = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result) VALUES($1,$2,'native_tool',$3,$4,$5::jsonb,'VALID',$6) ON CONFLICT(source_event_id) DO UPDATE SET output_json=excluded.output_json,gateway_model=excluded.gateway_model,validation_status=excluded.validation_status,policy_result=excluded.policy_result`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion, string(output), status); err != nil {
 		return err
 	}
-	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") {
-		_, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, payload.SourceEventID, ToolSchemaVersion)
+	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") || extraction.Confidence < 0.80 {
+		_, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1; INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($3,$1,'UNKNOWN_BANK_TEMPLATE','OPEN') ON CONFLICT DO NOTHING`, payload.SourceEventID, ToolSchemaVersion, household)
 		return err
 	}
 	var alreadyPersisted bool

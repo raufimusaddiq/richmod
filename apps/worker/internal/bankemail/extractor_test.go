@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -20,7 +21,7 @@ type retryGateway struct{ calls int }
 func (g *retryGateway) NativeToolCall(_ context.Context, _ string, _ string, _ any, _ []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	g.calls++
 	if g.calls < 2 {
-		return gateway.ToolCall{}, gateway.Metadata{}, errors.New("LLM gateway returned prose with required native tool call")
+		return gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(`{"kind":"TRANSACTION","direction":"OUTGOING","channel":"DEBIT_CARD","amount_idr":"bad","transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":null,"missing_fields":[],"confidence":0.9}`)}, gateway.Metadata{}, nil
 	}
 	return gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(`{"kind":"NON_TRANSACTION","direction":null,"channel":null,"amount_idr":null,"transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":null,"missing_fields":[],"confidence":0.9}`)}, gateway.Metadata{Model: "retry-model"}, nil
 }
@@ -70,7 +71,7 @@ func TestExtractorRequiresOneNativeBankToolCall(t *testing.T) {
 	}
 }
 
-func TestExtractorRetriesTransientNativeContractFailure(t *testing.T) {
+func TestExtractorMakesOneCorrectiveCallForSchemaFailure(t *testing.T) {
 	llm := &retryGateway{}
 	_, _, err := NewExtractor(llm).Extract(context.Background(), "source-retry", Listener{BankName: "Example Bank", SenderAddress: "notify@example.test"}, TrustedEmail{Body: "notice"})
 	if err != nil {
@@ -78,5 +79,30 @@ func TestExtractorRetriesTransientNativeContractFailure(t *testing.T) {
 	}
 	if llm.calls != 2 {
 		t.Fatalf("native call attempts = %d, want 2", llm.calls)
+	}
+}
+
+type transportFailureGateway struct{ calls int }
+
+func (g *transportFailureGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	g.calls++
+	return gateway.ToolCall{}, gateway.Metadata{}, errors.New("timeout")
+}
+
+func TestExtractorDoesNotRetryTransportFailureInsideJob(t *testing.T) {
+	llm := &transportFailureGateway{}
+	_, _, err := NewExtractor(llm).Extract(context.Background(), "source", Listener{BankName: "Bank"}, TrustedEmail{Body: "notice"})
+	if err == nil || llm.calls != 1 {
+		t.Fatalf("err=%v calls=%d", err, llm.calls)
+	}
+}
+
+func TestNormalizeVisibleBankEmailText(t *testing.T) {
+	got := normalizeVisibleText("<p>Total:&nbsp; IDR 10</p>\n<div>Merchant</div>")
+	if got != "Total: IDR 10 Merchant" {
+		t.Fatalf("got %q", got)
+	}
+	if len(normalizeVisibleText(strings.Repeat("x", (32<<10)+100))) > 32<<10 {
+		t.Fatal("body was not capped")
 	}
 }

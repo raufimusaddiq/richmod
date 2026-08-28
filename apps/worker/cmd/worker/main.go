@@ -169,6 +169,22 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 }
 
 func processJob(ctx context.Context, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, job queue.Job) error {
+	budget := time.Duration(0)
+	switch job.Type {
+	case "PROCESS_TELEGRAM_TEXT":
+		budget = 10 * time.Second
+	case "PROCESS_BANK_EMAIL":
+		budget = 45 * time.Second
+	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "FETCH_TELEGRAM_IMAGE":
+		budget = 60 * time.Second
+	case "GENERATE_INSIGHT":
+		budget = 30 * time.Second
+	}
+	if budget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, budget)
+		defer cancel()
+	}
 	switch job.Type {
 	case "PROCESS_TELEGRAM_CALLBACK":
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)

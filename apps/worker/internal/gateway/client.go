@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
 type Client struct {
-	baseURL string
-	apiKey  string
-	model   string
-	http    *http.Client
+	baseURL  string
+	apiKey   string
+	model    string
+	protocol string
+	http     *http.Client
 }
 
 type Metadata struct {
@@ -61,6 +63,9 @@ func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, ca
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return ToolResponse{}, fmt.Errorf("LLM gateway is not configured")
 	}
+	if c.protocol != "responses" {
+		return ToolResponse{}, fmt.Errorf("native tool continuation requires responses protocol")
+	}
 	payload := map[string]any{"model": c.model, "previous_response_id": responseID, "input": []map[string]any{{"type": "function_call_output", "call_id": callID, "output": output}}, "stream": false}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -78,7 +83,7 @@ func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, ca
 		return ToolResponse{}, err
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, err := readBounded(resp.Body)
 	if err != nil {
 		return ToolResponse{}, err
 	}
@@ -97,7 +102,7 @@ func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, ca
 			Content            []struct{ Type, Text string } `json:"content"`
 		} `json:"output"`
 	}
-	if err = json.Unmarshal(raw, &env); err != nil {
+	if err = decodeStrict(raw, &env); err != nil {
 		return ToolResponse{}, err
 	}
 	meta := Metadata{Model: env.Model, Cost: env.Cost, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output}
@@ -152,6 +157,9 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	if err != nil {
 		return ToolCall{}, Metadata{}, fmt.Errorf("encode tool request: %w", err)
 	}
+	if c.protocol == "chat_completions" {
+		return c.nativeChatCompletion(ctx, requestID, systemPrompt, userContent, encodedTools, options)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/responses", bytes.NewReader(body))
 	if err != nil {
 		return ToolCall{}, Metadata{}, err
@@ -164,14 +172,11 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 		return ToolCall{}, Metadata{}, fmt.Errorf("call LLM tool gateway: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, err := readBounded(resp.Body)
 	if err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusNotFound {
-			return c.nativeChatCompletion(ctx, requestID, systemPrompt, userContent, encodedTools, options)
-		}
 		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned HTTP %d", resp.StatusCode)
 	}
 	var envelope struct {
@@ -193,20 +198,8 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 				Text string `json:"text"`
 			} `json:"content"`
 		} `json:"output"`
-		Choices []struct {
-			Message struct {
-				ToolCalls []struct {
-					ID       string `json:"id"`
-					Type     string `json:"type"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"message"`
-		} `json:"choices"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
+	if err := decodeStrict(raw, &envelope); err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
 	var calls []ToolCall
@@ -222,13 +215,6 @@ func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt str
 	for _, item := range envelope.Output {
 		if item.Type == "function_call" {
 			calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: normalizeToolArguments(item.Arguments)})
-		}
-	}
-	for _, choice := range envelope.Choices {
-		for _, call := range choice.Message.ToolCalls {
-			if call.Type == "function" {
-				calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)})
-			}
 		}
 	}
 	if len(calls) == 0 {
@@ -286,7 +272,7 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 		return ToolCall{}, Metadata{}, fmt.Errorf("call chat completion gateway: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, err := readBounded(resp.Body)
 	if err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
@@ -309,7 +295,7 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(raw, &env); err != nil {
+	if err := decodeStrict(raw, &env); err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
 	var calls []ToolCall
@@ -354,7 +340,18 @@ func validateNativeCalls(calls []ToolCall, allowed map[string]bool, options Nati
 }
 
 func New(baseURL, apiKey, model string) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, model: model, http: &http.Client{Timeout: 60 * time.Second}}
+	protocol := strings.TrimSpace(os.Getenv("LLM_GATEWAY_PROTOCOL"))
+	if protocol == "" {
+		protocol = "responses"
+	}
+	return NewWithProtocol(baseURL, apiKey, model, protocol)
+}
+
+func NewWithProtocol(baseURL, apiKey, model, protocol string) *Client {
+	if protocol != "responses" && protocol != "chat_completions" {
+		protocol = "responses"
+	}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, model: model, protocol: protocol, http: &http.Client{Timeout: 60 * time.Second}}
 }
 
 func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt string, content any, schema map[string]any, out any) (Metadata, error) {
@@ -364,6 +361,9 @@ func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt s
 	userContent, err := normalizeContent(content)
 	if err != nil {
 		return Metadata{}, err
+	}
+	if c.protocol == "chat_completions" {
+		return c.structuredChatCompletion(ctx, requestID, systemPrompt, userContent, schema, out)
 	}
 	payload := map[string]any{
 		"model": c.model,
@@ -393,7 +393,7 @@ func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt s
 		return Metadata{}, fmt.Errorf("call LLM gateway: %w", err)
 	}
 	defer response.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	raw, err := readBounded(response.Body)
 	if err != nil {
 		return Metadata{}, fmt.Errorf("read LLM response: %w", err)
 	}
@@ -414,13 +414,8 @@ func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt s
 				Text string `json:"text"`
 			} `json:"content"`
 		} `json:"output"`
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
+	if err := decodeStrict(raw, &envelope); err != nil {
 		return Metadata{}, fmt.Errorf("decode LLM response: %w", err)
 	}
 	structured := ""
@@ -431,18 +426,10 @@ func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt s
 			}
 		}
 	}
-	if structured == "" {
-		for _, choice := range envelope.Choices {
-			if choice.Message.Content != "" {
-				structured = choice.Message.Content
-				break
-			}
-		}
-	}
 	decoder := json.NewDecoder(strings.NewReader(structured))
 	decoder.DisallowUnknownFields()
-	if structured == "" || decoder.Decode(out) != nil {
-		return c.structuredChatCompletion(ctx, requestID, systemPrompt, userContent, schema, out)
+	if structured == "" || decoder.Decode(out) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		return Metadata{}, fmt.Errorf("LLM gateway returned invalid structured output")
 	}
 	return Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost}, nil
 }
@@ -465,7 +452,7 @@ func (c *Client) structuredChatCompletion(ctx context.Context, requestID, system
 		return Metadata{}, fmt.Errorf("call chat completion gateway: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, err := readBounded(resp.Body)
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -484,19 +471,42 @@ func (c *Client) structuredChatCompletion(ctx context.Context, requestID, system
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(raw, &env); err != nil {
+	if err := decodeStrict(raw, &env); err != nil {
 		return Metadata{}, err
 	}
 	for _, choice := range env.Choices {
 		if choice.Message.Content != "" {
 			dec := json.NewDecoder(strings.NewReader(choice.Message.Content))
 			dec.DisallowUnknownFields()
-			if dec.Decode(out) == nil {
+			if dec.Decode(out) == nil && dec.Decode(&struct{}{}) == io.EOF {
 				return Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost}, nil
 			}
 		}
 	}
 	return Metadata{}, fmt.Errorf("LLM gateway returned invalid structured output")
+}
+
+func readBounded(reader io.Reader) ([]byte, error) {
+	limited := io.LimitReader(reader, (2<<20)+1)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("read LLM response: %w", err)
+	}
+	if len(raw) > 2<<20 {
+		return nil, fmt.Errorf("LLM gateway response exceeds 2 MiB")
+	}
+	return raw, nil
+}
+
+func decodeStrict(raw []byte, out any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(out); err != nil {
+		return fmt.Errorf("decode LLM response: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("decode LLM response: trailing JSON")
+	}
+	return nil
 }
 
 func normalizeContent(content any) (any, error) {

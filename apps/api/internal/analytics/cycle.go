@@ -21,19 +21,13 @@ func (h *Handler) Cycle(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().In(clock.HouseholdLocation())
 	var start *time.Time
 	var end *time.Time
-	err := h.pool.QueryRow(r.Context(), `
-		WITH anchors AS (
-			SELECT se.pay_date
-			FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id
-			WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED'
-		)
-		SELECT (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date),
-		       (SELECT min(pay_date) FROM anchors WHERE pay_date > $2::date)`, household, now.Format("2006-01-02")).Scan(&start, &end)
+	var configured bool
+	err := h.pool.QueryRow(r.Context(), `SELECT configured,starts_on,ends_on FROM salary_cycle_bounds($1,$2::date)`, household, now.Format("2006-01-02")).Scan(&configured, &start, &end)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to resolve salary cycle"})
 		return
 	}
-	if start == nil {
+	if !configured || start == nil {
 		calendarStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
 		writeJSON(w, http.StatusOK, map[string]any{"kind": "CALENDAR_MONTH", "start": calendarStart.Format("2006-01-02"), "end": calendarStart.AddDate(0, 1, 0).Format("2006-01-02"), "open": false, "configured": false})
 		return
