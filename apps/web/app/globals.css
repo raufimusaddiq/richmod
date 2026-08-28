@@ -33,3 +33,8 @@ dialog::backdrop { background: rgba(20, 24, 30, .55); }
 .transaction-form label { display: grid; gap: 6px; font-weight: 600; }
 .transaction-form input, .transaction-form select, .transaction-form textarea { width: 100%; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.page-thumbnails { display:flex; gap:8px; overflow-x:auto; margin:10px 0 18px; }
+.page-thumbnails button { position:relative; min-width:70px; padding:3px; background:transparent; border:2px solid transparent; }
+.page-thumbnails button[aria-current="true"] { border-color:currentColor; }
+.page-thumbnails img { width:62px; height:62px; object-fit:cover; display:block; }
+.page-thumbnails span { position:absolute; right:5px; bottom:5px; background:#fff; color:#111; padding:1px 5px; border-radius:9px; font-size:11px; }

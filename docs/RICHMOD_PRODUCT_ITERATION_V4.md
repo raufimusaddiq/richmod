@@ -2,12 +2,11 @@
 
 ## Implementation status
 
-The initial V4 foundation is implemented: protocol-independent required native
-tool calls, the canonical bank extraction boundary and validator, deterministic
-policy baseline, listener schema/API, system-managed listener accounts, queue
-entry point, and Settings listener management. Gmail shadow promotion,
-proposal/review completion, Telegram detail flows, and live gateway smoke tests
-remain gated follow-up work; deployment is intentionally not included.
+The config-driven generic bank path is active. Extraction now uses one explicitly
+configured gateway protocol, bounded calls, persisted validation outcomes, and
+canonical source review for incomplete facts. Listener configuration and
+`SPENDING_ONLY` policy remain generic. Real second-sender acceptance is still
+pending and must not be inferred from fake-server coverage.
 
 **Document type:** Modification plan + implementation preferences for Codex
 **Repository:** `raufimusaddiq/richmod`

@@ -21,3 +21,9 @@ current deploy gate without changing historical iteration documentation.
 - [ ] One controlled configured-bank message completes generic extraction and audit verification.
 - [ ] A second configured-bank sender is verified through the same generic path.
 - [x] Telegram multi-recipient live verification passes; production bank-review runs delivered the same review to both active linked identities and a member callback resolved the shared review once.
+# Current remediation note (2026-08-29)
+
+Application-side queue isolation, callback ingress, single-protocol gateway
+behavior, bank outcome persistence, and multipage document contracts are covered
+by automated/local verification. Real second-sender bank acceptance and off-host
+backup verification remain pending production acceptance items.

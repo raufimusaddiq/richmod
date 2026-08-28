@@ -12,12 +12,19 @@ import (
 type Handler struct {
 	pool              *pgxpool.Pool
 	gatewayConfigured bool
+	protocol          string
 }
 
-func NewHandler(pool *pgxpool.Pool, gatewayConfigured ...bool) *Handler {
+func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
 	handler := &Handler{pool: pool}
-	if len(gatewayConfigured) > 0 {
-		handler.gatewayConfigured = gatewayConfigured[0]
+	if len(gatewayOptions) > 0 {
+		handler.gatewayConfigured, _ = gatewayOptions[0].(bool)
+	}
+	if len(gatewayOptions) > 1 {
+		handler.protocol, _ = gatewayOptions[1].(string)
+	}
+	if handler.protocol == "" {
+		handler.protocol = "responses"
 	}
 	return handler
 }
@@ -98,7 +105,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		"jobs":          map[string]any{"pending": pendingJobs, "running": runningJobs, "recentFailures": failedJobs, "lanes": lanes},
 		"reviewBacklog": openReviews,
 		"gmail":         map[string]any{"status": gmailStatus, "updatedAt": gmailUpdated},
-		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only"},
+		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only", "protocol": h.protocol},
 		"checkedAt":     time.Now(),
 	})
 }

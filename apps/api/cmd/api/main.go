@@ -67,7 +67,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	insightHandler := insight.NewHandler(pool)
-	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "")
+	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
@@ -130,6 +130,8 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/documents", authHandler.RequireSession(http.HandlerFunc(documentHandler.List)))
 	mux.Handle("POST /api/v1/documents", authHandler.RequireSession(http.HandlerFunc(documentHandler.Upload)))
 	mux.Handle("GET /api/v1/documents/{id}/content", authHandler.RequireSession(http.HandlerFunc(documentHandler.Content)))
+	mux.Handle("GET /api/v1/documents/{id}/pages", authHandler.RequireSession(http.HandlerFunc(documentHandler.Pages)))
+	mux.Handle("GET /api/v1/documents/{id}/pages/{index}/content", authHandler.RequireSession(http.HandlerFunc(documentHandler.PageContent)))
 	mux.Handle("GET /api/v1/documents/{id}/extraction", authHandler.RequireSession(http.HandlerFunc(documentHandler.Extraction)))
 	mux.Handle("GET /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("POST /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
