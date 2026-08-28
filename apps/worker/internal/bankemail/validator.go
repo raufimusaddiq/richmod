@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"regexp"
 	"strings"
@@ -38,8 +39,21 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 		return Extraction{}, fmt.Errorf("invalid emit_bank_transaction arguments: %w", err)
 	}
 	var extra any
-	if dec.Decode(&extra) == nil {
-		return Extraction{}, fmt.Errorf("trailing tool arguments")
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return Extraction{}, fmt.Errorf("trailing tool arguments")
+		}
+		return Extraction{}, fmt.Errorf("invalid trailing tool arguments")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(call.Arguments, &fields); err != nil {
+		return Extraction{}, fmt.Errorf("invalid emit_bank_transaction object")
+	}
+	for _, name := range []string{"kind", "direction", "channel", "amount_idr", "transaction_at", "merchant", "counterparty", "reference", "description", "missing_fields", "confidence"} {
+		value, ok := fields[name]
+		if !ok || string(value) == "null" && name != "direction" && name != "channel" && name != "amount_idr" && name != "transaction_at" && name != "merchant" && name != "counterparty" && name != "reference" && name != "description" {
+			return Extraction{}, fmt.Errorf("missing required field %s", name)
+		}
 	}
 	if raw.Kind != "TRANSACTION" && raw.Kind != "NON_TRANSACTION" && raw.Kind != "UNKNOWN" {
 		return Extraction{}, fmt.Errorf("invalid bank email kind")
@@ -113,7 +127,7 @@ func parseTransactionTime(value string) (time.Time, error) {
 
 func oneOf(value string, values ...string) bool {
 	for _, item := range values {
-		if strings.EqualFold(value, item) {
+		if value == item {
 			return true
 		}
 	}

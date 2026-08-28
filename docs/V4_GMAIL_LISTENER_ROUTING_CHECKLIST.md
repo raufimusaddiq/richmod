@@ -11,4 +11,4 @@
 - [x] Existing worker and generic bank-email regression tests pass
 - [x] Listener evidence records extraction output and policy result
 - [x] Listener configuration is household-scoped and owner-managed
-- [ ] Live native-tool smoke test against `ocg/minimax-m3`
+- [x] Live native-tool smoke test against the production `primary` model
