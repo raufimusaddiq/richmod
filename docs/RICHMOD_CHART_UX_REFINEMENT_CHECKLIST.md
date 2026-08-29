@@ -133,11 +133,11 @@ record only. Do not update the source plan to mark progress.
 - [x] Confirm no API changes were introduced unless separately justified and documented.
 - [x] Confirm the base plan `RICHMOD_CHART_UX_REFINEMENT_CODEX.md` was not edited.
 - [x] Record baseline `main` SHA, branch, worktree, changed files, and component changes.
-- [ ] Commit with a descriptive message.
-- [ ] Push the feature branch.
-- [ ] Merge the feature branch into `main` with `--no-ff`.
-- [ ] Push updated `main`.
-- [ ] Do not deploy unless explicitly requested.
+- [x] Commit with a descriptive message.
+- [x] Push the feature branch.
+- [x] Merge the feature branch into `main` with `--no-ff`.
+- [x] Push updated `main`.
+- [x] Do not deploy unless explicitly requested.
 
 ## Completion record
 
@@ -152,9 +152,9 @@ API changes: None.
 Tests and results: `npm test` — 18 passed.
 Build result: `npm run build` — passed.
 Responsive verification: Code/CSS review completed; browser visual inspection remains pending.
-Commit SHA:
-Merge SHA:
-Pushed main SHA:
+Commit SHA: `733b1ad`
+Merge SHA: `7bcf569`
+Pushed main SHA: `7bcf569`
 Deployment result: Not requested; not deployed.
 Remaining caveats: Three browser-only visual inspection items remain unchecked.
 ```
