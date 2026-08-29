@@ -1,6 +1,9 @@
 package insight
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestInsightFactArithmetic(t *testing.T) {
 	if got := completenessRatio("750000", "1000000", 0); got != "0.7500" {
@@ -14,5 +17,11 @@ func TestInsightFactArithmetic(t *testing.T) {
 	}
 	if got := changeRatio("120", "0"); got != "unavailable" {
 		t.Fatalf("zero baseline=%s", got)
+	}
+}
+
+func TestPendingInsightRemainsIdempotent(t *testing.T) {
+	if !strings.Contains(existingInsightQuery, "status='PENDING'") {
+		t.Fatal("pending insight must return EXISTING instead of conflicting with unique index")
 	}
 }
