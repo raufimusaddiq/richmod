@@ -39,6 +39,16 @@ test("charts answer distinct dashboard, cycle, calendar, and category questions"
   assert.match(charts, /ReferenceLine/);
 });
 
+test("analytics insight UI is aggregate-only and safely rendered", () => {
+  const analytics = text("app/analytics/page.js");
+  const card = text("app/components/InsightCard.js");
+  assert.match(analytics, /api\/v1\/insights/);
+  assert.match(analytics, /generate\?period=cycle/);
+  assert.match(analytics, /pollInsight/);
+  assert.match(card, /split\(\/\\n\{2,\}\//);
+  assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
+});
+
 test("transaction filters are query-backed", () => {
   const source = text("app/transactions/page.js");
   for (const name of ["from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "q"]) assert.match(source, new RegExp(`name=\\"${name}\\"`));
