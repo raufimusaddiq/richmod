@@ -13,6 +13,7 @@ Execution record for deployed card spacing correction. Source plan remains uncha
 - [x] Run web tests and production build.
 - [x] Run API tests and vet: `go test ./internal/insight ./cmd/api`; `go vet ./internal/insight ./cmd/api` passed.
 - [x] Deploy API and web from updated `main`; public `/` and `/analytics` return HTTP 200.
+- [x] Deploy web from updated `main`; public `/`, `/analytics`, `/reviews`, and `/transactions` return HTTP 200.
 - [ ] Verify final card visually in authenticated desktop/mobile browser.
 
 ```text
@@ -22,6 +23,7 @@ Backend changes: Insight generation idempotency query only; no schema change.
 Layout commit: 0d51ff3
 API idempotency commit: 26b26ca
 Visual refinement commit: cab2d3c
+First-card commit: abd1f7d
 Deployed API image: sha256:2dbeab2190edf0947895bc6013ade5bf37fca38982e4af351f004e747944cb34
-Deployed web image: sha256:daeb828fd344ba3d1463ccda8067b67c13380d69f251a0f01b3cd127e12c7596
+Deployed web image: sha256:c7ac3243d10d997e2bf8e6150fed67f3e4efa4bfcaa4f15b457f81cf489063e1
 ```
