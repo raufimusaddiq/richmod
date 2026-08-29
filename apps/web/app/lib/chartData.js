@@ -41,6 +41,11 @@ export function dayLabel(value) {
   return new Date(`${value}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", year: "numeric" });
 }
 
+export function cycleProgressLabel(daysElapsed) {
+  const day = Math.max(Number(daysElapsed || 0), 0);
+  return day > 0 ? `Hari ke-${day}` : "Belum dimulai";
+}
+
 export function mapMonthlyCashflow(items = []) {
   return items.map(item => ({ ...item, label: monthLabel(item.period), incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
 }
