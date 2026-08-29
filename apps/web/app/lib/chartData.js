@@ -13,10 +13,15 @@ export function compactCategories(items = [], limit = 5) {
   return compact.map(item => ({ ...item, share: total > 0 ? Number(item.amount || 0) / total : 0 }));
 }
 
-export function deriveCycleSpendingMetrics({ daily = [], spent = "0", daysElapsed = 0, daysTotal = 0 }) {
+export function elapsedDaily(items = [], daysElapsed) {
+  if (daysElapsed == null) return items;
+  return items.slice(0, Math.max(Number(daysElapsed || 0), 0));
+}
+
+export function deriveCycleSpendingMetrics({ daily = [], spent = "0", daysElapsed, daysTotal = 0 }) {
   const elapsed = Math.max(Number(daysElapsed || 0), 0);
   const normalized = daily.map(item => ({ ...item, expenseValue: Number(item.expense || 0) }));
-  const visible = normalized.slice(0, elapsed || normalized.length);
+  const visible = elapsedDaily(normalized, daysElapsed);
   const peak = visible.reduce((best, item) => item.expenseValue > best.expenseValue ? item : best, { period: null, expenseValue: 0 });
   return {
     average: Number(spent || 0) / Math.max(elapsed, 1),

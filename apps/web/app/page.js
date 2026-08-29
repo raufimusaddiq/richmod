@@ -7,6 +7,7 @@ import { ErrorNotice, Skeleton } from "./components/Feedback";
 import { CategoryDonutChart, DashboardDailySpendingChart } from "./components/Charts";
 import TransactionList from "./components/TransactionList";
 import useAuth from "./components/useAuth";
+import { elapsedDaily } from "./lib/chartData";
 import { money } from "./lib/format";
 
 export default function Home() {
@@ -24,7 +25,7 @@ export default function Home() {
     setLoading(true);
     try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions?limit=8"), fetch("/api/v1/analytics/cycle")]);
       if (responses.some(response => !response.ok)) setError("Sebagian ringkasan belum dapat dimuat."); else setError("");
-      if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(cycleData.daily || []); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
+      if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(elapsedDaily(cycleData.daily || [], cycleData.daysElapsed)); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
       if (responses[4].ok) setCycle(await responses[4].json());
     } catch { setError("Koneksi terputus saat memuat ringkasan."); } finally { setLoading(false); }
   }, [user]);
