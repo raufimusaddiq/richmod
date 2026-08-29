@@ -99,6 +99,11 @@ func run(logger *slog.Logger) error {
 		case <-ctx.Done():
 			return nil
 		case <-maintenanceTicker.C:
+			if deleted, err := pruneTerminalJobs(ctx, pool, 500); err != nil {
+				logger.Warn("job retention cleanup failed", "error", err)
+			} else if deleted > 0 {
+				logger.Info("job retention cleanup", "deleted", deleted)
+			}
 			if gmailProcessor != nil {
 				if err := gmailProcessor.SeedRenewalJobs(ctx); err != nil {
 					logger.Error("Gmail watch maintenance failed", "error", err)
@@ -106,6 +111,14 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}
+}
+
+func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int64, error) {
+	tag, err := pool.Exec(ctx, `WITH doomed AS (SELECT id FROM job WHERE (status='SUCCEEDED' AND finished_at < now()-interval '30 days') OR (status='FAILED' AND finished_at < now()-interval '90 days') ORDER BY finished_at LIMIT $1 FOR UPDATE SKIP LOCKED) DELETE FROM job j USING doomed d WHERE j.id=d.id`, batch)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 func runLaneLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, gmailProcessor *workerGmail.Processor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string, interval time.Duration) {
@@ -272,6 +285,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		return bankProcessor.Process(ctx, payload)
+	case "COMPLETE_BANK_REVIEW":
+		payload, err := bankemail.DecodePayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return bankProcessor.Complete(ctx, payload)
 	case "PROCESS_DOCUMENT":
 		payload, err := workerDocument.DecodePayload(job.Payload)
 		if err != nil {
