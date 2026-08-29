@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
 import { CategoryRankingChart, CycleSpendingPatternChart, MonthlyCashflowChart } from "../components/Charts";
 import useAuth from "../components/useAuth";
-import { dayLabel, deriveCycleSpendingMetrics } from "../lib/chartData";
+import { dayLabel, deriveCycleSpendingMetrics, elapsedDaily } from "../lib/chartData";
 import { money } from "../lib/format";
 
 const emptyCycle = { daily: [], salary: "0", spent: "0", remaining: "0", daysElapsed: 0, daysTotal: 0 };
@@ -29,7 +29,7 @@ export default function AnalyticsPage() {
     const cycle = dailyResponse.ok ? await dailyResponse.json() : emptyCycle;
     setDailyCycle(cycle || emptyCycle);
     if (mode === "cycle") {
-      const daily = cycle?.daily || [];
+      const daily = elapsedDaily(cycle?.daily || [], cycle?.daysElapsed);
       setData({ cashflow: daily, spending: daily.map(item => ({ period: item.period, expense: item.expense, refund: "0", netSpending: item.expense })), categories, merchants, members });
     } else setData({ cashflow, spending, categories, merchants, members });
     setError("");

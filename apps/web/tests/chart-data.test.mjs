@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactCategories, dayLabel, deriveCycleSpendingMetrics, mapMonthlyCashflow } from "../app/lib/chartData.js";
+import { compactCategories, dayLabel, deriveCycleSpendingMetrics, elapsedDaily, mapMonthlyCashflow } from "../app/lib/chartData.js";
 
 const categories = count => Array.from({ length: count }, (_, index) => ({ id: String(index), name: `Kategori ${index}`, amount: String((count - index) * 100) }));
 
@@ -32,8 +32,15 @@ test("cycle metrics use elapsed calendar days and find the peak", () => {
 test("cycle metrics handle zero elapsed days and all-zero cycles", () => {
   const metrics = deriveCycleSpendingMetrics({ daily: [{ period: "2026-08-29", expense: "0" }], spent: "0", daysElapsed: 0, daysTotal: 1 });
   assert.equal(metrics.average, 0);
-  assert.equal(metrics.zeroSpendDays, 1);
+  assert.equal(metrics.zeroSpendDays, 0);
   assert.equal(metrics.peak.expenseValue, 0);
+});
+
+test("elapsedDaily hides future cycle dates but preserves older API responses", () => {
+  const daily = Array.from({ length: 31 }, (_, index) => ({ period: `2026-08-${String(index + 1).padStart(2, "0")}` }));
+  assert.deepEqual(elapsedDaily(daily, 6), daily.slice(0, 6));
+  assert.deepEqual(elapsedDaily(daily, 0), []);
+  assert.deepEqual(elapsedDaily(daily), daily);
 });
 
 test("monthly mapping converts values and creates localized labels", () => {
