@@ -343,7 +343,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		var hasPrimary bool
 		_ = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, householdID).Scan(&hasPrimary)
 		if sourceType == "TELEGRAM_IMAGE" && !hasPrimary && telegramUser != 0 && telegramChat != 0 {
-			msg := "Slip gaji berhasil dibaca: Rp" + workerTelegram.FormatIDR(value.NetPay) + " dari " + value.Employer + ". Balas 'gaji utama', 'pemasukan biasa', atau 'abaikan'."
+			msg := "🧾 Slip gaji terbaca\n\nPenerbit: " + value.Employer + "\nGaji bersih: Rp" + workerTelegram.FormatIDR(value.NetPay) + "\n\nPilih: jadikan gaji utama, catat sebagai pemasukan biasa, atau abaikan."
 			_, _ = tx.Exec(ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date) VALUES($1,$2,$3,$4,$5,$6::date,$7::date)`, householdID, telegramUser, telegramChat, transactionID, value.Employer, value.Period+"-01", payDate)
 			_, _ = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text',$2::text))`, telegramChat, msg)
 		}
@@ -361,7 +361,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	if !autoConfirm {
 		var chatID int64
 		if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err == nil {
-			message := "🟡 Slip gaji perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(value.NetPay) + " dari " + value.Employer + "\n\nBalas pesan ini untuk menjelaskan atau buka Review Inbox."
+			message := "🟡 Slip gaji perlu ditinjau\n\nPenerbit: " + value.Employer + "\nGaji bersih: Rp" + workerTelegram.FormatIDR(value.NetPay) + "\n\nBalas pesan ini untuk menjelaskan, atau buka Review Inbox."
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, "MANUAL_CORRECTION", chatID, 0, message); err != nil {
 				return err
 			}

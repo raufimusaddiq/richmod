@@ -301,7 +301,8 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if transactionStatus == "NEEDS_REVIEW" {
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
-			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, "Ada transaksi bank yang perlu ditinjau: "+description); err != nil {
+			message := "🏦 Transaksi bank perlu ditinjau\n\nNominal: Rp" + workerTelegram.FormatIDR(amount) + "\nKeterangan: " + description + "\n\nPilih kategori atau lengkapi detail transaksi."
+			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
 				return err
 			}
 		}

@@ -960,7 +960,18 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 	if autoConfirm {
 		message := value.ResponseMessage
 		if message == "" {
-			message = "Tercatat."
+			label := value.Merchant
+			if label == "" {
+				label = value.Description
+			}
+			if label == "" {
+				label = "Transaksi"
+			}
+			kind := "Pengeluaran"
+			if value.Type == "INCOME" {
+				kind = "Pemasukan"
+			}
+			message = "✅ " + kind + " tercatat\n\n" + label + "\nRp" + FormatIDR(value.Amount)
 		}
 		if err := enqueueReply(ctx, tx, update, message); err != nil {
 			return err
