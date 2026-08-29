@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -66,7 +67,55 @@ func (q *Queue) Fail(ctx context.Context, job Job, processErr error) error {
 	}
 	delaySeconds := int(time.Duration(1<<min(job.Attempts, 8)) * time.Second / time.Second)
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status=$2,run_after=now()+$3*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$4,finished_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND status='RUNNING'`, job.ID, status, delaySeconds, truncate(processErr.Error(), 1000))
-	return err
+	if err != nil {
+		return err
+	}
+	if _, logErr := q.pool.Exec(ctx, `INSERT INTO job_retry_log(job_id,attempt,lane,job_type,error_class,duration_ms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (job_id,attempt) DO NOTHING`, job.ID, job.Attempts, classifyLane(job.Type), job.Type, classifyError(processErr), durationMillis(processErr)); logErr != nil {
+		return fmt.Errorf("write job retry log: %w", logErr)
+	}
+	return nil
+}
+
+func classifyLane(jobType string) string {
+	switch jobType {
+	case "PROCESS_TELEGRAM_CALLBACK", "SEND_TELEGRAM_MESSAGE", "EDIT_TELEGRAM_MESSAGE", "PROCESS_TELEGRAM_REVIEW_TEXT", "COMPLETE_BANK_REVIEW":
+		return "INTERACTIVE"
+	case "FETCH_TELEGRAM_IMAGE", "FINALIZE_TELEGRAM_MEDIA_GROUP", "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "GENERATE_INSIGHT", "PROCESS_BANK_EMAIL":
+		return "BACKGROUND"
+	default:
+		return "DEFAULT"
+	}
+}
+
+func classifyError(err error) string {
+	if err == nil {
+		return "UNKNOWN"
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "context deadline exceeded"):
+		return "TIMEOUT"
+	case strings.Contains(msg, "SQLSTATE"):
+		return "DATABASE"
+	case strings.Contains(msg, "Telegram"):
+		return "TELEGRAM_API"
+	case strings.Contains(msg, "LLM") || strings.Contains(msg, "gateway") || strings.Contains(msg, "Structured"):
+		return "LLM_GATEWAY"
+	case strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host"):
+		return "NETWORK"
+	default:
+		return "OTHER"
+	}
+}
+
+func durationMillis(err error) int {
+	if err == nil {
+		return 0
+	}
+	// Errors from ctx-bound processors carry the budget timeout; the value is
+	// not always exposed, so the executor logs it via slog. We persist only the
+	// error class here and rely on the queue's last_error for the message.
+	return 0
 }
 
 func truncate(value string, limit int) string {
