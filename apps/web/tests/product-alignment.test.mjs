@@ -47,6 +47,7 @@ test("analytics insight UI is aggregate-only and safely rendered", () => {
   assert.match(analytics, /pollInsight/);
   assert.match(card, /split\(\/\\n\{2,\}\//);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
+  assert.ok(analytics.indexOf("<InsightCard") < analytics.indexOf("analytics-kpis"));
 });
 
 test("analytics insight card owns its spacing", () => {

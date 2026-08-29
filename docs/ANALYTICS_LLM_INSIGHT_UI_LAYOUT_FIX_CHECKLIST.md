@@ -7,6 +7,7 @@ Execution record for deployed card spacing correction. Source plan remains uncha
 - [x] Remove inherited header margin from grid gap to prevent doubled vertical spacing.
 - [x] Add explicit separation from the main chart using the existing 14px page rhythm.
 - [x] Refine the card as a restrained analyst note with a subtle accent, tinted surface, and stronger text hierarchy.
+- [x] Move the card directly below mode controls as first analytics card, per latest user instruction.
 - [x] Keep failure text, retry behavior, and chart isolation unchanged.
 - [x] Return documented `200 EXISTING` for any same-period pending insight, avoiding unique-index `409` errors.
 - [x] Run web tests and production build.
