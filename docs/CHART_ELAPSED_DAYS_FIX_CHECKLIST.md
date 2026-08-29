@@ -17,7 +17,10 @@ Do not modify source chart-refinement plan or its implementation checklist.
 - [x] Run web tests: `npm test` — 19 passed in Node 22.23.2 container.
 - [x] Run production web build: `npm run build` — passed.
 - [x] Inspect diff for unrelated changes.
-- [ ] Commit, push, merge to `main`, and deploy web.
+- [x] Commit and push feature branch.
+- [x] Merge to `main` with `--no-ff` and push `main`.
+- [x] Deploy web from updated `main` using production compose files and environment.
+- [x] Verify `/`, `/analytics`, `/reviews`, and `/transactions` return HTTP 200.
 
 ## Completion record
 
@@ -27,4 +30,8 @@ Branch: fix/chart-elapsed-days
 Worktree: /home/ubuntu/richmod-worktrees/chart-elapsed-days
 API changes: None.
 Tests: `npm test` — 19 passed; `npm run build` — passed.
+Implementation commit: dcb33d9
+Code merge commit: 233e85a
+Deployed image: sha256:23ade8c6094a35a13ea616a3dbb3134f9335186e96ff1066b0b719a657057b9e
+Deployment result: `family-finance-web-1` running; public route checks passed.
 ```
