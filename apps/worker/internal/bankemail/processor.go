@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -21,8 +24,101 @@ func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
 }
 
 type Payload struct {
-	SourceEventID string `json:"source_event_id"`
-	Shadow        bool   `json:"shadow"`
+	SourceEventID string  `json:"source_event_id"`
+	Shadow        bool    `json:"shadow"`
+	ReviewID      string  `json:"review_id,omitempty"`
+	AmountIDR     *string `json:"amount_idr,omitempty"`
+	TransactionAt *string `json:"transaction_at,omitempty"`
+}
+
+// Complete resumes a source-bound review with only the facts a person entered.
+// The resulting extraction still flows through the ordinary Go policy/persist
+// path; it never fabricates a ledger row merely to close a review.
+func (p *Processor) Complete(ctx context.Context, payload Payload) error {
+	if payload.ReviewID == "" {
+		return fmt.Errorf("bank review id is required")
+	}
+	var household, listenerID, bank, sender, accountID string
+	var raw []byte
+	if err := p.pool.QueryRow(ctx, `SELECT s.household_id,l.id,l.bank_name,l.sender_address,COALESCE(l.account_id::text,''),e.output_json FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id WHERE ri.id=$1 AND ri.source_event_id=$2 AND ri.status IN ('OPEN','PENDING_SEND') FOR UPDATE`, payload.ReviewID, payload.SourceEventID).Scan(&household, &listenerID, &bank, &sender, &accountID, &raw); err != nil {
+		return err
+	}
+	var extraction Extraction
+	if err := json.Unmarshal(raw, &extraction); err != nil {
+		return fmt.Errorf("load reviewed extraction: %w", err)
+	}
+	if extraction.AmountIDR == nil && payload.AmountIDR != nil {
+		call := gateway.ToolCall{Name: "emit_bank_transaction", Arguments: []byte(`{"kind":"TRANSACTION","direction":"UNKNOWN","channel":"UNKNOWN","amount_idr":` + strconv.Quote(*payload.AmountIDR) + `,"transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":null,"missing_fields":["transaction_at"],"confidence":0.8}`)}
+		checked, err := ValidateEmitBankTransaction(call)
+		if err != nil {
+			return err
+		}
+		extraction.AmountIDR = checked.AmountIDR
+	}
+	if extraction.TransactionAt == nil && payload.TransactionAt != nil {
+		at, err := parseStrictBankRFC3339(*payload.TransactionAt)
+		if err != nil {
+			return err
+		}
+		extraction.TransactionAt = &at
+	}
+	if extraction.AmountIDR == nil || extraction.TransactionAt == nil {
+		return fmt.Errorf("bank amount and RFC3339 timestamp are required")
+	}
+	extraction.MissingFields = removeMissing(extraction.MissingFields, "amount_idr", "transaction_at")
+	listener := Listener{ID: listenerID, HouseholdID: household, BankName: bank, SenderAddress: sender, AccountID: accountID, TrackingPolicy: "SPENDING_ONLY", Active: true}
+	var already bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&already); err != nil {
+		return err
+	}
+	if already {
+		_, err := p.pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID)
+		return err
+	}
+	known, err := p.loadKnownAccounts(ctx, household)
+	if err != nil {
+		return err
+	}
+	memory, err := loadMerchantMemory(ctx, p.pool, household, value(extraction.Merchant))
+	if err != nil {
+		return err
+	}
+	result := EvaluateBankEmail(listener, extraction, known, memory)
+	if err := p.persist(ctx, listener, payload.SourceEventID, extraction, result); err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `UPDATE bank_email_extraction SET output_json=$2::jsonb,validation_status='VALID',policy_result=$3 WHERE source_event_id=$1; UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr',$4::text,'transaction_at',$5::timestamptz),updated_at=now() WHERE id=$6 AND status IN ('OPEN','PENDING_SEND')`, payload.SourceEventID, mustJSON(extraction), result.Status, value(extraction.AmountIDR), extraction.TransactionAt, payload.ReviewID)
+	return err
+}
+func removeMissing(values []string, names ...string) []string {
+	blocked := map[string]bool{}
+	for _, name := range names {
+		blocked[name] = true
+	}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if !blocked[v] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+func mustJSON(v any) string { raw, _ := json.Marshal(v); return string(raw) }
+func (p *Processor) loadKnownAccounts(ctx context.Context, household string) ([]KnownAccount, error) {
+	rows, err := p.pool.Query(ctx, `SELECT match_hint,relationship FROM known_account WHERE household_id=$1 AND active`, household)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []KnownAccount{}
+	for rows.Next() {
+		var v KnownAccount
+		if err := rows.Scan(&v.MatchHint, &v.Relationship); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
 
 func DecodePayload(raw json.RawMessage) (Payload, error) {
@@ -70,7 +166,11 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 		rows.Close()
 	}
-	result := EvaluateBankEmail(listener, extraction, knownAccounts)
+	memory, err := loadMerchantMemory(ctx, p.pool, household, value(extraction.Merchant))
+	if err != nil {
+		return err
+	}
+	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
@@ -150,9 +250,10 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	defer tx.Rollback(ctx)
-	categoryID := ""
-	if extraction.Merchant != nil {
-		_ = tx.QueryRow(ctx, `SELECT default_category_id::text FROM merchant_alias WHERE household_id=$1 AND lower(raw_name)=lower($2) AND auto_apply AND default_category_id IS NOT NULL LIMIT 1`, listener.HouseholdID, *extraction.Merchant).Scan(&categoryID)
+	categoryID := result.CategoryID
+	merchantID, err := resolveMerchantID(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
+	if err != nil {
+		return err
 	}
 	transactionType := result.Type
 	if transactionType == "NEEDS_REVIEW" {
@@ -182,7 +283,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	var transactionID string
-	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at) VALUES($1,NULLIF($2,'')::uuid,$3,$4,$5,'IDR',$6,NULLIF($7,'')::uuid,NULLIF($8,''),NULLIF($9,''),NULLIF($10,''),$11,$12,CASE WHEN $4='CONFIRMED' THEN now() END) RETURNING id`, listener.HouseholdID, listener.AccountID, transactionType, transactionStatus, amount, *at, categoryID, description, counterparty, reference, extraction.Confidence, extraction.Confidence).Scan(&transactionID)
+	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at) VALUES($1,NULLIF($2,'')::uuid,$3,$4,$5,'IDR',$6,NULLIF($7,'')::uuid,NULLIF($8,'')::uuid,NULLIF($9,''),NULLIF($10,''),NULLIF($11,''),$12,$13,CASE WHEN $4='CONFIRMED' THEN now() END) RETURNING id`, listener.HouseholdID, listener.AccountID, transactionType, transactionStatus, amount, *at, merchantID, categoryID, description, counterparty, reference, extraction.Confidence, extraction.Confidence).Scan(&transactionID)
 	if err != nil {
 		return err
 	}
@@ -205,8 +306,47 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 			}
 		}
 	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_BANK_EMAIL','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'policy_result',$6::text,'auto_confirm',$7::boolean,'tool_schema_version',$8::text))`, listener.HouseholdID, transactionID, sourceID, listener.ID, proposalID, result.Status, result.AutoConfirm, ToolSchemaVersion); err != nil {
+		return err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
 	return nil
+}
+
+type rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func loadMerchantMemory(ctx context.Context, q rowQuerier, household, raw string) (MerchantMemory, error) {
+	if strings.TrimSpace(raw) == "" {
+		return MerchantMemory{}, nil
+	}
+	var m MerchantMemory
+	err := q.QueryRow(ctx, `SELECT ma.normalized_merchant_id::text,ma.default_category_id::text,ma.auto_apply FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(ma.raw_name)=lower($2) AND ma.auto_apply AND ma.created_from_user_confirmation AND ma.default_category_id IS NOT NULL AND c.household_id=$1 AND c.active LIMIT 1`, household, raw).Scan(&m.MerchantID, &m.CategoryID, &m.AutoApply)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MerchantMemory{}, nil
+	}
+	return m, err
+}
+func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (string, error) {
+	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+	if raw == "" {
+		return "", nil
+	}
+	var id string
+	err := tx.QueryRow(ctx, `SELECT normalized_merchant_id::text FROM merchant_alias WHERE household_id=$1 AND lower(raw_name)=lower($2) LIMIT 1`, household, raw).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	normalized := strings.ToUpper(raw)
+	if len([]rune(normalized)) > 160 {
+		normalized = string([]rune(normalized)[:160])
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
+	return id, err
 }

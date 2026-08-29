@@ -45,7 +45,10 @@ func canonicalActions(kind string) []string {
 	if kind == "MISSING_PAY_DATE" {
 		return []string{"SET_PAY_DATE", "IGNORE"}
 	}
-	return []string{"CONFIRM", "IGNORE"}
+	if kind == "UNKNOWN_BANK_TEMPLATE" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
+		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
+	}
+	return []string{"IGNORE"}
 }
 
 type resolveInput struct {
@@ -86,6 +89,27 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if transaction != nil {
 		writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
+		return
+	}
+	if (kind == "UNKNOWN_BANK_TEMPLATE" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE") && in.Action == "COMPLETE_BANK_FACTS" && source != nil {
+		var values struct {
+			AmountIDR     *string `json:"amountIdr"`
+			TransactionAt *string `json:"transactionAt"`
+		}
+		if json.Unmarshal(in.Values, &values) != nil || (values.AmountIDR == nil && values.TransactionAt == nil) {
+			writeJSON(w, 400, map[string]string{"error": "bank facts are required"})
+			return
+		}
+		payload, _ := json.Marshal(map[string]any{"source_event_id": *source, "review_id": r.PathValue("id"), "amount_idr": values.AmountIDR, "transaction_at": values.TransactionAt})
+		if _, err = tx.Exec(r.Context(), `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',$1::jsonb)`, string(payload)); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to queue bank review"})
+			return
+		}
+		if audit(r.Context(), tx, household, p.UserID, "COMPLETE_BANK_FACTS_REQUESTED", r.PathValue("id"), map[string]any{}) != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to queue bank review"})
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	if in.Action == "IGNORE" {

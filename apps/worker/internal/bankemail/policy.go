@@ -4,10 +4,20 @@ import "strings"
 
 type PolicyResult struct {
 	Type, Status, ReviewType, Description string
+	CategoryID                            string
 	AutoConfirm                           bool
 }
 
-func EvaluateBankEmail(listener Listener, extraction Extraction, knownAccounts []KnownAccount) PolicyResult {
+type MerchantMemory struct {
+	MerchantID, CategoryID string
+	AutoApply              bool
+}
+
+func EvaluateBankEmail(listener Listener, extraction Extraction, knownAccounts []KnownAccount, memory ...MerchantMemory) PolicyResult {
+	remembered := MerchantMemory{}
+	if len(memory) > 0 {
+		remembered = memory[0]
+	}
 	if extraction.Kind == "NON_TRANSACTION" {
 		return PolicyResult{Type: "IGNORE", Status: "IGNORED", Description: "Notifikasi ini bukan transaksi."}
 	}
@@ -36,6 +46,9 @@ func EvaluateBankEmail(listener Listener, extraction Extraction, knownAccounts [
 		case "DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "ATM", "BANK_FEE", "OTHER":
 			if extraction.Merchant == nil || strings.TrimSpace(*extraction.Merchant) == "" {
 				return PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "UNKNOWN_MERCHANT", Description: "Nama merchant belum tersedia."}
+			}
+			if remembered.AutoApply && remembered.CategoryID != "" {
+				return PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", CategoryID: remembered.CategoryID, Description: "Pengeluaran dengan kategori merchant yang telah dikonfirmasi.", AutoConfirm: true}
 			}
 			return PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "AMBIGUOUS_CATEGORY", Description: "Pengeluaran menunggu kategori."}
 		}

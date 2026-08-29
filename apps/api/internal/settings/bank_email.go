@@ -63,17 +63,14 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback(r.Context())
 		var aid, lid string
-		accountKey := "bank-email:" + in.SenderAddress
-		e = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE household_id=$1 AND system_key=$2`, hid, accountKey).Scan(&aid)
+		// Sender identity is not account identity. Reuse a single, deterministic
+		// logical account for the same bank, otherwise create an ID-derived key.
+		e = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE household_id=$1 AND account_type='BANK' AND tracking_policy='SPENDING_ONLY' AND active AND system_managed AND lower(name)=lower('Bank · '||$2) ORDER BY created_at,id LIMIT 1 FOR UPDATE`, hid, in.BankName).Scan(&aid)
 		if e == pgx.ErrNoRows {
-			e = tx.QueryRow(r.Context(), `SELECT id FROM account WHERE household_id=$1 AND account_type='BANK' AND tracking_policy='SPENDING_ONLY' AND active AND lower(name) IN (lower($2),lower('Bank · '||$2)) ORDER BY system_managed DESC,created_at LIMIT 1 FOR UPDATE`, hid, in.BankName).Scan(&aid)
-			if e == pgx.ErrNoRows {
-				e = tx.QueryRow(r.Context(), `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed,system_key) VALUES($1,$2,'BANK','SPENDING_ONLY',true,$3) RETURNING id`, hid, "Bank · "+in.BankName, accountKey).Scan(&aid)
-			} else if e == nil {
-				_, e = tx.Exec(r.Context(), `UPDATE account SET system_managed=true,system_key=$2,updated_at=now() WHERE id=$1`, aid, accountKey)
+			e = tx.QueryRow(r.Context(), `INSERT INTO account(household_id,name,account_type,tracking_policy,system_managed) VALUES($1,$2,'BANK','SPENDING_ONLY',true) RETURNING id`, hid, "Bank · "+in.BankName).Scan(&aid)
+			if e == nil {
+				_, e = tx.Exec(r.Context(), `UPDATE account SET system_key='bank-email-account:'||id::text,updated_at=now() WHERE id=$1`, aid)
 			}
-		} else if e == nil {
-			_, e = tx.Exec(r.Context(), `UPDATE account SET active=true,tracking_policy='SPENDING_ONLY',updated_at=now() WHERE id=$1`, aid)
 		}
 		if e == nil {
 			e = tx.QueryRow(r.Context(), `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) VALUES($1,$2,$3,$4,$5) RETURNING id`, hid, in.BankName, in.SenderAddress, aid, p.UserID).Scan(&lid)
@@ -156,7 +153,7 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if currentAccountID != "" {
-		if _, e = tx.Exec(r.Context(), `UPDATE account SET system_key=CASE WHEN system_managed AND $2<>'' THEN $2 ELSE system_key END,name=CASE WHEN system_managed THEN $3 ELSE name END,updated_at=now() WHERE id=$1`, currentAccountID, "bank-email:"+senderAddress, "Bank · "+bankName); e != nil {
+		if _, e = tx.Exec(r.Context(), `UPDATE account SET name=CASE WHEN system_managed THEN $2 ELSE name END,updated_at=now() WHERE id=$1`, currentAccountID, "Bank · "+bankName); e != nil {
 			jsonError(w, 409, "listener account is unavailable")
 			return
 		}
