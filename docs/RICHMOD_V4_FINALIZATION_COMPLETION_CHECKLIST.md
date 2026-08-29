@@ -41,6 +41,11 @@ code and verification evidence.
 
 ## Required verification before V4 freeze
 
+- [x] Disposable PostgreSQL rehearsal applied migrations 00001–00031. Query
+  plans used the existing lane-claim index and the new merchant-alias index.
+- [x] The rehearsal caught and verified the correction of
+  `COMPLETE_BANK_REVIEW` lane assignment: it is now `INTERACTIVE`.
+- [x] Compose configuration plus API and worker production-image builds pass.
 - [ ] Database-backed regression tests cover source completion (amount,
   timestamp, replay, cross-household, and resulting transaction review).
 - [ ] Telegram source-review conversation states collect and bind bank facts to
@@ -48,7 +53,8 @@ code and verification evidence.
   completion is not yet implemented in this branch.
 - [ ] Run the complete API/worker/web suite plus disposable-PostgreSQL tests.
 - [ ] Apply migration 00030 to a disposable upgraded database and inspect the
-  migration/query plans.
+  migration/query plans. (Superseded by the successful 00001–00031 rehearsal
+  above; retain only an upgraded production-snapshot rehearsal.)
 - [ ] Production backup/restore rehearsal, controlled configured-bank test,
   and second-sender acceptance remain operational gates.
 
