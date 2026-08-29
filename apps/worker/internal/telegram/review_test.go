@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseReviewPayDate(t *testing.T) {
@@ -62,8 +63,17 @@ func TestDecodeInlineReviewPayload(t *testing.T) {
 }
 
 func TestReviewQuestionUsesIndonesianIDRFormat(t *testing.T) {
-	if got := ReviewQuestion("55199", "PAMELLA DUA"); !strings.Contains(got, "Rp55.199") {
+	got := ReviewQuestion("55199", "PAMELLA DUA")
+	if !strings.Contains(got, "Rp55.199") || !strings.Contains(got, "Merchant: PAMELLA DUA") {
 		t.Fatalf("question = %q", got)
+	}
+}
+
+func TestAssistantRangeLabelUsesInclusiveJakartaDates(t *testing.T) {
+	location := jakartaLocation()
+	r := assistantRange{From: time.Date(2026, 8, 1, 0, 0, 0, 0, location), To: time.Date(2026, 9, 1, 0, 0, 0, 0, location)}
+	if got := r.label(); got != "01 Aug 2026–31 Aug 2026" {
+		t.Fatalf("label = %q", got)
 	}
 }
 

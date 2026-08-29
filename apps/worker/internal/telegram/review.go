@@ -778,9 +778,9 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		return "AWAITING_MERCHANT", "Nama merchant belum tersedia. Balas pesan ini dengan nama merchant.", "detail"
+		return "AWAITING_MERCHANT", "🟡 Perlu detail merchant\n\nBalas pesan ini dengan nama merchant untuk transaksi tersebut.", "detail"
 	case "UNKNOWN_PURPOSE":
-		return "AWAITING_DETAIL", "Keterangan transaksi belum tersedia. Balas pesan ini dengan detail transaksi.", "detail"
+		return "AWAITING_DETAIL", "🟡 Perlu detail transaksi\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", "detail"
 	default:
 		return "AWAITING_CATEGORY", message, "category"
 	}
@@ -911,7 +911,10 @@ func ReviewQuestion(amount, merchant string) string {
 	if strings.TrimSpace(merchant) == "" {
 		merchant = "transaksi ini"
 	}
-	return "🟡 Butuh sedikit bantuan\n\nRp" + FormatIDR(amount) + " → " + merchant + "\n\nBalas pesan ini: pengeluaran ini untuk apa?"
+	return "🟡 Perlu ditinjau\n\n" +
+		"Nominal: Rp" + FormatIDR(amount) + "\n" +
+		"Merchant: " + merchant + "\n\n" +
+		"Balas pesan ini dengan tujuan pengeluaran, atau pilih kategori di bawah."
 }
 
 func FormatIDR(value string) string {
