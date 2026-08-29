@@ -26,8 +26,9 @@ Execution record for current analytics visual-hierarchy request. Source prompt r
 - [x] Run web tests: `npm test` — 27 passed in Node 22 container.
 - [x] Run production build: `npm run build` — passed.
 - [x] Inspect diff: frontend composition, insight/card styles, pure helper/tests, and this checklist only.
-- [ ] Commit and push feature branch.
-- [ ] Do not deploy unless explicitly requested.
+- [x] Commit and push feature branch.
+- [x] Merge into `main` with `--no-ff` and push.
+- [x] Do not deploy; deployment was not requested.
 
 ## Completion record
 
@@ -37,4 +38,7 @@ Branch: feat/analytics-composition-polish
 Worktree: /home/ubuntu/richmod-worktrees/analytics-composition-polish
 Backend changes: None.
 Cycle KPI conclusion: `daysTotal` can equal elapsed days when next salary anchor is unknown; no denominator is shown.
+Implementation commit: 7788338
+Code merge commit: 8ddfe9d
+Deployment result: intentionally not deployed.
 ```
