@@ -47,14 +47,20 @@ test("analytics insight UI is aggregate-only and safely rendered", () => {
   assert.match(analytics, /pollInsight/);
   assert.match(card, /split\(\/\\n\{2,\}\//);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
-  assert.ok(analytics.indexOf("<InsightCard") < analytics.indexOf("analytics-kpis"));
+  assert.ok(analytics.indexOf("analytics-kpis") < analytics.indexOf("analytics-chart"));
+  assert.ok(analytics.indexOf("analytics-chart") < analytics.indexOf("<InsightCard"));
+  assert.ok(analytics.indexOf("<InsightCard") < analytics.indexOf("analytics-detail-layout"));
+  assert.match(card, /insight-card-compact/);
+  assert.match(card, /insight-state-copy/);
 });
 
 test("analytics insight card owns its spacing", () => {
   const styles = text("app/globals.css");
-  assert.match(styles, /\.insight-card\{[^}]*margin-top:14px[^}]*padding:22px 24px 21px/);
+  assert.match(styles, /\.insight-card\{[^}]*margin-top:14px[^}]*padding:20px/);
+  assert.match(styles, /\.insight-card-compact\{[^}]*padding:15px 18px/);
   assert.match(styles, /\.insight-card>\.section-title\{margin-bottom:0\}/);
-  assert.match(styles, /\.insight-card:before\{/);
+  assert.match(styles, /\.analytics-detail-layout\{[^}]*1\.55fr[^}]*\.85fr/);
+  assert.match(styles, /@media\(max-width:900px\)\{\.analytics-detail-layout\{grid-template-columns:1fr\}/);
 });
 
 test("transaction filters are query-backed", () => {

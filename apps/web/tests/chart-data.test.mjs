@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactCategories, dayLabel, deriveCycleSpendingMetrics, elapsedDaily, mapMonthlyCashflow } from "../app/lib/chartData.js";
+import { compactCategories, cycleProgressLabel, dayLabel, deriveCycleSpendingMetrics, elapsedDaily, mapMonthlyCashflow } from "../app/lib/chartData.js";
 
 const categories = count => Array.from({ length: count }, (_, index) => ({ id: String(index), name: `Kategori ${index}`, amount: String((count - index) * 100) }));
 
@@ -55,4 +55,9 @@ test("monthly mapping converts values and creates localized labels", () => {
 test("dayLabel includes the complete Indonesian date", () => {
   assert.match(dayLabel("2026-08-29"), /2026/);
   assert.equal(dayLabel(null), "");
+});
+
+test("cycle progress never invents a cycle denominator", () => {
+  assert.equal(cycleProgressLabel(6), "Hari ke-6");
+  assert.equal(cycleProgressLabel(0), "Belum dimulai");
 });

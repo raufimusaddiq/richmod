@@ -5,7 +5,7 @@ import AppShell from "../components/AppShell";
 import { CategoryRankingChart, CycleSpendingPatternChart, MonthlyCashflowChart } from "../components/Charts";
 import InsightCard from "../components/InsightCard";
 import useAuth from "../components/useAuth";
-import { dayLabel, deriveCycleSpendingMetrics, elapsedDaily } from "../lib/chartData";
+import { cycleProgressLabel, dayLabel, deriveCycleSpendingMetrics, elapsedDaily } from "../lib/chartData";
 import { money } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
 
@@ -84,17 +84,18 @@ export default function AnalyticsPage() {
   const totalRefund = data.spending.reduce((sum, item) => sum + Number(item.refund || 0), 0);
   const totalNet = mode === "calendar" ? data.cashflow.reduce((sum, item) => sum + Number(item.netCashflow || 0), 0) : totalIncome - totalExpense;
 
-  const cycleKpis = [["Rata-rata / hari", money(String(Math.round(cycleMetrics.average)))], ["Hari tertinggi", cycleMetrics.peak.period ? `${dayLabel(cycleMetrics.peak.period)} · ${money(String(Math.round(cycleMetrics.peak.expenseValue)))}` : "—"], ["Hari tanpa pengeluaran", `${cycleMetrics.zeroSpendDays} hari`], ["Siklus berjalan", `${cycleMetrics.daysElapsed} / ${cycleMetrics.daysTotal} hari`]];
+  const cycleKpis = [["Rata-rata / hari", money(String(Math.round(cycleMetrics.average)))], ["Hari tertinggi", cycleMetrics.peak.period ? `${dayLabel(cycleMetrics.peak.period)} · ${money(String(Math.round(cycleMetrics.peak.expenseValue)))}` : "—"], ["Hari tanpa pengeluaran", `${cycleMetrics.zeroSpendDays} hari`], ["Hari siklus", cycleProgressLabel(cycleMetrics.daysElapsed)]];
   const calendarKpis = [["Total Pemasukan", money(String(totalIncome))], ["Total Pengeluaran", money(String(totalExpense))], ["Arus Kas Bersih", money(String(totalNet))], ["Pengembalian Dana", money(String(totalRefund))]];
   const kpis = mode === "cycle" ? cycleKpis : calendarKpis;
 
   return <AppShell user={user} eyebrow="ANALISIS" title="Pola Keuangan Rumah Tangga">
     <div className="range-controls"><div><button className={mode === "cycle" ? "active" : "secondary"} onClick={() => setMode("cycle")}>Siklus Gaji</button><button className={mode === "calendar" ? "active" : "secondary"} onClick={() => setMode("calendar")}>Kalender</button>{mode === "calendar" && ["3", "6", "12"].map(value => <button className={range === value ? "active" : "secondary"} key={value} onClick={() => select(value)}>{value} Bulan</button>)}</div>{mode === "calendar" && <form onSubmit={custom}><input name="from" type="month" required/><span>—</span><input name="to" type="month" required/><button className="secondary">Kustom</button></form>}</div>
     {error && <p className="notice error">{error}</p>}
-    <InsightCard insight={insight} loading={insightLoading} error={insightError} unsupported={mode === "calendar"} canGenerate={Boolean(dailyCycle.cycleStart)} onGenerate={generateInsight}/>
     <section className="analytics-kpis">{kpis.map(([label, value]) => <article key={label}><span>{label}</span><b>{value}</b></article>)}</section>
-    <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">{mode === "cycle" ? "SIKLUS GAJI · HARIAN" : "TREND BULANAN"}</span><h2>{mode === "cycle" ? "Pola pengeluaran siklus ini" : "Pemasukan vs pengeluaran"}</h2></div></div>{mode === "cycle" ? <CycleSpendingPatternChart items={data.cashflow} spent={dailyCycle.spent} daysElapsed={dailyCycle.daysElapsed} height={360}/> : <MonthlyCashflowChart items={data.cashflow} height={360}/>}</section>
-    <section className="analytics-grid"><article className="surface"><div className="section-title"><h2>Peringkat kategori</h2></div><CategoryRankingChart items={data.categories}/></article><Ranked title="Merchant" items={data.merchants}/><Ranked title="Kontribusi anggota" items={data.members}/>{mode === "calendar" && <Ranked title="Pengeluaran bulanan setelah refund" items={data.spending.map(item => ({ name: item.period, amount: item.netSpending }))}/>}</section>
+    <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">{mode === "cycle" ? "SIKLUS GAJI · HARIAN" : "TREND BULANAN"}</span><h2>{mode === "cycle" ? "Pola pengeluaran siklus ini" : "Pemasukan vs pengeluaran"}</h2></div></div>{mode === "cycle" ? <CycleSpendingPatternChart items={data.cashflow} spent={dailyCycle.spent} daysElapsed={dailyCycle.daysElapsed} height={310}/> : <MonthlyCashflowChart items={data.cashflow} height={340}/>}</section>
+    <InsightCard insight={insight} loading={insightLoading} error={insightError} unsupported={mode === "calendar"} canGenerate={Boolean(dailyCycle.cycleStart)} onGenerate={generateInsight}/>
+    <section className="analytics-detail-layout"><article className="surface analytics-category-panel"><div className="section-title"><h2>Peringkat kategori</h2></div><CategoryRankingChart items={data.categories}/></article><div className="analytics-detail-side"><Ranked title="Merchant" items={data.merchants}/><Ranked title="Kontribusi anggota" items={data.members}/></div></section>
+    {mode === "calendar" && <div className="analytics-calendar-detail"><Ranked title="Pengeluaran bulanan setelah refund" items={data.spending.map(item => ({ name: item.period, amount: item.netSpending }))}/></div>}
   </AppShell>;
 }
 
