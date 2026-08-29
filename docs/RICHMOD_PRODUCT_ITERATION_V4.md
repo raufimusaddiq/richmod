@@ -17,6 +17,20 @@ pending and must not be inferred from fake-server coverage.
 > V3 remains the governing iteration for salary cycle, multi-image documents, universal review, fast Telegram callbacks, and cycle-aware product behavior.
 > V4 builds on that shipped foundation and focuses on generic bank-email ingestion plus a more complete Telegram review experience.
 
+## Production-readiness follow-up
+
+The Review Inbox now exposes canonical non-transaction items as well as legacy
+transaction reviews. `POST /api/v1/reviews/{id}/resolve` is the audited web
+resolution contract for proposal/source/document items. In particular, first
+payslips can be resolved as primary salary, ordinary income, or ignored; a
+missing pay date requires an explicit date before income is created. Existing
+transaction-specific review routes remain compatibility endpoints.
+
+Analytics clients send an explicit `period` (`current_cycle`, `calendar`, or
+`custom`). Calendar range parameters are retained for compatibility. A missing
+salary cycle falls back to a clearly labeled calendar range rather than a
+guessed payday.
+
 ---
 
 # 1. V4 objective

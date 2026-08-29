@@ -26,7 +26,7 @@ func (h *Handler) Cashflow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	start, end, err := h.analyticsRange(r)
+	start, end, err := h.analyticsRange(household, r)
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -44,7 +44,7 @@ func (h *Handler) Spending(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	start, end, err := h.analyticsRange(r)
+	start, end, err := h.analyticsRange(household, r)
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -56,7 +56,7 @@ func (h *Handler) Spending(w http.ResponseWriter, r *http.Request) {
 	}
 	result := make([]map[string]string, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, map[string]string{"period": row.Period, "expense": row.Expense, "refund": row.Refund, "netSpending": row.Expense})
+		result = append(result, map[string]string{"period": row.Period, "expense": row.Expense, "refund": row.Refund, "netSpending": subtract(row.Expense, row.Refund)})
 	}
 	writeJSON(w, 200, result)
 }
@@ -99,7 +99,7 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	start, end, err := h.analyticsRange(r)
+	start, end, err := h.analyticsRange(household, r)
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -136,7 +136,7 @@ func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	start, end, err := h.analyticsRange(r)
+	start, end, err := h.analyticsRange(household, r)
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -173,7 +173,7 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	start, end, err := h.analyticsRange(r)
+	start, end, err := h.analyticsRange(household, r)
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -211,9 +211,27 @@ func (h *Handler) currentPeriod() (time.Time, time.Time) {
 	return start, start.AddDate(0, 1, 0)
 }
 
-func (h *Handler) analyticsRange(r *http.Request) (time.Time, time.Time, error) {
+func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, time.Time, error) {
 	local := h.now().In(clock.HouseholdLocation())
 	current := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
+	period := strings.TrimSpace(r.URL.Query().Get("period"))
+	if period == "current_cycle" {
+		var configured bool
+		var start, end *time.Time
+		if err := h.pool.QueryRow(r.Context(), `SELECT configured,starts_on,ends_on FROM salary_cycle_bounds($1,$2::date)`, household, local.Format("2006-01-02")).Scan(&configured, &start, &end); err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		if configured && start != nil {
+			if end != nil {
+				return *start, *end, nil
+			}
+			return *start, time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation()), nil
+		}
+		return current, current.AddDate(0, 1, 0), nil
+	}
+	if period != "" && period != "calendar" && period != "custom" {
+		return time.Time{}, time.Time{}, fmt.Errorf("period must be current_cycle, calendar, or custom")
+	}
 	from, to := strings.TrimSpace(r.URL.Query().Get("from")), strings.TrimSpace(r.URL.Query().Get("to"))
 	if from != "" || to != "" {
 		if from == "" || to == "" {

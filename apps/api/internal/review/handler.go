@@ -48,6 +48,10 @@ type item struct {
 	ProposalStatus *string     `json:"proposalStatus"`
 	Reason         string      `json:"reason"`
 	Candidates     []candidate `json:"candidates"`
+	ReviewType     string      `json:"reviewType,omitempty"`
+	SubjectType    string      `json:"subjectType,omitempty"`
+	SubjectID      string      `json:"subjectId,omitempty"`
+	AllowedActions []string    `json:"allowedActions,omitempty"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +96,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 		return
+	}
+	canonical, err := h.canonicalOpenItems(r.Context(), household)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to list canonical reviews"})
+		return
+	}
+	for _, value := range canonical {
+		items = append(items, item{ID: value.ID, Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt})
 	}
 	writeJSON(w, 200, items)
 }

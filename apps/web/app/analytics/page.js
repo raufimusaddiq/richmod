@@ -14,7 +14,7 @@ export default function AnalyticsPage() {
   const [dailyCycle, setDailyCycle] = useState({ daily: [], salary: "0", spent: "0", remaining: "0", daysElapsed: 0, daysTotal: 0 });
   const [error, setError] = useState("");
   const load = useCallback(async query => {
-    const suffix = query || `range=${range}`;
+    const suffix = query || `period=${mode === "cycle" ? "current_cycle" : "calendar"}&range=${range}`;
     const responses = await Promise.all(["cashflow", "spending", "categories", "merchants", "members"].map(name => fetch(`/api/v1/analytics/${name}?${suffix}`)));
     const dailyResponse = await fetch("/api/v1/analytics/cycle/daily");
     if (responses.some(item => !item.ok)) { setError("Analisis belum dapat dimuat untuk periode ini."); return; }
@@ -29,12 +29,12 @@ export default function AnalyticsPage() {
   }, [range, mode]);
   useEffect(() => { if (user) load(); }, [user, load]);
   function select(value) { setRange(value); }
-  function custom(event) { event.preventDefault(); const form = new FormData(event.currentTarget); load(`from=${form.get("from")}&to=${form.get("to")}`); }
+  function custom(event) { event.preventDefault(); const form = new FormData(event.currentTarget); load(`period=custom&from=${form.get("from")}&to=${form.get("to")}`); }
   if (!user) return <main className="loading">Memuat…</main>;
   const totalExpense = data.spending.reduce((sum, item) => sum + BigInt(item.expense || "0"), 0n).toString();
   const totalRefund = data.spending.reduce((sum, item) => sum + BigInt(item.refund || "0"), 0n).toString();
   return <AppShell user={user} eyebrow="ANALISIS" title="Pola Keuangan Rumah Tangga">
-    <div className="range-controls"><div><button className={mode === "cycle" ? "active" : "secondary"} onClick={() => setMode("cycle")}>Siklus Gaji</button><button className={mode === "calendar" ? "active" : "secondary"} onClick={() => setMode("calendar")}>Kalender</button>{mode === "calendar" && ["3", "6", "12"].map(value => <button className={range === value ? "active" : "secondary"} key={value} onClick={() => select(value)}>{value} Bulan</button>)}</div><form onSubmit={custom}><input name="from" type="month" required/><span>—</span><input name="to" type="month" required/><button className="secondary">Kustom</button></form></div>
+    <div className="range-controls"><div><button className={mode === "cycle" ? "active" : "secondary"} onClick={() => setMode("cycle")}>Siklus Gaji</button><button className={mode === "calendar" ? "active" : "secondary"} onClick={() => setMode("calendar")}>Kalender</button>{mode === "calendar" && ["3", "6", "12"].map(value => <button className={range === value ? "active" : "secondary"} key={value} onClick={() => select(value)}>{value} Bulan</button>)}</div>{mode === "calendar" && <form onSubmit={custom}><input name="from" type="month" required/><span>—</span><input name="to" type="month" required/><button className="secondary">Kustom</button></form>}</div>
     {error && <p className="notice error">{error}</p>}
     <section className="analytics-kpis"><article><span>Total Pengeluaran</span><b>{money(totalExpense)}</b></article><article><span>Pengembalian Dana</span><b>{money(totalRefund)}</b></article><article><span>Merchant Terbesar</span><b>{data.merchants[0]?.name || "—"}</b></article><article><span>Kategori Terbesar</span><b>{data.categories[0]?.name || "—"}</b></article></section>
     <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">{mode === "cycle" ? "SIKLUS GAJI · HARIAN" : "TREND"}</span><h2>{mode === "cycle" ? "Arus kas siklus berjalan" : "Pemasukan, pengeluaran, dan net"}</h2></div></div>{mode === "cycle" ? <DailyCashflowChart items={data.cashflow} height={360}/> : <CashflowChart items={data.cashflow} height={360}/>}</section>
