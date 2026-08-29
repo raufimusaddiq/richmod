@@ -26,6 +26,7 @@
 .chart-wrap{position:relative;min-height:180px;border-radius:12px;background:linear-gradient(180deg,#fbfdfb 0%,#fff 100%);padding:4px 2px 0}
 .chart-wrap .recharts-legend-item-text{font-size:11px;color:#526057}
 .chart-wrap .recharts-tooltip-wrapper{outline:none}
+.chart-tooltip{display:grid;gap:4px;padding:10px 12px;background:#fff;border:1px solid #dfe6df;border-radius:12px;box-shadow:0 8px 24px rgba(35,56,43,.12);font-size:11px}.chart-tooltip>b{font-size:12px;margin-bottom:2px}.chart-tooltip span{color:#6f786f}.chart-tooltip strong{color:#263d2d}.chart-tooltip>div{display:grid;grid-template-columns:1fr auto;gap:16px}.analytics-chart .chart-wrap{min-height:240px}.analytics-grid .chart-wrap{min-height:280px}
 @media(max-width:560px){.chart-wrap{min-height:210px}.chart-wrap .recharts-legend-wrapper{font-size:10px}}
 dialog { border: 0; border-radius: 20px; padding: 0; width: min(560px, calc(100% - 32px)); background: var(--surface, #fff); color: inherit; }
 dialog::backdrop { background: rgba(20, 24, 30, .55); }
