@@ -60,8 +60,8 @@ func TestExtractorRequiresOneNativeBankToolCall(t *testing.T) {
 	if !llm.called || llm.options.Required != true || llm.options.MaxToolCalls != 1 {
 		t.Fatalf("native call contract not enforced: called=%v options=%+v", llm.called, llm.options)
 	}
-	if llm.options.ReasoningEffort != "none" {
-		t.Fatalf("bank extraction reasoning is not disabled: %+v", llm.options)
+	if llm.options.ReasoningEffort != "" {
+		t.Fatalf("bank extraction must omit optional reasoning effort: %+v", llm.options)
 	}
 	if metadata.Model != "test-model" || got.Kind != "TRANSACTION" || got.AmountIDR == nil || *got.AmountIDR != "378075" || got.Merchant == nil || *got.Merchant != "TOKOPEDIA" {
 		t.Fatalf("unexpected extraction=%+v metadata=%+v", got, metadata)

@@ -51,10 +51,10 @@ code and verification evidence.
 - [ ] Telegram source-review conversation states collect and bind bank facts to
   the stored review/message identity. Web completion is implemented; Telegram
   completion is not yet implemented in this branch.
-- [ ] Run the complete API/worker/web suite plus disposable-PostgreSQL tests.
-- [ ] Apply migration 00030 to a disposable upgraded database and inspect the
-  migration/query plans. (Superseded by the successful 00001–00031 rehearsal
-  above; retain only an upgraded production-snapshot rehearsal.)
+- [x] Complete API and worker tests plus vet passed against disposable
+  PostgreSQL; web tests (11/11) and its production build passed.
+- [ ] Apply migrations to a restored production snapshot and inspect the
+  migration/query plans. The clean-database 00001–00031 rehearsal is complete.
 - [ ] Production backup/restore rehearsal, controlled configured-bank test,
   and second-sender acceptance remain operational gates.
 

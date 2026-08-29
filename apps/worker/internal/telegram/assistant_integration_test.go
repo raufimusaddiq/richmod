@@ -17,7 +17,7 @@ type assistantGateway struct{}
 
 func (assistantGateway) Structured(_ context.Context, _ string, _ string, _ string, content any, _ map[string]any, out any) (gateway.Metadata, error) {
 	value := out.(*extraction)
-	message := content.(map[string]any)["message"].(string)
+	message := strings.TrimSuffix(strings.TrimPrefix(content.(map[string]any)["untrusted_user_message"].(string), "<untrusted_user_message>"), "</untrusted_user_message>")
 	period := "THIS_MONTH"
 	value.Period = &period
 	value.ResponseMessage = "LLM TOTAL PALSU Rp999.999.999"
