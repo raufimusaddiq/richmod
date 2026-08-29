@@ -51,8 +51,9 @@ test("analytics insight UI is aggregate-only and safely rendered", () => {
 
 test("analytics insight card owns its spacing", () => {
   const styles = text("app/globals.css");
-  assert.match(styles, /\.insight-card\{[^}]*padding:20px/);
+  assert.match(styles, /\.insight-card\{[^}]*margin-top:14px[^}]*padding:22px 24px 21px/);
   assert.match(styles, /\.insight-card>\.section-title\{margin-bottom:0\}/);
+  assert.match(styles, /\.insight-card:before\{/);
 });
 
 test("transaction filters are query-backed", () => {
