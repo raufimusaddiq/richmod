@@ -30,9 +30,11 @@ Source plan remains unchanged.
 - [x] Run `npm test`: 25 tests passed in Node 22 container.
 - [x] Run `npm run build`: production build passed.
 - [x] Inspect diff: frontend insight UI, tests, styles, and this checklist only.
-- [ ] Commit and push feature branch.
-- [ ] Merge into `main` with `--no-ff` and push.
-- [ ] Deploy web and verify routes.
+- [x] Commit and push feature branch.
+- [x] Merge into `main` with `--no-ff` and push.
+- [x] Deploy web with production compose files and environment.
+- [x] Verify `/`, `/analytics`, `/reviews`, and `/transactions` return HTTP 200.
+- [x] Verify `/api/v1/insights` remains session-gated: unauthenticated HTTP 401.
 
 ## Completion record
 
@@ -43,4 +45,8 @@ Worktree: /home/ubuntu/richmod-worktrees/analytics-llm-insight-ui
 Backend changes: None.
 Tests: `npm test` — 25 passed; `npm run build` — passed.
 Manual desktop/mobile verification: pending authenticated browser check after deployment.
+Implementation commit: fdcb258
+Code merge commit: 9daa319
+Deployed image: sha256:8d9524d808d697e071fc92d9d2939acf36d2c218e55c1e07800ebd0a2f6177ba
+Deployment result: `family-finance-web-1` running; public route checks passed.
 ```
