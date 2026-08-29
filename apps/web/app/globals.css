@@ -39,3 +39,5 @@ dialog::backdrop { background: rgba(20, 24, 30, .55); }
 .page-thumbnails button[aria-current="true"] { border-color:currentColor; }
 .page-thumbnails img { width:62px; height:62px; object-fit:cover; display:block; }
 .page-thumbnails span { position:absolute; right:5px; bottom:5px; background:#fff; color:#111; padding:1px 5px; border-radius:9px; font-size:11px; }
+.insight-card{display:grid;gap:16px}.insight-header{align-items:start}.insight-header .eyebrow{color:#347255}.insight-text{display:grid;gap:10px;max-width:900px}.insight-text p{margin:0;line-height:1.65;white-space:pre-wrap}.insight-meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted,#6f786f);font-size:13px}.insight-state{display:grid;gap:8px}.insight-state p,.insight-state small,.insight-muted{margin:0}.insight-state button{justify-self:start}.insight-status,.insight-muted{color:var(--muted,#6f786f);line-height:1.6}
+@media(max-width:560px){.insight-header{align-items:stretch;gap:12px}.insight-header button{align-self:flex-start}.insight-meta{display:grid;gap:6px}}

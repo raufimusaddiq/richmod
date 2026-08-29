@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import { CategoryRankingChart, CycleSpendingPatternChart, MonthlyCashflowChart } from "../components/Charts";
+import InsightCard from "../components/InsightCard";
 import useAuth from "../components/useAuth";
 import { dayLabel, deriveCycleSpendingMetrics, elapsedDaily } from "../lib/chartData";
 import { money } from "../lib/format";
+import { pollInsight, selectCycleInsight } from "../lib/insightData";
 
 const emptyCycle = { daily: [], salary: "0", spent: "0", remaining: "0", daysElapsed: 0, daysTotal: 0 };
 
@@ -16,6 +18,10 @@ export default function AnalyticsPage() {
   const [data, setData] = useState({ cashflow: [], spending: [], categories: [], merchants: [], members: [] });
   const [dailyCycle, setDailyCycle] = useState(emptyCycle);
   const [error, setError] = useState("");
+  const [insight, setInsight] = useState(null);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState("");
+  const insightAbort = useRef(null);
 
   const load = useCallback(async query => {
     const suffix = query || `period=${mode === "cycle" ? "current_cycle" : "calendar"}&range=${range}`;
@@ -36,6 +42,38 @@ export default function AnalyticsPage() {
   }, [range, mode]);
 
   useEffect(() => { if (user) load(); }, [user, load]);
+  useEffect(() => {
+    if (!user || mode !== "cycle") { insightAbort.current?.abort(); setInsight(null); setInsightLoading(false); setInsightError(""); return undefined; }
+    const controller = new AbortController();
+    insightAbort.current?.abort(); insightAbort.current = controller;
+    setInsight(null); setInsightError("");
+    const loadList = async signal => { const response = await fetch("/api/v1/insights", { signal }); if (!response.ok) throw new Error("load"); return response.json(); };
+    loadList(controller.signal).then(async items => {
+      const selected = selectCycleInsight(items, dailyCycle);
+      if (controller.signal.aborted) return;
+      setInsight(selected);
+      if (selected?.status === "PENDING") await pollInsight({ insightId: selected.id, load: loadList, onUpdate: setInsight, signal: controller.signal });
+    }).catch(error => { if (error.name !== "AbortError") setInsightError(error.message === "insight polling timeout" ? "Analisis belum selesai. Coba perbarui lagi." : "Analisis Richmod belum dapat dimuat."); });
+    return () => controller.abort();
+  }, [user, mode, dailyCycle.cycleStart]);
+
+  const generateInsight = useCallback(async () => {
+    if (!dailyCycle.cycleStart) return;
+    insightAbort.current?.abort();
+    const controller = new AbortController();
+    insightAbort.current = controller;
+    setInsightLoading(true); setInsightError("");
+    try {
+      const response = await fetch("/api/v1/insights/generate?period=cycle", { method: "POST", signal: controller.signal });
+      if (!response.ok) throw new Error("generate");
+      const requested = await response.json();
+      await pollInsight({ insightId: requested.id, signal: controller.signal, onUpdate: setInsight, load: async signal => { const listResponse = await fetch("/api/v1/insights", { signal }); if (!listResponse.ok) throw new Error("poll"); return listResponse.json(); } });
+    } catch (error) {
+      if (error.name !== "AbortError") setInsightError(error.message === "insight polling timeout" ? "Analisis belum selesai. Coba perbarui lagi." : "Analisis Richmod belum dapat dibuat.");
+    } finally { if (!controller.signal.aborted) setInsightLoading(false); }
+  }, [dailyCycle.cycleStart]);
+
+  useEffect(() => () => insightAbort.current?.abort(), []);
   function select(value) { setRange(value); }
   function custom(event) { event.preventDefault(); const form = new FormData(event.currentTarget); load(`period=custom&from=${form.get("from")}&to=${form.get("to")}`); }
   if (!user) return <main className="loading">Memuat…</main>;
@@ -55,6 +93,7 @@ export default function AnalyticsPage() {
     {error && <p className="notice error">{error}</p>}
     <section className="analytics-kpis">{kpis.map(([label, value]) => <article key={label}><span>{label}</span><b>{value}</b></article>)}</section>
     <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">{mode === "cycle" ? "SIKLUS GAJI · HARIAN" : "TREND BULANAN"}</span><h2>{mode === "cycle" ? "Pola pengeluaran siklus ini" : "Pemasukan vs pengeluaran"}</h2></div></div>{mode === "cycle" ? <CycleSpendingPatternChart items={data.cashflow} spent={dailyCycle.spent} daysElapsed={dailyCycle.daysElapsed} height={360}/> : <MonthlyCashflowChart items={data.cashflow} height={360}/>}</section>
+    <InsightCard insight={insight} loading={insightLoading} error={insightError} unsupported={mode === "calendar"} canGenerate={Boolean(dailyCycle.cycleStart)} onGenerate={generateInsight}/>
     <section className="analytics-grid"><article className="surface"><div className="section-title"><h2>Peringkat kategori</h2></div><CategoryRankingChart items={data.categories}/></article><Ranked title="Merchant" items={data.merchants}/><Ranked title="Kontribusi anggota" items={data.members}/>{mode === "calendar" && <Ranked title="Pengeluaran bulanan setelah refund" items={data.spending.map(item => ({ name: item.period, amount: item.netSpending }))}/>}</section>
   </AppShell>;
 }
