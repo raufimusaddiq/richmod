@@ -25,6 +25,20 @@ test("overview chart is backed by deterministic analytics API", () => {
   assert.match(text("app/components/Charts.js"), /ResponsiveContainer/);
 });
 
+test("charts answer distinct dashboard, cycle, calendar, and category questions", () => {
+  const charts = text("app/components/Charts.js");
+  const home = text("app/page.js");
+  const analytics = text("app/analytics/page.js");
+  for (const name of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "MonthlyCashflowChart", "CategoryDonutChart", "CategoryRankingChart"]) assert.match(charts, new RegExp(`export function ${name}`));
+  assert.match(home, /DashboardDailySpendingChart/);
+  assert.match(home, /CategoryDonutChart/);
+  assert.match(analytics, /CycleSpendingPatternChart/);
+  assert.match(analytics, /MonthlyCashflowChart/);
+  assert.match(analytics, /CategoryRankingChart/);
+  assert.doesNotMatch(charts, /cumulativeValue|AreaChart|<Line/);
+  assert.match(charts, /ReferenceLine/);
+});
+
 test("transaction filters are query-backed", () => {
   const source = text("app/transactions/page.js");
   for (const name of ["from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "q"]) assert.match(source, new RegExp(`name=\\"${name}\\"`));
