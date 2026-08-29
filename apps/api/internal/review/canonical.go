@@ -113,7 +113,15 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Action == "IGNORE" {
-		_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id=$1; UPDATE source_event SET processing_status='IGNORED' WHERE id=$2; UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$3`, proposal, source, document)
+		if proposal != nil {
+			_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id=$1`, *proposal)
+		}
+		if err == nil && source != nil {
+			_, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1`, *source)
+		}
+		if err == nil && document != nil {
+			_, err = tx.Exec(r.Context(), `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, *document)
+		}
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
 		err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, in.Action)
 	} else if kind == "MISSING_PAY_DATE" && in.Action == "SET_PAY_DATE" {
@@ -142,7 +150,10 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid or unavailable review action"})
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1; UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"), p.UserID, in.Action, string(in.Values))
+	_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, in.Action, string(in.Values))
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
+	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to finalize review"})
 		return
