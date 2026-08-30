@@ -207,7 +207,9 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
 		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		_, _ = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID)
+		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
+			return true, err
+		}
 		return true, tx.Commit(ctx)
 	}
 	if err != nil {
@@ -337,8 +339,8 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
 		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); e != nil {
-			return e
+		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
+			return err
 		}
 		return tx.Commit(ctx)
 	}
@@ -386,6 +388,13 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		return err
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, validCategory, update, reviewExtraction{Confidence: 1})
+}
+
+func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID string, update telegramUpdate) error {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	return enqueueReply(ctx, tx, update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
 }
 
 func transferReviewIntent(value string) string {

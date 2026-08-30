@@ -184,7 +184,7 @@ func (h *Handler) LLMCalls(w http.ResponseWriter, r *http.Request) {
 	start := adminRange(r.URL.Query().Get("range"))
 	limit := pageLimit(r, 50, 100)
 	cursor, hasCursor := parseCursor(r.URL.Query().Get("cursor"))
-	rows, err := h.pool.Query(r.Context(), `SELECT id,household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,created_at FROM llm_call WHERE created_at >=$1 AND ($2='' OR task=$2) AND ($3='' OR status=$3) AND (NOT $4 OR (created_at,id)<($5,$6::uuid)) ORDER BY created_at DESC,id DESC LIMIT $7`, start, r.URL.Query().Get("task"), r.URL.Query().Get("status"), hasCursor, cursor.Time, cursor.ID, limit+1)
+	rows, err := h.pool.Query(r.Context(), `SELECT id,household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,created_at FROM llm_call WHERE created_at >=$1 AND ($2='' OR task=$2) AND ($3='' OR status=$3) AND (NOT $4 OR (created_at,id)<($5,$6::uuid)) ORDER BY created_at DESC,id DESC LIMIT $7`, start, r.URL.Query().Get("task"), r.URL.Query().Get("status"), hasCursor, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -203,6 +203,10 @@ func (h *Handler) LLMCalls(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = append(items, map[string]any{"id": id, "householdId": household, "task": task, "protocol": protocol, "model": model, "status": status, "errorClass": errorClass, "durationMs": duration, "inputTokens": input, "outputTokens": output, "cost": cost, "attempt": attempt, "createdAt": created})
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "ADMIN_QUERY_FAILED")
+		return
 	}
 	next := ""
 	if len(items) > limit {
@@ -360,7 +364,7 @@ func (h *Handler) PlatformAudit(w http.ResponseWriter, r *http.Request) {
 		start = from
 	}
 	to, toOK := dateBound(q.Get("to"), true)
-	rows, err := h.pool.Query(r.Context(), `SELECT p.id,p.action,p.entity_type,p.entity_id,p.metadata_json,p.created_at,u.email,p.request_id FROM platform_audit_log p JOIN "user" u ON u.id=p.actor_user_id WHERE ($1='' OR p.action=$1) AND p.created_at >= $2 AND ($3::timestamptz IS NULL OR p.created_at < $3) AND (NOT $4 OR (p.created_at,p.id)<($5,$6::bigint)) ORDER BY p.created_at DESC,p.id DESC LIMIT $7`, q.Get("action"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
+	rows, err := h.pool.Query(r.Context(), `SELECT p.id,p.action,p.entity_type,p.entity_id,p.metadata_json,p.created_at,u.email,p.request_id FROM platform_audit_log p JOIN "user" u ON u.id=p.actor_user_id WHERE ($1='' OR p.action=$1) AND p.created_at >= $2 AND ($3::timestamptz IS NULL OR p.created_at < $3) AND (NOT $4 OR (p.created_at,p.id)<($5,$6::bigint)) ORDER BY p.created_at DESC,p.id DESC LIMIT $7`, q.Get("action"), start, nullableTimeArg(to, toOK), hasCursor, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -380,6 +384,10 @@ func (h *Handler) PlatformAudit(w http.ResponseWriter, r *http.Request) {
 		var safe map[string]any
 		_ = json.Unmarshal(metadata, &safe)
 		items = append(items, map[string]any{"id": id, "action": action, "entityType": entityType, "entityId": entityID, "metadata": safe, "actorEmail": email, "requestId": requestID, "createdAt": at})
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "ADMIN_QUERY_FAILED")
+		return
 	}
 	next := ""
 	if len(items) > limit {
@@ -404,7 +412,7 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 		start = from
 	}
 	to, toOK := dateBound(q.Get("to"), true)
-	rows, err := h.pool.Query(r.Context(), `SELECT id,action,entity_type,entity_id,created_at FROM audit_log WHERE household_id=$1 AND ($2='' OR action=$2) AND created_at >= $3 AND ($4::timestamptz IS NULL OR created_at < $4) AND (NOT $5 OR (created_at,id)<($6,$7::uuid)) ORDER BY created_at DESC,id DESC LIMIT $8`, id, q.Get("action"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
+	rows, err := h.pool.Query(r.Context(), `SELECT id,action,entity_type,entity_id,created_at FROM audit_log WHERE household_id=$1 AND ($2='' OR action=$2) AND created_at >= $3 AND ($4::timestamptz IS NULL OR created_at < $4) AND (NOT $5 OR (created_at,id)<($6,$7::uuid)) ORDER BY created_at DESC,id DESC LIMIT $8`, id, q.Get("action"), start, nullableTimeArg(to, toOK), hasCursor, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -419,6 +427,10 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = append(items, map[string]any{"id": aid, "action": action, "entityType": entityType, "entityId": entityID, "createdAt": at})
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "ADMIN_QUERY_FAILED")
+		return
 	}
 	next := ""
 	if len(items) > limit {
