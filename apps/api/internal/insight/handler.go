@@ -28,26 +28,29 @@ type categoryChange struct {
 	PreviousThreeMonthAvg string `json:"previous_three_month_average"`
 	Change                string `json:"change_vs_three_month_average"`
 }
-type distribution struct { Name string `json:"name"`; Amount string `json:"amount"` }
+type distribution struct {
+	Name   string `json:"name"`
+	Amount string `json:"amount"`
+}
 
 type facts struct {
-	Period           string           `json:"period"`
-	PeriodKind       string           `json:"period_kind"`
-	PeriodStart      string           `json:"period_start"`
-	PeriodEnd        string           `json:"period_end"`
-	PeriodOpen       bool             `json:"period_open"`
-	Currency         string           `json:"currency"`
-	Income           string           `json:"income"`
-	Expense          string           `json:"expense"`
-	NetCashflow      string           `json:"net_cashflow"`
-	SavingsRate      *string          `json:"savings_rate"`
-	CategoryChanges  []categoryChange `json:"category_changes"`
-	OpenReviewCount  int              `json:"open_review_count"`
-	DataCompleteness string           `json:"data_completeness"`
-	MerchantDistribution []distribution `json:"merchant_distribution"`
-	MemberDistribution []distribution `json:"member_distribution"`
-	PreviousExpense string `json:"previous_expense"`
-	PreviousNetCashflow string `json:"previous_net_cashflow"`
+	Period               string           `json:"period"`
+	PeriodKind           string           `json:"period_kind"`
+	PeriodStart          string           `json:"period_start"`
+	PeriodEnd            string           `json:"period_end"`
+	PeriodOpen           bool             `json:"period_open"`
+	Currency             string           `json:"currency"`
+	Income               string           `json:"income"`
+	Expense              string           `json:"expense"`
+	NetCashflow          string           `json:"net_cashflow"`
+	SavingsRate          *string          `json:"savings_rate"`
+	CategoryChanges      []categoryChange `json:"category_changes"`
+	OpenReviewCount      int              `json:"open_review_count"`
+	DataCompleteness     string           `json:"data_completeness"`
+	MerchantDistribution []distribution   `json:"merchant_distribution"`
+	MemberDistribution   []distribution   `json:"member_distribution"`
+	PreviousExpense      string           `json:"previous_expense"`
+	PreviousNetCashflow  string           `json:"previous_net_cashflow"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +120,11 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 409, map[string]string{"error": "an insight is already being generated"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_INSIGHT',jsonb_build_object('insight_id',$1::uuid),3); INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($2,'USER',$3,'REQUEST_INSIGHT','insight',$1,jsonb_build_object('period',$4::date,'data_completeness',$5::numeric))`, id, household, p.UserID, period, metrics.DataCompleteness); err != nil || tx.Commit(r.Context()) != nil {
+	if _, err := tx.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_INSIGHT',jsonb_build_object('insight_id',$1::uuid),3)`, id); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to enqueue insight"})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'REQUEST_INSIGHT','insight',$3,jsonb_build_object('period',$4::date,'data_completeness',$5::numeric))`, household, p.UserID, id, period, metrics.DataCompleteness); err != nil || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to enqueue insight"})
 		return
 	}
@@ -129,7 +136,12 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 	if period.Day() != 1 {
 		var next *time.Time
 		_ = h.pool.QueryRow(r.Context(), `SELECT min(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date>$2::date`, household, period.Format("2006-01-02")).Scan(&next)
-		if next != nil { end = *next } else { local := h.now().In(clock.HouseholdLocation()); end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation()) }
+		if next != nil {
+			end = *next
+		} else {
+			local := h.now().In(clock.HouseholdLocation())
+			end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation())
+		}
 	}
 	// Keep the three-month baseline for category trend calculations, but use the
 	// actual preceding salary anchor for cycle-to-cycle comparison.
@@ -171,11 +183,30 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 	_ = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, household, previousPeriodStart, period).Scan(&previousIncome, &previousExpense)
 	merchants := make([]distribution, 0)
 	merchantRows, _ := h.pool.Query(r.Context(), `SELECT COALESCE(NULLIF(counterparty_name,''),description,'Tidak diketahui'),sum(amount)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='EXPENSE' AND transaction_at >= $2 AND transaction_at < $3 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT 10`, household, period, end)
-	if merchantRows != nil { defer merchantRows.Close(); for merchantRows.Next() { var d distribution; if merchantRows.Scan(&d.Name,&d.Amount)==nil { merchants=append(merchants,d) } } }
+	if merchantRows != nil {
+		defer merchantRows.Close()
+		for merchantRows.Next() {
+			var d distribution
+			if merchantRows.Scan(&d.Name, &d.Amount) == nil {
+				merchants = append(merchants, d)
+			}
+		}
+	}
 	members := make([]distribution, 0)
 	memberRows, _ := h.pool.Query(r.Context(), `SELECT COALESCE(u.display_name,'Anggota'),sum(t.amount)::text FROM transaction t LEFT JOIN "user" u ON u.id=t.created_by_user_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type='EXPENSE' AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY 1 ORDER BY sum(t.amount) DESC`, household, period, end)
-	if memberRows != nil { defer memberRows.Close(); for memberRows.Next() { var d distribution; if memberRows.Scan(&d.Name,&d.Amount)==nil { members=append(members,d) } } }
-	periodKind := "CALENDAR_MONTH"; if period.Day() != 1 { periodKind = "CURRENT_CYCLE" }
+	if memberRows != nil {
+		defer memberRows.Close()
+		for memberRows.Next() {
+			var d distribution
+			if memberRows.Scan(&d.Name, &d.Amount) == nil {
+				members = append(members, d)
+			}
+		}
+	}
+	periodKind := "CALENDAR_MONTH"
+	if period.Day() != 1 {
+		periodKind = "CURRENT_CYCLE"
+	}
 	result := facts{Period: period.Format("2006-01"), PeriodKind: periodKind, PeriodStart: period.Format("2006-01-02"), PeriodEnd: end.Format("2006-01-02"), PeriodOpen: periodKind == "CURRENT_CYCLE" && end.After(h.now().In(clock.HouseholdLocation())), Currency: "IDR", Income: income, Expense: expense, NetCashflow: subtract(income, expense), CategoryChanges: changes, OpenReviewCount: reviews, DataCompleteness: completeness, MerchantDistribution: merchants, MemberDistribution: members, PreviousExpense: previousExpense, PreviousNetCashflow: subtract(previousIncome, previousExpense)}
 	if value, ok := divide(result.NetCashflow, income); ok {
 		result.SavingsRate = &value

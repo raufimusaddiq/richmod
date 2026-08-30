@@ -183,7 +183,16 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, pr
 	if err := tx.QueryRow(r.Context(), `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'INCOME','CONFIRMED',$2,'IDR',$3,'Penghasilan dari slip gaji',NULLIF($4,''),$5,now()) RETURNING id`, household, amount, at, employer, user).Scan(&transaction); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',jsonb_build_object('proposal_id',$3::uuid,'document_id',$4::uuid)); UPDATE transaction_proposal SET proposal_status='ACCEPTED',updated_at=now() WHERE id=$3; UPDATE source_event SET processing_status='PROCESSED' WHERE id=$2; UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$4`, transaction, source, proposal, document); err != nil {
+	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',jsonb_build_object('proposal_id',$3::uuid,'document_id',$4::uuid))`, transaction, source, proposal, document); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',updated_at=now() WHERE id=$1`, proposal); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, source); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, document); err != nil {
 		return err
 	}
 	if choice == "ORDINARY_INCOME" {
@@ -196,7 +205,13 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, pr
 			return err
 		}
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2; UPDATE salary_source SET is_primary=true,updated_at=now() WHERE id=$2; INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$3,$4::date,$5::date,$6,'IDR',$7,'CONFIRMED',$8) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, household, salarySource, household, period+"-01", at, amount, transaction, source); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2`, household, salarySource); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=true,updated_at=now() WHERE id=$1`, salarySource); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(r.Context(), `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySource, household, period+"-01", at, amount, transaction, source); err != nil {
 		return err
 	}
 	return nil

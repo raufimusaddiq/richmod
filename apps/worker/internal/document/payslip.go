@@ -314,7 +314,10 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return err
 	}
 	if reviewWithoutTransaction {
-		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status) VALUES($1,$2,$3,$4,$5,'OPEN') ON CONFLICT DO NOTHING; UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$4; UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$3; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_PAYSLIP_REVIEW','document',$4,jsonb_build_object('review_type',$5::text,'proposal_id',$2::uuid))`, householdID, proposalID, sourceID, documentID, reviewType); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status) VALUES($1,$2,$3,$4,$5,'OPEN') ON CONFLICT DO NOTHING`, householdID, proposalID, sourceID, documentID, reviewType); err != nil { return err }
+		if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil { return err }
+		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil { return err }
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_PAYSLIP_REVIEW','document',$2,jsonb_build_object('review_type',$3::text,'proposal_id',$4::uuid))`, householdID, documentID, reviewType, proposalID); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)

@@ -40,7 +40,11 @@ func (h *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"active household salary source not found"}`, 400)
 			return
 		}
-		if _, err = tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2; UPDATE salary_source SET is_primary=true,updated_at=now() WHERE id=$2`, household, valid); err != nil {
+		if _, err = tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2`, household, valid); err != nil {
+			http.Error(w, `{"error":"unable to update salary source"}`, 500)
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=true,updated_at=now() WHERE id=$1`, valid); err != nil {
 			http.Error(w, `{"error":"unable to update salary source"}`, 500)
 			return
 		}
