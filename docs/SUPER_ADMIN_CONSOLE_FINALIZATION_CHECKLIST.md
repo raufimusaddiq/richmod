@@ -14,16 +14,18 @@ Source of truth: `docs/RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md` (uncha
 - [ ] LLM calls-by-hour chart.
 - [ ] Filter values mirrored into browser URL.
 - [ ] DB-backed admin integration coverage and query-plan review.
-- [ ] Disposable migration and production smoke verification.
+- [x] Disposable migration, production schema, public health, and authorization-boundary smoke verified.
+- [ ] Authenticated Super Admin browser smoke and keyboard/responsive review.
 
 ## Verification log
 
 | Check | Result | Date |
 |---|---|---|
 | API tests/vet | passed | 2026-08-30 |
-| Web tests/build | passed (29 tests) | 2026-08-30 |
+| Web tests/build | passed (30 tests) | 2026-08-30 |
 | Disposable Goose migration | passed through version 35; request_id is text | 2026-08-30 |
-| Production deployment | pending | 2026-08-30 |
-| Safe cache reclaim | pending | 2026-08-30 |
+| Production deployment | main `0de5386`; Goose 35; API/web healthy | 2026-08-30 |
+| Environment preservation | checksum unchanged (`24f943…50ddd`) | 2026-08-30 |
+| Safe cache reclaim | passed; root free space increased from 9.2 GiB to 12 GiB | 2026-08-30 |
 
 Remaining unchecked items are explicit follow-up, not claimed shipped.
