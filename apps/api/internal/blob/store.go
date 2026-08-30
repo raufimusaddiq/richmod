@@ -7,15 +7,18 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 const maxObjectSize = 10 << 20
+const presignedGETTTL = 2 * time.Minute
 
 type Store struct {
 	root, prefix string
@@ -132,6 +135,22 @@ func (s *Store) EvictLocal(ref string) error {
 		return err
 	}
 	return nil
+}
+func (s *Store) PresignedGet(ctx context.Context, ref, mediaType string) (string, bool, error) {
+	if _, err := s.localPath(ref); err != nil {
+		return "", false, err
+	}
+	if s.client == nil {
+		return "", false, nil
+	}
+	location, err := s.client.PresignedGetObject(ctx, s.bucket, s.key(ref), presignedGETTTL, url.Values{
+		"response-content-disposition": {"inline"},
+		"response-content-type":        {mediaType},
+	})
+	if err != nil {
+		return "", false, fmt.Errorf("presign object: %w", err)
+	}
+	return location.String(), true, nil
 }
 func (s *Store) Delete(ctx context.Context, ref string) error {
 	path, err := s.localPath(ref)

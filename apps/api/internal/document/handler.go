@@ -409,6 +409,18 @@ func (h *Handler) PageContent(w http.ResponseWriter, r *http.Request) {
 		}
 		h.storage = storage
 	}
+	location, remote, err := h.storage.PresignedGet(r.Context(), ref, media)
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": "document content unavailable"})
+		return
+	}
+	if remote {
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Location", location)
+		w.WriteHeader(http.StatusFound)
+		return
+	}
 	raw, err := h.storage.Read(r.Context(), ref)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "document content unavailable"})

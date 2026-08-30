@@ -10,6 +10,8 @@ Baseline: `3545de2`
 - [x] API and worker read OSS directly after local processing bytes are evicted.
 - [x] Terminal documents with no active processing job lose local bytes.
 - [x] Remote reads do not repopulate local storage.
+- [x] Document content endpoints redirect authorized requests to a two-minute OSS presigned GET URL.
+- [x] Presigned redirect sets `Referrer-Policy: no-referrer`; URL is not persisted or logged.
 - [x] Browser receives no OSS credential or public object URL.
 - [x] Partial OSS configuration fails application startup.
 - [x] Existing production attachment volume backfilled idempotently.

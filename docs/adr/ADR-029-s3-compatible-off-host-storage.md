@@ -26,11 +26,16 @@ and bucket but uses the separate `backups/restic` prefix. Restic encryption keys
 remain independent from OSS credentials and require an off-host recovery copy.
 
 Bucket remains private. Richmod issues no public object URLs or browser credentials.
+After API session and household authorization, document-content endpoints respond
+with a short-lived (two-minute), GET-only OSS presigned redirect. The signed URL
+uses inline content response metadata, is never persisted or logged, and includes
+`Referrer-Policy: no-referrer` on the redirect response.
 
 ## Consequences
 
 - Host loss does not remove attachment evidence or database snapshots.
 - Temporary OSS failure rejects new document uploads and prevents remote reads.
 - Local bytes exist only while document extraction still needs them.
+- API file bytes no longer relay through the application after authorization.
 - Existing local attachments need one idempotent backfill before acceptance.
 - Recovery acceptance requires an OSS round trip and disposable restore drill.
