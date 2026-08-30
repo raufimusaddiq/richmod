@@ -12,7 +12,8 @@ and backs it up together with attachment storage. Restic provides encryption,
 repository integrity checks, off-host repository support, and retention pruning.
 
 The restic password is mounted from a root-readable host file and is never
-committed. Production must set `RESTIC_REPOSITORY` to an off-host repository.
+committed. ADR-029 derives production `RESTIC_REPOSITORY` from OSS configuration
+and stores encrypted snapshots under `<OSS_PREFIX>/backups/restic`.
 The supported default retention is 14 daily, 8 weekly, and 12 monthly snapshots.
 
 A restore drill targets only a disposable database whose name ends in

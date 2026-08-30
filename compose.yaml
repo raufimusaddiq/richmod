@@ -54,6 +54,12 @@ services:
       GMAIL_PUBSUB_AUDIENCE: ${GMAIL_PUBSUB_AUDIENCE:-}
       GMAIL_PUBSUB_SERVICE_ACCOUNT: ${GMAIL_PUBSUB_SERVICE_ACCOUNT:-}
       DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_REGION: ${OSS_REGION:-}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_PREFIX: ${OSS_PREFIX:-richmod}
+      OSS_ACCESS_KEY: ${OSS_ACCESS_KEY:-}
+      OSS_SECRET_KEY: ${OSS_SECRET_KEY:-}
     volumes:
       - attachment_data:/var/lib/finance/attachments
     depends_on:
@@ -83,6 +89,12 @@ services:
       GMAIL_TOKEN_ENCRYPTION_KEY: ${GMAIL_TOKEN_ENCRYPTION_KEY:-}
       GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
       DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_REGION: ${OSS_REGION:-}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_PREFIX: ${OSS_PREFIX:-richmod}
+      OSS_ACCESS_KEY: ${OSS_ACCESS_KEY:-}
+      OSS_SECRET_KEY: ${OSS_SECRET_KEY:-}
       LLM_MODEL_DOCUMENT_VISION: ${LLM_MODEL_DOCUMENT_VISION:-}
       LLM_MODEL_INSIGHTS: ${LLM_MODEL_INSIGHTS:-}
     volumes:
@@ -119,9 +131,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-/repository}
       RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-/run/secrets/restic-password}
-      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
-      AWS_DEFAULT_REGION: ${BACKUP_S3_REGION:-}
+      AWS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY:-${BACKUP_S3_ACCESS_KEY_ID:-}}
+      AWS_SECRET_ACCESS_KEY: ${OSS_SECRET_KEY:-${BACKUP_S3_SECRET_ACCESS_KEY:-}}
+      AWS_DEFAULT_REGION: ${OSS_REGION:-${BACKUP_S3_REGION:-}}
     volumes:
       - backup_data:/repository
       - attachment_data:/var/lib/finance/attachments:ro

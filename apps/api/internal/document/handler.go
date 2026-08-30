@@ -3,9 +3,7 @@ package document
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +12,6 @@ import (
 	"image/png"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
 )
 
 const maxUploadBytes = 10 << 20
@@ -29,8 +27,9 @@ const maxImagePixels = 24_000_000
 const maxImagesPerDocument = 10
 
 type Handler struct {
-	pool *pgxpool.Pool
-	root string
+	pool    *pgxpool.Pool
+	root    string
+	storage *blob.Store
 }
 type normalizedPage struct {
 	normalized                  []byte
@@ -40,13 +39,15 @@ type normalizedPage struct {
 }
 
 func NewHandler(pool *pgxpool.Pool, root string) (*Handler, error) {
-	if root == "" || !filepath.IsAbs(root) {
-		return nil, fmt.Errorf("DOCUMENT_STORAGE_PATH must be absolute")
+	storage, err := blob.NewLocal(root)
+	if err != nil {
+		return nil, err
 	}
-	if err := os.MkdirAll(root, 0700); err != nil {
-		return nil, fmt.Errorf("create document storage: %w", err)
-	}
-	return &Handler{pool: pool, root: filepath.Clean(root)}, nil
+	return &Handler{pool: pool, root: filepath.Clean(root), storage: storage}, nil
+}
+
+func NewHandlerWithStorage(pool *pgxpool.Pool, storage *blob.Store) *Handler {
+	return &Handler{pool: pool, storage: storage}
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +96,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if removeNew {
 			for _, pg := range pages {
-				_ = os.Remove(pg.path)
+				_ = h.storage.Delete(context.Background(), pg.storageRef)
 			}
 		}
 	}()
@@ -230,34 +231,21 @@ func normalizeImage(raw []byte, filename string) ([]byte, string, int, int, stri
 }
 
 func (h *Handler) store(household string, content []byte, extension string) (string, string, error) {
-	random := make([]byte, 24)
-	if _, err := rand.Read(random); err != nil {
-		return "", "", err
+	if h.storage == nil {
+		storage, err := blob.NewLocal(h.root)
+		if err != nil {
+			return "", "", err
+		}
+		h.storage = storage
 	}
-	directory := filepath.Join(h.root, household)
-	if err := os.MkdirAll(directory, 0700); err != nil {
-		return "", "", err
-	}
-	name := hex.EncodeToString(random) + extension
-	path := filepath.Join(directory, name)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	ref, err := h.storage.Ref(household, extension)
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := file.Write(content); err != nil {
-		file.Close()
-		_ = os.Remove(path)
+	if err := h.storage.Put(context.Background(), ref, content, http.DetectContentType(content)); err != nil {
 		return "", "", err
 	}
-	err = file.Sync()
-	closeErr := file.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		_ = os.Remove(path)
-	}
-	return filepath.Join(household, name), path, err
+	return ref, filepath.Join(h.root, filepath.FromSlash(ref)), nil
 }
 
 func (h *Handler) persist(ctx context.Context, p auth.Principal, household string, digest, content []byte, mediaType string, width, height int, storageRef string) (string, string, error) {
@@ -413,15 +401,22 @@ func (h *Handler) PageContent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to load document"})
 		return
 	}
-	path := filepath.Join(h.root, ref)
-	relative, err := filepath.Rel(h.root, path)
-	if err != nil || strings.HasPrefix(relative, "..") {
-		writeJSON(w, 500, map[string]string{"error": "invalid document storage reference"})
+	if h.storage == nil {
+		storage, storageErr := blob.NewLocal(h.root)
+		if storageErr != nil {
+			writeJSON(w, 500, map[string]string{"error": "document content unavailable"})
+			return
+		}
+		h.storage = storage
+	}
+	raw, err := h.storage.Read(r.Context(), ref)
+	if err != nil {
+		writeJSON(w, 404, map[string]string{"error": "document content unavailable"})
 		return
 	}
 	w.Header().Set("Content-Type", media)
 	w.Header().Set("Cache-Control", "private, no-store")
-	http.ServeFile(w, r, path)
+	_, _ = w.Write(raw)
 }
 
 func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {

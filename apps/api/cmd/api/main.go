@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/admin"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/budget"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
@@ -62,10 +64,11 @@ func run(logger *slog.Logger) error {
 	salaryHandler := salary.NewHandler(pool)
 	householdHandler := household.NewHandler(pool, cfg.TelegramBotUsername)
 	adminHandler := admin.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
-	documentHandler, err := document.NewHandler(pool, cfg.DocumentStoragePath)
+	documentStorage, err := blob.NewFromEnv(cfg.DocumentStoragePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("configure document storage: %w", err)
 	}
+	documentHandler := document.NewHandlerWithStorage(pool, documentStorage)
 	insightHandler := insight.NewHandler(pool)
 	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
