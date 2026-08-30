@@ -16,7 +16,7 @@ func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	household := p.Memberships[0].HouseholdID
-	now := time.Now().In(clock.HouseholdLocation())
+	now := h.now().In(clock.HouseholdLocation())
 	var start, end *time.Time
 	var configured bool
 	err := h.pool.QueryRow(r.Context(), `SELECT configured,starts_on,ends_on FROM salary_cycle_bounds($1,$2::date)`, household, now.Format("2006-01-02")).Scan(&configured, &start, &end)
@@ -54,8 +54,8 @@ func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
 		cumulative.Add(cumulative, amount)
 		result = append(result, map[string]string{"period": period, "income": income, "expense": expense, "refund": refund, "netCashflow": net, "cumulativeExpense": cumulative.String()})
 	}
-	days := int(end.Sub(*start).Hours() / 24)
-	elapsed := int(now.Sub(*start).Hours()/24) + 1
+	days := calendarDays(*start, *end)
+	elapsed := calendarDays(*start, now) + 1
 	if elapsed < 0 {
 		elapsed = 0
 	}
@@ -69,4 +69,11 @@ func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
 	}
 	remaining.Sub(salaryValue, spent)
 	writeJSON(w, 200, map[string]any{"configured": true, "daily": result, "salary": salaryValue.String(), "spent": spent.String(), "remaining": remaining.String(), "daysElapsed": elapsed, "daysTotal": days, "cycleStart": start.Format("2006-01-02"), "cycleEnd": end.Format("2006-01-02")})
+}
+
+func calendarDays(start, end time.Time) int {
+	location := clock.HouseholdLocation()
+	startDate := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, location)
+	endDate := time.Date(end.In(location).Year(), end.In(location).Month(), end.In(location).Day(), 0, 0, 0, 0, location)
+	return int(endDate.Sub(startDate).Hours() / 24)
 }

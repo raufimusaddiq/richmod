@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactCategories, cycleProgressLabel, dayLabel, deriveCycleSpendingMetrics, elapsedDaily, mapMonthlyCashflow } from "../app/lib/chartData.js";
+import { compactCategories, cycleProgressLabel, dayLabel, deriveCycleSpendingMetrics, elapsedDaily, mapMonthlyCashflow, rankCategories } from "../app/lib/chartData.js";
 
 const categories = count => Array.from({ length: count }, (_, index) => ({ id: String(index), name: `Kategori ${index}`, amount: String((count - index) * 100) }));
 
@@ -18,6 +18,13 @@ test("compactCategories keeps the top five and groups the remainder", () => {
 
 test("compactCategories excludes non-positive amounts", () => {
   assert.deepEqual(compactCategories([{ name: "Nol", amount: "0" }, { name: "Negatif", amount: "-1" }]), []);
+});
+
+test("category ranking keeps real category names without synthetic remainder", () => {
+  const ranked = rankCategories(categories(10));
+  assert.equal(ranked.length, 10);
+  assert.equal(ranked.some(item => item.name === "Lainnya"), false);
+  assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.share, 0) - 1) < 0.000001);
 });
 
 test("cycle metrics use elapsed calendar days and find the peak", () => {
