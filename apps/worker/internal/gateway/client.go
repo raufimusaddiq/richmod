@@ -18,6 +18,8 @@ type Client struct {
 	model    string
 	protocol string
 	http     *http.Client
+	task     string
+	record   Recorder
 }
 
 type Metadata struct {
@@ -26,6 +28,22 @@ type Metadata struct {
 	OutputTokens int
 	Cost         string
 }
+
+// CallMetric contains metadata only. Prompt, response, and source content are
+// intentionally excluded from operational telemetry.
+type CallMetric struct {
+	Task         string
+	Protocol     string
+	Model        string
+	Status       string
+	ErrorClass   string
+	DurationMs   int64
+	InputTokens  int
+	OutputTokens int
+	Cost         string
+}
+
+type Recorder func(context.Context, CallMetric)
 
 type ToolDefinition struct {
 	Name        string
@@ -59,7 +77,13 @@ type ToolResponse struct {
 
 // NativeToolResult submits a Go-produced function result and returns the next
 // native call or final assistant text.
-func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, callID, output string) (ToolResponse, error) {
+func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, callID, output string) (response ToolResponse, err error) {
+	started := time.Now()
+	defer func() { c.observe(ctx, started, response.Metadata, err) }()
+	return c.nativeToolResult(ctx, requestID, responseID, callID, output)
+}
+
+func (c *Client) nativeToolResult(ctx context.Context, requestID, responseID, callID, output string) (ToolResponse, error) {
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return ToolResponse{}, fmt.Errorf("LLM gateway is not configured")
 	}
@@ -121,7 +145,13 @@ func (c *Client) NativeToolResult(ctx context.Context, requestID, responseID, ca
 
 // NativeToolCall asks the gateway for a native function_call. It never
 // executes a tool; callers must validate and dispatch it in Go.
-func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (ToolCall, Metadata, error) {
+func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (call ToolCall, metadata Metadata, err error) {
+	started := time.Now()
+	defer func() { c.observe(ctx, started, metadata, err) }()
+	return c.nativeToolCall(ctx, requestID, systemPrompt, content, tools, optionValues...)
+}
+
+func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (ToolCall, Metadata, error) {
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway is not configured")
 	}
@@ -354,7 +384,51 @@ func NewWithProtocol(baseURL, apiKey, model, protocol string) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, model: model, protocol: protocol, http: &http.Client{Timeout: 60 * time.Second}}
 }
 
-func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt string, content any, schema map[string]any, out any) (Metadata, error) {
+func (c *Client) WithRecorder(task string, record Recorder) *Client {
+	clone := *c
+	clone.task = task
+	clone.record = record
+	return &clone
+}
+
+func (c *Client) observe(ctx context.Context, started time.Time, metadata Metadata, callErr error) {
+	if c.record == nil {
+		return
+	}
+	status, errorClass := "SUCCEEDED", ""
+	if callErr != nil {
+		status, errorClass = "FAILED", metricErrorClass(callErr)
+	}
+	model := metadata.Model
+	if model == "" {
+		model = c.model
+	}
+	c.record(ctx, CallMetric{Task: c.task, Protocol: c.protocol, Model: model, Status: status, ErrorClass: errorClass, DurationMs: time.Since(started).Milliseconds(), InputTokens: metadata.InputTokens, OutputTokens: metadata.OutputTokens, Cost: metadata.Cost})
+}
+
+func metricErrorClass(err error) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "timeout") || strings.Contains(message, "deadline"):
+		return "TIMEOUT"
+	case strings.Contains(message, "http"):
+		return "HTTP_ERROR"
+	case strings.Contains(message, "decode") || strings.Contains(message, "invalid") || strings.Contains(message, "trailing json"):
+		return "INVALID_RESPONSE"
+	case strings.Contains(message, "not configured"):
+		return "NOT_CONFIGURED"
+	default:
+		return "GATEWAY_ERROR"
+	}
+}
+
+func (c *Client) Structured(ctx context.Context, requestID, task, systemPrompt string, content any, schema map[string]any, out any) (metadata Metadata, err error) {
+	started := time.Now()
+	defer func() { c.observe(ctx, started, metadata, err) }()
+	return c.structured(ctx, requestID, task, systemPrompt, content, schema, out)
+}
+
+func (c *Client) structured(ctx context.Context, requestID, task, systemPrompt string, content any, schema map[string]any, out any) (Metadata, error) {
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return Metadata{}, fmt.Errorf("LLM gateway is not configured")
 	}

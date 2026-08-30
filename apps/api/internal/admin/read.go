@@ -2,10 +2,13 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +44,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var reviews, households, users, activeUsers, gmail, telegram int
-	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM review_item WHERE status IN ('OPEN','PENDING_SEND')),(SELECT count(*) FROM household),(SELECT count(*) FROM "user"),(SELECT count(*) FROM "user" WHERE active),(SELECT count(*) FROM gmail_integration WHERE status IN ('CONNECTED','WATCH_ACTIVE')),(SELECT count(*) FROM telegram_identity)`).Scan(&reviews, &households, &users, &activeUsers, &gmail, &telegram); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')),(SELECT count(*) FROM household),(SELECT count(*) FROM "user"),(SELECT count(*) FROM "user" WHERE active),(SELECT count(*) FROM gmail_integration WHERE status IN ('CONNECTED','WATCH_ACTIVE')),(SELECT count(*) FROM telegram_identity)`).Scan(&reviews, &households, &users, &activeUsers, &gmail, &telegram); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -118,14 +121,19 @@ func (h *Handler) Jobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Job(w http.ResponseWriter, r *http.Request) {
-	var id, typ, lane, status, lockedBy string
+	var id, typ, lane, status string
+	var lockedBy *string
 	var attempts, max int
 	var raw json.RawMessage
 	var runAfter, created, updated time.Time
 	var locked, started, finished *time.Time
 	err := h.pool.QueryRow(r.Context(), `SELECT id,type,lane,status,attempts,max_attempts,payload_json,run_after,locked_at,locked_by,created_at,updated_at,started_at,finished_at FROM job WHERE id=$1`, r.PathValue("id")).Scan(&id, &typ, &lane, &status, &attempts, &max, &raw, &runAfter, &locked, &lockedBy, &created, &updated, &started, &finished)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "JOB_NOT_FOUND")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
 	rows, err := h.pool.Query(r.Context(), `SELECT attempt,lane,job_type,error_class,failed_at,retried_at,duration_ms FROM job_retry_log WHERE job_id=$1 ORDER BY attempt`, id)
@@ -136,7 +144,8 @@ func (h *Handler) Job(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	retries := []map[string]any{}
 	for rows.Next() {
-		var attempt, duration int
+		var attempt int
+		var duration *int
 		var l, t, e string
 		var failed time.Time
 		var retried *time.Time

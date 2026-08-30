@@ -438,6 +438,9 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
 		return err
 	}
+	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, "TELEGRAM_TRANSFER_CLASSIFIED"); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
 		return err
 	}
@@ -487,6 +490,9 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
+		return err
+	}
+	if err := resolveCanonicalReviewItem(ctx, tx, reviewID, "TELEGRAM_REJECTED"); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
@@ -629,6 +635,9 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 		if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
 			return err
 		}
+		if err := resolveCanonicalReviewItem(ctx, tx, reviewID, "TELEGRAM_CONFIRMED"); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, categoryID); err != nil {
 			return err
 		}
@@ -692,6 +701,9 @@ func (p *Processor) rememberMerchantReply(ctx context.Context, sourceEventID, ho
 		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
+		return err
+	}
+	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
@@ -893,6 +905,11 @@ func (p *Processor) categories(ctx context.Context, householdID string) ([]categ
 		result = append(result, value)
 	}
 	return result, rows.Err()
+}
+
+func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, action string) error {
+	_, err := tx.Exec(ctx, `UPDATE review_item ri SET status='RESOLVED',resolved_at=now(),resolution_action=$2,updated_at=now() FROM review_request rr WHERE rr.id=$1 AND ri.id=rr.review_item_id AND ri.status IN ('PENDING_SEND','OPEN')`, reviewID, action)
+	return err
 }
 
 func reviewSchema(slugs []string) map[string]any {
