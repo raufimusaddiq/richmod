@@ -7,7 +7,9 @@ Baseline: `3545de2`
 - [x] Private S3-compatible configuration uses `OSS_*` environment variables.
 - [x] Attachment keys use `richmod/attachments/<household>/<opaque-name>`.
 - [x] Web and Telegram uploads mirror normalized bytes before DB commit.
-- [x] API and worker reads fall back to OSS when local cache is absent.
+- [x] API and worker read OSS directly after local processing bytes are evicted.
+- [x] Terminal documents with no active processing job lose local bytes.
+- [x] Remote reads do not repopulate local storage.
 - [x] Browser receives no OSS credential or public object URL.
 - [x] Partial OSS configuration fails application startup.
 - [x] Existing production attachment volume backfilled idempotently.

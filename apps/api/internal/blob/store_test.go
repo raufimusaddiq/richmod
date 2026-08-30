@@ -23,6 +23,12 @@ func TestLocalStoreRoundTripAndTraversalGuard(t *testing.T) {
 	if err != nil || string(raw) != "image" {
 		t.Fatalf("read = %q, %v", raw, err)
 	}
+	if err := store.EvictLocal(ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(store.root, filepath.FromSlash(ref))); !os.IsNotExist(err) {
+		t.Fatalf("local cache still exists: %v", err)
+	}
 	outside := filepath.Join(filepath.Dir(store.root), "outside")
 	if err := os.WriteFile(outside, []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
