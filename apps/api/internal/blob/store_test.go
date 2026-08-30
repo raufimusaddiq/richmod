@@ -47,3 +47,13 @@ func TestOSSConfigurationMustBeComplete(t *testing.T) {
 		t.Fatal("partial OSS configuration accepted")
 	}
 }
+
+func TestLocalStoreDoesNotPresign(t *testing.T) {
+	store, err := NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location, remote, err := store.PresignedGet(context.Background(), "household-1/file.png", "image/png"); err != nil || remote || location != "" {
+		t.Fatalf("presign = %q, %v, %v", location, remote, err)
+	}
+}
