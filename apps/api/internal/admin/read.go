@@ -22,7 +22,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		var p, run int
 		var oldest *float64
 		var p50, p95 *float64
-		err := h.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE status='PENDING'),count(*) FILTER(WHERE status='RUNNING'),extract(epoch FROM now()-min(run_after))*1000 FILTER(WHERE status='PENDING' AND run_after<=now()),percentile_cont(.5) within group(order by extract(epoch FROM finished_at-started_at)*1000) FILTER(WHERE finished_at>now()-interval '24 hours' AND started_at IS NOT NULL),percentile_cont(.95) within group(order by extract(epoch FROM finished_at-started_at)*1000) FILTER(WHERE finished_at>now()-interval '24 hours' AND started_at IS NOT NULL) FROM job WHERE lane=$1`, lane).Scan(&p, &run, &oldest, &p50, &p95)
+		err := h.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE status='PENDING'),count(*) FILTER(WHERE status='RUNNING'),extract(epoch FROM now()-min(run_after) FILTER(WHERE status='PENDING' AND run_after<=now()))*1000,percentile_cont(.5) within group(order by extract(epoch FROM finished_at-started_at)*1000) FILTER(WHERE finished_at>now()-interval '24 hours' AND started_at IS NOT NULL),percentile_cont(.95) within group(order by extract(epoch FROM finished_at-started_at)*1000) FILTER(WHERE finished_at>now()-interval '24 hours' AND started_at IS NOT NULL) FROM job WHERE lane=$1`, lane).Scan(&p, &run, &oldest, &p50, &p95)
 		if err != nil {
 			writeError(w, 500, "ADMIN_QUERY_FAILED")
 			return
