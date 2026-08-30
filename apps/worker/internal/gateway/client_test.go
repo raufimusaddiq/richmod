@@ -42,16 +42,16 @@ func TestGatewayErrorNeverIncludesSecretOrResponseBody(t *testing.T) {
 	}
 }
 
-func TestNativeToolCallAdaptsChatCompletionsEnvelope(t *testing.T) {
+func TestNativeToolCallAdaptsChatCompletionsEnvelopeWithAuxiliaryProse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
 			t.Fatalf("path=%s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp-1","model":"router-model","choices":[{"message":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"create_transaction","arguments":"{\"type\":\"EXPENSE\",\"amount_idr\":\"40700\"}"}}]}}]}`))
+		_, _ = w.Write([]byte(`{"id":"resp-1","model":"router-model","choices":[{"message":{"content":"provider reasoning","tool_calls":[{"id":"call-1","type":"function","function":{"name":"create_transaction","arguments":"{\"type\":\"EXPENSE\",\"amount_idr\":\"40700\"}"}}]}}]}`))
 	}))
 	defer server.Close()
-	call, metadata, err := NewWithProtocol(server.URL, "key", "primary", "chat_completions").NativeToolCall(context.Background(), "request", "system", "expense", []ToolDefinition{{Name: "create_transaction"}})
+	call, metadata, err := NewWithProtocol(server.URL, "key", "primary", "chat_completions").NativeToolCall(context.Background(), "request", "system", "expense", []ToolDefinition{{Name: "create_transaction"}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
 	if err != nil {
 		t.Fatalf("NativeToolCall() error = %v", err)
 	}
@@ -72,8 +72,19 @@ func TestConfiguredProtocolNeverFallsBackOrDuplicatesRequest(t *testing.T) {
 
 func TestRecorderReceivesRedactedCallMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request["stream"] != true {
+			t.Fatalf("stream=%#v", request["stream"])
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp-1","model":"router-model","usage":{"input_tokens":12,"output_tokens":3},"cost":"0.001","output":[{"type":"function_call","name":"tool","call_id":"call-1","arguments":"{}"}]}`))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-1\",\"model\":\"router-model\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.added\",\"item\":{\"id\":\"fc-1\",\"type\":\"function_call\",\"name\":\"tool\",\"call_id\":\"call-1\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc-1\",\"delta\":\"{}\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc-1\",\"arguments\":\"{}\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"router-model\",\"usage\":{\"input_tokens\":12,\"output_tokens\":3},\"cost\":\"0.001\"}}\n\n"))
 	}))
 	defer server.Close()
 	recorded := make(chan CallMetric, 1)
@@ -84,6 +95,52 @@ func TestRecorderReceivesRedactedCallMetadata(t *testing.T) {
 	metric := <-recorded
 	if metric.Task != "BANK_EXTRACTION" || metric.Status != "SUCCEEDED" || metric.Model != "router-model" || metric.InputTokens != 12 || metric.OutputTokens != 3 || metric.Cost != "0.001" {
 		t.Fatalf("metric = %#v", metric)
+	}
+}
+
+func TestResponsesStreamStructuredOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request["stream"] != true {
+			t.Fatalf("stream=%#v", request["stream"])
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"ok\\\":\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"true}\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"model\":\"router-model\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2}}}\n\n"))
+	}))
+	defer server.Close()
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	metadata, err := New(server.URL, "key", "model").Structured(context.Background(), "request", "task", "system", "input", map[string]any{"type": "object"}, &out)
+	if err != nil || !out.OK || metadata.Model != "router-model" || metadata.InputTokens != 4 || metadata.OutputTokens != 2 {
+		t.Fatalf("out=%+v metadata=%+v err=%v", out, metadata, err)
+	}
+}
+
+func TestResponsesStreamToolResultReturnsNextTool(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request["stream"] != true {
+			t.Fatalf("stream=%#v", request["stream"])
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-2\",\"model\":\"router-model\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.added\",\"item\":{\"id\":\"fc-2\",\"type\":\"function_call\",\"name\":\"next_tool\",\"call_id\":\"call-2\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc-2\",\"arguments\":\"{\\\"value\\\":1}\"}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-2\",\"model\":\"router-model\"}}\n\n"))
+	}))
+	defer server.Close()
+	result, err := New(server.URL, "key", "model").NativeToolResult(context.Background(), "request", "previous", "call-1", "{}")
+	if err != nil || result.ToolCall == nil || result.ToolCall.Name != "next_tool" || string(result.ToolCall.Arguments) != `{"value":1}` {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 
@@ -111,7 +168,7 @@ func TestStructuredInvalidResponseDoesNotRetryAnotherProtocol(t *testing.T) {
 	}
 }
 
-func TestNativeToolCallRequiredRejectsProseAndSetsRequiredChoice(t *testing.T) {
+func TestNativeToolCallRequiredRejectsProseWithoutToolAndSetsRequiredChoice(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
 		if json.NewDecoder(r.Body).Decode(&request) != nil {
@@ -130,15 +187,15 @@ func TestNativeToolCallRequiredRejectsProseAndSetsRequiredChoice(t *testing.T) {
 	}
 }
 
-func TestNativeToolCallRequiredRejectsProseAlongsideResponsesToolCall(t *testing.T) {
+func TestNativeToolCallRequiredIgnoresAuxiliaryProseAlongsideResponsesToolCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"resp-1","output":[{"type":"message","content":[{"type":"output_text","text":"thinking aloud"}]},{"type":"function_call","name":"emit_bank_transaction","call_id":"call-1","arguments":"{}"}]}`))
 	}))
 	defer server.Close()
-	_, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction"}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
-	if err == nil {
-		t.Fatal("prose alongside a required tool call should fail closed")
+	call, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction"}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
+	if err != nil || call.Name != "emit_bank_transaction" {
+		t.Fatalf("call=%+v err=%v", call, err)
 	}
 }
 

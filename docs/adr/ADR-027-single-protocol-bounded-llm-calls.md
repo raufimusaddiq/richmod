@@ -21,6 +21,12 @@ The additive `llm_call` table is restricted to task/protocol/model/status,
 duration, usage, cost, attempt, and household metadata. Prompt, response, email,
 document, and message content are prohibited.
 
+Responses calls use `stream:true` and parse server-sent events into the same
+bounded adapter contract. When a configured protocol returns exactly one allowed
+native function call, provider reasoning or other auxiliary text is ignored. It
+is never parsed as financial data. Unknown, missing, multiple, or JSON-invalid
+function calls still fail closed and remain subject to Go DTO validation.
+
 ## Consequences
 
 - One logical attempt has a predictable outbound request count.
