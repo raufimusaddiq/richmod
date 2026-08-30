@@ -77,6 +77,9 @@ func run(logger *slog.Logger) error {
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())
 
 	logger.Info("worker started", "worker_id", workerID)
+	if err := documentProcessor.EvictTerminalCaches(ctx); err != nil {
+		logger.Warn("attachment cache eviction failed", "error", err)
+	}
 	go maintainHeartbeat(ctx, logger, pool, workerID)
 	// Keep callback and other interactive work on a reserved execution loop so
 	// long-running vision/Gmail jobs cannot delay Telegram button handling.
@@ -98,6 +101,9 @@ func run(logger *slog.Logger) error {
 		case <-ctx.Done():
 			return nil
 		case <-maintenanceTicker.C:
+			if err := documentProcessor.EvictTerminalCaches(ctx); err != nil {
+				logger.Warn("attachment cache eviction failed", "error", err)
+			}
 			if deleted, err := pruneTerminalJobs(ctx, pool, 500); err != nil {
 				logger.Warn("job retention cleanup failed", "error", err)
 			} else if deleted > 0 {

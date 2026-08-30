@@ -80,7 +80,9 @@ func (s *Store) localPath(ref string) (string, error) {
 }
 func (s *Store) Put(ctx context.Context, ref string, content []byte, mediaType string) error {
 	path, err := s.localPath(ref)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -98,7 +100,9 @@ func (s *Store) Put(ctx context.Context, ref string, content []byte, mediaType s
 }
 func (s *Store) Read(ctx context.Context, ref string) ([]byte, error) {
 	path, err := s.localPath(ref)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if raw, err := os.ReadFile(path); err == nil {
 		if len(raw) == 0 || len(raw) > maxObjectSize {
 			return nil, fmt.Errorf("stored document size is invalid")
@@ -117,14 +121,23 @@ func (s *Store) Read(ctx context.Context, ref string) ([]byte, error) {
 	if err != nil || len(raw) == 0 || len(raw) > maxObjectSize {
 		return nil, fmt.Errorf("stored document size is invalid")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err == nil {
-		_ = os.WriteFile(path, raw, 0600)
-	}
 	return raw, nil
+}
+func (s *Store) EvictLocal(ref string) error {
+	path, err := s.localPath(ref)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 func (s *Store) Delete(ctx context.Context, ref string) error {
 	path, err := s.localPath(ref)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	_ = os.Remove(path)
 	if s.client == nil {
 		return nil

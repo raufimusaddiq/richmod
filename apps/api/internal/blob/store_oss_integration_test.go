@@ -33,4 +33,7 @@ func TestLiveOSSRoundTrip(t *testing.T) {
 	if string(raw) != "richmod-oss-smoke" {
 		t.Fatalf("unexpected object content %q", raw)
 	}
+	if _, err := os.Stat(filepath.Join(store.root, filepath.FromSlash(ref))); !os.IsNotExist(err) {
+		t.Fatalf("remote read repopulated local cache: %v", err)
+	}
 }

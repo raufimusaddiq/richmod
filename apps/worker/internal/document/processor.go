@@ -30,6 +30,24 @@ type Payload struct {
 	DocumentID string `json:"document_id"`
 }
 
+func (p *Processor) EvictTerminalCaches(ctx context.Context) error {
+	rows, err := p.pool.Query(ctx, `SELECT DISTINCT a.storage_ref FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.status IN ('EXTRACTED','NEEDS_REVIEW') AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type IN ('PROCESS_DOCUMENT','PROCESS_PAYSLIP','PROCESS_RECEIPT','PROCESS_TRANSACTION_SCREENSHOT') AND j.status IN ('PENDING','RUNNING') AND j.payload_json->>'document_id'=d.id::text)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return err
+		}
+		if err := p.storage.EvictLocal(ref); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
 func NewProcessor(pool *pgxpool.Pool, llm Gateway, root string) (*Processor, error) {
 	storage, err := blob.NewLocal(root)
 	if err != nil {
