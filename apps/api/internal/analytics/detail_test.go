@@ -33,3 +33,11 @@ func TestAnalyticsRangeUsesJakartaMonthBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestCalendarDaysUsesJakartaCalendarDates(t *testing.T) {
+	start := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 8, 30, 18, 45, 0, 0, clock.HouseholdLocation())
+	if got := calendarDays(start, now) + 1; got != 7 {
+		t.Fatalf("elapsed=%d", got)
+	}
+}

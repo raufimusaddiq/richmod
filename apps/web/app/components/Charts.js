@@ -1,7 +1,7 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow } from "../lib/chartData";
+import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, rankCategories } from "../lib/chartData";
 import { money } from "../lib/format";
 
 const colors = ["#2d6a4f", "#5f8f72", "#9ebc8a", "#d7a95b", "#c86b55", "#7188a8"];
@@ -44,7 +44,7 @@ export function CategoryDonutChart({ items, height = 260 }) {
 }
 
 export function CategoryRankingChart({ items, height = 320 }) {
-  const data = compactCategories(items, 8).map(item => ({ ...item, amountValue: Number(item.amount || 0) }));
+  const data = rankCategories(items).map(item => ({ ...item, amountValue: Number(item.amount || 0) }));
   if (!data.length) return <p className="empty compact">Belum ada pengeluaran terkonfirmasi.</p>;
-  return <div className="chart-wrap" role="img" aria-label="Peringkat kategori pengeluaran" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ top: 4, right: 12, left: 12, bottom: 4 }}><CartesianGrid stroke="#e8ece7" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ fill: "#526057", fontSize: 11 }}/><Tooltip formatter={(value, _, item) => [money(String(Math.round(value))), `${Math.round(Number(item.payload.share || 0) * 100)}%`]} contentStyle={tooltipStyle}/><Bar dataKey="amountValue" fill="#5f8f72" radius={[0,4,4,0]} maxBarSize={24}/></BarChart></ResponsiveContainer></div>;
+  return <div className="chart-wrap" role="img" aria-label="Peringkat kategori pengeluaran" style={{ height: Math.max(height, data.length * 36) }}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} layout="vertical" margin={{ top: 4, right: 12, left: 12, bottom: 4 }}><CartesianGrid stroke="#e8ece7" horizontal={false}/><XAxis type="number" hide/><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={145} tick={{ fill: "#526057", fontSize: 11 }}/><Tooltip formatter={(value, _, item) => [money(String(Math.round(value))), `${Math.round(Number(item.payload.share || 0) * 100)}%`]} contentStyle={tooltipStyle}/><Bar dataKey="amountValue" fill="#5f8f72" radius={[0,4,4,0]} maxBarSize={24}/></BarChart></ResponsiveContainer></div>;
 }

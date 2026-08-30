@@ -13,6 +13,10 @@ export function compactCategories(items = [], limit = 5) {
   return compact.map(item => ({ ...item, share: total > 0 ? Number(item.amount || 0) / total : 0 }));
 }
 
+export function rankCategories(items = []) {
+  return compactCategories(items, items.length);
+}
+
 export function elapsedDaily(items = [], daysElapsed) {
   if (daysElapsed == null) return items;
   return items.slice(0, Math.max(Number(daysElapsed || 0), 0));
