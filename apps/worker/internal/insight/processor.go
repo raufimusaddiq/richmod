@@ -111,7 +111,10 @@ func (p *Processor) complete(ctx context.Context, insightID, householdID, route,
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE insight SET status='SUCCEEDED',gateway_route=$2,model=NULLIF($3,''),generated_text=$4,confidence=$5,completed_at=now() WHERE id=$1 AND status='PENDING'; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($6,'WORKER','COMPLETE_INSIGHT','insight',$1,jsonb_build_object('gateway_route',$2::text,'model',NULLIF($3,''),'confidence',$5::numeric))`, insightID, route, model, text, confidence, householdID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE insight SET status='SUCCEEDED',gateway_route=$2,model=NULLIF($3,''),generated_text=$4,confidence=$5,completed_at=now() WHERE id=$1 AND status='PENDING'`, insightID, route, model, text, confidence); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','COMPLETE_INSIGHT','insight',$2,jsonb_build_object('gateway_route',$3::text,'model',NULLIF($4,''),'confidence',$5::numeric))`, householdID, insightID, route, model, confidence); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -123,7 +126,10 @@ func (p *Processor) fail(ctx context.Context, insightID, householdID string) err
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE insight SET status='FAILED',gateway_route='cloud-llm-gateway' WHERE id=$1 AND status='PENDING'; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($2,'WORKER','FAIL_INSIGHT','insight',$1,jsonb_build_object('reason','gateway_or_validation_failure'))`, insightID, householdID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE insight SET status='FAILED',gateway_route='cloud-llm-gateway' WHERE id=$1 AND status='PENDING'`, insightID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','FAIL_INSIGHT','insight',$2,jsonb_build_object('reason','gateway_or_validation_failure'))`, householdID, insightID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -191,7 +191,8 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),NULLIF($8,''),$9,'MERGED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'matched_transaction_id',$12::uuid,'match_score',$13::numeric)) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.Value.Description, row.Value.Confidence, documentID, index, row.Matched.ID, row.Matched.Score).Scan(&proposalID); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric)) ON CONFLICT DO NOTHING; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($8,'WORKER','LINK_SCREENSHOT_EVIDENCE','transaction',$1,jsonb_build_object('document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric))`, row.Matched.ID, sourceID, row.Value.Confidence, proposalID, documentID, index, row.Matched.Score, householdID); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric)) ON CONFLICT DO NOTHING`, row.Matched.ID, sourceID, row.Value.Confidence, proposalID, documentID, index, row.Matched.Score); err != nil { return err }
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_SCREENSHOT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'match_score',$5::numeric))`, householdID, row.Matched.ID, documentID, index, row.Matched.Score); err != nil {
 				return err
 			}
 			continue
@@ -213,7 +214,8 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence) VALUES($1,$2,'NEEDS_REVIEW',$3,'IDR',$4,$5,$6,NULLIF($7,''),$8,$9) RETURNING id`, householdID, row.Type, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.Value.CategoryConfidence).Scan(&transactionID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer)); INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($7,'WORKER','CREATE_SCREENSHOT_REVIEW','transaction',$1,jsonb_build_object('document_id',$5::uuid,'row_index',$6::integer,'direction',$8::text))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index, householdID, row.Value.Direction); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index); err != nil { return err }
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_SCREENSHOT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text))`, householdID, transactionID, documentID, index, row.Value.Direction); err != nil {
 			return err
 		}
 		var chatID int64
@@ -237,7 +239,10 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	if needsReview {
 		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING; UPDATE document SET status=$5,updated_at=now() WHERE id=$1; UPDATE source_event SET processing_status=$6 WHERE id=$7; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($8,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$7,jsonb_build_object('document_id',$1::uuid,'document_type',$9::text,'row_count',$10::integer,'needs_review',$11::boolean))`, documentID, string(output), value.Confidence, model, documentStatus, sourceStatus, sourceID, householdID, documentType, len(rows), needsReview); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil { return err }
+	if _, err := tx.Exec(ctx, `UPDATE document SET status=$2,updated_at=now() WHERE id=$1`, documentID, documentStatus); err != nil { return err }
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceID, sourceStatus); err != nil { return err }
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean))`, householdID, sourceID, documentID, documentType, len(rows), needsReview); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

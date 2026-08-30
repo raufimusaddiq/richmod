@@ -117,7 +117,7 @@ func TestTelegramAssistantUsesAuthoritativeHouseholdQueries(t *testing.T) {
 	if reply := run("ambiguous", 104); !strings.Contains(reply, "belum cukup jelas") {
 		t.Fatalf("ambiguity reply=%q", reply)
 	}
-	if reply := run("correct", 105); !strings.Contains(reply, "Dikoreksi") {
+	if reply := run("correct", 105); !strings.Contains(reply, "Transaksi diperbarui") || !strings.Contains(reply, "Rp125.000") {
 		t.Fatalf("correction reply=%q", reply)
 	}
 	var correctedCategory string
