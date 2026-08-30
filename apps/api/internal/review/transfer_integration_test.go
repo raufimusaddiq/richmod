@@ -38,6 +38,10 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			transactionID, sourceID, proposalID := seedUnclassifiedTransfer(t, pool, householdID, stamp+int64(index+1))
+			var reviewID string
+			if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','PENDING_SEND') RETURNING id`, householdID, transactionID).Scan(&reviewID); err != nil {
+				t.Fatal(err)
+			}
 			body := map[string]any{"classification": test.classification}
 			if test.category {
 				body["categoryId"] = categoryID
@@ -63,6 +67,10 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 			}
 			if gotType != test.wantType || status != test.wantStatus || proposalStatus != test.wantProposal || sourceStatus != test.wantSource {
 				t.Fatalf("got %s/%s proposal=%s source=%s", gotType, status, proposalStatus, sourceStatus)
+			}
+			var reviewStatus, resolutionAction string
+			if err := pool.QueryRow(ctx, `SELECT status,resolution_action FROM review_item WHERE id=$1`, reviewID).Scan(&reviewStatus, &resolutionAction); err != nil || reviewStatus != "RESOLVED" || resolutionAction != "CLASSIFY_TRANSFER" {
+				t.Fatalf("canonical review=%s/%s err=%v", reviewStatus, resolutionAction, err)
 			}
 			if test.remember {
 				var relationship string
