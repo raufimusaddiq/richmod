@@ -82,7 +82,11 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("configure Gmail worker: %w", err)
 	}
-	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT")).WithRecorder("BANK_EXTRACTION", recordLLMCall)
+	bankModel := os.Getenv("LLM_MODEL_BANK_EXTRACT")
+	if bankModel == "" {
+		bankModel = os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT")
+	}
+	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)

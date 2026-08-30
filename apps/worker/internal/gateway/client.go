@@ -56,9 +56,7 @@ type ToolDefinition struct {
 type NativeToolOptions struct {
 	Required     bool
 	MaxToolCalls int
-	// ReasoningEffort is forwarded when the selected model supports it. Bank
-	// extraction uses "none" so the required native-call response contains no
-	// reasoning prose alongside the tool call.
+	// ReasoningEffort is forwarded when the selected model supports it.
 	ReasoningEffort string
 }
 
@@ -90,7 +88,7 @@ func (c *Client) nativeToolResult(ctx context.Context, requestID, responseID, ca
 	if c.protocol != "responses" {
 		return ToolResponse{}, fmt.Errorf("native tool continuation requires responses protocol")
 	}
-	payload := map[string]any{"model": c.model, "previous_response_id": responseID, "input": []map[string]any{{"type": "function_call_output", "call_id": callID, "output": output}}, "stream": false}
+	payload := map[string]any{"model": c.model, "previous_response_id": responseID, "input": []map[string]any{{"type": "function_call_output", "call_id": callID, "output": output}}, "stream": true}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return ToolResponse{}, err
@@ -114,31 +112,15 @@ func (c *Client) nativeToolResult(ctx context.Context, requestID, responseID, ca
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ToolResponse{}, fmt.Errorf("LLM gateway returned HTTP %d", resp.StatusCode)
 	}
-	var env struct {
-		ID, Model, Cost string
-		Usage           struct {
-			Input  int `json:"input_tokens"`
-			Output int `json:"output_tokens"`
-		} `json:"usage"`
-		Output []struct {
-			Type, Name, CallID string
-			Arguments          json.RawMessage               `json:"arguments"`
-			Content            []struct{ Type, Text string } `json:"content"`
-		} `json:"output"`
-	}
-	if err = decodeStrict(raw, &env); err != nil {
+	result, err := decodeResponses(raw)
+	if err != nil {
 		return ToolResponse{}, err
 	}
-	meta := Metadata{Model: env.Model, Cost: env.Cost, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output}
-	for _, item := range env.Output {
-		if item.Type == "function_call" {
-			return ToolResponse{ToolCall: &ToolCall{ResponseID: env.ID, CallID: item.CallID, Name: item.Name, Arguments: item.Arguments}, Metadata: meta}, nil
-		}
-		for _, c := range item.Content {
-			if c.Type == "output_text" {
-				return ToolResponse{Text: c.Text, Metadata: meta}, nil
-			}
-		}
+	if len(result.Calls) > 0 {
+		return ToolResponse{ToolCall: &result.Calls[0], Metadata: result.Metadata}, nil
+	}
+	if result.Text != "" {
+		return ToolResponse{Text: result.Text, Metadata: result.Metadata}, nil
 	}
 	return ToolResponse{}, fmt.Errorf("LLM gateway returned no tool result")
 }
@@ -176,7 +158,7 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 	if options.Required {
 		toolChoice = "required"
 	}
-	payload := map[string]any{"model": c.model, "input": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": encodedTools, "tool_choice": toolChoice, "stream": false}
+	payload := map[string]any{"model": c.model, "input": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": encodedTools, "tool_choice": toolChoice, "stream": true}
 	if options.ReasoningEffort != "" {
 		payload["reasoning_effort"] = options.ReasoningEffort
 	}
@@ -209,48 +191,11 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned HTTP %d", resp.StatusCode)
 	}
-	var envelope struct {
-		ID    string `json:"id"`
-		Model string `json:"model"`
-		Cost  string `json:"cost"`
-		Usage struct {
-			Input  int `json:"input_tokens"`
-			Output int `json:"output_tokens"`
-		} `json:"usage"`
-		Output []struct {
-			Type      string          `json:"type"`
-			ID        string          `json:"id"`
-			Name      string          `json:"name"`
-			CallID    string          `json:"call_id"`
-			Arguments json.RawMessage `json:"arguments"`
-			Content   []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"output"`
-	}
-	if err := decodeStrict(raw, &envelope); err != nil {
+	result, err := decodeResponses(raw)
+	if err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
-	var calls []ToolCall
-	if options.Required {
-		for _, item := range envelope.Output {
-			for _, content := range item.Content {
-				if strings.TrimSpace(content.Text) != "" {
-					return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned prose with required native tool call")
-				}
-			}
-		}
-	}
-	for _, item := range envelope.Output {
-		if item.Type == "function_call" {
-			calls = append(calls, ToolCall{ResponseID: envelope.ID, CallID: item.CallID, Name: item.Name, Arguments: normalizeToolArguments(item.Arguments)})
-		}
-	}
-	if len(calls) == 0 {
-		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native tool call")
-	}
-	return validateNativeCalls(calls, allowed, options, Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost})
+	return validateNativeCalls(result.Calls, allowed, options, result.Metadata)
 }
 
 func normalizeToolArguments(raw json.RawMessage) json.RawMessage {
@@ -330,13 +275,6 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 	}
 	var calls []ToolCall
 	allowed := map[string]bool{}
-	if options.Required {
-		for _, choice := range env.Choices {
-			if strings.TrimSpace(choice.Message.Content) != "" {
-				return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned prose with required native tool call")
-			}
-		}
-	}
 	for _, raw := range payload["tools"].([]map[string]any) {
 		fn := raw["function"].(map[string]any)
 		allowed[fn["name"].(string)] = true
@@ -446,7 +384,7 @@ func (c *Client) structured(ctx context.Context, requestID, task, systemPrompt s
 			{"role": "user", "content": userContent},
 		},
 		"metadata": map[string]string{"task": task},
-		"stream":   false,
+		"stream":   true,
 		"text": map[string]any{"format": map[string]any{
 			"type": "json_schema", "name": "telegram_finance_intent", "strict": true, "schema": schema,
 		}},
@@ -474,38 +412,16 @@ func (c *Client) structured(ctx context.Context, requestID, task, systemPrompt s
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Metadata{}, fmt.Errorf("LLM gateway returned HTTP %d", response.StatusCode)
 	}
-	var envelope struct {
-		Model string `json:"model"`
-		Cost  string `json:"cost"`
-		Usage struct {
-			Input  int `json:"input_tokens"`
-			Output int `json:"output_tokens"`
-		} `json:"usage"`
-		Output []struct {
-			Type    string `json:"type"`
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"output"`
-	}
-	if err := decodeStrict(raw, &envelope); err != nil {
+	result, err := decodeResponses(raw)
+	if err != nil {
 		return Metadata{}, fmt.Errorf("decode LLM response: %w", err)
 	}
-	structured := ""
-	for _, item := range envelope.Output {
-		for _, content := range item.Content {
-			if item.Type == "message" && content.Type == "output_text" {
-				structured = content.Text
-			}
-		}
-	}
-	decoder := json.NewDecoder(strings.NewReader(structured))
+	decoder := json.NewDecoder(strings.NewReader(result.Text))
 	decoder.DisallowUnknownFields()
-	if structured == "" || decoder.Decode(out) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+	if result.Text == "" || decoder.Decode(out) != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		return Metadata{}, fmt.Errorf("LLM gateway returned invalid structured output")
 	}
-	return Metadata{Model: envelope.Model, InputTokens: envelope.Usage.Input, OutputTokens: envelope.Usage.Output, Cost: envelope.Cost}, nil
+	return result.Metadata, nil
 }
 
 func (c *Client) structuredChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, schema map[string]any, out any) (Metadata, error) {
