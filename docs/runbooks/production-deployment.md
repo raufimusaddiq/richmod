@@ -28,6 +28,11 @@ Required integration settings are `LLM_GATEWAY_BASE_URL`, `LLM_GATEWAY_API_KEY`,
 `TELEGRAM_WEBHOOK_SECRET`. The worker joins `idx_default` only to reach the cloud
 gateway; PostgreSQL remains on the internal network. Never commit the real values.
 
+Off-host storage requires `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_PREFIX`,
+`OSS_ACCESS_KEY`, and `OSS_SECRET_KEY`. API and worker mirror private attachments
+under `<prefix>/attachments`; backup stores encrypted restic data under
+`<prefix>/backups/restic`. Never expose OSS credentials to web or browser code.
+
 ## Deploy
 
 ```text
@@ -95,17 +100,27 @@ and 12 monthly snapshots.
 
 Never print the restic password or repository credentials in logs.
 
-### Current deployment state (2026-08-25)
+### Current deployment state (2026-08-30)
 
-- The daily systemd timer is enabled for 02:30 `Asia/Jakarta`, with randomized
-  delay.
-- The encrypted repository is currently the local `family-finance_backup_data`
-  Docker volume.
-- A production snapshot passed `pg_restore --list`, restic integrity checking,
-  and an isolated database restore with matching financial table counts.
-- Off-host repository configuration remains open. The local volume does not
-  protect against server loss or host compromise and therefore does not complete
-  production backup acceptance.
+- Daily systemd timer runs at 02:30 `Asia/Jakarta`, with randomized delay.
+- Encrypted repository is OSS-backed under `richmod/backups/restic`.
+- Snapshot `d30d4eb6` passed `pg_restore --list`, restic integrity checking, and
+  a PostgreSQL 17 disposable restore drill.
+- Existing attachment cache was backfilled to `richmod/attachments`.
+
+## Attachment backfill
+
+Run after enabling OSS and before treating host loss as recoverable. The command
+is idempotent. Cloudeka rejects AWS CLI streaming checksums, so require the two
+checksum compatibility variables below.
+
+```text
+AWS_REQUEST_CHECKSUM_CALCULATION=when_required \
+AWS_RESPONSE_CHECKSUM_VALIDATION=when_required \
+aws --endpoint-url "$OSS_ENDPOINT" --region "$OSS_REGION" \
+  s3 sync /var/lib/docker/volumes/family-finance_attachment_data/_data \
+  "s3://$OSS_BUCKET/$OSS_PREFIX/attachments" --no-progress
+```
 
 ## Restore drill
 

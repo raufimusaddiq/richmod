@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/bankemail"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerGmail "github.com/raufimusaddiq/richmod/apps/worker/internal/gmail"
@@ -52,10 +53,11 @@ func run(logger *slog.Logger) error {
 	llm := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT"))
 	processor := telegram.NewProcessor(pool, llm)
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION"))
-	documentProcessor, err := workerDocument.NewProcessor(pool, documentLLM, os.Getenv("DOCUMENT_STORAGE_PATH"))
+	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))
 	if err != nil {
-		return fmt.Errorf("configure document worker: %w", err)
+		return fmt.Errorf("configure document storage: %w", err)
 	}
+	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS"))
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
 	gmailProcessor, err := workerGmail.NewProcessor(pool, workerGmail.Config{
@@ -69,10 +71,7 @@ func run(logger *slog.Logger) error {
 	}
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(llm))
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
-	imageProcessor, err := telegram.NewImageProcessor(pool, bot, os.Getenv("DOCUMENT_STORAGE_PATH"))
-	if err != nil {
-		return fmt.Errorf("configure Telegram image worker: %w", err)
-	}
+	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)
 	jobs := queue.New(pool)
 	hostname, _ := os.Hostname()
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())

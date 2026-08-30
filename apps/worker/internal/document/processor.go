@@ -5,12 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -26,7 +23,7 @@ type Gateway interface {
 type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
-	root    string
+	storage *blob.Store
 }
 
 type Payload struct {
@@ -34,10 +31,15 @@ type Payload struct {
 }
 
 func NewProcessor(pool *pgxpool.Pool, llm Gateway, root string) (*Processor, error) {
-	if root == "" || !filepath.IsAbs(root) {
-		return nil, fmt.Errorf("DOCUMENT_STORAGE_PATH must be absolute")
+	storage, err := blob.NewLocal(root)
+	if err != nil {
+		return nil, err
 	}
-	return &Processor{pool: pool, gateway: llm, root: filepath.Clean(root)}, nil
+	return NewProcessorWithStorage(pool, llm, storage), nil
+}
+
+func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Store) *Processor {
+	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
 
 func DecodePayload(raw json.RawMessage) (Payload, error) {
@@ -68,19 +70,9 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if err := rows.Scan(&storageRef, &mediaType); err != nil {
 			return err
 		}
-		path := filepath.Join(p.root, storageRef)
-		relative, err := filepath.Rel(p.root, path)
-		if err != nil || strings.HasPrefix(relative, "..") {
-			return fmt.Errorf("invalid document storage reference")
-		}
-		file, err := os.Open(path)
+		raw, err := p.readDocument(ctx, storageRef)
 		if err != nil {
-			return fmt.Errorf("open document attachment: %w", err)
-		}
-		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1))
-		file.Close()
-		if readErr != nil || len(raw) == 0 || len(raw) > 10<<20 {
-			return fmt.Errorf("stored document size is invalid")
+			return err
 		}
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount++
@@ -93,15 +85,9 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&storageRef, &mediaType); err != nil {
 			return err
 		}
-		path := filepath.Join(p.root, storageRef)
-		file, err := os.Open(path)
+		raw, err := p.readDocument(ctx, storageRef)
 		if err != nil {
 			return err
-		}
-		raw, readErr := io.ReadAll(io.LimitReader(file, (10<<20)+1))
-		file.Close()
-		if readErr != nil || len(raw) == 0 || len(raw) > 10<<20 {
-			return fmt.Errorf("stored document size is invalid")
 		}
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount = 1

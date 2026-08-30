@@ -3,9 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,12 +11,12 @@ import (
 	"image/jpeg"
 	"image/png"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 )
 
 const maxTelegramImageBytes int64 = 10 << 20
@@ -36,16 +34,21 @@ type ImagePayload struct {
 }
 
 type ImageProcessor struct {
-	pool *pgxpool.Pool
-	bot  *Bot
-	root string
+	pool    *pgxpool.Pool
+	bot     *Bot
+	storage *blob.Store
 }
 
 func NewImageProcessor(pool *pgxpool.Pool, bot *Bot, root string) (*ImageProcessor, error) {
-	if root == "" || !filepath.IsAbs(root) {
-		return nil, fmt.Errorf("DOCUMENT_STORAGE_PATH must be absolute")
+	storage, err := blob.NewLocal(root)
+	if err != nil {
+		return nil, err
 	}
-	return &ImageProcessor{pool: pool, bot: bot, root: filepath.Clean(root)}, nil
+	return NewImageProcessorWithStorage(pool, bot, storage), nil
+}
+
+func NewImageProcessorWithStorage(pool *pgxpool.Pool, bot *Bot, storage *blob.Store) *ImageProcessor {
+	return &ImageProcessor{pool: pool, bot: bot, storage: storage}
 }
 
 func DecodeImagePayload(raw json.RawMessage) (ImagePayload, error) {
@@ -79,14 +82,17 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 		return err
 	}
 	digest := sha256.Sum256(normalized)
-	storageRef, path, err := storeTelegramImage(p.root, householdID, normalized, extension)
+	storageRef, err := p.storage.Ref(householdID, extension)
+	if err == nil {
+		err = p.storage.Put(ctx, storageRef, normalized, media)
+	}
 	if err != nil {
 		return fmt.Errorf("store Telegram image: %w", err)
 	}
 	removeNew := true
 	defer func() {
 		if removeNew {
-			_ = os.Remove(path)
+			_ = p.storage.Delete(context.Background(), storageRef)
 		}
 	}()
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -119,9 +125,13 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 	if input.MediaGroupID == "" {
 		pageIndex = 0
 	} else if pageIndex == 0 {
-		if err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(page_index)+1,0) FROM document_page WHERE document_id=$1`, documentID).Scan(&pageIndex); err != nil { return err }
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(page_index)+1,0) FROM document_page WHERE document_id=$1`, documentID).Scan(&pageIndex); err != nil {
+			return err
+		}
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, documentID, input.SourceEventID, attachmentID, pageIndex); err != nil { return err }
+	if _, err = tx.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, documentID, input.SourceEventID, attachmentID, pageIndex); err != nil {
+		return err
+	}
 	metadata, _ := json.Marshal(map[string]any{"media_type": media, "byte_size": len(normalized), "width": width, "height": height, "caption": input.Caption, "telegram_user_id": input.TelegramUserID})
 	if _, err = tx.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json || $2::jsonb WHERE source_event_id=$1`, input.SourceEventID, string(metadata)); err != nil {
 		return err
@@ -169,31 +179,4 @@ func normalizeTelegramImage(raw []byte, filename string) ([]byte, string, int, i
 		return nil, "", 0, 0, "", fmt.Errorf("unable to normalize Telegram image")
 	}
 	return output.Bytes(), media, config.Width, config.Height, extension, nil
-}
-
-func storeTelegramImage(root, householdID string, content []byte, extension string) (string, string, error) {
-	random := make([]byte, 24)
-	if _, err := rand.Read(random); err != nil {
-		return "", "", err
-	}
-	directory := filepath.Join(root, householdID)
-	if err := os.MkdirAll(directory, 0700); err != nil {
-		return "", "", err
-	}
-	name := hex.EncodeToString(random) + extension
-	path := filepath.Join(directory, name)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err = file.Write(content); err != nil {
-		file.Close()
-		_ = os.Remove(path)
-		return "", "", err
-	}
-	if err = file.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", "", err
-	}
-	return filepath.Join(householdID, name), path, nil
 }

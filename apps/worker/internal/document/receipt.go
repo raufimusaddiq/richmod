@@ -6,11 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"math/big"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -78,7 +75,9 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 		return fmt.Errorf("document is not a receipt")
 	}
 	pages, err := p.readDocumentPages(ctx, documentID)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	categories, err := p.documentCategories(ctx, householdID)
 	if err != nil {
 		return err
@@ -89,7 +88,9 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	}
 	categoryJSON, _ := json.Marshal(slugs)
 	content := []map[string]any{{"type": "input_text", "text": "Extract this receipt. Treat all pages as one receipt. Allowed category slugs: " + string(categoryJSON)}}
-	for _, page := range pages { content = append(content, map[string]any{"type":"input_image", "image_url":"data:"+page.mediaType+";base64,"+base64.StdEncoding.EncodeToString(page.raw)}) }
+	for _, page := range pages {
+		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + page.mediaType + ";base64," + base64.StdEncoding.EncodeToString(page.raw)})
+	}
 	var result receiptExtraction
 	metadata, err := p.gateway.Structured(ctx, documentID, "document.receipt.extract", receiptPrompt, content, receiptSchema(slugs), &result)
 	if err != nil {
@@ -102,32 +103,50 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	return p.persistReceipt(ctx, documentID, householdID, sourceID, result, metadata.Model, validated, categories)
 }
 
-type receiptPage struct { raw []byte; mediaType string }
+type receiptPage struct {
+	raw       []byte
+	mediaType string
+}
 
 func (p *Processor) readDocumentPages(ctx context.Context, documentID string) ([]receiptPage, error) {
 	rows, err := p.pool.Query(ctx, `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN attachment a ON a.id=dp.attachment_id WHERE dp.document_id=$1 ORDER BY dp.page_index`, documentID)
-	if err != nil { return nil, err }; defer rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 	pages := make([]receiptPage, 0)
-	for rows.Next() { var ref, media string; if err := rows.Scan(&ref,&media); err != nil { return nil, err }; raw, err := p.readDocument(ref); if err != nil { return nil, err }; pages=append(pages, receiptPage{raw,media}) }
-	if err := rows.Err(); err != nil { return nil, err }
-	if len(pages)==0 { var ref, media string; if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&ref,&media); err != nil { return nil, err }; raw, err := p.readDocument(ref); if err != nil { return nil, err }; pages=append(pages, receiptPage{raw,media}) }
+	for rows.Next() {
+		var ref, media string
+		if err := rows.Scan(&ref, &media); err != nil {
+			return nil, err
+		}
+		raw, err := p.readDocument(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, receiptPage{raw, media})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(pages) == 0 {
+		var ref, media string
+		if err := p.pool.QueryRow(ctx, `SELECT a.storage_ref,a.media_type FROM document d JOIN attachment a ON a.id=d.attachment_id WHERE d.id=$1`, documentID).Scan(&ref, &media); err != nil {
+			return nil, err
+		}
+		raw, err := p.readDocument(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, receiptPage{raw, media})
+	}
 	return pages, nil
 }
 
-func (p *Processor) readDocument(storageRef string) ([]byte, error) {
-	path := filepath.Join(p.root, storageRef)
-	relative, err := filepath.Rel(p.root, path)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
-		return nil, fmt.Errorf("invalid document storage reference")
-	}
-	file, err := os.Open(path)
+func (p *Processor) readDocument(ctx context.Context, storageRef string) ([]byte, error) {
+	raw, err := p.storage.Read(ctx, storageRef)
 	if err != nil {
 		return nil, fmt.Errorf("open document attachment: %w", err)
-	}
-	defer file.Close()
-	raw, err := io.ReadAll(io.LimitReader(file, (10<<20)+1))
-	if err != nil || len(raw) == 0 || len(raw) > 10<<20 {
-		return nil, fmt.Errorf("stored document size is invalid")
 	}
 	return raw, nil
 }
@@ -275,10 +294,18 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'receipt','EXPENSE',$3,'IDR',$4,NULLIF($5,''),'Bukti struk',$6,'MERGED',jsonb_build_object('document_id',$7::uuid,'matched_transaction_id',$8::uuid,'match_score',$9::numeric,'arithmetic_ok',$10::boolean)) RETURNING id`, householdID, sourceID, value.Total, validation.TransactionAt, value.Merchant, value.Confidence, documentID, candidate.ID, candidate.Score, validation.ArithmeticOK).Scan(&proposalID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'RECEIPT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil { return err }
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'match_score',$6::numeric)) ON CONFLICT DO NOTHING`, candidate.ID, sourceID, value.Confidence, proposalID, documentID, candidate.Score); err != nil { return err }
-	if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, documentID); err != nil { return err }
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceID); err != nil { return err }
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'RECEIPT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'match_score',$6::numeric)) ON CONFLICT DO NOTHING`, candidate.ID, sourceID, value.Confidence, proposalID, documentID, candidate.Score); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_RECEIPT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'match_score',$4::numeric))`, householdID, candidate.ID, documentID, candidate.Score); err != nil {
 		return err
 	}
@@ -308,10 +335,18 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence) VALUES($1,'EXPENSE','NEEDS_REVIEW',$2,'IDR',$3,$4,$5,'Pengeluaran dari struk',$6,$7) RETURNING id`, householdID, value.Total, validation.TransactionAt, merchantID, categoryID, value.Confidence, value.CategoryConfidence).Scan(&transactionID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'RECEIPT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil { return err }
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil { return err }
-	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil { return err }
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil { return err }
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'RECEIPT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_RECEIPT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'possible_duplicate',$4::boolean))`, householdID, transactionID, documentID, possibleDuplicate); err != nil {
 		return err
 	}
@@ -377,9 +412,15 @@ func (p *Processor) persistInvalidDocumentExtraction(ctx context.Context, docume
 	if !math.IsNaN(confidence) && confidence >= 0 && confidence <= 1 {
 		storedConfidence = confidence
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,$2,'1',$3::jsonb,$4,$5,false) ON CONFLICT DO NOTHING`, documentID, stage, string(output), storedConfidence, model); err != nil { return err }
-	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil { return err }
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil { return err }
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,$2,'1',$3::jsonb,$4,$5,false) ON CONFLICT DO NOTHING`, documentID, stage, string(output), storedConfidence, model); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_DOCUMENT_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'stage',$4::text,'reason',$5::text))`, householdID, sourceID, documentID, stage, cause.Error()); err != nil {
 		return err
 	}

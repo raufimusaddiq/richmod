@@ -1,10 +1,13 @@
 package document
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 )
 
 func TestDecodePayload(t *testing.T) {
@@ -30,8 +33,12 @@ func TestReadDocumentRejectsPathTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(outside)
-	processor := &Processor{root: root}
-	if _, err := processor.readDocument("../outside-finance-document"); err == nil {
+	storage, err := blob.NewLocal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processor := &Processor{storage: storage}
+	if _, err := processor.readDocument(context.Background(), "../outside-finance-document"); err == nil {
 		t.Fatal("path traversal storage reference was accepted")
 	}
 }
