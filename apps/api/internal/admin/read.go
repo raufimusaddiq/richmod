@@ -35,12 +35,12 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	var successRate *float64
 	var llmP95 *float64
 	var cost *string
-	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM job WHERE status='FAILED' AND updated_at>now()-interval '24 hours'),count(*),count(*) FILTER(WHERE status='FAILED'),sum(input_tokens),sum(output_tokens),CASE WHEN count(*)=0 THEN NULL ELSE count(*) FILTER(WHERE status='SUCCEEDED')::float/count(*) END,percentile_cont(.95) within group(order by duration_ms),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE created_at>now()-interval '24 hours'`).Scan(&failed, &calls, &llmFailed, &input, &output, &successRate, &llmP95, &cost); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM job WHERE status='FAILED' AND updated_at>now()-interval '24 hours'),count(*),count(*) FILTER(WHERE status='FAILED'),coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),CASE WHEN count(*)=0 THEN NULL ELSE count(*) FILTER(WHERE status='SUCCEEDED')::float/count(*) END,percentile_cont(.95) within group(order by duration_ms),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE created_at>now()-interval '24 hours'`).Scan(&failed, &calls, &llmFailed, &input, &output, &successRate, &llmP95, &cost); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
 	var reviews, households, users, activeUsers, gmail, telegram int
-	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM review_item WHERE status IN ('OPEN','PENDING_SEND')),(SELECT count(*) FROM household),(SELECT count(*) FROM "user"),(SELECT count(*) FROM "user" WHERE active),(SELECT count(*) FROM gmail_integration WHERE status='CONNECTED'),(SELECT count(*) FROM telegram_identity)`).Scan(&reviews, &households, &users, &activeUsers, &gmail, &telegram); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM review_item WHERE status IN ('OPEN','PENDING_SEND')),(SELECT count(*) FROM household),(SELECT count(*) FROM "user"),(SELECT count(*) FROM "user" WHERE active),(SELECT count(*) FROM gmail_integration WHERE status IN ('CONNECTED','WATCH_ACTIVE')),(SELECT count(*) FROM telegram_identity)`).Scan(&reviews, &households, &users, &activeUsers, &gmail, &telegram); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -236,7 +236,7 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 	var members, transactions, reviews, gmail, listeners, telegram int
 	var last *time.Time
 	var primary bool
-	err := h.pool.QueryRow(r.Context(), `SELECT h.name,h.timezone,h.created_at,(SELECT count(*) FROM household_member WHERE household_id=h.id AND active),(SELECT count(*) FROM transaction WHERE household_id=h.id),(SELECT count(*) FROM review_item WHERE household_id=h.id AND status IN ('OPEN','PENDING_SEND')),(SELECT max(created_at) FROM source_event WHERE household_id=h.id),(SELECT count(*) FROM gmail_integration WHERE household_id=h.id AND status='CONNECTED'),(SELECT count(*) FROM bank_email_listener WHERE household_id=h.id AND active),(SELECT count(*) FROM telegram_identity ti JOIN household_member hm ON hm.user_id=ti.user_id WHERE hm.household_id=h.id AND hm.active),(SELECT exists(SELECT 1 FROM salary_source WHERE household_id=h.id AND active AND is_primary)) FROM household h WHERE h.id=$1`, id).Scan(&name, &timezone, &created, &members, &transactions, &reviews, &last, &gmail, &listeners, &telegram, &primary)
+	err := h.pool.QueryRow(r.Context(), `SELECT h.name,h.timezone,h.created_at,(SELECT count(*) FROM household_member WHERE household_id=h.id AND active),(SELECT count(*) FROM transaction WHERE household_id=h.id),(SELECT count(*) FROM review_item WHERE household_id=h.id AND status IN ('OPEN','PENDING_SEND')),(SELECT max(created_at) FROM source_event WHERE household_id=h.id),(SELECT count(*) FROM gmail_integration WHERE household_id=h.id AND status IN ('CONNECTED','WATCH_ACTIVE')),(SELECT count(*) FROM bank_email_listener WHERE household_id=h.id AND active),(SELECT count(*) FROM telegram_identity ti JOIN household_member hm ON hm.user_id=ti.user_id WHERE hm.household_id=h.id AND hm.active),(SELECT exists(SELECT 1 FROM salary_source WHERE household_id=h.id AND active AND is_primary)) FROM household h WHERE h.id=$1`, id).Scan(&name, &timezone, &created, &members, &transactions, &reviews, &last, &gmail, &listeners, &telegram, &primary)
 	if err != nil {
 		writeError(w, 404, "HOUSEHOLD_NOT_FOUND")
 		return
