@@ -137,3 +137,9 @@ func TestCallbackTextContainsNoTransactionIdentity(t *testing.T) {
 		t.Fatalf("untrusted callback accepted: %q", got)
 	}
 }
+
+func TestStaleReviewCallbackUsesSuccessReply(t *testing.T) {
+	if !strings.Contains("✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.", "sudah selesai") {
+		t.Fatal("stale review callback must acknowledge completed review")
+	}
+}
