@@ -70,6 +70,33 @@ func TestConfiguredProtocolNeverFallsBackOrDuplicatesRequest(t *testing.T) {
 	}
 }
 
+func TestRecorderReceivesRedactedCallMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","model":"router-model","usage":{"input_tokens":12,"output_tokens":3},"cost":"0.001","output":[{"type":"function_call","name":"tool","call_id":"call-1","arguments":"{}"}]}`))
+	}))
+	defer server.Close()
+	recorded := make(chan CallMetric, 1)
+	client := New(server.URL, "key", "configured-model").WithRecorder("BANK_EXTRACTION", func(_ context.Context, metric CallMetric) { recorded <- metric })
+	if _, _, err := client.NativeToolCall(context.Background(), "request", "system", "private input", []ToolDefinition{{Name: "tool"}}); err != nil {
+		t.Fatalf("NativeToolCall() error = %v", err)
+	}
+	metric := <-recorded
+	if metric.Task != "BANK_EXTRACTION" || metric.Status != "SUCCEEDED" || metric.Model != "router-model" || metric.InputTokens != 12 || metric.OutputTokens != 3 || metric.Cost != "0.001" {
+		t.Fatalf("metric = %#v", metric)
+	}
+}
+
+func TestRecorderClassifiesFailureWithoutResponseContent(t *testing.T) {
+	recorded := make(chan CallMetric, 1)
+	client := New("", "", "configured-model").WithRecorder("GENERATE_INSIGHT", func(_ context.Context, metric CallMetric) { recorded <- metric })
+	_, _, _ = client.NativeToolCall(context.Background(), "request", "system", "private input", []ToolDefinition{{Name: "tool"}})
+	metric := <-recorded
+	if metric.Status != "FAILED" || metric.ErrorClass != "NOT_CONFIGURED" || metric.InputTokens != 0 || metric.OutputTokens != 0 {
+		t.Fatalf("metric = %#v", metric)
+	}
+}
+
 func TestStructuredInvalidResponseDoesNotRetryAnotherProtocol(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

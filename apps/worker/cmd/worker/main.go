@@ -50,15 +50,28 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("ping database: %w", err)
 	}
 
-	llm := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT"))
+	recordLLMCall := func(callCtx context.Context, metric gateway.CallMetric) {
+		metricCtx, metricCancel := context.WithTimeout(context.WithoutCancel(callCtx), 2*time.Second)
+		defer metricCancel()
+		var cost any
+		if metric.Cost != "" {
+			if _, err := strconv.ParseFloat(metric.Cost, 64); err == nil {
+				cost = metric.Cost
+			}
+		}
+		if _, err := pool.Exec(metricCtx, `INSERT INTO llm_call(task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt) VALUES($1,$2,NULLIF($3,''),$4,NULLIF($5,''),$6,$7,$8,$9::numeric,1)`, metric.Task, metric.Protocol, metric.Model, metric.Status, metric.ErrorClass, metric.DurationMs, metric.InputTokens, metric.OutputTokens, cost); err != nil {
+			logger.Warn("LLM metric write failed", "task", metric.Task, "error", err)
+		}
+	}
+	llm := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT")).WithRecorder("TELEGRAM_NATIVE", recordLLMCall)
 	processor := telegram.NewProcessor(pool, llm)
-	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION"))
+	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
 	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))
 	if err != nil {
 		return fmt.Errorf("configure document storage: %w", err)
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
-	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS"))
+	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
 	gmailProcessor, err := workerGmail.NewProcessor(pool, workerGmail.Config{
 		OAuthClientPath: os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
@@ -69,7 +82,8 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("configure Gmail worker: %w", err)
 	}
-	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(llm))
+	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT")).WithRecorder("BANK_EXTRACTION", recordLLMCall)
+	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)
 	jobs := queue.New(pool)
