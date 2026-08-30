@@ -125,3 +125,20 @@ test("shared UX feedback is accessible and motion respects user preference", () 
   assert.match(styles, /transaction-table \.transaction-row/);
   assert.match(styles, /:focus-visible/);
 });
+
+test("admin console keeps platform tabs and redacts sensitive payloads", () => {
+  const admin = text("app/admin/page.js");
+  for (const label of ["overview", "jobs", "llm", "logs", "households", "users", "audit"]) assert.match(admin, new RegExp(`"${label}"`));
+  assert.match(admin, /\/api\/v1\/admin\/overview/);
+  assert.match(admin, /\/api\/v1\/admin\/jobs/);
+  assert.match(admin, /\/api\/v1\/admin\/llm\/summary/);
+  assert.match(admin, /\/api\/v1\/admin\/logs/);
+  assert.doesNotMatch(admin, /payload_json|last_error|prompt text|raw model output/);
+});
+
+test("admin user changes require confirmation", () => {
+  const admin = text("app/admin/page.js");
+  assert.match(admin, /confirm\(/);
+  assert.match(admin, /ADMINISTRASI PLATFORM/);
+  assert.match(text("app/globals.css"), /admin-table-wrap/);
+});
