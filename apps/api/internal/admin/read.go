@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -65,7 +66,18 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	if heartbeat == nil || (heartbeat != nil && time.Since(*heartbeat) > 5*workerHealthyAfter) {
 		status = "UNHEALTHY"
 	}
-	writeJSON(w, 200, map[string]any{"status": status, "checkedAt": time.Now().UTC(), "worker": map[string]any{"healthy": healthy, "activeWorkers": workers, "lastHeartbeatAt": heartbeat}, "jobs": map[string]any{"pending": pending, "running": running, "failed24h": failed, "lanes": lanes}, "llm": map[string]any{"calls24h": calls, "failed24h": llmFailed, "successRate": successRate, "p95DurationMs": llmP95, "inputTokens": input, "outputTokens": output, "cost": cost}, "reviews": map[string]any{"open": reviews}, "households": map[string]any{"total": households, "active": households}, "users": map[string]any{"total": users, "active": activeUsers}, "integrations": map[string]any{"gmailConnected": gmail, "telegramLinked": telegram, "llmGatewayConfigured": h.gatewayConfigured, "llmProtocol": h.protocol}})
+	events := []map[string]any{}
+	if rows, err := h.pool.Query(ctx, `SELECT event_type,severity,component,error_class,reference_id,created_at FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') e ORDER BY created_at DESC,reference_id DESC LIMIT 8`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var typ, severity, component, errorClass, ref string
+			var at time.Time
+			if rows.Scan(&typ, &severity, &component, &errorClass, &ref, &at) == nil {
+				events = append(events, map[string]any{"type": typ, "severity": severity, "component": component, "errorClass": errorClass, "referenceId": ref, "createdAt": at})
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"status": status, "checkedAt": time.Now().UTC(), "worker": map[string]any{"healthy": healthy, "activeWorkers": workers, "lastHeartbeatAt": heartbeat}, "jobs": map[string]any{"pending": pending, "running": running, "failed24h": failed, "lanes": lanes}, "llm": map[string]any{"calls24h": calls, "failed24h": llmFailed, "successRate": successRate, "p95DurationMs": llmP95, "inputTokens": input, "outputTokens": output, "cost": cost}, "reviews": map[string]any{"open": reviews}, "households": map[string]any{"total": households, "active": households}, "users": map[string]any{"total": users, "active": activeUsers}, "integrations": map[string]any{"gmailConnected": gmail, "telegramLinked": telegram, "llmGatewayConfigured": h.gatewayConfigured, "llmProtocol": h.protocol}, "recentEvents": events})
 }
 
 func (h *Handler) Jobs(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +86,9 @@ func (h *Handler) Jobs(w http.ResponseWriter, r *http.Request) {
 	cursor, ok := parseCursor(q.Get("cursor"))
 	from, _ := dateBound(q.Get("from"), false)
 	to, _ := dateBound(q.Get("to"), true)
+	if from.IsZero() {
+		from = adminRange(q.Get("range"))
+	}
 	rows, err := h.pool.Query(r.Context(), `SELECT id,type,lane,status,attempts,max_attempts,created_at,updated_at,started_at,finished_at FROM job WHERE ($1='' OR status=$1) AND ($2='' OR lane=$2) AND ($3='' OR type=$3) AND ($4::timestamptz IS NULL OR updated_at>=$4) AND ($5::timestamptz IS NULL OR updated_at<$5) AND ($6='' OR id::text ILIKE '%'||$6||'%') AND (NOT $7 OR (updated_at,id)<($8,$9::uuid)) ORDER BY updated_at DESC,id DESC LIMIT $10`, q.Get("status"), q.Get("lane"), q.Get("type"), nullableTime(from), nullableTime(to), strings.TrimSpace(q.Get("q")), ok, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
@@ -168,7 +183,8 @@ func (h *Handler) LLMSummary(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) LLMCalls(w http.ResponseWriter, r *http.Request) {
 	start := adminRange(r.URL.Query().Get("range"))
 	limit := pageLimit(r, 50, 100)
-	rows, err := h.pool.Query(r.Context(), `SELECT id,household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,created_at FROM llm_call WHERE created_at >=$1 AND ($2='' OR task=$2) AND ($3='' OR status=$3) ORDER BY created_at DESC LIMIT $4`, start, r.URL.Query().Get("task"), r.URL.Query().Get("status"), limit)
+	cursor, hasCursor := parseCursor(r.URL.Query().Get("cursor"))
+	rows, err := h.pool.Query(r.Context(), `SELECT id,household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,created_at FROM llm_call WHERE created_at >=$1 AND ($2='' OR task=$2) AND ($3='' OR status=$3) AND (NOT $4 OR (created_at,id)<($5,$6::uuid)) ORDER BY created_at DESC,id DESC LIMIT $7`, start, r.URL.Query().Get("task"), r.URL.Query().Get("status"), hasCursor, cursor.Time, cursor.ID, limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -188,12 +204,26 @@ func (h *Handler) LLMCalls(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "householdId": household, "task": task, "protocol": protocol, "model": model, "status": status, "errorClass": errorClass, "durationMs": duration, "inputTokens": input, "outputTokens": output, "cost": cost, "attempt": attempt, "createdAt": created})
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": ""})
+	next := ""
+	if len(items) > limit {
+		last := items[limit-1]
+		items = items[:limit]
+		next = makeCursor(last["createdAt"].(time.Time), last["id"].(string))
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": next})
 }
 
 func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 	limit := pageLimit(r, 50, 100)
-	rows, err := h.pool.Query(r.Context(), `SELECT * FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') events WHERE ($1='' OR event_type=$1) AND ($2='' OR severity=$2) AND ($3='' OR component=$3) AND ($4='' OR reference_id ILIKE '%'||$4||'%') ORDER BY created_at DESC LIMIT $5`, r.URL.Query().Get("type"), r.URL.Query().Get("severity"), r.URL.Query().Get("component"), r.URL.Query().Get("q"), limit)
+	q := r.URL.Query()
+	start := adminRange(q.Get("range"))
+	from, fromOK := dateBound(q.Get("from"), false)
+	to, toOK := dateBound(q.Get("to"), true)
+	if fromOK {
+		start = from
+	}
+	cursor, hasCursor := parseCursor(q.Get("cursor"))
+	rows, err := h.pool.Query(r.Context(), `SELECT * FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') events WHERE ($1='' OR event_type=$1) AND ($2='' OR severity=$2) AND ($3='' OR component=$3) AND ($4='' OR reference_id ILIKE '%'||$4||'%') AND created_at >= $5 AND ($6::timestamptz IS NULL OR created_at < $6) AND (NOT $7 OR (created_at,reference_id)<($8,$9)) ORDER BY created_at DESC,reference_id DESC LIMIT $10`, q.Get("type"), q.Get("severity"), q.Get("component"), q.Get("q"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -209,7 +239,20 @@ func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"type": typ, "severity": severity, "component": component, "errorClass": errorClass, "referenceId": ref, "createdAt": created})
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": ""})
+	next := ""
+	if len(items) > limit {
+		last := items[limit-1]
+		next = makeCursor(last["createdAt"].(time.Time), last["referenceId"].(string))
+		items = items[:limit]
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": next})
+}
+
+func nullableTimeArg(t time.Time, ok bool) any {
+	if !ok {
+		return nil
+	}
+	return t
 }
 
 func nullableTime(t time.Time) any {
@@ -220,6 +263,8 @@ func nullableTime(t time.Time) any {
 }
 func adminRange(value string) time.Time {
 	switch value {
+	case "1h":
+		return time.Now().Add(-time.Hour)
 	case "7d":
 		return time.Now().Add(-7 * 24 * time.Hour)
 	case "30d":
@@ -257,12 +302,65 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 		}
 		jobs = append(jobs, map[string]any{"id": jid, "type": typ, "lane": lane, "status": status, "updatedAt": at})
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "name": name, "timezone": timezone, "createdAt": created, "members": members, "transactions": transactions, "openReviews": reviews, "lastSourceActivityAt": last, "integrations": map[string]any{"gmailConnected": gmail, "activeBankListeners": listeners, "telegramLinked": telegram, "primarySalaryConfigured": primary}, "recentJobs": jobs})
+	memberItems := []map[string]any{}
+	if rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.email,u.display_name,hm.role,hm.active FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 ORDER BY hm.active DESC,u.email LIMIT 20`, id); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var uid, email, display, role string
+			var active bool
+			if rows.Scan(&uid, &email, &display, &role, &active) == nil {
+				memberItems = append(memberItems, map[string]any{"id": uid, "email": email, "displayName": display, "role": role, "active": active})
+			}
+		}
+	}
+	llmCalls := []map[string]any{}
+	if rows, err := h.pool.Query(r.Context(), `SELECT id,task,status,error_class,duration_ms,created_at FROM llm_call WHERE household_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10`, id); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var lid, task, status string
+			var ec *string
+			var duration int64
+			var at time.Time
+			if rows.Scan(&lid, &task, &status, &ec, &duration, &at) == nil {
+				llmCalls = append(llmCalls, map[string]any{"id": lid, "task": task, "status": status, "errorClass": ec, "durationMs": duration, "createdAt": at})
+			}
+		}
+	}
+	failedSources := []map[string]any{}
+	if rows, err := h.pool.Query(r.Context(), `SELECT id,source_type,processing_status,created_at FROM source_event WHERE household_id=$1 AND processing_status='FAILED' ORDER BY created_at DESC,id DESC LIMIT 10`, id); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var sid, typ, status string
+			var at time.Time
+			if rows.Scan(&sid, &typ, &status, &at) == nil {
+				failedSources = append(failedSources, map[string]any{"id": sid, "sourceType": typ, "status": status, "createdAt": at})
+			}
+		}
+	}
+	audits := []map[string]any{}
+	if rows, err := h.pool.Query(r.Context(), `SELECT id,action,entity_type,entity_id,created_at FROM audit_log WHERE household_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10`, id); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var aid, action, entityType, entityID string
+			var at time.Time
+			if rows.Scan(&aid, &action, &entityType, &entityID, &at) == nil {
+				audits = append(audits, map[string]any{"id": aid, "action": action, "entityType": entityType, "entityId": entityID, "createdAt": at})
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"id": id, "name": name, "timezone": timezone, "createdAt": created, "members": members, "transactions": transactions, "openReviews": reviews, "lastSourceActivityAt": last, "integrations": map[string]any{"gmailConnected": gmail, "activeBankListeners": listeners, "telegramLinked": telegram, "primarySalaryConfigured": primary}, "memberItems": memberItems, "recentJobs": jobs, "recentLLMCalls": llmCalls, "failedSourceEvents": failedSources, "recentAudit": audits})
 }
 
 func (h *Handler) PlatformAudit(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
 	limit := pageLimit(r, 50, 100)
-	rows, err := h.pool.Query(r.Context(), `SELECT p.id,p.action,p.entity_type,p.entity_id,p.metadata_json,p.created_at,u.email FROM platform_audit_log p JOIN "user" u ON u.id=p.actor_user_id WHERE ($1='' OR p.action=$1) ORDER BY p.created_at DESC,p.id DESC LIMIT $2`, r.URL.Query().Get("action"), limit)
+	cursor, hasCursor := parseCursor(q.Get("cursor"))
+	start := adminRange(q.Get("range"))
+	if from, ok := dateBound(q.Get("from"), false); ok {
+		start = from
+	}
+	to, toOK := dateBound(q.Get("to"), true)
+	rows, err := h.pool.Query(r.Context(), `SELECT p.id,p.action,p.entity_type,p.entity_id,p.metadata_json,p.created_at,u.email,p.request_id FROM platform_audit_log p JOIN "user" u ON u.id=p.actor_user_id WHERE ($1='' OR p.action=$1) AND p.created_at >= $2 AND ($3::timestamptz IS NULL OR p.created_at < $3) AND (NOT $4 OR (p.created_at,p.id)<($5,$6::bigint)) ORDER BY p.created_at DESC,p.id DESC LIMIT $7`, q.Get("action"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -272,27 +370,41 @@ func (h *Handler) PlatformAudit(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id int64
 		var action, entityType, entityID, email string
+		var requestID *string
 		var metadata json.RawMessage
 		var at time.Time
-		if err := rows.Scan(&id, &action, &entityType, &entityID, &metadata, &at, &email); err != nil {
+		if err := rows.Scan(&id, &action, &entityType, &entityID, &metadata, &at, &email, &requestID); err != nil {
 			writeError(w, 500, "ADMIN_QUERY_FAILED")
 			return
 		}
 		var safe map[string]any
 		_ = json.Unmarshal(metadata, &safe)
-		items = append(items, map[string]any{"id": id, "action": action, "entityType": entityType, "entityId": entityID, "metadata": safe, "actorEmail": email, "createdAt": at})
+		items = append(items, map[string]any{"id": id, "action": action, "entityType": entityType, "entityId": entityID, "metadata": safe, "actorEmail": email, "requestId": requestID, "createdAt": at})
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": ""})
+	next := ""
+	if len(items) > limit {
+		last := items[limit-1]
+		next = makeCursor(last["createdAt"].(time.Time), fmt.Sprint(last["id"]))
+		items = items[:limit]
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": next})
 }
 
 func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("householdId")
+	q := r.URL.Query()
+	id := q.Get("householdId")
 	if id == "" {
 		writeError(w, 400, "HOUSEHOLD_ID_REQUIRED")
 		return
 	}
 	limit := pageLimit(r, 50, 100)
-	rows, err := h.pool.Query(r.Context(), `SELECT id,action,entity_type,entity_id,created_at FROM audit_log WHERE household_id=$1 ORDER BY created_at DESC LIMIT $2`, id, limit)
+	cursor, hasCursor := parseCursor(q.Get("cursor"))
+	start := adminRange(q.Get("range"))
+	if from, ok := dateBound(q.Get("from"), false); ok {
+		start = from
+	}
+	to, toOK := dateBound(q.Get("to"), true)
+	rows, err := h.pool.Query(r.Context(), `SELECT id,action,entity_type,entity_id,created_at FROM audit_log WHERE household_id=$1 AND ($2='' OR action=$2) AND created_at >= $3 AND ($4::timestamptz IS NULL OR created_at < $4) AND (NOT $5 OR (created_at,id)<($6,$7::uuid)) ORDER BY created_at DESC,id DESC LIMIT $8`, id, q.Get("action"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -308,7 +420,13 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": aid, "action": action, "entityType": entityType, "entityId": entityID, "createdAt": at})
 	}
-	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": ""})
+	next := ""
+	if len(items) > limit {
+		last := items[limit-1]
+		next = makeCursor(last["createdAt"].(time.Time), last["id"].(string))
+		items = items[:limit]
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": next})
 }
 func nullableString(value string) any {
 	if value == "" {

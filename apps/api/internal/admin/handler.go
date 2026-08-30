@@ -250,7 +250,7 @@ func (h *Handler) audit(ctx context.Context, tx pgx.Tx, actor, action, entityTyp
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO platform_audit_log(actor_user_id,action,entity_type,entity_id,metadata_json,request_id) VALUES($1,$2,$3,$4,$5,CASE WHEN $6 ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN $6::uuid ELSE NULL END)`, actor, action, entityType, entityID, raw, requestID)
+	_, err = tx.Exec(ctx, `INSERT INTO platform_audit_log(actor_user_id,action,entity_type,entity_id,metadata_json,request_id) VALUES($1,$2,$3,$4,$5,NULLIF($6,''))`, actor, action, entityType, entityID, raw, requestID)
 	return err
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 
@@ -113,6 +113,17 @@ function useLoad(url, setError) {
   }, [load]);
   return [data, load];
 }
+function useAdminList(path, filters, setError) {
+  const query = useMemo(() => new URLSearchParams(filters).toString(), [filters]);
+  const [data, setData] = useState(null);
+  const load = useCallback(() => get(`${path}?${query}`).then(setData).catch((e) => setError(e.message)), [path, query, setError]);
+  const more = useCallback(() => {
+    if (!data?.nextCursor) return;
+    get(`${path}?${query}&cursor=${encodeURIComponent(data.nextCursor)}`).then((next) => setData({ items: [...data.items, ...next.items], nextCursor: next.nextCursor })).catch((e) => setError(e.message));
+  }, [data, path, query, setError]);
+  useEffect(() => { load(); }, [load]);
+  return [data, load, more];
+}
 
 function Overview({ setError }) {
   const [data, refresh] = useLoad("/api/v1/admin/overview", setError);
@@ -214,13 +225,17 @@ function Overview({ setError }) {
           </dl>
         </article>
       </div>
+      <article className="surface admin-panel">
+        <div className="section-title"><h2>Event operasional terbaru</h2></div>
+        {data.recentEvents?.length ? <Table headers={["Waktu", "Severity", "Event", "Komponen", "Referensi"]}>{data.recentEvents.map((x, i) => <tr key={`${x.referenceId}-${i}`}><td>{time(x.createdAt)}</td><td><Badge value={x.severity} /></td><td>{x.type}</td><td>{x.component}</td><td className="admin-id">{x.referenceId}</td></tr>)}</Table> : <Empty>Belum ada event operasional.</Empty>}
+      </article>
     </section>
   );
 }
 
 function Jobs({ setError }) {
-  const [data, refresh] = useLoad("/api/v1/admin/jobs", setError),
-    [selected, setSelected] = useState(null);
+  const [filters, setFilters] = useState({ status: "", lane: "", type: "", range: "24h", q: "" });
+  const [data, refresh, more] = useAdminList("/api/v1/admin/jobs", filters, setError), [selected, setSelected] = useState(null);
   if (!data) return <Empty>Memuat jobs…</Empty>;
   return (
     <section className="admin-stack">
@@ -232,6 +247,13 @@ function Jobs({ setError }) {
         <button className="secondary" onClick={refresh}>
           Perbarui
         </button>
+      </div>
+      <div className="admin-filters">
+        <select aria-label="Status job" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option>FAILED</option><option>PENDING</option><option>RUNNING</option><option>SUCCEEDED</option></select>
+        <select aria-label="Lane job" value={filters.lane} onChange={(e) => setFilters({...filters, lane:e.target.value})}><option value="">Semua lane</option><option>INTERACTIVE</option><option>DEFAULT</option><option>BACKGROUND</option></select>
+        <input aria-label="Jenis job" placeholder="Jenis job" value={filters.type} onChange={(e) => setFilters({...filters, type:e.target.value})} />
+        <select aria-label="Rentang job" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
+        <input aria-label="Cari Job ID" placeholder="Cari Job ID" value={filters.q} onChange={(e) => setFilters({...filters, q:e.target.value})} />
       </div>
       <Table
         headers={[
@@ -246,7 +268,7 @@ function Jobs({ setError }) {
       >
         {data.items.length ? (
           data.items.map((item) => (
-            <tr key={item.id} onClick={() => setSelected(item.id)}>
+            <tr key={item.id}>
               <td>
                 <Badge value={item.status} />
               </td>
@@ -261,7 +283,7 @@ function Jobs({ setError }) {
                   : "—"}
               </td>
               <td>{time(item.updatedAt)}</td>
-              <td className="admin-id">{item.id}</td>
+              <td><button className="admin-link admin-id" onClick={() => setSelected(item.id)}>{item.id}</button></td>
             </tr>
           ))
         ) : (
@@ -272,6 +294,7 @@ function Jobs({ setError }) {
           </tr>
         )}
       </Table>
+      {data.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}
       {selected && (
         <JobDetail
           id={selected}
@@ -358,11 +381,10 @@ function JobDetail({ id, close, setError }) {
 }
 
 function LLM({ setError }) {
-  const [summary, refresh] = useLoad(
-    "/api/v1/admin/llm/summary?range=24h",
-    setError,
-  );
-  const [calls] = useLoad("/api/v1/admin/llm/calls?range=24h", setError);
+  const [filters, setFilters] = useState({ range: "24h", task: "", status: "" });
+  const [summary, refreshSummary] = useLoad(`/api/v1/admin/llm/summary?range=${filters.range}`, setError);
+  const [calls, refreshCalls, more] = useAdminList("/api/v1/admin/llm/calls", filters, setError);
+  const refresh = () => { refreshSummary(); refreshCalls(); };
   if (!summary || !calls) return <Empty>Memuat LLM…</Empty>;
   return (
     <section className="admin-stack">
@@ -374,6 +396,11 @@ function LLM({ setError }) {
         <button className="secondary" onClick={refresh}>
           Perbarui
         </button>
+      </div>
+      <div className="admin-filters">
+        <select aria-label="Rentang LLM" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
+        <input aria-label="Task LLM" placeholder="Task" value={filters.task} onChange={(e) => setFilters({...filters, task:e.target.value})} />
+        <select aria-label="Status LLM" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option>SUCCEEDED</option><option>FAILED</option></select>
       </div>
       <div className="admin-metrics">
         <Metric label="Calls 24 jam" value={number(summary.calls)} />
@@ -428,6 +455,7 @@ function LLM({ setError }) {
             </tr>
           ))}
         </Table>
+        {calls.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}
       </article>
       <article className="surface admin-panel">
         <div className="section-title">
@@ -472,7 +500,8 @@ function LLM({ setError }) {
 }
 
 function Logs({ setError }) {
-  const [data, refresh] = useLoad("/api/v1/admin/logs", setError);
+  const [filters, setFilters] = useState({ type: "", severity: "", component: "", range: "24h", q: "" });
+  const [data, refresh, more] = useAdminList("/api/v1/admin/logs", filters, setError);
   if (!data) return <Empty>Memuat events…</Empty>;
   return (
     <section className="admin-stack">
@@ -484,6 +513,13 @@ function Logs({ setError }) {
         <button className="secondary" onClick={refresh}>
           Perbarui
         </button>
+      </div>
+      <div className="admin-filters">
+        <select aria-label="Jenis event" value={filters.type} onChange={(e) => setFilters({...filters, type:e.target.value})}><option value="">Semua event</option><option>JOB_RETRY</option><option>JOB_FAILED</option><option>LLM_FAILED</option><option>SOURCE_FAILED</option></select>
+        <select aria-label="Severity" value={filters.severity} onChange={(e) => setFilters({...filters, severity:e.target.value})}><option value="">Semua severity</option><option>WARN</option><option>ERROR</option></select>
+        <input aria-label="Komponen" placeholder="Komponen" value={filters.component} onChange={(e) => setFilters({...filters, component:e.target.value})} />
+        <select aria-label="Rentang log" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
+        <input aria-label="Reference ID" placeholder="Reference ID" value={filters.q} onChange={(e) => setFilters({...filters, q:e.target.value})} />
       </div>
       <Table
         headers={[
@@ -516,6 +552,7 @@ function Logs({ setError }) {
           </tr>
         )}
       </Table>
+      {data.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}
     </section>
   );
 }
@@ -546,10 +583,10 @@ function Households({ setError }) {
         ]}
       >
         {data.map((x) => (
-          <tr key={x.id} onClick={() => setSelected(x.id)}>
+          <tr key={x.id}>
             <td>
               <b>{x.name}</b>
-              <small className="admin-id">{x.id}</small>
+              <button className="admin-link admin-id" onClick={() => setSelected(x.id)}>{x.id}</button>
             </td>
             <td>{x.members}</td>
             <td>{x.transactions}</td>
@@ -608,6 +645,14 @@ function HouseholdDetail({ id, close, setError }) {
               {data.integrations.primarySalaryConfigured ? "Ya" : "Tidak"}
             </dd>
           </dl>
+          <h3>Anggota</h3>
+          {data.memberItems?.length ? <Table headers={["Nama", "Email", "Role", "Status"]}>{data.memberItems.map((x) => <tr key={x.id}><td>{x.displayName}</td><td>{x.email}</td><td>{x.role}</td><td><Badge value={x.active ? "ACTIVE" : "INACTIVE"} /></td></tr>)}</Table> : <Empty>Tidak ada anggota.</Empty>}
+          <h3>LLM terbaru</h3>
+          {data.recentLLMCalls?.length ? <Table headers={["Waktu", "Task", "Status", "Latency"]}>{data.recentLLMCalls.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.task}</td><td><Badge value={x.status} /></td><td>{x.durationMs} ms</td></tr>)}</Table> : <Empty>Tidak ada panggilan LLM.</Empty>}
+          <h3>Source gagal</h3>
+          {data.failedSourceEvents?.length ? <Table headers={["Waktu", "Type", "ID"]}>{data.failedSourceEvents.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.sourceType}</td><td className="admin-id">{x.id}</td></tr>)}</Table> : <Empty>Tidak ada source gagal.</Empty>}
+          <h3>Audit terbaru</h3>
+          {data.recentAudit?.length ? <Table headers={["Waktu", "Action", "Entity"]}>{data.recentAudit.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.action}</td><td>{x.entityType} · <span className="admin-id">{x.entityId}</span></td></tr>)}</Table> : <Empty>Belum ada audit.</Empty>}
         </>
       )}
     </aside>
@@ -700,7 +745,10 @@ function Users({ setError }) {
 }
 
 function Audit({ setError }) {
-  const [data, refresh] = useLoad("/api/v1/admin/audit/platform", setError);
+  const [kind, setKind] = useState("platform"), [householdId, setHouseholdId] = useState(""), [filters, setFilters] = useState({ action: "", range: "24h" });
+  const platform = kind === "platform" || !householdId;
+  const path = platform ? "/api/v1/admin/audit/platform" : "/api/v1/admin/audit/household";
+  const [data, refresh, more] = useAdminList(path, platform ? filters : {...filters, householdId}, setError);
   if (!data) return <Empty>Memuat audit…</Empty>;
   return (
     <section className="admin-stack">
@@ -713,18 +761,24 @@ function Audit({ setError }) {
           Perbarui
         </button>
       </div>
-      <Table headers={["Waktu", "Action", "Actor", "Entity", "Metadata"]}>
+      <div className="admin-filters">
+        <select aria-label="Jenis audit" value={kind} onChange={(e) => setKind(e.target.value)}><option value="platform">Platform</option><option value="household">Household</option></select>
+        {kind === "household" && <input aria-label="ID household" placeholder="ID household" value={householdId} onChange={(e) => setHouseholdId(e.target.value)} />}
+        <input aria-label="Action audit" placeholder="Action" value={filters.action} onChange={(e) => setFilters({...filters, action:e.target.value})} />
+        <select aria-label="Rentang audit" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
+      </div>
+      {kind === "household" && !householdId ? <Empty>Masukkan ID household untuk melihat audit scoped.</Empty> : <><Table headers={["Waktu", "Action", "Actor", "Entity", "Ringkasan"]}>
         {data.items.length ? (
           data.items.map((x) => (
             <tr key={x.id}>
               <td>{time(x.createdAt)}</td>
               <td>{x.action}</td>
-              <td>{x.actorEmail}</td>
+              <td>{x.actorEmail || "—"}</td>
               <td>
                 {x.entityType} · <span className="admin-id">{x.entityId}</span>
               </td>
               <td>
-                <code>{JSON.stringify(x.metadata)}</code>
+                <AuditSummary item={x} />
               </td>
             </tr>
           ))
@@ -735,9 +789,13 @@ function Audit({ setError }) {
             </td>
           </tr>
         )}
-      </Table>
+      </Table>{data.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}</>}
     </section>
   );
+}
+function AuditSummary({ item }) {
+  const values = Object.entries(item.metadata || {}).filter(([, value]) => typeof value === "string" || typeof value === "boolean" || typeof value === "number");
+  return <span>{values.length ? values.map(([key, value]) => `${key}: ${value}`).join(" · ") : "Perubahan administratif tercatat."}{item.requestId ? <small className="admin-id">Request {item.requestId}</small> : null}</span>;
 }
 function Table({ headers, children }) {
   return (

@@ -136,6 +136,16 @@ test("admin console keeps platform tabs and redacts sensitive payloads", () => {
   assert.doesNotMatch(admin, /payload_json|last_error|prompt text|raw model output/);
 });
 
+test("admin lists use bounded server filters and accessible detail actions", () => {
+  const admin = text("app/admin/page.js");
+  assert.match(admin, /useAdminList/);
+  assert.match(admin, /nextCursor/);
+  assert.match(admin, /Muat berikutnya/);
+  assert.match(admin, /aria-label="Status job"/);
+  assert.match(admin, /aria-label="Reference ID"/);
+  assert.match(admin, /admin-link admin-id/);
+});
+
 test("admin user changes require confirmation", () => {
   const admin = text("app/admin/page.js");
   assert.match(admin, /confirm\(/);

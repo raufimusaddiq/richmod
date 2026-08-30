@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -26,5 +27,12 @@ func TestSafeJobRefsRedactsPayload(t *testing.T) {
 	}
 	if _, ok := got["message"]; ok {
 		t.Fatal("raw message leaked")
+	}
+}
+
+func TestPageLimitBounded(t *testing.T) {
+	r, _ := http.NewRequest("GET", "/?limit=999", nil)
+	if got := pageLimit(r, 50, 100); got != 100 {
+		t.Fatalf("got %d", got)
 	}
 }
