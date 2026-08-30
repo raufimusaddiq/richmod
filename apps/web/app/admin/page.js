@@ -1,4 +1,757 @@
 "use client";
-import {useEffect,useState} from "react";
+
+import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
-export default function AdminPage(){const [me,setMe]=useState(null),[users,setUsers]=useState([]);useEffect(()=>{Promise.all([fetch('/api/v1/auth/me'),fetch('/api/v1/admin/users')]).then(async([a,b])=>{if(!a.ok||!b.ok){location.href='/';return}setMe(await a.json());setUsers(await b.json())})},[]);if(!me)return <main className="loading">Memuat…</main>;return <AppShell user={me} eyebrow="ADMINISTRASI PLATFORM" title="Administrasi Sistem"><section className="panel"><div className="panel-title"><h2>Pengguna</h2><span>{users.length} akun</span></div>{users.map(u=><article key={u.id}><b>{u.displayName}</b><small>{u.email} · {u.active?'Aktif':'Nonaktif'} {u.isSuperAdmin?'· Administrator Utama':''}</small></article>)}</section></AppShell>}
+
+const tabs = [
+  ["overview", "Overview"],
+  ["jobs", "Jobs"],
+  ["llm", "LLM"],
+  ["logs", "Logs"],
+  ["households", "Households"],
+  ["users", "Users"],
+  ["audit", "Audit"],
+];
+const time = (v) =>
+  v
+    ? new Intl.DateTimeFormat("id-ID", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(v))
+    : "—";
+const number = (v) => new Intl.NumberFormat("id-ID").format(v || 0);
+
+async function get(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Tidak dapat memuat data.");
+  return response.json();
+}
+function Badge({ value }) {
+  return (
+    <span className={`admin-badge admin-${String(value || "").toLowerCase()}`}>
+      {value || "—"}
+    </span>
+  );
+}
+function Metric({ label, value, note }) {
+  return (
+    <article className="admin-metric">
+      <span>{label}</span>
+      <b>{value}</b>
+      {note && <small>{note}</small>}
+    </article>
+  );
+}
+function Empty({ children }) {
+  return <p className="empty compact">{children}</p>;
+}
+
+export default function AdminPage() {
+  const router = useRouter(),
+    params = useSearchParams(),
+    tab = tabs.some(([key]) => key === params.get("tab"))
+      ? params.get("tab")
+      : "overview";
+  const [me, setMe] = useState(null),
+    [error, setError] = useState("");
+  useEffect(() => {
+    get("/api/v1/auth/me")
+      .then(setMe)
+      .catch(() => {
+        location.href = "/";
+      });
+  }, []);
+  const select = (key) => router.replace(`/admin?tab=${key}`);
+  if (!me) return <main className="loading">Memuat…</main>;
+  return (
+    <AppShell
+      user={me}
+      eyebrow="ADMINISTRASI PLATFORM"
+      title="Platform Console"
+    >
+      <p className="page-intro">
+        Operasi platform. Data sensitif dan isi finansial tidak ditampilkan.
+      </p>
+      <nav className="admin-tabs" aria-label="Navigasi admin">
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            className={tab === key ? "active" : "secondary"}
+            onClick={() => select(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      {error && <p className="notice error">{error}</p>}
+      <AdminTab tab={tab} setError={setError} />
+    </AppShell>
+  );
+}
+
+function AdminTab({ tab, setError }) {
+  if (tab === "overview") return <Overview setError={setError} />;
+  if (tab === "jobs") return <Jobs setError={setError} />;
+  if (tab === "llm") return <LLM setError={setError} />;
+  if (tab === "logs") return <Logs setError={setError} />;
+  if (tab === "households") return <Households setError={setError} />;
+  if (tab === "users") return <Users setError={setError} />;
+  return <Audit setError={setError} />;
+}
+function useLoad(url, setError) {
+  const [data, setData] = useState(null);
+  const load = useCallback(
+    () =>
+      get(url)
+        .then(setData)
+        .catch((err) => setError(err.message)),
+    [url, setError],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
+  return [data, load];
+}
+
+function Overview({ setError }) {
+  const [data, refresh] = useLoad("/api/v1/admin/overview", setError);
+  if (!data) return <Empty>Memuat overview…</Empty>;
+  return (
+    <section className="admin-stack">
+      <div className="admin-section-head">
+        <div>
+          <span className="eyebrow">STATUS PLATFORM</span>
+          <h2>Overview</h2>
+        </div>
+        <button className="secondary" onClick={refresh}>
+          Perbarui
+        </button>
+      </div>
+      <div className="admin-metrics">
+        <Metric
+          label="Platform"
+          value={<Badge value={data.status} />}
+          note={`Dicek ${time(data.checkedAt)}`}
+        />
+        <Metric
+          label="Worker"
+          value={data.worker.healthy ? "Sehat" : "Perlu cek"}
+          note={
+            data.worker.lastHeartbeatAt
+              ? `Terlihat ${time(data.worker.lastHeartbeatAt)}`
+              : "Belum ada heartbeat"
+          }
+        />
+        <Metric
+          label="Antrean"
+          value={`${number(data.jobs.pending)} pending`}
+          note={`${number(data.jobs.running)} berjalan`}
+        />
+        <Metric
+          label="Gagal 24 jam"
+          value={number(data.jobs.failed24h)}
+          note="Job terminal"
+        />
+        <Metric
+          label="LLM 24 jam"
+          value={number(data.llm.calls24h)}
+          note={`${number(data.llm.failed24h)} gagal`}
+        />
+        <Metric label="Review terbuka" value={number(data.reviews.open)} />
+        <Metric label="Household" value={number(data.households.total)} />
+      </div>
+      <div className="admin-grid">
+        <article className="surface admin-panel">
+          <div className="section-title">
+            <h2>Antrean per lane</h2>
+          </div>
+          {data.jobs.lanes.map((l) => (
+            <div className="admin-lane" key={l.lane}>
+              <b>{l.lane}</b>
+              <span>
+                {l.pending} pending · {l.running} berjalan
+              </span>
+              <small>
+                {l.oldestDueAgeMs == null
+                  ? "Tidak ada job jatuh tempo"
+                  : `Tertua ${Math.round(l.oldestDueAgeMs / 1000)} dtk`}
+              </small>
+            </div>
+          ))}
+        </article>
+        <article className="surface admin-panel">
+          <div className="section-title">
+            <h2>LLM 24 jam</h2>
+          </div>
+          <dl className="admin-definition">
+            <dt>Success rate</dt>
+            <dd>
+              {data.llm.successRate == null
+                ? "—"
+                : `${(data.llm.successRate * 100).toFixed(1)}%`}
+            </dd>
+            <dt>P95</dt>
+            <dd>
+              {data.llm.p95DurationMs == null
+                ? "—"
+                : `${Math.round(data.llm.p95DurationMs)} ms`}
+            </dd>
+            <dt>Token</dt>
+            <dd>
+              {number(
+                (data.llm.inputTokens || 0) + (data.llm.outputTokens || 0),
+              )}
+            </dd>
+            <dt>Biaya</dt>
+            <dd>{data.llm.cost ?? "—"}</dd>
+            <dt>Gateway</dt>
+            <dd>
+              {data.integrations.llmGatewayConfigured
+                ? data.integrations.llmProtocol
+                : "Tidak dikonfigurasi"}
+            </dd>
+          </dl>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function Jobs({ setError }) {
+  const [data, refresh] = useLoad("/api/v1/admin/jobs", setError),
+    [selected, setSelected] = useState(null);
+  if (!data) return <Empty>Memuat jobs…</Empty>;
+  return (
+    <section className="admin-stack">
+      <div className="admin-section-head">
+        <div>
+          <span className="eyebrow">POSTGRESQL JOB QUEUE</span>
+          <h2>Jobs</h2>
+        </div>
+        <button className="secondary" onClick={refresh}>
+          Perbarui
+        </button>
+      </div>
+      <Table
+        headers={[
+          "Status",
+          "Type",
+          "Lane",
+          "Attempts",
+          "Durasi",
+          "Diperbarui",
+          "Job ID",
+        ]}
+      >
+        {data.items.length ? (
+          data.items.map((item) => (
+            <tr key={item.id} onClick={() => setSelected(item.id)}>
+              <td>
+                <Badge value={item.status} />
+              </td>
+              <td>{item.type}</td>
+              <td>{item.lane}</td>
+              <td>
+                {item.attempts}/{item.maxAttempts}
+              </td>
+              <td>
+                {item.startedAt && item.finishedAt
+                  ? `${Math.round((new Date(item.finishedAt) - new Date(item.startedAt)) / 1000)} dtk`
+                  : "—"}
+              </td>
+              <td>{time(item.updatedAt)}</td>
+              <td className="admin-id">{item.id}</td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan="7">
+              <Empty>Tidak ada job pada rentang ini.</Empty>
+            </td>
+          </tr>
+        )}
+      </Table>
+      {selected && (
+        <JobDetail
+          id={selected}
+          close={() => setSelected(null)}
+          setError={setError}
+        />
+      )}
+    </section>
+  );
+}
+function JobDetail({ id, close, setError }) {
+  const [data] = useLoad(`/api/v1/admin/jobs/${id}`, setError);
+  return (
+    <aside
+      className="admin-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Detail job"
+    >
+      <button className="secondary" onClick={close}>
+        Tutup
+      </button>
+      {!data ? (
+        <Empty>Memuat…</Empty>
+      ) : (
+        <>
+          <h2>Job</h2>
+          <dl className="admin-definition">
+            <dt>ID</dt>
+            <dd className="admin-id">{data.id}</dd>
+            <dt>Type</dt>
+            <dd>{data.type}</dd>
+            <dt>Lane</dt>
+            <dd>{data.lane}</dd>
+            <dt>Status</dt>
+            <dd>
+              <Badge value={data.status} />
+            </dd>
+            <dt>Attempts</dt>
+            <dd>
+              {data.attempts}/{data.maxAttempts}
+            </dd>
+            <dt>Dibuat</dt>
+            <dd>{time(data.createdAt)}</dd>
+            <dt>Mulai</dt>
+            <dd>{time(data.startedAt)}</dd>
+            <dt>Selesai</dt>
+            <dd>{time(data.finishedAt)}</dd>
+          </dl>
+          <h3>Referensi aman</h3>
+          {Object.keys(data.references).length ? (
+            <dl className="admin-definition">
+              {Object.entries(data.references).map(([k, v]) => (
+                <>
+                  <dt key={`${k}-key`}>{k}</dt>
+                  <dd className="admin-id" key={k}>
+                    {v}
+                  </dd>
+                </>
+              ))}
+            </dl>
+          ) : (
+            <Empty>Tidak ada.</Empty>
+          )}
+          <h3>Riwayat retry</h3>
+          {data.retries.length ? (
+            <Table headers={["#", "Error", "Durasi", "Waktu"]}>
+              {data.retries.map((x) => (
+                <tr key={x.attempt}>
+                  <td>{x.attempt}</td>
+                  <td>{x.errorClass}</td>
+                  <td>{x.durationMs ?? "—"} ms</td>
+                  <td>{time(x.failedAt)}</td>
+                </tr>
+              ))}
+            </Table>
+          ) : (
+            <Empty>Belum ada retry.</Empty>
+          )}
+        </>
+      )}
+    </aside>
+  );
+}
+
+function LLM({ setError }) {
+  const [summary, refresh] = useLoad(
+    "/api/v1/admin/llm/summary?range=24h",
+    setError,
+  );
+  const [calls] = useLoad("/api/v1/admin/llm/calls?range=24h", setError);
+  if (!summary || !calls) return <Empty>Memuat LLM…</Empty>;
+  return (
+    <section className="admin-stack">
+      <div className="admin-section-head">
+        <div>
+          <span className="eyebrow">CLOUD LLM GATEWAY</span>
+          <h2>LLM</h2>
+        </div>
+        <button className="secondary" onClick={refresh}>
+          Perbarui
+        </button>
+      </div>
+      <div className="admin-metrics">
+        <Metric label="Calls 24 jam" value={number(summary.calls)} />
+        <Metric
+          label="Success rate"
+          value={
+            summary.successRate == null
+              ? "—"
+              : `${(summary.successRate * 100).toFixed(1)}%`
+          }
+        />
+        <Metric
+          label="P95"
+          value={
+            summary.p95DurationMs == null
+              ? "—"
+              : `${Math.round(summary.p95DurationMs)} ms`
+          }
+        />
+        <Metric
+          label="Tokens"
+          value={number(
+            (summary.inputTokens || 0) + (summary.outputTokens || 0),
+          )}
+        />
+        <Metric label="Cost" value={summary.cost ?? "—"} />
+      </div>
+      <article className="surface admin-panel">
+        <div className="section-title">
+          <h2>Task breakdown</h2>
+        </div>
+        <Table
+          headers={["Task", "Calls", "Gagal", "P50", "P95", "Tokens", "Biaya"]}
+        >
+          {summary.tasks.map((x) => (
+            <tr key={x.task}>
+              <td>{x.task}</td>
+              <td>{x.calls}</td>
+              <td>{x.failed}</td>
+              <td>
+                {x.p50DurationMs == null
+                  ? "—"
+                  : `${Math.round(x.p50DurationMs)} ms`}
+              </td>
+              <td>
+                {x.p95DurationMs == null
+                  ? "—"
+                  : `${Math.round(x.p95DurationMs)} ms`}
+              </td>
+              <td>{number(x.tokens)}</td>
+              <td>{x.cost ?? "—"}</td>
+            </tr>
+          ))}
+        </Table>
+      </article>
+      <article className="surface admin-panel">
+        <div className="section-title">
+          <h2>Panggilan terbaru</h2>
+        </div>
+        <Table
+          headers={[
+            "Waktu",
+            "Task",
+            "Protocol",
+            "Model",
+            "Status",
+            "Latency",
+            "Tokens",
+          ]}
+        >
+          {calls.items.length ? (
+            calls.items.map((x) => (
+              <tr key={x.id}>
+                <td>{time(x.createdAt)}</td>
+                <td>{x.task}</td>
+                <td>{x.protocol}</td>
+                <td>{x.model || "—"}</td>
+                <td>
+                  <Badge value={x.status} />
+                </td>
+                <td>{x.durationMs} ms</td>
+                <td>{number(x.inputTokens + x.outputTokens)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan="7">
+                <Empty>Belum ada panggilan LLM.</Empty>
+              </td>
+            </tr>
+          )}
+        </Table>
+      </article>
+    </section>
+  );
+}
+
+function Logs({ setError }) {
+  const [data, refresh] = useLoad("/api/v1/admin/logs", setError);
+  if (!data) return <Empty>Memuat events…</Empty>;
+  return (
+    <section className="admin-stack">
+      <div className="admin-section-head">
+        <div>
+          <span className="eyebrow">STRUCTURED EVENTS</span>
+          <h2>Logs</h2>
+        </div>
+        <button className="secondary" onClick={refresh}>
+          Perbarui
+        </button>
+      </div>
+      <Table
+        headers={[
+          "Waktu",
+          "Severity",
+          "Event",
+          "Komponen",
+          "Kelas error",
+          "Referensi",
+        ]}
+      >
+        {data.items.length ? (
+          data.items.map((x, i) => (
+            <tr key={`${x.referenceId}-${i}`}>
+              <td>{time(x.createdAt)}</td>
+              <td>
+                <Badge value={x.severity} />
+              </td>
+              <td>{x.type}</td>
+              <td>{x.component}</td>
+              <td>{x.errorClass}</td>
+              <td className="admin-id">{x.referenceId}</td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan="6">
+              <Empty>Belum ada event.</Empty>
+            </td>
+          </tr>
+        )}
+      </Table>
+    </section>
+  );
+}
+
+function Households({ setError }) {
+  const [data, refresh] = useLoad("/api/v1/admin/households", setError),
+    [selected, setSelected] = useState(null);
+  if (!data) return <Empty>Memuat household…</Empty>;
+  return (
+    <section className="admin-stack">
+      <div className="admin-section-head">
+        <div>
+          <span className="eyebrow">HOUSEHOLD</span>
+          <h2>Households</h2>
+        </div>
+        <button className="secondary" onClick={refresh}>
+          Perbarui
+        </button>
+      </div>
+      <Table
+        headers={[
+          "Household",
+          "Members",
+          "Transactions",
+          "Review",
+          "Last activity",
+          "Created",
+        ]}
+      >
+        {data.map((x) => (
+          <tr key={x.id} onClick={() => setSelected(x.id)}>
+            <td>
+              <b>{x.name}</b>
+              <small className="admin-id">{x.id}</small>
+            </td>
+            <td>{x.members}</td>
+            <td>{x.transactions}</td>
+            <td>{x.openReviews}</td>
+            <td>{time(x.lastActivityAt)}</td>
+            <td>{time(x.createdAt)}</td>
+          </tr>
+        ))}
+      </Table>
+      {selected && (
+        <HouseholdDetail
+          id={selected}
+          close={() => setSelected(null)}
+          setError={setError}
+        />
+      )}
+    </section>
+  );
+}
+function HouseholdDetail({ id, close, setError }) {
+  const [data] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
+  return (
+    <aside
+      className="admin-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Detail household"
+    >
+      <button className="secondary" onClick={close}>
+        Tutup
+      </button>
+      {!data ? (
+        <Empty>Memuat…</Empty>
+      ) : (
+        <>
+          <h2>{data.name}</h2>
+          <dl className="admin-definition">
+            <dt>ID</dt>
+            <dd className="admin-id">{data.id}</dd>
+            <dt>Timezone</dt>
+            <dd>{data.timezone}</dd>
+            <dt>Members</dt>
+            <dd>{data.members}</dd>
+            <dt>Transactions</dt>
+            <dd>{data.transactions}</dd>
+            <dt>Open reviews</dt>
+            <dd>{data.openReviews}</dd>
+            <dt>Gmail</dt>
+            <dd>{data.integrations.gmailConnected}</dd>
+            <dt>Bank listeners</dt>
+            <dd>{data.integrations.activeBankListeners}</dd>
+            <dt>Telegram</dt>
+            <dd>{data.integrations.telegramLinked}</dd>
+            <dt>Primary salary</dt>
+            <dd>
+              {data.integrations.primarySalaryConfigured ? "Ya" : "Tidak"}
+            </dd>
+          </dl>
+        </>
+      )}
+    </aside>
+  );
+}
+
+function Users({ setError }) {
+  const [users, refresh] = useLoad("/api/v1/admin/users", setError);
+  const mutate = async (user, patch, label) => {
+    if (!confirm(`${label} ${user.email}?`)) return;
+    try {
+      const response = await fetch(`/api/v1/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok)
+        throw new Error("Perubahan ditolak. Periksa invariant administrator.");
+      refresh();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  if (!users) return <Empty>Memuat users…</Empty>;
+  return (
+    <section className="admin-stack">
+      <div className="admin-section-head">
+        <div>
+          <span className="eyebrow">IDENTITY</span>
+          <h2>Users</h2>
+        </div>
+        <button className="secondary" onClick={refresh}>
+          Perbarui
+        </button>
+      </div>
+      <Table
+        headers={[
+          "User",
+          "Email",
+          "Status",
+          "Households",
+          "Password",
+          "Role",
+          "Aksi",
+        ]}
+      >
+        {users.map((user) => (
+          <tr key={user.id}>
+            <td>{user.displayName}</td>
+            <td>{user.email}</td>
+            <td>
+              <Badge value={user.active ? "ACTIVE" : "INACTIVE"} />
+            </td>
+            <td>{user.households}</td>
+            <td>{user.passwordInitialized ? "Diatur" : "Belum"}</td>
+            <td>{user.isSuperAdmin ? "Super Admin" : "User"}</td>
+            <td className="admin-actions">
+              <button
+                className="secondary"
+                onClick={() =>
+                  mutate(
+                    user,
+                    { active: !user.active },
+                    user.active ? "Nonaktifkan" : "Aktifkan",
+                  )
+                }
+              >
+                {user.active ? "Nonaktifkan" : "Aktifkan"}
+              </button>
+              <button
+                className="secondary"
+                onClick={() =>
+                  mutate(
+                    user,
+                    { isSuperAdmin: !user.isSuperAdmin },
+                    user.isSuperAdmin
+                      ? "Cabut Super Admin dari"
+                      : "Jadikan Super Admin",
+                  )
+                }
+              >
+                {user.isSuperAdmin ? "Cabut admin" : "Jadikan admin"}
+              </button>
+            </td>
+          </tr>
+        ))}
+      </Table>
+    </section>
+  );
+}
+
+function Audit({ setError }) {
+  const [data, refresh] = useLoad("/api/v1/admin/audit/platform", setError);
+  if (!data) return <Empty>Memuat audit…</Empty>;
+  return (
+    <section className="admin-stack">
+      <div className="admin-section-head">
+        <div>
+          <span className="eyebrow">IMMUTABLE PLATFORM EVENTS</span>
+          <h2>Audit</h2>
+        </div>
+        <button className="secondary" onClick={refresh}>
+          Perbarui
+        </button>
+      </div>
+      <Table headers={["Waktu", "Action", "Actor", "Entity", "Metadata"]}>
+        {data.items.length ? (
+          data.items.map((x) => (
+            <tr key={x.id}>
+              <td>{time(x.createdAt)}</td>
+              <td>{x.action}</td>
+              <td>{x.actorEmail}</td>
+              <td>
+                {x.entityType} · <span className="admin-id">{x.entityId}</span>
+              </td>
+              <td>
+                <code>{JSON.stringify(x.metadata)}</code>
+              </td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan="5">
+              <Empty>Belum ada platform audit.</Empty>
+            </td>
+          </tr>
+        )}
+      </Table>
+    </section>
+  );
+}
+function Table({ headers, children }) {
+  return (
+    <div className="admin-table-wrap">
+      <table className="admin-table">
+        <thead>
+          <tr>
+            {headers.map((x) => (
+              <th key={x}>{x}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
