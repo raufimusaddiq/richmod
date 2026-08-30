@@ -41,10 +41,10 @@ This checklist tracks implementation only. Source PRD is unchanged.
 
 ## Release state
 
-- [ ] Commit feature branch.
-- [ ] Push feature branch.
-- [ ] Merge with `--no-ff` into `main`.
-- [ ] Push updated `main`.
+- [x] Commit feature branch.
+- [x] Push feature branch.
+- [x] Merge with `--no-ff` into `main`.
+- [x] Push updated `main`.
 - [ ] Deploy only after explicit approval.
 
 ## Known caveats
