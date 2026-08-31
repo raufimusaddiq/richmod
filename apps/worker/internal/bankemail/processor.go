@@ -249,6 +249,16 @@ func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time
 	extraction.TransactionAt = &receivedAt
 	extraction.TransactionAtSource = "EMAIL_RECEIVED_AT"
 	extraction.MissingFields = removeMissing(extraction.MissingFields, "transaction_at")
+	if extraction.Review != nil {
+		extraction.Review.MissingFields = removeMissing(extraction.Review.MissingFields, "transaction_at")
+		extraction.Review.SuggestedActions = removeMissing(extraction.Review.SuggestedActions, "USE_EMAIL_RECEIVED_AT")
+		extraction.Review.SuggestedActions = removeMissing(extraction.Review.SuggestedActions, "ENTER_TRANSACTION_TIME")
+		if len(extraction.Review.MissingFields) == 0 && len(extraction.Review.SuggestedActions) == 0 {
+			extraction.Review = nil
+		} else {
+			extraction.Review.Summary = "Waktu transaksi menggunakan waktu penerimaan email. Lengkapi detail transaksi yang masih diperlukan."
+		}
+	}
 	return true
 }
 

@@ -220,7 +220,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	var kind string
 	var currentCategory, merchantID *string
 	var sourceType string
-	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id,COALESCE(s.source_type,'') FROM transaction t LEFT JOIN LATERAL (SELECT te.source_event_id FROM transaction_evidence te WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1) evidence ON true LEFT JOIN source_event s ON s.id=evidence.source_event_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&kind, &currentCategory, &merchantID, &sourceType); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id,COALESCE(s.source_type,'') FROM transaction t LEFT JOIN LATERAL (SELECT te.source_event_id FROM transaction_evidence te WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1) evidence ON true LEFT JOIN source_event s ON s.id=evidence.source_event_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE OF t`, id, household).Scan(&kind, &currentCategory, &merchantID, &sourceType); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
 	} else if err != nil {
@@ -298,7 +298,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := audit(r.Context(), tx, household, p.UserID, "CONFIRM_REVIEW", id, map[string]any{"category_id": categoryID, "remember_merchant": input.RememberMerchant}); err != nil || tx.Commit(r.Context()) != nil {
+	if err := audit(r.Context(), tx, household, p.UserID, "CONFIRM_REVIEW", id, map[string]any{"category_id": categoryID, "merchant_id": merchantID, "remember_merchant": input.RememberMerchant}); err != nil || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
