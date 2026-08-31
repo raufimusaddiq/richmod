@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 
@@ -798,6 +798,14 @@ function AuditSummary({ item }) {
   return <span>{values.length ? values.map(([key, value]) => `${key}: ${value}`).join(" · ") : "Perubahan administratif tercatat."}{item.requestId ? <small className="admin-id">Request {item.requestId}</small> : null}</span>;
 }
 function Table({ headers, children }) {
+  const rows = Children.map(children, (row) => {
+    if (!isValidElement(row)) return row;
+    const cells = Children.map(row.props.children, (cell, index) => {
+      if (!isValidElement(cell) || cell.props.colSpan) return cell;
+      return cloneElement(cell, { "data-label": headers[index] || "" });
+    });
+    return cloneElement(row, undefined, cells);
+  });
   return (
     <div className="admin-table-wrap">
       <table className="admin-table">
@@ -808,7 +816,7 @@ function Table({ headers, children }) {
             ))}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody>{rows}</tbody>
       </table>
     </div>
   );
