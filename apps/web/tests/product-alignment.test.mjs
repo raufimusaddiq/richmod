@@ -111,6 +111,18 @@ test("settings navigation uses the shared scalable icon style", () => {
   assert.equal(source.includes('"⚙"'), false);
 });
 
+test("mobile shell keeps navigation and dense actions usable", () => {
+  const shell = text("app/components/AppShell.js");
+  const styles = text("app/globals.css");
+  assert.match(shell, /aria-modal="true"/);
+  assert.match(shell, /event\.key === "Escape"/);
+  assert.match(shell, /aria-controls="mobile-more-panel"/);
+  assert.match(styles, /\.mobile-nav a,\.mobile-nav button\{min-height:48px/);
+  assert.match(styles, /\.page-actions,\.invite-actions,\.member-actions,\.row-actions,\.review-actions,\.transfer-options,\.dialog-actions\{flex-wrap:wrap/);
+  assert.match(styles, /\.settings-list article\{grid-template-columns:minmax\(0,1fr\)\}/);
+  assert.match(styles, /max-height:min\(82dvh,680px\);overflow-y:auto/);
+});
+
 test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/reviews/page.js"), /\/api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
