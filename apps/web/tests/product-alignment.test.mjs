@@ -175,6 +175,9 @@ test("admin console adapts tables and drawer for mobile", () => {
   assert.match(styles, /\.admin-table td::before\{content:attr\(data-label\)/);
   assert.match(styles, /\.admin-drawer\{width:100%;padding:20px 16px 96px;border-left:0\}/);
   assert.match(styles, /\.mobile-more-header button\{display:grid;place-items:center;padding:0;line-height:1\}/);
+  assert.match(styles, /\.admin-table tr\{padding:16px/);
+  assert.match(styles, /\.admin-table td\{display:grid;grid-template-columns:minmax\(92px,.42fr\) minmax\(0,1fr\)/);
+  assert.match(styles, /\.admin-table td\{grid-template-columns:minmax\(88px,.4fr\) minmax\(0,1fr\);gap:8px\}/);
 });
 
 test("admin user changes require confirmation", () => {
