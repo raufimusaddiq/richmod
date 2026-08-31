@@ -15,6 +15,21 @@ func TestValidateEmitBankTransaction(t *testing.T) {
 	}
 }
 
+func TestValidateEmitBankTransactionAcceptsBoundedReviewSuggestion(t *testing.T) {
+	call := gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(`{"kind":"TRANSACTION","direction":"OUTGOING","channel":"DEBIT_CARD","amount_idr":"13120","transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":"Transaksi kartu debit","missing_fields":["transaction_at","merchant"],"confidence":0.99,"review":{"summary":"Transaksi kartu debit Rp13.120. Waktu transaksi tidak tertulis.","missingFields":["transaction_at","merchant"],"suggestedActions":["USE_EMAIL_RECEIVED_AT","ENTER_TRANSACTION_TIME","IGNORE"]}}`)}
+	value, err := ValidateEmitBankTransaction(call)
+	if err != nil || value.Review == nil || value.Review.Summary == "" {
+		t.Fatalf("value=%+v err=%v", value, err)
+	}
+}
+
+func TestValidateEmitBankTransactionRejectsUnsafeReviewSuggestion(t *testing.T) {
+	call := gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(`{"kind":"TRANSACTION","direction":"OUTGOING","channel":"DEBIT_CARD","amount_idr":"13120","transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":null,"missing_fields":["transaction_at"],"confidence":0.99,"review":{"summary":"Pilih tindakan","missingFields":["transaction_at"],"suggestedActions":["CONFIRM"]}}`)}
+	if _, err := ValidateEmitBankTransaction(call); err == nil {
+		t.Fatal("unsafe review action accepted")
+	}
+}
+
 func TestValidateEmitBankTransactionRejectsUnknownAndFractionalAmount(t *testing.T) {
 	base := `{"kind":"TRANSACTION","direction":"OUTGOING","channel":"QR","amount_idr":"40700.5","transaction_at":null,"merchant":null,"counterparty":null,"reference":null,"description":null,"missing_fields":["transaction_at"],"confidence":0.8}`
 	if _, err := ValidateEmitBankTransaction(gateway.ToolCall{Name: "emit_bank_transaction", Arguments: json.RawMessage(base)}); err == nil {

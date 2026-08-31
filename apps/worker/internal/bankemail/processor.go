@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -144,7 +145,8 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 // event recoverable and never creates a guessed financial record.
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	var household, listenerID, bank, sender, subject, date, auth, body, messageID string
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.gmail_message_id FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id WHERE s.id=$1 AND l.active`, payload.SourceEventID).Scan(&household, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID)
+	var receivedAt time.Time
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,s.received_at,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.gmail_message_id FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id WHERE s.id=$1 AND l.active`, payload.SourceEventID).Scan(&household, &receivedAt, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID)
 	if err != nil {
 		return fmt.Errorf("load bank email event: %w", err)
 	}
@@ -163,6 +165,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		_ = p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "TRANSPORT_FAILED", "RETRY")
 		return err
 	}
+	applyEmailReceivedTimeFallback(&extraction, receivedAt)
 	output, _ := json.Marshal(extraction)
 	knownAccounts := []KnownAccount{}
 	rows, queryErr := p.pool.Query(ctx, `SELECT match_hint,relationship FROM known_account WHERE household_id=$1 AND active`, household)
@@ -237,6 +240,16 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return nil
 	}
 	return p.persist(ctx, listener, payload.SourceEventID, extraction, result)
+}
+
+func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time) bool {
+	if extraction.Kind != "TRANSACTION" || extraction.AmountIDR == nil || extraction.TransactionAt != nil || receivedAt.IsZero() {
+		return false
+	}
+	extraction.TransactionAt = &receivedAt
+	extraction.TransactionAtSource = "EMAIL_RECEIVED_AT"
+	extraction.MissingFields = removeMissing(extraction.MissingFields, "transaction_at")
+	return true
 }
 
 func (p *Processor) persistExtractionFailure(ctx context.Context, sourceID, listenerID, model, validation, policy string) error {
@@ -322,11 +335,15 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if description == "" {
 		description = result.Description
 	}
+	if extraction.Review != nil && strings.TrimSpace(extraction.Review.Summary) != "" {
+		description = strings.TrimSpace(extraction.Review.Summary)
+	}
 	merchant := value(extraction.Merchant)
 	counterparty := value(extraction.Counterparty)
 	reference := value(extraction.Reference)
 	var proposalID string
-	err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,merchant_raw,counterparty_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,'IDR',$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::uuid,$9,$10,$11,$12::jsonb) RETURNING id`, listener.HouseholdID, sourceID, transactionType, amount, *at, merchant, counterparty, categoryID, description, extraction.Confidence, proposalStatus, `{"bank_email_policy":"v4"}`).Scan(&proposalID)
+	metadata, _ := json.Marshal(map[string]any{"bank_email_policy": "v4", "transaction_at_source": extraction.TransactionAtSource, "llm_review": extraction.Review})
+	err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,merchant_raw,counterparty_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,'IDR',$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::uuid,$9,$10,$11,$12::jsonb) RETURNING id`, listener.HouseholdID, sourceID, transactionType, amount, *at, merchant, counterparty, categoryID, description, extraction.Confidence, proposalStatus, string(metadata)).Scan(&proposalID)
 	if err != nil {
 		return err
 	}
@@ -335,7 +352,10 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'BANK_EMAIL',$3,jsonb_build_object('proposal_id',$4::uuid,'listener_id',$5::uuid))`, transactionID, sourceID, extraction.Confidence, proposalID, listener.ID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'BANK_EMAIL',$3,jsonb_build_object('proposal_id',$4::uuid,'listener_id',$5::uuid,'transaction_at_source',$6::text))`, transactionID, sourceID, extraction.Confidence, proposalID, listener.ID, extraction.TransactionAtSource); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='EMAIL_RECEIVED_AT_FALLBACK',resolution_values=jsonb_build_object('transaction_at',$2::timestamptz),updated_at=now() WHERE source_event_id=$1 AND transaction_id IS NULL AND status IN ('PENDING_SEND','OPEN')`, sourceID, *at); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='bank-email-generic',parser_version=$3 WHERE id=$1`, sourceID, func() string {
