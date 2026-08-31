@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
@@ -18,7 +19,7 @@ type Handler struct {
 	now  func() time.Time
 }
 
-const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND (status='PENDING' OR created_at>now()-interval '1 hour') ORDER BY created_at DESC LIMIT 1`
+const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND (status='PENDING' OR created_at>now()-interval '1 hour') ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 
@@ -87,25 +88,27 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	local := h.now().In(clock.HouseholdLocation())
 	period := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
+	periodKind := "CALENDAR_MONTH"
 	if r.URL.Query().Get("period") == "cycle" {
 		var anchored *time.Time
 		if err := h.pool.QueryRow(r.Context(), `SELECT max(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date <= $2::date`, household, local.Format("2006-01-02")).Scan(&anchored); err == nil && anchored != nil {
 			period = *anchored
+			periodKind = "CURRENT_CYCLE"
 		}
 	}
+	metrics, err := h.buildFacts(r, household, period, periodKind)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to build deterministic insight facts"})
+		return
+	}
 	var existing string
-	err := h.pool.QueryRow(r.Context(), existingInsightQuery, household, period).Scan(&existing)
+	err = h.pool.QueryRow(r.Context(), existingInsightQuery, household, period, metrics.PeriodKind, metrics.PeriodStart).Scan(&existing)
 	if err == nil {
 		writeJSON(w, 200, map[string]string{"id": existing, "status": "EXISTING"})
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 500, map[string]string{"error": "unable to check insight rate limit"})
-		return
-	}
-	metrics, err := h.buildFacts(r, household, period)
-	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to build deterministic insight facts"})
 		return
 	}
 	raw, _ := json.Marshal(metrics)
@@ -117,23 +120,28 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	var id string
 	if err := tx.QueryRow(r.Context(), `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,$2,'PENDING',$3::jsonb,'finance-insight-v1',$4,$5) RETURNING id`, household, period, string(raw), metrics.DataCompleteness, p.UserID).Scan(&id); err != nil {
-		writeJSON(w, 409, map[string]string{"error": "an insight is already being generated"})
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			writeJSON(w, 409, map[string]string{"error": "an insight is already being generated"})
+			return
+		}
+		writeJSON(w, 500, map[string]string{"error": "unable to request insight"})
 		return
 	}
 	if _, err := tx.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_INSIGHT',jsonb_build_object('insight_id',$1::uuid),3)`, id); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to enqueue insight"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'REQUEST_INSIGHT','insight',$3,jsonb_build_object('period',$4::date,'data_completeness',$5::numeric))`, household, p.UserID, id, period, metrics.DataCompleteness); err != nil || tx.Commit(r.Context()) != nil {
+	if _, err := tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'REQUEST_INSIGHT','insight',$3,jsonb_build_object('period',$4::date,'period_start',$5::date,'period_kind',$6::text,'data_completeness',$7::numeric))`, household, p.UserID, id, period, metrics.PeriodStart, metrics.PeriodKind, metrics.DataCompleteness); err != nil || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to enqueue insight"})
 		return
 	}
 	writeJSON(w, 202, map[string]string{"id": id, "status": "PENDING"})
 }
 
-func (h *Handler) buildFacts(r *http.Request, household string, period time.Time) (facts, error) {
+func (h *Handler) buildFacts(r *http.Request, household string, period time.Time, periodKind string) (facts, error) {
 	end := period.AddDate(0, 1, 0)
-	if period.Day() != 1 {
+	if periodKind == "CURRENT_CYCLE" {
 		var next *time.Time
 		_ = h.pool.QueryRow(r.Context(), `SELECT min(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date>$2::date`, household, period.Format("2006-01-02")).Scan(&next)
 		if next != nil {
@@ -147,7 +155,7 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 	// actual preceding salary anchor for cycle-to-cycle comparison.
 	previousStart := period.AddDate(0, -3, 0)
 	previousPeriodStart := period.AddDate(0, -1, 0)
-	if period.Day() != 1 {
+	if periodKind == "CURRENT_CYCLE" {
 		previousStart = period.Add(-end.Sub(period))
 		var prior *time.Time
 		_ = h.pool.QueryRow(r.Context(), `SELECT max(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date<$2::date`, household, period.Format("2006-01-02")).Scan(&prior)
@@ -202,10 +210,6 @@ func (h *Handler) buildFacts(r *http.Request, household string, period time.Time
 				members = append(members, d)
 			}
 		}
-	}
-	periodKind := "CALENDAR_MONTH"
-	if period.Day() != 1 {
-		periodKind = "CURRENT_CYCLE"
 	}
 	result := facts{Period: period.Format("2006-01"), PeriodKind: periodKind, PeriodStart: period.Format("2006-01-02"), PeriodEnd: end.Format("2006-01-02"), PeriodOpen: periodKind == "CURRENT_CYCLE" && end.After(h.now().In(clock.HouseholdLocation())), Currency: "IDR", Income: income, Expense: expense, NetCashflow: subtract(income, expense), CategoryChanges: changes, OpenReviewCount: reviews, DataCompleteness: completeness, MerchantDistribution: merchants, MemberDistribution: members, PreviousExpense: previousExpense, PreviousNetCashflow: subtract(previousIncome, previousExpense)}
 	if value, ok := divide(result.NetCashflow, income); ok {
