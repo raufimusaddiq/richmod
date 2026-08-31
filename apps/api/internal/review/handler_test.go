@@ -23,6 +23,15 @@ func TestReconciliationScore(t *testing.T) {
 	}
 }
 
+func TestReviewMissingFieldsRequiresBankMerchantAndExpenseCategory(t *testing.T) {
+	source := "BANK_EMAIL"
+	typeValue := item{Type: "EXPENSE", SourceType: &source}
+	got := reviewMissingFields(typeValue)
+	if len(got) != 2 || got[0] != "merchant" || got[1] != "category" {
+		t.Fatalf("missing fields = %#v", got)
+	}
+}
+
 func TestSameTextNormalizesCaseAndWhitespace(t *testing.T) {
 	if !sameText("  PAMELLA   DUA ", "pamella dua") {
 		t.Fatal("expected merchant strings to match")

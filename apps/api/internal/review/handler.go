@@ -52,6 +52,7 @@ type item struct {
 	SubjectType    string      `json:"subjectType,omitempty"`
 	SubjectID      string      `json:"subjectId,omitempty"`
 	AllowedActions []string    `json:"allowedActions,omitempty"`
+	MissingFields  []string    `json:"missingFields,omitempty"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +92,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		value.Reason = reviewReason(value)
+		value.MissingFields = reviewMissingFields(value)
 		items = append(items, value)
 	}
 	if err := rows.Err(); err != nil {
@@ -179,10 +181,22 @@ func reviewReason(value item) string {
 	return "UNKNOWN_PURPOSE"
 }
 
+func reviewMissingFields(value item) []string {
+	var fields []string
+	if value.SourceType != nil && *value.SourceType == "BANK_EMAIL" && value.Type == "EXPENSE" && value.MerchantName == nil {
+		fields = append(fields, "merchant")
+	}
+	if value.Type == "EXPENSE" && value.CategoryID == nil {
+		fields = append(fields, "category")
+	}
+	return fields
+}
+
 type confirmInput struct {
 	CategoryID       *string `json:"categoryId"`
 	Description      *string `json:"description"`
 	Note             *string `json:"note"`
+	MerchantName     *string `json:"merchantName"`
 	RememberMerchant bool    `json:"rememberMerchant"`
 }
 
@@ -205,7 +219,8 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var kind string
 	var currentCategory, merchantID *string
-	if err := tx.QueryRow(r.Context(), `SELECT type,category_id,merchant_id FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&kind, &currentCategory, &merchantID); errors.Is(err, pgx.ErrNoRows) {
+	var sourceType string
+	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id,COALESCE(s.source_type,'') FROM transaction t LEFT JOIN LATERAL (SELECT te.source_event_id FROM transaction_evidence te WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1) evidence ON true LEFT JOIN source_event s ON s.id=evidence.source_event_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE OF t`, id, household).Scan(&kind, &currentCategory, &merchantID, &sourceType); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
 	} else if err != nil {
@@ -229,13 +244,32 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "use transfer classification for this review"})
 		return
 	}
+	merchantName := clean(input.MerchantName, 160)
+	if kind == "EXPENSE" && sourceType == "BANK_EMAIL" && merchantID == nil && merchantName == "" {
+		writeJSON(w, 400, map[string]string{"error": "merchant is required for this bank review"})
+		return
+	}
+	if merchantName != "" {
+		var id string
+		if err := tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, household, merchantName).Scan(&id); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to save merchant"})
+			return
+		}
+		merchantID = &id
+	}
 	if input.RememberMerchant && merchantID == nil {
 		writeJSON(w, 400, map[string]string{"error": "merchant is required to remember a category"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000)); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,merchant_id=COALESCE($5::uuid,merchant_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000), merchantID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
+	}
+	if merchantName != "" {
+		if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, merchantName); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to save merchant"})
+			return
+		}
 	}
 	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, categoryID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
@@ -264,7 +298,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := audit(r.Context(), tx, household, p.UserID, "CONFIRM_REVIEW", id, map[string]any{"category_id": categoryID, "remember_merchant": input.RememberMerchant}); err != nil || tx.Commit(r.Context()) != nil {
+	if err := audit(r.Context(), tx, household, p.UserID, "CONFIRM_REVIEW", id, map[string]any{"category_id": categoryID, "merchant_id": merchantID, "remember_merchant": input.RememberMerchant}); err != nil || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}

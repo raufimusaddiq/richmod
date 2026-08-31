@@ -73,3 +73,66 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 		t.Fatalf("explicit learning audit missing: %v", err)
 	}
 }
+
+func TestBankReviewRequiresMerchantBeforeConfirmation(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	stamp := time.Now().UnixNano()
+	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
+	var sourceID, transactionID string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("bank-review-%d", stamp), []byte(fmt.Sprintf("bank-review-%d", stamp))).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',13120,now()) RETURNING id`, householdID).Scan(&transactionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'BANK_EMAIL')`, transactionID, sourceID); err != nil {
+		t.Fatal(err)
+	}
+
+	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	handler := NewHandler(pool)
+	confirm := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/confirm", bytes.NewBufferString(body))
+		request.SetPathValue("id", transactionID)
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+		response := httptest.NewRecorder()
+		handler.Confirm(response, request)
+		return response
+	}
+
+	missing := confirm(fmt.Sprintf(`{"categoryId":%q}`, categoryID))
+	if missing.Code != http.StatusBadRequest || !bytes.Contains(missing.Body.Bytes(), []byte("merchant is required")) {
+		t.Fatalf("missing merchant status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	var status string
+	var merchantID *string
+	if err := pool.QueryRow(ctx, `SELECT status,merchant_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&status, &merchantID); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || merchantID != nil {
+		t.Fatalf("failed confirmation mutated transaction status=%s merchant=%v", status, merchantID)
+	}
+
+	accepted := confirm(fmt.Sprintf(`{"categoryId":%q,"merchantName":"Warung Gorengan"}`, categoryID))
+	if accepted.Code != http.StatusNoContent {
+		t.Fatalf("accepted status=%d body=%s", accepted.Code, accepted.Body.String())
+	}
+	var merchantName string
+	if err := pool.QueryRow(ctx, `SELECT t.status,m.normalized_name FROM transaction t JOIN merchant m ON m.id=t.merchant_id WHERE t.id=$1`, transactionID).Scan(&status, &merchantName); err != nil {
+		t.Fatal(err)
+	}
+	if status != "CONFIRMED" || merchantName != "Warung Gorengan" {
+		t.Fatalf("confirmed status=%s merchant=%q", status, merchantName)
+	}
+}
