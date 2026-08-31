@@ -166,6 +166,17 @@ test("admin lists use bounded server filters and accessible detail actions", () 
   assert.match(admin, /admin-link admin-id/);
 });
 
+test("admin console adapts tables and drawer for mobile", () => {
+  const admin = text("app/admin/page.js");
+  const styles = text("app/globals.css");
+  assert.match(admin, /Children, cloneElement, isValidElement/);
+  assert.match(admin, /"data-label": headers\[index\]/);
+  assert.match(styles, /\.admin-table thead\{display:none\}/);
+  assert.match(styles, /\.admin-table td::before\{content:attr\(data-label\)/);
+  assert.match(styles, /\.admin-drawer\{width:100%;padding:20px 16px 96px;border-left:0\}/);
+  assert.match(styles, /\.mobile-more-header button\{display:grid;place-items:center;padding:0;line-height:1\}/);
+});
+
 test("admin user changes require confirmation", () => {
   const admin = text("app/admin/page.js");
   assert.match(admin, /confirm\(/);
