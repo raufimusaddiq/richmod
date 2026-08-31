@@ -103,6 +103,14 @@ test("ledger navigation uses a scalable icon instead of a text glyph", () => {
   assert.equal(source.includes('"↕"'), false);
 });
 
+test("settings navigation uses the shared scalable icon style", () => {
+  const source = text("app/components/AppShell.js");
+  assert.match(source, /\["\/settings", "Pengaturan", "settings"\]/);
+  assert.match(source, /function SettingsIcon/);
+  assert.match(source, /icon === "settings" \? <SettingsIcon\/>/);
+  assert.equal(source.includes('"⚙"'), false);
+});
+
 test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/reviews/page.js"), /\/api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
