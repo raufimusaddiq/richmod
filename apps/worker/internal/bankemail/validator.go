@@ -21,17 +21,18 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 		return Extraction{}, fmt.Errorf("unexpected bank email tool")
 	}
 	var raw struct {
-		Kind          string   `json:"kind"`
-		Direction     *string  `json:"direction"`
-		Channel       *string  `json:"channel"`
-		AmountIDR     *string  `json:"amount_idr"`
-		TransactionAt *string  `json:"transaction_at"`
-		Merchant      *string  `json:"merchant"`
-		Counterparty  *string  `json:"counterparty"`
-		Reference     *string  `json:"reference"`
-		Description   *string  `json:"description"`
-		MissingFields []string `json:"missing_fields"`
-		Confidence    float64  `json:"confidence"`
+		Kind          string            `json:"kind"`
+		Direction     *string           `json:"direction"`
+		Channel       *string           `json:"channel"`
+		AmountIDR     *string           `json:"amount_idr"`
+		TransactionAt *string           `json:"transaction_at"`
+		Merchant      *string           `json:"merchant"`
+		Counterparty  *string           `json:"counterparty"`
+		Reference     *string           `json:"reference"`
+		Description   *string           `json:"description"`
+		MissingFields []string          `json:"missing_fields"`
+		Confidence    float64           `json:"confidence"`
+		Review        *ReviewSuggestion `json:"review"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(call.Arguments))
 	dec.DisallowUnknownFields()
@@ -99,7 +100,26 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 	if raw.Confidence < 0 || raw.Confidence > 1 {
 		return Extraction{}, fmt.Errorf("invalid confidence")
 	}
-	return Extraction{Kind: raw.Kind, Direction: raw.Direction, Channel: raw.Channel, AmountIDR: raw.AmountIDR, TransactionAt: at, Merchant: raw.Merchant, Counterparty: raw.Counterparty, Reference: raw.Reference, Description: raw.Description, MissingFields: raw.MissingFields, Confidence: raw.Confidence}, nil
+	if raw.Review != nil {
+		if len([]rune(strings.TrimSpace(raw.Review.Summary))) == 0 || len([]rune(raw.Review.Summary)) > 500 {
+			return Extraction{}, fmt.Errorf("invalid review summary")
+		}
+		seen = map[string]bool{}
+		for _, name := range raw.Review.MissingFields {
+			if !missingNames[name] || seen[name] {
+				return Extraction{}, fmt.Errorf("invalid review missing field")
+			}
+			seen[name] = true
+		}
+		seen = map[string]bool{}
+		for _, action := range raw.Review.SuggestedActions {
+			if !oneOf(action, "USE_EMAIL_RECEIVED_AT", "ENTER_TRANSACTION_TIME", "IGNORE") || seen[action] {
+				return Extraction{}, fmt.Errorf("invalid review suggested action")
+			}
+			seen[action] = true
+		}
+	}
+	return Extraction{Kind: raw.Kind, Direction: raw.Direction, Channel: raw.Channel, AmountIDR: raw.AmountIDR, TransactionAt: at, Merchant: raw.Merchant, Counterparty: raw.Counterparty, Reference: raw.Reference, Description: raw.Description, MissingFields: raw.MissingFields, Confidence: raw.Confidence, Review: raw.Review}, nil
 }
 
 func parseStrictBankRFC3339(value string) (time.Time, error) {
