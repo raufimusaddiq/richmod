@@ -17,12 +17,14 @@ type canonicalReview struct {
 	SubjectType    string    `json:"subjectType"`
 	SubjectID      string    `json:"subjectId"`
 	Summary        string    `json:"summary"`
+	AmountIDR      string    `json:"amountIdr,omitempty"`
+	Channel        string    `json:"channel,omitempty"`
 	AllowedActions []string  `json:"allowedActions"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
-	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' ELSE 'document' END,COALESCE(ri.proposal_id,ri.source_event_id,ri.document_id)::text,COALESCE(p.description,p.counterparty_raw,'Bukti keuangan perlu ditinjau'),ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
+	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' ELSE 'document' END,COALESCE(ri.proposal_id,ri.source_event_id,ri.document_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty','Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',''),COALESCE(be.output_json->>'channel',''),ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +32,7 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 	out := make([]canonicalReview, 0)
 	for rows.Next() {
 		var v canonicalReview
-		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.AmountIDR, &v.Channel, &v.CreatedAt); err != nil {
 			return nil, err
 		}
 		v.AllowedActions = canonicalActions(v.ReviewType)
