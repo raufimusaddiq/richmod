@@ -155,6 +155,7 @@ test("admin console keeps platform tabs and redacts sensitive payloads", () => {
   assert.match(admin, /\/api\/v1\/admin\/jobs/);
   assert.match(admin, /\/api\/v1\/admin\/llm\/summary/);
   assert.match(admin, /\/api\/v1\/admin\/logs/);
+  assert.match(text("../api/cmd/api/main.go"), /admin\/audit\/all/);
   assert.doesNotMatch(admin, /payload_json|last_error|prompt text|raw model output/);
 });
 
@@ -177,9 +178,20 @@ test("admin console adapts tables and drawer for mobile", () => {
   assert.match(styles, /\.admin-table td::before\{content:attr\(data-label\)/);
   assert.match(styles, /\.admin-drawer\{width:100%;padding:20px 16px 96px;border-left:0\}/);
   assert.match(styles, /\.mobile-more-header button\{display:grid;place-items:center;padding:0;line-height:1\}/);
-  assert.match(styles, /\.admin-table tr\{padding:16px/);
-  assert.match(styles, /\.admin-table td\{display:grid;grid-template-columns:minmax\(92px,.42fr\) minmax\(0,1fr\)/);
-  assert.match(styles, /\.admin-table td\{grid-template-columns:minmax\(88px,.4fr\) minmax\(0,1fr\);gap:8px\}/);
+  assert.match(styles, /\.admin-table\{min-width:0;border-collapse:separate;border-spacing:0 12px\}/);
+  assert.match(styles, /\.admin-table tr\{padding:13px 15px/);
+  assert.match(styles, /\.admin-table td\{display:grid;grid-template-columns:minmax\(92px,.42fr\) minmax\(0,1fr\);gap:8px;padding:5px 0;border:0;line-height:1\.35/);
+  assert.match(styles, /\.admin-table tr\{padding:12px 13px/);
+  assert.match(styles, /\.admin-table td\{grid-template-columns:minmax\(88px,.4fr\) minmax\(0,1fr\);gap:7px;padding:4px 0\}/);
+});
+
+test("admin audit defaults to combined bounded feed while retaining scoped views", () => {
+  const admin = text("app/admin/page.js");
+  assert.match(admin, /useState\("all"\)/);
+  assert.match(admin, /\/api\/v1\/admin\/audit\/all/);
+  assert.match(admin, /<option value="all">Semua<\/option>/);
+  assert.match(admin, /<option value="platform">Platform<\/option>/);
+  assert.match(admin, /<option value="household">Household<\/option>/);
 });
 
 test("admin user changes require confirmation", () => {
