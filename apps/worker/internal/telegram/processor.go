@@ -188,11 +188,13 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	now := p.now().In(jakartaLocation())
 	hasPendingAction, _ := p.hasPendingAction(ctx, householdID, update)
 	hasPendingBatch, _ := p.hasPendingBatch(ctx, householdID, update)
+	hasSalaryChoice, _ := p.hasPendingSalaryChoice(ctx, householdID, update)
+	hasMerchantLearning, _ := p.hasMerchantLearning(ctx, householdID, update)
 	activeReview, reviewCount, _ := p.activeReviewBinding(ctx, householdID, update)
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
 	content := map[string]any{"turn_context": map[string]any{"current_user_text": "<untrusted_user_message>" + text + "</untrusted_user_message>", "recent_turns": conversation, "current_jakarta_datetime": now.Format(time.RFC3339), "allowed_category_slugs": categories, "has_pending_action": hasPendingAction, "has_pending_batch": hasPendingBatch, "active_review_count": reviewCount, "active_review": activeReview}, "supported_languages": []string{"id", "en"}}
 	attemptCtx, cancel := context.WithTimeout(ctx, telegramLLMAttemptTimeout)
-	call, metadata, err := p.gateway.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, reviewCount == 1), gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, metadata, err := p.gateway.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, reviewCount == 1, hasSalaryChoice, hasMerchantLearning), gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
 	cancel()
 	if err != nil {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Richmod belum bisa memproses pesan ini. Coba lagi sebentar.")
@@ -327,6 +329,17 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		return true, p.replyReviews(ctx, sourceID, householdID, update)
 	case "resolve_review":
 		return true, p.resolveNativeReview(ctx, sourceID, householdID, update, args)
+	case "resolve_salary_choice":
+		choice, _ := args["choice"].(string)
+		if choice == "IGNORE" {
+			choice = "ignore"
+		}
+		return true, func() error {
+			_, err := p.processPendingSalaryChoice(ctx, householdID, update, sourceID, strings.ToLower(choice))
+			return err
+		}()
+	case "resolve_merchant_learning":
+		return true, p.resolveNativeMerchantLearning(ctx, sourceID, householdID, update, args)
 	case "confirm_pending_action":
 		return true, p.finishPendingAction(ctx, householdID, update, sourceID, true)
 	case "cancel_pending_action":
@@ -371,13 +384,38 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		return true, p.offerBatch(ctx, householdID, update, sourceID, entries, now)
 	case "propose_transaction_correction":
 		search, _ := args["search_text"].(string)
+		targetRef, _ := args["target_ref"].(string)
 		desc, _ := args["description"].(string)
 		category, _ := args["category_slug"].(string)
+		if targetRef != "" {
+			id, err := p.resolveTransactionReference(ctx, householdID, update, targetRef)
+			if err != nil {
+				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Referensi transaksi sudah tidak tersedia. Cari ulang transaksinya.")
+			}
+			return true, p.stageNativeCorrection(ctx, sourceID, householdID, update, id, category, desc, args, now)
+		}
 		if strings.TrimSpace(search) == "" {
 			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Sebutkan transaksi yang ingin dikoreksi.")
 		}
-		value := extraction{Intent: "CORRECT_TRANSACTION", SearchText: &search, CorrectionDescription: stringPtr(desc), CorrectionCategorySlug: stringPtr(category), Period: stringPtr("THIS_MONTH")}
-		return true, p.processAssistantIntent(ctx, sourceID, householdID, update, value, now)
+		period, _ := args["period"].(string)
+		fromDate, _ := args["from_date"].(string)
+		toDate, _ := args["to_date"].(string)
+		var r assistantRange
+		var err error
+		if period == "CURRENT_CYCLE" || period == "PREVIOUS_CYCLE" {
+			r, err = p.resolveSalaryCycleRange(ctx, householdID, now, period == "PREVIOUS_CYCLE")
+		} else {
+			r, err = resolveAssistantRange(now, &period, stringPtr(fromDate), stringPtr(toDate))
+		}
+		if err != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Periodenya belum jelas.")
+		}
+		var id string
+		err = p.pool.QueryRow(ctx, `SELECT t.id FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.type IN('INCOME','EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 AND (t.counterparty_name ILIKE '%'||$4||'%' OR t.description ILIKE '%'||$4||'%' OR c.name ILIKE '%'||$4||'%') ORDER BY t.transaction_at DESC LIMIT 1`, householdID, r.From, r.To, search).Scan(&id)
+		if err != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi belum ditemukan secara unik. Cari dulu, lalu pakai nomor hasilnya.")
+		}
+		return true, p.stageNativeCorrection(ctx, sourceID, householdID, update, id, category, desc, args, now)
 	case "query_transactions":
 		mode, _ := args["mode"].(string)
 		period, _ := args["period"].(string)
@@ -550,8 +588,10 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 	}
 	defer tx.Rollback(ctx)
 	var actionID, transactionID string
-	var proposedAt time.Time
-	err = tx.QueryRow(ctx, `SELECT id,transaction_id,proposed_transaction_at FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&actionID, &transactionID, &proposedAt)
+	var proposedAt *time.Time
+	var proposedCategoryID *string
+	var proposedDescription *string
+	err = tx.QueryRow(ctx, `SELECT id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&actionID, &transactionID, &proposedAt, &proposedCategoryID, &proposedDescription)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -562,13 +602,16 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 	message := "Perubahan dibatalkan."
 	if confirm {
 		status = "CONFIRMED"
-		message = "Tanggal transaksi berhasil diubah ke " + proposedAt.In(jakartaLocation()).Format("02 Jan 2006 15:04") + "."
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, transactionID, proposedAt, householdID); err != nil {
+		message = "Perubahan transaksi berhasil disimpan."
+		if proposedAt != nil {
+			message = "Tanggal transaksi berhasil diubah ke " + proposedAt.In(jakartaLocation()).Format("02 Jan 2006 15:04") + "."
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=COALESCE($2,transaction_at),category_id=COALESCE($3,category_id),description=COALESCE(NULLIF($4,''),description),updated_at=now() WHERE id=$1 AND household_id=$5`, transactionID, proposedAt, proposedCategoryID, proposedDescription, householdID); err != nil {
 			return true, err
 		}
 	}
 	if confirm {
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION_DATE','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz) FROM telegram_identity ti WHERE ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active`, householdID, transactionID, proposedAt, update.Message.From.ID); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz,'category_id',$4::uuid,'description',$5) FROM telegram_identity ti WHERE ti.telegram_user_id=$6 AND ti.household_id=$1 AND ti.active`, householdID, transactionID, proposedAt, proposedCategoryID, proposedDescription, update.Message.From.ID); err != nil {
 			return true, err
 		}
 	}
@@ -762,6 +805,49 @@ func (p *Processor) finishPendingAction(ctx context.Context, householdID string,
 	}
 	_, err := p.processPendingEdit(ctx, householdID, update, sourceID, text)
 	return err
+}
+
+func (p *Processor) stageNativeCorrection(ctx context.Context, sourceID, householdID string, update telegramUpdate, transactionID, categorySlug, description string, args map[string]any, now time.Time) error {
+	var categoryID *string
+	if categorySlug != "" {
+		var id string
+		if err := p.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, categorySlug).Scan(&id); err != nil {
+			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Kategori belum valid untuk household ini.")
+		}
+		categoryID = &id
+	}
+	var proposedAt *time.Time
+	if reference, ok := args["date_reference"].(string); ok && reference != "" {
+		explicit, _ := args["explicit_date"].(string)
+		local, _ := args["local_time"].(string)
+		at, err := resolveTime(now, &reference, stringPtr(explicit), stringPtr(local))
+		if err != nil {
+			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Tanggal koreksi belum jelas.")
+		}
+		proposedAt = &at
+	}
+	if categoryID == nil && strings.TrimSpace(description) == "" && proposedAt == nil {
+		return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Sebutkan perubahan transaksi.")
+	}
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var label, amount string
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Transaksi'),amount::text FROM transaction WHERE id=$1 AND household_id=$2 AND status<>'VOIDED'`, transactionID, householdID).Scan(&label, &amount); err != nil {
+		return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi tidak ditemukan.")
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description,status) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=excluded.proposed_category_id,proposed_description=excluded.proposed_description,expires_at=now()+interval '5 minutes',created_at=now()`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, proposedAt, categoryID, clean(description, 500)); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='native-finance-tool',parser_version='2' WHERE id=$1`, sourceID); err != nil {
+		return err
+	}
+	if err = enqueueReply(ctx, tx, update, "Usulkan perubahan untuk "+label+" · Rp"+FormatIDR(amount)+". Balas ya untuk konfirmasi atau tidak untuk batal."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (p *Processor) finishPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {

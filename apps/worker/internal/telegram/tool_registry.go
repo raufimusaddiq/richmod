@@ -9,7 +9,14 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool) []gateway.ToolDefinition {
+func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, flags ...bool) []gateway.ToolDefinition {
+	hasSalaryChoice, hasMerchantLearning := false, false
+	if len(flags) > 0 {
+		hasSalaryChoice = flags[0]
+	}
+	if len(flags) > 1 {
+		hasMerchantLearning = flags[1]
+	}
 	stringType := map[string]any{"type": "string"}
 	nullString := map[string]any{"type": []string{"string", "null"}}
 	dateRef := map[string]any{"type": "string", "enum": []string{"TODAY", "YESTERDAY", "EXPLICIT"}}
@@ -36,7 +43,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		{Name: "ask_clarification", Description: "Ask for missing finance details without guessing.", Parameters: objectSchema(map[string]any{"topic": map[string]any{"type": "string", "enum": []string{"TRANSACTION", "PERIOD", "TARGET", "CATEGORY", "REVIEW"}}, "missing_fields": map[string]any{"type": "array", "items": stringType}}, []string{"topic", "missing_fields"})},
 		{Name: "finance_help", Description: "Show Richmod finance command examples.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "finance_out_of_scope", Description: "Reject unsupported non-finance or out-of-MVP requests.", Parameters: objectSchema(map[string]any{"reason": map[string]any{"type": "string", "enum": []string{"NON_FINANCE", "INVESTMENT_ACTION_UNSUPPORTED", "SYSTEM_REQUEST", "UNSUPPORTED_LANGUAGE"}}}, []string{"reason"})},
-		{Name: "propose_transaction_correction", Description: "Propose a correction using search criteria; Go resolves one target.", Parameters: objectSchema(map[string]any{"search_text": stringType, "period": period, "from_date": nullString, "to_date": nullString, "category_slug": category, "description": nullString, "date_reference": nullString, "explicit_date": nullString, "local_time": nullString}, []string{"search_text", "period", "from_date", "to_date", "category_slug", "description", "date_reference", "explicit_date", "local_time"})},
+		{Name: "propose_transaction_correction", Description: "Propose a correction using a private target_ref from search results or search criteria; Go resolves one target.", Parameters: objectSchema(map[string]any{"target_ref": nullString, "search_text": nullString, "period": period, "from_date": nullString, "to_date": nullString, "category_slug": category, "description": nullString, "date_reference": nullString, "explicit_date": nullString, "local_time": nullString}, []string{"target_ref", "search_text", "period", "from_date", "to_date", "category_slug", "description", "date_reference", "explicit_date", "local_time"})},
 	}
 	if hasPendingAction {
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_action", Description: "Confirm the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_action", Description: "Cancel the one active server-bound pending correction.", Parameters: objectSchema(map[string]any{}, []string{})})
@@ -46,6 +53,12 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 	}
 	if hasActiveReview {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve the one active bound review. Do not use when multiple reviews are present.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": []string{"CONFIRM", "IGNORE", "EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER"}}, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString}, []string{"action", "category_slug", "merchant", "description", "pay_date"})})
+	}
+	if hasSalaryChoice {
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
+	}
+	if hasMerchantLearning {
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_merchant_learning", Description: "Confirm whether to remember this merchant category rule.", Parameters: objectSchema(map[string]any{"remember": map[string]any{"type": "boolean"}}, []string{"remember"})})
 	}
 	return tools
 }
@@ -75,6 +88,10 @@ func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
 		target = &correctionArgs{}
 	case "resolve_review":
 		target = &resolveReviewArgs{}
+	case "resolve_salary_choice":
+		target = &salaryChoiceArgs{}
+	case "resolve_merchant_learning":
+		target = &merchantLearningArgs{}
 	default:
 		return nil, fmt.Errorf("unregistered finance tool %q", call.Name)
 	}
@@ -128,6 +145,14 @@ func decodeNativeArgs(call gateway.ToolCall, target any) (map[string]any, error)
 		out, err := gateway.DecodeToolArguments[resolveReviewArgs](call, call.Name)
 		*v = out
 		return remarshal(out), err
+	case *salaryChoiceArgs:
+		out, err := gateway.DecodeToolArguments[salaryChoiceArgs](call, call.Name)
+		*v = out
+		return remarshal(out), err
+	case *merchantLearningArgs:
+		out, err := gateway.DecodeToolArguments[merchantLearningArgs](call, call.Name)
+		*v = out
+		return remarshal(out), err
 	}
 	return nil, fmt.Errorf("unsupported arguments")
 }
@@ -175,7 +200,8 @@ type outOfScopeArgs struct {
 	Reason string `json:"reason"`
 }
 type correctionArgs struct {
-	SearchText    string  `json:"search_text"`
+	TargetRef     *string `json:"target_ref"`
+	SearchText    *string `json:"search_text"`
 	Period        string  `json:"period"`
 	FromDate      *string `json:"from_date"`
 	ToDate        *string `json:"to_date"`
@@ -191,6 +217,12 @@ type resolveReviewArgs struct {
 	Merchant     *string `json:"merchant"`
 	Description  *string `json:"description"`
 	PayDate      *string `json:"pay_date"`
+}
+type salaryChoiceArgs struct {
+	Choice string `json:"choice"`
+}
+type merchantLearningArgs struct {
+	Remember bool `json:"remember"`
 }
 
 func validateCreate(v createArgs) error {
@@ -240,12 +272,16 @@ func validateTypedArgs(value any) error {
 			return fmt.Errorf("reason")
 		}
 	case *correctionArgs:
-		if strings.TrimSpace(v.SearchText) == "" || !validPeriod(v.Period) || (v.CategorySlug == nil && v.Description == nil && v.DateReference == nil) {
+		if (v.TargetRef == nil && strings.TrimSpace(pointerValue(v.SearchText)) == "") || !validPeriod(v.Period) || (v.CategorySlug == nil && v.Description == nil && v.DateReference == nil) {
 			return fmt.Errorf("correction")
 		}
 	case *resolveReviewArgs:
 		if !map[string]bool{"CONFIRM": true, "IGNORE": true, "EXPENSE": true, "OWN_ACCOUNT_TRANSFER": true, "HOUSEHOLD_TRANSFER": true, "INVESTMENT_TRANSFER": true}[v.Action] {
 			return fmt.Errorf("review action")
+		}
+	case *salaryChoiceArgs:
+		if v.Choice != "PRIMARY" && v.Choice != "ORDINARY" && v.Choice != "IGNORE" {
+			return fmt.Errorf("salary choice")
 		}
 	}
 	return nil

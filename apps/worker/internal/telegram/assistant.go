@@ -170,19 +170,22 @@ func (p *Processor) replySearch(ctx context.Context, sourceID, householdID strin
 	if query == "" {
 		return p.finishAssistant(ctx, sourceID, update, "Transaksi apa yang ingin dicari? Sebutkan merchant atau keterangannya.", nil)
 	}
-	rows, err := p.pool.Query(ctx, `SELECT t.transaction_at,t.type,t.amount::text,COALESCE(t.counterparty_name,t.description,c.name,'Transaksi') FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.type IN('INCOME','EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 AND (t.counterparty_name ILIKE '%'||$4||'%' OR t.description ILIKE '%'||$4||'%' OR c.name ILIKE '%'||$4||'%') ORDER BY t.transaction_at DESC LIMIT 6`, householdID, r.From, r.To, query)
+	rows, err := p.pool.Query(ctx, `SELECT t.id,t.transaction_at,t.type,t.amount::text,COALESCE(t.counterparty_name,t.description,c.name,'Transaksi') FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.type IN('INCOME','EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 AND (t.counterparty_name ILIKE '%'||$4||'%' OR t.description ILIKE '%'||$4||'%' OR c.name ILIKE '%'||$4||'%') ORDER BY t.transaction_at DESC LIMIT 6`, householdID, r.From, r.To, query)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	lines := []string{"🔎 Hasil pencarian\nKata kunci: “" + query + "”\nPeriode: " + r.label()}
+	ids := make([]string, 0, 6)
 	for rows.Next() {
+		var id string
 		var at time.Time
 		var typ, amount, label string
-		if err = rows.Scan(&at, &typ, &amount, &label); err != nil {
+		if err = rows.Scan(&id, &at, &typ, &amount, &label); err != nil {
 			return err
 		}
-		lines = append(lines, fmt.Sprintf("• %s · %s · Rp%s · %s", at.In(jakartaLocation()).Format("02 Jan"), typ, FormatIDR(amount), label))
+		ids = append(ids, id)
+		lines = append(lines, fmt.Sprintf("%d. %s · %s · Rp%s · %s", len(ids), at.In(jakartaLocation()).Format("02 Jan"), typ, FormatIDR(amount), label))
 	}
 	if err = rows.Err(); err != nil {
 		return err
@@ -190,7 +193,8 @@ func (p *Processor) replySearch(ctx context.Context, sourceID, householdID strin
 	if len(lines) == 1 {
 		lines = []string{"🔎 Tidak ada hasil\n\nCoba kata kunci atau periode lain."}
 	}
-	return p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil)
+	if err := p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil); err != nil { return err }
+	return p.persistTransactionReferences(ctx, householdID, sourceID, update, ids)
 }
 
 func (p *Processor) replyReviews(ctx context.Context, sourceID, householdID string, update telegramUpdate) error {

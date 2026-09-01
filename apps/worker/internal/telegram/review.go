@@ -1007,3 +1007,23 @@ func FormatIDR(value string) string {
 	}
 	return sign + strings.Join(parts, ".")
 }
+
+// resolveNativeMerchantLearning handles explicit native confirmation without
+// parsing free-form text. It reuses the audited transactional executor.
+func (p *Processor) resolveNativeMerchantLearning(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, args map[string]any) error {
+	remember, _ := args["remember"].(bool)
+	var reviewID, transactionID string
+	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 1`, householdID, update.Message.Chat.ID).Scan(&reviewID, &transactionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tidak ada konfirmasi merchant yang aktif.")
+	}
+	if err != nil {
+		return err
+	}
+	text := "tidak"
+	if remember {
+		text = "ingat merchant"
+	}
+	update.Message.Text = text
+	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
+}

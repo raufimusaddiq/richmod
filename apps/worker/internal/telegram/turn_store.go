@@ -51,6 +51,18 @@ func (p *Processor) hasPendingBatch(ctx context.Context, householdID string, upd
 	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM telegram_pending_batch WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now())`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&found)
 	return found, err
 }
+
+func (p *Processor) hasPendingSalaryChoice(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
+	var found bool
+	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_pending_choice WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now())`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&found)
+	return found, err
+}
+
+func (p *Processor) hasMerchantLearning(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
+	var found bool
+	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND EXISTS (SELECT 1 FROM review_request_recipient rr WHERE rr.review_request_id=r.id AND rr.telegram_chat_id=$2))`, householdID, update.Message.Chat.ID).Scan(&found)
+	return found, err
+}
 func (p *Processor) activeReviewBinding(ctx context.Context, householdID string, update telegramUpdate) (any, int, error) {
 	if update.Message.ReplyToMessage != nil {
 		var typ, amount, merchant string
@@ -79,4 +91,41 @@ func (p *Processor) activeReviewBinding(ctx context.Context, householdID string,
 		return candidates[0], 1, nil
 	}
 	return candidates, len(candidates), nil
+}
+
+func (p *Processor) resolveTransactionReference(ctx context.Context, householdID string, update telegramUpdate, ref string) (string, error) {
+	var transactionID string
+	err := p.pool.QueryRow(ctx, `SELECT r.entity_id FROM telegram_turn_reference r JOIN telegram_conversation_turn t ON t.id=r.turn_id JOIN transaction x ON x.id=r.entity_id WHERE r.household_id=$1 AND r.telegram_user_id=$2 AND r.telegram_chat_id=$3 AND r.ref_key=$4 AND r.entity_type='TRANSACTION' AND r.expires_at>now() AND x.household_id=$1 AND x.status<>'VOIDED' ORDER BY t.created_at DESC LIMIT 1`, householdID, update.Message.From.ID, update.Message.Chat.ID, ref).Scan(&transactionID)
+	return transactionID, err
+}
+
+func (p *Processor) persistTransactionReferences(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var turnID string
+	err = tx.QueryRow(ctx, `INSERT INTO telegram_conversation_turn(household_id,telegram_user_id,telegram_chat_id,source_event_id,role,message_text,public_context_json,telegram_message_id) VALUES($1,$2,$3,$4::uuid,'ASSISTANT','Search results sent to user.',jsonb_build_object('transaction_refs',$5::jsonb),$6) RETURNING id`, householdID, update.Message.From.ID, update.Message.Chat.ID, sourceEventID, referencePublicJSON(len(ids)), update.Message.MessageID).Scan(&turnID)
+	if err != nil {
+		return err
+	}
+	for i, id := range ids {
+		if _, err = tx.Exec(ctx, `INSERT INTO telegram_turn_reference(turn_id,ref_key,entity_type,entity_id,household_id,telegram_user_id,telegram_chat_id,expires_at) VALUES($1,$2,'TRANSACTION',$3::uuid,$4,$5,$6,now()+interval '60 minutes') ON CONFLICT(turn_id,ref_key) DO UPDATE SET entity_id=excluded.entity_id,expires_at=excluded.expires_at`, turnID, fmt.Sprintf("tx_%d", i+1), id, householdID, update.Message.From.ID, update.Message.Chat.ID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func referencePublicJSON(count int) string {
+	refs := make([]string, count)
+	for i := range refs {
+		refs[i] = fmt.Sprintf("tx_%d", i+1)
+	}
+	b, _ := json.Marshal(refs)
+	return string(b)
 }
