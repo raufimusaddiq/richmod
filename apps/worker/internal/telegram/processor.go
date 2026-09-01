@@ -191,10 +191,14 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	hasSalaryChoice, _ := p.hasPendingSalaryChoice(ctx, householdID, update)
 	hasMerchantLearning, _ := p.hasMerchantLearning(ctx, householdID, update)
 	activeReview, reviewCount, _ := p.activeReviewBinding(ctx, householdID, update)
+	reviewType := ""
+	if bound, ok := activeReview.(map[string]any); ok {
+		reviewType, _ = bound["review_type"].(string)
+	}
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
 	content := map[string]any{"turn_context": map[string]any{"current_user_text": "<untrusted_user_message>" + text + "</untrusted_user_message>", "recent_turns": conversation, "current_jakarta_datetime": now.Format(time.RFC3339), "allowed_category_slugs": categories, "has_pending_action": hasPendingAction, "has_pending_batch": hasPendingBatch, "active_review_count": reviewCount, "active_review": activeReview}, "supported_languages": []string{"id", "en"}}
 	attemptCtx, cancel := context.WithTimeout(ctx, telegramLLMAttemptTimeout)
-	call, metadata, err := p.gateway.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, reviewCount == 1, hasSalaryChoice, hasMerchantLearning), gateway.NativeToolOptions{Required: true})
+	call, metadata, err := p.gateway.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, reviewCount == 1, reviewType, hasSalaryChoice, hasMerchantLearning), gateway.NativeToolOptions{Required: true})
 	cancel()
 	if err != nil {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Richmod belum bisa memproses pesan ini. Coba lagi sebentar.")

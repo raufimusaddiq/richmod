@@ -8,7 +8,7 @@ import (
 )
 
 func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
-	tools := NativeFinanceTools([]string{"belanja"}, false, false, false, true, true)
+	tools := NativeFinanceTools([]string{"belanja"}, false, false, false, "", true, true)
 	seen := map[string]bool{}
 	for _, tool := range tools {
 		seen[tool.Name] = true
@@ -20,5 +20,20 @@ func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
 	call := gateway.ToolCall{Name: "propose_transaction_correction", Arguments: args}
 	if _, err := ValidateNativeToolCall(call); err != nil {
 		t.Fatalf("reference correction rejected: %v", err)
+	}
+}
+
+func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
+	if got := reviewActionsForType("TRANSFER_CLASSIFICATION"); len(got) != 5 {
+		t.Fatalf("transfer actions=%v", got)
+	}
+	if got := reviewActionsForType("PAYSLIP_CONFIRMATION"); len(got) != 3 {
+		t.Fatalf("payslip actions=%v", got)
+	}
+	if got := reviewActionsForType("MISSING_PAY_DATE"); len(got) != 2 {
+		t.Fatalf("pay-date actions=%v", got)
+	}
+	if got := reviewActionsForType("UNKNOWN_BANK_TEMPLATE"); len(got) != 2 {
+		t.Fatalf("bank actions=%v", got)
 	}
 }
