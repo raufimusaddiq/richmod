@@ -15,8 +15,8 @@ Source: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md`.
 - [x] ADR-030, ADR-031, ADR-032 added.
 - [x] Scoped ephemeral transaction-reference mapping for multi-result correction.
 - [x] Salary-choice and merchant-learning native tools.
-- [ ] Full review-type action descriptor mapping.
-- [ ] DB-backed conversation/review/lane integration coverage.
+- [x] Review action descriptors are bounded by review type; required pay-date/bank fields are validated before mutation.
+- [x] Existing Telegram/document/bank DB integration suites pass against disposable PostgreSQL through migration 40.
 - [ ] Production rollout/deploy smoke.
 
 Latest implementation tracking: `docs/CONVERSATIONAL_NATIVE_TOOL_V2_COMPLETION_CHECKLIST_2026-09-01.md`.

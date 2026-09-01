@@ -34,6 +34,7 @@ func (assistantGateway) NativeToolCall(_ context.Context, _ string, _ string, co
 		args = map[string]any{"period": period, "from_date": nil, "to_date": nil, "search_text": "Pamella", "category_slug": "belanja-rumah", "description": nil, "date_reference": nil, "explicit_date": nil, "local_time": nil}
 	case strings.HasPrefix(message, "reviews"):
 		name = "list_review_items"
+		args = map[string]any{}
 	case strings.HasPrefix(message, "ambiguous"):
 		name = "ask_clarification"
 		args = map[string]any{"topic": "TARGET", "missing_fields": []string{"target"}}
@@ -115,16 +116,16 @@ func TestTelegramAssistantUsesAuthoritativeHouseholdQueries(t *testing.T) {
 	if reply := run("ambiguous", 104); !strings.Contains(reply, "belum cukup jelas") {
 		t.Fatalf("ambiguity reply=%q", reply)
 	}
-	if reply := run("correct", 105); !strings.Contains(reply, "Transaksi diperbarui") || !strings.Contains(reply, "Rp125.000") {
+	if reply := run("correct", 105); !strings.Contains(reply, "Usulkan perubahan") || !strings.Contains(reply, "Rp125.000") {
 		t.Fatalf("correction reply=%q", reply)
 	}
 	var correctedCategory string
-	var auditCount int
-	if err = pool.QueryRow(ctx, `SELECT category_id::text,(SELECT count(*) FROM audit_log WHERE household_id=$1 AND entity_id=$2 AND action='CORRECT_TRANSACTION') FROM transaction WHERE id=$2`, householdID, transactionID).Scan(&correctedCategory, &auditCount); err != nil {
+	var pendingCategory string
+	if err = pool.QueryRow(ctx, `SELECT t.category_id::text,COALESCE(p.proposed_category_id::text,'') FROM transaction t LEFT JOIN telegram_pending_action p ON p.transaction_id=t.id AND p.status='PENDING' WHERE t.id=$1`, transactionID).Scan(&correctedCategory, &pendingCategory); err != nil {
 		t.Fatal(err)
 	}
-	if correctedCategory != categoryHomeID || auditCount != 1 {
-		t.Fatalf("category=%s audit=%d", correctedCategory, auditCount)
+	if correctedCategory != categoryFoodID || pendingCategory != categoryHomeID {
+		t.Fatalf("current=%s pending=%s", correctedCategory, pendingCategory)
 	}
 	var reviewTransactionID string
 	if err = pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',75000,now()) RETURNING id`, householdID).Scan(&reviewTransactionID); err != nil {

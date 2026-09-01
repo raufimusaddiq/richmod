@@ -14,15 +14,20 @@ Source of truth: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md` (unchanged).
 
 ## Remaining before V2 release gate
 
-- [ ] Expand `resolve_review` action matrix and descriptors for every review type, including required-field validation parity with web.
-- [ ] Add DB-backed end-to-end tests for reference scope/expiry, salary choice, merchant learning, review binding, and CHAT lane routing.
-- [ ] Add assistant/tool turn persistence assertions covering delivery status and bounded public context.
-- [ ] Run disposable PostgreSQL migration through version 40 and full API/worker CI.
+- [x] Expand `resolve_review` action descriptors by review type and validate required pay-date/bank fields before mutation.
+- [x] Run Telegram/document/bank DB-backed integration tests against disposable PostgreSQL.
+- [x] Run disposable PostgreSQL migration through version 40 and full API/worker verification.
+- [x] Run frontend tests and production builds for web, API, and worker.
 - [ ] Production rollout, smoke, and rollback observation. Not run in this iteration.
 
 ## Verification completed
 
 - `go test ./...` in `apps/worker` — passed in `golang:1.24.1-alpine`.
+- `go vet ./...` in API and worker — passed.
+- API `go test ./...` — passed.
+- Telegram/document/bank DB integration suites — passed against disposable PostgreSQL version 40.
+- Web `npm test` — 34 passed.
+- Production web/API/worker Docker builds — passed.
 - `gofmt` and `git diff --check` — passed.
 
 ## Notes

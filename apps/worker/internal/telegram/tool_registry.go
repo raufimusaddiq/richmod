@@ -9,7 +9,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, flags ...bool) []gateway.ToolDefinition {
+func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, flags ...bool) []gateway.ToolDefinition {
 	hasSalaryChoice, hasMerchantLearning := false, false
 	if len(flags) > 0 {
 		hasSalaryChoice = flags[0]
@@ -52,7 +52,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_batch", Description: "Confirm the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_batch", Description: "Cancel the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})})
 	}
 	if hasActiveReview {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve the one active bound review. Do not use when multiple reviews are present.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": []string{"CONFIRM", "IGNORE", "EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER"}}, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString}, []string{"action", "category_slug", "merchant", "description", "pay_date"})})
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active bound review. Go enforces the review type and required values; never guess missing facts.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionsForType(reviewType)}, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": nullString}, []string{"action", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at"})})
 	}
 	if hasSalaryChoice {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
@@ -61,6 +61,25 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_merchant_learning", Description: "Confirm whether to remember this merchant category rule.", Parameters: objectSchema(map[string]any{"remember": map[string]any{"type": "boolean"}}, []string{"remember"})})
 	}
 	return tools
+}
+
+func reviewActions() []string {
+	return []string{"CONFIRM", "IGNORE", "EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "PRIMARY_SALARY", "ORDINARY_INCOME", "SET_PAY_DATE", "COMPLETE_BANK_FACTS"}
+}
+
+func reviewActionsForType(kind string) []string {
+	switch kind {
+	case "TRANSFER_CLASSIFICATION":
+		return []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "IGNORE"}
+	case "PAYSLIP_CONFIRMATION", "SALARY_SOURCE_CONFIRMATION":
+		return []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
+	case "MISSING_PAY_DATE":
+		return []string{"SET_PAY_DATE", "IGNORE"}
+	case "UNKNOWN_BANK_TEMPLATE", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE":
+		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
+	default:
+		return []string{"CONFIRM", "IGNORE"}
+	}
 }
 
 func objectSchema(properties map[string]any, required []string) map[string]any {
@@ -212,11 +231,13 @@ type correctionArgs struct {
 	LocalTime     *string `json:"local_time"`
 }
 type resolveReviewArgs struct {
-	Action       string  `json:"action"`
-	CategorySlug *string `json:"category_slug"`
-	Merchant     *string `json:"merchant"`
-	Description  *string `json:"description"`
-	PayDate      *string `json:"pay_date"`
+	Action        string  `json:"action"`
+	CategorySlug  *string `json:"category_slug"`
+	Merchant      *string `json:"merchant"`
+	Description   *string `json:"description"`
+	PayDate       *string `json:"pay_date"`
+	AmountIDR     *string `json:"amount_idr"`
+	TransactionAt *string `json:"transaction_at"`
 }
 type salaryChoiceArgs struct {
 	Choice string `json:"choice"`
@@ -276,7 +297,11 @@ func validateTypedArgs(value any) error {
 			return fmt.Errorf("correction")
 		}
 	case *resolveReviewArgs:
-		if !map[string]bool{"CONFIRM": true, "IGNORE": true, "EXPENSE": true, "OWN_ACCOUNT_TRANSFER": true, "HOUSEHOLD_TRANSFER": true, "INVESTMENT_TRANSFER": true}[v.Action] {
+		allowed := map[string]bool{}
+		for _, action := range reviewActions() {
+			allowed[action] = true
+		}
+		if !allowed[v.Action] {
 			return fmt.Errorf("review action")
 		}
 	case *salaryChoiceArgs:

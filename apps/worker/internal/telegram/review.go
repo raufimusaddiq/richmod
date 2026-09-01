@@ -576,7 +576,23 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	description, _ := args["description"].(string)
 	merchant, _ := args["merchant"].(string)
 	payDate, _ := args["pay_date"].(string)
+	amountIDR, _ := args["amount_idr"].(string)
+	transactionAt, _ := args["transaction_at"].(string)
 	c := choices[0]
+	if action == "SET_PAY_DATE" && !validReviewDate(payDate) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Tanggal pembayaran wajib diisi dengan format YYYY-MM-DD.")
+	}
+	if action == "COMPLETE_BANK_FACTS" && (strings.TrimSpace(amountIDR) == "" || !validReviewTimestamp(transactionAt)) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Nominal dan waktu transaksi lengkap diperlukan untuk melanjutkan review bank.")
+	}
+	if action == "PRIMARY_SALARY" || action == "ORDINARY_INCOME" {
+		choice := "primary"
+		if action == "ORDINARY_INCOME" {
+			choice = "ordinary"
+		}
+		_, err := p.processPendingSalaryChoice(ctx, householdID, update, sourceEventID, choice)
+		return err
+	}
 	if action == "IGNORE" {
 		return p.rejectBoundReview(ctx, sourceEventID, householdID, c.id, c.tx, update)
 	}
@@ -602,6 +618,19 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, c.id, c.tx, categoryID, update, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
+}
+
+func validReviewDate(value string) bool {
+	_, err := time.Parse("2006-01-02", strings.TrimSpace(value))
+	return err == nil
+}
+
+func validReviewTimestamp(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	return err == nil && !parsed.IsZero() && parsed.Format(time.RFC3339) != ""
 }
 
 func (p *Processor) continueReview(ctx context.Context, sourceEventID, reviewID, transactionID string, update telegramUpdate, message string) error {
