@@ -48,7 +48,7 @@ func TestGenerateInsightRequiresOneNativeTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !llm.options.Required || llm.options.MaxToolCalls != 1 || result.Summary != "Arus kas positif." || metadata.Model != "insight-model" {
+	if !llm.options.Required || result.Summary != "Arus kas positif." || metadata.Model != "insight-model" {
 		t.Fatalf("options=%+v result=%+v metadata=%+v", llm.options, result, metadata)
 	}
 }

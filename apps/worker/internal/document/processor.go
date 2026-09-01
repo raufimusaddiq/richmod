@@ -170,7 +170,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 }
 
 func (p *Processor) classify(ctx context.Context, documentID string, content []map[string]any) (documentClassification, gateway.Metadata, error) {
-	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, classificationPrompt, content, []gateway.ToolDefinition{classificationTool()}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, classificationPrompt, content, []gateway.ToolDefinition{classificationTool()}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return documentClassification{}, gateway.Metadata{}, err
 	}
