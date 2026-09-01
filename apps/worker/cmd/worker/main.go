@@ -197,6 +197,14 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
 				return fmt.Errorf("reschedule job: %w", finishErr)
 			}
+			if job.Type == "PROCESS_DOCUMENT" && job.Attempts >= job.MaxAttempts {
+				payload, decodeErr := workerDocument.DecodePayload(job.Payload)
+				if decodeErr != nil {
+					logger.Error("terminal document failure payload invalid", "job_id", job.ID, "error", decodeErr)
+				} else if failureErr := documentProcessor.HandleTerminalFailure(ctx, payload.DocumentID, err); failureErr != nil {
+					logger.Error("terminal document failure handling failed", "job_id", job.ID, "document_id", payload.DocumentID, "error", failureErr)
+				}
+			}
 		}
 		if processed >= 25 {
 			return nil

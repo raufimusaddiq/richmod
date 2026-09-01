@@ -83,4 +83,12 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if retry.Code != http.StatusOK {
 		t.Fatalf("retry status=%d body=%s", retry.Code, retry.Body.String())
 	}
+	if _, err := pool.Exec(ctx, `UPDATE insight SET status='FAILED' WHERE id=$1`, generated["id"]); err != nil {
+		t.Fatal(err)
+	}
+	retryFailed := httptest.NewRecorder()
+	handler.Generate(retryFailed, request)
+	if retryFailed.Code != http.StatusAccepted {
+		t.Fatalf("failed retry status=%d body=%s", retryFailed.Code, retryFailed.Body.String())
+	}
 }
