@@ -22,7 +22,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	lanes := []map[string]any{}
 	pending := 0
 	running := 0
-	for _, lane := range []string{"INTERACTIVE", "DEFAULT", "BACKGROUND"} {
+	for _, lane := range []string{"INTERACTIVE", "CHAT", "DEFAULT", "BACKGROUND"} {
 		var p, run int
 		var oldest *float64
 		var p50, p95 *float64
@@ -56,7 +56,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	for _, item := range lanes {
 		age, _ := item["oldestDueAgeMs"].(*float64)
 		threshold := defaultDueAge
-		if item["lane"] == "INTERACTIVE" {
+		if item["lane"] == "INTERACTIVE" || item["lane"] == "CHAT" {
 			threshold = interactiveDueAge
 		}
 		if item["lane"] == "BACKGROUND" {

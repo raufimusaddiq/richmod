@@ -33,7 +33,7 @@ func TestGatewayErrorNeverIncludesSecretOrResponseBody(t *testing.T) {
 	}))
 	defer server.Close()
 	client := New(server.URL, apiKey, "test-model")
-	_, err := client.Structured(context.Background(), "request-id", "test", "system", "input", map[string]any{"type": "object"}, &map[string]any{})
+	_, _, err := client.NativeToolCall(context.Background(), "request-id", "system", "input", []ToolDefinition{{Name: "tool", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
 	if err == nil || strings.Contains(err.Error(), apiKey) || strings.Contains(err.Error(), "provider leaked") {
 		t.Fatalf("unsafe gateway error: %v", err)
 	}
@@ -98,52 +98,6 @@ func TestRecorderReceivesRedactedCallMetadata(t *testing.T) {
 	}
 }
 
-func TestResponsesStreamStructuredOutput(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatal(err)
-		}
-		if request["stream"] != true {
-			t.Fatalf("stream=%#v", request["stream"])
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"ok\\\":\"}\n\n"))
-		_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"true}\"}\n\n"))
-		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"model\":\"router-model\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2}}}\n\n"))
-	}))
-	defer server.Close()
-	var out struct {
-		OK bool `json:"ok"`
-	}
-	metadata, err := New(server.URL, "key", "model").Structured(context.Background(), "request", "task", "system", "input", map[string]any{"type": "object"}, &out)
-	if err != nil || !out.OK || metadata.Model != "router-model" || metadata.InputTokens != 4 || metadata.OutputTokens != 2 {
-		t.Fatalf("out=%+v metadata=%+v err=%v", out, metadata, err)
-	}
-}
-
-func TestResponsesStreamToolResultReturnsNextTool(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatal(err)
-		}
-		if request["stream"] != true {
-			t.Fatalf("stream=%#v", request["stream"])
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-2\",\"model\":\"router-model\"}}\n\n"))
-		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.added\",\"item\":{\"id\":\"fc-2\",\"type\":\"function_call\",\"name\":\"next_tool\",\"call_id\":\"call-2\"}}\n\n"))
-		_, _ = w.Write([]byte("data: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc-2\",\"arguments\":\"{\\\"value\\\":1}\"}\n\n"))
-		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-2\",\"model\":\"router-model\"}}\n\n"))
-	}))
-	defer server.Close()
-	result, err := New(server.URL, "key", "model").NativeToolResult(context.Background(), "request", "previous", "call-1", "{}")
-	if err != nil || result.ToolCall == nil || result.ToolCall.Name != "next_tool" || string(result.ToolCall.Arguments) != `{"value":1}` {
-		t.Fatalf("result=%+v err=%v", result, err)
-	}
-}
-
 func TestRecorderClassifiesFailureWithoutResponseContent(t *testing.T) {
 	recorded := make(chan CallMetric, 1)
 	client := New("", "", "configured-model").WithRecorder("GENERATE_INSIGHT", func(_ context.Context, metric CallMetric) { recorded <- metric })
@@ -151,20 +105,6 @@ func TestRecorderClassifiesFailureWithoutResponseContent(t *testing.T) {
 	metric := <-recorded
 	if metric.Status != "FAILED" || metric.ErrorClass != "NOT_CONFIGURED" || metric.InputTokens != 0 || metric.OutputTokens != 0 {
 		t.Fatalf("metric = %#v", metric)
-	}
-}
-
-func TestStructuredInvalidResponseDoesNotRetryAnotherProtocol(t *testing.T) {
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		_, _ = w.Write([]byte(`{"output":[{"type":"message","content":[{"type":"output_text","text":"not-json"}]}]}`))
-	}))
-	defer server.Close()
-	var out map[string]any
-	_, err := NewWithProtocol(server.URL, "key", "model", "responses").Structured(context.Background(), "request", "task", "system", "input", map[string]any{"type": "object"}, &out)
-	if err == nil || calls != 1 {
-		t.Fatalf("err=%v calls=%d", err, calls)
 	}
 }
 

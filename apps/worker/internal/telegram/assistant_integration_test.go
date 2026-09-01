@@ -15,35 +15,33 @@ import (
 
 type assistantGateway struct{}
 
-func (assistantGateway) Structured(_ context.Context, _ string, _ string, _ string, content any, _ map[string]any, out any) (gateway.Metadata, error) {
-	value := out.(*extraction)
-	message := strings.TrimSuffix(strings.TrimPrefix(content.(map[string]any)["untrusted_user_message"].(string), "<untrusted_user_message>"), "</untrusted_user_message>")
+func (assistantGateway) NativeToolCall(_ context.Context, _ string, _ string, content any, _ []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	turn := content.(map[string]any)["turn_context"].(map[string]any)
+	message := strings.TrimSuffix(strings.TrimPrefix(turn["current_user_text"].(string), "<untrusted_user_message>"), "</untrusted_user_message>")
 	period := "THIS_MONTH"
-	value.Period = &period
-	value.ResponseMessage = "LLM TOTAL PALSU Rp999.999.999"
+	args := map[string]any{"period": period, "from_date": nil, "to_date": nil}
+	name := "finance_out_of_scope"
 	switch {
 	case strings.HasPrefix(message, "spending"):
-		value.Intent = "GET_SPENDING"
+		name = "query_spending"
 	case strings.HasPrefix(message, "cashflow"):
-		value.Intent = "GET_CASHFLOW"
+		name = "query_cashflow"
 	case strings.HasPrefix(message, "search"):
-		value.Intent = "SEARCH_TRANSACTIONS"
-		query := "Pamella"
-		value.SearchText = &query
+		name = "search_transactions"
+		args["search_text"] = "Pamella"
 	case strings.HasPrefix(message, "correct"):
-		value.Intent = "CORRECT_TRANSACTION"
-		query, category := "Pamella", "belanja-rumah"
-		value.SearchText = &query
-		value.CorrectionCategorySlug = &category
+		name = "propose_transaction_correction"
+		args = map[string]any{"period": period, "from_date": nil, "to_date": nil, "search_text": "Pamella", "category_slug": "belanja-rumah", "description": nil, "date_reference": nil, "explicit_date": nil, "local_time": nil}
 	case strings.HasPrefix(message, "reviews"):
-		value.Intent = "GET_REVIEW_ITEMS"
+		name = "list_review_items"
 	case strings.HasPrefix(message, "ambiguous"):
-		value.Intent = "SEARCH_TRANSACTIONS"
-		value.Ambiguous = true
+		name = "ask_clarification"
+		args = map[string]any{"topic": "TARGET", "missing_fields": []string{"target"}}
 	default:
-		value.Intent = "UNKNOWN"
+		args = map[string]any{"reason": "NON_FINANCE"}
 	}
-	return gateway.Metadata{Model: "test"}, nil
+	encoded, _ := json.Marshal(args)
+	return gateway.ToolCall{Name: name, Arguments: encoded}, gateway.Metadata{Model: "test"}, nil
 }
 
 func TestTelegramAssistantUsesAuthoritativeHouseholdQueries(t *testing.T) {

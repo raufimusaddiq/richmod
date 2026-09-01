@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted — amended by ADR-030.
 
 ## Decision
 
@@ -11,7 +11,7 @@ strictly structured, and validated in Go before it can affect financial state.
 
 The deployed gateway exposes an OpenAI-compatible Responses API. Finance services
 use bearer authentication, explicitly request non-streaming responses, require
-strict JSON Schema output, propagate a correlation ID, and record returned model
+required native tool calls, propagate a correlation ID, and record returned model
 and usage metadata. Logical model policy names are resolved by configuration; no
 provider model name belongs in financial business rules.
 

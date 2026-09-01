@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -59,7 +60,7 @@ func run(logger *slog.Logger) error {
 				cost = metric.Cost
 			}
 		}
-		if _, err := pool.Exec(metricCtx, `INSERT INTO llm_call(task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt) VALUES($1,$2,NULLIF($3,''),$4,NULLIF($5,''),$6,$7,$8,$9::numeric,1)`, metric.Task, metric.Protocol, metric.Model, metric.Status, metric.ErrorClass, metric.DurationMs, metric.InputTokens, metric.OutputTokens, cost); err != nil {
+		if _, err := pool.Exec(metricCtx, `INSERT INTO llm_call(task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,call_kind,tool_name) VALUES($1,$2,NULLIF($3,''),$4,NULLIF($5,''),$6,$7,$8,$9::numeric,1,$10,NULLIF($11,''))`, metric.Task, metric.Protocol, metric.Model, metric.Status, metric.ErrorClass, metric.DurationMs, metric.InputTokens, metric.OutputTokens, cost, metric.CallKind, metric.ToolName); err != nil {
 			logger.Warn("LLM metric write failed", "task", metric.Task, "error", err)
 		}
 	}
@@ -101,11 +102,15 @@ func run(logger *slog.Logger) error {
 	go maintainHeartbeat(ctx, logger, pool, workerID)
 	// Keep callback and other interactive work on a reserved execution loop so
 	// long-running vision/Gmail jobs cannot delay Telegram button handling.
+	chatWorkers := envPositiveInt("WORKER_CHAT_CONCURRENCY", 2, 4)
 	for _, lane := range []struct {
 		name     string
 		interval time.Duration
-	}{{"INTERACTIVE", 200 * time.Millisecond}, {"DEFAULT", time.Second}, {"BACKGROUND", time.Second}} {
-		go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, lane.name, lane.interval)
+		workers  int
+	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"CHAT", 200 * time.Millisecond, chatWorkers}, {"DEFAULT", time.Second, 1}, {"BACKGROUND", time.Second, 1}} {
+		for i := 0; i < lane.workers; i++ {
+			go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, gmailProcessor, bankProcessor, documentProcessor, insightProcessor, bot, fmt.Sprintf("%s:%s:%d", workerID, strings.ToLower(lane.name), i+1), lane.name, lane.interval)
+		}
 	}
 	maintenanceTicker := time.NewTicker(time.Minute)
 	defer maintenanceTicker.Stop()
@@ -134,6 +139,17 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}
+}
+
+func envPositiveInt(name string, fallback, maximum int) int {
+	value, err := strconv.Atoi(os.Getenv(name))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
 }
 
 func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int64, error) {

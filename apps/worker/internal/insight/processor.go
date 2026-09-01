@@ -18,7 +18,6 @@ Return observations, not commands. The household ledger is IDR and the reporting
 Use exactly one write_financial_insight tool call. Do not answer with prose outside the tool call.`
 
 type Gateway interface {
-	Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error)
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
 

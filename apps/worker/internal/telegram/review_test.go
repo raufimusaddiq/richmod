@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 func TestParseReviewPayDate(t *testing.T) {
@@ -29,7 +31,7 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 }
 
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
-	processor := &Processor{}
+	processor := &Processor{gateway: reviewTestGateway{}}
 	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", []categoryChoice{
 		{ID: "category-1", Name: "Belanja Rumah Tangga", Slug: "belanja-rumah-tangga"},
 		{ID: "category-2", Name: "Transportasi", Slug: "transportasi"},
@@ -40,6 +42,12 @@ func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	if result.CategorySlug != "belanja-rumah-tangga" || result.Confidence != 1 || result.Ambiguous {
 		t.Fatalf("unexpected extraction: %#v", result)
 	}
+}
+
+type reviewTestGateway struct{}
+
+func (reviewTestGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"belanja-rumah-tangga","description":"","note":"buat belanja rumah tangga","confidence":1,"ambiguous":false}`)}, gateway.Metadata{}, nil
 }
 
 func TestDecodeReviewSendPayload(t *testing.T) {
