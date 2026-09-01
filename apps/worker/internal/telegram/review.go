@@ -193,6 +193,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 // processReviewDetailCallback is the deterministic callback lane for review
 // editing. These callbacks never enter the conversational LLM pipeline.
 func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
+	if data == "review:remember" || data == "review:once" {
+		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
+	}
 	if data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:ignore" {
 		return false, nil
 	}
@@ -257,6 +260,23 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		return true, err
 	}
 	return true, tx.Commit(ctx)
+}
+
+func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	var reviewID, transactionID string
+	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
+	}
+	if err != nil {
+		return err
+	}
+	if data == "review:remember" {
+		update.Message.Text = "ingat merchant"
+	} else {
+		update.Message.Text = "tidak"
+	}
+	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 }
 
 func reviewDetailMarkup() *InlineKeyboardMarkup {
