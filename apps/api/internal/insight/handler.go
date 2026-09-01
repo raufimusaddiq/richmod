@@ -19,7 +19,7 @@ type Handler struct {
 	now  func() time.Time
 }
 
-const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND (status='PENDING' OR created_at>now()-interval '1 hour') ORDER BY created_at DESC LIMIT 1`
+const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND (status='PENDING' OR (status='SUCCEEDED' AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 

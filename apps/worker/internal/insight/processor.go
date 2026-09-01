@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"strings"
 
@@ -13,10 +14,12 @@ import (
 
 const prompt = `Write a concise Indonesian household-finance narrative using only the supplied deterministic facts.
 Do not recalculate or invent amounts. Do not give investment, tax, credit, or legal advice. Mention uncertainty when completeness is below 0.90.
-Return observations, not commands. The household ledger is IDR and the reporting timezone is Asia/Jakarta.`
+Return observations, not commands. The household ledger is IDR and the reporting timezone is Asia/Jakarta.
+Use exactly one write_financial_insight tool call. Do not answer with prose outside the tool call.`
 
 type Gateway interface {
 	Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error)
+	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
 
 type Processor struct {
@@ -64,8 +67,7 @@ func (p *Processor) Process(ctx context.Context, insightID string) error {
 	if belowThreshold(completeness, "0.7000") {
 		return p.complete(ctx, insightID, householdID, "DETERMINISTIC", "", "Data belum cukup lengkap untuk membuat insight yang andal. Selesaikan Review Inbox dan kategorikan pengeluaran terlebih dahulu.", 1)
 	}
-	var result output
-	metadata, err := p.gateway.Structured(ctx, insightID, "finance.insight", prompt, facts, insightSchema(), &result)
+	result, metadata, err := p.generate(ctx, insightID, facts)
 	if err != nil {
 		return p.fail(ctx, insightID, householdID)
 	}
@@ -74,6 +76,27 @@ func (p *Processor) Process(ctx context.Context, insightID string) error {
 		return p.fail(ctx, insightID, householdID)
 	}
 	return p.complete(ctx, insightID, householdID, "cloud-llm-gateway", metadata.Model, text, confidence)
+}
+
+func (p *Processor) generate(ctx context.Context, insightID string, facts json.RawMessage) (output, gateway.Metadata, error) {
+	call, metadata, err := p.gateway.NativeToolCall(ctx, insightID, prompt, facts, []gateway.ToolDefinition{insightTool()}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+	if err != nil {
+		return output{}, gateway.Metadata{}, err
+	}
+	if call.Name != "write_financial_insight" {
+		return output{}, metadata, fmt.Errorf("LLM gateway returned unknown insight tool")
+	}
+	var result output
+	decoder := json.NewDecoder(strings.NewReader(string(call.Arguments)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		return output{}, metadata, fmt.Errorf("LLM gateway returned invalid insight tool arguments")
+	}
+	return result, metadata, nil
+}
+
+func insightTool() gateway.ToolDefinition {
+	return gateway.ToolDefinition{Name: "write_financial_insight", Description: "Write one concise Indonesian household finance insight from deterministic facts only.", Parameters: insightSchema()}
 }
 
 func belowThreshold(value, threshold string) bool {

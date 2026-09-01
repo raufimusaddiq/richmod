@@ -27,4 +27,7 @@ func TestPendingInsightRemainsIdempotent(t *testing.T) {
 	if !strings.Contains(existingInsightQuery, "period_kind") || !strings.Contains(existingInsightQuery, "period_start") {
 		t.Fatal("cycle and calendar insight lookups must use deterministic metrics, not only the monthly storage key")
 	}
+	if strings.Contains(existingInsightQuery, "OR created_at") || !strings.Contains(existingInsightQuery, "status='SUCCEEDED'") {
+		t.Fatal("failed insights must not block retry generation")
+	}
 }
