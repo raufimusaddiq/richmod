@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -81,10 +82,13 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		{"type": "input_text", "text": instruction + " Allowed category slugs: " + string(categoryJSON)},
 		{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)},
 	}
-	var result screenshotExtraction
-	metadata, err := p.gateway.Structured(ctx, documentID, "document.screenshot.extract", screenshotPrompt, content, screenshotSchema(slugs), &result)
+	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, screenshotPrompt, content, []gateway.ToolDefinition{{Name: "extract_transaction_screenshot", Description: "Extract visible completed transaction rows only; do not create accounting records.", Parameters: screenshotSchema(slugs)}}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
 	if err != nil {
 		return err
+	}
+	result, err := gateway.DecodeToolArguments[screenshotExtraction](call, "extract_transaction_screenshot")
+	if err != nil {
+		return fmt.Errorf("invalid screenshot native tool arguments: %w", err)
 	}
 	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {

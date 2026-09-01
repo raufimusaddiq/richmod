@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,7 +19,6 @@ Use exactly one classify_financial_document tool call. Do not answer with prose.
 var documentTypes = []string{"RECEIPT", "PAYSLIP", "BANK_TRANSACTION_SCREENSHOT", "TRANSFER_PROOF", "EWALLET_SCREENSHOT", "BILL_OR_INVOICE", "TRANSACTION_HISTORY_SCREENSHOT", "OTHER_FINANCIAL_DOCUMENT", "NON_FINANCIAL_OR_UNSUPPORTED"}
 
 type Gateway interface {
-	Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error)
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
 
@@ -177,14 +174,9 @@ func (p *Processor) classify(ctx context.Context, documentID string, content []m
 	if err != nil {
 		return documentClassification{}, gateway.Metadata{}, err
 	}
-	if call.Name != "classify_financial_document" {
-		return documentClassification{}, metadata, fmt.Errorf("LLM gateway returned unknown document tool")
-	}
-	var result documentClassification
-	decoder := json.NewDecoder(strings.NewReader(string(call.Arguments)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&result); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
-		return documentClassification{}, metadata, fmt.Errorf("LLM gateway returned invalid document tool arguments")
+	result, err := gateway.DecodeToolArguments[documentClassification](call, "classify_financial_document")
+	if err != nil {
+		return documentClassification{}, metadata, fmt.Errorf("LLM gateway returned invalid document tool arguments: %w", err)
 	}
 	return result, metadata, nil
 }

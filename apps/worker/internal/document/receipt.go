@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -91,10 +92,13 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	for _, page := range pages {
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + page.mediaType + ";base64," + base64.StdEncoding.EncodeToString(page.raw)})
 	}
-	var result receiptExtraction
-	metadata, err := p.gateway.Structured(ctx, documentID, "document.receipt.extract", receiptPrompt, content, receiptSchema(slugs), &result)
+	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, receiptPrompt, content, []gateway.ToolDefinition{{Name: "extract_receipt", Description: "Extract observed receipt facts only; do not create accounting records.", Parameters: receiptSchema(slugs)}}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
 	if err != nil {
 		return err
+	}
+	result, err := gateway.DecodeToolArguments[receiptExtraction](call, "extract_receipt")
+	if err != nil {
+		return fmt.Errorf("invalid receipt native tool arguments: %w", err)
 	}
 	validated, err := validateReceipt(result, receivedAt)
 	if err != nil {

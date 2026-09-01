@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -79,10 +80,13 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 		}
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 	}
-	var result payslipExtraction
-	metadata, err := p.gateway.Structured(ctx, documentID, "document.payslip.extract", payslipPrompt, content, payslipSchema(), &result)
+	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, payslipPrompt, content, []gateway.ToolDefinition{{Name: "extract_payslip", Description: "Extract observed payslip facts only; do not create accounting records.", Parameters: payslipSchema()}}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
 	if err != nil {
 		return err
+	}
+	result, err := gateway.DecodeToolArguments[payslipExtraction](call, "extract_payslip")
+	if err != nil {
+		return fmt.Errorf("invalid payslip native tool arguments: %w", err)
 	}
 	// Telegram captions are user-provided evidence. When the payslip image does
 	// not contain a pay date, a deterministic caption date is safer than falling

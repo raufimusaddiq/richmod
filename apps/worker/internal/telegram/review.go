@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 const reviewPrompt = `Interpret one reply to a specifically bound household transaction review.
@@ -517,26 +518,6 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 }
 
 func (p *Processor) extractReview(ctx context.Context, sourceEventID, text string, categories []categoryChoice) (reviewExtraction, error) {
-	normalized := normalizeReviewText(text)
-	var best *categoryChoice
-	bestLength := 0
-	tied := false
-	for _, category := range categories {
-		name := normalizeReviewText(category.Name)
-		slug := normalizeReviewText(strings.ReplaceAll(category.Slug, "-", " "))
-		if normalized == name || normalized == slug || strings.Contains(normalized, name) || strings.Contains(normalized, slug) {
-			matchLength := max(len(name), len(slug))
-			if matchLength > bestLength {
-				choice := category
-				best, bestLength, tied = &choice, matchLength, false
-			} else if matchLength == bestLength {
-				tied = true
-			}
-		}
-	}
-	if best != nil && !tied {
-		return reviewExtraction{CategorySlug: best.Slug, Note: clean(text, 1000), Confidence: 1}, nil
-	}
 	if p.gateway == nil {
 		return reviewExtraction{}, fmt.Errorf("review classifier unavailable")
 	}
@@ -544,18 +525,83 @@ func (p *Processor) extractReview(ctx context.Context, sourceEventID, text strin
 	for _, category := range categories {
 		slugs = append(slugs, category.Slug)
 	}
-	var result reviewExtraction
-	_, err := p.gateway.Structured(ctx, sourceEventID, "telegram.review.clarify", reviewPrompt,
-		map[string]any{"reply": text, "allowed_category_slugs": slugs}, reviewSchema(slugs), &result)
+	call, metadata, err := p.gateway.NativeToolCall(ctx, sourceEventID, reviewPrompt,
+		map[string]any{"reply": "<untrusted_user_message>" + text + "</untrusted_user_message>", "allowed_category_slugs": slugs},
+		[]gateway.ToolDefinition{{Name: "resolve_review", Description: "Resolve one already-bound finance review using bounded values.", Parameters: reviewSchema(slugs)}}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
 	if err != nil {
 		return reviewExtraction{}, err
 	}
+	result, err := gateway.DecodeToolArguments[reviewExtraction](call, "resolve_review")
+	if err != nil {
+		return reviewExtraction{}, err
+	}
+	_ = metadata
 	if result.Confidence < 0 || result.Confidence > 1 {
 		return reviewExtraction{}, fmt.Errorf("review confidence outside range")
 	}
 	result.Description = clean(result.Description, 500)
 	result.Note = clean(result.Note, 1000)
 	return result, nil
+}
+
+func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, args map[string]any) error {
+	query := `SELECT r.id,r.transaction_id,t.type FROM review_request r JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND (rr.telegram_chat_id=$2 OR rr.telegram_chat_id IS NULL) ORDER BY r.created_at DESC LIMIT 2`
+	params := []any{householdID, update.Message.Chat.ID}
+	if update.Message.ReplyToMessage != nil {
+		query = `SELECT r.id,r.transaction_id,t.type FROM review_request r JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
+		params = append(params, update.Message.ReplyToMessage.MessageID)
+	}
+	rows, err := p.pool.Query(ctx, query, params...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type candidate struct{ id, tx, typ string }
+	var choices []candidate
+	for rows.Next() {
+		var v candidate
+		if err := rows.Scan(&v.id, &v.tx, &v.typ); err != nil {
+			return err
+		}
+		choices = append(choices, v)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(choices) != 1 {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Ada beberapa review aktif. Pilih pesan review yang ingin diselesaikan atau balas pesannya.")
+	}
+	action, _ := args["action"].(string)
+	categorySlug, _ := args["category_slug"].(string)
+	description, _ := args["description"].(string)
+	merchant, _ := args["merchant"].(string)
+	payDate, _ := args["pay_date"].(string)
+	c := choices[0]
+	if action == "IGNORE" {
+		return p.rejectBoundReview(ctx, sourceEventID, householdID, c.id, c.tx, update)
+	}
+	if action == "OWN_ACCOUNT_TRANSFER" {
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "OWN_ACCOUNT", "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
+	}
+	if action == "HOUSEHOLD_TRANSFER" {
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "HOUSEHOLD_ACCOUNT", "Transfer dicatat sebagai perpindahan antar anggota household.", "")
+	}
+	if action == "INVESTMENT_TRANSFER" {
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "UNCLASSIFIED", "VOIDED", "INVESTMENT_ACCOUNT", "Transfer disimpan sebagai bukti non-pengeluaran.", "")
+	}
+	categoryID := ""
+	if categorySlug != "" {
+		if err := p.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, categorySlug).Scan(&categoryID); err != nil {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Kategori belum valid untuk household ini.")
+		}
+	}
+	if c.typ == "UNCLASSIFIED" && action == "EXPENSE" {
+		if categoryID == "" {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori pengeluaran terlebih dahulu.")
+		}
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
+	}
+	return p.resolveReview(ctx, sourceEventID, householdID, c.id, c.tx, categoryID, update, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
 }
 
 func (p *Processor) continueReview(ctx context.Context, sourceEventID, reviewID, transactionID string, update telegramUpdate, message string) error {
