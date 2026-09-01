@@ -82,7 +82,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		{"type": "input_text", "text": instruction + " Allowed category slugs: " + string(categoryJSON)},
 		{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)},
 	}
-	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, screenshotPrompt, content, []gateway.ToolDefinition{{Name: "extract_transaction_screenshot", Description: "Extract visible completed transaction rows only; do not create accounting records.", Parameters: screenshotSchema(slugs)}}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, screenshotPrompt, content, []gateway.ToolDefinition{{Name: "extract_transaction_screenshot", Description: "Extract visible completed transaction rows only; do not create accounting records.", Parameters: screenshotSchema(slugs)}}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return err
 	}

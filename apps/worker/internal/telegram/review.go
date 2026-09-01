@@ -527,7 +527,7 @@ func (p *Processor) extractReview(ctx context.Context, sourceEventID, text strin
 	}
 	call, metadata, err := p.gateway.NativeToolCall(ctx, sourceEventID, reviewPrompt,
 		map[string]any{"reply": "<untrusted_user_message>" + text + "</untrusted_user_message>", "allowed_category_slugs": slugs},
-		[]gateway.ToolDefinition{{Name: "resolve_review", Description: "Resolve one already-bound finance review using bounded values.", Parameters: reviewSchema(slugs)}}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+		[]gateway.ToolDefinition{{Name: "resolve_review", Description: "Resolve one already-bound finance review using bounded values.", Parameters: reviewSchema(slugs)}}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return reviewExtraction{}, err
 	}

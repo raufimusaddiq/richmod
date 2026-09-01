@@ -92,7 +92,7 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	for _, page := range pages {
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + page.mediaType + ";base64," + base64.StdEncoding.EncodeToString(page.raw)})
 	}
-	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, receiptPrompt, content, []gateway.ToolDefinition{{Name: "extract_receipt", Description: "Extract observed receipt facts only; do not create accounting records.", Parameters: receiptSchema(slugs)}}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, receiptPrompt, content, []gateway.ToolDefinition{{Name: "extract_receipt", Description: "Extract observed receipt facts only; do not create accounting records.", Parameters: receiptSchema(slugs)}}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return err
 	}

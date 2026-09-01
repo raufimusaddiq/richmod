@@ -13,8 +13,10 @@ Source: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md`.
 - [x] Native call telemetry fields: `call_kind`, `tool_name`.
 - [x] Legacy API structured LLM client removed.
 - [x] ADR-030, ADR-031, ADR-032 added.
-- [ ] Full ephemeral transaction-reference mapping for multi-result correction.
-- [ ] Salary-choice and merchant-learning native tools.
+- [x] Scoped ephemeral transaction-reference mapping for multi-result correction.
+- [x] Salary-choice and merchant-learning native tools.
 - [ ] Full review-type action descriptor mapping.
 - [ ] DB-backed conversation/review/lane integration coverage.
 - [ ] Production rollout/deploy smoke.
+
+Latest implementation tracking: `docs/CONVERSATIONAL_NATIVE_TOOL_V2_COMPLETION_CHECKLIST_2026-09-01.md`.

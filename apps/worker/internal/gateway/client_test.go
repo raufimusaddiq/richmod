@@ -33,7 +33,7 @@ func TestGatewayErrorNeverIncludesSecretOrResponseBody(t *testing.T) {
 	}))
 	defer server.Close()
 	client := New(server.URL, apiKey, "test-model")
-	_, _, err := client.NativeToolCall(context.Background(), "request-id", "system", "input", []ToolDefinition{{Name: "tool", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
+	_, _, err := client.NativeToolCall(context.Background(), "request-id", "system", "input", []ToolDefinition{{Name: "tool", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true})
 	if err == nil || strings.Contains(err.Error(), apiKey) || strings.Contains(err.Error(), "provider leaked") {
 		t.Fatalf("unsafe gateway error: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestNativeToolCallAdaptsChatCompletionsEnvelopeWithAuxiliaryProse(t *testin
 		_, _ = w.Write([]byte(`{"id":"resp-1","model":"router-model","choices":[{"message":{"content":"provider reasoning","tool_calls":[{"id":"call-1","type":"function","function":{"name":"create_transaction","arguments":"{\"type\":\"EXPENSE\",\"amount_idr\":\"40700\"}"}}]}}]}`))
 	}))
 	defer server.Close()
-	call, metadata, err := NewWithProtocol(server.URL, "key", "primary", "chat_completions").NativeToolCall(context.Background(), "request", "system", "expense", []ToolDefinition{{Name: "create_transaction"}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, metadata, err := NewWithProtocol(server.URL, "key", "primary", "chat_completions").NativeToolCall(context.Background(), "request", "system", "expense", []ToolDefinition{{Name: "create_transaction"}}, NativeToolOptions{Required: true})
 	if err != nil {
 		t.Fatalf("NativeToolCall() error = %v", err)
 	}
@@ -121,7 +121,7 @@ func TestNativeToolCallRequiredRejectsProseWithoutToolAndSetsRequiredChoice(t *t
 		_, _ = w.Write([]byte(`{"id":"resp-1","output":[{"type":"message","content":[{"type":"output_text","text":"not a tool"}]}]}`))
 	}))
 	defer server.Close()
-	_, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true, MaxToolCalls: 1, ReasoningEffort: "none"})
+	_, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction", Parameters: map[string]any{"type": "object"}}}, NativeToolOptions{Required: true, ReasoningEffort: "none"})
 	if err == nil {
 		t.Fatal("prose should fail closed")
 	}
@@ -133,7 +133,7 @@ func TestNativeToolCallRequiredIgnoresAuxiliaryProseAlongsideResponsesToolCall(t
 		_, _ = w.Write([]byte(`{"id":"resp-1","output":[{"type":"message","content":[{"type":"output_text","text":"thinking aloud"}]},{"type":"function_call","name":"emit_bank_transaction","call_id":"call-1","arguments":"{}"}]}`))
 	}))
 	defer server.Close()
-	call, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction"}}, NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, _, err := New(server.URL, "key", "primary").NativeToolCall(context.Background(), "request", "system", "email", []ToolDefinition{{Name: "emit_bank_transaction"}}, NativeToolOptions{Required: true})
 	if err != nil || call.Name != "emit_bank_transaction" {
 		t.Fatalf("call=%+v err=%v", call, err)
 	}
@@ -141,10 +141,10 @@ func TestNativeToolCallRequiredIgnoresAuxiliaryProseAlongsideResponsesToolCall(t
 
 func TestValidateNativeCallsRejectsMultipleAndUnknown(t *testing.T) {
 	valid := json.RawMessage(`{}`)
-	if _, _, err := validateNativeCalls([]ToolCall{{Name: "a", Arguments: valid}, {Name: "a", Arguments: valid}}, map[string]bool{"a": true}, NativeToolOptions{MaxToolCalls: 1}, Metadata{}); err == nil {
+	if _, _, err := validateNativeCalls([]ToolCall{{Name: "a", Arguments: valid}, {Name: "a", Arguments: valid}}, map[string]bool{"a": true}, NativeToolOptions{}, Metadata{}); err == nil {
 		t.Fatal("multiple calls should fail")
 	}
-	if _, _, err := validateNativeCalls([]ToolCall{{Name: "other", Arguments: valid}}, map[string]bool{"a": true}, NativeToolOptions{MaxToolCalls: 1}, Metadata{}); err == nil {
+	if _, _, err := validateNativeCalls([]ToolCall{{Name: "other", Arguments: valid}}, map[string]bool{"a": true}, NativeToolOptions{}, Metadata{}); err == nil {
 		t.Fatal("unknown call should fail")
 	}
 }

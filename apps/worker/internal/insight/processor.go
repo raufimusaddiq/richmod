@@ -78,7 +78,7 @@ func (p *Processor) Process(ctx context.Context, insightID string) error {
 }
 
 func (p *Processor) generate(ctx context.Context, insightID string, facts json.RawMessage) (output, gateway.Metadata, error) {
-	call, metadata, err := p.gateway.NativeToolCall(ctx, insightID, prompt, facts, []gateway.ToolDefinition{insightTool()}, gateway.NativeToolOptions{Required: true, MaxToolCalls: 1})
+	call, metadata, err := p.gateway.NativeToolCall(ctx, insightID, prompt, facts, []gateway.ToolDefinition{insightTool()}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return output{}, gateway.Metadata{}, err
 	}

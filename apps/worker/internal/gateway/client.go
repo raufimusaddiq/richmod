@@ -58,8 +58,7 @@ type ToolDefinition struct {
 // NativeToolOptions controls the protocol-level tool contract. Optional
 // options preserve the V3 call shape for existing conversational callers.
 type NativeToolOptions struct {
-	Required     bool
-	MaxToolCalls int
+	Required bool
 	// ReasoningEffort is forwarded when the selected model supports it.
 	ReasoningEffort string
 }
@@ -105,12 +104,9 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 	if err != nil {
 		return ToolCall{}, Metadata{}, err
 	}
-	options := NativeToolOptions{MaxToolCalls: 1}
+	options := NativeToolOptions{}
 	if len(optionValues) > 0 {
 		options = optionValues[0]
-	}
-	if options.MaxToolCalls <= 0 {
-		options.MaxToolCalls = 1
 	}
 	encodedTools := make([]map[string]any, 0, len(tools))
 	allowed := make(map[string]bool, len(tools))
@@ -126,9 +122,7 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 	if options.ReasoningEffort != "" {
 		payload["reasoning_effort"] = options.ReasoningEffort
 	}
-	if options.MaxToolCalls == 1 {
-		payload["parallel_tool_calls"] = false
-	}
+	payload["parallel_tool_calls"] = false
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return ToolCall{}, Metadata{}, fmt.Errorf("encode tool request: %w", err)
@@ -191,9 +185,7 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 	if options.ReasoningEffort != "" {
 		payload["reasoning_effort"] = options.ReasoningEffort
 	}
-	if options.MaxToolCalls == 1 {
-		payload["parallel_tool_calls"] = false
-	}
+	payload["parallel_tool_calls"] = false
 	return c.doChatToolCall(ctx, requestID, payload, options)
 }
 
@@ -265,12 +257,6 @@ func validateNativeCalls(calls []ToolCall, allowed map[string]bool, options Nati
 			return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native tool call")
 		}
 		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned multiple native tool calls")
-	}
-	if options.MaxToolCalls != 1 {
-		options.MaxToolCalls = 1
-	}
-	if len(calls) == 0 {
-		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned no native tool call")
 	}
 	for _, call := range calls {
 		if !allowed[call.Name] {

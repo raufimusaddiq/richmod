@@ -57,7 +57,7 @@ func TestExtractorRequiresOneNativeBankToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}
-	if !llm.called || llm.options.Required != true || llm.options.MaxToolCalls != 1 {
+	if !llm.called || llm.options.Required != true {
 		t.Fatalf("native call contract not enforced: called=%v options=%+v", llm.called, llm.options)
 	}
 	if llm.options.ReasoningEffort != "" {

@@ -53,7 +53,7 @@ func TestDocumentClassificationRequiresOneNativeTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !llm.options.Required || llm.options.MaxToolCalls != 1 || result.DocumentType != "RECEIPT" || metadata.Model != "vision-model" {
+	if !llm.options.Required || result.DocumentType != "RECEIPT" || metadata.Model != "vision-model" {
 		t.Fatalf("options=%+v result=%+v metadata=%+v", llm.options, result, metadata)
 	}
 }
