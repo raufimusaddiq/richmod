@@ -303,7 +303,7 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	}
 	if field == "merchant" {
 		var merchantID string
-		if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {

@@ -326,7 +326,7 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	var merchantID *string
 	if normalized := strings.TrimSpace(value.Merchant); normalized != "" {
 		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, householdID, normalized).Scan(&id); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, normalized).Scan(&id); err != nil {
 			return err
 		}
 		merchantID = &id
