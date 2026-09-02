@@ -379,7 +379,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if transactionStatus == "NEEDS_REVIEW" {
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
-			message := "🏦 Transaksi bank perlu ditinjau\n\nNominal: Rp" + workerTelegram.FormatIDR(amount) + "\nKeterangan: " + description + "\n\nPilih kategori atau lengkapi detail transaksi."
+			message := bankReviewMessage(result.ReviewType, amount, *at, description)
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
 				return err
 			}
@@ -392,6 +392,20 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	return nil
+}
+
+func bankReviewMessage(reviewType, amount string, transactionAt time.Time, description string) string {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		description = "Belum tersedia"
+	}
+	context := "Nominal: Rp" + workerTelegram.FormatIDR(amount) +
+		"\nWaktu: " + transactionAt.In(time.FixedZone("WIB", 7*60*60)).Format("02/01/2006 15:04") + " WIB" +
+		"\nKeterangan: " + description
+	if reviewType == "UNKNOWN_MERCHANT" || reviewType == "UNKNOWN_PURPOSE" {
+		return context
+	}
+	return "🏦 Transaksi bank perlu ditinjau\n\n" + context + "\n\nPilih kategori atau lengkapi detail transaksi."
 }
 
 type rowQuerier interface {
