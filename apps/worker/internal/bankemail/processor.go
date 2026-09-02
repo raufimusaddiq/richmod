@@ -341,13 +341,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if result.AutoConfirm {
 		proposalStatus = "ACCEPTED"
 	}
-	description := value(extraction.Description)
-	if description == "" {
-		description = result.Description
-	}
-	if extraction.Review != nil && strings.TrimSpace(extraction.Review.Summary) != "" {
-		description = strings.TrimSpace(extraction.Review.Summary)
-	}
+	description := ledgerDescription(extraction, result)
 	merchant := value(extraction.Merchant)
 	counterparty := value(extraction.Counterparty)
 	reference := value(extraction.Reference)
@@ -392,6 +386,14 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	return nil
+}
+
+func ledgerDescription(extraction Extraction, result PolicyResult) string {
+	description := value(extraction.Description)
+	if description == "" {
+		description = result.Description
+	}
+	return description
 }
 
 func bankReviewMessage(reviewType, amount string, transactionAt time.Time, description string) string {
