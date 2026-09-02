@@ -20,3 +20,6 @@ natural-language fallback parsers are not production finance contracts.
 - Gateway telemetry records native call kind and selected tool name.
 - Deterministic callbacks and server-rendered replies remain valid without an
   LLM call.
+- A valid allowed expense category may auto-confirm at category confidence
+  `0.85` or above when overall extraction confidence is at least `0.90`; lower
+  confidence or an unknown category still routes to review.
