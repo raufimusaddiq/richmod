@@ -18,6 +18,7 @@ import (
 )
 
 const gmailAPI = "https://gmail.googleapis.com/gmail/v1/users/me"
+const googleTokenEndpoint = "https://oauth2.googleapis.com/token"
 
 type Config struct {
 	OAuthClientPath string
@@ -37,6 +38,20 @@ type client struct {
 	mailbox    string
 	topic      string
 	httpClient *http.Client
+	tokenURL   string
+}
+
+type oauthRefreshError struct {
+	statusCode int
+	code       string
+}
+
+func (e *oauthRefreshError) Error() string {
+	return fmt.Sprintf("Google token refresh rejected: %s (HTTP %d)", e.code, e.statusCode)
+}
+
+func (e *oauthRefreshError) Permanent() bool {
+	return e.statusCode >= 400 && e.statusCode < 500 && e.statusCode != http.StatusTooManyRequests
 }
 
 func newClient(config Config) (*client, error) {
@@ -69,6 +84,7 @@ func newClient(config Config) (*client, error) {
 		mailbox:    strings.ToLower(strings.TrimSpace(config.Mailbox)),
 		topic:      strings.TrimSpace(config.PubSubTopic),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+		tokenURL:   googleTokenEndpoint,
 	}, nil
 }
 
@@ -98,7 +114,7 @@ func (c *client) accessToken(ctx context.Context, refreshToken string) (string, 
 		"refresh_token": {refreshToken},
 		"grant_type":    {"refresh_token"},
 	}
-	request, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://oauth2.googleapis.com/token", strings.NewReader(form.Encode()))
+	request, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -106,7 +122,11 @@ func (c *client) accessToken(ctx context.Context, refreshToken string) (string, 
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Google token refresh returned HTTP %d", response.StatusCode)
+		var body struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&body)
+		return "", &oauthRefreshError{statusCode: response.StatusCode, code: safeOAuthErrorCode(body.Error)}
 	}
 	var body struct {
 		AccessToken string `json:"access_token"`
@@ -115,6 +135,18 @@ func (c *client) accessToken(ctx context.Context, refreshToken string) (string, 
 		return "", fmt.Errorf("invalid Google token response")
 	}
 	return body.AccessToken, nil
+}
+
+func safeOAuthErrorCode(value string) string {
+	if value == "" || len(value) > 64 {
+		return "oauth_error"
+	}
+	for _, char := range value {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '_' && char != '-' && char != '.' {
+			return "oauth_error"
+		}
+	}
+	return value
 }
 
 func (c *client) doJSON(ctx context.Context, method, endpoint, accessToken string, input, output any) error {
