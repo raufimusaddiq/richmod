@@ -894,12 +894,20 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		return "AWAITING_MERCHANT", "🟡 Perlu detail merchant\n\nBalas pesan ini dengan nama merchant untuk transaksi tersebut.", "detail"
+		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Perlu detail merchant", message, "Balas pesan ini dengan nama merchant untuk transaksi tersebut."), "detail"
 	case "UNKNOWN_PURPOSE":
-		return "AWAITING_DETAIL", "🟡 Perlu detail transaksi\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", "detail"
+		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Perlu detail transaksi", message, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "detail"
 	default:
 		return "AWAITING_CATEGORY", message, "category"
 	}
+}
+
+func reviewDetailMessage(title, context, instruction string) string {
+	context = strings.TrimSpace(context)
+	if context == "" {
+		return title + "\n\n" + instruction
+	}
+	return title + "\n\n" + context + "\n\n" + instruction
 }
 
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {
