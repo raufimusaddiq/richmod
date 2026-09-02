@@ -251,7 +251,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	if merchantName != "" {
 		var id string
-		if err := tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, household, merchantName).Scan(&id); err != nil {
+		if err := tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, household, merchantName).Scan(&id); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to save merchant"})
 			return
 		}

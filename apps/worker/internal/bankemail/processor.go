@@ -440,6 +440,6 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 	if len([]rune(normalized)) > 160 {
 		normalized = string([]rune(normalized)[:160])
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
 	return id, err
 }
