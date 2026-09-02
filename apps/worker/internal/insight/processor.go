@@ -12,9 +12,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-const prompt = `Write a concise Indonesian household-finance narrative using only the supplied deterministic facts.
-Do not recalculate or invent amounts. Do not give investment, tax, credit, or legal advice. Mention uncertainty when completeness is below 0.90.
-Return observations, not commands. The household ledger is IDR and the reporting timezone is Asia/Jakarta.
+const prompt = `Write a concise Indonesian household-finance narrative using only the supplied deterministic aggregate facts.
+Do not recalculate or invent amounts, causes, transactions, or trends. Do not give investment, tax, credit, or legal advice. Mention uncertainty when completeness is below 0.90.
+Keep the summary and observations factual. Provide exactly one concise recommendation paragraph in recommendation: no heading, bullets, or line breaks. Base every recommendation on one or more supplied facts and make it a practical household-finance action. When facts are insufficient or conflicting, recommend completing the Review Inbox or collecting more data instead of guessing.
+The household ledger is IDR and the reporting timezone is Asia/Jakarta.
 Use exactly one write_financial_insight tool call. Do not answer with prose outside the tool call.`
 
 type Gateway interface {
@@ -45,6 +46,7 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 type output struct {
 	Summary            string        `json:"summary"`
 	Observations       []observation `json:"observations"`
+	Recommendation     string        `json:"recommendation"`
 	DataQualityWarning string        `json:"data_quality_warning"`
 	Confidence         float64       `json:"confidence"`
 }
@@ -109,8 +111,9 @@ func belowThreshold(value, threshold string) bool {
 
 func validateOutput(value output) (string, float64, error) {
 	value.Summary = strings.TrimSpace(value.Summary)
+	value.Recommendation = strings.TrimSpace(value.Recommendation)
 	value.DataQualityWarning = strings.TrimSpace(value.DataQualityWarning)
-	if value.Summary == "" || len([]rune(value.Summary)) > 800 || value.Confidence < 0 || value.Confidence > 1 || len(value.Observations) > 4 || len([]rune(value.DataQualityWarning)) > 400 {
+	if value.Summary == "" || len([]rune(value.Summary)) > 800 || value.Recommendation == "" || len([]rune(value.Recommendation)) > 600 || strings.ContainsAny(value.Recommendation, "\r\n") || value.Confidence < 0 || value.Confidence > 1 || len(value.Observations) > 4 || len([]rune(value.DataQualityWarning)) > 400 {
 		return "", 0, fmt.Errorf("invalid insight output")
 	}
 	parts := []string{value.Summary}
@@ -124,6 +127,7 @@ func validateOutput(value output) (string, float64, error) {
 	if value.DataQualityWarning != "" {
 		parts = append(parts, "Catatan data: "+value.DataQualityWarning)
 	}
+	parts = append(parts, "Rekomendasi: "+value.Recommendation)
 	return strings.Join(parts, "\n\n"), value.Confidence, nil
 }
 
@@ -159,5 +163,5 @@ func (p *Processor) fail(ctx context.Context, insightID, householdID string) err
 
 func insightSchema() map[string]any {
 	observation := map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"title": map[string]any{"type": "string"}, "detail": map[string]any{"type": "string"}}, "required": []string{"title", "detail"}}
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"summary": map[string]any{"type": "string"}, "observations": map[string]any{"type": "array", "maxItems": 4, "items": observation}, "data_quality_warning": map[string]any{"type": "string"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"summary", "observations", "data_quality_warning", "confidence"}}
+	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"summary": map[string]any{"type": "string"}, "observations": map[string]any{"type": "array", "maxItems": 4, "items": observation}, "recommendation": map[string]any{"type": "string", "minLength": 1, "maxLength": 600}, "data_quality_warning": map[string]any{"type": "string"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"summary", "observations", "recommendation", "data_quality_warning", "confidence"}}
 }
