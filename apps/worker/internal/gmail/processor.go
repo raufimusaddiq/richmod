@@ -111,7 +111,7 @@ func (p *Processor) ProcessHistory(ctx context.Context, payload HistoryPayload) 
 	}
 	accessToken, err := p.client.accessToken(ctx, refreshToken)
 	if err != nil {
-		return err
+		return p.markIntegrationError(ctx, householdID, err)
 	}
 
 	latestHistoryID := payload.HistoryID

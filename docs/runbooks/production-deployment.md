@@ -73,6 +73,16 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f com
 Retry only after identifying the cause. A stale `RUNNING` job is reclaimed by
 the worker after five minutes; normal retries use bounded exponential delay.
 
+### Gmail OAuth recovery
+
+`PROCESS_GMAIL_HISTORY` refresh-token failures are classified as
+`GOOGLE_OAUTH`. A Google OAuth 4xx response, except `429`, is terminal for that
+job and marks the household Gmail integration `ERROR`; response details are
+never persisted. Reconnect Gmail from Settings, verify the integration returns
+to `CONNECTED` or `WATCH_ACTIVE`, then replay the newest pending history event.
+The stored history cursor remains the recovery point, so replay fetches every
+message since the last successful cursor and normal message idempotency applies.
+
 ## Encrypted backups
 
 Backups use restic and contain a verified custom-format PostgreSQL dump plus the

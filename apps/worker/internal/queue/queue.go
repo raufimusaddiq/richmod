@@ -62,7 +62,7 @@ func (q *Queue) Succeed(ctx context.Context, jobID string) error {
 
 func (q *Queue) Fail(ctx context.Context, job Job, processErr error) error {
 	status := "PENDING"
-	if job.Attempts >= job.MaxAttempts {
+	if job.Attempts >= job.MaxAttempts || isPermanent(processErr) {
 		status = "FAILED"
 	}
 	delaySeconds := int(time.Duration(1<<min(job.Attempts, 8)) * time.Second / time.Second)
@@ -74,6 +74,11 @@ func (q *Queue) Fail(ctx context.Context, job Job, processErr error) error {
 		return fmt.Errorf("write job retry log: %w", logErr)
 	}
 	return nil
+}
+
+func isPermanent(err error) bool {
+	var permanent interface{ Permanent() bool }
+	return errors.As(err, &permanent) && permanent.Permanent()
 }
 
 func classifyLane(jobType string) string {
@@ -101,6 +106,8 @@ func classifyError(err error) string {
 		return "DATABASE"
 	case strings.Contains(msg, "Telegram"):
 		return "TELEGRAM_API"
+	case strings.Contains(msg, "Google token refresh"):
+		return "GOOGLE_OAUTH"
 	case strings.Contains(msg, "LLM") || strings.Contains(msg, "gateway") || strings.Contains(msg, "Structured"):
 		return "LLM_GATEWAY"
 	case strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host"):
