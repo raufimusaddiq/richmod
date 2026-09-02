@@ -19,7 +19,9 @@ type Handler struct {
 	now  func() time.Time
 }
 
-const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND (status='PENDING' OR (status='SUCCEEDED' AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
+const insightPromptVersion = "finance-insight-v2"
+
+const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND (status='PENDING' OR (status='SUCCEEDED' AND prompt_version=$5 AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 
@@ -102,7 +104,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var existing string
-	err = h.pool.QueryRow(r.Context(), existingInsightQuery, household, period, metrics.PeriodKind, metrics.PeriodStart).Scan(&existing)
+	err = h.pool.QueryRow(r.Context(), existingInsightQuery, household, period, metrics.PeriodKind, metrics.PeriodStart, insightPromptVersion).Scan(&existing)
 	if err == nil {
 		writeJSON(w, 200, map[string]string{"id": existing, "status": "EXISTING"})
 		return
@@ -119,7 +121,7 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var id string
-	if err := tx.QueryRow(r.Context(), `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,$2,'PENDING',$3::jsonb,'finance-insight-v1',$4,$5) RETURNING id`, household, period, string(raw), metrics.DataCompleteness, p.UserID).Scan(&id); err != nil {
+	if err := tx.QueryRow(r.Context(), `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,$2,'PENDING',$3::jsonb,$4,$5,$6) RETURNING id`, household, period, string(raw), insightPromptVersion, metrics.DataCompleteness, p.UserID).Scan(&id); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			writeJSON(w, 409, map[string]string{"error": "an insight is already being generated"})

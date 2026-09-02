@@ -30,4 +30,7 @@ func TestPendingInsightRemainsIdempotent(t *testing.T) {
 	if strings.Contains(existingInsightQuery, "OR created_at") || !strings.Contains(existingInsightQuery, "status='SUCCEEDED'") {
 		t.Fatal("failed insights must not block retry generation")
 	}
+	if insightPromptVersion != "finance-insight-v2" || !strings.Contains(existingInsightQuery, "prompt_version=$5") {
+		t.Fatal("successful cached insights must match the current prompt version")
+	}
 }
