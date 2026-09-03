@@ -204,12 +204,12 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		return true, err
 	}
 	defer tx.Rollback(ctx)
-	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status
+	var reviewID, transactionID, reviewType, requestStatus, transactionStatus, merchantID string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
 			return true, err
@@ -231,13 +231,18 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	switch data {
 	case "review:edit":
 		message = "Pilih detail yang ingin diubah:"
-		markup = reviewDetailMarkup()
+		markup = reviewDetailMarkup(merchantID != "")
 	case "review:merchant":
 		message = "Balas pesan ini dengan nama merchant."
 		state = "AWAITING_MERCHANT"
 	case "review:description":
 		message = "Balas pesan ini dengan keterangan transaksi."
 	case "review:category":
+		if merchantID == "" {
+			message = "Merchant wajib diisi sebelum memilih kategori. Balas pesan ini dengan nama merchant."
+			state = "AWAITING_MERCHANT"
+			break
+		}
 		message = "Pilih kategori pengeluaran:"
 		state = "AWAITING_CATEGORY"
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
@@ -279,12 +284,12 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 }
 
-func reviewDetailMarkup() *InlineKeyboardMarkup {
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
-		{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}},
-		{{Text: "Kategori", CallbackData: "review:category"}},
-		{{Text: "Abaikan", CallbackData: "review:ignore"}},
-	}}
+func reviewDetailMarkup(merchantKnown bool) *InlineKeyboardMarkup {
+	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
+	if merchantKnown {
+		keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
 }
 
 func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, field string) error {
