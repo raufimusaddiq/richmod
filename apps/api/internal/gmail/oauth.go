@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
@@ -77,6 +78,15 @@ func (h *Handler) Connect(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || len(principal.Memberships) == 0 {
 		http.Error(w, "household membership required", http.StatusForbidden)
+		return
+	}
+	var emailIngressActive bool
+	if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM email_ingress_address WHERE household_id=$1 AND purpose='BANK_EMAIL' AND status='ACTIVE')`, principal.Memberships[0].HouseholdID).Scan(&emailIngressActive); err != nil {
+		http.Error(w, "unable to check email provider", http.StatusInternalServerError)
+		return
+	}
+	if emailIngressActive {
+		http.Error(w, "Cloudflare email ingress is already active", http.StatusConflict)
 		return
 	}
 	stateRaw := make([]byte, 32)
@@ -140,6 +150,16 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	var activeIngressID string
+	err = tx.QueryRow(r.Context(), `SELECT id FROM email_ingress_address WHERE household_id=$1 AND purpose='BANK_EMAIL' AND status='ACTIVE' FOR SHARE`, householdID).Scan(&activeIngressID)
+	if err == nil {
+		http.Error(w, "Cloudflare email ingress is already active", http.StatusConflict)
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		http.Error(w, "unable to verify email provider", http.StatusInternalServerError)
+		return
+	}
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO gmail_integration (household_id,mailbox,encrypted_refresh_token,granted_scope,status,connected_by_user_id)
 		VALUES ($1,$2,$3,$4,'CONNECTED',$5)

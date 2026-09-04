@@ -1,0 +1,11 @@
+name = "richmod-email-ingress"
+main = "src/index.js"
+compatibility_date = "2026-09-04"
+
+[[r2_buckets]]
+binding = "RICHMOD_EMAIL_RAW"
+bucket_name = "richmod-email-raw"
+
+[[queues.producers]]
+binding = "RICHMOD_EMAIL_DELIVERY"
+queue = "richmod-email-delivery"

@@ -150,6 +150,22 @@ database.
 
 ## Failure recovery
 
+## Cloudflare generic email ingress (two deploys)
+
+Deploy 1 adds the generated `richmod.link` recipient and keeps Gmail runtime
+available for migration. Set `EMAIL_INGRESS_HMAC_SECRET`,
+`EMAIL_INGRESS_DOMAIN`, and the auth-service IDs captured from a real forwarded
+`.eml`. Deploy Cloudflare ingress and delivery Workers, R2, Queue, DLQ, and the
+catch-all before activating any household. Provisioned deliveries are transport
+verification only; activation atomically sets the address `ACTIVE` and Gmail
+`DISCONNECTED`.
+
+Do not run Deploy 2 until the checklist's real active transaction, duplicate
+retry, and late-Gmail checks pass in production. Deploy 2 then removes Gmail
+application code, jobs, configuration, dependencies, and runtime tables in a
+new migration. Historical source/evidence rows remain. Google OAuth/PubSub and
+Cloudflare resources are cleaned up separately and must be evidenced.
+
 - API or web failure: retain PostgreSQL and attachment volumes, rebuild only the
   failed application service, then verify `/readyz` and HTTPS.
 - Worker failure: restart the worker; stale jobs are reclaimed after five

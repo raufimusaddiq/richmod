@@ -1,0 +1,17 @@
+name = "richmod-email-delivery-worker"
+main = "src/index.js"
+compatibility_date = "2026-09-04"
+
+[vars]
+RICHMOD_INGRESS_URL = "https://api.investdx.biz.id/finance/v1/email/inbond"
+
+[[r2_buckets]]
+binding = "RICHMOD_EMAIL_RAW"
+bucket_name = "richmod-email-raw"
+
+[[queues.consumers]]
+queue = "richmod-email-delivery"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "richmod-email-delivery-dlq"

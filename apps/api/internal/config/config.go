@@ -7,41 +7,47 @@ import (
 )
 
 type API struct {
-	Address                   string
-	DatabaseURL               string
-	WebOrigin                 string
-	SessionKey                string
-	SecureCookie              bool
-	LLMGatewayBaseURL         string
-	LLMGatewayAPIKey          string
-	LLMGatewayProtocol        string
-	TelegramWebhookSecret     string
-	TelegramBotUsername       string
-	GmailOAuthClientPath      string
-	GmailMailbox              string
-	GmailTokenKey             string
-	GmailPubSubAudience       string
-	GmailPubSubServiceAccount string
-	DocumentStoragePath       string
+	Address                        string
+	DatabaseURL                    string
+	WebOrigin                      string
+	SessionKey                     string
+	SecureCookie                   bool
+	LLMGatewayBaseURL              string
+	LLMGatewayAPIKey               string
+	LLMGatewayProtocol             string
+	TelegramWebhookSecret          string
+	TelegramBotUsername            string
+	GmailOAuthClientPath           string
+	GmailMailbox                   string
+	GmailTokenKey                  string
+	GmailPubSubAudience            string
+	GmailPubSubServiceAccount      string
+	EmailIngressHMACSecret         string
+	EmailIngressDomain             string
+	EmailIngressTrustedAuthservIDs string
+	DocumentStoragePath            string
 }
 
 func LoadAPI() (API, error) {
 	cfg := API{
-		Address:                   valueOr("API_ADDR", ":8080"),
-		DatabaseURL:               os.Getenv("DATABASE_URL"),
-		WebOrigin:                 valueOr("WEB_ORIGIN", "http://localhost:3000"),
-		SessionKey:                os.Getenv("SESSION_SECRET"),
-		LLMGatewayBaseURL:         os.Getenv("LLM_GATEWAY_BASE_URL"),
-		LLMGatewayAPIKey:          os.Getenv("LLM_GATEWAY_API_KEY"),
-		LLMGatewayProtocol:        valueOr("LLM_GATEWAY_PROTOCOL", "responses"),
-		TelegramWebhookSecret:     os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
-		TelegramBotUsername:       os.Getenv("TELEGRAM_BOT_USERNAME"),
-		GmailOAuthClientPath:      os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
-		GmailMailbox:              os.Getenv("GMAIL_MAILBOX"),
-		GmailTokenKey:             os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
-		GmailPubSubAudience:       os.Getenv("GMAIL_PUBSUB_AUDIENCE"),
-		GmailPubSubServiceAccount: os.Getenv("GMAIL_PUBSUB_SERVICE_ACCOUNT"),
-		DocumentStoragePath:       valueOr("DOCUMENT_STORAGE_PATH", "/var/lib/finance/attachments"),
+		Address:                        valueOr("API_ADDR", ":8080"),
+		DatabaseURL:                    os.Getenv("DATABASE_URL"),
+		WebOrigin:                      valueOr("WEB_ORIGIN", "http://localhost:3000"),
+		SessionKey:                     os.Getenv("SESSION_SECRET"),
+		LLMGatewayBaseURL:              os.Getenv("LLM_GATEWAY_BASE_URL"),
+		LLMGatewayAPIKey:               os.Getenv("LLM_GATEWAY_API_KEY"),
+		LLMGatewayProtocol:             valueOr("LLM_GATEWAY_PROTOCOL", "responses"),
+		TelegramWebhookSecret:          os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
+		TelegramBotUsername:            os.Getenv("TELEGRAM_BOT_USERNAME"),
+		GmailOAuthClientPath:           os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
+		GmailMailbox:                   os.Getenv("GMAIL_MAILBOX"),
+		GmailTokenKey:                  os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
+		GmailPubSubAudience:            os.Getenv("GMAIL_PUBSUB_AUDIENCE"),
+		GmailPubSubServiceAccount:      os.Getenv("GMAIL_PUBSUB_SERVICE_ACCOUNT"),
+		EmailIngressHMACSecret:         os.Getenv("EMAIL_INGRESS_HMAC_SECRET"),
+		EmailIngressDomain:             valueOr("EMAIL_INGRESS_DOMAIN", "richmod.link"),
+		EmailIngressTrustedAuthservIDs: os.Getenv("EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS"),
+		DocumentStoragePath:            valueOr("DOCUMENT_STORAGE_PATH", "/var/lib/finance/attachments"),
 	}
 	if cfg.DatabaseURL == "" {
 		return API{}, fmt.Errorf("DATABASE_URL is required")

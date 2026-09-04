@@ -1942,6 +1942,12 @@ Redact:
 
 # 31. Gmail Integration
 
+> Migration note (4 September 2026): Gmail OAuth/Watch/PubSub is temporary
+> during the two-deploy Cloudflare email-ingress migration in ADR-033. The
+> long-term application ingress is the generated `richmod.link` recipient;
+> Gmail remains only as forwarding source after cutover. Retain this section
+> as historical behavior until Deploy 2 removes the runtime.
+
 If Gmail is used:
 
 ```text
