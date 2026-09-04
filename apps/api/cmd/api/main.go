@@ -23,6 +23,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/household"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/insight"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/integrationaction"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/operations"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
@@ -72,6 +73,7 @@ func run(logger *slog.Logger) error {
 	}
 	documentHandler := document.NewHandlerWithStorage(pool, documentStorage)
 	insightHandler := insight.NewHandler(pool)
+	integrationActionHandler := integrationaction.NewHandler(pool)
 	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	emailIngressHandler := emailingress.NewHandler(emailingress.NewService(pool, cfg.EmailIngressDomain, strings.Split(cfg.EmailIngressTrustedAuthservIDs, ",")), cfg.EmailIngressHMACSecret)
@@ -172,6 +174,8 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/integrations/email-ingress", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Integration)))
 	mux.Handle("POST /api/v1/integrations/email-ingress/activate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Activate)))
 	mux.Handle("POST /api/v1/integrations/email-ingress/rotate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Rotate)))
+	mux.Handle("GET /api/v1/integration-actions", authHandler.RequireSession(http.HandlerFunc(integrationActionHandler.List)))
+	mux.Handle("POST /api/v1/integration-actions/{id}/resolve", authHandler.RequireSession(http.HandlerFunc(integrationActionHandler.Resolve)))
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
 	mux.Handle("GET /api/v1/analytics/spending", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Spending)))
 	mux.Handle("GET /api/v1/analytics/cashflow", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cashflow)))
