@@ -47,11 +47,11 @@ Do not mark an operational item from code inspection alone.
 - [x] Cloudflare R2 bucket, Queue, ingress Worker, and delivery Worker are provisioned manually (operator-provided; verify during rollout).
 - [ ] Optional Queue DLQ enabled.
 - [x] `*@richmod.link` Email Routing catch-all is provisioned manually (operator-provided; verify during rollout).
-- [ ] Household recipient generated and forwarding verification completed.
+- [x] Household recipient generated and Gmail forwarding verification completed on 4 September 2026.
 - [ ] One PROVISIONED delivery visible in R2, Queue, API delivery table, and no source/job.
-- [ ] Real forwarded `.eml` inspected; exact `authserv-id` and DKIM/DMARC/ARC policy documented.
-- [ ] Trusted authentication IDs configured from captured real `.eml` evidence.
-- [ ] Address activated; Gmail status is `DISCONNECTED` in same committed state.
+- [x] Real forwarded Jago debit-card notification inspected; `mx.cloudflare.net` produced passing DKIM and DMARC, with the forwarded Google chain preserved in ARC.
+- [x] `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS=mx.cloudflare.net` configured from captured production evidence; secret values remain external to the repository.
+- [x] Address activated and Gmail atomically set to `DISCONNECTED` on 4 September 2026 at 20:55 WIB.
 - [ ] One real ACTIVE financial email reaches `PROCESS_BANK_EMAIL` and existing review/ledger flow.
 - [ ] Same delivery retried; no duplicate source, job, proposal, or transaction.
 - [ ] Late Gmail history job terminally succeeds without ingestion.
