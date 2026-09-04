@@ -169,6 +169,13 @@ application code, jobs, configuration, dependencies, and runtime tables in a
 new migration. Historical source/evidence rows remain. Google OAuth/PubSub and
 Cloudflare resources are cleaned up separately and must be evidenced.
 
+Production cutover state on 4 September 2026: a real forwarded Jago debit-card
+notification showed `mx.cloudflare.net` with passing DKIM and DMARC, so the
+existing external environment now trusts that exact auth-service ID. The
+household recipient is `ACTIVE` and Gmail is `DISCONNECTED`. Deploy 2 is still
+blocked pending one new ACTIVE financial delivery, a duplicate/retry check, and
+a terminal late-Gmail-history no-op. Do not backfill PROVISIONED deliveries.
+
 - API or web failure: retain PostgreSQL and attachment volumes, rebuild only the
   failed application service, then verify `/readyz` and HTTPS.
 - Worker failure: restart the worker; stale jobs are reclaimed after five
