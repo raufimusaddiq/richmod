@@ -41,8 +41,9 @@ Do not mark an operational item from code inspection alone.
 
 ## Deploy 1 — production evidence (must be observed, not assumed)
 
-- [ ] Migration applied successfully in production.
-- [ ] API and worker deployed from merged `main` with unchanged required env.
+- [x] Migration 42 applied successfully in production on 4 September 2026.
+- [x] API and worker deployed from merged `main` `584f04e` with the existing `finance.env` on 4 September 2026.
+- [x] Public Caddy allowlist routes only `POST /finance/v1/email/inbond`; unsigned smoke reached the API and returned `401`.
 - [x] Cloudflare R2 bucket, Queue, ingress Worker, and delivery Worker are provisioned manually (operator-provided; verify during rollout).
 - [ ] Optional Queue DLQ enabled.
 - [x] `*@richmod.link` Email Routing catch-all is provisioned manually (operator-provided; verify during rollout).

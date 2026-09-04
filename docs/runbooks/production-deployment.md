@@ -153,12 +153,15 @@ database.
 ## Cloudflare generic email ingress (two deploys)
 
 Deploy 1 adds the generated `richmod.link` recipient and keeps Gmail runtime
-available for migration. Set `EMAIL_INGRESS_HMAC_SECRET`,
-`EMAIL_INGRESS_DOMAIN`, and the auth-service IDs captured from a real forwarded
-`.eml`. Deploy Cloudflare ingress and delivery Workers, R2, Queue, DLQ, and the
-catch-all before activating any household. Provisioned deliveries are transport
-verification only; activation atomically sets the address `ACTIVE` and Gmail
-`DISCONNECTED`.
+available for migration. Deploy with `EMAIL_INGRESS_HMAC_SECRET` and
+`EMAIL_INGRESS_DOMAIN`; `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS` may remain unset
+during the `PROVISIONED` bootstrap. The public Caddy allowlist must route only
+`POST /finance/v1/email/inbond` on `api.investdx.biz.id` to `finance-api:8080`.
+After receiving a real forwarded `.eml`, inspect its authentication headers and
+set the observed trusted auth-service IDs before activating any household. An
+`ACTIVE` address without this configuration fails closed. Provisioned deliveries
+are transport verification only; activation atomically sets the address `ACTIVE`
+and Gmail `DISCONNECTED`. DLQ remains optional and is not a Deploy 1 blocker.
 
 Do not run Deploy 2 until the checklist's real active transaction, duplicate
 retry, and late-Gmail checks pass in production. Deploy 2 then removes Gmail
