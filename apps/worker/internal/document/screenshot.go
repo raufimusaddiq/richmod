@@ -207,7 +207,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		var merchantID *string
 		if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
 			var id string
-			if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, householdID, merchant).Scan(&id); err != nil {
+			if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, merchant).Scan(&id); err != nil {
 				return err
 			}
 			merchantID = &id

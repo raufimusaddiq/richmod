@@ -41,6 +41,39 @@ docker exec idx-caddy caddy validate --config /etc/caddy/Caddyfile --adapter cad
 docker exec idx-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
 
+## GitHub release-image and deployment workflow
+
+Production builds must move off the host. `Release Images` runs after a
+successful `main` CI run and publishes immutable API, worker, web, and migration
+images to GHCR tagged `sha-<full-main-commit>`. It does not deploy.
+
+`Deploy Production` is manual-only and uses the GitHub `production` Environment;
+configure required reviewers there before its first use. It accepts only a commit
+already reachable from `main`. The job sends the ephemeral GitHub token over SSH
+stdin for one GHCR login, pulls exact immutable images, runs migrations, restarts
+the application with `--no-build`, checks public health, and logs out of GHCR.
+Runtime secrets remain only in `/opt/family-finance/finance.env`.
+
+Configure these GitHub Environment secrets without storing them in the repo or
+`finance.env`:
+
+```text
+PROD_DEPLOY_HOST
+PROD_DEPLOY_USER
+PROD_DEPLOY_SSH_KEY
+PROD_DEPLOY_KNOWN_HOSTS
+```
+
+The server deployment worktree must remain clean, be checked out on `main`, and
+have Docker Compose access. GHCR packages must remain linked to this repository
+so the ephemeral repository token can pull them. If package access changes,
+repair package repository access; do not add registry credentials to the runtime
+environment file.
+
+Rollback is a new manual `Deploy Production` run using a previously verified
+main SHA whose four images exist in GHCR. Never use `docker compose up --build`
+for a release-image deployment.
+
 Before first login, run the one-time owner bootstrap and supply the owner's numeric
 Telegram user ID with `--telegram-user-id`. Then register
 `https://finance.investdx.biz.id/webhooks/telegram` with Telegram using the same
@@ -72,6 +105,16 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f com
 
 Retry only after identifying the cause. A stale `RUNNING` job is reclaimed by
 the worker after five minutes; normal retries use bounded exponential delay.
+
+### Gmail OAuth recovery
+
+`PROCESS_GMAIL_HISTORY` refresh-token failures are classified as
+`GOOGLE_OAUTH`. A Google OAuth 4xx response, except `429`, is terminal for that
+job and marks the household Gmail integration `ERROR`; response details are
+never persisted. Reconnect Gmail from Settings, verify the integration returns
+to `CONNECTED` or `WATCH_ACTIVE`, then replay the newest pending history event.
+The stored history cursor remains the recovery point, so replay fetches every
+message since the last successful cursor and normal message idempotency applies.
 
 ## Encrypted backups
 
@@ -139,6 +182,32 @@ destroy the isolated restore database. Never point the drill at the canonical
 database.
 
 ## Failure recovery
+
+## Cloudflare generic email ingress (two deploys)
+
+Deploy 1 adds the generated `richmod.link` recipient and keeps Gmail runtime
+available for migration. Deploy with `EMAIL_INGRESS_HMAC_SECRET` and
+`EMAIL_INGRESS_DOMAIN`; `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS` may remain unset
+during the `PROVISIONED` bootstrap. The public Caddy allowlist must route only
+`POST /finance/v1/email/inbond` on `api.investdx.biz.id` to `finance-api:8080`.
+After receiving a real forwarded `.eml`, inspect its authentication headers and
+set the observed trusted auth-service IDs before activating any household. An
+`ACTIVE` address without this configuration fails closed. Provisioned deliveries
+are transport verification only; activation atomically sets the address `ACTIVE`
+and Gmail `DISCONNECTED`. DLQ remains optional and is not a Deploy 1 blocker.
+
+Do not run Deploy 2 until the checklist's real active transaction, duplicate
+retry, and late-Gmail checks pass in production. Deploy 2 then removes Gmail
+application code, jobs, configuration, dependencies, and runtime tables in a
+new migration. Historical source/evidence rows remain. Google OAuth/PubSub and
+Cloudflare resources are cleaned up separately and must be evidenced.
+
+Production cutover state on 4 September 2026: a real forwarded Jago debit-card
+notification showed `mx.cloudflare.net` with passing DKIM and DMARC, so the
+existing external environment now trusts that exact auth-service ID. The
+household recipient is `ACTIVE` and Gmail is `DISCONNECTED`. Deploy 2 is still
+blocked pending one new ACTIVE financial delivery, a duplicate/retry check, and
+a terminal late-Gmail-history no-op. Do not backfill PROVISIONED deliveries.
 
 - API or web failure: retain PostgreSQL and attachment volumes, rebuild only the
   failed application service, then verify `/readyz` and HTTPS.

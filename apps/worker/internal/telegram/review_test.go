@@ -30,6 +30,23 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	}
 }
 
+func TestReviewDetailMarkupHidesCategoryUntilMerchantKnown(t *testing.T) {
+	for _, test := range []struct {
+		merchantKnown bool
+		wantCategory  bool
+	}{{false, false}, {true, true}} {
+		found := false
+		for _, row := range reviewDetailMarkup(test.merchantKnown).InlineKeyboard {
+			for _, button := range row {
+				found = found || button.CallbackData == "review:category"
+			}
+		}
+		if found != test.wantCategory {
+			t.Fatalf("merchantKnown=%t categoryButton=%t", test.merchantKnown, found)
+		}
+	}
+}
+
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	processor := &Processor{gateway: reviewTestGateway{}}
 	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", []categoryChoice{

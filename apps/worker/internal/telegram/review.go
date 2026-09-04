@@ -193,6 +193,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 // processReviewDetailCallback is the deterministic callback lane for review
 // editing. These callbacks never enter the conversational LLM pipeline.
 func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
+	if data == "review:remember" || data == "review:once" {
+		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
+	}
 	if data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:ignore" {
 		return false, nil
 	}
@@ -201,12 +204,12 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		return true, err
 	}
 	defer tx.Rollback(ctx)
-	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status
+	var reviewID, transactionID, reviewType, requestStatus, transactionStatus, merchantID string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
 			return true, err
@@ -228,13 +231,18 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	switch data {
 	case "review:edit":
 		message = "Pilih detail yang ingin diubah:"
-		markup = reviewDetailMarkup()
+		markup = reviewDetailMarkup(merchantID != "")
 	case "review:merchant":
 		message = "Balas pesan ini dengan nama merchant."
 		state = "AWAITING_MERCHANT"
 	case "review:description":
 		message = "Balas pesan ini dengan keterangan transaksi."
 	case "review:category":
+		if merchantID == "" {
+			message = "Merchant wajib diisi sebelum memilih kategori. Balas pesan ini dengan nama merchant."
+			state = "AWAITING_MERCHANT"
+			break
+		}
 		message = "Pilih kategori pengeluaran:"
 		state = "AWAITING_CATEGORY"
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
@@ -259,12 +267,29 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	return true, tx.Commit(ctx)
 }
 
-func reviewDetailMarkup() *InlineKeyboardMarkup {
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
-		{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}},
-		{{Text: "Kategori", CallbackData: "review:category"}},
-		{{Text: "Abaikan", CallbackData: "review:ignore"}},
-	}}
+func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	var reviewID, transactionID string
+	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
+	}
+	if err != nil {
+		return err
+	}
+	if data == "review:remember" {
+		update.Message.Text = "ingat merchant"
+	} else {
+		update.Message.Text = "tidak"
+	}
+	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
+}
+
+func reviewDetailMarkup(merchantKnown bool) *InlineKeyboardMarkup {
+	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
+	if merchantKnown {
+		keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
 }
 
 func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, field string) error {
@@ -283,7 +308,7 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	}
 	if field == "merchant" {
 		var merchantID string
-		if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {
@@ -545,10 +570,10 @@ func (p *Processor) extractReview(ctx context.Context, sourceEventID, text strin
 }
 
 func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, args map[string]any) error {
-	query := `SELECT r.id,r.transaction_id,t.type FROM review_request r JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND (rr.telegram_chat_id=$2 OR rr.telegram_chat_id IS NULL) ORDER BY r.created_at DESC LIMIT 2`
+	query := `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
 	params := []any{householdID, update.Message.Chat.ID}
 	if update.Message.ReplyToMessage != nil {
-		query = `SELECT r.id,r.transaction_id,t.type FROM review_request r JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
+		query = `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
 		params = append(params, update.Message.ReplyToMessage.MessageID)
 	}
 	rows, err := p.pool.Query(ctx, query, params...)
@@ -556,11 +581,14 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 		return err
 	}
 	defer rows.Close()
-	type candidate struct{ id, tx, typ string }
+	type candidate struct {
+		id, tx, typ, reviewType, state, merchantID string
+		messageID                                  int64
+	}
 	var choices []candidate
 	for rows.Next() {
 		var v candidate
-		if err := rows.Scan(&v.id, &v.tx, &v.typ); err != nil {
+		if err := rows.Scan(&v.id, &v.tx, &v.typ, &v.reviewType, &v.state, &v.merchantID, &v.messageID); err != nil {
 			return err
 		}
 		choices = append(choices, v)
@@ -596,6 +624,23 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	if action == "IGNORE" {
 		return p.rejectBoundReview(ctx, sourceEventID, householdID, c.id, c.tx, update)
 	}
+	if field, detail, required := requiredNativeReviewDetail(c.reviewType, c.state, c.merchantID, merchant, description); required {
+		if detail == "" {
+			message := "Nama merchant wajib diisi sebelum review dapat diselesaikan."
+			if field == "description" {
+				message = "Keterangan transaksi wajib diisi sebelum review dapat diselesaikan."
+			}
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, message)
+		}
+		if c.messageID == 0 {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pesan review belum terikat. Buka Review Inbox untuk melanjutkan.")
+		}
+		update.Message.Text = detail
+		update.Message.ReplyToMessage = &struct {
+			MessageID int64 `json:"message_id"`
+		}{MessageID: c.messageID}
+		return p.saveBoundReviewField(ctx, sourceEventID, householdID, c.id, c.tx, update, field)
+	}
 	if action == "OWN_ACCOUNT_TRANSFER" {
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "OWN_ACCOUNT", "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
 	}
@@ -618,6 +663,16 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, c.id, c.tx, categoryID, update, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
+}
+
+func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {
+	if reviewType == "UNKNOWN_MERCHANT" && strings.TrimSpace(merchantID) == "" || state == "AWAITING_MERCHANT" {
+		return "merchant", clean(strings.TrimSpace(merchant), 500), true
+	}
+	if reviewType == "UNKNOWN_PURPOSE" || state == "AWAITING_DETAIL" {
+		return "description", clean(strings.TrimSpace(description), 500), true
+	}
+	return "", "", false
 }
 
 func validReviewDate(value string) bool {
@@ -831,6 +886,8 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	var markup *InlineKeyboardMarkup
 	if markupMode == "category" {
 		markup = reviewActionMarkup(ctx, tx, reviewID, reviewType)
+	} else if markupMode == "reply" {
+		markup = requiredFieldReplyMarkup()
 	} else {
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -874,12 +931,24 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		return "AWAITING_MERCHANT", "🟡 Perlu detail merchant\n\nBalas pesan ini dengan nama merchant untuk transaksi tersebut.", "detail"
+		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Perlu detail merchant", message, "Balas pesan ini dengan nama merchant untuk transaksi tersebut."), "reply"
 	case "UNKNOWN_PURPOSE":
-		return "AWAITING_DETAIL", "🟡 Perlu detail transaksi\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", "detail"
+		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Perlu detail transaksi", message, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "reply"
 	default:
 		return "AWAITING_CATEGORY", message, "category"
 	}
+}
+
+func requiredFieldReplyMarkup() *InlineKeyboardMarkup {
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+}
+
+func reviewDetailMessage(title, context, instruction string) string {
+	context = strings.TrimSpace(context)
+	if context == "" {
+		return title + "\n\n" + instruction
+	}
+	return title + "\n\n" + context + "\n\n" + instruction
 }
 
 func enqueueReviewMessage(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string) error {

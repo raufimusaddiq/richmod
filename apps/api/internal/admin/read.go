@@ -449,6 +449,54 @@ func (h *Handler) HouseholdAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": next})
 }
+
+// AllAudit gives Super Admin one useful, bounded audit feed when platform_audit_log
+// is empty. It keeps platform and household audit scopes explicit in metadata.
+func (h *Handler) AllAudit(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := pageLimit(r, 50, 100)
+	start := adminRange(q.Get("range"))
+	if from, ok := dateBound(q.Get("from"), false); ok {
+		start = from
+	}
+	to, toOK := dateBound(q.Get("to"), true)
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT id,action,entity_type,entity_id,metadata_json,created_at,email,request_id FROM (
+			SELECT p.id::text AS id,p.action AS action,p.entity_type AS entity_type,p.entity_id::text AS entity_id,p.metadata_json AS metadata_json,p.created_at AS created_at,coalesce(u.email,'') AS email,p.request_id::text AS request_id
+			FROM platform_audit_log p LEFT JOIN "user" u ON u.id=p.actor_user_id
+			UNION ALL
+			SELECT a.id::text,a.action,a.entity_type,a.entity_id::text,'{}'::jsonb,a.created_at,coalesce(u.email,''),NULL::text
+			FROM audit_log a
+			LEFT JOIN "user" u ON u.id=a.actor_id
+		) e
+		WHERE ($1='' OR action=$1) AND created_at >= $2
+		  AND ($3::timestamptz IS NULL OR created_at < $3)
+		ORDER BY created_at DESC,id DESC LIMIT $4`, q.Get("action"), start, nullableTimeArg(to, toOK), limit)
+	if err != nil {
+		writeError(w, 500, "ADMIN_QUERY_FAILED")
+		return
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, action, entityType, entityID, email string
+		var requestID *string
+		var metadata json.RawMessage
+		var at time.Time
+		if err := rows.Scan(&id, &action, &entityType, &entityID, &metadata, &at, &email, &requestID); err != nil {
+			writeError(w, 500, "ADMIN_QUERY_FAILED")
+			return
+		}
+		var safe map[string]any
+		_ = json.Unmarshal(metadata, &safe)
+		items = append(items, map[string]any{"id": id, "action": action, "entityType": entityType, "entityId": entityID, "metadata": safe, "actorEmail": email, "requestId": requestID, "createdAt": at})
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "ADMIN_QUERY_FAILED")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": ""})
+}
 func nullableString(value string) any {
 	if value == "" {
 		return nil

@@ -8,7 +8,7 @@ const nav = [
   ["/", "Ringkasan", "⌂"],
   ["/transactions", "Transaksi", "ledger"],
   ["/analytics", "Analisis", "⌁"],
-  ["/reviews", "Perlu Ditinjau", "✓"],
+  ["/inbox", "Inbox", "✓"],
   ["/documents", "Dokumen", "▤"],
   ["/household", "Keluarga", "⌾"],
   ["/settings", "Pengaturan", "settings"],
@@ -18,6 +18,7 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
   const pathname = usePathname();
   const links = user?.isSuperAdmin ? [...nav, ["/admin", "Admin", "⚑"]] : nav;
   const [moreOpen, setMoreOpen] = useState(false);
+  const [inboxCount, setInboxCount] = useState(0);
   const moreButton = useRef(null);
   const closeMoreButton = useRef(null);
   const primaryLinks = links.slice(0, 4);
@@ -35,15 +36,16 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
       moreButton.current?.focus();
     };
   }, [moreOpen]);
+  useEffect(() => { Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions")]).then(async responses => { const items = await Promise.all(responses.map(response => response.ok ? response.json() : [])); setInboxCount(items.reduce((total, value) => total + (Array.isArray(value) ? value.length : 0), 0)); }).catch(() => {}); }, [pathname]);
   async function logout() {
     await fetch("/api/v1/auth/logout", { method: "POST" });
     window.location.href = "/";
   }
   const navIcon = icon => icon === "ledger" ? <LedgerIcon/> : icon === "settings" ? <SettingsIcon/> : icon;
   return <div className="app-frame">
-    <aside className="sidebar"><Link className="brand" href="/"><span>R</span><div>Richmod<small>Family Finance</small></div></Link><nav>{links.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{navIcon(icon)}</i>{label}</Link>)}</nav><div className="sidebar-user"><span>{user?.displayName?.slice(0, 1) || "U"}</span><div><b>{user?.displayName}</b><small>GMT+7 · IDR</small></div><button aria-label="Keluar" onClick={logout}>↪</button></div></aside>
+    <aside className="sidebar"><Link className="brand" href="/"><span>R</span><div>Richmod<small>Family Finance</small></div></Link><nav>{links.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{navIcon(icon)}</i>{label}{href === "/inbox" && inboxCount > 0 && <b className="nav-badge">{inboxCount}</b>}</Link>)}</nav><div className="sidebar-user"><span>{user?.displayName?.slice(0, 1) || "U"}</span><div><b>{user?.displayName}</b><small>GMT+7 · IDR</small></div><button aria-label="Keluar" onClick={logout}>↪</button></div></aside>
     <main className="app-main"><header className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div>{actions && <div className="page-actions">{actions}</div>}</header>{children}</main>
-    <nav className="mobile-nav">{primaryLinks.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{navIcon(icon)}</i><span>{label}</span></Link>)}<button ref={moreButton} type="button" className={secondaryLinks.some(([href]) => pathname === href) ? "active" : ""} aria-expanded={moreOpen} aria-controls="mobile-more-panel" onClick={() => setMoreOpen(value => !value)}><i>•••</i><span>Lainnya</span></button></nav>
+    <nav className="mobile-nav">{primaryLinks.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""}><i>{navIcon(icon)}</i><span>{label}</span>{href === "/inbox" && inboxCount > 0 && <b className="nav-badge">{inboxCount}</b>}</Link>)}<button ref={moreButton} type="button" className={secondaryLinks.some(([href]) => pathname === href) ? "active" : ""} aria-expanded={moreOpen} aria-controls="mobile-more-panel" onClick={() => setMoreOpen(value => !value)}><i>•••</i><span>Lainnya</span></button></nav>
     {moreOpen && <div className="mobile-more" role="dialog" aria-modal="true" aria-label="Menu lainnya" onClick={() => setMoreOpen(false)}><div id="mobile-more-panel" className="mobile-more-panel" onClick={event => event.stopPropagation()}><div className="mobile-more-header"><b>Menu lainnya</b><button ref={closeMoreButton} type="button" aria-label="Tutup menu" onClick={() => setMoreOpen(false)}>×</button></div>{secondaryLinks.map(([href, label, icon]) => <Link key={href} href={href} className={pathname === href ? "active" : ""} onClick={() => setMoreOpen(false)}><i>{navIcon(icon)}</i>{label}</Link>)}</div></div>}
   </div>;
 }

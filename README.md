@@ -5,9 +5,12 @@ financial state; Go performs all financial mutations.
 
 ## Current phase
 
-The production baseline includes the canonical ledger, authentication, Gmail/Jago
-automation, Telegram text intake and review, generic financial-document intake,
-reconciliation, deterministic analytics, and aggregate-only LLM insights.
+The production baseline includes the canonical ledger, authentication, generic
+forwarded financial-email ingestion through Cloudflare, Telegram text intake and
+review, generic financial-document intake, reconciliation, deterministic
+analytics, and aggregate-only LLM insights. Gmail API ingestion is disconnected
+for the production household after the Cloudflare cutover; its temporary runtime
+code remains only until the Deploy 2 removal gate passes.
 
 The 2026 end-to-end remediation ships durable three-lane Telegram processing,
 bounded single-protocol LLM calls, canonical source/document review records,
@@ -23,8 +26,9 @@ Current delivery follows
 [`docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md):
 household onboarding and financial correctness first, followed by a routed web
 experience and a broader finance-scoped Telegram assistant. The responsive web
-application now separates Overview, Transactions, Analytics, Review Inbox,
-Documents, Household, and Settings. Budgeting remains a dormant backend
+application now separates Overview, Transactions, Analytics, Inbox, Documents,
+Household, and Settings. Inbox has distinct Transaction and Integration Action
+views; their APIs, authorization, and state remain separate. Budgeting remains a dormant backend
 capability, is not fetched by the frontend, and is not part of the active product experience. Progress
 and verification evidence are maintained in
 [`docs/MVP_COMPLETION_CHECKLIST.md`](docs/MVP_COMPLETION_CHECKLIST.md).
@@ -49,6 +53,20 @@ Confirming a category applies only to that transaction. A permanent merchant
 category rule is created only when the user separately chooses “remember this
 merchant” on the web or explicitly confirms the bound Telegram follow-up. OWNERs
 can inspect and disable these household-scoped rules at `/settings`.
+
+Financial-email sources are household-scoped listeners. A generated opaque
+`h_<32hex>@richmod.link` recipient selects the household; sender, subject, body,
+bank name, and LLM output never select it. Cloudflare stores raw RFC822 evidence
+in R2 and delivers it over the signed, SHA-verified endpoint
+`POST /finance/v1/email/inbond`. Setup/control email remains deterministic and
+appears under the Inbox Tindakan view without entering financial review, jobs,
+proposals, or ledger state.
+
+Production completed the Deploy 1 recipient activation on 4 September 2026.
+Authentication evidence from a real forwarded Jago debit-card notification
+validated `mx.cloudflare.net` with passing DKIM and DMARC; Gmail was atomically
+set to `DISCONNECTED`. Deploy 2 remains blocked until a new ACTIVE Cloudflare
+financial delivery, duplicate retry, and late-Gmail no-op are verified.
 
 The Transactions page provides household-scoped date, type, category, member,
 status, account, source, and text filters plus evidence/audit detail. Analytics

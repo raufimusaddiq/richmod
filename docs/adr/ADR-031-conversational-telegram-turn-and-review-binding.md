@@ -19,3 +19,7 @@ turns and review delivery are projections only.
 - Assistant/tool context persists in `telegram_conversation_turn`.
 - One native tool decision terminates each free-text model phase.
 - Review resolution remains household-scoped, audited, and deterministic.
+- Required review facts are collected in order. Later actions such as category
+  selection stay unavailable until an unknown merchant has been supplied.
+- Missing merchant or purpose reviews ask for a direct reply and expose only an
+  ignore action; Go advances their state after validating the bound reply.

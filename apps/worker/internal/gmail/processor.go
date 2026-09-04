@@ -74,6 +74,13 @@ func (p *Processor) SeedRenewalJobs(ctx context.Context) error {
 }
 
 func (p *Processor) RenewWatch(ctx context.Context, householdID string) error {
+	var active bool
+	if err := p.pool.QueryRow(ctx, `SELECT status IN ('CONNECTED','WATCH_ACTIVE','ERROR') FROM gmail_integration WHERE household_id=$1`, householdID).Scan(&active); err != nil {
+		return err
+	}
+	if !active {
+		return nil
+	}
 	refreshToken, err := p.refreshToken(ctx, householdID)
 	if err != nil {
 		return err
@@ -88,7 +95,7 @@ func (p *Processor) RenewWatch(ctx context.Context, householdID string) error {
 	}
 	expirationMilliseconds, _ := strconv.ParseInt(watch.Expiration, 10, 64)
 	expiration := time.UnixMilli(expirationMilliseconds)
-	_, err = p.pool.Exec(ctx, `UPDATE gmail_integration SET status='WATCH_ACTIVE',history_id=$2,watch_expiration=$3,updated_at=now() WHERE household_id=$1`, householdID, watch.HistoryID, expiration)
+	_, err = p.pool.Exec(ctx, `UPDATE gmail_integration SET status='WATCH_ACTIVE',history_id=$2,watch_expiration=$3,updated_at=now() WHERE household_id=$1 AND status IN ('CONNECTED','WATCH_ACTIVE','ERROR')`, householdID, watch.HistoryID, expiration)
 	return err
 }
 
@@ -98,7 +105,11 @@ func (p *Processor) ProcessHistory(ctx context.Context, payload HistoryPayload) 
 	err := p.pool.QueryRow(ctx, `
 		SELECT s.household_id,g.encrypted_refresh_token,COALESCE(g.history_id,'')
 		FROM source_event s JOIN gmail_integration g ON g.household_id=s.household_id
-		WHERE s.id=$1 AND s.source_type='SYSTEM'`, payload.SourceEventID).Scan(&householdID, &encryptedToken, &storedHistoryID)
+		WHERE s.id=$1 AND s.source_type='SYSTEM' AND g.status IN ('CONNECTED','WATCH_ACTIVE','ERROR')`, payload.SourceEventID).Scan(&householdID, &encryptedToken, &storedHistoryID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, updateErr := p.pool.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='gmail-history',parser_version='1' WHERE id=$1 AND source_type='SYSTEM'`, payload.SourceEventID)
+		return updateErr
+	}
 	if err != nil {
 		return fmt.Errorf("load Gmail notification: %w", err)
 	}
@@ -111,7 +122,7 @@ func (p *Processor) ProcessHistory(ctx context.Context, payload HistoryPayload) 
 	}
 	accessToken, err := p.client.accessToken(ctx, refreshToken)
 	if err != nil {
-		return err
+		return p.markIntegrationError(ctx, householdID, err)
 	}
 
 	latestHistoryID := payload.HistoryID
@@ -295,6 +306,13 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var gmailActive bool
+	if err := tx.QueryRow(ctx, `SELECT status IN ('CONNECTED','WATCH_ACTIVE','ERROR') FROM gmail_integration WHERE household_id=$1 FOR SHARE`, householdID).Scan(&gmailActive); err != nil {
+		return err
+	}
+	if !gmailActive {
+		return tx.Commit(ctx)
+	}
 	var sourceEventID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO source_event (household_id,source_type,external_id,received_at,payload_hash,processing_status,parser_name,parser_version)
@@ -308,7 +326,7 @@ func (p *Processor) ingestMessage(ctx context.Context, householdID string, messa
 		return err
 	}
 	if listenerFound {
-		if _, err := tx.Exec(ctx, `INSERT INTO bank_email_event(source_event_id,listener_id,observed_sender,gmail_message_id,subject,email_date,authentication_results,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, sourceEventID, listenerID, address.Address, message.ID, parsed.subject, parsed.emailDate, parsed.auth, parsed.body); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO bank_email_event(source_event_id,listener_id,observed_sender,message_id,subject,email_date,authentication_results,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, sourceEventID, listenerID, address.Address, message.ID, parsed.subject, parsed.emailDate, parsed.auth, parsed.body); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json,max_attempts) SELECT 'PROCESS_BANK_EMAIL','BACKGROUND',jsonb_build_object('source_event_id',$1::uuid,'shadow',false),5 WHERE NOT EXISTS (SELECT 1 FROM job WHERE type='PROCESS_BANK_EMAIL' AND payload_json->>'source_event_id'=$1::text AND status IN ('PENDING','RUNNING','SUCCEEDED'))`, sourceEventID); err != nil {

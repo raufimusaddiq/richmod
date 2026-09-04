@@ -5,9 +5,26 @@ import test from "node:test";
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("all Product Alignment routes exist", () => {
-  for (const route of ["page.js", "transactions/page.js", "analytics/page.js", "reviews/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
+  for (const route of ["page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
   }
+});
+
+test("one inbox exposes separate transaction and integration action views", () => {
+  const inbox = text("app/inbox/page.js");
+  const shell = text("app/components/AppShell.js");
+  assert.match(inbox, /\/api\/v1\/reviews/);
+  assert.match(inbox, /\/api\/v1\/integration-actions/);
+  assert.match(inbox, />Transaksi <b>/);
+  assert.match(inbox, />Tindakan <b>/);
+  assert.match(inbox, /Verifikasi penerusan/);
+  assert.match(inbox, /noopener noreferrer/);
+  assert.match(inbox, /memberships\?\.\[0\]\?\.role === "OWNER"/);
+  assert.match(inbox, /Pemilik household perlu menyelesaikan tindakan ini/);
+  assert.match(shell, /\["\/inbox", "Inbox", "✓"\]/);
+  assert.match(shell, /nav-badge/);
+  assert.match(text("app/reviews/page.js"), /redirect\("\/inbox\?view=transactions"\)/);
+  assert.match(text("app/actions/page.js"), /redirect\("\/inbox\?view=actions"\)/);
 });
 
 test("active frontend contains no budget requests or budget interface", () => {
@@ -123,8 +140,16 @@ test("mobile shell keeps navigation and dense actions usable", () => {
   assert.match(styles, /max-height:min\(82dvh,680px\);overflow-y:auto/);
 });
 
+test("email ingress controls stay grouped inside the integration card", () => {
+  const settings = text("app/settings/page.js");
+  const styles = text("app/globals.css");
+  assert.match(settings, /className="integration-actions"/);
+  assert.match(styles, /\.integration-actions\{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px\}/);
+  assert.match(styles, /\.integration-grid small\{[^}]*overflow-wrap:anywhere/);
+});
+
 test("web and Telegram share the same review object endpoint", () => {
-  assert.match(text("app/reviews/page.js"), /\/api\/v1\/reviews/);
+  assert.match(text("app/inbox/page.js"), /\/api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
   assert.match(text("app/components/ReviewCards.js"), /transactions\?id=/);
   assert.match(text("app/components/ReviewCards.js"), /missingFields\?\.includes\("merchant"\)/);
@@ -155,6 +180,7 @@ test("admin console keeps platform tabs and redacts sensitive payloads", () => {
   assert.match(admin, /\/api\/v1\/admin\/jobs/);
   assert.match(admin, /\/api\/v1\/admin\/llm\/summary/);
   assert.match(admin, /\/api\/v1\/admin\/logs/);
+  assert.match(text("../api/cmd/api/main.go"), /admin\/audit\/all/);
   assert.doesNotMatch(admin, /payload_json|last_error|prompt text|raw model output/);
 });
 
@@ -177,9 +203,20 @@ test("admin console adapts tables and drawer for mobile", () => {
   assert.match(styles, /\.admin-table td::before\{content:attr\(data-label\)/);
   assert.match(styles, /\.admin-drawer\{width:100%;padding:20px 16px 96px;border-left:0\}/);
   assert.match(styles, /\.mobile-more-header button\{display:grid;place-items:center;padding:0;line-height:1\}/);
-  assert.match(styles, /\.admin-table tr\{padding:16px/);
-  assert.match(styles, /\.admin-table td\{display:grid;grid-template-columns:minmax\(92px,.42fr\) minmax\(0,1fr\)/);
-  assert.match(styles, /\.admin-table td\{grid-template-columns:minmax\(88px,.4fr\) minmax\(0,1fr\);gap:8px\}/);
+  assert.match(styles, /\.admin-table\{min-width:0;border-collapse:separate;border-spacing:0 12px\}/);
+  assert.match(styles, /\.admin-table tr\{padding:13px 15px/);
+  assert.match(styles, /\.admin-table td\{display:grid;grid-template-columns:minmax\(92px,.42fr\) minmax\(0,1fr\);gap:8px;padding:5px 0;border:0;line-height:1\.35/);
+  assert.match(styles, /\.admin-table tr\{padding:12px 13px/);
+  assert.match(styles, /\.admin-table td\{grid-template-columns:minmax\(88px,.4fr\) minmax\(0,1fr\);gap:7px;padding:4px 0\}/);
+});
+
+test("admin audit defaults to combined bounded feed while retaining scoped views", () => {
+  const admin = text("app/admin/page.js");
+  assert.match(admin, /useState\("all"\)/);
+  assert.match(admin, /\/api\/v1\/admin\/audit\/all/);
+  assert.match(admin, /<option value="all">Semua<\/option>/);
+  assert.match(admin, /<option value="platform">Platform<\/option>/);
+  assert.match(admin, /<option value="household">Household<\/option>/);
 });
 
 test("admin user changes require confirmation", () => {

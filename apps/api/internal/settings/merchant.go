@@ -58,7 +58,7 @@ func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	if tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, household, in.NormalizedName).Scan(&id) != nil {
+	if tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) RETURNING id`, household, in.NormalizedName).Scan(&id) != nil {
 		jsonError(w, 400, "unable to create merchant")
 		return
 	}

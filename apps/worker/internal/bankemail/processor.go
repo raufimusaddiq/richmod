@@ -146,7 +146,7 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	var household, listenerID, bank, sender, subject, date, auth, body, messageID string
 	var receivedAt time.Time
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,s.received_at,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.gmail_message_id FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id WHERE s.id=$1 AND l.active`, payload.SourceEventID).Scan(&household, &receivedAt, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID)
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,s.received_at,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.message_id FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id WHERE s.id=$1 AND l.active`, payload.SourceEventID).Scan(&household, &receivedAt, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID)
 	if err != nil {
 		return fmt.Errorf("load bank email event: %w", err)
 	}
@@ -341,13 +341,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if result.AutoConfirm {
 		proposalStatus = "ACCEPTED"
 	}
-	description := value(extraction.Description)
-	if description == "" {
-		description = result.Description
-	}
-	if extraction.Review != nil && strings.TrimSpace(extraction.Review.Summary) != "" {
-		description = strings.TrimSpace(extraction.Review.Summary)
-	}
+	description := ledgerDescription(extraction, result)
 	merchant := value(extraction.Merchant)
 	counterparty := value(extraction.Counterparty)
 	reference := value(extraction.Reference)
@@ -379,7 +373,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if transactionStatus == "NEEDS_REVIEW" {
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
-			message := "🏦 Transaksi bank perlu ditinjau\n\nNominal: Rp" + workerTelegram.FormatIDR(amount) + "\nKeterangan: " + description + "\n\nPilih kategori atau lengkapi detail transaksi."
+			message := bankReviewMessage(result.ReviewType, amount, *at, description)
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
 				return err
 			}
@@ -392,6 +386,28 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	return nil
+}
+
+func ledgerDescription(extraction Extraction, result PolicyResult) string {
+	description := value(extraction.Description)
+	if description == "" {
+		description = result.Description
+	}
+	return description
+}
+
+func bankReviewMessage(reviewType, amount string, transactionAt time.Time, description string) string {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		description = "Belum tersedia"
+	}
+	context := "Nominal: Rp" + workerTelegram.FormatIDR(amount) +
+		"\nWaktu: " + transactionAt.In(time.FixedZone("WIB", 7*60*60)).Format("02/01/2006 15:04") + " WIB" +
+		"\nKeterangan: " + description
+	if reviewType == "UNKNOWN_MERCHANT" || reviewType == "UNKNOWN_PURPOSE" {
+		return context
+	}
+	return "🏦 Transaksi bank perlu ditinjau\n\n" + context + "\n\nPilih kategori atau lengkapi detail transaksi."
 }
 
 type rowQuerier interface {
@@ -426,6 +442,6 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 	if len([]rune(normalized)) > 160 {
 		normalized = string([]rune(normalized)[:160])
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
 	return id, err
 }

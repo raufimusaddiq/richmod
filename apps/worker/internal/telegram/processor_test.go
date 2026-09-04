@@ -99,6 +99,20 @@ func TestExtractionPromptTreatsContextAsUntrusted(t *testing.T) {
 	if !strings.Contains(extractionPrompt, "untrusted data") || !strings.Contains(extractionPrompt, "bypass validation") {
 		t.Fatal("prompt must retain context/input injection guardrails")
 	}
+	if !strings.Contains(extractionPrompt, "clearly named purchased item or service") {
+		t.Fatal("prompt must direct clear purchases to an allowed category")
+	}
+}
+
+func TestClearExpenseCategoryAtEightyEightPercentAutoConfirms(t *testing.T) {
+	value := validatedExtraction{Type: "EXPENSE", Confidence: 0.98, CategoryConfidence: 0.88}
+	if !shouldAutoConfirmTransaction(value, true) {
+		t.Fatal("clear valid category should not create avoidable review")
+	}
+	value.CategoryConfidence = 0.84
+	if shouldAutoConfirmTransaction(value, true) || shouldAutoConfirmTransaction(value, false) {
+		t.Fatal("low-confidence or unknown category must remain reviewable")
+	}
 }
 
 func TestAssistantRangesUseJakartaCalendarBoundaries(t *testing.T) {
