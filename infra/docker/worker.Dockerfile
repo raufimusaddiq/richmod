@@ -1,4 +1,4 @@
-FROM golang:1.24.1-alpine AS build
+FROM golang:1.27.0-alpine AS build
 WORKDIR /src
 COPY apps/worker/go.mod ./apps/worker/
 WORKDIR /src/apps/worker
