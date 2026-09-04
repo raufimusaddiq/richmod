@@ -1,0 +1,44 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Verified main commit SHA to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - name: Verify release is on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "${{ inputs.sha }}" origin/main
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.PROD_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Pull immutable images and deploy
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.PROD_DEPLOY_USER }}
+        run: |
+          printf '%s\n' "$GHCR_TOKEN" | ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd /home/ubuntu/richmod && RICHMOD_GIT_SHA='${{ inputs.sha }}' RICHMOD_IMAGE_TAG='sha-${{ inputs.sha }}' RICHMOD_IMAGE_REGISTRY='ghcr.io/${{ github.repository_owner }}' GHCR_USERNAME='x-access-token' ./infra/deploy/release.sh"

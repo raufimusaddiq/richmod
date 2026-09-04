@@ -20,6 +20,7 @@ services:
     restart: unless-stopped
 
   migrate:
+    image: ${RICHMOD_MIGRATE_IMAGE:-family-finance-migrate:latest}
     build:
       context: .
       dockerfile: infra/docker/migrate.Dockerfile
@@ -34,6 +35,7 @@ services:
     restart: "no"
 
   api:
+    image: ${RICHMOD_API_IMAGE:-family-finance-api:latest}
     build:
       context: .
       dockerfile: infra/docker/api.Dockerfile
@@ -76,6 +78,7 @@ services:
     restart: unless-stopped
 
   worker:
+    image: ${RICHMOD_WORKER_IMAGE:-family-finance-worker:latest}
     build:
       context: .
       dockerfile: infra/docker/worker.Dockerfile
@@ -112,6 +115,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: ${RICHMOD_WEB_IMAGE:-family-finance-web:latest}
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile

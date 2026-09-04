@@ -41,6 +41,39 @@ docker exec idx-caddy caddy validate --config /etc/caddy/Caddyfile --adapter cad
 docker exec idx-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
 
+## GitHub release-image and deployment workflow
+
+Production builds must move off the host. `Release Images` runs after a
+successful `main` CI run and publishes immutable API, worker, web, and migration
+images to GHCR tagged `sha-<full-main-commit>`. It does not deploy.
+
+`Deploy Production` is manual-only and uses the GitHub `production` Environment;
+configure required reviewers there before its first use. It accepts only a commit
+already reachable from `main`. The job sends the ephemeral GitHub token over SSH
+stdin for one GHCR login, pulls exact immutable images, runs migrations, restarts
+the application with `--no-build`, checks public health, and logs out of GHCR.
+Runtime secrets remain only in `/opt/family-finance/finance.env`.
+
+Configure these GitHub Environment secrets without storing them in the repo or
+`finance.env`:
+
+```text
+PROD_DEPLOY_HOST
+PROD_DEPLOY_USER
+PROD_DEPLOY_SSH_KEY
+PROD_DEPLOY_KNOWN_HOSTS
+```
+
+The server deployment worktree must remain clean, be checked out on `main`, and
+have Docker Compose access. GHCR packages must remain linked to this repository
+so the ephemeral repository token can pull them. If package access changes,
+repair package repository access; do not add registry credentials to the runtime
+environment file.
+
+Rollback is a new manual `Deploy Production` run using a previously verified
+main SHA whose four images exist in GHCR. Never use `docker compose up --build`
+for a release-image deployment.
+
 Before first login, run the one-time owner bootstrap and supply the owner's numeric
 Telegram user ID with `--telegram-user-id`. Then register
 `https://finance.investdx.biz.id/webhooks/telegram` with Telegram using the same
