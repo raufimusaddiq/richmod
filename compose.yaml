@@ -20,6 +20,7 @@ services:
     restart: unless-stopped
 
   migrate:
+    image: ${RICHMOD_MIGRATE_IMAGE:-family-finance-migrate:latest}
     build:
       context: .
       dockerfile: infra/docker/migrate.Dockerfile
@@ -34,6 +35,7 @@ services:
     restart: "no"
 
   api:
+    image: ${RICHMOD_API_IMAGE:-family-finance-api:latest}
     build:
       context: .
       dockerfile: infra/docker/api.Dockerfile
@@ -45,13 +47,24 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       LLM_GATEWAY_BASE_URL: ${LLM_GATEWAY_BASE_URL:-}
       LLM_GATEWAY_API_KEY: ${LLM_GATEWAY_API_KEY:-}
+      LLM_GATEWAY_PROTOCOL: ${LLM_GATEWAY_PROTOCOL:-responses}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       GMAIL_OAUTH_CLIENT_PATH: ${GMAIL_OAUTH_CLIENT_PATH:-}
       GMAIL_MAILBOX: ${GMAIL_MAILBOX:-}
       GMAIL_TOKEN_ENCRYPTION_KEY: ${GMAIL_TOKEN_ENCRYPTION_KEY:-}
       GMAIL_PUBSUB_AUDIENCE: ${GMAIL_PUBSUB_AUDIENCE:-}
       GMAIL_PUBSUB_SERVICE_ACCOUNT: ${GMAIL_PUBSUB_SERVICE_ACCOUNT:-}
+      EMAIL_INGRESS_HMAC_SECRET: ${EMAIL_INGRESS_HMAC_SECRET:-}
+      EMAIL_INGRESS_DOMAIN: ${EMAIL_INGRESS_DOMAIN:-richmod.link}
+      EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS: ${EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS:-}
       DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_REGION: ${OSS_REGION:-}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_PREFIX: ${OSS_PREFIX:-richmod}
+      OSS_ACCESS_KEY: ${OSS_ACCESS_KEY:-}
+      OSS_SECRET_KEY: ${OSS_SECRET_KEY:-}
     volumes:
       - attachment_data:/var/lib/finance/attachments
     depends_on:
@@ -65,6 +78,7 @@ services:
     restart: unless-stopped
 
   worker:
+    image: ${RICHMOD_WORKER_IMAGE:-family-finance-worker:latest}
     build:
       context: .
       dockerfile: infra/docker/worker.Dockerfile
@@ -73,18 +87,25 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       LLM_GATEWAY_BASE_URL: ${LLM_GATEWAY_BASE_URL:-}
       LLM_GATEWAY_API_KEY: ${LLM_GATEWAY_API_KEY:-}
+      LLM_GATEWAY_PROTOCOL: ${LLM_GATEWAY_PROTOCOL:-responses}
       LLM_MODEL_TELEGRAM_EXTRACT: ${LLM_MODEL_TELEGRAM_EXTRACT:-}
+      LLM_MODEL_BANK_EXTRACT: ${LLM_MODEL_BANK_EXTRACT:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       GMAIL_OAUTH_CLIENT_PATH: ${GMAIL_OAUTH_CLIENT_PATH:-}
       GMAIL_MAILBOX: ${GMAIL_MAILBOX:-}
       GMAIL_TOKEN_ENCRYPTION_KEY: ${GMAIL_TOKEN_ENCRYPTION_KEY:-}
-      GMAIL_TRUSTED_SENDER: ${GMAIL_TRUSTED_SENDER:-}
       GMAIL_PUBSUB_TOPIC: ${GMAIL_PUBSUB_TOPIC:-}
       DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_REGION: ${OSS_REGION:-}
+      OSS_BUCKET: ${OSS_BUCKET:-}
+      OSS_PREFIX: ${OSS_PREFIX:-richmod}
+      OSS_ACCESS_KEY: ${OSS_ACCESS_KEY:-}
+      OSS_SECRET_KEY: ${OSS_SECRET_KEY:-}
       LLM_MODEL_DOCUMENT_VISION: ${LLM_MODEL_DOCUMENT_VISION:-}
       LLM_MODEL_INSIGHTS: ${LLM_MODEL_INSIGHTS:-}
     volumes:
-      - attachment_data:/var/lib/finance/attachments:ro
+      - attachment_data:/var/lib/finance/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -94,6 +115,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: ${RICHMOD_WEB_IMAGE:-family-finance-web:latest}
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile
@@ -117,9 +139,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-/repository}
       RESTIC_PASSWORD_FILE: ${RESTIC_PASSWORD_FILE:-/run/secrets/restic-password}
-      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
-      AWS_DEFAULT_REGION: ${BACKUP_S3_REGION:-}
+      AWS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY:-${BACKUP_S3_ACCESS_KEY_ID:-}}
+      AWS_SECRET_ACCESS_KEY: ${OSS_SECRET_KEY:-${BACKUP_S3_SECRET_ACCESS_KEY:-}}
+      AWS_DEFAULT_REGION: ${OSS_REGION:-${BACKUP_S3_REGION:-}}
     volumes:
       - backup_data:/repository
       - attachment_data:/var/lib/finance/attachments:ro

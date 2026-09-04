@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -30,9 +31,11 @@ type screenshotRow struct {
 }
 
 type screenshotExtraction struct {
-	AccountHint  string          `json:"account_hint"`
-	Transactions []screenshotRow `json:"transactions"`
-	Confidence   float64         `json:"confidence"`
+	AccountHint   string          `json:"account_hint"`
+	Transactions  []screenshotRow `json:"transactions"`
+	PaymentStatus string          `json:"payment_status,omitempty"`
+	DueDate       *string         `json:"due_date,omitempty"`
+	Confidence    float64         `json:"confidence"`
 }
 
 type validatedScreenshotRow struct {
@@ -43,7 +46,6 @@ type validatedScreenshotRow struct {
 	CategoryID    *string
 	Candidates    []matchCandidate
 	Matched       *matchCandidate
-	Ignored       bool
 }
 
 func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) error {
@@ -59,7 +61,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	if !screenshotType(documentType) {
 		return fmt.Errorf("document is not a supported transaction screenshot")
 	}
-	raw, err := p.readDocument(storageRef)
+	raw, err := p.readDocument(ctx, storageRef)
 	if err != nil {
 		return err
 	}
@@ -72,24 +74,28 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		slugs = append(slugs, category.Slug)
 	}
 	categoryJSON, _ := json.Marshal(slugs)
+	instruction := "Extract all completed transaction rows."
+	if documentType == "BILL_OR_INVOICE" {
+		instruction = "This may be an invoice or bill. Extract a row only when the document explicitly shows payment completed, success, or paid. If it is only an unpaid invoice or due notice, return no transaction rows."
+	}
 	content := []map[string]any{
-		{"type": "input_text", "text": "Extract all completed transaction rows. Allowed category slugs: " + string(categoryJSON)},
+		{"type": "input_text", "text": instruction + " Allowed category slugs: " + string(categoryJSON)},
 		{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)},
 	}
-	var result screenshotExtraction
-	metadata, err := p.gateway.Structured(ctx, documentID, "document.screenshot.extract", screenshotPrompt, content, screenshotSchema(slugs), &result)
+	call, metadata, err := p.gateway.NativeToolCall(ctx, documentID, screenshotPrompt, content, []gateway.ToolDefinition{{Name: "extract_transaction_screenshot", Description: "Extract visible completed transaction rows only; do not create accounting records.", Parameters: screenshotSchema(slugs)}}, gateway.NativeToolOptions{Required: true})
 	if err != nil {
 		return err
 	}
-	rows, err := validateScreenshot(result, receivedAt, categories)
+	result, err := gateway.DecodeToolArguments[screenshotExtraction](call, "extract_transaction_screenshot")
+	if err != nil {
+		return fmt.Errorf("invalid screenshot native tool arguments: %w", err)
+	}
+	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, err)
 	}
 	usedMatches := make(map[string]bool)
 	for index := range rows {
-		if rows[index].Ignored {
-			continue
-		}
 		matches, err := p.findMatches(ctx, householdID, rows[index].Type, rows[index].Value.Amount, rows[index].TransactionAt, rows[index].Value.Merchant, rows[index].DateKnown)
 		if err != nil {
 			return err
@@ -120,16 +126,19 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 
 func screenshotType(value string) bool {
 	switch value {
-	case "BANK_TRANSACTION_SCREENSHOT", "EWALLET_SCREENSHOT", "TRANSACTION_HISTORY_SCREENSHOT", "TRANSFER_PROOF":
+	case "BANK_TRANSACTION_SCREENSHOT", "EWALLET_SCREENSHOT", "TRANSACTION_HISTORY_SCREENSHOT", "TRANSFER_PROOF", "BILL_OR_INVOICE":
 		return true
 	default:
 		return false
 	}
 }
 
-func validateScreenshot(value screenshotExtraction, receivedAt time.Time, categories []categoryOption) ([]validatedScreenshotRow, error) {
+func validateScreenshot(value screenshotExtraction, receivedAt time.Time, categories []categoryOption, documentType string) ([]validatedScreenshotRow, error) {
 	if value.Confidence < 0 || value.Confidence > 1 || len(value.Transactions) == 0 || len(value.Transactions) > 50 || len([]rune(value.AccountHint)) > 160 {
 		return nil, fmt.Errorf("invalid screenshot extraction")
+	}
+	if documentType == "BILL_OR_INVOICE" && value.PaymentStatus != "PAID" {
+		return nil, fmt.Errorf("invoice payment status is not confirmed")
 	}
 	categoryIDs := make(map[string]string, len(categories))
 	for _, category := range categories {
@@ -159,7 +168,6 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 		if row.Direction == "IN" {
 			transactionType = "INCOME"
 		}
-		ignored := row.Direction == "IN" && strings.Contains(normalizeMerchant(value.AccountHint), "jago")
 		var categoryID *string
 		if row.Direction == "OUT" && row.CategorySlug != nil && row.CategoryConfidence >= .90 {
 			if id, ok := categoryIDs[*row.CategorySlug]; ok {
@@ -167,7 +175,7 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 				categoryID = &value
 			}
 		}
-		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, Ignored: ignored})
+		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID})
 	}
 	return result, nil
 }
@@ -182,18 +190,15 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	needsReview := false
 	for index, row := range rows {
 		proposalKey := fmt.Sprintf("row-%03d", index+1)
-		if row.Ignored {
-			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','IGNORE_JAGO_INCOMING_SCREENSHOT_ROW','source_event',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'amount',$5::text))`, householdID, sourceID, documentID, index, row.Value.Amount); err != nil {
-				return err
-			}
-			continue
-		}
 		if row.Matched != nil {
 			var proposalID string
 			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),NULLIF($8,''),$9,'MERGED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'matched_transaction_id',$12::uuid,'match_score',$13::numeric)) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.Value.Description, row.Value.Confidence, documentID, index, row.Matched.ID, row.Matched.Score).Scan(&proposalID); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric)) ON CONFLICT DO NOTHING; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($8,'WORKER','LINK_SCREENSHOT_EVIDENCE','transaction',$1,jsonb_build_object('document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric))`, row.Matched.ID, sourceID, row.Value.Confidence, proposalID, documentID, index, row.Matched.Score, householdID); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric)) ON CONFLICT DO NOTHING`, row.Matched.ID, sourceID, row.Value.Confidence, proposalID, documentID, index, row.Matched.Score); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_SCREENSHOT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'match_score',$5::numeric))`, householdID, row.Matched.ID, documentID, index, row.Matched.Score); err != nil {
 				return err
 			}
 			continue
@@ -202,7 +207,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		var merchantID *string
 		if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
 			var id string
-			if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,normalized_name) DO UPDATE SET updated_at=now() RETURNING id`, householdID, merchant).Scan(&id); err != nil {
+			if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, merchant).Scan(&id); err != nil {
 				return err
 			}
 			merchantID = &id
@@ -215,7 +220,10 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence) VALUES($1,$2,'NEEDS_REVIEW',$3,'IDR',$4,$5,$6,NULLIF($7,''),$8,$9) RETURNING id`, householdID, row.Type, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.Value.CategoryConfidence).Scan(&transactionID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer)); INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($7,'WORKER','CREATE_SCREENSHOT_REVIEW','transaction',$1,jsonb_build_object('document_id',$5::uuid,'row_index',$6::integer,'direction',$8::text))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index, householdID, row.Value.Direction); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_SCREENSHOT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text))`, householdID, transactionID, documentID, index, row.Value.Direction); err != nil {
 			return err
 		}
 		var chatID int64
@@ -239,7 +247,16 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	if needsReview {
 		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING; UPDATE document SET status=$5,updated_at=now() WHERE id=$1; UPDATE source_event SET processing_status=$6 WHERE id=$7; INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($8,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$7,jsonb_build_object('document_id',$1::uuid,'document_type',$9::text,'row_count',$10::integer,'needs_review',$11::boolean))`, documentID, string(output), value.Confidence, model, documentStatus, sourceStatus, sourceID, householdID, documentType, len(rows), needsReview); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status=$2,updated_at=now() WHERE id=$1`, documentID, documentStatus); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceID, sourceStatus); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean))`, householdID, sourceID, documentID, documentType, len(rows), needsReview); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -257,5 +274,5 @@ func screenshotSchema(slugs []string) map[string]any {
 		"merchant": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}, "category_slug": map[string]any{"type": []string{"string", "null"}, "enum": categoryValues},
 		"category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 	}, "required": []string{"direction", "amount", "currency", "transaction_at", "merchant", "description", "category_slug", "category_confidence", "confidence"}}
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 1, "maxItems": 50, "items": row}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "confidence"}}
+	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 0, "maxItems": 50, "items": row}, "payment_status": map[string]any{"type": []string{"string", "null"}, "enum": []any{"PAID", "UNPAID", "UNKNOWN", nil}}, "due_date": map[string]any{"type": []string{"string", "null"}, "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "payment_status", "due_date", "confidence"}}
 }

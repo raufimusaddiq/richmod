@@ -30,7 +30,7 @@ func TestParseMessageExtractsAuthenticatedHTML(t *testing.T) {
 		struct {
 			Name  string `json:"name"`
 			Value string `json:"value"`
-		}{Name: "From", Value: "Bank Jago <noreply@jago.com>"},
+		}{Name: "From", Value: "Bank Notification <notify@example.com>"},
 		struct {
 			Name  string `json:"name"`
 			Value string `json:"value"`
@@ -46,13 +46,38 @@ func TestParseMessageExtractsAuthenticatedHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.fromDomain != "jago.com" || parsed.subject == "" || parsed.html != body {
+	if parsed.fromDomain != "example.com" || parsed.subject == "" || parsed.html != body || parsed.body != body {
 		t.Fatalf("unexpected parsed message: %#v", parsed)
 	}
 }
 
+func TestParseMessageFallsBackToPlainTextBody(t *testing.T) {
+	body := "Your bank card transaction.\nMerchant: TOKOPEDIA\nTotal: IDR 378,075.00"
+	message := gmailMessage{ID: "message-plain-text"}
+	message.Payload.MimeType = "multipart/alternative"
+	message.Payload.Headers = append(message.Payload.Headers,
+		struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		}{Name: "From", Value: "Bank Notification <notify@example.com>"},
+		struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		}{Name: "Subject", Value: "d-Card Credit Card Transaction"},
+	)
+	message.Payload.Parts = []messagePart{{MimeType: "text/plain", Body: messageBody{Data: base64.RawURLEncoding.EncodeToString([]byte(body))}}}
+
+	parsed, err := parseMessage(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.fromDomain != "example.com" || parsed.html != "" || parsed.body != body {
+		t.Fatalf("unexpected parsed plain-text message: %#v", parsed)
+	}
+}
+
 func TestSenderDomain(t *testing.T) {
-	if got := senderDomain("NoReply@Jago.com"); got != "jago.com" {
+	if got := senderDomain("Notify@Example.com"); got != "example.com" {
 		t.Fatalf("senderDomain = %q", got)
 	}
 }

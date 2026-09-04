@@ -15,10 +15,64 @@ type fakeStore struct {
 	calls int
 }
 
+func (s *fakeStore) Link(_ context.Context, input CaptureInput, _ string) (bool, error) {
+	s.calls++
+	s.input = input
+	return true, s.err
+}
+
+func (s *fakeStore) CaptureImage(_ context.Context, input ImageInput) (bool, error) {
+	s.calls++
+	s.input = input.CaptureInput
+	return true, s.err
+}
+
 func (s *fakeStore) Capture(_ context.Context, input CaptureInput) (bool, error) {
 	s.calls++
 	s.input = input
 	return true, s.err
+}
+
+func (s *fakeStore) CaptureCallback(_ context.Context, input CaptureInput, _ string, _, _ int64) (bool, error) {
+	s.calls++
+	s.input = input
+	return true, s.err
+}
+
+func TestWebhookRoutesStartTokenToLinking(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":43,"message":{"from":{"id":456},"chat":{"type":"private"},"text":"/start abcdefghijklmnopqrstuvwxyz"}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 456 {
+		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
+	}
+}
+
+func TestWebhookCapturesLargestPrivatePhoto(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":44,"message":{"from":{"id":789},"chat":{"type":"private"},"caption":"slip gaji","photo":[{"file_id":"small","width":100,"height":100},{"file_id":"large","width":1000,"height":1000}]}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 789 {
+		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
+	}
+}
+
+func TestWebhookImageDoesNotDiscloseUnauthorizedIdentity(t *testing.T) {
+	store := &fakeStore{err: ErrUnauthorized}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":45,"message":{"from":{"id":999},"chat":{"type":"private"},"photo":[{"file_id":"photo","width":100,"height":100}]}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
 }
 
 func TestWebhookAuthenticatesAndCapturesPrivateText(t *testing.T) {
@@ -39,6 +93,45 @@ func TestWebhookAuthenticatesAndCapturesPrivateText(t *testing.T) {
 	}
 	if string(store.input.RawPayload) != body {
 		t.Fatal("raw evidence payload was not preserved")
+	}
+}
+
+func TestWebhookCapturesOnlyAllowlistedPrivateCallback(t *testing.T) {
+	store := &fakeStore{}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":46,"callback_query":{"id":"callback-1","from":{"id":123},"data":"review:own","message":{"message_id":99,"chat":{"id":123,"type":"private"}}}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 123 {
+		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":47,"callback_query":{"id":"callback-2","from":{"id":123},"data":"admin:delete","message":{"message_id":99,"chat":{"id":123,"type":"private"}}}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response = httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusNoContent || store.calls != 1 {
+		t.Fatalf("invalid callback was captured: status=%d calls=%d", response.Code, store.calls)
+	}
+}
+
+func TestEveryWorkerReviewCallbackPassesIngressValidation(t *testing.T) {
+	valid := []string{
+		"review:expense", "review:own", "review:household", "review:confirm", "review:change",
+		"review:remember", "review:once", "review:edit", "review:merchant", "review:description",
+		"review:category", "review:ignore", "review:cat:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
+		"review:catpage:0", "review:catpage:12",
+	}
+	for _, action := range valid {
+		if !validCallbackAction(action) {
+			t.Errorf("generated callback %q was rejected", action)
+		}
+	}
+	for _, action := range []string{"review:cat:", "review:cat:../../admin", "review:catpage:-1", "review:catpage:99999", "admin:delete"} {
+		if validCallbackAction(action) {
+			t.Errorf("unsafe callback %q was accepted", action)
+		}
 	}
 }
 

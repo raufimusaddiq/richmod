@@ -45,6 +45,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, principal)
 }
 
+func (h *Handler) AcceptDashboardInvite(w http.ResponseWriter, r *http.Request) {
+	var in struct { Token string `json:"token"`; Password string `json:"password"` }
+	if err:=decodeJSON(r,&in); err!=nil { writeJSON(w,400,map[string]string{"error":"invalid invite request"}); return }
+	p,tok,exp,err:=h.service.AcceptDashboardInvite(r.Context(),in.Token,in.Password); if err!=nil { writeJSON(w,401,map[string]string{"error":"invite is invalid or password is too weak"}); return }; h.setSessionCookie(w,tok,exp); writeJSON(w,200,p)
+}
+
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(SessionCookieName); err == nil {
 		if err := h.service.Logout(r.Context(), cookie.Value); err != nil {
@@ -85,6 +91,11 @@ func (h *Handler) RequireSession(next http.Handler) http.Handler {
 func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 	principal, ok := ctx.Value(contextKey{}).(Principal)
 	return principal, ok
+}
+
+// ContextWithPrincipal is used by authenticated internal handlers and tests.
+func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
+	return context.WithValue(ctx, contextKey{}, principal)
 }
 
 func (h *Handler) setSessionCookie(w http.ResponseWriter, token string, expiresAt time.Time) {

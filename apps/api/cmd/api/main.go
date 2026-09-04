@@ -3,25 +3,33 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/api/internal/admin"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/budget"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/emailingress"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/household"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/insight"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/integrationaction"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/operations"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/salary"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
 )
@@ -56,15 +64,22 @@ func run(logger *slog.Logger) error {
 	ledgerHandler := ledger.NewHandler(pool)
 	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
-	documentHandler, err := document.NewHandler(pool, cfg.DocumentStoragePath)
+	salaryHandler := salary.NewHandler(pool)
+	householdHandler := household.NewHandler(pool, cfg.TelegramBotUsername)
+	adminHandler := admin.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
+	documentStorage, err := blob.NewFromEnv(cfg.DocumentStoragePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("configure document storage: %w", err)
 	}
+	documentHandler := document.NewHandlerWithStorage(pool, documentStorage)
 	insightHandler := insight.NewHandler(pool)
-	operationsHandler := operations.NewHandler(pool)
+	integrationActionHandler := integrationaction.NewHandler(pool)
+	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
+	emailIngressHandler := emailingress.NewHandler(emailingress.NewService(pool, cfg.EmailIngressDomain, strings.Split(cfg.EmailIngressTrustedAuthservIDs, ",")), cfg.EmailIngressHMACSecret)
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
+	emailIngressLimiter := httpmw.NewLimiter(120, time.Minute)
 	var gmailHandler *gmail.Handler
 	if cfg.GmailOAuthClientPath != "" || cfg.GmailMailbox != "" || cfg.GmailTokenKey != "" {
 		client, err := gmail.LoadOAuthClient(cfg.GmailOAuthClientPath)
@@ -92,33 +107,82 @@ func run(logger *slog.Logger) error {
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
 	mux.Handle("POST /api/v1/auth/login", loginLimiter.Handler(http.HandlerFunc(authHandler.Login)))
+	mux.Handle("POST /api/v1/auth/dashboard-invites/accept", loginLimiter.Handler(http.HandlerFunc(authHandler.AcceptDashboardInvite)))
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.Handle("GET /api/v1/auth/me", authHandler.RequireSession(http.HandlerFunc(authHandler.Me)))
+	mux.Handle("GET /api/v1/household", authHandler.RequireSession(http.HandlerFunc(householdHandler.Get)))
+	mux.Handle("GET /api/v1/household/members", authHandler.RequireSession(http.HandlerFunc(householdHandler.Members)))
+	mux.Handle("POST /api/v1/household/members", authHandler.RequireSession(http.HandlerFunc(householdHandler.Members)))
+	mux.Handle("PATCH /api/v1/household/members/{id}", authHandler.RequireSession(http.HandlerFunc(householdHandler.PatchMember)))
+	mux.Handle("POST /api/v1/household/members/{id}/telegram-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.CreateInvite)))
+	mux.Handle("DELETE /api/v1/household/members/{id}/telegram-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.RevokeInvite)))
+	mux.Handle("POST /api/v1/household/members/{id}/dashboard-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.CreateDashboardInvite)))
+	mux.Handle("DELETE /api/v1/household/members/{id}/dashboard-invite", authHandler.RequireSession(http.HandlerFunc(householdHandler.RevokeDashboardInvite)))
+	mux.Handle("GET /api/v1/admin/users", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Users))))
+	mux.Handle("PATCH /api/v1/admin/users/{id}", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.PatchUser))))
+	mux.Handle("GET /api/v1/admin/households", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Households))))
+	mux.Handle("GET /api/v1/admin/households/{householdId}/members", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Members))))
+	mux.Handle("POST /api/v1/admin/households/{householdId}/members", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.AddMember))))
+	mux.Handle("GET /api/v1/admin/households/{householdId}/overview", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.HouseholdOverview))))
+	mux.Handle("GET /api/v1/admin/overview", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Overview))))
+	mux.Handle("GET /api/v1/admin/jobs", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Jobs))))
+	mux.Handle("GET /api/v1/admin/jobs/{id}", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Job))))
+	mux.Handle("GET /api/v1/admin/llm/summary", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.LLMSummary))))
+	mux.Handle("GET /api/v1/admin/llm/calls", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.LLMCalls))))
+	mux.Handle("GET /api/v1/admin/logs", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Logs))))
+	mux.Handle("GET /api/v1/admin/audit/platform", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.PlatformAudit))))
+	mux.Handle("GET /api/v1/admin/audit/household", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.HouseholdAudit))))
+	mux.Handle("GET /api/v1/admin/audit/all", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.AllAudit))))
 	mux.Handle("POST /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.CreateManualTransaction)))
 	mux.Handle("GET /api/v1/transactions", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ListTransactions)))
 	mux.Handle("GET /api/v1/transactions/{id}", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.GetTransaction)))
 	mux.Handle("POST /api/v1/transactions/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.ConfirmTransaction)))
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
+	mux.Handle("GET /api/v1/transactions/{id}/audit", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Audit)))
 	mux.Handle("GET /api/v1/reviews", authHandler.RequireSession(http.HandlerFunc(reviewHandler.List)))
+	mux.Handle("POST /api/v1/reviews/{id}/resolve", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Resolve)))
 	mux.Handle("POST /api/v1/reviews/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Confirm)))
 	mux.Handle("POST /api/v1/reviews/{id}/reject", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Reject)))
 	mux.Handle("POST /api/v1/reviews/{id}/merge", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Merge)))
+	mux.Handle("POST /api/v1/reviews/{id}/classify-transfer", authHandler.RequireSession(http.HandlerFunc(reviewHandler.ClassifyTransfer)))
 	mux.Handle("POST /api/v1/reconciliation-merges/{id}/reverse", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Unmerge)))
 	mux.Handle("GET /api/v1/documents", authHandler.RequireSession(http.HandlerFunc(documentHandler.List)))
 	mux.Handle("POST /api/v1/documents", authHandler.RequireSession(http.HandlerFunc(documentHandler.Upload)))
 	mux.Handle("GET /api/v1/documents/{id}/content", authHandler.RequireSession(http.HandlerFunc(documentHandler.Content)))
+	mux.Handle("GET /api/v1/documents/{id}/pages", authHandler.RequireSession(http.HandlerFunc(documentHandler.Pages)))
+	mux.Handle("GET /api/v1/documents/{id}/pages/{index}/content", authHandler.RequireSession(http.HandlerFunc(documentHandler.PageContent)))
 	mux.Handle("GET /api/v1/documents/{id}/extraction", authHandler.RequireSession(http.HandlerFunc(documentHandler.Extraction)))
 	mux.Handle("GET /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
 	mux.Handle("POST /api/v1/accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Accounts)))
+	mux.Handle("PATCH /api/v1/accounts/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchAccount)))
 	mux.Handle("GET /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
 	mux.Handle("POST /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
+	mux.Handle("PATCH /api/v1/categories/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchCategory)))
 	mux.Handle("GET /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
 	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))
+	mux.Handle("GET /api/v1/merchant-aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.MerchantAliases)))
+	mux.Handle("PATCH /api/v1/merchant-aliases/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchMerchantAlias)))
+	mux.Handle("GET /api/v1/known-accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.KnownAccounts)))
+	mux.Handle("POST /api/v1/known-accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.KnownAccounts)))
+	mux.Handle("PATCH /api/v1/known-accounts/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchKnownAccount)))
+	mux.Handle("GET /api/v1/bank-email-listeners", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
+	mux.Handle("POST /api/v1/bank-email-listeners", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
+	mux.Handle("PATCH /api/v1/bank-email-listeners/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
+	mux.Handle("GET /api/v1/integrations/email-ingress", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Integration)))
+	mux.Handle("POST /api/v1/integrations/email-ingress", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Integration)))
+	mux.Handle("POST /api/v1/integrations/email-ingress/activate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Activate)))
+	mux.Handle("POST /api/v1/integrations/email-ingress/rotate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Rotate)))
+	mux.Handle("GET /api/v1/integration-actions", authHandler.RequireSession(http.HandlerFunc(integrationActionHandler.List)))
+	mux.Handle("POST /api/v1/integration-actions/{id}/resolve", authHandler.RequireSession(http.HandlerFunc(integrationActionHandler.Resolve)))
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
 	mux.Handle("GET /api/v1/analytics/spending", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Spending)))
 	mux.Handle("GET /api/v1/analytics/cashflow", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cashflow)))
+	mux.Handle("GET /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
+	mux.Handle("POST /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
+	mux.Handle("GET /api/v1/analytics/cycle", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cycle)))
+	mux.Handle("GET /api/v1/analytics/cycle/daily", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.CycleDaily)))
 	mux.Handle("GET /api/v1/analytics/categories", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Categories)))
 	mux.Handle("GET /api/v1/analytics/merchants", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Merchants)))
 	mux.Handle("GET /api/v1/analytics/members", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Members)))
@@ -129,6 +193,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/insights/generate", authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate)))
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
 	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
+	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))
 	if gmailHandler != nil {
 		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))
 		mux.HandleFunc("GET /api/v1/integrations/gmail/callback", gmailHandler.Callback)

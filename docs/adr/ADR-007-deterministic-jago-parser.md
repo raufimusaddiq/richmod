@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Superseded by ADR-025.
 
 ## Decision
 
@@ -14,8 +14,10 @@ before Review Inbox handling; it is never blindly posted.
 transfers, incoming money, pocket movements, and RDN movements by subject family.
 It reads semantic HTML labels, parses whole IDR amounts and Jakarta timestamps,
 and requires the configured mailbox/domain plus passing DKIM and DMARC metadata.
-Incoming, pocket, and RDN events are ignored by the spending ledger; unknown
-outgoing transfers require review.
+Incoming, pocket, and RDN events are ignored by the spending ledger. Outgoing
+transfers use a neutral `UNCLASSIFIED` proposal/transaction while unresolved;
+known-account policy or an explicitly bound web/Telegram decision performs the
+final deterministic classification.
 
 Gmail authorization uses the minimum read-only scope. OAuth state is single-use
 and expires after ten minutes; the callback verifies the authorized Gmail profile
@@ -25,6 +27,11 @@ household-bound associated data before PostgreSQL storage.
 Pub/Sub push requests require a Google-signed OIDC bearer token with the exact
 configured audience and verified service-account email. Notifications are deduped
 by Pub/Sub message ID, preserved as evidence, and queued before acknowledgement.
+Both standard wrapped Pub/Sub JSON and authenticated unwrapped payload delivery
+are accepted. Unwrapped messages use `x-goog-pubsub-message-id` when metadata is
+enabled; otherwise a SHA-256 payload identity provides deterministic replay
+deduplication. Wrapped Gmail data is decoded as the Base64URL format required by
+the Gmail push contract; bounded nested Pub/Sub/CloudEvent wrappers are accepted.
 Notification evidence uses the `SYSTEM` source type; fetched Gmail messages use
 `BANK_EMAIL` and retain the Gmail message ID for idempotency. The worker refreshes
 the encrypted OAuth credential, walks `history.list`, fetches only added messages,

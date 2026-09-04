@@ -12,26 +12,58 @@ jobs:
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.4-alpine
+        env:
+          POSTGRES_DB: family_finance_test
+          POSTGRES_USER: family_finance_test
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U family_finance_test -d family_finance_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: 1.24.1
           cache-dependency-path: |
             apps/api/go.sum
             apps/worker/go.sum
+      - name: Migrate integration database
+        env:
+          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
+          goose -dir db/migrations postgres "$TEST_DATABASE_URL" up
+      - name: Reject multi-command prepared SQL
+        run: |
+          if rg -n ';[[:space:]]*(UPDATE|INSERT|DELETE|SELECT)' apps/api apps/worker -g '*.go'; then
+            echo 'Split SQL commands into separate transaction-scoped Exec calls.' >&2
+            exit 1
+          fi
       - name: Test API
         working-directory: apps/api
+        env:
+          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
         run: go test ./...
       - name: Test worker
         working-directory: apps/worker
+        env:
+          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
         run: go test ./...
       - name: Vet API
         working-directory: apps/api
@@ -43,8 +75,8 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.14.0
           cache: npm
@@ -57,11 +89,14 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
         run: npm run build
+      - name: Test web
+        working-directory: apps/web
+        run: npm test
 
   containers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate Compose
         env:
           POSTGRES_DB: family_finance

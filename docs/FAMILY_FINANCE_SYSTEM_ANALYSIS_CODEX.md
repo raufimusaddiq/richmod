@@ -1,6 +1,8 @@
 # Family Finance OS — System Analysis, Product Specification, and Codex Development Guide
 
-**Status:** Source of truth for MVP development  
+**Status:** Historical MVP blueprint. Current product direction is governed by
+[`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md), and delivery
+status is tracked in [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md).
 **Primary implementation target:** Codex  
 **Backend:** Go  
 **Frontend:** JavaScript / Next.js / React  
@@ -10,6 +12,12 @@
 **Primary automated spending source:** Bank Jago transaction email  
 **MVP scope:** Household income + expense tracking only  
 **Explicitly deferred:** Assets, stocks, mutual funds, gold, crypto, portfolio valuation, broker integration
+
+> Product Alignment v2 supersedes conflicting product-experience requirements in
+> this blueprint. Budgeting is dormant/optional rather than part of the active UI,
+> outgoing Jago transfers remain neutral until classified, and merchant
+> auto-learning requires a separate explicit opt-in. The deterministic
+> architecture and evidence/audit requirements below remain binding.
 
 ---
 
@@ -97,9 +105,6 @@ MVP includes:
 - canonical transaction ledger;
 - income;
 - expense;
-- transfers;
-- refunds;
-- adjustments;
 - Bank Jago email ingestion;
 - Jago-specific `SPENDING_ONLY` policy;
 - Telegram bot;
@@ -129,6 +134,9 @@ MVP includes:
 
 Do NOT implement during MVP:
 
+- canonical transfer creation and transfer-ledger workflows;
+- refund creation workflows;
+- adjustment creation workflows;
 - stock portfolio;
 - broker API;
 - broker statement processing;
@@ -1934,6 +1942,12 @@ Redact:
 
 # 31. Gmail Integration
 
+> Migration note (4 September 2026): Gmail OAuth/Watch/PubSub is temporary
+> during the two-deploy Cloudflare email-ingress migration in ADR-033. The
+> long-term application ingress is the generated `richmod.link` recipient;
+> Gmail remains only as forwarding source after cutover. Retain this section
+> as historical behavior until Deploy 2 removes the runtime.
+
 If Gmail is used:
 
 ```text
@@ -2832,6 +2846,10 @@ Required:
 ---
 
 # 52. Acceptance Criteria
+
+Current completion evidence and known gaps are maintained in
+[`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md). The criteria below
+remain normative; a roadmap phase heading does not itself indicate completion.
 
 ## 52.1 Foundation
 

@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,6 +14,7 @@ func TestValidateExtractionUsesWholeIDRAndJakartaYesterday(t *testing.T) {
 	category := "makan-di-luar"
 
 	validated, err := validateExtraction(extraction{
+		Language:           "id",
 		Intent:             "ADD_EXPENSE",
 		Amount:             &amount,
 		Currency:           &currency,
@@ -48,7 +50,8 @@ func TestValidateExtractionRejectsNonIDRAndFractionalAmount(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := validateExtraction(extraction{
-				Intent: "ADD_EXPENSE", Amount: &test.amount, Currency: &test.currency,
+				Language: "id",
+				Intent:   "ADD_EXPENSE", Amount: &test.amount, Currency: &test.currency,
 				Confidence: 0.9, CategoryConfidence: 0.9,
 			}, now)
 			if err == nil {
@@ -67,5 +70,82 @@ func TestExtractionSchemaRequiresEveryFieldAndRejectsExtras(t *testing.T) {
 	required := schema["required"].([]string)
 	if len(required) != len(properties) {
 		t.Fatalf("required fields = %d, properties = %d", len(required), len(properties))
+	}
+}
+
+func TestExtractionSchemaSupportsMultipleExpenseItems(t *testing.T) {
+	properties := extractionSchema()["properties"].(map[string]any)
+	items := properties["items"].(map[string]any)
+	if items["type"] != "array" || items["maxItems"] != 10 {
+		t.Fatalf("items schema = %#v", items)
+	}
+	itemSchema := items["items"].(map[string]any)
+	itemProperties := itemSchema["properties"].(map[string]any)
+	typeSchema := itemProperties["type"].(map[string]any)
+	if got := typeSchema["enum"].([]string); len(got) != 2 || got[0] != "INCOME" || got[1] != "EXPENSE" {
+		t.Fatalf("batch item types = %#v", got)
+	}
+}
+
+func TestValidateExtractionRejectsUnsupportedLanguage(t *testing.T) {
+	amount, currency := "1000", "IDR"
+	_, err := validateExtraction(extraction{Language: "fr", Intent: "ADD_EXPENSE", Amount: &amount, Currency: &currency}, time.Now().In(jakartaLocation()))
+	if err == nil {
+		t.Fatal("accepted unsupported language")
+	}
+}
+
+func TestExtractionPromptTreatsContextAsUntrusted(t *testing.T) {
+	if !strings.Contains(extractionPrompt, "untrusted data") || !strings.Contains(extractionPrompt, "bypass validation") {
+		t.Fatal("prompt must retain context/input injection guardrails")
+	}
+	if !strings.Contains(extractionPrompt, "clearly named purchased item or service") {
+		t.Fatal("prompt must direct clear purchases to an allowed category")
+	}
+}
+
+func TestClearExpenseCategoryAtEightyEightPercentAutoConfirms(t *testing.T) {
+	value := validatedExtraction{Type: "EXPENSE", Confidence: 0.98, CategoryConfidence: 0.88}
+	if !shouldAutoConfirmTransaction(value, true) {
+		t.Fatal("clear valid category should not create avoidable review")
+	}
+	value.CategoryConfidence = 0.84
+	if shouldAutoConfirmTransaction(value, true) || shouldAutoConfirmTransaction(value, false) {
+		t.Fatal("low-confidence or unknown category must remain reviewable")
+	}
+}
+
+func TestAssistantRangesUseJakartaCalendarBoundaries(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 14, 0, 0, 0, jakartaLocation())
+	period := "THIS_WEEK"
+	got, err := resolveAssistantRange(now, &period, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.From.Format(time.RFC3339) != "2026-08-24T00:00:00+07:00" || got.To.Format(time.RFC3339) != "2026-08-31T00:00:00+07:00" {
+		t.Fatalf("range=%s..%s", got.From.Format(time.RFC3339), got.To.Format(time.RFC3339))
+	}
+}
+
+func TestAssistantCustomRangeIsBounded(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 14, 0, 0, 0, jakartaLocation())
+	period, from, to := "CUSTOM", "2024-01-01", "2026-08-01"
+	if _, err := resolveAssistantRange(now, &period, &from, &to); err == nil {
+		t.Fatal("accepted disclosure range over one year")
+	}
+}
+
+func TestCallbackTextContainsNoTransactionIdentity(t *testing.T) {
+	if got := callbackText("review:own"); got != "rekening sendiri" {
+		t.Fatalf("callback=%q", got)
+	}
+	if got := callbackText("transaction:00000000-0000-0000-0000-000000000000"); got != "" {
+		t.Fatalf("untrusted callback accepted: %q", got)
+	}
+}
+
+func TestStaleReviewCallbackUsesSuccessReply(t *testing.T) {
+	if !strings.Contains("✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.", "sudah selesai") {
+		t.Fatal("stale review callback must acknowledge completed review")
 	}
 }

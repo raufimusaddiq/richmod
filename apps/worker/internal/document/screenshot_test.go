@@ -14,7 +14,7 @@ func TestValidateScreenshotKeepsRowsIndependent(t *testing.T) {
 		{Direction: "OUT", Amount: "75000", Currency: "IDR", TransactionAt: &outAt, Merchant: "Warung", CategorySlug: &food, CategoryConfidence: .94, Confidence: .97},
 		{Direction: "IN", Amount: "100000", Currency: "IDR", TransactionAt: &inAt, Merchant: "Teman", CategoryConfidence: 0, Confidence: .92},
 	}}
-	rows, err := validateScreenshot(input, received, []categoryOption{{ID: "category-id", Slug: food}})
+	rows, err := validateScreenshot(input, received, []categoryOption{{ID: "category-id", Slug: food}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,29 +25,33 @@ func TestValidateScreenshotKeepsRowsIndependent(t *testing.T) {
 
 func TestValidateScreenshotRejectsOneInvalidRowInsteadOfDroppingIt(t *testing.T) {
 	input := screenshotExtraction{Confidence: .9, Transactions: []screenshotRow{{Direction: "OUT", Amount: "10.5", Currency: "IDR", Confidence: .9}}}
-	if _, err := validateScreenshot(input, time.Now().In(jakarta()), nil); err == nil {
+	if _, err := validateScreenshot(input, time.Now().In(jakarta()), nil, ""); err == nil {
 		t.Fatal("expected the extraction to enter review")
 	}
 }
 
 func TestSupportedScreenshotTypes(t *testing.T) {
-	for _, value := range []string{"BANK_TRANSACTION_SCREENSHOT", "EWALLET_SCREENSHOT", "TRANSACTION_HISTORY_SCREENSHOT", "TRANSFER_PROOF"} {
+	for _, value := range []string{"BANK_TRANSACTION_SCREENSHOT", "EWALLET_SCREENSHOT", "TRANSACTION_HISTORY_SCREENSHOT", "TRANSFER_PROOF", "BILL_OR_INVOICE"} {
 		if !screenshotType(value) {
 			t.Fatalf("expected supported type %s", value)
 		}
 	}
-	if screenshotType("BILL_OR_INVOICE") {
-		t.Fatal("invoice must not be processed as payment evidence")
+}
+
+func TestValidateInvoiceRequiresPaidStatus(t *testing.T) {
+	input := screenshotExtraction{AccountHint: "wallet", PaymentStatus: "UNPAID", Confidence: 1, Transactions: []screenshotRow{{Direction: "OUT", Amount: "50000", Currency: "IDR", Merchant: "PLN", Description: "listrik", Confidence: 1}}}
+	if _, err := validateScreenshot(input, time.Now().In(jakarta()), nil, "BILL_OR_INVOICE"); err == nil {
+		t.Fatal("expected unpaid invoice to require review")
 	}
 }
 
-func TestJagoIncomingScreenshotIsIgnoredBySpendingOnlyPolicy(t *testing.T) {
-	input := screenshotExtraction{AccountHint: "Bank Jago", Confidence: .95, Transactions: []screenshotRow{{Direction: "IN", Amount: "100000", Currency: "IDR", Confidence: .95}}}
-	rows, err := validateScreenshot(input, time.Now().In(jakarta()), nil)
+func TestIncomingScreenshotRowsRemainIncomeCandidates(t *testing.T) {
+	input := screenshotExtraction{AccountHint: "Primary bank", Confidence: .95, Transactions: []screenshotRow{{Direction: "IN", Amount: "100000", Currency: "IDR", Confidence: .95}}}
+	rows, err := validateScreenshot(input, time.Now().In(jakarta()), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || !rows[0].Ignored {
-		t.Fatalf("Jago incoming row must be retained but ignored: %+v", rows)
+	if len(rows) != 1 || rows[0].Type != "INCOME" {
+		t.Fatalf("incoming row must remain an income candidate: %+v", rows)
 	}
 }
