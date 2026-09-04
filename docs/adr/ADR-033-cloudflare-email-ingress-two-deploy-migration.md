@@ -27,6 +27,14 @@ PROVISIONED transport do not require `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS`; an
 ACTIVE delivery with that configuration missing is recorded as ignored and
 logged without creating financial state.
 
+While an address is `PROVISIONED`, a deterministic control-email dispatcher may
+recognize setup messages such as Gmail forwarding confirmation and create a
+generic `integration_action`. These actions appear in a separate Integration
+Action Inbox. They never enter `source_event`, `bank_email_event`,
+`PROCESS_BANK_EMAIL`, the financial Review Inbox, proposals, the ledger, or the
+LLM. Verification URLs are visible only to household owners, require an explicit
+Google host/path allowlist, and are opened only by the user's browser.
+
 ## Invariants
 
 - recipient, never sender or LLM output, selects household;

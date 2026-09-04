@@ -5,9 +5,19 @@ import test from "node:test";
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("all Product Alignment routes exist", () => {
-  for (const route of ["page.js", "transactions/page.js", "analytics/page.js", "reviews/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
+  for (const route of ["page.js", "transactions/page.js", "analytics/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
   }
+});
+
+test("integration actions stay separate from financial reviews", () => {
+  const actions = text("app/actions/page.js");
+  const shell = text("app/components/AppShell.js");
+  assert.match(actions, /\/api\/v1\/integration-actions/);
+  assert.match(actions, /Verifikasi penerusan/);
+  assert.match(actions, /noopener noreferrer/);
+  assert.match(shell, /\["\/actions", "Tindakan", "!"\]/);
+  assert.match(shell, /nav-badge/);
 });
 
 test("active frontend contains no budget requests or budget interface", () => {
