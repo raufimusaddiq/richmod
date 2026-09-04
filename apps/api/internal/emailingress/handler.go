@@ -121,10 +121,6 @@ func (h *Handler) change(w http.ResponseWriter, r *http.Request, operation strin
 		writeJSON(w, 409, map[string]string{"error": "provisioned email ingress address required"})
 		return
 	}
-	if errors.Is(err, ErrActivationNotReady) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "verify one forwarded email and configure trusted authserv IDs before activation"})
-		return
-	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to " + operation + " email ingress"})
 		return

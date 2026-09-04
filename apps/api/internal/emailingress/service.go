@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -19,8 +20,6 @@ const (
 	StatusActive      = "ACTIVE"
 	StatusDisabled    = "DISABLED"
 )
-
-var ErrActivationNotReady = errors.New("email ingress transport verification and trusted authserv configuration required")
 
 type Service struct {
 	pool             *pgxpool.Pool
@@ -143,16 +142,6 @@ func (s *Service) Rotate(ctx context.Context, householdID, userID string) (Addre
 }
 
 func (s *Service) Activate(ctx context.Context, householdID, userID string) error {
-	trustedConfigured := false
-	for _, value := range s.trustedAuthservs {
-		if strings.TrimSpace(value) != "" {
-			trustedConfigured = true
-			break
-		}
-	}
-	if !trustedConfigured {
-		return ErrActivationNotReady
-	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -161,13 +150,6 @@ func (s *Service) Activate(ctx context.Context, householdID, userID string) erro
 	var addressID string
 	if err = tx.QueryRow(ctx, `SELECT id FROM email_ingress_address WHERE household_id=$1 AND purpose='BANK_EMAIL' AND status='PROVISIONED' FOR UPDATE`, householdID).Scan(&addressID); err != nil {
 		return err
-	}
-	var transportVerified bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM email_ingress_delivery WHERE address_id=$1 AND status='PROVISIONED_RECEIVED')`, addressID).Scan(&transportVerified); err != nil {
-		return err
-	}
-	if !transportVerified {
-		return ErrActivationNotReady
 	}
 	if _, err = tx.Exec(ctx, `UPDATE email_ingress_address SET status='ACTIVE',activated_at=now() WHERE id=$1`, addressID); err != nil {
 		return err
@@ -216,7 +198,10 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 		return tx.Commit(ctx)
 	}
 	if address.Status == StatusActive {
-		if !authTrusted(in.Email.AuthenticationResults+"\n"+in.Email.ARCAuthenticationResults, s.trustedAuthservs) {
+		if !trustedAuthConfigured(s.trustedAuthservs) {
+			status, reason = "IGNORED_AUTH", "TRUSTED_AUTHSERV_UNCONFIGURED"
+			slog.ErrorContext(ctx, "active email ingress rejected because trusted authserv configuration is unavailable", "household_id", address.HouseholdID, "address_id", address.ID)
+		} else if !authTrusted(in.Email.AuthenticationResults+"\n"+in.Email.ARCAuthenticationResults, s.trustedAuthservs) {
 			status, reason = "IGNORED_AUTH", "UNTRUSTED_AUTHENTICATION"
 		} else {
 			var listenerID string
@@ -243,6 +228,15 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func trustedAuthConfigured(values []string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) persistActive(ctx context.Context, tx pgx.Tx, address Address, listenerID string, in deliveryInput) error {

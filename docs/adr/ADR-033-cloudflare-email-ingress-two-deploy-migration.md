@@ -22,7 +22,10 @@ Cutover atomically activates the address and disconnects Gmail. Gmail runtime
 code and tables are removed only in Deploy 2, after a real production
 forwarding transaction has passed. Authentication-service policy remains
 configuration-driven and cannot be finalized until a real forwarded `.eml`
-has been inspected; no bank or sender is hardcoded.
+has been inspected; no bank or sender is hardcoded. Deploy 1 boot and
+PROVISIONED transport do not require `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS`; an
+ACTIVE delivery with that configuration missing is recorded as ignored and
+logged without creating financial state.
 
 ## Invariants
 

@@ -36,11 +36,41 @@ func TestSignedRequestVerify(t *testing.T) {
 	if err := tamperedRecipient.verify(body, "secret", time.Unix(ts, 0)); err == nil {
 		t.Fatal("changed recipient accepted with original signature")
 	}
+	tamperedEnvelope := signed
+	tamperedEnvelope.EnvelopeFrom = "other@example.test"
+	if err := tamperedEnvelope.verify(body, "secret", time.Unix(ts, 0)); err == nil {
+		t.Fatal("changed envelope sender accepted with original signature")
+	}
+	tamperedHash := signed
+	tamperedHash.ContentHash[0] ^= 0xff
+	if err := tamperedHash.verify(body, "secret", time.Unix(ts, 0)); err == nil {
+		t.Fatal("changed SHA accepted")
+	}
 	if err := signed.verify(body, "secret", time.Unix(ts+301, 0)); err == nil {
 		t.Fatal("stale timestamp accepted")
 	}
+	if err := signed.verify(body, "secret", time.Unix(ts-301, 0)); err == nil {
+		t.Fatal("future timestamp accepted")
+	}
 	if _, err := parseSignedHeaders(recipient, envelope, strconv.FormatInt(ts, 10), "not-hex", hex.EncodeToString(mac.Sum(nil)), "<id>", "raw/key.eml", "richmod.link"); err == nil {
 		t.Fatal("invalid hash accepted")
+	}
+}
+
+func TestRandomLocalPart(t *testing.T) {
+	first, err := randomLocalPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := randomLocalPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recipientPattern.MatchString(first + "@richmod.link") {
+		t.Fatalf("invalid local part %q", first)
+	}
+	if first == second {
+		t.Fatal("generated addresses are not unique")
 	}
 }
 

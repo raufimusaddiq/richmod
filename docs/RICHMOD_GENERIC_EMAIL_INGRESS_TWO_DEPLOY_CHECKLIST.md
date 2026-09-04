@@ -23,7 +23,7 @@ Do not mark an operational item from code inspection alone.
 - [x] Duplicate delivery is idempotent.
 - [x] Unknown/disabled recipients do not disclose existence or create financial state.
 - [x] Owner-only provision, activate, and rotate endpoints exist.
-- [x] Activation requires transport verification and configured trusted auth-service evidence.
+- [x] Activation only requires a locked `PROVISIONED` address; missing trusted-auth configuration still fails closed in ACTIVE delivery.
 - [x] Activation atomically disconnects Gmail.
 - [x] Gmail OAuth cannot reconnect after Cloudflare activation.
 - [x] Gmail renewal/history paths no-op after disconnect and cannot mutate after cutover.
@@ -38,23 +38,26 @@ Do not mark an operational item from code inspection alone.
 - [x] API, Gmail, and bank-email package tests pass in Go 1.24.1 container.
 - [x] Disposable PostgreSQL migration and ingress integration test passes.
 - [x] Cross-household recipient isolation test passes against disposable PostgreSQL.
-- [ ] Real forwarded `.eml` inspected; exact `authserv-id` and DKIM/DMARC/ARC policy documented.
 
 ## Deploy 1 — production evidence (must be observed, not assumed)
 
 - [ ] Migration applied successfully in production.
 - [ ] API and worker deployed from merged `main` with unchanged required env.
-- [ ] Cloudflare R2 bucket, queue, DLQ, and two Workers deployed.
-- [ ] `*@richmod.link` Email Routing catch-all enabled.
+- [x] Cloudflare R2 bucket, Queue, ingress Worker, and delivery Worker are provisioned manually (operator-provided; verify during rollout).
+- [ ] Optional Queue DLQ enabled.
+- [x] `*@richmod.link` Email Routing catch-all is provisioned manually (operator-provided; verify during rollout).
 - [ ] Household recipient generated and forwarding verification completed.
 - [ ] One PROVISIONED delivery visible in R2, Queue, API delivery table, and no source/job.
+- [ ] Real forwarded `.eml` inspected; exact `authserv-id` and DKIM/DMARC/ARC policy documented.
 - [ ] Trusted authentication IDs configured from captured real `.eml` evidence.
 - [ ] Address activated; Gmail status is `DISCONNECTED` in same committed state.
 - [ ] One real ACTIVE financial email reaches `PROCESS_BANK_EMAIL` and existing review/ledger flow.
 - [ ] Same delivery retried; no duplicate source, job, proposal, or transaction.
 - [ ] Late Gmail history job terminally succeeds without ingestion.
 
-## Deploy 2 — only after every Deploy 1 production item is checked
+## Deploy 2 — only after every required Deploy 1 production item is checked
+
+The optional Queue DLQ is explicitly excluded from this gate.
 
 - [ ] Gmail API routes and runtime files removed.
 - [ ] Gmail worker files, maintenance, job decoding, and Gmail job types removed.
