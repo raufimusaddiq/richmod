@@ -135,6 +135,14 @@ test("mobile shell keeps navigation and dense actions usable", () => {
   assert.match(styles, /max-height:min\(82dvh,680px\);overflow-y:auto/);
 });
 
+test("email ingress controls stay grouped inside the integration card", () => {
+  const settings = text("app/settings/page.js");
+  const styles = text("app/globals.css");
+  assert.match(settings, /className="integration-actions"/);
+  assert.match(styles, /\.integration-actions\{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px\}/);
+  assert.match(styles, /\.integration-grid small\{[^}]*overflow-wrap:anywhere/);
+});
+
 test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/reviews/page.js"), /\/api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
