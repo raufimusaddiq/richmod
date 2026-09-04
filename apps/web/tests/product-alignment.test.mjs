@@ -16,6 +16,8 @@ test("integration actions stay separate from financial reviews", () => {
   assert.match(actions, /\/api\/v1\/integration-actions/);
   assert.match(actions, /Verifikasi penerusan/);
   assert.match(actions, /noopener noreferrer/);
+  assert.match(actions, /memberships\?\.\[0\]\?\.role === "OWNER"/);
+  assert.match(actions, /Pemilik household perlu menyelesaikan tindakan ini/);
   assert.match(shell, /\["\/actions", "Tindakan", "!"\]/);
   assert.match(shell, /nav-badge/);
 });
