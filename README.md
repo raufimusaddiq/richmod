@@ -1,107 +1,125 @@
-# Family Finance
+# Richmod
 
-Self-hosted household income and expense tracking. PostgreSQL is the canonical
-financial state; Go performs all financial mutations.
+Richmod helps a household understand where its money went without turning
+personal finance into a second job.
 
-## Current phase
+It gathers income and expense evidence from forwarded financial emails,
+Telegram messages, and uploaded documents; turns clear facts into ledger
+entries; and sends anything uncertain to a human for review. The result is a
+shared financial record that stays useful without asking an LLM to guess.
 
-The production baseline includes the canonical ledger, authentication, generic
-forwarded financial-email ingestion through Cloudflare, Telegram text intake and
-review, generic financial-document intake, reconciliation, deterministic
-analytics, and aggregate-only LLM insights. Gmail API ingestion is disconnected
-for the production household after the Cloudflare cutover; its temporary runtime
-code remains only until the Deploy 2 removal gate passes.
+Richmod is self-hosted. PostgreSQL is the source of truth, Go owns every
+financial state change, and deterministic features keep working when the LLM
+gateway is unavailable.
 
-The 2026 end-to-end remediation ships durable three-lane Telegram processing,
-bounded single-protocol LLM calls, canonical source/document review records,
-first-payslip confirmation before income creation, shared salary-cycle bounds,
-manual ledger creation, and multipage document viewing. Real second-sender bank
-acceptance and off-host backup verification remain explicitly pending.
+## What you can do
 
-Telegram webhook ingress is database-only. Callback actions are durably queued on
-an isolated interactive lane and acknowledged by the worker before deterministic
-review processing. Queue lane assignment is enforced by PostgreSQL.
+- Track household income and expenses in one canonical ledger.
+- Forward financial notifications through a private Richmod email address.
+- Record or review transactions from Telegram.
+- Upload receipts, payslips, invoices, transfer proofs, and other financial
+  documents.
+- Resolve incomplete or ambiguous information from the same Inbox on web or
+  Telegram.
+- Explore deterministic spending, category, merchant, member, and salary-cycle
+  analytics.
+- Keep raw evidence and audit history attached to the decisions they support.
 
-Current delivery follows
-[`docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md):
-household onboarding and financial correctness first, followed by a routed web
-experience and a broader finance-scoped Telegram assistant. The responsive web
-application now separates Overview, Transactions, Analytics, Inbox, Documents,
-Household, and Settings. Inbox has distinct Transaction and Integration Action
-views; their APIs, authorization, and state remain separate. Budgeting remains a dormant backend
-capability, is not fetched by the frontend, and is not part of the active product experience. Progress
-and verification evidence are maintained in
-[`docs/MVP_COMPLETION_CHECKLIST.md`](docs/MVP_COMPLETION_CHECKLIST.md).
+The web app is organized around Overview, Transactions, Analytics, Inbox,
+Documents, Household, and Settings. Inbox keeps financial reviews and
+integration actions in separate views so setup work never masquerades as a
+transaction problem.
 
-OWNER users can manage household members at `/household`. Telegram is linked by
-an expiring, single-use bot invitation; the recipient proves ownership by opening
-the invite and sending `/start` from their own Telegram account. Raw invitation
-tokens are returned only at creation and are stored as hashes.
+## How Richmod treats financial data
 
-Authorized household members may send a JPEG/PNG photo or image document directly
-to the Telegram bot. It is downloaded asynchronously with strict size and image
-validation, normalized into the generic finance-document pipeline, and then
-classified as a payslip, receipt, screenshot, transfer proof, invoice, or other
-supported document. A caption is context metadata, never mutation authority.
+Richmod is intentionally conservative:
 
-Bank Jago outgoing transfers remain neutral and absent from spending totals until
-classified. Masked known-account hints can resolve owned/household destinations
-to TRANSFER and investment destinations to non-spending. Unknown destinations are
-resolved through the same Review Inbox object on web or Telegram.
+- PostgreSQL holds canonical financial state.
+- Money is never represented with floating-point values.
+- Every mutation is household-scoped and auditable.
+- Source evidence is preserved; deduplication links evidence instead of
+  deleting it.
+- LLM output is treated as untrusted input and validated by Go before anything
+  reaches the ledger.
+- Ambiguity becomes a review item. It is not silently guessed.
 
-Confirming a category applies only to that transaction. A permanent merchant
-category rule is created only when the user separately chooses “remember this
-merchant” on the web or explicitly confirms the bound Telegram follow-up. OWNERs
-can inspect and disable these household-scoped rules at `/settings`.
+Merchant learning follows the same rule. Choosing a category once changes only
+that transaction. A permanent merchant rule is created only after a separate,
+explicit confirmation.
 
-Financial-email sources are household-scoped listeners. A generated opaque
-`h_<32hex>@richmod.link` recipient selects the household; sender, subject, body,
-bank name, and LLM output never select it. Cloudflare stores raw RFC822 evidence
-in R2 and delivers it over the signed, SHA-verified endpoint
-`POST /finance/v1/email/inbond`. Setup/control email remains deterministic and
-appears under the Inbox Tindakan view without entering financial review, jobs,
-proposals, or ledger state.
+## Ways data enters Richmod
 
-Production completed the Deploy 1 recipient activation on 4 September 2026.
-Authentication evidence from a real forwarded Jago debit-card notification
-validated `mx.cloudflare.net` with passing DKIM and DMARC; Gmail was atomically
-set to `DISCONNECTED`. Deploy 2 remains blocked until a new ACTIVE Cloudflare
-financial delivery, duplicate retry, and late-Gmail no-op are verified.
+### Financial email
 
-The Transactions page provides household-scoped date, type, category, member,
-status, account, source, and text filters plus evidence/audit detail. Analytics
-supports deterministic 3-, 6-, 12-month and bounded custom ranges. Recharts is
-used only to render Go/SQL-calculated values; the browser does not calculate
-authoritative financial totals.
+Each household receives an opaque address shaped like
+`h_<32hex>@richmod.link`. That signed recipient selects the household; sender,
+subject, body, institution name, and LLM output never do.
 
-All finance calendar logic and database sessions operate in `Asia/Jakarta`
-(GMT+7), while persisted instants use `TIMESTAMPTZ`.
+Cloudflare stores the original RFC822 message in R2, then sends it to
+`POST /finance/v1/email/inbond` with HMAC and content-hash verification.
+Forwarding setup messages appear as integration actions and never enter the
+financial pipeline.
 
-## First owner bootstrap
+### Telegram
 
-Once migrations have run, create the initial owner exactly once. Pass the
-password through standard input so it is not recorded in shell history:
+Household members link Telegram with an expiring, single-use invitation. Text,
+images, documents, and review replies are processed asynchronously. Review
+replies remain bound to the transaction they were sent for rather than relying
+on the LLM to infer context.
+
+### Documents
+
+Receipts, payslips, screenshots, transfer proofs, invoices, and transaction
+histories share one evidence pipeline. Extraction may use the LLM gateway, but
+Go validates the result and decides whether it becomes a proposal, enriches an
+existing transaction, or needs review.
+
+## Current production status
+
+Generic Cloudflare email ingress is active. On September 4, 2026, a real
+forwarded Jago notification verified the trusted authentication path and Gmail
+API ingestion was atomically disconnected for the production household.
+
+The temporary Gmail runtime remains in the repository until the Deploy 2 gate
+is complete. A new ACTIVE financial delivery, duplicate retry, and late-Gmail
+no-op still need final verification. Real second-sender acceptance and an
+off-host backup restore exercise also remain open.
+
+For current product scope and verification evidence, see
+[`docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
+and [`docs/MVP_COMPLETION_CHECKLIST.md`](docs/MVP_COMPLETION_CHECKLIST.md).
+
+## Run locally
+
+1. Copy `.env.example` to `.env` and replace every placeholder.
+2. Run `docker compose up --build`.
+3. Open `http://localhost:8080/healthz` and
+   `http://localhost:8080/readyz`.
+
+Compose binds application ports to loopback. Production uses host-managed Caddy
+for TLS and receives secrets from the existing host environment; secrets do not
+belong in the repository.
+
+## Create the first owner
+
+Bootstrap can run exactly once. Pass the password through standard input so it
+does not land in shell history:
 
 ```text
 printf '%s\n' 'use-a-unique-12-plus-character-password' | docker compose exec -T api /bootstrap --email owner@example.com --name 'Owner Name' --household 'My Household'
 ```
 
-The command creates the owner and household atomically, seeds Indonesian
-categories, and refuses to run again after an owner exists.
+This creates the first OWNER, household, and Indonesian category seeds in one
+transaction. Web sessions expire after 24 hours of inactivity and renew on each
+authenticated request.
 
-Web sessions expire after 24 hours of inactivity. Each authenticated request
-renews the expiry by another 24 hours.
+## Shipping changes
 
-## Local startup
+Pull requests and pushes to `main` run secret scanning, Go tests and vet,
+database-backed integration tests, frontend tests, the Next.js production
+build, Compose validation, and production image builds.
 
-1. Copy `.env.example` to `.env` and replace every placeholder with secure values.
-2. Run `docker compose up --build`.
-3. Check `http://localhost:8080/healthz` and `http://localhost:8080/readyz`.
-
-The compose ports bind to loopback only. Production uses the host-managed Caddy
-instance for TLS at `finance.investdx.biz.id`; see the production deployment
-runbook. Secrets must be supplied externally.
-
-Every push to `main` and pull request runs Go tests and vet, database-backed
-integration tests, frontend tests, the Next.js production build, Compose
-validation, and all production container builds.
+Successful `main` builds publish immutable images to GHCR. Production deploys
+are manual and approval-gated; the server pulls those images, runs migrations,
+and restarts services without building locally. See
+[`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployment.md).
