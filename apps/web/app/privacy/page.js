@@ -10,12 +10,12 @@ export default function PrivacyPage() {
     <Link className="public-legal-brand" href="/">Richmod</Link>
     <span className="eyebrow">KEBIJAKAN PRIVASI</span>
     <h1>Kebijakan Privasi</h1>
-    <p className="public-legal-updated">Terakhir diperbarui: 2 September 2026</p>
+    <p className="public-legal-updated">Terakhir diperbarui: 4 September 2026</p>
     <p>Richmod membantu household mencatat dan memahami pemasukan serta pengeluaran. Halaman ini menjelaskan data yang kami proses dan cara kami menjaganya.</p>
     <h2>Data yang diproses</h2>
-    <p>Kami memproses data akun, data household, transaksi, dokumen yang Anda kirimkan, serta data integrasi yang Anda aktifkan seperti Gmail atau Telegram. Data tersebut digunakan hanya untuk menyediakan fitur pencatatan, review, dan analisis keuangan.</p>
-    <h2>Integrasi Gmail</h2>
-    <p>Jika Anda menghubungkan Gmail, Richmod menggunakan akses baca yang diberikan untuk mengambil notifikasi keuangan yang relevan. Token OAuth disimpan terenkripsi. Anda dapat mencabut akses kapan saja dari Google Account atau Pengaturan Richmod.</p>
+    <p>Kami memproses data akun, data household, transaksi, dokumen yang Anda kirimkan, serta integrasi email atau Telegram yang Anda aktifkan. Data tersebut digunakan hanya untuk menyediakan fitur pencatatan, review, dan analisis keuangan.</p>
+    <h2>Notifikasi email keuangan</h2>
+    <p>Richmod dapat memberi Anda alamat penerusan khusus untuk notifikasi keuangan. Email mentah yang diteruskan disimpan sebagai bukti pada penyimpanan terpisah dan hanya diproses bila alamat household, pengirim listener, dan bukti autentikasi email lolos pemeriksaan. Selama masa migrasi, Gmail OAuth lama dapat tetap digunakan hingga pemilik household mengaktifkan alamat penerusan.</p>
     <h2>Penyimpanan dan keamanan</h2>
     <p>Data keuangan disimpan dengan pembatasan berbasis household. Dokumen dan backup disimpan terenkripsi pada penyimpanan terpisah. Kami tidak menjual data pribadi atau menggunakannya untuk iklan.</p>
     <h2>Kontak</h2>

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/budget"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/emailingress"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/household"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/insight"
@@ -72,8 +74,10 @@ func run(logger *slog.Logger) error {
 	insightHandler := insight.NewHandler(pool)
 	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
+	emailIngressHandler := emailingress.NewHandler(emailingress.NewService(pool, cfg.EmailIngressDomain, strings.Split(cfg.EmailIngressTrustedAuthservIDs, ",")), cfg.EmailIngressHMACSecret)
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
+	emailIngressLimiter := httpmw.NewLimiter(120, time.Minute)
 	var gmailHandler *gmail.Handler
 	if cfg.GmailOAuthClientPath != "" || cfg.GmailMailbox != "" || cfg.GmailTokenKey != "" {
 		client, err := gmail.LoadOAuthClient(cfg.GmailOAuthClientPath)
@@ -164,6 +168,10 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/bank-email-listeners", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
 	mux.Handle("POST /api/v1/bank-email-listeners", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
 	mux.Handle("PATCH /api/v1/bank-email-listeners/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.BankEmailListeners)))
+	mux.Handle("GET /api/v1/integrations/email-ingress", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Integration)))
+	mux.Handle("POST /api/v1/integrations/email-ingress", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Integration)))
+	mux.Handle("POST /api/v1/integrations/email-ingress/activate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Activate)))
+	mux.Handle("POST /api/v1/integrations/email-ingress/rotate", authHandler.RequireSession(http.HandlerFunc(emailIngressHandler.Rotate)))
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
 	mux.Handle("GET /api/v1/analytics/spending", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Spending)))
 	mux.Handle("GET /api/v1/analytics/cashflow", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cashflow)))
@@ -181,6 +189,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/insights/generate", authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate)))
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
 	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
+	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))
 	if gmailHandler != nil {
 		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))
 		mux.HandleFunc("GET /api/v1/integrations/gmail/callback", gmailHandler.Callback)

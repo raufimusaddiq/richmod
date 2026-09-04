@@ -35,7 +35,8 @@ endpoint alone does not complete a user-facing feature.
 
 - [x] Owner bootstrap, Argon2id auth, sliding 24-hour sessions, and roles.
 - [x] Canonical ledger, evidence, lifecycle, audit, reconciliation, and Review APIs.
-- [x] Gmail/Jago ingestion with sender authentication and idempotency.
+- [x] Bank-email ingestion with sender authentication and idempotency (Gmail
+  migration path; Cloudflare generic ingress staged under ADR-033).
 - [x] Gmail Pub/Sub accepts authenticated wrapped and unwrapped push delivery.
 - [x] Telegram text transaction intake and bound review replies.
 - [x] Generic web and Telegram document intake for payslips, receipts,

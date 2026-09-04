@@ -78,7 +78,7 @@ canonical ledger
 transaction evidence
 audit log
 manual transaction input
-Gmail integration
+Gmail integration (migration-only while Cloudflare email ingress is staged)
 deterministic Bank Jago parser
 Jago SPENDING_ONLY handling for incoming/pocket/RDN
 Telegram natural-language income/expense input
@@ -93,6 +93,12 @@ transaction screenshot extraction
 analytics endpoints
 LLM insight generation
 ```
+
+Inbound bank email architecture is now staged under ADR-033: generated
+household recipients at `richmod.link`, Cloudflare R2/Queue transport, HMAC
+delivery to Go, and the existing generic `PROCESS_BANK_EMAIL` pipeline.
+Deploy 2 removes Gmail application access only after the Deploy 1 production
+gate is evidenced.
 
 Do not rewrite these components unless required for correctness or product exposure.
 
