@@ -10,7 +10,7 @@ Source: explicit Deploy-1 onboarding patch, 4 September 2026.
 - [x] Duplicate confirmation remains one OPEN action.
 - [x] OWNER receives URL/code; MEMBER receives redacted metadata; unrelated household receives nothing.
 - [x] Resolution is OWNER-only, household-scoped, and audited without URL/code.
-- [x] `/actions` is separate from `/reviews` and exposes a pending-count badge.
+- [x] One `/inbox` surface exposes separate Transaction and Integration Action views; storage, APIs, and resolution semantics remain isolated.
 - [ ] Production migration and deployment observed.
 - [ ] Real Gmail confirmation replayed/resent and shown in Integration Action Inbox.
 - [ ] External Gmail verification completed by the user.

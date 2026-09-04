@@ -440,7 +440,7 @@ Recommended routes:
 /
 /transactions
 /analytics
-/reviews
+/inbox?view=transactions
 /documents
 /household
 /settings

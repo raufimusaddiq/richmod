@@ -5,21 +5,26 @@ import test from "node:test";
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("all Product Alignment routes exist", () => {
-  for (const route of ["page.js", "transactions/page.js", "analytics/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
+  for (const route of ["page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
   }
 });
 
-test("integration actions stay separate from financial reviews", () => {
-  const actions = text("app/actions/page.js");
+test("one inbox exposes separate transaction and integration action views", () => {
+  const inbox = text("app/inbox/page.js");
   const shell = text("app/components/AppShell.js");
-  assert.match(actions, /\/api\/v1\/integration-actions/);
-  assert.match(actions, /Verifikasi penerusan/);
-  assert.match(actions, /noopener noreferrer/);
-  assert.match(actions, /memberships\?\.\[0\]\?\.role === "OWNER"/);
-  assert.match(actions, /Pemilik household perlu menyelesaikan tindakan ini/);
-  assert.match(shell, /\["\/actions", "Tindakan", "!"\]/);
+  assert.match(inbox, /\/api\/v1\/reviews/);
+  assert.match(inbox, /\/api\/v1\/integration-actions/);
+  assert.match(inbox, />Transaksi <b>/);
+  assert.match(inbox, />Tindakan <b>/);
+  assert.match(inbox, /Verifikasi penerusan/);
+  assert.match(inbox, /noopener noreferrer/);
+  assert.match(inbox, /memberships\?\.\[0\]\?\.role === "OWNER"/);
+  assert.match(inbox, /Pemilik household perlu menyelesaikan tindakan ini/);
+  assert.match(shell, /\["\/inbox", "Inbox", "✓"\]/);
   assert.match(shell, /nav-badge/);
+  assert.match(text("app/reviews/page.js"), /redirect\("\/inbox\?view=transactions"\)/);
+  assert.match(text("app/actions/page.js"), /redirect\("\/inbox\?view=actions"\)/);
 });
 
 test("active frontend contains no budget requests or budget interface", () => {
@@ -144,7 +149,7 @@ test("email ingress controls stay grouped inside the integration card", () => {
 });
 
 test("web and Telegram share the same review object endpoint", () => {
-  assert.match(text("app/reviews/page.js"), /\/api\/v1\/reviews/);
+  assert.match(text("app/inbox/page.js"), /\/api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
   assert.match(text("app/components/ReviewCards.js"), /transactions\?id=/);
   assert.match(text("app/components/ReviewCards.js"), /missingFields\?\.includes\("merchant"\)/);
