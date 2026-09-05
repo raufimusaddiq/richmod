@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in Richmod
+title: "bug: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Richmod. Do not include credentials, raw financial evidence, session tokens, forwarding verification links, or other secrets. Security-sensitive findings belong in the private security reporting path described in `SECURITY.md`.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and the behavior you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest reliable sequence that reproduces the issue.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Web app
+        - API
+        - Worker / jobs
+        - Telegram
+        - Financial email ingress
+        - Documents
+        - Analytics
+        - Deployment / operations
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit SHA, deployment context, browser, or other relevant version details.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove secrets and real financial data before attaching anything.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets and real financial data from this report.
+          required: true
+        - label: This is not a security vulnerability or household-isolation issue.
+          required: true
