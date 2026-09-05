@@ -17,11 +17,6 @@ type API struct {
 	LLMGatewayProtocol             string
 	TelegramWebhookSecret          string
 	TelegramBotUsername            string
-	GmailOAuthClientPath           string
-	GmailMailbox                   string
-	GmailTokenKey                  string
-	GmailPubSubAudience            string
-	GmailPubSubServiceAccount      string
 	EmailIngressHMACSecret         string
 	EmailIngressDomain             string
 	EmailIngressTrustedAuthservIDs string
@@ -39,11 +34,6 @@ func LoadAPI() (API, error) {
 		LLMGatewayProtocol:             valueOr("LLM_GATEWAY_PROTOCOL", "responses"),
 		TelegramWebhookSecret:          os.Getenv("TELEGRAM_WEBHOOK_SECRET"),
 		TelegramBotUsername:            os.Getenv("TELEGRAM_BOT_USERNAME"),
-		GmailOAuthClientPath:           os.Getenv("GMAIL_OAUTH_CLIENT_PATH"),
-		GmailMailbox:                   os.Getenv("GMAIL_MAILBOX"),
-		GmailTokenKey:                  os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"),
-		GmailPubSubAudience:            os.Getenv("GMAIL_PUBSUB_AUDIENCE"),
-		GmailPubSubServiceAccount:      os.Getenv("GMAIL_PUBSUB_SERVICE_ACCOUNT"),
 		EmailIngressHMACSecret:         os.Getenv("EMAIL_INGRESS_HMAC_SECRET"),
 		EmailIngressDomain:             valueOr("EMAIL_INGRESS_DOMAIN", "richmod.link"),
 		EmailIngressTrustedAuthservIDs: os.Getenv("EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS"),

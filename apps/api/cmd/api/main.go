@@ -20,7 +20,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/emailingress"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/gmail"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/household"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/insight"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/integrationaction"
@@ -80,18 +79,6 @@ func run(logger *slog.Logger) error {
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
 	emailIngressLimiter := httpmw.NewLimiter(120, time.Minute)
-	var gmailHandler *gmail.Handler
-	if cfg.GmailOAuthClientPath != "" || cfg.GmailMailbox != "" || cfg.GmailTokenKey != "" {
-		client, err := gmail.LoadOAuthClient(cfg.GmailOAuthClientPath)
-		if err != nil {
-			return err
-		}
-		gmailHandler, err = gmail.NewHandler(pool, client, cfg.GmailMailbox, cfg.GmailTokenKey)
-		if err != nil {
-			return err
-		}
-		gmailHandler.ConfigurePubSub(cfg.GmailPubSubAudience, cfg.GmailPubSubServiceAccount)
-	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -194,11 +181,6 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
 	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
 	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))
-	if gmailHandler != nil {
-		mux.Handle("GET /api/v1/integrations/gmail/connect", authHandler.RequireSession(http.HandlerFunc(gmailHandler.Connect)))
-		mux.HandleFunc("GET /api/v1/integrations/gmail/callback", gmailHandler.Callback)
-		mux.Handle("POST /webhooks/gmail/pubsub", webhookLimiter.Handler(http.HandlerFunc(gmailHandler.PubSub)))
-	}
 	var handler http.Handler = mux
 	handler = httpmw.SameOrigin(cfg.WebOrigin, handler)
 	handler = httpmw.AccessLog(logger, handler)

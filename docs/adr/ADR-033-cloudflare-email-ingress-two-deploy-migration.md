@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for staged implementation — 4 September 2026.
+Accepted; Deploy 2 implementation prepared — 5 September 2026.
 
 ## Decision
 
@@ -50,3 +50,9 @@ transport verification, and atomic cutover. Deploy 2 deletes Gmail application
 integration, jobs, configuration, dependencies, and runtime tables. External
 Cloudflare and Google cleanup remains an operational step and is not claimed by
 code tests.
+
+After Deploy 2, Cloudflare generic email ingress is Richmod's only application
+financial-email ingress. Gmail may remain only as a user's forwarding source;
+Richmod no longer authenticates to or consumes Google APIs. The deterministic
+Gmail forwarding-confirmation control adapter remains because it processes an
+ordinary forwarded setup email, not Gmail API runtime state.

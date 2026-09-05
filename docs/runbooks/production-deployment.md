@@ -125,16 +125,6 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f com
 Retry only after identifying the cause. A stale `RUNNING` job is reclaimed by
 the worker after five minutes; normal retries use bounded exponential delay.
 
-### Gmail OAuth recovery
-
-`PROCESS_GMAIL_HISTORY` refresh-token failures are classified as
-`GOOGLE_OAUTH`. A Google OAuth 4xx response, except `429`, is terminal for that
-job and marks the household Gmail integration `ERROR`; response details are
-never persisted. Reconnect Gmail from Settings, verify the integration returns
-to `CONNECTED` or `WATCH_ACTIVE`, then replay the newest pending history event.
-The stored history cursor remains the recovery point, so replay fetches every
-message since the last successful cursor and normal message idempotency applies.
-
 ## Encrypted backups
 
 Backups use restic and contain a verified custom-format PostgreSQL dump plus the
@@ -215,18 +205,13 @@ set the observed trusted auth-service IDs before activating any household. An
 are transport verification only; activation atomically sets the address `ACTIVE`
 and Gmail `DISCONNECTED`. DLQ remains optional and is not a Deploy 1 blocker.
 
-Do not run Deploy 2 until the checklist's real active transaction, duplicate
-retry, and late-Gmail checks pass in production. Deploy 2 then removes Gmail
-application code, jobs, configuration, dependencies, and runtime tables in a
-new migration. Historical source/evidence rows remain. Google OAuth/PubSub and
-Cloudflare resources are cleaned up separately and must be evidenced.
-
-Production cutover state on 4 September 2026: a real forwarded Jago debit-card
-notification showed `mx.cloudflare.net` with passing DKIM and DMARC, so the
-existing external environment now trusts that exact auth-service ID. The
-household recipient is `ACTIVE` and Gmail is `DISCONNECTED`. Deploy 2 is still
-blocked pending one new ACTIVE financial delivery, a duplicate/retry check, and
-a terminal late-Gmail-history no-op. Do not backfill PROVISIONED deliveries.
+Production cutover completed on 5 September 2026. A real forwarded Jago
+debit-card notification traversed Cloudflare ingress through the existing bank
+email processor and produced a confirmed transaction. Deploy 2 removes Gmail
+OAuth/API/PubSub/watch/history runtime code, configuration, jobs, and tables.
+Historical source/evidence rows remain. Gmail may still forward mail, but
+Richmod no longer connects to Google APIs. External Google OAuth/PubSub resource
+cleanup remains an operational follow-up.
 
 - API or web failure: retain PostgreSQL and attachment volumes, rebuild only the
   failed application service, then verify `/readyz` and HTTPS.

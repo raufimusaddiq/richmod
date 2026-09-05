@@ -43,8 +43,8 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	var reviews, households, users, activeUsers, gmail, telegram int
-	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')),(SELECT count(*) FROM household),(SELECT count(*) FROM "user"),(SELECT count(*) FROM "user" WHERE active),(SELECT count(*) FROM gmail_integration WHERE status IN ('CONNECTED','WATCH_ACTIVE')),(SELECT count(*) FROM telegram_identity)`).Scan(&reviews, &households, &users, &activeUsers, &gmail, &telegram); err != nil {
+	var reviews, households, users, activeUsers, telegram int
+	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')),(SELECT count(*) FROM household),(SELECT count(*) FROM "user"),(SELECT count(*) FROM "user" WHERE active),(SELECT count(*) FROM telegram_identity)`).Scan(&reviews, &households, &users, &activeUsers, &telegram); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -80,7 +80,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"status": status, "checkedAt": time.Now().UTC(), "worker": map[string]any{"healthy": healthy, "activeWorkers": workers, "lastHeartbeatAt": heartbeat}, "jobs": map[string]any{"pending": pending, "running": running, "failed24h": failed, "lanes": lanes}, "llm": map[string]any{"calls24h": calls, "failed24h": llmFailed, "successRate": successRate, "p95DurationMs": llmP95, "inputTokens": input, "outputTokens": output, "cost": cost}, "reviews": map[string]any{"open": reviews}, "households": map[string]any{"total": households, "active": households}, "users": map[string]any{"total": users, "active": activeUsers}, "integrations": map[string]any{"gmailConnected": gmail, "telegramLinked": telegram, "llmGatewayConfigured": h.gatewayConfigured, "llmProtocol": h.protocol}, "recentEvents": events})
+	writeJSON(w, 200, map[string]any{"status": status, "checkedAt": time.Now().UTC(), "worker": map[string]any{"healthy": healthy, "activeWorkers": workers, "lastHeartbeatAt": heartbeat}, "jobs": map[string]any{"pending": pending, "running": running, "failed24h": failed, "lanes": lanes}, "llm": map[string]any{"calls24h": calls, "failed24h": llmFailed, "successRate": successRate, "p95DurationMs": llmP95, "inputTokens": input, "outputTokens": output, "cost": cost}, "reviews": map[string]any{"open": reviews}, "households": map[string]any{"total": households, "active": households}, "users": map[string]any{"total": users, "active": activeUsers}, "integrations": map[string]any{"telegramLinked": telegram, "llmGatewayConfigured": h.gatewayConfigured, "llmProtocol": h.protocol}, "recentEvents": events})
 }
 
 func (h *Handler) Jobs(w http.ResponseWriter, r *http.Request) {
@@ -291,10 +291,10 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("householdId")
 	var name, timezone string
 	var created time.Time
-	var members, transactions, reviews, gmail, listeners, telegram int
+	var members, transactions, reviews, listeners, telegram int
 	var last *time.Time
 	var primary bool
-	err := h.pool.QueryRow(r.Context(), `SELECT h.name,h.timezone,h.created_at,(SELECT count(*) FROM household_member WHERE household_id=h.id AND active),(SELECT count(*) FROM transaction WHERE household_id=h.id),(SELECT count(*) FROM review_item WHERE household_id=h.id AND status IN ('OPEN','PENDING_SEND')),(SELECT max(created_at) FROM source_event WHERE household_id=h.id),(SELECT count(*) FROM gmail_integration WHERE household_id=h.id AND status IN ('CONNECTED','WATCH_ACTIVE')),(SELECT count(*) FROM bank_email_listener WHERE household_id=h.id AND active),(SELECT count(*) FROM telegram_identity ti JOIN household_member hm ON hm.user_id=ti.user_id WHERE hm.household_id=h.id AND hm.active),(SELECT exists(SELECT 1 FROM salary_source WHERE household_id=h.id AND active AND is_primary)) FROM household h WHERE h.id=$1`, id).Scan(&name, &timezone, &created, &members, &transactions, &reviews, &last, &gmail, &listeners, &telegram, &primary)
+	err := h.pool.QueryRow(r.Context(), `SELECT h.name,h.timezone,h.created_at,(SELECT count(*) FROM household_member WHERE household_id=h.id AND active),(SELECT count(*) FROM transaction WHERE household_id=h.id),(SELECT count(*) FROM review_item WHERE household_id=h.id AND status IN ('OPEN','PENDING_SEND')),(SELECT max(created_at) FROM source_event WHERE household_id=h.id),(SELECT count(*) FROM bank_email_listener WHERE household_id=h.id AND active),(SELECT count(*) FROM telegram_identity ti JOIN household_member hm ON hm.user_id=ti.user_id WHERE hm.household_id=h.id AND hm.active),(SELECT exists(SELECT 1 FROM salary_source WHERE household_id=h.id AND active AND is_primary)) FROM household h WHERE h.id=$1`, id).Scan(&name, &timezone, &created, &members, &transactions, &reviews, &last, &listeners, &telegram, &primary)
 	if err != nil {
 		writeError(w, 404, "HOUSEHOLD_NOT_FOUND")
 		return
@@ -361,7 +361,7 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "name": name, "timezone": timezone, "createdAt": created, "members": members, "transactions": transactions, "openReviews": reviews, "lastSourceActivityAt": last, "integrations": map[string]any{"gmailConnected": gmail, "activeBankListeners": listeners, "telegramLinked": telegram, "primarySalaryConfigured": primary}, "memberItems": memberItems, "recentJobs": jobs, "recentLLMCalls": llmCalls, "failedSourceEvents": failedSources, "recentAudit": audits})
+	writeJSON(w, 200, map[string]any{"id": id, "name": name, "timezone": timezone, "createdAt": created, "members": members, "transactions": transactions, "openReviews": reviews, "lastSourceActivityAt": last, "integrations": map[string]any{"activeBankListeners": listeners, "telegramLinked": telegram, "primarySalaryConfigured": primary}, "memberItems": memberItems, "recentJobs": jobs, "recentLLMCalls": llmCalls, "failedSourceEvents": failedSources, "recentAudit": audits})
 }
 
 func (h *Handler) PlatformAudit(w http.ResponseWriter, r *http.Request) {

@@ -106,8 +106,6 @@ func classifyError(err error) string {
 		return "DATABASE"
 	case strings.Contains(msg, "Telegram"):
 		return "TELEGRAM_API"
-	case strings.Contains(msg, "Google token refresh"):
-		return "GOOGLE_OAUTH"
 	case strings.Contains(msg, "LLM") || strings.Contains(msg, "gateway") || strings.Contains(msg, "Structured"):
 		return "LLM_GATEWAY"
 	case strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host"):

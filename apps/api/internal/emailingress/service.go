@@ -154,10 +154,7 @@ func (s *Service) Activate(ctx context.Context, householdID, userID string) erro
 	if _, err = tx.Exec(ctx, `UPDATE email_ingress_address SET status='ACTIVE',activated_at=now() WHERE id=$1`, addressID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE gmail_integration SET status='DISCONNECTED',updated_at=now() WHERE household_id=$1 AND status <> 'DISCONNECTED'`, householdID); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'ACTIVATE_EMAIL_INGRESS','email_ingress_address',$3,jsonb_build_object('provider','CLOUDFLARE_EMAIL','gmail_status','DISCONNECTED'))`, householdID, userID, addressID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'ACTIVATE_EMAIL_INGRESS','email_ingress_address',$3,jsonb_build_object('provider','CLOUDFLARE_EMAIL'))`, householdID, userID, addressID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

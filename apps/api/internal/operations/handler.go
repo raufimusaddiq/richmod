@@ -48,18 +48,14 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	var pendingJobs, runningJobs, failedJobs, openReviews int
 	var lastHeartbeat *time.Time
-	var gmailStatus *string
-	var gmailUpdated *time.Time
 	err := h.pool.QueryRow(r.Context(), `
 		SELECT
 		  (SELECT count(*) FROM job WHERE status='PENDING'),
 		  (SELECT count(*) FROM job WHERE status='RUNNING'),
 		  (SELECT count(*) FROM job WHERE status='FAILED' AND updated_at>=now()-interval '24 hours'),
 		  (SELECT count(*) FROM review_request WHERE household_id=$1 AND status IN ('PENDING_SEND','OPEN')),
-		  (SELECT max(last_seen_at) FROM worker_heartbeat),
-		  (SELECT status FROM gmail_integration WHERE household_id=$1),
-		  (SELECT updated_at FROM gmail_integration WHERE household_id=$1)`, householdID).
-		Scan(&pendingJobs, &runningJobs, &failedJobs, &openReviews, &lastHeartbeat, &gmailStatus, &gmailUpdated)
+		  (SELECT max(last_seen_at) FROM worker_heartbeat)`, householdID).
+		Scan(&pendingJobs, &runningJobs, &failedJobs, &openReviews, &lastHeartbeat)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load operational status"})
 		return
@@ -104,7 +100,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		"worker":        map[string]any{"healthy": workerHealthy, "lastHeartbeatAt": lastHeartbeat},
 		"jobs":          map[string]any{"pending": pendingJobs, "running": runningJobs, "recentFailures": failedJobs, "lanes": lanes},
 		"reviewBacklog": openReviews,
-		"gmail":         map[string]any{"status": gmailStatus, "updatedAt": gmailUpdated},
 		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only", "protocol": h.protocol},
 		"checkedAt":     time.Now(),
 	})
