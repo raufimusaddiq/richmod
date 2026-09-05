@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -34,6 +35,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	principal, token, expiresAt, err := h.service.Login(r.Context(), input.Email, input.Password)
 	if err != nil {
+		if errors.Is(err, ErrTenantInvariantViolation) {
+			slog.Error("tenant invariant violation", "user_id", principal.UserID, "request_id", r.Header.Get("X-Request-ID"), "error_category", "TENANT_INVARIANT_VIOLATION")
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to resolve account context"})
+			return
+		}
 		if errors.Is(err, ErrInvalidCredentials) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
 			return
@@ -46,9 +52,21 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AcceptDashboardInvite(w http.ResponseWriter, r *http.Request) {
-	var in struct { Token string `json:"token"`; Password string `json:"password"` }
-	if err:=decodeJSON(r,&in); err!=nil { writeJSON(w,400,map[string]string{"error":"invalid invite request"}); return }
-	p,tok,exp,err:=h.service.AcceptDashboardInvite(r.Context(),in.Token,in.Password); if err!=nil { writeJSON(w,401,map[string]string{"error":"invite is invalid or password is too weak"}); return }; h.setSessionCookie(w,tok,exp); writeJSON(w,200,p)
+	var in struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(r, &in); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid invite request"})
+		return
+	}
+	p, tok, exp, err := h.service.AcceptDashboardInvite(r.Context(), in.Token, in.Password)
+	if err != nil {
+		writeJSON(w, 401, map[string]string{"error": "invite is invalid or password is too weak"})
+		return
+	}
+	h.setSessionCookie(w, tok, exp)
+	writeJSON(w, 200, p)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +98,11 @@ func (h *Handler) RequireSession(next http.Handler) http.Handler {
 		}
 		principal, expiresAt, err := h.service.Authenticate(r.Context(), cookie.Value)
 		if err != nil {
+			if errors.Is(err, ErrTenantInvariantViolation) {
+				slog.Error("tenant invariant violation", "user_id", principal.UserID, "request_id", r.Header.Get("X-Request-ID"), "error_category", "TENANT_INVARIANT_VIOLATION")
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to resolve account context"})
+				return
+			}
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 			return
 		}
@@ -95,6 +118,11 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 
 // ContextWithPrincipal is used by authenticated internal handlers and tests.
 func ContextWithPrincipal(ctx context.Context, principal Principal) context.Context {
+	if !principal.HasHousehold && len(principal.Memberships) > 0 {
+		if normalized, err := principalWithMemberships(principal, principal.Memberships); err == nil {
+			principal = normalized
+		}
+	}
 	return context.WithValue(ctx, contextKey{}, principal)
 }
 

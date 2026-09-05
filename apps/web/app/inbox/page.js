@@ -13,7 +13,7 @@ export default function InboxPage() {
   const [view, setView] = useState("transactions");
   const [reviews, setReviews] = useState([]), [actions, setActions] = useState([]), [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true), [error, setError] = useState(""), [working, setWorking] = useState(""), [toast, setToast] = useState("");
-  const owner = user?.memberships?.[0]?.role === "OWNER";
+  const owner = user?.household?.role === "OWNER";
   const load = useCallback(async () => {
     setLoading(true);
     try {

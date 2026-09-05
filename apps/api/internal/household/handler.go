@@ -29,10 +29,10 @@ func NewHandler(pool *pgxpool.Pool, botUsername string) *Handler {
 
 func principal(r *http.Request) (auth.Principal, string, bool) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		return auth.Principal{}, "", false
 	}
-	return p, p.Memberships[0].HouseholdID, true
+	return p, p.HouseholdID, true
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +63,7 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 		h.listMembers(w, r, householdID)
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		out(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
@@ -123,7 +123,9 @@ func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdI
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, name, email, role string
-		var active, connected bool; var inviteStatus *string; var inviteExpires *time.Time
+		var active, connected bool
+		var inviteStatus *string
+		var inviteExpires *time.Time
 		if rows.Scan(&id, &name, &email, &role, &active, &connected, &inviteStatus, &inviteExpires) != nil {
 			out(w, 500, map[string]string{"error": "unable to list members"})
 			return
@@ -134,18 +136,52 @@ func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdI
 }
 
 func (h *Handler) CreateDashboardInvite(w http.ResponseWriter, r *http.Request) {
-	p, householdID, ok := principal(r); if !ok || p.Memberships[0].Role!="OWNER" { out(w,403,map[string]string{"error":"owner role required"}); return }
-	memberID:=r.PathValue("id"); raw:=make([]byte,32); if _,err:=rand.Read(raw); err!=nil { out(w,500,map[string]string{"error":"unable to create invite"}); return }; token:=base64.RawURLEncoding.EncodeToString(raw); d:=sha256.Sum256([]byte(token)); exp:=h.now().Add(24*time.Hour)
-	tx,err:=h.pool.Begin(r.Context()); if err!=nil {out(w,500,map[string]string{"error":"unable to create invite"});return}; defer tx.Rollback(r.Context())
-	_,_=tx.Exec(r.Context(),`UPDATE dashboard_account_invite SET status='EXPIRED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING' AND expires_at<=now()`,householdID,memberID)
-	var id string; err=tx.QueryRow(r.Context(),`INSERT INTO dashboard_account_invite(household_id,user_id,token_hash,status,expires_at,created_by_user_id) SELECT $1,$2,$3,'PENDING',$4,$5 FROM household_member WHERE household_id=$1 AND user_id=$2 AND role='MEMBER' AND active RETURNING id`,householdID,memberID,d[:],exp,p.UserID).Scan(&id); if err!=nil {out(w,409,map[string]string{"error":"member is not eligible or already has a pending invite"});return}
-	if audit(r,tx,householdID,p.UserID,"CREATE","dashboard_account_invite",id,nil,map[string]any{"userId":memberID,"expiresAt":exp})!=nil || tx.Commit(r.Context())!=nil {out(w,500,map[string]string{"error":"unable to create invite"});return}
-	out(w,201,map[string]any{"id":id,"link":"/invite#"+token,"expiresAt":exp})
+	p, householdID, ok := principal(r)
+	if !ok || p.HouseholdRole != "OWNER" {
+		out(w, 403, map[string]string{"error": "owner role required"})
+		return
+	}
+	memberID := r.PathValue("id")
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		out(w, 500, map[string]string{"error": "unable to create invite"})
+		return
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	d := sha256.Sum256([]byte(token))
+	exp := h.now().Add(24 * time.Hour)
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		out(w, 500, map[string]string{"error": "unable to create invite"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	_, _ = tx.Exec(r.Context(), `UPDATE dashboard_account_invite SET status='EXPIRED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING' AND expires_at<=now()`, householdID, memberID)
+	var id string
+	err = tx.QueryRow(r.Context(), `INSERT INTO dashboard_account_invite(household_id,user_id,token_hash,status,expires_at,created_by_user_id) SELECT $1,$2,$3,'PENDING',$4,$5 FROM household_member WHERE household_id=$1 AND user_id=$2 AND role='MEMBER' AND active RETURNING id`, householdID, memberID, d[:], exp, p.UserID).Scan(&id)
+	if err != nil {
+		out(w, 409, map[string]string{"error": "member is not eligible or already has a pending invite"})
+		return
+	}
+	if audit(r, tx, householdID, p.UserID, "CREATE", "dashboard_account_invite", id, nil, map[string]any{"userId": memberID, "expiresAt": exp}) != nil || tx.Commit(r.Context()) != nil {
+		out(w, 500, map[string]string{"error": "unable to create invite"})
+		return
+	}
+	out(w, 201, map[string]any{"id": id, "link": "/invite#" + token, "expiresAt": exp})
 }
 
 func (h *Handler) RevokeDashboardInvite(w http.ResponseWriter, r *http.Request) {
-	p, householdID, ok := principal(r); if !ok || p.Memberships[0].Role!="OWNER" { out(w,403,map[string]string{"error":"owner role required"}); return }
-	memberID:=r.PathValue("id"); if _,err:=h.pool.Exec(r.Context(),`UPDATE dashboard_account_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`,householdID,memberID); err!=nil {out(w,500,map[string]string{"error":"unable to revoke invite"});return}; w.WriteHeader(204)
+	p, householdID, ok := principal(r)
+	if !ok || p.HouseholdRole != "OWNER" {
+		out(w, 403, map[string]string{"error": "owner role required"})
+		return
+	}
+	memberID := r.PathValue("id")
+	if _, err := h.pool.Exec(r.Context(), `UPDATE dashboard_account_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`, householdID, memberID); err != nil {
+		out(w, 500, map[string]string{"error": "unable to revoke invite"})
+		return
+	}
+	w.WriteHeader(204)
 }
 
 func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +190,7 @@ func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
 		out(w, 403, map[string]string{"error": "household membership required"})
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		out(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
@@ -192,7 +228,7 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		out(w, 403, map[string]string{"error": "household membership required"})
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		out(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
@@ -235,7 +271,7 @@ func (h *Handler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 		out(w, 403, map[string]string{"error": "household membership required"})
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		out(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}

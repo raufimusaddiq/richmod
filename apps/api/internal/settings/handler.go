@@ -16,11 +16,11 @@ func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool} }
 
 func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	if r.Method == http.MethodGet {
 		rows, err := h.pool.Query(r.Context(), `SELECT id,name,account_type,tracking_policy,active,system_managed FROM account WHERE household_id=$1 AND (NOT system_managed OR active) ORDER BY name`, household)
 		if err != nil {
@@ -79,7 +79,7 @@ func (h *Handler) Accounts(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
@@ -104,7 +104,7 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Name = &value
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		jsonError(w, 500, "unable to update account")
@@ -135,11 +135,11 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	if r.Method == http.MethodGet {
 		rows, err := h.pool.Query(r.Context(), `SELECT id,parent_id,name,slug,active,sort_order FROM category WHERE household_id=$1 ORDER BY sort_order,name`, household)
 		if err != nil {
@@ -201,7 +201,7 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PatchCategory(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
@@ -225,7 +225,7 @@ func (h *Handler) PatchCategory(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Name = &value
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		jsonError(w, 500, "unable to update category")
@@ -244,7 +244,7 @@ func (h *Handler) PatchCategory(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-func owner(p auth.Principal) bool { return p.Memberships[0].Role == "OWNER" }
+func owner(p auth.Principal) bool { return p.HouseholdRole == "OWNER" }
 func oneOf(v string, xs ...string) bool {
 	for _, x := range xs {
 		if v == x {

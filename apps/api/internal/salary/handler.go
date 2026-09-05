@@ -12,11 +12,11 @@ type Handler struct{ pool *pgxpool.Pool }
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool} }
 func (h *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		http.Error(w, `{"error":"household membership required"}`, 403)
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	if r.Method == http.MethodPost {
 		var body struct {
 			SourceID string `json:"sourceId"`
@@ -25,7 +25,7 @@ func (h *Handler) Sources(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"sourceId required"}`, 400)
 			return
 		}
-		if p.Memberships[0].Role != "OWNER" {
+		if p.HouseholdRole != "OWNER" {
 			http.Error(w, `{"error":"owner access required"}`, 403)
 			return
 		}

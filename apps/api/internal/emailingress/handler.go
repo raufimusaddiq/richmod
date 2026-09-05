@@ -63,11 +63,11 @@ func (h *Handler) Inbound(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Integration(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "household membership required"})
 		return
 	}
-	householdID := p.Memberships[0].HouseholdID
+	householdID := p.HouseholdID
 	if r.Method == http.MethodGet {
 		address, found, err := h.service.Current(r.Context(), householdID)
 		if err != nil {
@@ -81,7 +81,7 @@ func (h *Handler) Integration(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, address)
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		writeJSON(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
@@ -98,20 +98,20 @@ func (h *Handler) Rotate(w http.ResponseWriter, r *http.Request)   { h.change(w,
 
 func (h *Handler) change(w http.ResponseWriter, r *http.Request, operation string) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, 403, map[string]string{"error": "household membership required"})
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		writeJSON(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
 	var err error
 	if operation == "activate" {
-		err = h.service.Activate(r.Context(), p.Memberships[0].HouseholdID, p.UserID)
+		err = h.service.Activate(r.Context(), p.HouseholdID, p.UserID)
 	} else {
 		var address Address
-		address, err = h.service.Rotate(r.Context(), p.Memberships[0].HouseholdID, p.UserID)
+		address, err = h.service.Rotate(r.Context(), p.HouseholdID, p.UserID)
 		if err == nil {
 			writeJSON(w, 201, address)
 			return

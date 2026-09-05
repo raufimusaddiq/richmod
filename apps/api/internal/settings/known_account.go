@@ -14,11 +14,11 @@ var maskedAccountHint = regexp.MustCompile(`^[0-9]{4,19}$`)
 
 func (h *Handler) KnownAccounts(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	if r.Method == http.MethodGet {
 		rows, err := h.pool.Query(r.Context(), `SELECT id,user_id,institution,display_name,match_hint,relationship,active FROM known_account WHERE household_id=$1 ORDER BY institution,display_name`, household)
 		if err != nil {
@@ -83,7 +83,7 @@ func (h *Handler) KnownAccounts(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PatchKnownAccount(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
@@ -98,7 +98,7 @@ func (h *Handler) PatchKnownAccount(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "active is required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		jsonError(w, 500, "unable to update known account")

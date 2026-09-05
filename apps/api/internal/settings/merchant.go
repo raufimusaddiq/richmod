@@ -11,11 +11,11 @@ import (
 
 func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	if r.Method == http.MethodGet {
 		rows, err := h.pool.Query(r.Context(), `SELECT id,normalized_name FROM merchant WHERE household_id=$1 ORDER BY normalized_name`, household)
 		if err != nil {
@@ -71,7 +71,7 @@ func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateMerchantAlias(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
@@ -79,7 +79,7 @@ func (h *Handler) CreateMerchantAlias(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 403, "owner role required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	var in struct {
 		RawName           string  `json:"rawName"`
 		DefaultCategoryID *string `json:"defaultCategoryId"`
@@ -122,11 +122,11 @@ func aliasPolicy(autoApply, confirmed bool) bool { return !autoApply || confirme
 
 func (h *Handler) MerchantAliases(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	rows, err := h.pool.Query(r.Context(), `SELECT ma.id,ma.raw_name,m.normalized_name,ma.default_category_id,c.name,ma.auto_apply,ma.created_from_user_confirmation FROM merchant_alias ma JOIN merchant m ON m.id=ma.normalized_merchant_id LEFT JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 ORDER BY ma.raw_name`, household)
 	if err != nil {
 		jsonError(w, 500, "unable to list merchant aliases")
@@ -153,7 +153,7 @@ func (h *Handler) MerchantAliases(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PatchMerchantAlias(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
@@ -168,7 +168,7 @@ func (h *Handler) PatchMerchantAlias(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "autoApply is required")
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		jsonError(w, 500, "unable to update merchant alias")

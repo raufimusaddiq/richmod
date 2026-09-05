@@ -268,11 +268,11 @@ func monthsBetween(start, end time.Time) int {
 
 func analyticsHousehold(w http.ResponseWriter, r *http.Request) (string, bool) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, 403, map[string]string{"error": "household membership required"})
 		return "", false
 	}
-	return p.Memberships[0].HouseholdID, true
+	return p.HouseholdID, true
 }
 
 func add(left, right string) string {

@@ -99,7 +99,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		writeJSON(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
@@ -146,7 +146,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		writeJSON(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
@@ -212,11 +212,11 @@ func ratio(numerator, denominator string) string {
 
 func principal(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, 403, map[string]string{"error": "household membership required"})
 		return auth.Principal{}, "", false
 	}
-	return p, p.Memberships[0].HouseholdID, true
+	return p, p.HouseholdID, true
 }
 
 func decodeJSON(r *http.Request, output any) error {

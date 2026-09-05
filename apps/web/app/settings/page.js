@@ -9,7 +9,7 @@ export default function SettingsPage() {
   const user = useAuth();
   const [data, setData] = useState({ accounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [], emailIngress: null });
   const [error, setError] = useState(""); const [working, setWorking] = useState("");
-  const owner = user?.memberships?.[0]?.role === "OWNER";
+  const owner = user?.household?.role === "OWNER";
   const load = useCallback(async () => {
     const endpoints = ["accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners", "integrations/email-ingress"];
     const responses = await Promise.all(endpoints.map(value => fetch(`/api/v1/${value}`)));

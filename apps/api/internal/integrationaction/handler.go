@@ -48,7 +48,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"error": "unable to load integration actions"})
 			return
 		}
-		if p.Memberships[0].Role != "OWNER" {
+		if p.HouseholdRole != "OWNER" {
 			item.ActionURL = nil
 			item.ActionCode = nil
 		}
@@ -67,7 +67,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 403, map[string]string{"error": "household membership required"})
 		return
 	}
-	if p.Memberships[0].Role != "OWNER" {
+	if p.HouseholdRole != "OWNER" {
 		writeJSON(w, 403, map[string]string{"error": "owner role required"})
 		return
 	}
@@ -100,10 +100,10 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 
 func principal(r *http.Request) (auth.Principal, string, bool) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		return auth.Principal{}, "", false
 	}
-	return p, p.Memberships[0].HouseholdID, true
+	return p, p.HouseholdID, true
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -3,11 +3,13 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
@@ -229,8 +231,37 @@ func (h *Handler) AddMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "USER_CREATE_FAILED")
 		return
 	}
+	rows, err := tx.Query(r.Context(), `SELECT household_id FROM household_member WHERE user_id=$1 AND active FOR UPDATE`, userID)
+	if err != nil {
+		writeError(w, 500, "MEMBERSHIP_LOOKUP_FAILED")
+		return
+	}
+	for rows.Next() {
+		var activeHouseholdID string
+		if err := rows.Scan(&activeHouseholdID); err != nil {
+			rows.Close()
+			writeError(w, 500, "MEMBERSHIP_LOOKUP_FAILED")
+			return
+		}
+		if activeHouseholdID != hid {
+			rows.Close()
+			writeError(w, http.StatusConflict, "USER_ALREADY_HAS_HOUSEHOLD")
+			return
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		writeError(w, 500, "MEMBERSHIP_LOOKUP_FAILED")
+		return
+	}
+	rows.Close()
 	_, err = tx.Exec(r.Context(), `INSERT INTO household_member(household_id,user_id,role,active) VALUES($1,$2,'MEMBER',true) ON CONFLICT(household_id,user_id) DO UPDATE SET active=true`, hid, userID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			writeError(w, http.StatusConflict, "USER_ALREADY_HAS_HOUSEHOLD")
+			return
+		}
 		writeError(w, 409, "MEMBERSHIP_CREATE_FAILED")
 		return
 	}

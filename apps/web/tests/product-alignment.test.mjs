@@ -19,7 +19,7 @@ test("one inbox exposes separate transaction and integration action views", () =
   assert.match(inbox, />Tindakan <b>/);
   assert.match(inbox, /Verifikasi penerusan/);
   assert.match(inbox, /noopener noreferrer/);
-  assert.match(inbox, /memberships\?\.\[0\]\?\.role === "OWNER"/);
+  assert.match(inbox, /user\?\.household\?\.role === "OWNER"/);
   assert.match(inbox, /Pemilik household perlu menyelesaikan tindakan ini/);
   assert.match(shell, /\["\/inbox", "Inbox", "✓"\]/);
   assert.match(shell, /nav-badge/);

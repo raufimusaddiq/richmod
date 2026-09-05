@@ -38,7 +38,7 @@ func (e validationError) Error() string { return e.message }
 
 func (h *Handler) CreateManualTransaction(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(principal.Memberships) == 0 {
+	if !ok || !principal.HasHousehold {
 		writeJSON(w, 403, map[string]string{"error": "household membership required"})
 		return
 	}
@@ -85,7 +85,7 @@ func (h *Handler) create(ctx context.Context, principal auth.Principal, input ma
 		return "", fmt.Errorf("begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	householdID := principal.Memberships[0].HouseholdID
+	householdID := principal.HouseholdID
 	if input.AccountID != nil {
 		var exists bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, *input.AccountID, householdID).Scan(&exists); err != nil {
