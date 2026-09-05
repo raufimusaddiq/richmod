@@ -86,6 +86,8 @@ flowchart LR
 
 Cloudflare delivers the original RFC822 message to `POST /finance/v1/email/inbond` with HMAC and SHA-256 verification. Setup/control emails are dispatched to Integration Actions and never enter the financial LLM flow.
 
+For the deployed Cloudflare resource map, Worker bindings, Queue/DLQ settings, HMAC request contract, forwarding setup, smoke test, and troubleshooting, see the [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md).
+
 ### 2. Telegram
 
 Household members connect Telegram through expiring, single-use invitations. Richmod supports text, images, documents, finance queries, corrections, and interactive review.
@@ -205,6 +207,8 @@ See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployme
 
 ## Documentation
 
+- [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md)
+- [ADR-033: Cloudflare email ingress and Gmail sunset](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md)
 - [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
 - [Production deployment runbook](docs/runbooks/production-deployment.md)
