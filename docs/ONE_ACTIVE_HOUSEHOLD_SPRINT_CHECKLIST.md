@@ -19,4 +19,4 @@ Source of truth: ADR-035, the explicit sprint request, and current repository be
 - [x] Run worker tests and vet.
 - [x] Run frontend tests and production build.
 - [x] Run final membership-ordering and diff checks.
-- [ ] Commit, push branch, merge, and push `main`.
+- [x] Commit, push branch, merge, and push `main`.
