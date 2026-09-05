@@ -20,11 +20,11 @@ func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: 
 
 func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, 403, map[string]string{"error": "household membership required"})
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	local := h.now().In(clock.HouseholdLocation())
 	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
 	end := start.AddDate(0, 1, 0)

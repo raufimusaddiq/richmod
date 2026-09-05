@@ -31,21 +31,15 @@ func NewHandler(pool *pgxpool.Pool, gatewayOptions ...any) *Handler {
 
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(principal.Memberships) == 0 {
+	if !ok || !principal.HasHousehold {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		return
 	}
-	householdID := ""
-	for _, membership := range principal.Memberships {
-		if membership.Role == "OWNER" {
-			householdID = membership.HouseholdID
-			break
-		}
-	}
-	if householdID == "" {
+	if principal.HouseholdRole != "OWNER" {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner role required"})
 		return
 	}
+	householdID := principal.HouseholdID
 	var pendingJobs, runningJobs, failedJobs, openReviews int
 	var lastHeartbeat *time.Time
 	err := h.pool.QueryRow(r.Context(), `

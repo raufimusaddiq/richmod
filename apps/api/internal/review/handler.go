@@ -621,11 +621,11 @@ func resolveTransactionReviewItem(ctx context.Context, tx pgx.Tx, household, use
 
 func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, 403, map[string]string{"error": "household membership required"})
 		return auth.Principal{}, "", false
 	}
-	return p, p.Memberships[0].HouseholdID, true
+	return p, p.HouseholdID, true
 }
 
 func decodeJSON(r *http.Request, output any) error {

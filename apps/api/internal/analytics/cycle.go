@@ -13,11 +13,11 @@ import (
 // callers receive an explicit calendar fallback instead of a guessed payday.
 func (h *Handler) Cycle(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "household membership required"})
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	now := time.Now().In(clock.HouseholdLocation())
 	var start *time.Time
 	var end *time.Time

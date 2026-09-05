@@ -19,7 +19,7 @@ export default function HouseholdPage() {
   }
 
   useEffect(() => { load(); }, []);
-  const owner = me?.memberships?.[0]?.role === "OWNER";
+  const owner = me?.household?.role === "OWNER";
 
   async function addMember(event) {
     event.preventDefault(); setError(""); const form = new FormData(event.currentTarget);

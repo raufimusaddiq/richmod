@@ -11,11 +11,11 @@ import (
 
 func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "household membership required"})
 		return
 	}
-	household := p.Memberships[0].HouseholdID
+	household := p.HouseholdID
 	now := h.now().In(clock.HouseholdLocation())
 	var start, end *time.Time
 	var configured bool

@@ -12,11 +12,11 @@ import (
 
 func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
-	if !ok || len(p.Memberships) == 0 {
+	if !ok || !p.HasHousehold {
 		jsonError(w, 403, "household membership required")
 		return
 	}
-	hid := p.Memberships[0].HouseholdID
+	hid := p.HouseholdID
 	if r.Method == http.MethodGet {
 		rows, e := h.pool.Query(r.Context(), `SELECT id,bank_name,sender_address,active FROM bank_email_listener WHERE household_id=$1 ORDER BY bank_name,sender_address`, hid)
 		if e != nil {
