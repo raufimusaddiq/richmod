@@ -70,6 +70,25 @@ so the ephemeral repository token can pull them. If package access changes,
 repair package repository access; do not add registry credentials to the runtime
 environment file.
 
+### Standard release, reclaim, and approval sequence
+
+Use this order for every normal production release:
+
+1. Merge the verified branch to `main`; wait for `main` CI and `Release Images`
+   to succeed.
+2. After immutable `sha-<main-commit>` images exist in GHCR, reclaim only safe
+   local artifacts: merged linked worktrees, their local branches, disposable
+   build/dependency caches, and dangling test artifacts.
+3. Do not wait for production approval before that reclaim. The later deployment
+   pulls the immutable registry images and does not require those artifacts.
+4. Submit `Deploy Production` for the exact verified SHA. The human approver
+   approves it in GitHub's `production` Environment.
+5. The workflow deploys, migrates if needed, and verifies `/healthz` and
+   `/readyz`. Check the workflow result afterward.
+
+Never reclaim production containers, PostgreSQL/attachment/backup volumes,
+`/opt/family-finance/finance.env`, or images currently used by production.
+
 Rollback is a new manual `Deploy Production` run using a previously verified
 main SHA whose four images exist in GHCR. Never use `docker compose up --build`
 for a release-image deployment.

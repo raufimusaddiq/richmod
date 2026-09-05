@@ -21,6 +21,12 @@ The registry token is the ephemeral repository token and is sent over SSH stdin
 for a single login. It is not written to `finance.env`; the deploy script logs
 out after image pulls. Production rollback uses another immutable main SHA.
 
+After immutable images publish successfully, merged feature worktrees and
+disposable local build/dependency caches may be reclaimed before submitting the
+production deployment approval. The pending deployment consumes only the
+registry-hosted images and the production host's already-managed runtime state;
+reclaim must never remove production containers, volumes, or `finance.env`.
+
 ## Consequences
 
 - production CPU and disk are no longer consumed by Go or Next.js compilation;
@@ -30,3 +36,5 @@ out after image pulls. Production rollback uses another immutable main SHA.
   deployment prerequisites;
 - local `docker compose up --build` remains available for development and
   emergency recovery, but normal production deployment uses pull-only images.
+- image publication success is the reclaim gate; production approval and deploy
+  do not need to wait for local worktree/cache cleanup.
