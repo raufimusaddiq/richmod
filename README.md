@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/richmod-logo.svg" alt="Richmod logo" width="90" />
+
 # Richmod
 
 ### Household finance tracking that understands evidence, asks when unsure, and never lets AI guess your ledger.
@@ -32,14 +34,14 @@ Richmod is deliberately conservative around money. PostgreSQL is the source of t
 
 ## What it does
 
-- **Canonical ledger** for household income and expenses.
-- **Private financial-email ingress** with opaque per-household addresses.
-- **Telegram finance assistant** for transaction intake, queries, corrections, and review.
-- **Document understanding** for receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories.
-- **Review Inbox** for incomplete or ambiguous financial facts.
-- **Integration Action Inbox** for setup work such as forwarding verification, kept separate from financial review.
-- **Deterministic analytics** across cashflow, spending, categories, merchants, members, and salary cycles.
-- **Evidence + audit history** preserved alongside financial decisions.
+| | |
+| --- | --- |
+| 📩 **Financial Email** | Forward financial notifications without giving Richmod direct bank credentials. Each household gets an opaque, household-scoped ingress address. |
+| 💬 **Telegram Assistant** | Ask finance questions, record transactions, send evidence, make corrections, and resolve reviews conversationally. |
+| 📄 **Document Understanding** | Process receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories through one evidence pipeline. |
+| 🧠 **Human-in-the-loop** | Ambiguous facts never silently become ledger entries. Richmod routes uncertainty to the Review Inbox for an explicit decision. |
+| 📊 **Deterministic Analytics** | Explore cashflow, spending, categories, merchants, members, and salary-cycle views from confirmed financial state. |
+| 🔎 **Evidence + Audit History** | Preserve source evidence and the decisions it supports so financial state stays explainable and auditable. |
 
 ## How it works
 
