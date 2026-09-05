@@ -634,8 +634,6 @@ function HouseholdDetail({ id, close, setError }) {
             <dd>{data.transactions}</dd>
             <dt>Open reviews</dt>
             <dd>{data.openReviews}</dd>
-            <dt>Gmail</dt>
-            <dd>{data.integrations.gmailConnected}</dd>
             <dt>Bank listeners</dt>
             <dd>{data.integrations.activeBankListeners}</dd>
             <dt>Telegram</dt>

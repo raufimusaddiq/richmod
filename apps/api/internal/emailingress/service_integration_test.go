@@ -65,18 +65,8 @@ func TestDeliveryProvisionedActiveAndDuplicate(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("provisioned created %d source events", count)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO gmail_integration(household_id,mailbox,encrypted_refresh_token,granted_scope,status,connected_by_user_id,history_id) VALUES($1,$2,$3,'readonly','WATCH_ACTIVE',$4,'100')`, household, "active-"+household+"@test.invalid", []byte("test"), user); err != nil {
-		t.Fatal(err)
-	}
 	if err := service.Activate(ctx, household, user); err != nil {
 		t.Fatal(err)
-	}
-	var gmailStatus string
-	if err := pool.QueryRow(ctx, `SELECT status FROM gmail_integration WHERE household_id=$1`, household).Scan(&gmailStatus); err != nil {
-		t.Fatal(err)
-	}
-	if gmailStatus != "DISCONNECTED" {
-		t.Fatalf("Gmail status = %s", gmailStatus)
 	}
 	activeRaw := []byte("From: Test Bank <alerts@test.invalid>\r\nSubject: Payment 2\r\nMessage-ID: <email-ingress-active-" + household + "@test.invalid>\r\nAuthentication-Results: mx.test; dkim=pass; dmarc=pass\r\nContent-Type: text/plain\r\n\r\nAmount IDR 200")
 	input = signedInput(activeRaw, address.Address, "forwarder@gmail.test", "test/raw-2-"+household+".eml", "secret")

@@ -76,14 +76,12 @@ existing transaction, or needs review.
 
 ## Current production status
 
-Generic Cloudflare email ingress is active. On September 4, 2026, a real
-forwarded Jago notification verified the trusted authentication path and Gmail
-API ingestion was atomically disconnected for the production household.
-
-The temporary Gmail runtime remains in the repository until the Deploy 2 gate
-is complete. A new ACTIVE financial delivery, duplicate retry, and late-Gmail
-no-op still need final verification. Real second-sender acceptance and an
-off-host backup restore exercise also remain open.
+Generic Cloudflare email ingress is active. On September 5, 2026, a real
+forwarded Jago notification completed the ACTIVE path through bank-email
+processing and ledger confirmation. The Deploy 2 code removes Gmail OAuth,
+Pub/Sub, history/watch jobs, configuration, and runtime tables; Gmail remains
+only as an optional forwarding source outside Richmod. Real second-sender
+acceptance and another off-host backup restore exercise remain open.
 
 For current product scope and verification evidence, see
 [`docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)

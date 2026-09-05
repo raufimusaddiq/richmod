@@ -15,7 +15,7 @@ export default function PrivacyPage() {
     <h2>Data yang diproses</h2>
     <p>Kami memproses data akun, data household, transaksi, dokumen yang Anda kirimkan, serta integrasi email atau Telegram yang Anda aktifkan. Data tersebut digunakan hanya untuk menyediakan fitur pencatatan, review, dan analisis keuangan.</p>
     <h2>Notifikasi email keuangan</h2>
-    <p>Richmod dapat memberi Anda alamat penerusan khusus untuk notifikasi keuangan. Email mentah yang diteruskan disimpan sebagai bukti pada penyimpanan terpisah dan hanya diproses bila alamat household, pengirim listener, dan bukti autentikasi email lolos pemeriksaan. Selama masa migrasi, Gmail OAuth lama dapat tetap digunakan hingga pemilik household mengaktifkan alamat penerusan.</p>
+    <p>Richmod dapat memberi Anda alamat penerusan khusus untuk notifikasi keuangan. Email mentah yang diteruskan disimpan sebagai bukti pada penyimpanan terpisah dan hanya diproses bila alamat household, pengirim listener, dan bukti autentikasi email lolos pemeriksaan.</p>
     <h2>Penyimpanan dan keamanan</h2>
     <p>Data keuangan disimpan dengan pembatasan berbasis household. Dokumen dan backup disimpan terenkripsi pada penyimpanan terpisah. Kami tidak menjual data pribadi atau menggunakannya untuk iklan.</p>
     <h2>Kontak</h2>
