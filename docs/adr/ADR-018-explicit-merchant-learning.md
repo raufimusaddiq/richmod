@@ -27,6 +27,13 @@ rules and switch `auto_apply` off without deleting the rule or its history.
 Deterministic ingestion applies only enabled aliases; a disabled rule therefore
 stops affecting future proposals.
 
+When an `UNKNOWN_MERCHANT` Telegram review receives a merchant name, Richmod
+also checks an enabled, explicitly confirmed alias using household-scoped,
+case-insensitive, whitespace-normalized matching. A match reuses its stored
+merchant and category and completes the review without asking for the same
+category again. Missing, disabled, or cross-household aliases still require an
+explicit category choice.
+
 ## Consequences
 
 - One-off categorization cannot silently change future transactions.
