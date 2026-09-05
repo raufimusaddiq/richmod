@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/richmod-logo.svg" alt="Richmod logo" width="92" />
+<img src="docs/assets/richmod-logo.svg" alt="Richmod logo" width="90" />
 
 # Richmod
 
@@ -15,10 +15,6 @@
 **Email · Telegram · Documents → one household ledger**
 
 </div>
-
-<p align="center">
-  <img src="docs/assets/dashboard.png" alt="Richmod household finance dashboard preview" width="720" />
-</p>
 
 Richmod is a self-hosted household finance system for tracking **income and expenses** without turning personal finance into a second job.
 
@@ -36,43 +32,16 @@ Forward financial notifications, send a message or image through Telegram, or up
 
 Richmod is deliberately conservative around money. PostgreSQL is the source of truth, Go owns financial state transitions, and deterministic paths continue to work even when the LLM gateway is unavailable.
 
-## Product tour
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/assets/review-inbox.png" alt="Richmod Review Inbox preview" width="100%" />
-      <br />
-      <strong>Review Inbox</strong><br />
-      Ambiguous evidence becomes a human decision instead of a silent ledger mutation.
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/assets/analytics.png" alt="Richmod household analytics preview" width="100%" />
-      <br />
-      <strong>Household analytics</strong><br />
-      Explore spending patterns, categories, merchants, members, and salary-cycle views from confirmed financial state.
-    </td>
-  </tr>
-</table>
-
-### Telegram assistant
-
-<p align="center">
-  <img src="docs/assets/telegram-demo.gif" alt="Richmod Telegram transaction and review demo" width="240" />
-</p>
-
-<p align="center"><sub>Sanitized product previews use illustrative household data while following Richmod's current product surfaces and interaction model.</sub></p>
-
 ## What it does
 
-- **Canonical ledger** for household income and expenses.
-- **Private financial-email ingress** with opaque per-household addresses.
-- **Telegram finance assistant** for transaction intake, queries, corrections, and review.
-- **Document understanding** for receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories.
-- **Review Inbox** for incomplete or ambiguous financial facts.
-- **Integration Action Inbox** for setup work such as forwarding verification, kept separate from financial review.
-- **Deterministic analytics** across cashflow, spending, categories, merchants, members, and salary cycles.
-- **Evidence + audit history** preserved alongside financial decisions.
+| | |
+| --- | --- |
+| 📩 **Financial Email** | Forward financial notifications without giving Richmod direct bank credentials. Each household gets an opaque, household-scoped ingress address. |
+| 💬 **Telegram Assistant** | Ask finance questions, record transactions, send evidence, make corrections, and resolve reviews conversationally. |
+| 📄 **Document Understanding** | Process receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories through one evidence pipeline. |
+| 🧠 **Human-in-the-loop** | Ambiguous facts never silently become ledger entries. Richmod routes uncertainty to the Review Inbox for an explicit decision. |
+| 📊 **Deterministic Analytics** | Explore cashflow, spending, categories, merchants, members, and salary-cycle views from confirmed financial state. |
+| 🔎 **Evidence + Audit History** | Preserve source evidence and the decisions it supports so financial state stays explainable and auditable. |
 
 ## How it works
 
