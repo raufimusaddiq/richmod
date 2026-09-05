@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/richmod-mark.svg" alt="Richmod" width="92" height="92">
+
 # Richmod
 
 ### Household finance tracking that understands evidence, asks when unsure, and never lets AI guess your ledger.
@@ -9,8 +11,11 @@
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 ![Self-hosted](https://img.shields.io/badge/deployment-self--hosted-3b7a57)
+![Contributions welcome](https://img.shields.io/badge/contributions-welcome-245f40)
 
 **Email · Telegram · Documents → one household ledger**
+
+[Why Richmod](#why-richmod) · [Features](#features) · [How it works](#how-it-works) · [Quick start](#quick-start) · [Documentation](#documentation) · [Contributing](#contributing)
 
 </div>
 
@@ -19,6 +24,8 @@ Richmod is a self-hosted household finance system for tracking **income and expe
 Forward financial notifications, send a message or image through Telegram, or upload receipts, payslips, screenshots, invoices, and transfer proofs. Richmod turns clear evidence into canonical financial records and routes uncertainty to a human instead of silently guessing.
 
 > **LLM understands unstructured input. Go decides whether and how it may change financial state.**
+
+> Built for households that want automation without giving AI authority over their money.
 
 ---
 
@@ -30,16 +37,58 @@ Forward financial notifications, send a message or image through Telegram, or up
 
 Richmod is deliberately conservative around money. PostgreSQL is the source of truth, Go owns financial state transitions, and deterministic paths continue to work even when the LLM gateway is unavailable.
 
-## What it does
+## Features
 
-- **Canonical ledger** for household income and expenses.
-- **Private financial-email ingress** with opaque per-household addresses.
-- **Telegram finance assistant** for transaction intake, queries, corrections, and review.
-- **Document understanding** for receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories.
-- **Review Inbox** for incomplete or ambiguous financial facts.
-- **Integration Action Inbox** for setup work such as forwarding verification, kept separate from financial review.
-- **Deterministic analytics** across cashflow, spending, categories, merchants, members, and salary cycles.
-- **Evidence + audit history** preserved alongside financial decisions.
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 📩 Private financial email
+
+Forward financial notifications through an opaque per-household address without giving Richmod direct access to a bank or mailbox account.
+
+</td>
+<td width="50%" valign="top">
+
+### 💬 Telegram finance assistant
+
+Record transactions, ask finance questions, correct mistakes, send images, and resolve reviews from a household-scoped Telegram identity.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 📄 Document understanding
+
+Receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories share one evidence pipeline.
+
+</td>
+<td width="50%" valign="top">
+
+### 🟡 Human-in-the-loop review
+
+Incomplete or ambiguous facts go to Review Inbox. Richmod does not silently turn uncertain model output into ledger state.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 📊 Deterministic analytics
+
+Explore cashflow, spending, categories, merchants, members, and salary-cycle views computed from canonical state.
+
+</td>
+<td width="50%" valign="top">
+
+### 🧾 Evidence + audit history
+
+Keep source evidence, reconciliation context, corrections, and audit history connected to the financial decisions they support.
+
+</td>
+</tr>
+</table>
 
 ## How it works
 
@@ -121,18 +170,16 @@ Richmod treats AI output as untrusted input.
 
 ## Product surfaces
 
-The web app is organized around:
-
-```text
-Overview
-Transactions
-Analytics
-Review Inbox
-Documents
-Household
-Settings
-Integration Actions
-```
+| Surface | Purpose |
+| --- | --- |
+| **Overview** | Monthly household snapshot and what needs attention |
+| **Transactions** | Canonical ledger exploration with provenance |
+| **Analytics** | Cashflow and spending analysis |
+| **Review Inbox** | Resolve ambiguous financial facts |
+| **Documents** | Inspect uploaded or forwarded evidence |
+| **Household** | Members, roles, and Telegram linking |
+| **Settings** | Accounts, categories, merchants, integrations, and system status |
+| **Integration Actions** | Setup tasks such as forwarding confirmation, separate from financial review |
 
 Financial review and integration setup are intentionally separate. A forwarding confirmation should never look like a transaction problem, and a transaction ambiguity should never be hidden inside system setup.
 
@@ -197,14 +244,6 @@ The former Gmail OAuth / Pub/Sub runtime has been fully sunset from the applicat
 
 Current follow-up hardening items include real second-sender acceptance and another off-host backup restore exercise.
 
-## Shipping changes
-
-Pull requests and pushes to `main` run the repository CI path, including secret scanning, Go tests and vet, database-backed integration tests, frontend tests, the Next.js production build, Compose validation, and production image builds.
-
-Successful `main` builds publish immutable images to GHCR. Production deployment is manual and approval-gated: the server pulls released images, runs migrations, and restarts services without building locally.
-
-See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployment.md) for the deployment flow.
-
 ## Documentation
 
 - [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md)
@@ -212,7 +251,25 @@ See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployme
 - [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
 - [Production deployment runbook](docs/runbooks/production-deployment.md)
-- [`AGENTS.md`](AGENTS.md) for repository architecture and contribution rules
+- [`AGENTS.md`](AGENTS.md) for repository architecture and development rules
+
+## Contributing
+
+Contributions are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md), then read [`AGENTS.md`](AGENTS.md) and the relevant current architecture/product docs before making material changes.
+
+For UI changes, include sanitized screenshots. For financial-state changes, describe household-boundary, evidence, audit, idempotency, and LLM-validation implications in the pull request.
+
+## Security
+
+Richmod processes financial evidence, so security-sensitive findings should not be filed as public issues. See [`SECURITY.md`](SECURITY.md) for the reporting policy and the areas that require extra care.
+
+## Shipping changes
+
+Pull requests and pushes to `main` run the repository CI path, including secret scanning, Go tests and vet, database-backed integration tests, frontend tests, the Next.js production build, Compose validation, and production image builds.
+
+Successful `main` builds publish immutable images to GHCR. Production deployment is manual and approval-gated: the server pulls released images, runs migrations, and restarts services without building locally.
+
+See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployment.md) for the deployment flow.
 
 ## Scope
 
