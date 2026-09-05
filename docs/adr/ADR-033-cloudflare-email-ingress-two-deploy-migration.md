@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; Deploy 2 implementation prepared — 5 September 2026.
+Accepted; Deploy 2 completed in production — 5 September 2026.
 
 ## Decision
 
@@ -45,14 +45,20 @@ Google host/path allowlist, and are opened only by the user's browser.
 
 ## Consequences
 
-Deploy 1 keeps Gmail for migration safety and adds recipient provisioning,
-transport verification, and atomic cutover. Deploy 2 deletes Gmail application
+Deploy 1 kept Gmail for migration safety and added recipient provisioning,
+transport verification, and atomic cutover. Deploy 2 deleted Gmail application
 integration, jobs, configuration, dependencies, and runtime tables. External
-Cloudflare and Google cleanup remains an operational step and is not claimed by
-code tests.
+Cloudflare resources remain an operational dependency and are documented
+separately from the application deployment.
 
 After Deploy 2, Cloudflare generic email ingress is Richmod's only application
 financial-email ingress. Gmail may remain only as a user's forwarding source;
 Richmod no longer authenticates to or consumes Google APIs. The deterministic
 Gmail forwarding-confirmation control adapter remains because it processes an
 ordinary forwarded setup email, not Gmail API runtime state.
+
+## Operations
+
+The deployed Cloudflare resource names, Worker bindings, Queue/DLQ policy, HMAC
+contract, forwarding setup, smoke test, and troubleshooting procedure are
+maintained in [`docs/runbooks/cloudflare-email-ingress.md`](../runbooks/cloudflare-email-ingress.md).
