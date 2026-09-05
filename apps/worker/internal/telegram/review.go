@@ -306,9 +306,21 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
+	rememberedCategoryID := ""
 	if field == "merchant" {
 		var merchantID string
-		if err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID); err != nil {
+		err = tx.QueryRow(ctx, `SELECT ma.normalized_merchant_id::text,ma.default_category_id::text
+			FROM merchant_alias ma
+			JOIN category c ON c.id=ma.default_category_id
+			WHERE ma.household_id=$1
+			  AND lower(regexp_replace(btrim(ma.raw_name), '[[:space:]]+', ' ', 'g'))=lower(regexp_replace(btrim($2), '[[:space:]]+', ' ', 'g'))
+			  AND ma.auto_apply AND ma.created_from_user_confirmation
+			  AND c.household_id=$1 AND c.active
+			LIMIT 1`, householdID, value).Scan(&merchantID, &rememberedCategoryID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID)
+		}
+		if err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {
@@ -333,6 +345,12 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_DETAIL','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'field',$5::text,'value',$6::text))`, householdID, userID, transactionID, reviewID, field, value); err != nil {
 		return err
+	}
+	if rememberedCategoryID != "" {
+		if err = p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, rememberedCategoryID, update, reviewExtraction{}, userID, false); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
 		return err
@@ -719,6 +737,14 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
+	if err := p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, value, userID, true); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction, userID string, offerMerchantLearning bool) error {
+	var err error
 	var merchantID *string
 	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' RETURNING merchant_id`, transactionID, categoryID, value.Description, value.Note).Scan(&merchantID); err != nil {
 		return fmt.Errorf("confirm reviewed transaction: %w", err)
@@ -756,7 +782,7 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID); err != nil {
 		return err
 	}
-	askRemember := merchantID != nil && categoryID != ""
+	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""
 	if askRemember {
 		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CONFIRMATION',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, categoryID); err != nil {
 			return err
@@ -789,7 +815,7 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 	} else if err := enqueueReply(ctx, tx, update, "Tercatat dan Review Inbox sudah diperbarui."); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func merchantRememberIntent(value string) string {
