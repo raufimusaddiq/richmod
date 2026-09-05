@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/richmod-logo.svg" alt="Richmod logo" width="92" />
+
 # Richmod
 
 ### Household finance tracking that understands evidence, asks when unsure, and never lets AI guess your ledger.
@@ -13,6 +15,10 @@
 **Email · Telegram · Documents → one household ledger**
 
 </div>
+
+<p align="center">
+  <img src="docs/assets/dashboard.png" alt="Richmod household finance dashboard preview" width="720" />
+</p>
 
 Richmod is a self-hosted household finance system for tracking **income and expenses** without turning personal finance into a second job.
 
@@ -29,6 +35,33 @@ Forward financial notifications, send a message or image through Telegram, or up
 | Raw source evidence stays attached to the decisions it supports. | Every mutation is scoped to exactly one household and remains auditable. | Ambiguous facts become review items instead of invented ledger entries. |
 
 Richmod is deliberately conservative around money. PostgreSQL is the source of truth, Go owns financial state transitions, and deterministic paths continue to work even when the LLM gateway is unavailable.
+
+## Product tour
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/review-inbox.png" alt="Richmod Review Inbox preview" width="100%" />
+      <br />
+      <strong>Review Inbox</strong><br />
+      Ambiguous evidence becomes a human decision instead of a silent ledger mutation.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/analytics.png" alt="Richmod household analytics preview" width="100%" />
+      <br />
+      <strong>Household analytics</strong><br />
+      Explore spending patterns, categories, merchants, members, and salary-cycle views from confirmed financial state.
+    </td>
+  </tr>
+</table>
+
+### Telegram assistant
+
+<p align="center">
+  <img src="docs/assets/telegram-demo.gif" alt="Richmod Telegram transaction and review demo" width="240" />
+</p>
+
+<p align="center"><sub>Sanitized product previews use illustrative household data while following Richmod's current product surfaces and interaction model.</sub></p>
 
 ## What it does
 
