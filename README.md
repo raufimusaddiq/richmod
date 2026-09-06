@@ -33,6 +33,8 @@ Forward financial notifications, send a message or image through Telegram, or up
 ![Richmod household analytics](docs/assets/analytics.png)
 
 Screenshots use synthetic household data. No production financial data is included.
+For reproducible capture, verification, and disposable cleanup, see the
+[README visual showcase runbook](docs/runbooks/readme-showcase.md).
 
 ## Why Richmod
 
