@@ -55,6 +55,8 @@ jobs:
             echo 'Split SQL commands into separate transaction-scoped Exec calls.' >&2
             exit 1
           fi
+      - name: Enforce native-only LLM access
+        run: scripts/check_native_only_llm.sh
       - name: Test API
         working-directory: apps/api
         env:

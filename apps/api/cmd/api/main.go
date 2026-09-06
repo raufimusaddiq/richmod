@@ -31,6 +31,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/salary"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/wealth"
 )
 
 func main() {
@@ -64,6 +65,7 @@ func run(logger *slog.Logger) error {
 	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
 	salaryHandler := salary.NewHandler(pool)
+	wealthHandler := wealth.NewHandler(pool)
 	householdHandler := household.NewHandler(pool, cfg.TelegramBotUsername)
 	adminHandler := admin.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
 	documentStorage, err := blob.NewFromEnv(cfg.DocumentStoragePath)
@@ -173,6 +175,17 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/analytics/categories", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Categories)))
 	mux.Handle("GET /api/v1/analytics/merchants", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Merchants)))
 	mux.Handle("GET /api/v1/analytics/members", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Members)))
+	mux.Handle("GET /api/v1/wealth/accounts", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Accounts)))
+	mux.Handle("POST /api/v1/wealth/accounts", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Accounts)))
+	mux.Handle("PATCH /api/v1/wealth/accounts/{id}", authHandler.RequireSession(http.HandlerFunc(wealthHandler.PatchAccount)))
+	mux.Handle("GET /api/v1/wealth/snapshots", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Snapshots)))
+	mux.Handle("POST /api/v1/wealth/snapshots", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Snapshots)))
+	mux.Handle("GET /api/v1/wealth/snapshots/latest", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Latest)))
+	mux.Handle("GET /api/v1/wealth/snapshots/{id}", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Snapshot)))
+	mux.Handle("PUT /api/v1/wealth/snapshots/{id}", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CorrectSnapshot)))
+	mux.Handle("GET /api/v1/wealth/summary", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Summary)))
+	mux.Handle("GET /api/v1/wealth/history", authHandler.RequireSession(http.HandlerFunc(wealthHandler.History)))
+	mux.Handle("GET /api/v1/wealth/cycle-recaps", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CycleRecaps)))
 	mux.Handle("GET /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.List)))
 	mux.Handle("POST /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Create)))
 	mux.Handle("PATCH /api/v1/budgets/{id}", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Patch)))

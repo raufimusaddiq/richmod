@@ -223,14 +223,21 @@ See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployme
 - [ADR-033: Cloudflare email ingress and Gmail sunset](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md)
 - [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
+- [Wealth, savings, and cycle reconciliation release checklist](docs/WEALTH_SAVINGS_CYCLE_RECONCILIATION_RELEASE_CHECKLIST.md)
 - [Production deployment runbook](docs/runbooks/production-deployment.md)
 - [`AGENTS.md`](AGENTS.md) for repository architecture and contribution rules
 
 ## Scope
 
-Richmod currently focuses on **household income and expense tracking**.
+Richmod V1 covers **household income and expense tracking**, additive wealth
+observations, savings intent classification, and salary-cycle residual
+reconciliation. Transactions remain the cashflow ledger; wealth snapshots are
+point-in-time observations; residuals become review metadata, not synthetic
+transactions.
 
-Assets, stocks, mutual funds, gold, crypto, portfolio valuation, investment P&L, and market-price feeds are intentionally outside the current MVP scope.
+Explicit non-goals: assets, stocks, mutual funds, gold, crypto, broker
+integrations, portfolio valuation, investment P&L, market-price feeds, historical
+savings inference, and automatic residual-to-transaction conversion.
 
 ---
 
