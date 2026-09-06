@@ -63,6 +63,10 @@ with a host-local build.
 Run the smallest relevant set first, then all checks required by touched areas.
 Run commands from the feature worktree.
 
+Use [the disposable test matrix](disposable-test-matrix.md) for the exact
+isolated PostgreSQL, Go, web, Compose, image-build, Playwright, and reclaim
+commands.
+
 | Change | Minimum verification |
 | --- | --- |
 | Go API | `go test ./...` and `go vet ./...` in `apps/api` |
