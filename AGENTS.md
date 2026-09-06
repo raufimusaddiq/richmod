@@ -79,6 +79,14 @@ per-security positions, cost basis, realized/unrealized P&L, TWR, XIRR,
 investment advice, historical savings inference, and automatic conversion of
 residuals into transactions.
 
+Bank Email is the frozen `SPENDING_ONLY` compatibility pipeline. Financial
+Provider Email is a separate generic native-LLM observation pipeline. Provider
+email is valid standalone evidence; bank email is optional corroboration. Go
+owns household-scoped entity aliases, reconciliation, and canonical mutations.
+One real event has one canonical transaction with many evidence rows. Wealth
+values remain observations/snapshots, never transactions. Do not add
+provider-specific production branches or expose canonical IDs to the LLM.
+
 ## Development rules
 
 - Keep HTTP handlers thin; business rules belong in domain/service code.

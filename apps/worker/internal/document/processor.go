@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -246,26 +247,7 @@ func observationDate(value *string) (*time.Time, error) {
 }
 
 func resolveWealthObservationAccount(ctx context.Context, tx pgx.Tx, householdID string, observation wealthObservation) (string, error) {
-	rows, err := tx.Query(ctx, `SELECT id::text FROM wealth_account WHERE household_id=$1 AND active AND lower(btrim(name))=lower(btrim($2)) AND (lower(btrim(COALESCE(institution,'')))=lower(btrim($3)) OR btrim($3)='') ORDER BY id LIMIT 2`, householdID, observation.AccountHint, observation.Institution)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return "", err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil || len(ids) > 1 {
-		return "", err
-	}
-	if len(ids) == 1 {
-		return ids[0], nil
-	}
-	return "", nil
+	return financialentity.WealthAccount(ctx, tx, householdID, strings.TrimSpace(observation.Institution+" "+observation.AccountHint))
 }
 
 type wealthObservation struct {

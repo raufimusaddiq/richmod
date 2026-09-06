@@ -244,6 +244,13 @@ sync, per-security positions, cost basis, realized/unrealized P&L, TWR, XIRR,
 investment advice, historical savings inference, and automatic
 residual-to-transaction conversion.
 
+Bank Email remains the frozen `SPENDING_ONLY` compatibility pipeline. Financial
+Provider Email is a generic native-LLM observation path: provider email may
+stand alone as evidence, while Go owns household entity resolution,
+reconciliation, and canonical mutations. Wealth values are observations and
+snapshots, never transactions. Provider-specific production branches are out
+of scope.
+
 ---
 
 <div align="center">

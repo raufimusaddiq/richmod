@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 )
 
 func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID string, update telegramUpdate, args map[string]any) error {
@@ -150,47 +151,17 @@ func (p *Processor) finishTransferReview(ctx context.Context, sourceID, househol
 }
 
 func resolveUniqueAccountHint(ctx context.Context, tx pgx.Tx, householdID, hint string) (string, error) {
-	rows, err := tx.Query(ctx, `SELECT id::text FROM account WHERE household_id=$1 AND active AND lower(regexp_replace(btrim(name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) ORDER BY id LIMIT 2`, householdID, hint)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return "", err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return "", err
-	}
-	if len(ids) != 1 {
+	id, err := financialentity.Account(ctx, tx, householdID, hint)
+	if err != nil || id == "" {
 		return "", fmt.Errorf("account hint is not unique")
 	}
-	return ids[0], nil
+	return id, nil
 }
 
 func resolveUniqueWealthHint(ctx context.Context, tx pgx.Tx, householdID, hint string) (string, error) {
-	rows, err := tx.Query(ctx, `SELECT id::text FROM wealth_account WHERE household_id=$1 AND active AND (lower(btrim(name))=lower(btrim($2)) OR lower(btrim(COALESCE(institution,'')))=lower(btrim($2))) ORDER BY id LIMIT 2`, householdID, hint)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return "", err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return "", err
-	}
-	if len(ids) != 1 {
+	id, err := financialentity.WealthAccount(ctx, tx, householdID, hint)
+	if err != nil || id == "" {
 		return "", fmt.Errorf("wealth hint is not unique")
 	}
-	return ids[0], nil
+	return id, nil
 }

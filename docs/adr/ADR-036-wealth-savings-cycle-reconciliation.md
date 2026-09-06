@@ -11,6 +11,8 @@ Universal `review_item` remains the canonical review subject. It gains `cycle_re
 
 Existing transaction purposes are conservatively backfilled: transfers become `INTERNAL_TRANSFER`; all other rows become `GENERAL`. No historical savings inference occurs. Existing salary, ledger, Telegram, and review flows remain owners of their current mutations.
 
+Bank Email remains the frozen `SPENDING_ONLY` compatibility pipeline (`PROCESS_BANK_EMAIL`). Financial Provider Email is a separate generic native-LLM observation pipeline. Provider email is valid standalone evidence; bank notification is optional corroboration. One real event remains one canonical transaction with many evidence rows. Wealth value remains observation/snapshot state, never a transaction. Go performs household-scoped alias/entity resolution and reconciliation; provider names are fixture data, not production branches.
+
 Cashflow uses one shared rule wherever Wealth and Analytics report it:
 `income - (expense - refund)`. A refund reduces expense; it is not a negative
 income nor a Wealth adjustment.

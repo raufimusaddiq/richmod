@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/text/unicode/norm"
 )
 
 type canonicalReview struct {
@@ -146,7 +148,15 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 400, map[string]string{"error": "invalid household wealth account"})
 				return
 			}
-			if _, err = tx.Exec(r.Context(), `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, *wealthObservation, values.WealthAccountID, household); err != nil || tx.Commit(r.Context()) != nil {
+			var hint string
+			if err = tx.QueryRow(r.Context(), `SELECT account_hint FROM wealth_observation WHERE id=$1`, *wealthObservation).Scan(&hint); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to set wealth account"})
+				return
+			}
+			if _, err = tx.Exec(r.Context(), `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, *wealthObservation, values.WealthAccountID, household); err == nil && normalizeEntityAlias(hint) != "" {
+				_, err = tx.Exec(r.Context(), `INSERT INTO financial_entity_alias(household_id,entity_type,wealth_account_id,alias,normalized_alias,source) VALUES($1,'WEALTH_ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET wealth_account_id=EXCLUDED.wealth_account_id,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now()`, household, values.WealthAccountID, strings.TrimSpace(hint), normalizeEntityAlias(hint))
+			}
+			if err != nil || tx.Commit(r.Context()) != nil {
 				writeJSON(w, 500, map[string]string{"error": "unable to set wealth account"})
 				return
 			}
@@ -367,6 +377,23 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 
+func normalizeEntityAlias(value string) string {
+	var b strings.Builder
+	space := false
+	for _, r := range strings.ToLower(strings.TrimSpace(norm.NFKC.String(value))) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			if space && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteRune(r)
+			space = false
+		} else {
+			space = true
+		}
+	}
+	return b.String()
+}
+
 func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user, household, reviewID, sourceID, action string, raw json.RawMessage) error {
 	var accountID, amount, description, purpose, wealthID string
 	var at time.Time
@@ -375,6 +402,10 @@ func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user
 		return errInvalid
 	}
 	var transactionID string
+	var sourceType string
+	if err := tx.QueryRow(r.Context(), `SELECT source_type FROM source_event WHERE id=$1 AND household_id=$2`, sourceID, household).Scan(&sourceType); err != nil {
+		return errInvalid
+	}
 	if action == "MERGE_EXISTING" {
 		var values struct {
 			TransactionID string `json:"transactionId"`
@@ -400,10 +431,10 @@ func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user
 			return err
 		}
 	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'TELEGRAM_TEXT',1) ON CONFLICT DO NOTHING`, transactionID, sourceID); err != nil {
+	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING`, transactionID, sourceID, sourceType); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-transfer',parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, household); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='PROCESSED',parser_name=CASE WHEN source_type='FINANCIAL_EMAIL' THEN 'financial-email-reconciliation' ELSE 'telegram-transfer' END,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, household); err != nil {
 		return err
 	}
 	_, err := tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE source_event_id=$1`, sourceID, user)
