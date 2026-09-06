@@ -202,7 +202,7 @@ func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID); err != nil {
 		return err
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status) VALUES($1,$2,'DOCUMENT_CLASSIFICATION','OPEN') ON CONFLICT DO NOTHING RETURNING id`, householdID, documentID).Scan(new(string)); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,document_id,review_type,status) VALUES($1,$2,$3,'DOCUMENT_CLASSIFICATION','OPEN') ON CONFLICT DO NOTHING RETURNING id`, householdID, sourceID, documentID).Scan(new(string)); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if tag.RowsAffected() > 0 {

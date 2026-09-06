@@ -23,15 +23,13 @@ type Handler struct{ pool *pgxpool.Pool }
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool} }
 
 type manualInput struct {
-	Type                   string  `json:"type"`
-	Amount                 string  `json:"amount"`
-	TransactionAt          string  `json:"transactionAt"`
-	Description            string  `json:"description"`
-	Note                   string  `json:"note"`
-	AccountID              *string `json:"accountId"`
-	CategoryID             *string `json:"categoryId"`
-	Purpose                *string `json:"purpose"`
-	RelatedWealthAccountID *string `json:"relatedWealthAccountId"`
+	Type          string  `json:"type"`
+	Amount        string  `json:"amount"`
+	TransactionAt string  `json:"transactionAt"`
+	Description   string  `json:"description"`
+	Note          string  `json:"note"`
+	AccountID     *string `json:"accountId"`
+	CategoryID    *string `json:"categoryId"`
 }
 
 type validationError struct{ message string }
@@ -63,19 +61,8 @@ func (h *Handler) CreateManualTransaction(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) create(ctx context.Context, principal auth.Principal, input manualInput) (string, error) {
-	if !oneOf(input.Type, "INCOME", "EXPENSE", "TRANSFER") {
-		return "", validationError{"type must be INCOME, EXPENSE, or TRANSFER"}
-	}
-	purpose := "GENERAL"
-	if input.Purpose != nil {
-		purpose = strings.TrimSpace(*input.Purpose)
-	}
-	if input.Type == "TRANSFER" {
-		if !oneOf(purpose, "INTERNAL_TRANSFER", "SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT") {
-			return "", validationError{"transfer purpose is invalid"}
-		}
-	} else if purpose != "GENERAL" || input.RelatedWealthAccountID != nil {
-		return "", validationError{"income and expense must use GENERAL purpose without relatedWealthAccountId"}
+	if input.Type != "INCOME" && input.Type != "EXPENSE" {
+		return "", validationError{"type must be INCOME or EXPENSE"}
 	}
 	amount, ok := new(big.Int).SetString(input.Amount, 10)
 	if !ok || amount.Sign() <= 0 || amount.String() != input.Amount {
@@ -117,17 +104,8 @@ func (h *Handler) create(ctx context.Context, principal auth.Principal, input ma
 			return "", validationError{"categoryId must identify an active household category"}
 		}
 	}
-	if input.RelatedWealthAccountID != nil {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wealth_account WHERE id=$1 AND household_id=$2 AND active)`, *input.RelatedWealthAccountID, householdID).Scan(&exists); err != nil {
-			return "", fmt.Errorf("validate wealth account: %w", err)
-		}
-		if !exists {
-			return "", validationError{"relatedWealthAccountId must identify an active household wealth account"}
-		}
-	}
 	var transactionID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction (household_id,account_id,category_id,type,purpose,related_wealth_account_id,status,amount,currency,transaction_at,description,note,created_by_user_id,confirmed_at) VALUES ($1,$2,$3,$4,$5,$6,'CONFIRMED',$7,'IDR',$8,$9,$10,$11,now()) RETURNING id`, householdID, input.AccountID, input.CategoryID, input.Type, purpose, input.RelatedWealthAccountID, amount.String(), transactionAt, input.Description, input.Note, principal.UserID).Scan(&transactionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction (household_id,account_id,category_id,type,status,amount,currency,transaction_at,description,note,created_by_user_id,confirmed_at) VALUES ($1,$2,$3,$4,'CONFIRMED',$5,'IDR',$6,$7,$8,$9,now()) RETURNING id`, householdID, input.AccountID, input.CategoryID, input.Type, amount.String(), transactionAt, input.Description, input.Note, principal.UserID).Scan(&transactionID); err != nil {
 		return "", fmt.Errorf("create transaction: %w", err)
 	}
 	raw := make([]byte, 32)

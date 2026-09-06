@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -589,17 +588,6 @@ func (p *Processor) extractReview(ctx context.Context, sourceEventID, text strin
 }
 
 func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, args map[string]any) error {
-	action, _ := args["action"].(string)
-	if update.Message.ReplyToMessage != nil {
-		var requestID, itemID, caseID string
-		err := p.pool.QueryRow(ctx, `SELECT r.id,ri.id,crc.id FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&requestID, &itemID, &caseID)
-		if err == nil {
-			return p.resolveNativeResidualReview(ctx, sourceEventID, householdID, update, requestID, itemID, caseID, action, args)
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-	}
 	query := `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
 	params := []any{householdID, update.Message.Chat.ID}
 	if update.Message.ReplyToMessage != nil {
@@ -629,6 +617,7 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	if len(choices) != 1 {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Ada beberapa review aktif. Pilih pesan review yang ingin diselesaikan atau balas pesannya.")
 	}
+	action, _ := args["action"].(string)
 	categorySlug, _ := args["category_slug"].(string)
 	description, _ := args["description"].(string)
 	merchant, _ := args["merchant"].(string)
@@ -692,108 +681,6 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, c.id, c.tx, categoryID, update, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
-}
-
-type residualAllocation struct {
-	WealthAccountID string `json:"wealthAccountId"`
-	AmountIDR       string `json:"amountIdr"`
-	Note            string `json:"note"`
-}
-
-func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, requestID, itemID, caseID, action string, args map[string]any) error {
-	if action == "TRANSACTION_MISSING" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Tambahkan transaksi lewat Review Inbox di web, lalu selesaikan rekonsiliasi ini.")
-	}
-	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau tambahkan transaksi di web.")
-	}
-	var input struct {
-		Allocations []residualAllocation `json:"allocations"`
-	}
-	encoded, err := json.Marshal(args)
-	if err != nil || json.Unmarshal(encoded, &input) != nil {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Data alokasi tidak valid.")
-	}
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	var userID string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
-		return err
-	}
-	var lockedRequest, lockedItem string
-	if err = tx.QueryRow(ctx, `SELECT r.id,ri.id FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND ri.id=$2 AND r.household_id=$3 AND r.status='OPEN' AND ri.status IN ('PENDING_SEND','OPEN') FOR UPDATE`, requestID, itemID, householdID).Scan(&lockedRequest, &lockedItem); err != nil {
-		return err
-	}
-	var oldIncome, oldExpense, oldSavings, oldResidual, income, expense, savings, residual string
-	err = tx.QueryRow(ctx, `SELECT c.basis_income_idr::text,c.basis_expense_idr::text,c.basis_savings_idr::text,c.basis_residual_idr::text,(SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at>=c.cycle_start AND transaction_at<c.cycle_end),(SELECT COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at>=c.cycle_start AND transaction_at<c.cycle_end),(SELECT COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at>=c.cycle_start AND transaction_at<c.cycle_end),(SELECT (COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)-COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0))::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at>=c.cycle_start AND transaction_at<c.cycle_end) FROM cycle_residual_case c WHERE c.id=$1 AND c.household_id=$2 FOR UPDATE`, caseID, householdID).Scan(&oldIncome, &oldExpense, &oldSavings, &oldResidual, &income, &expense, &savings, &residual)
-	if err != nil {
-		return err
-	}
-	if oldIncome != income || oldExpense != expense || oldSavings != savings || oldResidual != residual {
-		if _, err = tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, caseID, income, expense, savings, residual); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CYCLE_RESIDUAL_STALE','cycle_residual_case',$3,jsonb_build_object('incomeIdr',$4,'expenseIdr',$5,'savingsIdr',$6,'residualIdr',$7))`, householdID, userID, caseID, income, expense, savings, residual); err != nil {
-			return err
-		}
-		if err = enqueueReply(ctx, tx, update, "Basis sisa cycle berubah. Tinjau nominal terbaru, lalu selesaikan lagi."); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-	residualInt, ok := new(big.Int).SetString(residual, 10)
-	if !ok {
-		return fmt.Errorf("invalid residual basis")
-	}
-	if action == "ALLOCATE_RETAINED_BALANCE" {
-		total, seen := new(big.Int), map[string]struct{}{}
-		if len(input.Allocations) == 0 {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Minimal satu alokasi diperlukan.")
-		}
-		for _, a := range input.Allocations {
-			amount, valid := new(big.Int).SetString(a.AmountIDR, 10)
-			if a.WealthAccountID == "" || !regexp.MustCompile(`^[0-9]+$`).MatchString(a.AmountIDR) || !valid || amount.Sign() <= 0 || amount.BitLen() > 63 {
-				return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Alokasi harus memakai nominal IDR bulat positif dan rekening valid.")
-			}
-			if _, duplicate := seen[a.WealthAccountID]; duplicate {
-				return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Setiap Wealth Account hanya boleh sekali.")
-			}
-			seen[a.WealthAccountID] = struct{}{}
-			total.Add(total, amount)
-		}
-		if total.Cmp(residualInt) != 0 {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Total alokasi harus sama dengan sisa saldo cycle.")
-		}
-		ids := make([]string, 0, len(seen))
-		for id := range seen {
-			ids = append(ids, id)
-		}
-		var validAccounts int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM wealth_account WHERE household_id=$1 AND active AND id=ANY($2::uuid[])`, householdID, ids).Scan(&validAccounts); err != nil || validAccounts != len(ids) {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Wealth Account harus aktif dan milik household ini.")
-		}
-		for _, a := range input.Allocations {
-			if _, err = tx.Exec(ctx, `INSERT INTO cycle_residual_allocation(cycle_residual_case_id,wealth_account_id,amount_idr,note,created_by_user_id) VALUES($1,$2,$3,$4,$5)`, caseID, a.WealthAccountID, a.AmountIDR, clean(a.Note, 1000), userID); err != nil {
-				return err
-			}
-		}
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID, userID, action, string(encoded)); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, requestID); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,$3,'cycle_residual_case',$4,jsonb_build_object('residualIdr',$5))`, householdID, userID, "CYCLE_RESIDUAL_"+action, caseID, residual); err != nil {
-		return err
-	}
-	if err = enqueueReply(ctx, tx, update, "Rekonsiliasi sisa salary cycle tersimpan."); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }
 
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {

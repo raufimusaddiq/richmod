@@ -8,7 +8,6 @@ const nav = [
   ["/", "Ringkasan", "⌂"],
   ["/transactions", "Transaksi", "ledger"],
   ["/analytics", "Analisis", "⌁"],
-  ["/wealth", "Wealth", "◇"],
   ["/inbox", "Inbox", "✓"],
   ["/documents", "Dokumen", "▤"],
   ["/household", "Keluarga", "⌾"],
@@ -22,8 +21,8 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
   const [inboxCount, setInboxCount] = useState(0);
   const moreButton = useRef(null);
   const closeMoreButton = useRef(null);
-  const primaryLinks = links.slice(0, 5);
-  const secondaryLinks = links.slice(5);
+  const primaryLinks = links.slice(0, 4);
+  const secondaryLinks = links.slice(4);
   useEffect(() => {
     if (!moreOpen) return;
     const closeOnEscape = event => { if (event.key === "Escape") setMoreOpen(false); };

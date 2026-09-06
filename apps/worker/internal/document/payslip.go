@@ -267,7 +267,6 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	if reviewWithoutTransaction {
 		status, proposalStatus, documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
-	var salaryEventID string
 	if autoConfirm {
 		normalized := strings.ToLower(strings.Join(strings.Fields(value.Employer), " "))
 		var duplicate bool
@@ -298,7 +297,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return err
 	}
 	if reviewWithoutTransaction {
-		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,review_type,status) VALUES($1,$2,$3,'OPEN') ON CONFLICT DO NOTHING`, householdID, proposalID, reviewType); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status) VALUES($1,$2,$3,$4,$5,'OPEN') ON CONFLICT DO NOTHING`, householdID, proposalID, sourceID, documentID, reviewType); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
@@ -347,7 +346,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		if err := tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, householdID, value.Employer, normalized).Scan(&salarySourceID); err != nil {
 			return err
 		}
-		if err := tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id RETURNING id`, salarySourceID, householdID, value.Period+"-01", payDate, value.NetPay, transactionID, sourceID).Scan(&salaryEventID); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySourceID, householdID, value.Period+"-01", payDate, value.NetPay, transactionID, sourceID); err != nil {
 			return err
 		}
 	}
@@ -362,13 +361,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	if autoConfirm && salaryEventID != "" {
-		_, _ = p.pool.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5)`, householdID, salaryEventID)
-	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func payslipSchema() map[string]any {

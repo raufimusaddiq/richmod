@@ -37,10 +37,6 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		{Name: "record_transaction_batch", Description: "Stage 1-10 observed household IDR transactions for explicit confirmation.", Parameters: objectSchema(map[string]any{"items": map[string]any{"type": "array", "minItems": 1, "maxItems": 10, "items": entry}}, []string{"items"})},
 		{Name: "query_spending", Description: "Ask Go for deterministic expense totals for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
 		{Name: "query_cashflow", Description: "Ask Go for deterministic cash-flow totals for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
-		{Name: "record_transfer", Description: "Record a confirmed whole-IDR transfer only when the supplied source transaction account and destination Wealth Account are unique household IDs. Go validates, deduplicates, and reconciles; never guess IDs.", Parameters: objectSchema(map[string]any{"amount_idr": stringType, "source_account_id": stringType, "destination_wealth_account_id": stringType, "purpose": map[string]any{"type": "string", "enum": []string{"SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT", "INTERNAL_TRANSFER"}}, "date_reference": dateRef, "explicit_date": nullString, "local_time": nullString, "description": nullString}, []string{"amount_idr", "source_account_id", "destination_wealth_account_id", "purpose", "date_reference", "explicit_date", "local_time", "description"})},
-		{Name: "query_savings", Description: "Ask Go for deterministic confirmed savings totals, using canonical savings purposes only.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
-		{Name: "query_wealth", Description: "Ask Go for net worth from the latest complete Wealth Snapshot and its observed timestamp.", Parameters: objectSchema(map[string]any{}, []string{})},
-		{Name: "list_wealth_accounts", Description: "Ask Go for active household Wealth Accounts.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "search_transactions", Description: "Search household transactions by text and period. Go returns bounded results.", Parameters: objectSchema(map[string]any{"period": period, "from_date": nullString, "to_date": nullString, "search_text": stringType}, []string{"period", "from_date", "to_date", "search_text"})},
 		{Name: "list_review_items", Description: "List active household review items relevant to this Telegram user/chat.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "get_finance_insight", Description: "Read or start canonical aggregate-only insight for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
@@ -56,7 +52,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_batch", Description: "Confirm the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_batch", Description: "Cancel the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})})
 	}
 	if hasActiveReview {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active bound review. Go enforces the review type and required values; never guess missing facts.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionsForType(reviewType)}, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": nullString, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_id": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_id", "amount_idr", "note"})}}, []string{"action", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active bound review. Go enforces the review type and required values; never guess missing facts.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionsForType(reviewType)}, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": nullString}, []string{"action", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at"})})
 	}
 	if hasSalaryChoice {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
@@ -75,8 +71,6 @@ func reviewActionsForType(kind string) []string {
 	switch kind {
 	case "TRANSFER_CLASSIFICATION":
 		return []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "IGNORE"}
-	case "CYCLE_RESIDUAL_ALLOCATION":
-		return []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}
 	case "PAYSLIP_CONFIRMATION", "SALARY_SOURCE_CONFIRMATION":
 		return []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
 	case "MISSING_PAY_DATE":
@@ -99,13 +93,11 @@ func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
 		target = &createArgs{}
 	case "record_transaction_batch":
 		target = &batchArgs{}
-	case "query_spending", "query_cashflow", "query_savings", "get_finance_insight":
+	case "query_spending", "query_cashflow", "get_finance_insight":
 		target = &periodArgs{}
-	case "record_transfer":
-		target = &transferArgs{}
 	case "search_transactions":
 		target = &searchArgs{}
-	case "list_review_items", "query_wealth", "list_wealth_accounts", "finance_help", "confirm_pending_action", "cancel_pending_action", "confirm_pending_batch", "cancel_pending_batch":
+	case "list_review_items", "finance_help", "confirm_pending_action", "cancel_pending_action", "confirm_pending_batch", "cancel_pending_batch":
 		target = &emptyArgs{}
 	case "ask_clarification":
 		target = &clarifyArgs{}
@@ -146,10 +138,6 @@ func decodeNativeArgs(call gateway.ToolCall, target any) (map[string]any, error)
 		return remarshal(out), err
 	case *periodArgs:
 		out, err := gateway.DecodeToolArguments[periodArgs](call, call.Name)
-		*v = out
-		return remarshal(out), err
-	case *transferArgs:
-		out, err := gateway.DecodeToolArguments[transferArgs](call, call.Name)
 		*v = out
 		return remarshal(out), err
 	case *searchArgs:
@@ -217,16 +205,6 @@ type periodArgs struct {
 	FromDate *string `json:"from_date"`
 	ToDate   *string `json:"to_date"`
 }
-type transferArgs struct {
-	Amount                     string  `json:"amount_idr"`
-	SourceAccountID            string  `json:"source_account_id"`
-	DestinationWealthAccountID string  `json:"destination_wealth_account_id"`
-	Purpose                    string  `json:"purpose"`
-	DateReference              string  `json:"date_reference"`
-	ExplicitDate               *string `json:"explicit_date"`
-	LocalTime                  *string `json:"local_time"`
-	Description                *string `json:"description"`
-}
 type searchArgs struct {
 	Period     string  `json:"period"`
 	FromDate   *string `json:"from_date"`
@@ -260,11 +238,6 @@ type resolveReviewArgs struct {
 	PayDate       *string `json:"pay_date"`
 	AmountIDR     *string `json:"amount_idr"`
 	TransactionAt *string `json:"transaction_at"`
-	Allocations   []struct {
-		WealthAccountID string  `json:"wealth_account_id"`
-		AmountIDR       string  `json:"amount_idr"`
-		Note            *string `json:"note"`
-	} `json:"allocations"`
 }
 type salaryChoiceArgs struct {
 	Choice string `json:"choice"`
@@ -306,12 +279,6 @@ func validateTypedArgs(value any) error {
 	case *periodArgs:
 		if !validPeriod(v.Period) {
 			return fmt.Errorf("period")
-		}
-	case *transferArgs:
-		n, ok := new(big.Int).SetString(v.Amount, 10)
-		validPurpose := map[string]bool{"SAVINGS_TRANSFER": true, "INVESTMENT_CONTRIBUTION": true, "ASSET_PURCHASE": true, "DEBT_PRINCIPAL_PAYMENT": true, "INTERNAL_TRANSFER": true}[v.Purpose]
-		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountID) == "" || strings.TrimSpace(v.DestinationWealthAccountID) == "" || !validPurpose || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
-			return fmt.Errorf("transfer")
 		}
 	case *searchArgs:
 		if !validPeriod(v.Period) || strings.TrimSpace(v.SearchText) == "" {

@@ -157,54 +157,6 @@ func (p *Processor) replySpending(ctx context.Context, sourceID, householdID str
 	return p.finishAssistant(ctx, sourceID, update, message, nil)
 }
 
-func (p *Processor) replySavings(ctx context.Context, sourceID, householdID string, update telegramUpdate, r assistantRange) error {
-	var total string
-	if err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(amount),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE') AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&total); err != nil {
-		return err
-	}
-	return p.finishAssistant(ctx, sourceID, update, "💾 Tabungan\nPeriode: "+r.label()+"\n\nTotal: Rp"+FormatIDR(total), nil)
-}
-
-func (p *Processor) replyWealthAccounts(ctx context.Context, sourceID, householdID string, update telegramUpdate) error {
-	rows, err := p.pool.Query(ctx, `SELECT name,COALESCE(institution,''),usage_role FROM wealth_account WHERE household_id=$1 AND active ORDER BY name,id`, householdID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	lines := []string{"🏦 Wealth Accounts"}
-	for rows.Next() {
-		var name, institution, role string
-		if err := rows.Scan(&name, &institution, &role); err != nil {
-			return err
-		}
-		lines = append(lines, "• "+name+" · "+role+func() string {
-			if institution != "" {
-				return " · " + institution
-			}
-			return ""
-		}())
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(lines) == 1 {
-		lines = append(lines, "Belum ada Wealth Account aktif.")
-	}
-	return p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil)
-}
-
-func (p *Processor) replyWealth(ctx context.Context, sourceID, householdID string, update telegramUpdate) error {
-	var observed time.Time
-	var value string
-	if err := p.pool.QueryRow(ctx, `SELECT s.observed_at,COALESCE(sum(CASE WHEN w.side='LIABILITY' THEN -i.value_idr ELSE i.value_idr END),0)::text FROM wealth_snapshot s JOIN wealth_snapshot_item i ON i.snapshot_id=s.id JOIN wealth_account w ON w.id=i.wealth_account_id WHERE s.household_id=$1 AND s.id=(SELECT id FROM wealth_snapshot WHERE household_id=$1 ORDER BY observed_at DESC,id DESC LIMIT 1) GROUP BY s.id,s.observed_at`, householdID).Scan(&observed, &value); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return p.finishAssistant(ctx, sourceID, update, "Belum ada Wealth Snapshot.", nil)
-		}
-		return err
-	}
-	return p.finishAssistant(ctx, sourceID, update, "💎 Net worth sekarang\nRp"+FormatIDR(value)+"\nDiamati: "+observed.In(jakartaLocation()).Format(time.RFC3339), nil)
-}
-
 func (p *Processor) replyCashflow(ctx context.Context, sourceID, householdID string, update telegramUpdate, r assistantRange) error {
 	var income, expense, net string
 	err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text,(COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0))::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&income, &expense, &net)
@@ -241,9 +193,7 @@ func (p *Processor) replySearch(ctx context.Context, sourceID, householdID strin
 	if len(lines) == 1 {
 		lines = []string{"🔎 Tidak ada hasil\n\nCoba kata kunci atau periode lain."}
 	}
-	if err := p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil); err != nil {
-		return err
-	}
+	if err := p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil); err != nil { return err }
 	return p.persistTransactionReferences(ctx, householdID, sourceID, update, ids)
 }
 

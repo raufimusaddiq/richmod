@@ -347,29 +347,10 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
 		return
 	}
-	newType, newStatus, proposalStatus, sourceStatus, purpose := "TRANSFER", "CONFIRMED", "ACCEPTED", "PROCESSED", "INTERNAL_TRANSFER"
-	var wealthAccountID *string
-	if input.Classification == "INVESTMENT_ACCOUNT" {
-		var linked string
-		err = tx.QueryRow(r.Context(), `SELECT wealth_account_id FROM known_account WHERE household_id=$1 AND active AND relationship='INVESTMENT_ACCOUNT' AND wealth_account_id IS NOT NULL AND position(match_hint in COALESCE($2,'')) > 0 ORDER BY id LIMIT 2`, household, counterparty).Scan(&linked)
-		if err != nil {
-			// ponytail: deterministic matching requires exactly one linked wealth account; retain review otherwise.
-			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
-			return
-		}
-		wealthAccountID = &linked
-		purpose = "INVESTMENT_CONTRIBUTION"
-	}
-	var count int
-	if input.Classification == "INVESTMENT_ACCOUNT" {
-		if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM known_account WHERE household_id=$1 AND active AND relationship='INVESTMENT_ACCOUNT' AND wealth_account_id=$2 AND position(match_hint in COALESCE($3,'')) > 0`, household, wealthAccountID, counterparty).Scan(&count); err != nil || count != 1 {
-			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
-			return
-		}
-	}
+	newType, newStatus, proposalStatus, sourceStatus := "TRANSFER", "CONFIRMED", "ACCEPTED", "PROCESSED"
 	var categoryID *string
 	if input.Classification == "EXPENSE" {
-		newType, purpose = "EXPENSE", "GENERAL"
+		newType = "EXPENSE"
 		if input.CategoryID == nil {
 			writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 			return
@@ -381,10 +362,10 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		categoryID = &valid
 	}
-	if input.Classification == "IGNORE" {
-		newType, newStatus, proposalStatus, sourceStatus, purpose = "UNCLASSIFIED", "VOIDED", "REJECTED", "IGNORED", "GENERAL"
+	if input.Classification == "INVESTMENT_ACCOUNT" || input.Classification == "IGNORE" {
+		newType, newStatus, proposalStatus, sourceStatus = "UNCLASSIFIED", "VOIDED", "REJECTED", "IGNORED"
 	}
-	if _, err = tx.Exec(r.Context(), `UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=$4,status=$5,category_id=$6,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1`, id, newType, purpose, wealthAccountID, newStatus, categoryID); err != nil {
+	if _, err = tx.Exec(r.Context(), `UPDATE transaction SET type=$2,status=$3,category_id=$4,confirmed_at=CASE WHEN $3='CONFIRMED' THEN now() END,voided_at=CASE WHEN $3='VOIDED' THEN now() END,updated_at=now() WHERE id=$1`, id, newType, newStatus, categoryID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
 		return
 	}
