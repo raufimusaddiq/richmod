@@ -65,12 +65,16 @@ source_event -> LLM structured extraction -> Go validation -> proposal -> reconc
 - Receipt evidence should enrich an existing matching transaction instead of creating duplicates.
 - Invoice/bill alone is not proof of payment.
 
-## MVP scope
+## V1 scope
 
-Implement income and expense tracking only.
+V1 covers household income and expense tracking plus additive wealth observations,
+savings intent classification, and salary-cycle residual reconciliation. The
+cashflow ledger remains transaction-based; wealth snapshots are point-in-time
+observations; residuals remain review metadata rather than synthetic transactions.
 
-Do not implement assets, stocks, mutual funds, gold, crypto, broker integrations,
-portfolio valuation, investment P&L, or market-price feeds.
+Explicit non-goals: assets, stocks, mutual funds, gold, crypto, broker integrations,
+portfolio valuation, investment P&L, market-price feeds, historical savings
+inference, and automatic conversion of residuals into transactions.
 
 ## Development rules
 

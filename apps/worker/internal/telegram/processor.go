@@ -297,7 +297,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Richmod hanya membantu pencatatan dan review keuangan rumah tangga. Fitur investasi dan permintaan sistem tidak didukung.")
 	case "ask_clarification":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Detailnya belum cukup jelas. Sebutkan nominal, tujuan, serta waktu transaksi.")
-	case "query_spending", "query_cashflow", "get_finance_insight":
+	case "query_spending", "query_cashflow", "query_savings", "get_finance_insight":
 		period, _ := args["period"].(string)
 		fromDate, _ := args["from_date"].(string)
 		toDate, _ := args["to_date"].(string)
@@ -314,6 +314,8 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		switch call.Name {
 		case "query_cashflow":
 			return true, p.replyCashflow(ctx, sourceID, householdID, update, r)
+		case "query_savings":
+			return true, p.replySavings(ctx, sourceID, householdID, update, r)
 		case "get_finance_insight":
 			return true, p.replyCycleInsight(ctx, sourceID, householdID, update, r)
 		default:
@@ -337,6 +339,12 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		return true, p.replySearch(ctx, sourceID, householdID, update, r, clean(search, 120))
 	case "list_review_items":
 		return true, p.replyReviews(ctx, sourceID, householdID, update)
+	case "list_wealth_accounts":
+		return true, p.replyWealthAccounts(ctx, sourceID, householdID, update)
+	case "query_wealth":
+		return true, p.replyWealth(ctx, sourceID, householdID, update)
+	case "record_transfer":
+		return true, p.recordTransfer(ctx, sourceID, householdID, update, args)
 	case "resolve_review":
 		return true, p.resolveNativeReview(ctx, sourceID, householdID, update, args)
 	case "resolve_salary_choice":

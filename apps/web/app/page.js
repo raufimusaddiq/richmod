@@ -35,7 +35,7 @@ export default function Home() {
   if (user === null) return <Loading />;
   if (user === false) return <Login onSuccess={() => window.location.reload()} />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
-  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"], ["Arus kas bersih", overview?.netCashflow, "net"]];
+  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"], ["Tabungan", overview?.savings, "income"], ["Residual siklus", overview?.residual, "net"], ["Kekayaan bersih", overview?.netWorth, "net"]];
   return <AppShell user={user} eyebrow="RINGKASAN" title={`Keuangan keluarga · ${periodLabel}`} actions={<Link className="button secondary" href="/documents">＋ Unggah dokumen</Link>}>
     <ErrorNotice message={error} retry={load}/>
     {loading && <Skeleton/>}

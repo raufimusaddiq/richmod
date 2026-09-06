@@ -5,7 +5,7 @@ import test from "node:test";
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("all Product Alignment routes exist", () => {
-  for (const route of ["page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
+  for (const route of ["page.js", "wealth/page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
   }
 });
