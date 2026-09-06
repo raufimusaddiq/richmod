@@ -74,6 +74,9 @@ environment file.
 
 Use this order for every normal production release:
 
+The complete sprint preflight, test matrix, integration, cleanup, and handoff
+checklist is in [the sprint delivery runbook](sprint-delivery.md).
+
 1. Merge the verified branch to `main`; wait for `main` CI and `Release Images`
    to succeed.
 2. After immutable `sha-<main-commit>` images exist in GHCR, reclaim only safe

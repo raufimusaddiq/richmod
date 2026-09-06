@@ -101,3 +101,7 @@ Every request that changes repository files must use its own branch and linked w
 
 Before finishing, inspect the diff, run relevant tests, and report the branch, commit,
 merge result, and deployment result if applicable.
+
+For the full sprint sequence—CI/release-image gate, safe reclaim, human deployment
+approval, post-deploy verification, and handoff—follow
+[`docs/runbooks/sprint-delivery.md`](docs/runbooks/sprint-delivery.md).
