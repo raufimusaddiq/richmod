@@ -37,7 +37,18 @@ func TestCashflowRangeIncludesOnlyConfirmedFinancialState(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,'INCOME','CONFIRMED',1000000,'2026-08-10 10:00+07','Income',now()),($1,'EXPENSE','CONFIRMED',250000,'2026-08-11 10:00+07','Expense',now()),($1,'REFUND','CONFIRMED',50000,'2026-08-12 10:00+07','Refund',now()),($1,'TRANSFER','CONFIRMED',999999,'2026-08-13 10:00+07','Transfer',now()),($1,'EXPENSE','NEEDS_REVIEW',777777,'2026-08-14 10:00+07','Unresolved',NULL)`, householdID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at,purpose) VALUES
+		($1,'INCOME','CONFIRMED',1000000,'2026-08-10 10:00+07','Income',now(),'GENERAL'),
+		($1,'EXPENSE','CONFIRMED',250000,'2026-08-11 10:00+07','Expense',now(),'GENERAL'),
+		($1,'REFUND','CONFIRMED',50000,'2026-08-12 10:00+07','Refund',now(),'GENERAL'),
+		($1,'TRANSFER','CONFIRMED',300000,'2026-08-13 10:00+07','Savings',now(),'SAVINGS_TRANSFER'),
+		($1,'TRANSFER','CONFIRMED',300000,'2026-08-14 10:00+07','Investment',now(),'INVESTMENT_CONTRIBUTION'),
+		($1,'TRANSFER','CONFIRMED',300000,'2026-08-15 10:00+07','Asset',now(),'ASSET_PURCHASE'),
+		($1,'TRANSFER','CONFIRMED',999999,'2026-08-16 10:00+07','Internal',now(),'INTERNAL_TRANSFER'),
+		($1,'TRANSFER','NEEDS_REVIEW',888888,'2026-08-17 10:00+07','Unconfirmed savings',NULL,'SAVINGS_TRANSFER'),
+		($1,'EXPENSE','NEEDS_REVIEW',777777,'2026-08-18 10:00+07','Unresolved',NULL,'GENERAL'),
+		($1,'TRANSFER','CONFIRMED',666666,'2026-09-01 00:00+07','End boundary',now(),'SAVINGS_TRANSFER'),
+		($1,'EXPENSE','NEEDS_REVIEW',555555,'2026-09-02 10:00+07','Later unresolved',NULL,'GENERAL')`, householdID); err != nil {
 		t.Fatal(err)
 	}
 	handler := NewHandler(pool)
@@ -55,5 +66,21 @@ func TestCashflowRangeIncludesOnlyConfirmedFinancialState(t *testing.T) {
 	}
 	if len(rows) != 3 || rows[2].Income != "1000000" || rows[2].Expense != "200000" || rows[2].Refund != "50000" || rows[2].Net != "800000" {
 		t.Fatalf("rows=%#v", rows)
+	}
+
+	overviewResponse := httptest.NewRecorder()
+	handler.Overview(overviewResponse, request)
+	if overviewResponse.Code != http.StatusOK {
+		t.Fatalf("overview status=%d body=%s", overviewResponse.Code, overviewResponse.Body.String())
+	}
+	var overview map[string]any
+	if err := json.Unmarshal(overviewResponse.Body.Bytes(), &overview); err != nil {
+		t.Fatal(err)
+	}
+	if overview["savingsAllocated"] != "900000" || overview["savingsAllocationRate"] != "0.9000" || overview["rawUnallocatedSurplus"] != "-100000" {
+		t.Fatalf("overview=%#v", overview)
+	}
+	if overview["reviewCount"] != float64(3) {
+		t.Fatalf("reviewCount=%v", overview["reviewCount"])
 	}
 }

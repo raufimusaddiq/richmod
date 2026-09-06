@@ -96,6 +96,36 @@ Rollback is a new manual `Deploy Production` run using a previously verified
 main SHA whose four images exist in GHCR. Never use `docker compose up --build`
 for a release-image deployment.
 
+### Migration 00046 rollback caveat
+
+Migration `00046` is forward-schema compatible and additive. Rolling application
+images back to a verified SHA is permitted only while that SHA tolerates the
+extended schema and legacy `review_request.transaction_id` rows. Do not roll the
+schema back or delete wealth observations, savings intent, or residual-review data.
+If a post-00046 application rollback is needed, retain the schema, deploy the
+verified image, verify compatibility in logs and smoke checks, then repair forward
+with a new migration if required.
+
+### Post-deploy wealth and residual smoke checks
+
+After `/healthz` and `/readyz` pass, use an owner session in one test household to:
+
+1. Confirm an existing cashflow transaction still renders and a confirmed transfer
+   remains classified as `INTERNAL_TRANSFER`, not an expense.
+2. Record or view one wealth snapshot; confirm it is displayed as a point-in-time
+   observation and does not create a cashflow transaction.
+3. Confirm a savings-intent transfer retains its purpose without historical
+   inference changing unrelated transactions.
+4. Close or catch up one eligible salary cycle; confirm any residual creates or
+   reuses one review item/request, never a synthetic transaction.
+5. Re-run the residual trigger/catch-up path; confirm no duplicate active residual
+   review appears.
+
+Monitor the worker after deployment and after the smoke checks. The owner-only
+`GET /api/v1/operations/status` must show a current heartbeat, no failed jobs,
+and no unexpected queue backlog. Investigate residual-generation or wealth-related
+job failures before considering the release complete.
+
 Before first login, run the one-time owner bootstrap and supply the owner's numeric
 Telegram user ID with `--telegram-user-id`. Then register
 `https://finance.investdx.biz.id/webhooks/telegram` with Telegram using the same
