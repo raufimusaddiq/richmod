@@ -27,6 +27,18 @@ Snapshot correction preserves the original snapshot account membership. It
 does not use the set of accounts active today, so later-created accounts never
 appear in historical snapshots and later-inactive accounts remain correctable.
 
+Ambiguous cross-channel Telegram transfers persist a bounded
+`transfer_reconciliation_case`: the interpreted source account, amount, time,
+purpose, Wealth destination, and deterministic candidate transaction IDs.
+Review exposes only those candidates. A user may merge one candidate or
+confirm a distinct transfer; Go performs the mutation and attaches Telegram
+evidence. Weak evidence never selects a transaction automatically.
+
+Analytics Overview and Wealth current savings share one current-period
+resolver. It uses a confirmed primary salary cycle when available, otherwise
+the Jakarta calendar month. Open periods end at the next Jakarta midnight;
+database session timezone never defines the boundary.
+
 ## Compatibility
 
 The migration is additive, preserves existing tables and rows, keeps legacy `review_request.transaction_id` rows valid, and permits non-transaction review projections. Application rollout must write `review_item` first for residual reviews and continue supporting legacy transaction-backed requests during the rolling window.

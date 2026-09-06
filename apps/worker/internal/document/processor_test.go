@@ -86,6 +86,24 @@ func TestWealthObservationUsesBoundedNativeSchemaWithoutCanonicalIDs(t *testing.
 	}
 }
 
+func TestWealthObservationRejectsInvalidOptionalNumerics(t *testing.T) {
+	for _, arguments := range []string{
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"-1","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"abc","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1","unit":"unit","unit_price_idr":"-1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1","unit":"unit","unit_price_idr":"1.5","observed_date":null,"confidence":0.98}`,
+	} {
+		llm := &wealthObservationGateway{call: gateway.ToolCall{Name: "extract_wealth_observation", Arguments: json.RawMessage(arguments)}}
+		value, _, err := (&Processor{gateway: llm}).extractWealthObservation(context.Background(), "document-1", nil)
+		if err != nil {
+			continue
+		}
+		if validOptionalDecimal(value.Quantity) && validOptionalWholeMoney(value.UnitPriceIDR) {
+			t.Fatalf("accepted invalid optional numeric fields: %s", arguments)
+		}
+	}
+}
+
 type wealthObservationGateway struct {
 	call     gateway.ToolCall
 	required bool

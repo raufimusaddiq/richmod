@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialperiod"
 )
 
 type Handler struct{ pool *pgxpool.Pool }
@@ -251,7 +251,7 @@ func (h *Handler) createSnapshot(w http.ResponseWriter, r *http.Request, p auth.
 		fail(w, 400, "unable to create snapshot items")
 		return
 	}
-	if in.ObservationID != nil && !applyObservation(r, tx, p.HouseholdID, *in.ObservationID, in.Items) {
+	if in.ObservationID != nil && !applyObservation(r, tx, p.HouseholdID, p.UserID, *in.ObservationID, in.Items) {
 		fail(w, 400, "wealth observation does not match the complete snapshot")
 		return
 	}
@@ -609,18 +609,12 @@ func (h *Handler) CurrentCycleSavings(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	local := time.Now().In(clock.HouseholdLocation())
-	var configured bool
-	var start, end *time.Time
-	if err := h.pool.QueryRow(r.Context(), `SELECT configured,starts_on,ends_on FROM salary_cycle_bounds($1,$2::date)`, p.HouseholdID, local.Format("2006-01-02")).Scan(&configured, &start, &end); err != nil || !configured || start == nil {
-		jsonOut(w, 200, map[string]any{"configured": false, "savingsAllocated": "0", "savingsByDestination": []any{}})
+	period, err := financialperiod.Current(r.Context(), h.pool, p.HouseholdID, time.Now())
+	if err != nil {
+		fail(w, 500, "unable to resolve current savings period")
 		return
 	}
-	upper := local.AddDate(0, 0, 1)
-	if end != nil {
-		upper = *end
-	}
-	rows, err := h.pool.Query(r.Context(), `SELECT COALESCE(w.id::text,''),COALESCE(w.name,'Unlinked'),sum(t.amount)::text FROM transaction t LEFT JOIN wealth_account w ON w.id=t.related_wealth_account_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type='TRANSFER' AND t.purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY w.id,w.name ORDER BY w.name,w.id`, p.HouseholdID, *start, upper)
+	rows, err := h.pool.Query(r.Context(), `SELECT COALESCE(w.id::text,''),COALESCE(w.name,'Unlinked'),sum(t.amount)::text FROM transaction t LEFT JOIN wealth_account w ON w.id=t.related_wealth_account_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type='TRANSFER' AND t.purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY w.id,w.name ORDER BY w.name,w.id`, p.HouseholdID, period.Start, period.End)
 	if err != nil {
 		fail(w, 500, "unable to calculate current cycle savings")
 		return
@@ -646,7 +640,7 @@ func (h *Handler) CurrentCycleSavings(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "unable to calculate current cycle savings")
 		return
 	}
-	jsonOut(w, 200, map[string]any{"configured": true, "cycleStart": start.Format("2006-01-02"), "cycleEnd": upper.Format("2006-01-02"), "savingsAllocated": total.String(), "savingsByDestination": destinations})
+	jsonOut(w, 200, map[string]any{"configured": period.Configured, "periodKind": period.Kind, "periodStart": period.Start.Format("2006-01-02"), "periodEnd": period.End.Format("2006-01-02"), "cycleStart": period.Start.Format("2006-01-02"), "cycleEnd": period.End.Format("2006-01-02"), "savingsAllocated": total.String(), "savingsByDestination": destinations})
 }
 
 func (h *Handler) listSnapshots(w http.ResponseWriter, r *http.Request, householdID string, totals bool) {
@@ -766,7 +760,7 @@ func completeSnapshotSet(r *http.Request, tx pgx.Tx, snapshotID string, items []
 	return err == nil && existing == len(items) && matched == len(items)
 }
 
-func applyObservation(r *http.Request, tx pgx.Tx, householdID, observationID string, items []itemInput) bool {
+func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observationID string, items []itemInput) bool {
 	var accountID, value string
 	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status='PENDING' FOR UPDATE`, observationID, householdID).Scan(&accountID, &value); err != nil {
 		return false
@@ -784,7 +778,10 @@ func applyObservation(r *http.Request, tx pgx.Tx, householdID, observationID str
 	if _, err := tx.Exec(r.Context(), `UPDATE wealth_observation SET status='APPLIED',updated_at=now() WHERE id=$1`, observationID); err != nil {
 		return false
 	}
-	_, err := tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolution_action='SNAPSHOT_CREATED',resolved_at=now(),updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observationID)
+	if _, err := tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolution_action='SNAPSHOT_CREATED',resolved_by_user_id=$2,resolved_at=now(),updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observationID, userID); err != nil {
+		return false
+	}
+	_, err := tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id IN (SELECT id FROM review_item WHERE wealth_observation_id=$1) AND status IN ('OPEN','PENDING_SEND')`, observationID)
 	return err == nil
 }
 

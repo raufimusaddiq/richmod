@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"strings"
@@ -12,26 +13,40 @@ import (
 )
 
 type canonicalReview struct {
-	ID                      string    `json:"id"`
-	ReviewType              string    `json:"reviewType"`
-	Status                  string    `json:"status"`
-	SubjectType             string    `json:"subjectType"`
-	SubjectID               string    `json:"subjectId"`
-	Summary                 string    `json:"summary"`
-	AmountIDR               string    `json:"amountIdr,omitempty"`
-	Channel                 string    `json:"channel,omitempty"`
-	CycleStart              string    `json:"cycleStart,omitempty"`
-	CycleEnd                string    `json:"cycleEnd,omitempty"`
-	WealthObservationID     string    `json:"wealthObservationId,omitempty"`
-	ResolvedWealthAccountID string    `json:"resolvedWealthAccountId,omitempty"`
-	Institution             string    `json:"institution,omitempty"`
-	AccountHint             string    `json:"accountHint,omitempty"`
-	AllowedActions          []string  `json:"allowedActions"`
-	CreatedAt               time.Time `json:"createdAt"`
+	ID                      string                    `json:"id"`
+	ReviewType              string                    `json:"reviewType"`
+	Status                  string                    `json:"status"`
+	SubjectType             string                    `json:"subjectType"`
+	SubjectID               string                    `json:"subjectId"`
+	Summary                 string                    `json:"summary"`
+	AmountIDR               string                    `json:"amountIdr,omitempty"`
+	Channel                 string                    `json:"channel,omitempty"`
+	CycleStart              string                    `json:"cycleStart,omitempty"`
+	CycleEnd                string                    `json:"cycleEnd,omitempty"`
+	WealthObservationID     string                    `json:"wealthObservationId,omitempty"`
+	ResolvedWealthAccountID string                    `json:"resolvedWealthAccountId,omitempty"`
+	Institution             string                    `json:"institution,omitempty"`
+	AccountHint             string                    `json:"accountHint,omitempty"`
+	TransferCandidates      []transferReviewCandidate `json:"transferCandidates,omitempty"`
+	ProposedPurpose         string                    `json:"proposedPurpose,omitempty"`
+	ProposedWealthAccountID string                    `json:"proposedWealthAccountId,omitempty"`
+	AllowedActions          []string                  `json:"allowedActions"`
+	CreatedAt               time.Time                 `json:"createdAt"`
+}
+
+type transferReviewCandidate struct {
+	ID            string    `json:"id"`
+	Type          string    `json:"type"`
+	Status        string    `json:"status"`
+	Amount        string    `json:"amount"`
+	TransactionAt time.Time `json:"transactionAt"`
+	Description   *string   `json:"description"`
+	Purpose       string    `json:"purpose,omitempty"`
+	WealthAccount string    `json:"wealthAccountId,omitempty"`
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
-	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
+	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',t.id,'type',t.type,'status',t.status,'amount',t.amount::text,'transactionAt',t.transaction_at,'description',t.description,'purpose',COALESCE(t.purpose,''),'wealthAccountId',COALESCE(t.related_wealth_account_id::text,'')) ORDER BY t.transaction_at,t.id) FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids)),'[]'::jsonb),ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON trc.source_event_id=ri.source_event_id WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
 	if err != nil {
 		return nil, err
 	}
@@ -39,10 +54,17 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 	out := make([]canonicalReview, 0)
 	for rows.Next() {
 		var v canonicalReview
-		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.AmountIDR, &v.Channel, &v.CycleStart, &v.CycleEnd, &v.WealthObservationID, &v.ResolvedWealthAccountID, &v.Institution, &v.AccountHint, &v.CreatedAt); err != nil {
+		var candidatesJSON []byte
+		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.AmountIDR, &v.Channel, &v.CycleStart, &v.CycleEnd, &v.WealthObservationID, &v.ResolvedWealthAccountID, &v.Institution, &v.AccountHint, &v.ProposedPurpose, &v.ProposedWealthAccountID, &candidatesJSON, &v.CreatedAt); err != nil {
 			return nil, err
 		}
+		if len(candidatesJSON) > 0 && string(candidatesJSON) != "null" && json.Unmarshal(candidatesJSON, &v.TransferCandidates) != nil {
+			return nil, errors.New("invalid transfer reconciliation candidates")
+		}
 		v.AllowedActions = canonicalActions(v.ReviewType)
+		if v.ReviewType == "TRANSFER_CLASSIFICATION" && (len(v.TransferCandidates) > 0 || v.ProposedPurpose != "") {
+			v.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
+		}
 		out = append(out, v)
 	}
 	return out, rows.Err()
@@ -131,6 +153,26 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+	}
+	if kind == "TRANSFER_CLASSIFICATION" && source != nil && (in.Action == "MERGE_EXISTING" || in.Action == "CONFIRM_NEW_TRANSFER") {
+		if err = h.resolveTransferReconciliation(r, tx, p.UserID, household, r.PathValue("id"), *source, in.Action, in.Values); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid or unavailable transfer reconciliation"})
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, in.Action, string(in.Values)); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to finalize transfer reconciliation"})
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id")); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to finalize transfer reconciliation"})
+			return
+		}
+		if err = audit(r.Context(), tx, household, p.UserID, "RECONCILE_TELEGRAM_TRANSFER", *source, map[string]any{"action": in.Action}); err != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to audit transfer reconciliation"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
 	if transaction != nil {
 		writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
@@ -271,6 +313,9 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		if err == nil && document != nil {
 			_, err = tx.Exec(r.Context(), `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, *document)
 		}
+		if err == nil && source != nil {
+			_, err = tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='DISMISSED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE source_event_id=$1 AND status='OPEN'`, *source, p.UserID)
+		}
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
 		err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, in.Action)
 	} else if kind == "MISSING_PAY_DATE" && in.Action == "SET_PAY_DATE" {
@@ -320,6 +365,47 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(204)
+}
+
+func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user, household, reviewID, sourceID, action string, raw json.RawMessage) error {
+	var accountID, amount, description, purpose, wealthID string
+	var at time.Time
+	var candidates []string
+	if err := tx.QueryRow(r.Context(), `SELECT account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE household_id=$1 AND source_event_id=$2 AND status='OPEN' FOR UPDATE`, household, sourceID).Scan(&accountID, &amount, &description, &purpose, &wealthID, &at, &candidates); err != nil {
+		return errInvalid
+	}
+	var transactionID string
+	if action == "MERGE_EXISTING" {
+		var values struct {
+			TransactionID string `json:"transactionId"`
+		}
+		if json.Unmarshal(raw, &values) != nil || values.TransactionID == "" {
+			return errInvalid
+		}
+		var targetAccount, targetType, targetStatus, targetAmount string
+		if err := tx.QueryRow(r.Context(), `SELECT account_id::text,type,status,amount::text FROM transaction WHERE id=$1 AND household_id=$2 AND id=ANY($3::uuid[]) FOR UPDATE`, values.TransactionID, household, candidates).Scan(&targetAccount, &targetType, &targetStatus, &targetAmount); err != nil || targetAccount != accountID || targetAmount != amount || (targetType != "TRANSFER" && targetType != "UNCLASSIFIED") || targetStatus == "VOIDED" {
+			return errInvalid
+		}
+		if _, err := tx.Exec(r.Context(), `UPDATE transaction SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),confirmed_at=COALESCE(confirmed_at,now()),updated_at=now() WHERE id=$1`, values.TransactionID, purpose, wealthID, description); err != nil {
+			return err
+		}
+		transactionID = values.TransactionID
+		if _, err := tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='TRANSFER_RECONCILED',updated_at=now() WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND') AND id<>$3`, household, transactionID, reviewID); err != nil {
+			return err
+		}
+	} else {
+		if err := tx.QueryRow(r.Context(), `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`, household, accountID, amount, at, description, user, purpose, wealthID).Scan(&transactionID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'TELEGRAM_TEXT',1) ON CONFLICT DO NOTHING`, transactionID, sourceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-transfer',parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, household); err != nil {
+		return err
+	}
+	_, err := tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE source_event_id=$1`, sourceID, user)
+	return err
 }
 
 var errInvalid = &reviewResolutionError{}

@@ -31,28 +31,37 @@ type candidate struct {
 }
 
 type item struct {
-	ID             string      `json:"id"`
-	Type           string      `json:"type"`
-	Amount         string      `json:"amount"`
-	Currency       string      `json:"currency"`
-	TransactionAt  time.Time   `json:"transactionAt"`
-	Description    *string     `json:"description"`
-	Note           *string     `json:"note"`
-	CategoryID     *string     `json:"categoryId"`
-	AccountID      *string     `json:"accountId"`
-	CategoryName   *string     `json:"categoryName"`
-	MerchantName   *string     `json:"merchantName"`
-	Counterparty   *string     `json:"counterparty"`
-	SourceType     *string     `json:"sourceType"`
-	Confidence     *string     `json:"confidence"`
-	ProposalStatus *string     `json:"proposalStatus"`
-	Reason         string      `json:"reason"`
-	Candidates     []candidate `json:"candidates"`
-	ReviewType     string      `json:"reviewType,omitempty"`
-	SubjectType    string      `json:"subjectType,omitempty"`
-	SubjectID      string      `json:"subjectId,omitempty"`
-	AllowedActions []string    `json:"allowedActions,omitempty"`
-	MissingFields  []string    `json:"missingFields,omitempty"`
+	ID                      string                    `json:"id"`
+	Type                    string                    `json:"type"`
+	Amount                  string                    `json:"amount"`
+	Currency                string                    `json:"currency"`
+	TransactionAt           time.Time                 `json:"transactionAt"`
+	Description             *string                   `json:"description"`
+	Note                    *string                   `json:"note"`
+	CategoryID              *string                   `json:"categoryId"`
+	AccountID               *string                   `json:"accountId"`
+	CategoryName            *string                   `json:"categoryName"`
+	MerchantName            *string                   `json:"merchantName"`
+	Counterparty            *string                   `json:"counterparty"`
+	SourceType              *string                   `json:"sourceType"`
+	Confidence              *string                   `json:"confidence"`
+	ProposalStatus          *string                   `json:"proposalStatus"`
+	Reason                  string                    `json:"reason"`
+	Candidates              []candidate               `json:"candidates"`
+	ReviewType              string                    `json:"reviewType,omitempty"`
+	SubjectType             string                    `json:"subjectType,omitempty"`
+	SubjectID               string                    `json:"subjectId,omitempty"`
+	AllowedActions          []string                  `json:"allowedActions,omitempty"`
+	MissingFields           []string                  `json:"missingFields,omitempty"`
+	CycleStart              string                    `json:"cycleStart,omitempty"`
+	CycleEnd                string                    `json:"cycleEnd,omitempty"`
+	WealthObservationID     string                    `json:"wealthObservationId,omitempty"`
+	ResolvedWealthAccountID string                    `json:"resolvedWealthAccountId,omitempty"`
+	Institution             string                    `json:"institution,omitempty"`
+	AccountHint             string                    `json:"accountHint,omitempty"`
+	TransferCandidates      []transferReviewCandidate `json:"transferCandidates,omitempty"`
+	ProposedPurpose         string                    `json:"proposedPurpose,omitempty"`
+	ProposedWealthAccountID string                    `json:"proposedWealthAccountId,omitempty"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +115,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, value := range canonical {
 		sourceType := value.Channel
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt})
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: value.ResolvedWealthAccountID, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID})
 	}
 	writeJSON(w, 200, items)
 }

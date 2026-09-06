@@ -75,19 +75,27 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 		return err
 	}
 	rows.Close()
+	intent := transferReconciliationIntent{accountID: accountID, amount: amount, at: at, description: strings.TrimSpace(desc), purpose: purpose, wealthID: wealthID}
+	candidateIDs := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidateIDs = append(candidateIDs, candidate.id)
+	}
 	if len(candidates) > 1 {
-		return p.finishTransferReview(ctx, sourceID, householdID, update, "Ada lebih dari satu transfer yang cocok. Tambahkan tanggal atau nama rekening tujuan agar tidak salah mencatat.")
+		tx.Rollback(ctx)
+		return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "Ada lebih dari satu transfer yang cocok. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
 	}
 	id := ""
 	if len(candidates) == 1 {
 		candidate := candidates[0]
 		if localTime == "" || candidate.kind != "TRANSFER" || candidate.status != "CONFIRMED" || candidate.existingPurpose != purpose || candidate.existingWealth != wealthID {
-			return p.finishTransferReview(ctx, sourceID, householdID, update, "Ada transaksi yang mungkin sama, tetapi bukti belum cukup untuk digabung. Tinjau di Inbox agar tidak membuat duplikasi atau salah mengubah transaksi.")
+			tx.Rollback(ctx)
+			return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "Ada transaksi yang mungkin sama, tetapi bukti belum cukup untuk digabung. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
 		}
 		candidateMinute := at.UTC()
 		var exact bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE id=$1 AND transaction_at >= $2 AND transaction_at < $2 + interval '1 minute')`, candidate.id, candidateMinute).Scan(&exact); err != nil || !exact {
-			return p.finishTransferReview(ctx, sourceID, householdID, update, "Waktu transfer tidak cocok dengan bukti yang ada. Tinjau di Inbox agar bukti tidak salah digabung.")
+			tx.Rollback(ctx)
+			return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "Waktu transfer tidak cocok dengan bukti yang ada. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),updated_at=now() WHERE id=$1`, candidate.id, purpose, wealthID, strings.TrimSpace(desc)); err != nil {
 			return err
@@ -111,7 +119,12 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) finishTransferReview(ctx context.Context, sourceID, householdID string, update telegramUpdate, message string) error {
+type transferReconciliationIntent struct {
+	accountID, amount, description, purpose, wealthID string
+	at                                                time.Time
+}
+
+func (p *Processor) finishTransferReview(ctx context.Context, sourceID, householdID string, update telegramUpdate, intent transferReconciliationIntent, candidateIDs []string, message string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -120,7 +133,10 @@ func (p *Processor) finishTransferReview(ctx context.Context, sourceID, househol
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1 AND household_id=$2`, sourceID, householdID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') ON CONFLICT DO NOTHING`, householdID, sourceID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),$7,NULLIF($8,'')::uuid,$9::uuid[]) ON CONFLICT(source_event_id) DO UPDATE SET candidate_transaction_ids=EXCLUDED.candidate_transaction_ids,updated_at=now(),status='OPEN',resolved_at=NULL,resolved_by_user_id=NULL`, householdID, sourceID, intent.accountID, intent.amount, intent.at, intent.description, intent.purpose, intent.wealthID, candidateIDs); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) SELECT $1,$2,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE source_event_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, householdID, sourceID); err != nil {
 		return err
 	}
 	if err = enqueueReply(ctx, tx, update, message); err != nil {

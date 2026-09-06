@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -136,6 +137,23 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		documentStatus, sourceStatus = "CLASSIFIED", "IGNORED"
 	}
 	output, _ := json.Marshal(result)
+	var observation *wealthObservation
+	var observationMetadata gateway.Metadata
+	var observedDate *time.Time
+	if validated && result.DocumentType == "WEALTH_OBSERVATION" {
+		value, metadata, observationErr := p.extractWealthObservation(ctx, documentID, content)
+		if observationErr != nil {
+			return observationErr
+		}
+		if !validOptionalDecimal(value.Quantity) || !validOptionalWholeMoney(value.UnitPriceIDR) {
+			return fmt.Errorf("invalid wealth observation optional numeric value")
+		}
+		observedDate, observationErr = observationDate(value.ObservedDate)
+		if observationErr != nil {
+			return observationErr
+		}
+		observation, observationMetadata = &value, metadata
+	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -150,20 +168,12 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1`, sourceID, sourceStatus); err != nil {
 		return err
 	}
-	if validated && result.DocumentType == "WEALTH_OBSERVATION" {
-		observation, observationMetadata, observationErr := p.extractWealthObservation(ctx, documentID, content)
-		if observationErr != nil {
-			return observationErr
-		}
-		resolvedWealthID, err := resolveWealthObservationAccount(ctx, tx, householdID, observation)
+	if observation != nil {
+		resolvedWealthID, err := resolveWealthObservationAccount(ctx, tx, householdID, *observation)
 		if err != nil {
 			return err
 		}
-		observedDate, err := observationDate(observation.ObservedDate)
-		if err != nil {
-			return err
-		}
-		observationOutput, _ := json.Marshal(observation)
+		observationOutput, _ := json.Marshal(*observation)
 		if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'WEALTH_OBSERVATION','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(observationOutput), observation.Confidence, observationMetadata.Model); err != nil {
 			return err
 		}
@@ -207,6 +217,22 @@ func nullableValue(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func validOptionalDecimal(value *string) bool {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return true
+	}
+	parsed, ok := new(big.Rat).SetString(strings.TrimSpace(*value))
+	return ok && parsed.Sign() >= 0
+}
+
+func validOptionalWholeMoney(value *string) bool {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return true
+	}
+	_, ok := wholeMoney(strings.TrimSpace(*value), false)
+	return ok
 }
 
 func observationDate(value *string) (*time.Time, error) {
