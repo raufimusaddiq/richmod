@@ -11,6 +11,12 @@ Universal `review_item` remains the canonical review subject. It gains `cycle_re
 
 Existing transaction purposes are conservatively backfilled: transfers become `INTERNAL_TRANSFER`; all other rows become `GENERAL`. No historical savings inference occurs. Existing salary, ledger, Telegram, and review flows remain owners of their current mutations.
 
+Wealth screenshots use the existing native document boundary with an additive
+`extract_wealth_observation` tool. Go validates the observation and stores it as
+document evidence plus a pending review; it never resolves a Wealth Account by
+LLM output or creates a partial snapshot. A user must confirm a complete
+full-account snapshot before canonical Wealth state changes.
+
 ## Compatibility
 
 The migration is additive, preserves existing tables and rows, keeps legacy `review_request.transaction_id` rows valid, and permits non-transaction review projections. Application rollout must write `review_item` first for residual reviews and continue supporting legacy transaction-backed requests during the rolling window.

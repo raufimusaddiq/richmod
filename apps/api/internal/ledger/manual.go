@@ -77,6 +77,12 @@ func (h *Handler) create(ctx context.Context, principal auth.Principal, input ma
 		if purpose != "INTERNAL_TRANSFER" && input.RelatedWealthAccountID == nil {
 			return "", validationError{"transfer purpose requires relatedWealthAccountId"}
 		}
+		if input.AccountID == nil {
+			return "", validationError{"transfer requires accountId as the source account"}
+		}
+		if input.CategoryID != nil {
+			return "", validationError{"transfer must not have categoryId"}
+		}
 	} else if purpose != "GENERAL" || input.RelatedWealthAccountID != nil {
 		return "", validationError{"income and expense must use GENERAL purpose without relatedWealthAccountId"}
 	}
@@ -121,13 +127,20 @@ func (h *Handler) create(ctx context.Context, principal auth.Principal, input ma
 		}
 	}
 	if input.RelatedWealthAccountID != nil {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wealth_account WHERE id=$1 AND household_id=$2 AND active)`, *input.RelatedWealthAccountID, householdID).Scan(&exists); err != nil {
+		var side, role string
+		if err := tx.QueryRow(ctx, `SELECT side,usage_role FROM wealth_account WHERE id=$1 AND household_id=$2 AND active`, *input.RelatedWealthAccountID, householdID).Scan(&side, &role); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", validationError{"relatedWealthAccountId must identify an active household wealth account"}
+			}
 			return "", fmt.Errorf("validate wealth account: %w", err)
 		}
-		if !exists {
-			return "", validationError{"relatedWealthAccountId must identify an active household wealth account"}
+		if purpose == "DEBT_PRINCIPAL_PAYMENT" && side != "LIABILITY" {
+			return "", validationError{"debt principal payment requires a liability Wealth Account"}
 		}
+		if purpose != "DEBT_PRINCIPAL_PAYMENT" && side != "ASSET" {
+			return "", validationError{"this transfer purpose requires an asset Wealth Account"}
+		}
+		_ = role
 	}
 	var transactionID string
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction (household_id,account_id,category_id,type,purpose,related_wealth_account_id,status,amount,currency,transaction_at,description,note,created_by_user_id,confirmed_at) VALUES ($1,$2,$3,$4,$5,$6,'CONFIRMED',$7,'IDR',$8,$9,$10,$11,now()) RETURNING id`, householdID, input.AccountID, input.CategoryID, input.Type, purpose, input.RelatedWealthAccountID, amount.String(), transactionAt, input.Description, input.Note, principal.UserID).Scan(&transactionID); err != nil {

@@ -47,7 +47,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	net := subtract(income, expense)
-	rawUnallocatedSurplus := subtract(net, savingsAllocated)
+	unallocatedSurplus := subtract(net, savingsAllocated)
 	var savings, savingsAllocationRate any = nil, nil
 	if value, ok := ratio(net, income); ok {
 		savings = value
@@ -59,7 +59,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	if cycleStart != nil {
 		kind = "CURRENT_CYCLE"
 	}
-	writeJSON(w, 200, map[string]any{"period": start.Format("2006-01-02"), "periodKind": kind, "periodStart": start.Format("2006-01-02"), "periodEnd": end.Format("2006-01-02"), "currency": "IDR", "income": income, "expense": expense, "netCashflow": net, "savingsRate": savings, "savingsAllocated": savingsAllocated, "savingsAllocationRate": savingsAllocationRate, "rawUnallocatedSurplus": rawUnallocatedSurplus, "reviewCount": review})
+	writeJSON(w, 200, map[string]any{"period": start.Format("2006-01-02"), "periodKind": kind, "periodStart": start.Format("2006-01-02"), "periodEnd": end.Format("2006-01-02"), "currency": "IDR", "income": income, "expense": expense, "netCashflow": net, "savingsRate": savings, "savingsAllocated": savingsAllocated, "savingsAllocationRate": savingsAllocationRate, "unallocatedSurplus": unallocatedSurplus, "reviewCount": review})
 }
 func subtract(a, b string) string {
 	x, _ := new(big.Int).SetString(a, 10)

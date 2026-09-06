@@ -17,16 +17,18 @@ export default function Home() {
   const [categories, setCategories] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [cycle, setCycle] = useState(null);
+  const [wealthSummary, setWealthSummary] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions?limit=8"), fetch("/api/v1/analytics/cycle")]);
+    try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions?limit=8"), fetch("/api/v1/analytics/cycle"), fetch("/api/v1/wealth/summary")]);
       if (responses.some(response => !response.ok)) setError("Sebagian ringkasan belum dapat dimuat."); else setError("");
       if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(elapsedDaily(cycleData.daily || [], cycleData.daysElapsed)); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
       if (responses[4].ok) setCycle(await responses[4].json());
+      if (responses[5].ok) setWealthSummary(await responses[5].json());
     } catch { setError("Koneksi terputus saat memuat ringkasan."); } finally { setLoading(false); }
   }, [user]);
 
@@ -35,14 +37,14 @@ export default function Home() {
   if (user === null) return <Loading />;
   if (user === false) return <Login onSuccess={() => window.location.reload()} />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
-  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"], ["Tabungan", overview?.savings, "income"], ["Residual siklus", overview?.residual, "net"], ["Kekayaan bersih", overview?.netWorth, "net"]];
+  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"], ["Tabungan", overview?.savingsAllocated, "income"], ["Residual siklus", overview?.unallocatedSurplus, "net"], ["Kekayaan bersih", wealthSummary?.latest?.netWorthIdr, "net"]];
   return <AppShell user={user} eyebrow="RINGKASAN" title={`Keuangan keluarga · ${periodLabel}`} actions={<Link className="button secondary" href="/documents">＋ Unggah dokumen</Link>}>
     <ErrorNotice message={error} retry={load}/>
     {loading && <Skeleton/>}
     {!loading && <>
     {cycle && <section className="surface" style={{padding:"14px 17px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}><div><span className="eyebrow">PERIODE AKTIF</span><strong style={{display:"block",marginTop:5}}>{cycle.kind === "CURRENT_CYCLE" ? "Siklus Gaji" : "Bulan Kalender"}</strong></div><small style={{color:"#6d776f"}}>{cycle.start}{cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}</small></section>}
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><span>!</span><div><b>{overview.reviewCount} transaksi butuh bantuanmu</b><small>Selesaikan keputusan agar buku keuangan tetap akurat.</small></div><strong>Buka Inbox →</strong></Link>}
-    <section className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{money(value)}</strong><small>Data terkonfirmasi · IDR</small></article>)}<article><span>Perlu Ditinjau</span><strong>{overview?.reviewCount ?? "—"}</strong><small>Belum masuk analisis</small></article></section>
+    <section className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{label === "Kekayaan bersih" && !wealthSummary?.latest ? "Belum diatur" : money(value)}</strong><small>Data terkonfirmasi · IDR</small></article>)}<article><span>Perlu Ditinjau</span><strong>{overview?.reviewCount ?? "—"}</strong><small>Belum masuk analisis</small></article></section>
     <section className="dashboard-grid"><article className="surface chart-panel"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "SIKLUS GAJI · HARIAN" : "BULAN INI · HARIAN"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis →</Link></div><DashboardDailySpendingChart items={cashflow}/></article><article className="surface category-panel"><div className="section-title"><div><span className="eyebrow">3 BULAN</span><h2>Ke mana uang pergi</h2></div></div><CategoryDonutChart items={categories}/></article></section>
     <section className="surface recent-panel"><div className="section-title"><div><span className="eyebrow">LEDGER</span><h2>Transaksi terbaru</h2></div><Link href="/transactions">Lihat semua →</Link></div><TransactionList compact items={transactions.slice(0, 8)}/></section></>}
   </AppShell>;

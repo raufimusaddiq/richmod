@@ -53,7 +53,11 @@ func TestGenerateCreatesOneCaseAndReviewForPrimaryCycleOnly(t *testing.T) {
 	}
 	start := insertSalary(primary, "2026-08-25", "2026-08-01")
 	_ = start
-	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',9000000,'2026-08-26',$2,'GENERAL',now()),($1,'TRANSFER','CONFIRMED',6000000,'2026-08-27',$2,'SAVINGS_TRANSFER',now())`, household, user); err != nil {
+	var wealthAccount string
+	if err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Residual Savings','ASSET','BANK','SAVINGS') RETURNING id`, household).Scan(&wealthAccount); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',9000000,'2026-08-26',$2,'GENERAL',NULL,now()),($1,'TRANSFER','CONFIRMED',6000000,'2026-08-27',$2,'SAVINGS_TRANSFER',$3,now())`, household, user, wealthAccount); err != nil {
 		t.Fatal(err)
 	}
 	ordinaryEnd := insertSalary(ordinary, "2026-09-24", "2026-09-01")

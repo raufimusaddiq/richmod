@@ -11,18 +11,19 @@ const currentView = () => typeof window !== "undefined" && new URLSearchParams(w
 export default function InboxPage() {
   const user = useAuth();
   const [view, setView] = useState("transactions");
-  const [reviews, setReviews] = useState([]), [actions, setActions] = useState([]), [categories, setCategories] = useState([]);
+  const [reviews, setReviews] = useState([]), [actions, setActions] = useState([]), [categories, setCategories] = useState([]), [wealthAccounts, setWealthAccounts] = useState([]);
   const [loading, setLoading] = useState(true), [error, setError] = useState(""), [working, setWorking] = useState(""), [toast, setToast] = useState("");
   const owner = user?.household?.role === "OWNER";
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [reviewResponse, actionResponse, categoryResponse] = await Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions"), fetch("/api/v1/categories")]);
+      const [reviewResponse, actionResponse, categoryResponse, wealthResponse] = await Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions"), fetch("/api/v1/categories"), fetch("/api/v1/wealth/accounts")]);
       if (!reviewResponse.ok || !actionResponse.ok) throw new Error();
       const [reviewItems, actionItems] = await Promise.all([reviewResponse.json(), actionResponse.json()]);
       setReviews(Array.isArray(reviewItems) ? reviewItems : []);
       setActions(Array.isArray(actionItems) ? actionItems : []);
       if (categoryResponse.ok) setCategories(await categoryResponse.json());
+      if (wealthResponse.ok) setWealthAccounts(await wealthResponse.json());
       setError("");
     } catch { setError("Inbox belum dapat dimuat."); }
     finally { setLoading(false); }
@@ -37,7 +38,7 @@ export default function InboxPage() {
   return <AppShell user={user} eyebrow="INBOX" title={`${count} item menunggu`} actions={<span className="header-meta">Transaksi dan tindakan tetap diproses terpisah</span>}>
     <div className="inbox-tabs" role="tablist" aria-label="Jenis inbox"><button role="tab" aria-selected={view === "transactions"} className={view === "transactions" ? "active" : ""} onClick={() => selectView("transactions")}>Transaksi <b>{reviews.length}</b></button><button role="tab" aria-selected={view === "actions"} className={view === "actions" ? "active" : ""} onClick={() => selectView("actions")}>Tindakan <b>{actions.length}</b></button></div>
     <ErrorNotice message={error} retry={load}/>
-    {loading ? <Skeleton cards={2}/> : view === "transactions" ? <ReviewCards items={reviews} categories={categories} working={working} action={reviewAction}/> : <section className="action-list">{actions.map(item => <article key={item.id} className="surface action-card"><div><span className="eyebrow">{item.integrationType === "EMAIL_FORWARDING" ? "EMAIL" : item.integrationType}</span><h2>{item.title}</h2><p>{item.description}</p><small>Diterima {new Date(item.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</small>{item.actionCode && <p className="action-code">Kode konfirmasi: <code>{item.actionCode}</code></p>}</div>{owner ? <div className="action-buttons">{item.actionUrl && <a className="button" href={item.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={working === item.id} onClick={() => resolveAction(item.id)}>Tandai selesai</button></div> : <small>Pemilik household perlu menyelesaikan tindakan ini.</small>}</article>)}{!actions.length && <div className="empty-state"><span>✓</span><h2>Tidak ada tindakan tertunda</h2><p>Richmod akan menampilkan kebutuhan setup integrasi di sini.</p></div>}</section>}
+    {loading ? <Skeleton cards={2}/> : view === "transactions" ? <ReviewCards items={reviews} categories={categories} wealthAccounts={wealthAccounts} working={working} action={reviewAction}/> : <section className="action-list">{actions.map(item => <article key={item.id} className="surface action-card"><div><span className="eyebrow">{item.integrationType === "EMAIL_FORWARDING" ? "EMAIL" : item.integrationType}</span><h2>{item.title}</h2><p>{item.description}</p><small>Diterima {new Date(item.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</small>{item.actionCode && <p className="action-code">Kode konfirmasi: <code>{item.actionCode}</code></p>}</div>{owner ? <div className="action-buttons">{item.actionUrl && <a className="button" href={item.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={working === item.id} onClick={() => resolveAction(item.id)}>Tandai selesai</button></div> : <small>Pemilik household perlu menyelesaikan tindakan ini.</small>}</article>)}{!actions.length && <div className="empty-state"><span>✓</span><h2>Tidak ada tindakan tertunda</h2><p>Richmod akan menampilkan kebutuhan setup integrasi di sini.</p></div>}</section>}
     <Toast message={toast} onClose={() => setToast("")}/>
   </AppShell>;
 }

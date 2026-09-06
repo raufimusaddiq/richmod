@@ -43,6 +43,11 @@ CREATE UNIQUE INDEX wealth_account_active_link_unique ON wealth_account(linked_a
 CREATE INDEX wealth_account_household_active_role_name_idx ON wealth_account(household_id, active, usage_role, name);
 
 ALTER TABLE transaction ADD COLUMN related_wealth_account_id UUID REFERENCES wealth_account(id);
+ALTER TABLE transaction ADD CONSTRAINT transaction_wealth_relationship_check CHECK (
+    (type <> 'TRANSFER' AND purpose = 'GENERAL' AND related_wealth_account_id IS NULL) OR
+    (type = 'TRANSFER' AND purpose = 'INTERNAL_TRANSFER' AND related_wealth_account_id IS NULL) OR
+    (type = 'TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE','DEBT_PRINCIPAL_PAYMENT') AND related_wealth_account_id IS NOT NULL)
+);
 ALTER TABLE known_account ADD COLUMN wealth_account_id UUID REFERENCES wealth_account(id);
 
 CREATE TABLE wealth_snapshot (
@@ -110,17 +115,9 @@ ALTER TABLE review_item ADD COLUMN cycle_residual_case_id UUID REFERENCES cycle_
 ALTER TABLE review_item DROP CONSTRAINT IF EXISTS review_item_review_type_check;
 ALTER TABLE review_item ADD CONSTRAINT review_item_review_type_check CHECK (review_type IN ('UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE','CONFLICTING_EVIDENCE','UNKNOWN_EMAIL_TEMPLATE','RECEIPT_MISMATCH','DOCUMENT_EXTRACTION_LOW_CONFIDENCE','TRANSFER_CLASSIFICATION','MANUAL_CORRECTION','DOCUMENT_CLASSIFICATION','PAYSLIP_CONFIRMATION','MISSING_PAY_DATE','SALARY_SOURCE_CONFIRMATION','UNKNOWN_BANK_TEMPLATE','INVOICE_PAYMENT_STATUS','CYCLE_RESIDUAL_ALLOCATION'));
 ALTER TABLE review_item DROP CONSTRAINT IF EXISTS review_item_check;
--- Preserve historical subject provenance. Resolve ambiguous legacy rows before
--- enforcing the one-canonical-subject invariant instead of erasing their links.
-UPDATE review_item
-SET status = 'RESOLVED',
-    resolved_at = COALESCE(resolved_at, now()),
-    resolution_action = COALESCE(resolution_action, 'LEGACY_MULTIPLE_SUBJECTS'),
-    updated_at = now()
-WHERE ((transaction_id IS NOT NULL)::int + (proposal_id IS NOT NULL)::int + (source_event_id IS NOT NULL)::int + (document_id IS NOT NULL)::int) > 1;
-ALTER TABLE review_item ADD CONSTRAINT review_item_exactly_one_subject_check CHECK (
-    status = 'RESOLVED' OR
-    ((transaction_id IS NOT NULL)::int + (proposal_id IS NOT NULL)::int + (source_event_id IS NOT NULL)::int + (document_id IS NOT NULL)::int + (cycle_residual_case_id IS NOT NULL)::int) = 1
+ALTER TABLE review_item ADD CONSTRAINT review_item_subject_check CHECK (
+    (cycle_residual_case_id IS NULL AND (transaction_id IS NOT NULL OR proposal_id IS NOT NULL OR source_event_id IS NOT NULL OR document_id IS NOT NULL)) OR
+    (cycle_residual_case_id IS NOT NULL AND transaction_id IS NULL AND proposal_id IS NULL AND source_event_id IS NULL AND document_id IS NULL)
 );
 CREATE UNIQUE INDEX review_item_open_cycle_residual_unique ON review_item(cycle_residual_case_id) WHERE cycle_residual_case_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN');
 CREATE INDEX review_item_cycle_residual_idx ON review_item(cycle_residual_case_id) WHERE cycle_residual_case_id IS NOT NULL;
@@ -132,13 +129,20 @@ ALTER TABLE review_request ADD CONSTRAINT review_request_review_type_check CHECK
 ALTER TABLE review_request ADD CONSTRAINT review_request_subject_check CHECK (transaction_id IS NOT NULL OR review_item_id IS NOT NULL);
 
 -- +goose Down
+DELETE FROM review_request_recipient WHERE review_request_id IN (SELECT id FROM review_request WHERE review_type='CYCLE_RESIDUAL_ALLOCATION');
+DELETE FROM review_request WHERE review_type='CYCLE_RESIDUAL_ALLOCATION';
+DELETE FROM review_item WHERE cycle_residual_case_id IS NOT NULL;
 DROP INDEX review_item_cycle_residual_idx;
 DROP INDEX review_item_open_cycle_residual_unique;
 ALTER TABLE review_request DROP CONSTRAINT review_request_subject_check;
+ALTER TABLE review_request DROP CONSTRAINT review_request_review_type_check;
+ALTER TABLE review_request ADD CONSTRAINT review_request_review_type_check CHECK (review_type IN ('UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE','CONFLICTING_EVIDENCE','UNKNOWN_EMAIL_TEMPLATE','RECEIPT_MISMATCH','DOCUMENT_EXTRACTION_LOW_CONFIDENCE','TRANSFER_CLASSIFICATION','MANUAL_CORRECTION'));
 ALTER TABLE review_request ALTER COLUMN telegram_chat_id SET NOT NULL;
 ALTER TABLE review_request ALTER COLUMN transaction_id SET NOT NULL;
-ALTER TABLE review_item DROP CONSTRAINT review_item_exactly_one_subject_check;
+ALTER TABLE review_item DROP CONSTRAINT review_item_subject_check;
 ALTER TABLE review_item DROP CONSTRAINT review_item_review_type_check;
+ALTER TABLE review_item ADD CONSTRAINT review_item_review_type_check CHECK (review_type IN ('UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE','CONFLICTING_EVIDENCE','UNKNOWN_EMAIL_TEMPLATE','RECEIPT_MISMATCH','DOCUMENT_EXTRACTION_LOW_CONFIDENCE','TRANSFER_CLASSIFICATION','MANUAL_CORRECTION','DOCUMENT_CLASSIFICATION','PAYSLIP_CONFIRMATION','MISSING_PAY_DATE','SALARY_SOURCE_CONFIRMATION','UNKNOWN_BANK_TEMPLATE','INVOICE_PAYMENT_STATUS'));
+ALTER TABLE review_item ADD CONSTRAINT review_item_check CHECK (transaction_id IS NOT NULL OR proposal_id IS NOT NULL OR source_event_id IS NOT NULL OR document_id IS NOT NULL);
 ALTER TABLE review_item DROP COLUMN cycle_residual_case_id;
 DROP INDEX job_cycle_residual_event_unique;
 DROP INDEX cycle_residual_allocation_case_account_unique;
@@ -149,10 +153,13 @@ DROP TABLE wealth_snapshot_item;
 DROP INDEX wealth_snapshot_household_observed_idx;
 DROP TABLE wealth_snapshot;
 ALTER TABLE known_account DROP COLUMN wealth_account_id;
+ALTER TABLE transaction DROP CONSTRAINT transaction_wealth_relationship_check;
 ALTER TABLE transaction DROP COLUMN related_wealth_account_id;
 DROP INDEX wealth_account_active_link_unique;
 DROP INDEX wealth_account_household_active_role_name_idx;
 DROP TABLE wealth_account;
 ALTER TABLE transaction DROP CONSTRAINT transaction_purpose_type_compatible;
 ALTER TABLE transaction DROP CONSTRAINT transaction_purpose_allowed;
+DROP TRIGGER transaction_default_purpose_before_write ON transaction;
+DROP FUNCTION transaction_default_purpose();
 ALTER TABLE transaction DROP COLUMN purpose;

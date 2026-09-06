@@ -37,7 +37,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		{Name: "record_transaction_batch", Description: "Stage 1-10 observed household IDR transactions for explicit confirmation.", Parameters: objectSchema(map[string]any{"items": map[string]any{"type": "array", "minItems": 1, "maxItems": 10, "items": entry}}, []string{"items"})},
 		{Name: "query_spending", Description: "Ask Go for deterministic expense totals for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
 		{Name: "query_cashflow", Description: "Ask Go for deterministic cash-flow totals for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
-		{Name: "record_transfer", Description: "Record a confirmed whole-IDR transfer only when the supplied source transaction account and destination Wealth Account are unique household IDs. Go validates, deduplicates, and reconciles; never guess IDs.", Parameters: objectSchema(map[string]any{"amount_idr": stringType, "source_account_id": stringType, "destination_wealth_account_id": stringType, "purpose": map[string]any{"type": "string", "enum": []string{"SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT", "INTERNAL_TRANSFER"}}, "date_reference": dateRef, "explicit_date": nullString, "local_time": nullString, "description": nullString}, []string{"amount_idr", "source_account_id", "destination_wealth_account_id", "purpose", "date_reference", "explicit_date", "local_time", "description"})},
+		{Name: "record_transfer", Description: "Record a confirmed whole-IDR transfer using human-readable account hints only. Go resolves each hint uniquely inside this household, reconciles existing canonical transactions, and never accepts or guesses database IDs. destination_wealth_account_hint must be null for INTERNAL_TRANSFER and is required otherwise.", Parameters: objectSchema(map[string]any{"amount_idr": stringType, "source_account_hint": stringType, "destination_wealth_account_hint": nullString, "purpose": map[string]any{"type": "string", "enum": []string{"SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT", "INTERNAL_TRANSFER"}}, "date_reference": dateRef, "explicit_date": nullString, "local_time": nullString, "description": nullString}, []string{"amount_idr", "source_account_hint", "destination_wealth_account_hint", "purpose", "date_reference", "explicit_date", "local_time", "description"})},
 		{Name: "query_savings", Description: "Ask Go for deterministic confirmed savings totals, using canonical savings purposes only.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
 		{Name: "query_wealth", Description: "Ask Go for net worth from the latest complete Wealth Snapshot and its observed timestamp.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "list_wealth_accounts", Description: "Ask Go for active household Wealth Accounts.", Parameters: objectSchema(map[string]any{}, []string{})},
@@ -68,7 +68,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 }
 
 func reviewActions() []string {
-	return []string{"CONFIRM", "IGNORE", "EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "PRIMARY_SALARY", "ORDINARY_INCOME", "SET_PAY_DATE", "COMPLETE_BANK_FACTS"}
+	return []string{"CONFIRM", "IGNORE", "EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "PRIMARY_SALARY", "ORDINARY_INCOME", "SET_PAY_DATE", "COMPLETE_BANK_FACTS", "ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}
 }
 
 func reviewActionsForType(kind string) []string {
@@ -218,14 +218,14 @@ type periodArgs struct {
 	ToDate   *string `json:"to_date"`
 }
 type transferArgs struct {
-	Amount                     string  `json:"amount_idr"`
-	SourceAccountID            string  `json:"source_account_id"`
-	DestinationWealthAccountID string  `json:"destination_wealth_account_id"`
-	Purpose                    string  `json:"purpose"`
-	DateReference              string  `json:"date_reference"`
-	ExplicitDate               *string `json:"explicit_date"`
-	LocalTime                  *string `json:"local_time"`
-	Description                *string `json:"description"`
+	Amount                       string  `json:"amount_idr"`
+	SourceAccountHint            string  `json:"source_account_hint"`
+	DestinationWealthAccountHint *string `json:"destination_wealth_account_hint"`
+	Purpose                      string  `json:"purpose"`
+	DateReference                string  `json:"date_reference"`
+	ExplicitDate                 *string `json:"explicit_date"`
+	LocalTime                    *string `json:"local_time"`
+	Description                  *string `json:"description"`
 }
 type searchArgs struct {
 	Period     string  `json:"period"`
@@ -310,7 +310,11 @@ func validateTypedArgs(value any) error {
 	case *transferArgs:
 		n, ok := new(big.Int).SetString(v.Amount, 10)
 		validPurpose := map[string]bool{"SAVINGS_TRANSFER": true, "INVESTMENT_CONTRIBUTION": true, "ASSET_PURCHASE": true, "DEBT_PRINCIPAL_PAYMENT": true, "INTERNAL_TRANSFER": true}[v.Purpose]
-		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountID) == "" || strings.TrimSpace(v.DestinationWealthAccountID) == "" || !validPurpose || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
+		destination := ""
+		if v.DestinationWealthAccountHint != nil {
+			destination = strings.TrimSpace(*v.DestinationWealthAccountHint)
+		}
+		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || !validPurpose || (v.Purpose == "INTERNAL_TRANSFER" && destination != "") || (v.Purpose != "INTERNAL_TRANSFER" && destination == "") || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")
 		}
 	case *searchArgs:

@@ -357,12 +357,16 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	var wealthAccountID *string
 	var count int
 	if input.Classification == "INVESTMENT_ACCOUNT" {
-		if err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT ka.wealth_account_id) FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND ka.match_hint=$2`, household, input.MatchHint).Scan(&count); err != nil || count != 1 {
+		hint := input.MatchHint
+		if hint == "" && counterparty != nil {
+			hint = strings.TrimSpace(*counterparty)
+		}
+		if err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT ka.wealth_account_id) FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower($2) LIKE '%'||lower(ka.match_hint)`, household, hint).Scan(&count); err != nil || count != 1 {
 			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
 			return
 		}
 		var linked string
-		if err = tx.QueryRow(r.Context(), `SELECT ka.wealth_account_id FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.match_hint=$2 LIMIT 1`, household, input.MatchHint).Scan(&linked); err != nil {
+		if err = tx.QueryRow(r.Context(), `SELECT ka.wealth_account_id FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower($2) LIKE '%'||lower(ka.match_hint)`, household, hint).Scan(&linked); err != nil {
 			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
 			return
 		}

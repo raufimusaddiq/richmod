@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"regexp"
 	"strconv"
@@ -351,7 +352,33 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		if err := tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, householdID, value.Employer, normalized).Scan(&salarySourceID); err != nil {
 			return err
 		}
-		if err := tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id RETURNING id`, salarySourceID, householdID, value.Period+"-01", payDate, value.NetPay, transactionID, sourceID).Scan(&salaryEventID); err != nil {
+		err = tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING RETURNING id`, salarySourceID, householdID, value.Period+"-01", payDate, value.NetPay, transactionID, sourceID).Scan(&salaryEventID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			var canonicalTransactionID string
+			if err = tx.QueryRow(ctx, `SELECT id::text,transaction_id::text FROM salary_event WHERE salary_source_id=$1 AND payroll_period=$2::date AND status='CONFIRMED' FOR UPDATE`, salarySourceID, value.Period+"-01").Scan(&salaryEventID, &canonicalTransactionID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `DELETE FROM transaction_evidence WHERE transaction_id=$1`, transactionID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `DELETE FROM transaction WHERE id=$1`, transactionID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',metadata_json=metadata_json||jsonb_build_object('duplicate_of_transaction_id',$2::uuid),updated_at=now() WHERE id=$1`, proposalID, canonicalTransactionID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'duplicate',true)) ON CONFLICT DO NOTHING`, canonicalTransactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `DELETE FROM audit_log WHERE entity_type='transaction' AND entity_id=$1 AND action='CREATE_FROM_PAYSLIP'`, transactionID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DEDUP_PAYSLIP_SALARY','source_event',$2,jsonb_build_object('period',$3::text,'employer',$4::text,'canonical_transaction_id',$5::uuid))`, householdID, sourceID, value.Period, value.Employer, canonicalTransactionID); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -366,12 +393,15 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			return err
 		}
 	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
 	if autoConfirm && salaryEventID != "" {
-		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5 WHERE EXISTS(SELECT 1 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.id=$2 AND se.household_id=$1 AND se.status='CONFIRMED' AND ss.active AND ss.is_primary) ON CONFLICT DO NOTHING`, householdID, salaryEventID); err != nil {
-			return err
+		if _, enqueueErr := p.pool.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5 WHERE EXISTS(SELECT 1 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.id=$2 AND se.household_id=$1 AND se.status='CONFIRMED' AND ss.active AND ss.is_primary) ON CONFLICT DO NOTHING`, householdID, salaryEventID); enqueueErr != nil {
+			slog.ErrorContext(ctx, "salary committed but residual review enqueue failed", "salary_event_id", salaryEventID, "household_id", householdID, "error", enqueueErr)
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func payslipSchema() map[string]any {
