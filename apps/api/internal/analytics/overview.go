@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
 )
 
 type Handler struct {
@@ -39,14 +40,19 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 			end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation())
 		}
 	}
-	var income, expense, savingsAllocated string
+	var income, expense, refund, savingsAllocated string
 	var review int
-	err := h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME' AND status='CONFIRMED'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' AND status='CONFIRMED' THEN amount WHEN type='REFUND' AND status='CONFIRMED' THEN -amount ELSE 0 END),0)::text,COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND status='CONFIRMED' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text,(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1 AND transaction_at >= $2 AND transaction_at < $3`, household, start, end).Scan(&income, &expense, &savingsAllocated, &review)
+	err := h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME' AND status='CONFIRMED'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='REFUND' AND status='CONFIRMED'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND status='CONFIRMED' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text,(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1 AND transaction_at >= $2 AND transaction_at < $3`, household, start, end).Scan(&income, &expense, &refund, &savingsAllocated, &review)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate overview"})
 		return
 	}
-	net := subtract(income, expense)
+	cashflow, err := financialmath.CalculateCashflow(income, expense, refund)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to calculate overview"})
+		return
+	}
+	expense, net := cashflow.NetExpense, cashflow.Surplus
 	unallocatedSurplus := subtract(net, savingsAllocated)
 	var savings, savingsAllocationRate any = nil, nil
 	if value, ok := ratio(net, income); ok {

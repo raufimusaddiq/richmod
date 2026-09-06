@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
 )
 
 type Handler struct{ pool *pgxpool.Pool }
@@ -417,14 +418,19 @@ func (h *Handler) Summary(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "unable to calculate wealth summary")
 			return
 		}
-		var cashflow string
-		e = h.pool.QueryRow(r.Context(), `SELECT (COALESCE(sum(CASE WHEN type='INCOME' THEN amount WHEN type='EXPENSE' THEN -amount WHEN type='REFUND' THEN amount ELSE 0 END),0))::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at>$2 AND transaction_at<=$3`, p.HouseholdID, refs[1].at, refs[0].at).Scan(&cashflow)
+		var income, expense, refund string
+		e = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='REFUND'),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at>$2 AND transaction_at<=$3`, p.HouseholdID, refs[1].at, refs[0].at).Scan(&income, &expense, &refund)
+		if e != nil {
+			fail(w, 500, "unable to calculate wealth summary")
+			return
+		}
+		cashflow, e := financialmath.CalculateCashflow(income, expense, refund)
 		if e != nil {
 			fail(w, 500, "unable to calculate wealth summary")
 			return
 		}
 		change := subtract(latest["netWorthIdr"].(string), previous["netWorthIdr"].(string))
-		out["previous"], out["netWorthChangeIdr"], out["confirmedCashflowIdr"], out["valuationAndOtherChangeIdr"] = previous, change, cashflow, subtract(change, cashflow)
+		out["previous"], out["netWorthChangeIdr"], out["confirmedCashflowIdr"], out["valuationAndOtherChangeIdr"] = previous, change, cashflow.Surplus, subtract(change, cashflow.Surplus)
 	}
 	jsonOut(w, 200, out)
 }
@@ -481,13 +487,19 @@ func (h *Handler) CycleRecaps(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "unable to calculate cycle recaps")
 			return
 		}
-		var income, expense, savings string
-		err = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text,COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < ($3::date::timestamp AT TIME ZONE 'Asia/Jakarta')`, p.HouseholdID, start.Format("2006-01-02"), end.Format("2006-01-02")).Scan(&income, &expense, &savings)
+		var income, expense, refund, savings string
+		err = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='REFUND'),0)::text,COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < ($3::date::timestamp AT TIME ZONE 'Asia/Jakarta')`, p.HouseholdID, start.Format("2006-01-02"), end.Format("2006-01-02")).Scan(&income, &expense, &refund, &savings)
 		if err != nil {
 			fail(w, 500, "unable to calculate cycle recaps")
 			return
 		}
-		surplus, residual := subtract(income, expense), subtract(subtract(income, expense), savings)
+		cashflow, e := financialmath.CalculateCashflow(income, expense, refund)
+		if e != nil {
+			fail(w, 500, "unable to calculate cycle recaps")
+			return
+		}
+		expense, surplus := cashflow.NetExpense, cashflow.Surplus
+		residual := subtract(surplus, savings)
 		destinations, attributions := make([]map[string]string, 0), make([]map[string]string, 0)
 		destinationRows, e := h.pool.Query(r.Context(), `SELECT COALESCE(a.id::text,''),COALESCE(a.name,'Unlinked'),sum(t.amount)::text FROM transaction t LEFT JOIN wealth_account a ON a.id=t.related_wealth_account_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.transaction_at >= ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AND t.transaction_at < ($3::date::timestamp AT TIME ZONE 'Asia/Jakarta') AND t.type='TRANSFER' AND t.purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE') GROUP BY a.id,a.name ORDER BY a.name,a.id`, p.HouseholdID, start.Format("2006-01-02"), end.Format("2006-01-02"))
 		if e != nil {

@@ -11,6 +11,10 @@ Universal `review_item` remains the canonical review subject. It gains `cycle_re
 
 Existing transaction purposes are conservatively backfilled: transfers become `INTERNAL_TRANSFER`; all other rows become `GENERAL`. No historical savings inference occurs. Existing salary, ledger, Telegram, and review flows remain owners of their current mutations.
 
+Cashflow uses one shared rule wherever Wealth and Analytics report it:
+`income - (expense - refund)`. A refund reduces expense; it is not a negative
+income nor a Wealth adjustment.
+
 Wealth screenshots use the existing native document boundary with an additive
 `extract_wealth_observation` tool. Go validates the observation and stores it as
 document evidence plus a pending review; it never resolves a Wealth Account by
