@@ -201,7 +201,7 @@ func TestResolveTelegramTransferReconciliation(t *testing.T) {
 		t.Fatalf("merge status=%d body=%s", res.Code, res.Body.String())
 	}
 	var kind, status, purpose, linkedSource, caseStatus, proposalStatus, bankStatus, itemStatus, requestStatus, conversationState string
-	must(pool.QueryRow(ctx, `SELECT t.type,t.status,t.purpose,e.source_event_id::text,(SELECT status FROM transfer_reconciliation_case WHERE source_event_id=$2) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE t.id=$1`, existing, source).Scan(&kind, &status, &purpose, &linkedSource, &caseStatus))
+	must(pool.QueryRow(ctx, `SELECT t.type,t.status,t.purpose,e.source_event_id::text,(SELECT status FROM transfer_reconciliation_case WHERE source_event_id=$2) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id AND e.source_event_id=$2 WHERE t.id=$1`, existing, source).Scan(&kind, &status, &purpose, &linkedSource, &caseStatus))
 	must(pool.QueryRow(ctx, `SELECT p.proposal_status,s.processing_status,ri.status,rr.status,rc.state FROM transaction_proposal p JOIN source_event s ON s.id=p.source_event_id JOIN review_item ri ON ri.id=$4 JOIN review_request rr ON rr.id=$5 JOIN review_conversation rc ON rc.review_request_id=rr.id WHERE p.id=$1 AND s.id=$2 AND ri.transaction_id=$3`, proposal, bankSource, existing, candidateItem, candidateRequest).Scan(&proposalStatus, &bankStatus, &itemStatus, &requestStatus, &conversationState))
 	if kind != "TRANSFER" || status != "CONFIRMED" || purpose != "INVESTMENT_CONTRIBUTION" || linkedSource != source || caseStatus != "RESOLVED" {
 		t.Fatalf("merge=%s/%s/%s source=%s case=%s", kind, status, purpose, linkedSource, caseStatus)
