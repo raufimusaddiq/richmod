@@ -89,16 +89,24 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	if err != nil {
 		return err
 	}
-	if p.gateway == nil {
-		return fmt.Errorf("financial email gateway unavailable")
-	}
-	call, meta, err := p.gateway.NativeToolCall(ctx, payload.SourceEventID, prompt, map[string]any{"provider_name": provider, "sender_address": sender, "email_subject": subject, "email_body": "<untrusted_email_body>" + body + "</untrusted_email_body>", "household_timezone": "Asia/Jakarta"}, []gateway.ToolDefinition{tool()}, gateway.NativeToolOptions{Required: true})
+	out, found, err := p.stagedOutput(ctx, payload.SourceEventID)
+	model := "staged-review"
 	if err != nil {
 		return err
 	}
-	out, err := gateway.DecodeToolArguments[output](call, "emit_financial_email_observations")
-	if err != nil {
-		return err
+	if !found {
+		if p.gateway == nil {
+			return fmt.Errorf("financial email gateway unavailable")
+		}
+		call, meta, callErr := p.gateway.NativeToolCall(ctx, payload.SourceEventID, prompt, map[string]any{"provider_name": provider, "sender_address": sender, "email_subject": subject, "email_body": "<untrusted_email_body>" + body + "</untrusted_email_body>", "household_timezone": "Asia/Jakarta"}, []gateway.ToolDefinition{tool()}, gateway.NativeToolOptions{Required: true})
+		if callErr != nil {
+			return callErr
+		}
+		out, err = gateway.DecodeToolArguments[output](call, "emit_financial_email_observations")
+		if err != nil {
+			return err
+		}
+		model = meta.Model
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -123,11 +131,31 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	if _, err = tx.Exec(ctx, `UPDATE financial_email_source SET last_received_at=now(),updated_at=now() WHERE id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)`, payload.SourceEventID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_FINANCIAL_EMAIL','source_event',$2,jsonb_build_object('observations',$3::integer,'model',$4::text))`, household, payload.SourceEventID, len(out.Observations), meta.Model)
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_FINANCIAL_EMAIL','source_event',$2,jsonb_build_object('observations',$3::integer,'model',$4::text))`, household, payload.SourceEventID, len(out.Observations), model)
 	if err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+func (p *Processor) stagedOutput(ctx context.Context, source string) (output, bool, error) {
+	rows, err := p.pool.Query(ctx, `SELECT facts_json FROM financial_email_observation WHERE source_event_id=$1 ORDER BY ordinal`, source)
+	if err != nil {
+		return output{}, false, err
+	}
+	defer rows.Close()
+	var out output
+	for rows.Next() {
+		var raw []byte
+		var v observation
+		if err = rows.Scan(&raw); err != nil {
+			return out, false, err
+		}
+		if err = json.Unmarshal(raw, &v); err != nil {
+			return out, false, err
+		}
+		out.Observations = append(out.Observations, v)
+	}
+	return out, len(out.Observations) > 0, rows.Err()
 }
 func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, defaultWealth string, ordinal int, v observation) error {
 	raw, _ := json.Marshal(v)
@@ -225,22 +253,29 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, id, 
 	if err != nil {
 		return p.review(ctx, tx, household, source, id)
 	}
-	account, err := financialentity.Account(ctx, tx, household, *v.FundingAccountHint)
+	var selectedAccount, selectedWealth string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, id).Scan(&selectedAccount, &selectedWealth); err != nil {
+		return err
+	}
+	account := selectedAccount
+	if account == "" {
+		account, err = financialentity.Account(ctx, tx, household, *v.FundingAccountHint)
+	}
 	if err != nil {
 		return err
 	}
 	hint := value(v.ProviderAccountHint)
-	var wealth string
-	if hint == "" {
+	wealth := selectedWealth
+	if wealth == "" && hint == "" {
 		wealth, err = defaultWealthAccount(ctx, tx, household, defaultWealth)
-	} else {
+	} else if wealth == "" {
 		wealth, err = financialentity.WealthAccount(ctx, tx, household, hint)
 	}
 	if err != nil {
 		return err
 	}
 	if account == "" || wealth == "" {
-		return p.review(ctx, tx, household, source, id)
+		return p.resolutionReview(ctx, tx, household, source, id)
 	}
 	var role string
 	if err = tx.QueryRow(ctx, `SELECT usage_role FROM wealth_account WHERE id=$1 AND household_id=$2`, wealth, household).Scan(&role); err != nil {
@@ -308,6 +343,13 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, id, 
 		return err
 	}
 	_, err = tx.Exec(ctx, `UPDATE financial_email_observation SET transaction_id=$2,status='APPLIED' WHERE id=$1`, id, existing)
+	return err
+}
+func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id string) error {
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE source_event_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, source)
 	return err
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {
