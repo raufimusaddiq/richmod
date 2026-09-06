@@ -20,19 +20,11 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Nominal transfer harus berupa IDR bulat positif.")
 	}
 	dateRef, _ := args["date_reference"].(string)
-	at := p.now().In(jakartaLocation())
-	if dateRef == "YESTERDAY" {
-		at = at.AddDate(0, 0, -1)
-	}
-	if dateRef != "TODAY" && dateRef != "YESTERDAY" && dateRef != "EXPLICIT" {
-		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tanggal transfer tidak valid.")
-	}
-	if dateRef == "EXPLICIT" {
-		d, err := time.ParseInLocation("2006-01-02", fmt.Sprint(args["explicit_date"]), jakartaLocation())
-		if err != nil || d.Format("2006-01-02") != fmt.Sprint(args["explicit_date"]) {
-			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tanggal transfer tidak valid. Gunakan format YYYY-MM-DD.")
-		}
-		at = time.Date(d.Year(), d.Month(), d.Day(), at.Hour(), at.Minute(), 0, 0, jakartaLocation())
+	explicitDate, _ := args["explicit_date"].(string)
+	localTime, _ := args["local_time"].(string)
+	at, err := resolveTime(p.now().In(jakartaLocation()), stringPtr(dateRef), stringPtr(explicitDate), stringPtr(localTime))
+	if err != nil {
+		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tanggal atau waktu transfer tidak valid.")
 	}
 	desc, _ := args["description"].(string)
 	tx, err := p.pool.Begin(ctx)
@@ -64,15 +56,15 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	}
 	dayStart := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, jakartaLocation()).UTC()
 	dayEnd := dayStart.AddDate(0, 0, 1)
-	type candidate struct{ id, existingPurpose, existingWealth string }
-	rows, err := tx.Query(ctx, `SELECT id::text,purpose,COALESCE(related_wealth_account_id::text,'') FROM transaction WHERE household_id=$1 AND account_id=$2 AND type='TRANSFER' AND status='CONFIRMED' AND amount=$3 AND transaction_at >= $4 AND transaction_at < $5 ORDER BY transaction_at,id LIMIT 2`, householdID, accountID, amount, dayStart, dayEnd)
+	type candidate struct{ id, kind, status, existingPurpose, existingWealth string }
+	rows, err := tx.Query(ctx, `SELECT id::text,type,status,purpose,COALESCE(related_wealth_account_id::text,'') FROM transaction WHERE household_id=$1 AND account_id=$2 AND type IN ('TRANSFER','UNCLASSIFIED') AND status<>'VOIDED' AND amount=$3 AND transaction_at >= $4 AND transaction_at < $5 ORDER BY transaction_at,id LIMIT 2`, householdID, accountID, amount, dayStart, dayEnd)
 	if err != nil {
 		return err
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if err = rows.Scan(&c.id, &c.existingPurpose, &c.existingWealth); err != nil {
+		if err = rows.Scan(&c.id, &c.kind, &c.status, &c.existingPurpose, &c.existingWealth); err != nil {
 			rows.Close()
 			return err
 		}
@@ -84,13 +76,18 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	}
 	rows.Close()
 	if len(candidates) > 1 {
-		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Ada lebih dari satu transfer yang cocok. Tambahkan tanggal atau nama rekening tujuan agar tidak salah mencatat.")
+		return p.finishTransferReview(ctx, sourceID, householdID, update, "Ada lebih dari satu transfer yang cocok. Tambahkan tanggal atau nama rekening tujuan agar tidak salah mencatat.")
 	}
 	id := ""
 	if len(candidates) == 1 {
 		candidate := candidates[0]
-		if candidate.existingPurpose != purpose || (wealthID != "" && candidate.existingWealth != "" && candidate.existingWealth != wealthID) {
-			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Transfer yang cocok sudah memiliki tujuan berbeda. Tinjau di Inbox agar bukti tidak salah digabung.")
+		if localTime == "" || candidate.kind != "TRANSFER" || candidate.status != "CONFIRMED" || candidate.existingPurpose != purpose || candidate.existingWealth != wealthID {
+			return p.finishTransferReview(ctx, sourceID, householdID, update, "Ada transaksi yang mungkin sama, tetapi bukti belum cukup untuk digabung. Tinjau di Inbox agar tidak membuat duplikasi atau salah mengubah transaksi.")
+		}
+		candidateMinute := at.UTC()
+		var exact bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE id=$1 AND transaction_at >= $2 AND transaction_at < $2 + interval '1 minute')`, candidate.id, candidateMinute).Scan(&exact); err != nil || !exact {
+			return p.finishTransferReview(ctx, sourceID, householdID, update, "Waktu transfer tidak cocok dengan bukti yang ada. Tinjau di Inbox agar bukti tidak salah digabung.")
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),updated_at=now() WHERE id=$1`, candidate.id, purpose, wealthID, strings.TrimSpace(desc)); err != nil {
 			return err
@@ -109,6 +106,24 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 		return err
 	}
 	if err = enqueueReply(ctx, tx, update, "✅ Transfer tercatat tanpa duplikasi\nRp"+FormatIDR(amount)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) finishTransferReview(ctx context.Context, sourceID, householdID string, update telegramUpdate, message string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1 AND household_id=$2`, sourceID, householdID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') ON CONFLICT DO NOTHING`, householdID, sourceID); err != nil {
+		return err
+	}
+	if err = enqueueReply(ctx, tx, update, message); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

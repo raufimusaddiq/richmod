@@ -72,9 +72,12 @@ savings intent classification, and salary-cycle residual reconciliation. The
 cashflow ledger remains transaction-based; wealth snapshots are point-in-time
 observations; residuals remain review metadata rather than synthetic transactions.
 
-Explicit non-goals: assets, stocks, mutual funds, gold, crypto, broker integrations,
-portfolio valuation, investment P&L, market-price feeds, historical savings
-inference, and automatic conversion of residuals into transactions.
+Wealth V1 supports manual, snapshot-level balances for bank, cash, e-wallet,
+mutual fund, gold, brokerage, deposit, crypto, and loan/liability accounts.
+Explicit non-goals: live NAV or market-price feeds, broker or wallet sync,
+per-security positions, cost basis, realized/unrealized P&L, TWR, XIRR,
+investment advice, historical savings inference, and automatic conversion of
+residuals into transactions.
 
 ## Development rules
 

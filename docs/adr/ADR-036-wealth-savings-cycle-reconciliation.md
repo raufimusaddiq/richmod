@@ -16,10 +16,16 @@ Cashflow uses one shared rule wherever Wealth and Analytics report it:
 income nor a Wealth adjustment.
 
 Wealth screenshots use the existing native document boundary with an additive
-`extract_wealth_observation` tool. Go validates the observation and stores it as
-document evidence plus a pending review; it never resolves a Wealth Account by
-LLM output or creates a partial snapshot. A user must confirm a complete
-full-account snapshot before canonical Wealth state changes.
+`extract_wealth_observation` tool. Go validates the observation and stores it
+in the non-ledger `wealth_observation` queue plus a dedicated
+`WEALTH_OBSERVATION_CONFIRMATION` review. Go may resolve an exact household
+Wealth Account match; zero or multiple matches require the user to choose. The
+LLM never supplies an ID. An observation only prefills one value in a complete
+snapshot; it never creates a partial snapshot or transaction.
+
+Snapshot correction preserves the original snapshot account membership. It
+does not use the set of accounts active today, so later-created accounts never
+appear in historical snapshots and later-inactive accounts remain correctable.
 
 ## Compatibility
 

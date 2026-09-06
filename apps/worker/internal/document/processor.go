@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -153,6 +155,14 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if observationErr != nil {
 			return observationErr
 		}
+		resolvedWealthID, err := resolveWealthObservationAccount(ctx, tx, householdID, observation)
+		if err != nil {
+			return err
+		}
+		observedDate, err := observationDate(observation.ObservedDate)
+		if err != nil {
+			return err
+		}
 		observationOutput, _ := json.Marshal(observation)
 		if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'WEALTH_OBSERVATION','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(observationOutput), observation.Confidence, observationMetadata.Model); err != nil {
 			return err
@@ -163,7 +173,11 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN') ON CONFLICT DO NOTHING`, householdID, documentID); err != nil {
+		var observationID string
+		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10) ON CONFLICT(document_id) DO UPDATE SET updated_at=now() RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate).Scan(&observationID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, householdID, observationID); err != nil {
 			return err
 		}
 	}
@@ -186,6 +200,47 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func nullableValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func observationDate(value *string) (*time.Time, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse("2006-01-02", strings.TrimSpace(*value))
+	if err != nil {
+		return nil, fmt.Errorf("invalid wealth observation date")
+	}
+	return &parsed, nil
+}
+
+func resolveWealthObservationAccount(ctx context.Context, tx pgx.Tx, householdID string, observation wealthObservation) (string, error) {
+	rows, err := tx.Query(ctx, `SELECT id::text FROM wealth_account WHERE household_id=$1 AND active AND lower(btrim(name))=lower(btrim($2)) AND (lower(btrim(COALESCE(institution,'')))=lower(btrim($3)) OR btrim($3)='') ORDER BY id LIMIT 2`, householdID, observation.AccountHint, observation.Institution)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return "", err
+		}
+		ids = append(ids, id)
+	}
+	if err = rows.Err(); err != nil || len(ids) > 1 {
+		return "", err
+	}
+	if len(ids) == 1 {
+		return ids[0], nil
+	}
+	return "", nil
 }
 
 type wealthObservation struct {

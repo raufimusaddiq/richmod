@@ -237,9 +237,12 @@ reconciliation. Transactions remain the cashflow ledger; wealth snapshots are
 point-in-time observations; residuals become review metadata, not synthetic
 transactions.
 
-Explicit non-goals: assets, stocks, mutual funds, gold, crypto, broker
-integrations, portfolio valuation, investment P&L, market-price feeds, historical
-savings inference, and automatic residual-to-transaction conversion.
+Supported Wealth V1 is manual, snapshot-level tracking for bank, cash,
+e-wallet, mutual fund, gold, brokerage, deposit, crypto, and loan/liability
+balances. Explicit non-goals: live NAV or market-price feeds, broker or wallet
+sync, per-security positions, cost basis, realized/unrealized P&L, TWR, XIRR,
+investment advice, historical savings inference, and automatic
+residual-to-transaction conversion.
 
 ---
 

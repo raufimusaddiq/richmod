@@ -55,10 +55,17 @@ func TestRecordTransferReusesOneCrossChannelCandidateAndRejectsAmbiguity(t *test
 	update.Message.From.ID, update.Message.Chat.ID, update.Message.MessageID = chatID, chatID, 1
 	processor := NewProcessor(pool, nil)
 	processor.now = func() time.Time { return day }
-	args := map[string]any{"amount_idr": "3000000", "source_account_hint": "Jago", "destination_wealth_account_hint": "RDN", "purpose": "INVESTMENT_CONTRIBUTION", "date_reference": "TODAY", "description": "top up RDN"}
+	args := map[string]any{"amount_idr": "3000000", "source_account_hint": "Jago", "destination_wealth_account_hint": "RDN", "purpose": "INVESTMENT_CONTRIBUTION", "date_reference": "TODAY", "local_time": "12:00", "description": "top up RDN"}
+	weak := map[string]any{"amount_idr": "3000000", "source_account_hint": "Jago", "destination_wealth_account_hint": "RDN", "purpose": "INVESTMENT_CONTRIBUTION", "date_reference": "TODAY", "description": "top up RDN"}
+	weakSourceID := newSource("weak")
+	must(processor.recordTransfer(ctx, weakSourceID, householdID, update, weak))
+	var transactions, evidence int
+	must(pool.QueryRow(ctx, `SELECT count(*),(SELECT count(*) FROM transaction_evidence WHERE transaction_id=$2) FROM transaction WHERE household_id=$1`, householdID, canonicalID).Scan(&transactions, &evidence))
+	if transactions != 1 || evidence != 1 {
+		t.Fatalf("weak candidate merged: transactions=%d evidence=%d", transactions, evidence)
+	}
 	reuseSourceID := newSource("reuse")
 	must(processor.recordTransfer(ctx, reuseSourceID, householdID, update, args))
-	var transactions, evidence int
 	must(pool.QueryRow(ctx, `SELECT count(*),(SELECT count(*) FROM transaction_evidence WHERE transaction_id=$2) FROM transaction WHERE household_id=$1`, householdID, canonicalID).Scan(&transactions, &evidence))
 	if transactions != 1 || evidence != 2 {
 		var status, parser string
@@ -74,5 +81,18 @@ func TestRecordTransferReusesOneCrossChannelCandidateAndRejectsAmbiguity(t *test
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, householdID).Scan(&transactions))
 	if transactions != 2 {
 		t.Fatalf("ambiguous transfer created transaction: %d", transactions)
+	}
+}
+
+func TestRecordTransferTimeUsesLocalTime(t *testing.T) {
+	now := time.Date(2026, 9, 6, 18, 30, 0, 0, jakartaLocation())
+	date, clock := "TODAY", "10:15"
+	got, err := resolveTime(now, &date, nil, &clock)
+	if err != nil || got.Format("2006-01-02 15:04") != "2026-09-06 10:15" {
+		t.Fatalf("got=%s err=%v", got, err)
+	}
+	clock = "25:99"
+	if _, err := resolveTime(now, &date, nil, &clock); err == nil {
+		t.Fatal("invalid local time accepted")
 	}
 }
