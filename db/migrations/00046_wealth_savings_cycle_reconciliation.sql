@@ -124,6 +124,8 @@ CREATE INDEX review_item_cycle_residual_idx ON review_item(cycle_residual_case_i
 
 ALTER TABLE review_request ALTER COLUMN transaction_id DROP NOT NULL;
 ALTER TABLE review_request ALTER COLUMN telegram_chat_id DROP NOT NULL;
+ALTER TABLE review_request DROP CONSTRAINT IF EXISTS review_request_review_type_check;
+ALTER TABLE review_request ADD CONSTRAINT review_request_review_type_check CHECK (review_type IN ('UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE','CONFLICTING_EVIDENCE','UNKNOWN_EMAIL_TEMPLATE','RECEIPT_MISMATCH','DOCUMENT_EXTRACTION_LOW_CONFIDENCE','TRANSFER_CLASSIFICATION','MANUAL_CORRECTION','CYCLE_RESIDUAL_ALLOCATION'));
 ALTER TABLE review_request ADD CONSTRAINT review_request_subject_check CHECK (transaction_id IS NOT NULL OR review_item_id IS NOT NULL);
 
 -- +goose Down
