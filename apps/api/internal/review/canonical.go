@@ -390,8 +390,10 @@ func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user
 			return err
 		}
 		transactionID = values.TransactionID
-		if _, err := tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='TRANSFER_RECONCILED',updated_at=now() WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND') AND id<>$3`, household, transactionID, reviewID); err != nil {
-			return err
+		if targetType == "UNCLASSIFIED" || targetStatus == "NEEDS_REVIEW" {
+			if err := finalizeTransferReviewLifecycle(r.Context(), tx, household, user, transactionID, "TRANSFER", "ACCEPTED", "PROCESSED", nil, "TRANSFER_RECONCILED", "TRANSFER_RECONCILED"); err != nil {
+				return err
+			}
 		}
 	} else {
 		if err := tx.QueryRow(r.Context(), `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`, household, accountID, amount, at, description, user, purpose, wealthID).Scan(&transactionID); err != nil {

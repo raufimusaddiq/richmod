@@ -90,6 +90,10 @@ func TestWealthObservationRejectsInvalidOptionalNumerics(t *testing.T) {
 	for _, arguments := range []string{
 		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"-1","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
 		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"abc","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1/2","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1e3","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"123456789012345678901","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"0.12345678901","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
 		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1","unit":"unit","unit_price_idr":"-1000","observed_date":null,"confidence":0.98}`,
 		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1","unit":"unit","unit_price_idr":"1.5","observed_date":null,"confidence":0.98}`,
 	} {

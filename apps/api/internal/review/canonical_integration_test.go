@@ -165,11 +165,20 @@ func TestResolveTelegramTransferReconciliation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var account, wealth, existing string
+	var account, wealth, existing, bankSource, proposal, candidateItem, candidateRequest string
 	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Jago','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'RDN','ASSET','BROKERAGE','INVESTMENT') RETURNING id`, household).Scan(&wealth))
 	at := time.Date(2026, 9, 3, 10, 0, 0, 0, time.FixedZone("WIB", 7*60*60))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,purpose) VALUES($1,$2,'UNCLASSIFIED','NEEDS_REVIEW',3000000,$3,'GENERAL') RETURNING id`, household, account, at).Scan(&existing))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("bank-reconcile-%d", stamp), []byte(fmt.Sprintf("bank-reconcile-%d", stamp))).Scan(&bankSource))
+	must(pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,transaction_at,confidence,proposal_status) VALUES($1,$2,'UNCLASSIFIED',3000000,$3,.9,'NEEDS_REVIEW') RETURNING id`, household, bankSource, at).Scan(&proposal))
+	must(pool.QueryRow(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'BANK_EMAIL',jsonb_build_object('proposal_id',$3::uuid)) RETURNING id`, existing, bankSource, proposal).Scan(new(string)))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, existing).Scan(&candidateItem))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status) VALUES($1,$2,$3,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, candidateItem, existing).Scan(&candidateRequest))
+	must(func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_CATEGORY')`, candidateRequest)
+		return err
+	}())
 
 	newCase := func(suffix string, candidates []string) (string, string) {
 		var source, review string
@@ -191,10 +200,14 @@ func TestResolveTelegramTransferReconciliation(t *testing.T) {
 	if res := resolve(review, `{"action":"MERGE_EXISTING","values":{"transactionId":"`+existing+`"}}`); res.Code != http.StatusNoContent {
 		t.Fatalf("merge status=%d body=%s", res.Code, res.Body.String())
 	}
-	var kind, status, purpose, linkedSource, caseStatus string
+	var kind, status, purpose, linkedSource, caseStatus, proposalStatus, bankStatus, itemStatus, requestStatus, conversationState string
 	must(pool.QueryRow(ctx, `SELECT t.type,t.status,t.purpose,e.source_event_id::text,(SELECT status FROM transfer_reconciliation_case WHERE source_event_id=$2) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE t.id=$1`, existing, source).Scan(&kind, &status, &purpose, &linkedSource, &caseStatus))
+	must(pool.QueryRow(ctx, `SELECT p.proposal_status,s.processing_status,ri.status,rr.status,rc.state FROM transaction_proposal p JOIN source_event s ON s.id=p.source_event_id JOIN review_item ri ON ri.id=$4 JOIN review_request rr ON rr.id=$5 JOIN review_conversation rc ON rc.review_request_id=rr.id WHERE p.id=$1 AND s.id=$2 AND ri.transaction_id=$3`, proposal, bankSource, existing, candidateItem, candidateRequest).Scan(&proposalStatus, &bankStatus, &itemStatus, &requestStatus, &conversationState))
 	if kind != "TRANSFER" || status != "CONFIRMED" || purpose != "INVESTMENT_CONTRIBUTION" || linkedSource != source || caseStatus != "RESOLVED" {
 		t.Fatalf("merge=%s/%s/%s source=%s case=%s", kind, status, purpose, linkedSource, caseStatus)
+	}
+	if proposalStatus != "ACCEPTED" || bankStatus != "PROCESSED" || itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || conversationState != "RESOLVED" {
+		t.Fatalf("lifecycle proposal=%s source=%s item=%s request=%s conversation=%s", proposalStatus, bankStatus, itemStatus, requestStatus, conversationState)
 	}
 
 	_, newReview := newCase("new", []string{existing})

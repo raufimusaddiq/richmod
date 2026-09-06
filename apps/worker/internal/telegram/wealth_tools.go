@@ -57,7 +57,7 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	dayStart := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, jakartaLocation()).UTC()
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	type candidate struct{ id, kind, status, existingPurpose, existingWealth string }
-	rows, err := tx.Query(ctx, `SELECT id::text,type,status,purpose,COALESCE(related_wealth_account_id::text,'') FROM transaction WHERE household_id=$1 AND account_id=$2 AND type IN ('TRANSFER','UNCLASSIFIED') AND status<>'VOIDED' AND amount=$3 AND transaction_at >= $4 AND transaction_at < $5 ORDER BY transaction_at,id LIMIT 2`, householdID, accountID, amount, dayStart, dayEnd)
+	rows, err := tx.Query(ctx, `SELECT id::text,type,status,purpose,COALESCE(related_wealth_account_id::text,'') FROM transaction WHERE household_id=$1 AND account_id=$2 AND type IN ('TRANSFER','UNCLASSIFIED') AND status<>'VOIDED' AND amount=$3 AND transaction_at >= $4 AND transaction_at < $5 ORDER BY abs(extract(epoch FROM transaction_at-$6::timestamptz)),id LIMIT 11`, householdID, accountID, amount, dayStart, dayEnd, at)
 	if err != nil {
 		return err
 	}
@@ -75,6 +75,10 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 		return err
 	}
 	rows.Close()
+	if len(candidates) > 10 {
+		tx.Rollback(ctx)
+		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Terlalu banyak kandidat transfer. Sebutkan waktu atau tujuan yang lebih spesifik.")
+	}
 	intent := transferReconciliationIntent{accountID: accountID, amount: amount, at: at, description: strings.TrimSpace(desc), purpose: purpose, wealthID: wealthID}
 	candidateIDs := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 type PublicTurn struct {
@@ -64,6 +65,55 @@ func (p *Processor) hasMerchantLearning(ctx context.Context, householdID string,
 	return found, err
 }
 func (p *Processor) activeReviewBinding(ctx context.Context, householdID string, update telegramUpdate) (any, int, error) {
+	rows, err := p.pool.Query(ctx, `SELECT ri.review_type,CASE WHEN trc.id IS NOT NULL THEN 'TRANSFER_RECONCILIATION' ELSE 'WEALTH_OBSERVATION' END,COALESCE(trc.amount_idr::text,wo.observed_value_idr::text,''),COALESCE(trc.description,wo.institution||' '||wo.account_hint,''),COALESCE(trc.candidate_transaction_ids,'{}'::uuid[]),COALESCE(wo.resolved_wealth_account_id::text,'') FROM review_item ri LEFT JOIN transfer_reconciliation_case trc ON trc.source_event_id=ri.source_event_id AND trc.status='OPEN' LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id AND wo.status='PENDING' WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND (trc.id IS NOT NULL OR wo.id IS NOT NULL) ORDER BY ri.created_at DESC LIMIT 2`, householdID)
+	if err != nil {
+		return nil, 0, err
+	}
+	type specialReview struct {
+		value        map[string]any
+		candidateIDs []string
+	}
+	var rawSpecial []specialReview
+	for rows.Next() {
+		var reviewType, mode, amount, description, resolvedWealth string
+		var candidateIDs []string
+		if err := rows.Scan(&reviewType, &mode, &amount, &description, &candidateIDs, &resolvedWealth); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		value := map[string]any{"review_type": reviewType, "review_mode": mode, "amount_idr": amount, "description": description}
+		if resolvedWealth != "" {
+			value["wealth_account_resolved"] = true
+		}
+		rawSpecial = append(rawSpecial, specialReview{value: value, candidateIDs: candidateIDs})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, 0, err
+	}
+	rows.Close()
+	special := make([]map[string]any, 0, len(rawSpecial))
+	for _, item := range rawSpecial {
+		if len(item.candidateIDs) > 0 {
+			refs := make([]map[string]any, 0, len(item.candidateIDs))
+			for index, id := range item.candidateIDs {
+				var at time.Time
+				var label string
+				if err := p.pool.QueryRow(ctx, `SELECT transaction_at,COALESCE(counterparty_name,description,type) FROM transaction WHERE id=$1 AND household_id=$2`, id, householdID).Scan(&at, &label); err != nil {
+					return nil, 0, err
+				}
+				refs = append(refs, map[string]any{"candidate_ref": fmt.Sprintf("candidate_%d", index+1), "transaction_at": at.In(jakartaLocation()).Format(time.RFC3339), "description": label})
+			}
+			item.value["candidates"] = refs
+		}
+		special = append(special, item.value)
+	}
+	if len(special) == 1 {
+		return special[0], 1, nil
+	}
+	if len(special) > 1 {
+		return special, len(special), nil
+	}
 	if update.Message.ReplyToMessage != nil {
 		var typ, amount, merchant string
 		err := p.pool.QueryRow(ctx, `SELECT r.review_type,t.amount::text,COALESCE(t.counterparty_name,t.description,'') FROM review_request r JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&typ, &amount, &merchant)
@@ -71,7 +121,7 @@ func (p *Processor) activeReviewBinding(ctx context.Context, householdID string,
 			return map[string]any{"binding": "reply_to_message_id", "review_type": typ, "amount_idr": amount, "merchant": merchant}, 1, nil
 		}
 	}
-	rows, err := p.pool.Query(ctx, `SELECT r.review_type,t.amount::text,COALESCE(t.counterparty_name,t.description,'') FROM review_request r JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND (rr.telegram_chat_id=$2 OR rr.telegram_chat_id IS NULL) ORDER BY r.created_at DESC LIMIT 2`, householdID, update.Message.Chat.ID)
+	rows, err = p.pool.Query(ctx, `SELECT r.review_type,t.amount::text,COALESCE(t.counterparty_name,t.description,'') FROM review_request r JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND (rr.telegram_chat_id=$2 OR rr.telegram_chat_id IS NULL) ORDER BY r.created_at DESC LIMIT 2`, householdID, update.Message.Chat.ID)
 	if err != nil {
 		return nil, 0, err
 	}

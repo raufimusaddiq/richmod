@@ -37,6 +37,28 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 	if got := reviewActionsForType("UNKNOWN_BANK_TEMPLATE"); len(got) != 2 {
 		t.Fatalf("bank actions=%v", got)
 	}
+	if got := reviewActionsForType("TRANSFER_RECONCILIATION"); strings.Join(got, ",") != "MERGE_EXISTING,CONFIRM_NEW_TRANSFER,IGNORE" {
+		t.Fatalf("reconciliation actions=%v", got)
+	}
+	if got := reviewActionsForType("WEALTH_OBSERVATION"); strings.Join(got, ",") != "PREPARE_SNAPSHOT,SET_WEALTH_ACCOUNT,IGNORE" {
+		t.Fatalf("wealth actions=%v", got)
+	}
+}
+
+func TestNativeReviewSchemaUsesOpaqueReconciliationReferences(t *testing.T) {
+	tools := NativeFinanceTools(nil, false, false, true, "TRANSFER_CLASSIFICATION", false, false, "TRANSFER_RECONCILIATION")
+	for _, tool := range tools {
+		if tool.Name != "resolve_review" {
+			continue
+		}
+		encoded, _ := json.Marshal(tool.Parameters)
+		text := string(encoded)
+		if !strings.Contains(text, "candidate_ref") || strings.Contains(text, "transaction_id") || !strings.Contains(text, "MERGE_EXISTING") {
+			t.Fatalf("schema=%s", text)
+		}
+		return
+	}
+	t.Fatal("resolve_review missing")
 }
 
 func TestRecordTransferUsesHintsAndInternalNeedsNoWealthAccount(t *testing.T) {

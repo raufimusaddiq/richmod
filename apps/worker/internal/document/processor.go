@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
+	"regexp"
 	"strings"
 	"time"
 
@@ -223,8 +223,7 @@ func validOptionalDecimal(value *string) bool {
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return true
 	}
-	parsed, ok := new(big.Rat).SetString(strings.TrimSpace(*value))
-	return ok && parsed.Sign() >= 0
+	return regexp.MustCompile(`^(?:0|[1-9][0-9]{0,19})(?:\.[0-9]{1,10})?$`).MatchString(strings.TrimSpace(*value))
 }
 
 func validOptionalWholeMoney(value *string) bool {

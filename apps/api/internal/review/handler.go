@@ -403,24 +403,8 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, id, newType, proposalStatus, categoryID, input.Classification); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to update transfer proposal"})
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id, sourceStatus); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to update transfer evidence"})
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve transfer request"})
-		return
-	}
-	if err = resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "CLASSIFY_TRANSFER"); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN(SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve transfer conversation"})
+	if err = finalizeTransferReviewLifecycle(r.Context(), tx, household, p.UserID, id, newType, proposalStatus, sourceStatus, categoryID, input.Classification, "CLASSIFY_TRANSFER"); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to finalize transfer review"})
 		return
 	}
 	if input.Remember && input.Classification != "EXPENSE" && input.Classification != "IGNORE" {
@@ -650,6 +634,23 @@ func resolveTransactionReviewItem(ctx context.Context, tx pgx.Tx, household, use
 		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action=$4,
 		    resolution_values=jsonb_build_object('transaction_id',$2::uuid),updated_at=now()
 		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')`, household, transactionID, user, action)
+	return err
+}
+
+func finalizeTransferReviewLifecycle(ctx context.Context, tx pgx.Tx, household, user, transactionID, proposedType, proposalStatus, sourceStatus string, categoryID *string, classification, action string) error {
+	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, proposedType, proposalStatus, categoryID, classification); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, sourceStatus); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')`, transactionID); err != nil {
+		return err
+	}
+	if err := resolveTransactionReviewItem(ctx, tx, household, user, transactionID, action); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN(SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, transactionID)
 	return err
 }
 
