@@ -294,7 +294,7 @@ func (h *Handler) CorrectSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "snapshot must contain exactly every active wealth account")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM wealth_snapshot_item WHERE snapshot_id=$1`, r.PathValue("id")); err != nil || !insertItems(r, tx, r.PathValue("id"), in.Items) {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM wealth_snapshot_item i USING wealth_account a WHERE i.snapshot_id=$1 AND a.id=i.wealth_account_id AND a.household_id=$2 AND a.active`, r.PathValue("id"), p.HouseholdID); err != nil || !insertItems(r, tx, r.PathValue("id"), in.Items) {
 		fail(w, 500, "unable to correct snapshot")
 		return
 	}
@@ -365,6 +365,10 @@ func (h *Handler) snapshotOut(w http.ResponseWriter, r *http.Request, id string,
 			liabilities.Add(liabilities, amount)
 		}
 		items = append(items, map[string]any{"wealthAccountId": accountID, "name": name, "side": side, "wealthType": typ, "usageRole": role, "valueIdr": value, "quantity": quantity, "unit": unit, "unitPriceIdr": price, "source": source, "note": note})
+	}
+	if err := rows.Err(); err != nil {
+		fail(w, 500, "unable to get snapshot")
+		return
 	}
 	jsonOut(w, 200, map[string]any{"id": id, "observedAt": at, "items": items, "assetTotalIdr": assets.String(), "liabilityTotalIdr": liabilities.String(), "netWorthIdr": new(big.Int).Sub(assets, liabilities).String()})
 }
@@ -602,6 +606,10 @@ func (h *Handler) listSnapshots(w http.ResponseWriter, r *http.Request, househol
 		}
 		item["id"], item["observedAt"], item["createdAt"] = id, observed, created
 		out = append(out, item)
+	}
+	if rows.Err() != nil {
+		fail(w, 500, "unable to list snapshots")
+		return
 	}
 	jsonOut(w, 200, out)
 }

@@ -68,6 +68,10 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount++
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
 	rows.Close()
 	if pageCount == 0 {
 		var storageRef, mediaType string
@@ -362,13 +366,12 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			return err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
 	if autoConfirm && salaryEventID != "" {
-		_, _ = p.pool.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5)`, householdID, salaryEventID)
+		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5 WHERE EXISTS(SELECT 1 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.id=$2 AND se.household_id=$1 AND se.status='CONFIRMED' AND ss.active AND ss.is_primary) ON CONFLICT DO NOTHING`, householdID, salaryEventID); err != nil {
+			return err
+		}
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func payslipSchema() map[string]any {

@@ -10,7 +10,7 @@ export default function ReviewCards({ items, categories, working, action }) {
 }
 
 function CanonicalCard({ item, disabled, action }) {
-  const payslip = item.reviewType === "PAYSLIP_CONFIRMATION"; const missingDate = item.reviewType === "MISSING_PAY_DATE"; const bankFacts = item.allowedActions?.includes("COMPLETE_BANK_FACTS");
+  const payslip = item.reviewType === "PAYSLIP_CONFIRMATION"; const missingDate = item.reviewType === "MISSING_PAY_DATE"; const residual = item.reviewType === "CYCLE_RESIDUAL_ALLOCATION"; const bankFacts = item.allowedActions?.includes("COMPLETE_BANK_FACTS");
   function resolve(actionName, values = {}) { action(item.id, "resolve", { action: actionName, values }); }
   function submitDate(event) { event.preventDefault(); const form = new FormData(event.currentTarget); resolve("SET_PAY_DATE", { payDate: form.get("payDate"), choice: form.get("choice") }); }
   function submitBank(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const raw = form.get("transactionAt"); resolve("COMPLETE_BANK_FACTS", { amountIdr: form.get("amountIdr") || null, transactionAt: raw ? new Date(raw).toISOString() : null }); }

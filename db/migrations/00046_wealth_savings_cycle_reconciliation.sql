@@ -101,24 +101,27 @@ CREATE TABLE cycle_residual_allocation (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX cycle_residual_allocation_case_idx ON cycle_residual_allocation(cycle_residual_case_id);
+CREATE UNIQUE INDEX cycle_residual_allocation_case_account_unique ON cycle_residual_allocation(cycle_residual_case_id,wealth_account_id);
+
+-- Idempotency key for salary-triggered residual generation jobs.
+CREATE UNIQUE INDEX job_cycle_residual_event_unique ON job ((payload_json->>'end_salary_event_id')) WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND status IN ('PENDING','RUNNING','SUCCEEDED');
 
 ALTER TABLE review_item ADD COLUMN cycle_residual_case_id UUID REFERENCES cycle_residual_case(id);
 ALTER TABLE review_item DROP CONSTRAINT IF EXISTS review_item_review_type_check;
 ALTER TABLE review_item ADD CONSTRAINT review_item_review_type_check CHECK (review_type IN ('UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE','CONFLICTING_EVIDENCE','UNKNOWN_EMAIL_TEMPLATE','RECEIPT_MISMATCH','DOCUMENT_EXTRACTION_LOW_CONFIDENCE','TRANSFER_CLASSIFICATION','MANUAL_CORRECTION','DOCUMENT_CLASSIFICATION','PAYSLIP_CONFIRMATION','MISSING_PAY_DATE','SALARY_SOURCE_CONFIRMATION','UNKNOWN_BANK_TEMPLATE','INVOICE_PAYMENT_STATUS','CYCLE_RESIDUAL_ALLOCATION'));
 ALTER TABLE review_item DROP CONSTRAINT IF EXISTS review_item_check;
+-- Preserve historical subject provenance. Resolve ambiguous legacy rows before
+-- enforcing the one-canonical-subject invariant instead of erasing their links.
 UPDATE review_item
-SET transaction_id = NULL,
-    source_event_id = NULL,
-    document_id = NULL
-WHERE proposal_id IS NOT NULL;
-UPDATE review_item
-SET transaction_id = NULL,
-    source_event_id = NULL
-WHERE proposal_id IS NULL AND document_id IS NOT NULL;
-UPDATE review_item
-SET transaction_id = NULL
-WHERE proposal_id IS NULL AND document_id IS NULL AND source_event_id IS NOT NULL;
-ALTER TABLE review_item ADD CONSTRAINT review_item_exactly_one_subject_check CHECK (((transaction_id IS NOT NULL)::int + (proposal_id IS NOT NULL)::int + (source_event_id IS NOT NULL)::int + (document_id IS NOT NULL)::int + (cycle_residual_case_id IS NOT NULL)::int) = 1);
+SET status = 'RESOLVED',
+    resolved_at = COALESCE(resolved_at, now()),
+    resolution_action = COALESCE(resolution_action, 'LEGACY_MULTIPLE_SUBJECTS'),
+    updated_at = now()
+WHERE ((transaction_id IS NOT NULL)::int + (proposal_id IS NOT NULL)::int + (source_event_id IS NOT NULL)::int + (document_id IS NOT NULL)::int) > 1;
+ALTER TABLE review_item ADD CONSTRAINT review_item_exactly_one_subject_check CHECK (
+    status = 'RESOLVED' OR
+    ((transaction_id IS NOT NULL)::int + (proposal_id IS NOT NULL)::int + (source_event_id IS NOT NULL)::int + (document_id IS NOT NULL)::int + (cycle_residual_case_id IS NOT NULL)::int) = 1
+);
 CREATE UNIQUE INDEX review_item_open_cycle_residual_unique ON review_item(cycle_residual_case_id) WHERE cycle_residual_case_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN');
 CREATE INDEX review_item_cycle_residual_idx ON review_item(cycle_residual_case_id) WHERE cycle_residual_case_id IS NOT NULL;
 
@@ -137,6 +140,8 @@ ALTER TABLE review_request ALTER COLUMN transaction_id SET NOT NULL;
 ALTER TABLE review_item DROP CONSTRAINT review_item_exactly_one_subject_check;
 ALTER TABLE review_item DROP CONSTRAINT review_item_review_type_check;
 ALTER TABLE review_item DROP COLUMN cycle_residual_case_id;
+DROP INDEX job_cycle_residual_event_unique;
+DROP INDEX cycle_residual_allocation_case_account_unique;
 DROP TABLE cycle_residual_allocation;
 DROP TABLE cycle_residual_case;
 DROP INDEX wealth_snapshot_item_account_snapshot_idx;

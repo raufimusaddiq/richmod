@@ -74,6 +74,9 @@ func (h *Handler) create(ctx context.Context, principal auth.Principal, input ma
 		if !oneOf(purpose, "INTERNAL_TRANSFER", "SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT") {
 			return "", validationError{"transfer purpose is invalid"}
 		}
+		if purpose != "INTERNAL_TRANSFER" && input.RelatedWealthAccountID == nil {
+			return "", validationError{"transfer purpose requires relatedWealthAccountId"}
+		}
 	} else if purpose != "GENERAL" || input.RelatedWealthAccountID != nil {
 		return "", validationError{"income and expense must use GENERAL purpose without relatedWealthAccountId"}
 	}

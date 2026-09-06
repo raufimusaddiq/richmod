@@ -328,6 +328,12 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	input.Institution = clean(&input.Institution, 120)
 	input.DisplayName = clean(&input.DisplayName, 160)
 	input.MatchHint = clean(&input.MatchHint, 80)
+	if input.Classification != "EXPENSE" && input.Classification != "IGNORE" && input.Remember {
+		if !maskedHintPattern.MatchString(input.MatchHint) || input.Institution == "" {
+			writeJSON(w, 400, map[string]string{"error": "institution and masked match hint are required to remember account"})
+			return
+		}
+	}
 	if input.Classification != "EXPENSE" && input.Classification != "OWN_ACCOUNT" && input.Classification != "HOUSEHOLD_ACCOUNT" && input.Classification != "INVESTMENT_ACCOUNT" && input.Classification != "IGNORE" {
 		writeJSON(w, 400, map[string]string{"error": "invalid transfer classification"})
 		return
@@ -349,23 +355,19 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	newType, newStatus, proposalStatus, sourceStatus, purpose := "TRANSFER", "CONFIRMED", "ACCEPTED", "PROCESSED", "INTERNAL_TRANSFER"
 	var wealthAccountID *string
+	var count int
 	if input.Classification == "INVESTMENT_ACCOUNT" {
+		if err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT ka.wealth_account_id) FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND ka.match_hint=$2`, household, input.MatchHint).Scan(&count); err != nil || count != 1 {
+			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
+			return
+		}
 		var linked string
-		err = tx.QueryRow(r.Context(), `SELECT wealth_account_id FROM known_account WHERE household_id=$1 AND active AND relationship='INVESTMENT_ACCOUNT' AND wealth_account_id IS NOT NULL AND position(match_hint in COALESCE($2,'')) > 0 ORDER BY id LIMIT 2`, household, counterparty).Scan(&linked)
-		if err != nil {
-			// ponytail: deterministic matching requires exactly one linked wealth account; retain review otherwise.
+		if err = tx.QueryRow(r.Context(), `SELECT ka.wealth_account_id FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.match_hint=$2 LIMIT 1`, household, input.MatchHint).Scan(&linked); err != nil {
 			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
 			return
 		}
 		wealthAccountID = &linked
 		purpose = "INVESTMENT_CONTRIBUTION"
-	}
-	var count int
-	if input.Classification == "INVESTMENT_ACCOUNT" {
-		if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM known_account WHERE household_id=$1 AND active AND relationship='INVESTMENT_ACCOUNT' AND wealth_account_id=$2 AND position(match_hint in COALESCE($3,'')) > 0`, household, wealthAccountID, counterparty).Scan(&count); err != nil || count != 1 {
-			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
-			return
-		}
 	}
 	var categoryID *string
 	if input.Classification == "EXPENSE" {

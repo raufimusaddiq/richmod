@@ -24,8 +24,14 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	if dateRef == "YESTERDAY" {
 		at = at.AddDate(0, 0, -1)
 	}
+	if dateRef != "TODAY" && dateRef != "YESTERDAY" && dateRef != "EXPLICIT" {
+		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tanggal transfer tidak valid.")
+	}
 	if dateRef == "EXPLICIT" {
-		d, _ := time.ParseInLocation("2006-01-02", fmt.Sprint(args["explicit_date"]), jakartaLocation())
+		d, err := time.ParseInLocation("2006-01-02", fmt.Sprint(args["explicit_date"]), jakartaLocation())
+		if err != nil || d.Format("2006-01-02") != fmt.Sprint(args["explicit_date"]) {
+			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tanggal transfer tidak valid. Gunakan format YYYY-MM-DD.")
+		}
 		at = time.Date(d.Year(), d.Month(), d.Day(), at.Hour(), at.Minute(), 0, 0, jakartaLocation())
 	}
 	desc, _ := args["description"].(string)

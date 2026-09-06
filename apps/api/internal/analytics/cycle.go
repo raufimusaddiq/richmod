@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
 )
@@ -11,6 +12,17 @@ import (
 // Cycle returns the current salary-anchored financial period. Only confirmed
 // events for the active primary salary source can open a cycle; without one,
 // callers receive an explicit calendar fallback instead of a guessed payday.
+func cycleNow(h *Handler) func() time.Time {
+	if h.now != nil {
+		return h.now
+	}
+	return time.Now
+}
+
+func NewCycleHandler(pool *pgxpool.Pool, now func() time.Time) *Handler {
+	return &Handler{pool: pool, now: now}
+}
+
 func (h *Handler) Cycle(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !p.HasHousehold {
@@ -18,7 +30,7 @@ func (h *Handler) Cycle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	household := p.HouseholdID
-	now := time.Now().In(clock.HouseholdLocation())
+	now := cycleNow(h)().In(clock.HouseholdLocation())
 	var start *time.Time
 	var end *time.Time
 	var configured bool
