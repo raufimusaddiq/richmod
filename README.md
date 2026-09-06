@@ -24,6 +24,16 @@ Forward financial notifications, send a message or image through Telegram, or up
 
 ---
 
+## A quick look
+
+| Dashboard | Review Inbox |
+| --- | --- |
+| ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
+
+![Richmod household analytics](docs/assets/analytics.png)
+
+Screenshots use synthetic household data. No production financial data is included.
+
 ## Why Richmod
 
 | Evidence first | Household aware | Human when uncertain |
