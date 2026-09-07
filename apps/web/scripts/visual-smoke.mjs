@@ -68,9 +68,10 @@ function fixture(path) {
   return [];
 }
 
-async function intercept(page, authenticated = true) {
+async function intercept(page, authenticated = true, requests = []) {
   await page.route("**/api/v1/**", route => {
     const path = new URL(route.request().url()).pathname;
+    requests.push({ path, method: route.request().method() });
     if (!authenticated && path === "/api/v1/auth/me") return route.fulfill({ status: 401, contentType: "application/json", body: "{}" });
     if (/\/api\/v1\/documents\/[^/]+\/(content|pages\/\d+\/content)$/.test(path)) return route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture(path)) });
@@ -224,11 +225,58 @@ async function run() {
       await regressionMobile.close();
       const login = await browser.newPage({ viewport: { width: 390, height: 844 } });
       await intercept(login, false);
-      await login.goto(baseURL, { waitUntil: "networkidle" });
+      await login.goto(`${baseURL}/login`, { waitUntil: "networkidle" });
       await login.getByRole("button", { name: "Masuk ke Richmod" }).waitFor();
       await login.screenshot({ path: new URL("mobile-login.png", output).pathname, fullPage: true });
       assert.equal(await login.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, "mobile login has horizontal overflow");
       await login.close();
+
+      for (const [name, path, width, height, target] of [["landing-desktop", "/", 1440, 900, "Keuangan keluarga, tanpa menebak."], ["landing-tablet", "/", 1024, 768, "Keuangan keluarga, tanpa menebak."], ["landing-mobile", "/", 390, 844, "Keuangan keluarga, tanpa menebak."], ["login-desktop", "/login", 1440, 900, "Masuk ke Richmod."], ["login-mobile", "/login", 390, 844, "Masuk ke Richmod."]]) {
+        const publicPage = await browser.newPage({ viewport: { width, height }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+        const errors = [];
+        await intercept(publicPage, false);
+        publicPage.on("pageerror", error => errors.push(error.message));
+        publicPage.on("console", message => { if (message.type() === "error" && !message.text().includes("favicon") && !message.text().includes("401")) errors.push(message.text()); });
+        await publicPage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
+        await publicPage.getByRole("heading", { name: target }).waitFor();
+        assert.equal(await publicPage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} has horizontal overflow`);
+        await publicPage.screenshot({ path: new URL(`${name}.png`, output).pathname, fullPage: true });
+        await compareScreenshot(publicPage, name);
+        if (path === "/" && name === "landing-desktop") {
+          await publicPage.getByRole("link", { name: "Privasi" }).first().click();
+          await publicPage.getByRole("heading", { name: "Kebijakan Privasi", level: 1 }).waitFor();
+          await publicPage.goto(`${baseURL}/`, { waitUntil: "networkidle" });
+        }
+        assert.deepEqual(errors, [], `${name} browser errors:\n${errors.join("\n")}`);
+        await publicPage.close();
+      }
+
+      const loginSubmit = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      const loginRequests = [];
+      await intercept(loginSubmit, false, loginRequests);
+      await loginSubmit.goto(`${baseURL}/login`, { waitUntil: "networkidle" });
+      await loginSubmit.locator("#login-email").fill("rafi@example.test");
+      await loginSubmit.locator("#login-password").fill("password-example");
+      await loginSubmit.getByRole("button", { name: "Masuk ke Richmod" }).click();
+      await loginSubmit.waitForTimeout(50);
+      assert.ok(loginRequests.some(request => request.path === "/api/v1/auth/login" && request.method === "POST"), "login submits to the existing endpoint");
+      await loginSubmit.close();
+
+      const authenticatedLogin = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+      await intercept(authenticatedLogin, true);
+      await authenticatedLogin.goto(`${baseURL}/login`, { waitUntil: "networkidle" });
+      await authenticatedLogin.waitForURL(`${baseURL}/`);
+      await authenticatedLogin.locator("#main-content").waitFor();
+      await authenticatedLogin.close();
+
+      const legalPage = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+      await intercept(legalPage, false);
+      for (const [path, heading] of [["/privacy", "Kebijakan Privasi"], ["/terms", "Ketentuan Layanan"]]) {
+        await legalPage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
+        await legalPage.getByRole("heading", { name: heading, level: 1 }).waitFor();
+        assert.equal(await legalPage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${path} has horizontal overflow`);
+      }
+      await legalPage.close();
     } finally {
       await browser.close();
     }

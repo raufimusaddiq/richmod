@@ -187,6 +187,21 @@ test("shared UX feedback is accessible and motion respects user preference", () 
   assert.match(styles, /:focus-visible/);
 });
 
+test("public routes preserve the authenticated overview and dedicated login flow", () => {
+  const home = text("app/page.js");
+  const landing = text("app/components/LandingPage.js");
+  const login = text("app/login/page.js");
+  assert.match(home, /if \(user === false\) return <LandingPage/);
+  assert.match(home, /return <AppShell user=\{user\}/);
+  assert.match(landing, /Keuangan keluarga,/);
+  assert.match(landing, /Richmod bertanya—bukan mengarang/);
+  assert.match(landing, /Review Inbox/);
+  assert.match(login, /useAuth\(false\)/);
+  assert.match(login, /window\.location\.replace\("\/"\)/);
+  assert.match(login, /\/api\/v1\/auth\/login/);
+  assert.match(login, /<PublicNav/);
+});
+
 test("admin console keeps platform tabs and redacts sensitive payloads", () => {
   const admin = text("app/admin/page.js");
   for (const label of ["overview", "jobs", "llm", "logs", "households", "users", "audit"]) assert.match(admin, new RegExp(`"${label}"`));
