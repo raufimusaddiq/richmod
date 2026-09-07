@@ -6,8 +6,9 @@ import AuthProvider from "./components/AuthProvider";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Richmod Family Finance",
-  description: "Keuangan household yang terverifikasi",
+  title: "Richmod · Keuangan keluarga, tanpa menebak",
+  description: "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
+  openGraph: { title: "Richmod · Keuangan keluarga, tanpa menebak", description: "Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan." },
 };
 
 export default function RootLayout({ children }) {

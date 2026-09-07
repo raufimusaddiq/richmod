@@ -59,6 +59,16 @@ infrastructure were added. The design uses the data already supplied by the
 existing application; more granular evidence indicators belong in a separate
 product/API change only if the backend exposes a reliable field for them.
 
+## Public Experience — September 7, 2026
+
+Logged-out `/` extends the authenticated product identity into a warm,
+editorial landing page. Its primary story is evidence → validated understanding
+→ household ledger, with Review Inbox shown as the explicit branch for
+uncertainty. `/login` is a separate focused surface using the existing
+email/password endpoint and session behavior. Public styles use scoped
+`public-*`, `landing-*`, and `login-*` selectors; they must not change AppShell
+or authenticated route layout.
+
 ## Recovery Audit — September 7, 2026
 
 The redesign recovery compared `main` with pre-redesign commit
