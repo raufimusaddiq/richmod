@@ -556,28 +556,7 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
 .landing-actions .public-text-link:hover svg { transform: translateY(2px); }
 .public-trust-note { display: inline-flex; align-items: center; gap: 8px; margin: 38px 0 0; color: var(--muted); font-size: 11px; }
 .public-trust-note svg { width: 15px; height: 15px; color: var(--accent); }
-.evidence-board { position: relative; max-width: 600px; justify-self: end; padding: 25px; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow-float); transform: rotate(1.2deg); }
-.board-caption { display: flex; align-items: center; justify-content: space-between; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
-.board-caption span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; }
-.board-caption small { color: var(--faint); font-size: 10px; }
-.board-flow { padding: 22px 2px 17px; }
-.board-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 13px; min-height: 61px; }
-.board-mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; }
-.board-mark svg { width: 18px; height: 18px; }
-.board-mark.source { background: var(--info-soft); color: var(--info); }
-.board-mark.read { background: var(--warning-soft); color: var(--warning); }
-.board-mark.final { background: var(--income-soft); color: var(--income); }
-.board-row > div:nth-child(2) { min-width: 0; }
-.board-label, .board-row small { display: block; color: var(--muted); font-size: 10px; }
-.board-row strong { display: block; margin-top: 3px; font-size: 14px; font-weight: 750; }
-.board-row small { margin-top: 3px; color: var(--faint); }
-.confidence { align-self: start; margin-top: 4px; padding: 4px 7px; border-radius: 999px; background: var(--income-soft); color: var(--income); font-size: 9px; font-weight: 800; }
-.board-line { display: grid; height: 28px; margin-left: 17px; align-items: center; color: var(--line-strong); }
-.board-line svg { width: 16px; height: 16px; }
-.board-uncertain { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; padding: 13px 14px; border-top: 1px solid var(--line); color: var(--warning); }
-.board-uncertain svg { width: 18px; height: 18px; }
-.board-uncertain span, .board-uncertain strong { display: block; font-size: 10px; }
-.board-uncertain strong { margin-top: 2px; color: var(--ink-soft); font-size: 12px; }
+.landing-evidence-flow { display: block; width: min(700px, 100%); height: auto; justify-self: end; }
 .landing-intro { max-width: 720px; padding: 54px 0 108px; }
 .landing-intro h2, .section-heading h2, .trust-copy h2, .review-copy h2, .landing-cta h2 { margin: 14px 0 13px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(33px, 4vw, 56px); font-weight: 400; line-height: 1.04; letter-spacing: -.055em; }
 .landing-intro p, .trust-copy p, .review-copy p { max-width: 57ch; margin: 0; color: var(--muted); font-size: 16px; line-height: 1.7; }
@@ -642,6 +621,7 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
 .login-shell { min-height: 100dvh; background: var(--canvas); }
 .login-layout { display: grid; max-width: 1120px; min-height: calc(100dvh - 150px); margin: 0 auto; grid-template-columns: 1fr minmax(360px, 440px); align-items: center; gap: clamp(60px, 11vw, 170px); padding: 80px 28px 60px; }
 .login-context { max-width: 490px; }
+.login-treeline { display: block; width: min(560px, 120%); height: auto; margin: 54px 0 -22px -26px; opacity: .7; pointer-events: none; }
 .login-back { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 85px; color: var(--muted); font-size: 11px; text-decoration: none; }
 .login-back:hover { color: var(--accent); }
 .login-back svg { width: 15px; height: 15px; }
@@ -665,7 +645,7 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
 @media (max-width: 900px) {
   .landing-hero { grid-template-columns: 1fr; min-height: auto; padding-top: 90px; }
   .landing-hero-copy { max-width: 700px; }
-  .evidence-board { width: min(600px, 100%); justify-self: start; }
+  .landing-evidence-flow { width: min(700px, 100%); justify-self: start; }
   .trust-section, .household-section, .review-section { grid-template-columns: 1fr; gap: 42px; }
   .trust-copy, .review-copy { max-width: 680px; }
   .evidence-stack, .review-example { width: min(600px, 100%); }
@@ -683,10 +663,7 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .landing-lede { font-size: 15px; }
   .landing-actions { align-items: flex-start; flex-direction: column; gap: 17px; margin-top: 27px; }
   .public-trust-note { margin-top: 32px; }
-  .evidence-board { padding: 18px 16px; transform: none; }
-  .board-row { gap: 10px; }
-  .board-row strong { font-size: 12px; }
-  .confidence { display: none; }
+  .landing-evidence-flow { width: 100%; }
   .landing-intro { padding: 45px 0 72px; }
   .landing-intro p, .trust-copy p, .review-copy p { font-size: 14px; }
   .workflow-section, .trust-section, .household-section, .review-section { padding: 72px 0; }
@@ -711,6 +688,7 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .login-context h1 { font-size: 51px; }
   .login-context > p:not(.public-trust-note) { font-size: 15px; }
   .login-context .public-trust-note { margin-top: 24px; }
+  .login-treeline { display: none; }
   .login-card { padding: 23px 18px; }
   .login-footer { align-items: flex-start; flex-wrap: wrap; padding: 0 16px 22px; }
   .login-footer span { flex-basis: 100%; }

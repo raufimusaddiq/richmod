@@ -8,7 +8,7 @@ export default function LandingPage() {
     <div className="public-content">
       <section className="landing-hero" aria-labelledby="landing-title">
         <div className="landing-hero-copy"><span className="public-kicker">HOUSEHOLD FINANCE OS</span><h1 id="landing-title">Keuangan keluarga,<br/><em>tanpa menebak.</em></h1><p className="landing-lede">Richmod menyatukan transaksi dari email bank, Telegram, dan dokumen keuangan menjadi satu ledger keluarga. Saat informasinya belum cukup jelas, Richmod bertanya—bukan mengarang.</p><div className="landing-actions"><Link className="button public-button-primary" href="/login">Masuk ke Richmod <ArrowRight aria-hidden="true"/></Link><a className="public-text-link" href="#cara-kerja">Lihat cara kerjanya <ArrowDown aria-hidden="true"/></a></div><PublicTrustNote /></div>
-        <EvidenceBoard />
+        <img className="landing-evidence-flow" src="/brand/richmod-evidence-flow.svg" alt="Alur Richmod dari bukti ke ledger atau keputusan manusia" />
       </section>
 
       <section className="landing-intro" id="cara-kerja"><h2>Setiap angka punya asal.</h2><p>Richmod menjaga hubungan antara bukti, pemahaman, dan catatan finansial—supaya kamu tidak hanya melihat total, tapi mengerti dari mana datangnya.</p></section>
@@ -24,10 +24,6 @@ export default function LandingPage() {
       <section className="landing-cta"><h2>Mulai dari riwayat yang bisa kamu percaya.</h2><Link className="button public-button-primary" href="/login">Masuk ke Richmod <ArrowRight aria-hidden="true"/></Link></section>
     </div><PublicFooter />
   </main>;
-}
-
-function EvidenceBoard() {
-  return <div className="evidence-board" aria-label="Contoh alur Richmod dari bukti ke ledger"><div className="board-caption"><span>CONTOH ALUR</span><small>1 bukti · 1 keputusan</small></div><div className="board-flow"><div className="board-row"><div className="board-mark source"><TelegramLogo aria-hidden="true"/></div><div><span className="board-label">Bukti masuk</span><strong>“beli bensin 46k”</strong><small>Telegram · 6 Sep · pagi</small></div></div><div className="board-line"><ArrowDown aria-hidden="true"/></div><div className="board-row"><div className="board-mark read"><Lightning aria-hidden="true"/></div><div><span className="board-label">Richmod memahami</span><strong>Rp46.000 · Bahan Bakar</strong><small>Waktu tercatat sekitar pagi</small></div><span className="confidence">jelas</span></div><div className="board-line"><ArrowDown aria-hidden="true"/></div><div className="board-row board-final"><div className="board-mark final"><Check aria-hidden="true"/></div><div><span className="board-label">Ledger keluarga</span><strong>Pengeluaran tercatat</strong><small>Sumber tetap terhubung</small></div></div></div><div className="board-uncertain"><WarningCircle aria-hidden="true"/><div><span>Jika tujuan transfer belum jelas</span><strong>Richmod meminta keputusanmu.</strong></div></div></div>;
 }
 
 function WorkflowStep({ icon, number, title, copy }) {

@@ -202,10 +202,15 @@ test("public routes preserve the authenticated overview and dedicated login flow
   assert.match(landing, /Keuangan keluarga,/);
   assert.match(landing, /Richmod bertanya—bukan mengarang/);
   assert.match(landing, /Review Inbox/);
+  assert.match(landing, /richmod-evidence-flow\.svg/);
+  assert.match(landing, /Alur Richmod dari bukti ke ledger atau keputusan manusia/);
+  assert.doesNotMatch(landing, /function EvidenceBoard/);
   assert.match(login, /useAuth\(false\)/);
   assert.match(login, /window\.location\.replace\("\/"\)/);
   assert.match(login, /\/api\/v1\/auth\/login/);
   assert.match(login, /<PublicNav hideLogin \/>/);
+  assert.match(login, /richmod-login-treeline\.svg/);
+  assert.match(login, /alt="" aria-hidden="true"/);
   assert.match(publicShell, /href="\/#cara-kerja"/);
   assert.match(publicShell, /href="\/#kepercayaan"/);
   assert.match(publicShell, /\{!hideLogin && <Link className="public-nav-login"/);
