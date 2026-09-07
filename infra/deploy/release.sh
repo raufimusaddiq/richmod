@@ -36,7 +36,7 @@ export RICHMOD_MIGRATE_IMAGE="$RICHMOD_IMAGE_REGISTRY/richmod-migrate:$RICHMOD_I
 compose='docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml'
 $compose config --quiet
 $compose pull migrate api worker web
-$compose run --rm --no-build migrate
+$compose run --rm migrate
 $compose up -d --no-build --wait api worker web
 curl --fail --silent --show-error https://finance.investdx.biz.id/healthz >/dev/null
 curl --fail --silent --show-error https://finance.investdx.biz.id/readyz >/dev/null
