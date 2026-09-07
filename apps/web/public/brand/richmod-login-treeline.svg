@@ -1,0 +1,56 @@
+<svg width="1200" height="260" viewBox="0 0 1200 260" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Richmod quiet household landscape</title>
+  <desc id="desc">A subtle warm-gray treeline and small home silhouette used as a calm decorative footer for the Richmod login experience.</desc>
+  <defs>
+    <linearGradient id="fade" x1="600" y1="90" x2="600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CFC9C2" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#CFC9C2" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="600" y1="194" x2="600" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8D3CC" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#D8D3CC" stop-opacity="0.55"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M0 232C94 215 160 221 240 230C337 241 420 230 514 216C607 202 689 205 776 223C870 242 959 245 1200 219V260H0V232Z" fill="url(#ground)"/>
+
+  <g fill="url(#fade)">
+    <path d="M78 230L120 151L162 230H78Z"/>
+    <path d="M91 198L120 126L149 198H91Z"/>
+    <rect x="116" y="198" width="8" height="42" rx="3"/>
+    <path d="M138 232L176 165L214 232H138Z" opacity="0.82"/>
+    <path d="M149 202L176 143L203 202H149Z" opacity="0.82"/>
+    <rect x="172" y="202" width="8" height="38" rx="3" opacity="0.82"/>
+    <path d="M13 235L46 178L79 235H13Z" opacity="0.68"/>
+    <path d="M22 207L46 158L70 207H22Z" opacity="0.68"/>
+    <rect x="42" y="207" width="8" height="33" rx="3" opacity="0.68"/>
+    <path d="M208 234L241 177L274 234H208Z" opacity="0.56"/>
+    <path d="M218 205L241 157L264 205H218Z" opacity="0.56"/>
+    <rect x="237" y="205" width="8" height="35" rx="3" opacity="0.56"/>
+  </g>
+
+  <g opacity="0.36">
+    <path d="M497 225V191L538 160L579 191V225H497Z" fill="#C7C0B8"/>
+    <path d="M487 192L538 151L589 192" stroke="#BDB5AD" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="531" y="198" width="16" height="27" rx="3" fill="#AFA69E"/>
+    <rect x="507" y="192" width="14" height="14" rx="2" fill="#F3F1EC"/>
+    <rect x="555" y="192" width="14" height="14" rx="2" fill="#F3F1EC"/>
+  </g>
+
+  <g fill="url(#fade)">
+    <path d="M885 233L926 153L967 233H885Z" opacity="0.62"/>
+    <path d="M896 198L926 127L956 198H896Z" opacity="0.62"/>
+    <rect x="922" y="198" width="8" height="42" rx="3" opacity="0.62"/>
+    <path d="M951 234L991 161L1031 234H951Z" opacity="0.78"/>
+    <path d="M962 201L991 138L1020 201H962Z" opacity="0.78"/>
+    <rect x="987" y="201" width="8" height="39" rx="3" opacity="0.78"/>
+    <path d="M1040 235L1073 180L1106 235H1040Z" opacity="0.54"/>
+    <path d="M1049 208L1073 159L1097 208H1049Z" opacity="0.54"/>
+    <rect x="1069" y="208" width="8" height="32" rx="3" opacity="0.54"/>
+    <path d="M1110 234L1148 168L1186 234H1110Z" opacity="0.72"/>
+    <path d="M1121 203L1148 144L1175 203H1121Z" opacity="0.72"/>
+    <rect x="1144" y="203" width="8" height="37" rx="3" opacity="0.72"/>
+  </g>
+
+  <path d="M0 237C156 228 292 247 420 232C541 218 652 214 761 232C891 254 1024 247 1200 229" stroke="#C9C3BC" stroke-width="1.5" opacity="0.42"/>
+</svg>
