@@ -62,7 +62,8 @@ function fixture(path) {
   if (path === "/api/v1/salary/sources") return [{ id: "salary-1", employer: "Richmod Labs", active: true, isPrimary: true }];
   if (path === "/api/v1/bank-email-listeners") return [];
   if (path === "/api/v1/integrations/email-ingress") return { address: "household@example.richmod.link", status: "ACTIVE", lastReceivedAt: "2026-09-06T09:20:00+07:00" };
-  if (path === "/api/v1/admin/overview") return { status: "HEALTHY", checkedAt: "2026-09-07T10:00:00Z", worker: { healthy: true, lastHeartbeatAt: "2026-09-07T10:00:00Z" }, jobs: { pending: 0, running: 0, failed24h: 0, lanes: [{ lane: "default", pending: 0, running: 0, oldestDueAgeMs: null }] }, llm: { calls24h: 12, failed24h: 0, successRate: 1, p95DurationMs: 820 }, reviews: { open: 1 }, households: { total: 1 }, integrations: { llmGatewayConfigured: true, llmProtocol: "Cloud gateway" }, recentEvents: [] };
+  if (path === "/api/v1/admin/overview") return { status: "HEALTHY", checkedAt: "2026-09-07T10:00:00Z", worker: { healthy: true, lastHeartbeatAt: "2026-09-07T10:00:00Z" }, jobs: { pending: 0, running: 0, failed24h: 0, lanes: ["INTERACTIVE", "CHAT", "DEFAULT", "BACKGROUND"].map(lane => ({ lane, pending: 0, running: 0, oldestDueAgeMs: null })) }, llm: { calls24h: 12, failed24h: 0, successRate: 1, p95DurationMs: 820 }, reviews: { open: 1 }, households: { total: 1 }, integrations: { llmGatewayConfigured: true, llmProtocol: "Cloud gateway" }, recentEvents: [] };
+  if (path === "/api/v1/admin/jobs") return { items: [{ id: "job-1234567890abcdef", status: "SUCCEEDED", type: "SYNC", lane: "DEFAULT", attempts: 1, maxAttempts: 3, startedAt: "2026-09-07T09:58:00Z", finishedAt: "2026-09-07T09:58:02Z", updatedAt: "2026-09-07T09:58:02Z" }], nextCursor: null };
   if (path.startsWith("/api/v1/admin/")) return { items: [], nextCursor: null };
   return [];
 }
@@ -142,6 +143,29 @@ async function run() {
           assert.equal(overflow, false, `${name} ${path} has horizontal overflow`);
           const slug = path === "/" ? "overview" : path.slice(1);
           await page.screenshot({ path: new URL(`${name}-${slug}.png`, output).pathname, fullPage: true });
+          if (path === "/transactions") {
+            const row = page.locator(".transaction-row").first();
+            await row.hover();
+            const hover = await row.evaluate(element => getComputedStyle(element).backgroundColor);
+            assert.notEqual(hover, "rgb(40, 91, 70)", `${name} transaction row uses primary hover background`);
+            await row.focus();
+            const focus = await row.evaluate(element => getComputedStyle(element).outlineStyle);
+            assert.notEqual(focus, "none", `${name} transaction row has no keyboard focus ring`);
+          }
+          if (path === "/admin") {
+            const metricsBackground = await page.locator(".admin-metrics").evaluate(element => getComputedStyle(element).backgroundColor);
+            assert.notEqual(metricsBackground, "rgb(221, 220, 213)", `${name} admin metrics expose an empty separator cell`);
+            const lane = page.locator(".admin-lane").first();
+            assert.equal(await lane.count(), 1);
+            assert.equal(await lane.evaluate(element => getComputedStyle(element).display), "grid");
+            await page.getByRole("button", { name: "Jobs" }).click();
+            await page.locator("button.admin-link").first().waitFor();
+            const link = await page.locator("button.admin-link").first().evaluate(element => { const style = getComputedStyle(element); return { display: style.display, background: style.backgroundColor, minHeight: style.minHeight }; });
+            assert.notEqual(link.display, "flex", `${name} admin ID inherited button flex layout`);
+            assert.equal(link.background, "rgba(0, 0, 0, 0)", `${name} admin ID has button background`);
+            assert.equal(link.minHeight, "0px", `${name} admin ID has button minimum height`);
+            await page.screenshot({ path: new URL(`${name}-admin-jobs.png`, output).pathname, fullPage: true });
+          }
         }
         await page.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
         await page.getByRole("button", { name: "Kalender" }).click();

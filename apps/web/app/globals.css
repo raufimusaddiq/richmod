@@ -113,6 +113,8 @@ button svg, .button svg, .section-title a svg, .review-alert strong svg { width:
 .secondary:hover:not(:disabled), .button.secondary:hover { border-color: #aeb3ad; background: var(--surface-muted); color: var(--ink); }
 .danger { border-color: #dfc3bf; background: transparent; color: var(--danger); }
 .danger:hover:not(:disabled) { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+.sidebar-user button:hover:not(:disabled), .drawer-close:hover:not(:disabled), .mobile-more-header button:hover:not(:disabled), .page-thumbnails button:hover:not(:disabled), .section-title > button[aria-label="Tutup"]:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-muted); color: var(--ink); }
+.section-title > button[aria-label="Tutup"] { display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border-color: var(--line); background: var(--surface); color: var(--ink-soft); }
 
 input, select, textarea { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease; }
 textarea { min-height: 84px; resize: vertical; }
@@ -177,7 +179,8 @@ label { display: grid; gap: 6px; color: var(--ink-soft); font-size: 12px; font-w
 .table-head span:last-child { text-align: right; }
 .transaction-row { width: 100%; min-height: 70px; padding: 11px 14px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--ink); text-align: left; text-decoration: none; transition: background .12s ease; }
 .transaction-row:last-of-type { border-bottom: 0; }
-.transaction-row:hover { background: rgba(237, 237, 232, .66); }
+.transaction-row:hover, button.transaction-row:hover:not(:disabled) { border-color: transparent; background: rgba(237, 237, 232, .66); color: var(--ink); }
+.transaction-row:active, button.transaction-row:active:not(:disabled) { border-color: transparent; background: var(--surface-muted); transform: none; }
 .transaction-main { display: grid; min-width: 0; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 11px; }
 .transaction-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--surface-muted); color: var(--ink-soft); }
 .transaction-icon.income, .transaction-icon.refund { background: var(--income-soft); color: var(--income); }
@@ -283,6 +286,10 @@ label { display: grid; gap: 6px; color: var(--ink-soft); font-size: 12px; font-w
 
 .analytics-flow { display: grid; gap: 18px; }
 .analytics-kpis, .system-metrics, .admin-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--line); }
+.admin-metrics { gap: 0; background: var(--surface); }
+.admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.admin-metric:nth-child(-n + 4) { border-top: 0; }
+.admin-metric:nth-child(4n + 1) { border-left: 0; }
 .analytics-flow > .analytics-kpis { margin: 0; }
 .analytics-kpis article, .system-metrics article, .admin-metric { padding: 18px; background: var(--surface); }
 .analytics-kpis span, .system-metrics span, .admin-metric span { display: block; color: var(--muted); font-size: 10px; }
@@ -339,10 +346,17 @@ label { display: grid; gap: 6px; color: var(--ink-soft); font-size: 12px; font-w
 .admin-actions button { min-height: 32px; padding: 0 9px; font-size: 10px; }
 .admin-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; word-break: break-all; }
 .admin-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+button.admin-link { display: inline; width: auto; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--accent); font: inherit; font-size: 10px; font-weight: inherit; line-height: inherit; text-align: left; vertical-align: baseline; }
+button.admin-link:hover:not(:disabled) { border: 0; background: transparent; color: var(--accent-hover); text-decoration-thickness: 2px; }
+button.admin-link:active:not(:disabled) { border: 0; background: transparent; transform: none; }
 .admin-definition { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; }
 .admin-definition dt { color: var(--muted); font-size: 10px; }
 .admin-definition dd { margin: 0; overflow-wrap: anywhere; font-size: 11px; }
-.admin-lane { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.admin-lane { display: grid; grid-template-columns: minmax(96px, .65fr) minmax(150px, 1fr) minmax(0, 1.45fr); align-items: center; gap: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.admin-lane + .admin-lane { margin-top: 9px; }
+.admin-lane b { color: var(--ink); font-size: 11px; font-weight: 750; text-transform: uppercase; }
+.admin-lane span { color: var(--ink-soft); font-size: 10px; white-space: nowrap; }
+.admin-lane small { color: var(--muted); font-size: 10px; text-align: right; }
 .admin-more { margin-top: 12px; }
 
 .auth-page, .login, .loading { min-height: 100dvh; }
@@ -417,6 +431,9 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .transaction-state { grid-column: 2; grid-row: 2; }
   .analytics-detail-layout, .admin-grid { grid-template-columns: minmax(0, 1fr); }
   .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .admin-metric:nth-child(-n + 2) { border-top: 0; }
+  .admin-metric:nth-child(2n + 1) { border-left: 0; }
   .admin-table-wrap { overflow: visible; border: 0; }
   .admin-table { min-width: 0; border-collapse: separate; border-spacing: 0 10px; }
   .admin-table thead { display: none; }
@@ -483,6 +500,8 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .dialog-actions > *, .review-actions > *, .member-actions > *, .invite-actions > * { flex: 1 1 130px; }
   .public-legal { padding: 16px 12px; }
   .public-legal-card { padding: 26px 22px; }
+  .admin-lane { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .admin-lane small { text-align: left; }
 }
 
 @media (max-width: 430px) {
@@ -491,6 +510,8 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .filter-bar { grid-template-columns: minmax(0, 1fr); }
   .filter-bar button { grid-column: auto; }
   .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: minmax(0, 1fr); }
+  .admin-metric:nth-child(n) { border-top: 1px solid var(--line); border-left: 0; }
+  .admin-metric:first-child { border-top: 0; }
   .transaction-main { grid-template-columns: 31px minmax(0, 1fr); gap: 9px; }
   .transaction-icon { width: 31px; height: 31px; }
   .transaction-amount { font-size: 12px; }
