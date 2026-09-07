@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { ArrowUpRight, LockKey, ShieldCheck } from "@phosphor-icons/react";
 
-export function PublicNav() {
+export function PublicNav({ hideLogin = false }) {
   return <header className="public-nav-wrap"><nav className="public-nav" aria-label="Navigasi publik">
     <Link className="public-brand" href="/" aria-label="Richmod beranda"><span>R</span><strong>Richmod</strong></Link>
-    <div className="public-nav-links"><a href="#cara-kerja">Cara kerja</a><a href="#kepercayaan">Kepercayaan</a><Link href="/privacy">Privasi</Link></div>
-    <Link className="public-nav-login" href="/login">Masuk <ArrowUpRight aria-hidden="true"/></Link>
+    <div className="public-nav-links"><a href="/#cara-kerja">Cara kerja</a><a href="/#kepercayaan">Kepercayaan</a><Link href="/privacy">Privasi</Link></div>
+    {!hideLogin && <Link className="public-nav-login" href="/login">Masuk <ArrowUpRight aria-hidden="true"/></Link>}
   </nav></header>;
 }
 
