@@ -47,15 +47,16 @@ export default function OpenGraphImage() {
         <div style={{ display: "flex", flexDirection: "column", maxWidth: 900 }}>
           <div
             style={{
+              display: "flex",
+              flexDirection: "column",
               fontSize: 72,
               fontWeight: 700,
               lineHeight: 1.02,
               letterSpacing: "-0.055em",
             }}
           >
-            Keuangan keluarga,
-            <br />
-            tanpa menebak.
+            <div>Keuangan keluarga,</div>
+            <div>tanpa menebak.</div>
           </div>
           <div style={{ marginTop: 28, color: "#57504d", fontSize: 28, lineHeight: 1.35 }}>
             Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan.
