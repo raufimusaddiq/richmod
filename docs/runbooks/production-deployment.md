@@ -52,7 +52,10 @@ configure required reviewers there before its first use. It accepts only a commi
 already reachable from `main`. The job sends the ephemeral GitHub token over SSH
 stdin for one GHCR login, pulls exact immutable images, runs the one-shot
 migration with `docker compose run --rm`, restarts
-the application with `--no-build`, checks public health, and logs out of GHCR.
+the application with `--no-build`, checks public health, retains the current and
+previous release image on the host, removes older Richmod release tags, and
+logs out of GHCR. If the previous running image cannot be identified, cleanup
+is skipped. GHCR package versions are not deleted by the host deploy script.
 Runtime secrets remain only in `/opt/family-finance/finance.env`.
 
 Configure these GitHub Environment secrets without storing them in the repo or
@@ -92,6 +95,12 @@ checklist is in [the sprint delivery runbook](sprint-delivery.md).
 
 Never reclaim production containers, PostgreSQL/attachment/backup volumes,
 `/opt/family-finance/finance.env`, or images currently used by production.
+
+`infra/deploy/post-deploy.sh` runs health and readiness checks before removing
+older host-local `sha-*` tags for the four Richmod release repositories. It
+keeps the deployed tag and the tag observed on the previous running service;
+failed removals are warnings and do not turn a healthy deployment into a
+failed deployment. GHCR cleanup remains a separate registry-retention task.
 
 Rollback is a new manual `Deploy Production` run using a previously verified
 main SHA whose four images exist in GHCR. Never use `docker compose up --build`
