@@ -71,7 +71,7 @@ commands.
 | --- | --- |
 | Go API | `go test ./...` and `go vet ./...` in `apps/api` |
 | Go worker | `go test ./...` and `go vet ./...` in `apps/worker` |
-| Schema/migration | Apply migrations to disposable PostgreSQL; run affected integration tests |
+| Schema/migration | Apply migrations to disposable PostgreSQL; run affected integration tests; update `docs/DATABASE_SCHEMA.md` (schema reference and ERD) in the same branch |
 | Web | `npm test` and `npm run build` in `apps/web` |
 | Compose/image files | `docker compose config --quiet`; build affected image(s) |
 | Docs/assets | inspect rendered asset(s), links, and `git diff --check` |
