@@ -26,6 +26,10 @@ Forward financial notifications, send a message or image through Telegram, or up
 
 ## A quick look
 
+| Public landing | Login |
+| --- | --- |
+| ![Richmod public landing page](docs/assets/landing.png) | ![Richmod login experience](docs/assets/login.png) |
+
 | Dashboard | Review Inbox |
 | --- | --- |
 | ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
