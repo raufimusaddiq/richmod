@@ -14,6 +14,7 @@ const viewports = [
   ["desktop", 1440, 900],
   ["tablet", 1024, 768],
   ["mobile", 390, 844],
+  ["wide", 2560, 1440],
 ];
 
 const user = { id: "user-1", displayName: "Rafi", email: "rafi@example.test", isSuperAdmin: true, householdName: "Rumah Rafi", household: { role: "OWNER" } };
@@ -217,6 +218,16 @@ async function run() {
       await regressionPage.locator(".chart-tooltip").waitFor();
       await compareScreenshot(regressionPage, "analytics-cycle-tooltip-desktop");
       await regressionPage.close();
+      const wideRegressionPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      await intercept(wideRegressionPage);
+      await wideRegressionPage.goto(`${baseURL}/`, { waitUntil: "networkidle" });
+      await wideRegressionPage.locator("#main-content").waitFor();
+      assert.equal(await wideRegressionPage.evaluate(() => {
+        const main = document.querySelector(".app-main");
+        return Math.abs(main.getBoundingClientRect().right - window.innerWidth) <= 1;
+      }), true, "wide authenticated shell reaches the viewport edge");
+      await compareScreenshot(wideRegressionPage, "overview-wide-desktop");
+      await wideRegressionPage.close();
       const regressionMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
       await intercept(regressionMobile);
       await regressionMobile.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });

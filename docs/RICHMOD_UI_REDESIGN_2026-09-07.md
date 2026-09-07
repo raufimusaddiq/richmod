@@ -52,6 +52,19 @@ language weakened the product's financial and evidence-first intent:
 - Keep semantic colors reserved for a financial meaning or an actionable
   system state.
 
+## Brand Color Separation — September 7, 2026
+
+Richmod uses a restrained dried-plum accent for brand and interaction states.
+Evergreen remains reserved for income, confirmation, and positive financial
+meaning; terracotta remains expense/outflow; ochre remains review/warning; red
+remains danger; slate remains informational. The categorical chart palette is
+balanced across plum, slate, copper, olive, clay, and muted violet rather than
+repeating the financial-positive green family.
+
+The authenticated shell fills the viewport after the fixed sidebar. Readable
+width constraints belong to individual forms or text surfaces, never the global
+`.app-main` container.
+
 ## Deliberate Limits
 
 No new backend endpoints, financial calculations, persistence behavior, or
