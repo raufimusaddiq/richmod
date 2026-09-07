@@ -189,7 +189,13 @@ async function run() {
         await page.screenshot({ path: new URL(`${name}-transaction-dialog.png`, output).pathname, fullPage: true });
         await page.locator("dialog[open]").getByRole("button", { name: "Batal" }).click();
         await page.goto(`${baseURL}/documents`, { waitUntil: "networkidle" });
-        await page.locator(".document-card").first().click();
+        const documentCard = page.locator(".document-card").first();
+        await documentCard.hover();
+        const documentHover = await documentCard.evaluate(element => { const style = getComputedStyle(element); return { background: style.backgroundColor, color: style.color }; });
+        assert.notEqual(documentHover.background, "rgb(86, 52, 72)", `${name} document card uses primary hover background`);
+        assert.equal(documentHover.color, "rgb(40, 37, 34)", `${name} document card text changes on hover`);
+        await page.screenshot({ path: new URL(`${name}-documents-hover.png`, output).pathname, fullPage: true });
+        await documentCard.click();
         await page.getByRole("dialog", { name: "Detail dokumen" }).waitFor();
         await page.screenshot({ path: new URL(`${name}-document-drawer.png`, output).pathname, fullPage: true });
         if (name === "mobile") {

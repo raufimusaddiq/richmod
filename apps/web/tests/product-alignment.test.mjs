@@ -189,6 +189,7 @@ test("shared UX feedback is accessible and motion respects user preference", () 
   assert.match(styles, /--income: #216247/);
   assert.match(styles, /\.app-main \{ width: calc\(100% - var\(--sidebar\)\)/);
   assert.doesNotMatch(styles, /\.app-main \{ width: min\(1440px/);
+  assert.match(styles, /button\.document-card:hover:not\(:disabled\) \{ border-color: var\(--line-strong\); background: var\(--surface-strong\); color: var\(--ink\); \}/);
 });
 
 test("public routes preserve the authenticated overview and dedicated login flow", () => {
