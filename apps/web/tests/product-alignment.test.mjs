@@ -191,6 +191,7 @@ test("public routes preserve the authenticated overview and dedicated login flow
   const home = text("app/page.js");
   const landing = text("app/components/LandingPage.js");
   const login = text("app/login/page.js");
+  const publicShell = text("app/components/PublicShell.js");
   assert.match(home, /if \(user === false\) return <LandingPage/);
   assert.match(home, /return <AppShell user=\{user\}/);
   assert.match(landing, /Keuangan keluarga,/);
@@ -199,7 +200,12 @@ test("public routes preserve the authenticated overview and dedicated login flow
   assert.match(login, /useAuth\(false\)/);
   assert.match(login, /window\.location\.replace\("\/"\)/);
   assert.match(login, /\/api\/v1\/auth\/login/);
-  assert.match(login, /<PublicNav/);
+  assert.match(login, /<PublicNav hideLogin \/>/);
+  assert.match(publicShell, /href="\/#cara-kerja"/);
+  assert.match(publicShell, /href="\/#kepercayaan"/);
+  assert.match(publicShell, /\{!hideLogin && <Link className="public-nav-login"/);
+  assert.match(landing, /Richmod memeriksa hasilnya dengan aturan yang konsisten/);
+  assert.doesNotMatch(landing, /Go memvalidasi fakta secara deterministik/);
 });
 
 test("admin console keeps platform tabs and redacts sensitive payloads", () => {
