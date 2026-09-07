@@ -9,6 +9,7 @@
     "start": "next start",
     "test": "node --test tests/*.test.mjs",
     "test:visual": "node scripts/visual-smoke.mjs",
+    "test:visual:update": "UPDATE_VISUAL_BASELINES=1 node scripts/visual-smoke.mjs",
     "capture:readme": "node scripts/capture-readme.mjs"
   },
   "dependencies": {
