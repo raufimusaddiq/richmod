@@ -41,14 +41,26 @@ const responses = new Map([
 await mkdir(outputDirectory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 }, deviceScaleFactor: 1 });
+let authenticated = true;
 await page.route("**/api/v1/**", async route => {
   const url = new URL(route.request().url());
+  if (url.pathname === "/api/v1/auth/me" && !authenticated) {
+    await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthorized" }) });
+    return;
+  }
   const key = [...responses.keys()].find(candidate => url.pathname === candidate);
   await route.fulfill({ status: key ? 200 : 404, contentType: "application/json", body: JSON.stringify(key ? responses.get(key) : { error: "fixture not found" }) });
 });
-for (const [path, file] of [["/", "dashboard.png"], ["/inbox?view=transactions", "review-inbox.png"], ["/analytics", "analytics.png"]]) {
+for (const [path, file, selector, isAuthenticated] of [
+  ["/", "landing.png", ".landing-hero", false],
+  ["/login", "login.png", ".login-card", false],
+  ["/", "dashboard.png", ".app-frame", true],
+  ["/inbox?view=transactions", "review-inbox.png", ".app-frame", true],
+  ["/analytics", "analytics.png", ".app-frame", true],
+]) {
+  authenticated = isAuthenticated;
   await page.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
-  await page.locator(".app-frame").waitFor();
+  await page.locator(selector).waitFor();
   await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important}html{scroll-behavior:auto!important}" });
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: `${outputDirectory}/${file}`, fullPage: false });

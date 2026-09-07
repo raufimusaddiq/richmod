@@ -2,8 +2,10 @@
 
 ## Purpose
 
-`README.md` includes three product screenshots:
+`README.md` includes five product screenshots:
 
+- `docs/assets/landing.png`
+- `docs/assets/login.png`
 - `docs/assets/dashboard.png`
 - `docs/assets/review-inbox.png`
 - `docs/assets/analytics.png`
@@ -56,7 +58,7 @@ Wait until this succeeds:
 curl -fsS http://localhost:3002 >/dev/null
 ```
 
-Capture all three images. `--network host` is intentional for a Linux Docker
+Capture all five images. `--network host` is intentional for a Linux Docker
 host: it lets the disposable browser reach the loopback-only web server.
 
 ```bash
@@ -68,9 +70,10 @@ docker run --rm --network host \
   npm run capture:readme
 ```
 
-The script uses a 1440×1050 desktop viewport, waits for the app shell and web
-fonts, disables animation, then overwrites only the three PNG files above.
-It captures the dashboard, transaction Review Inbox view, and analytics page.
+The script uses a 1440×1050 desktop viewport, waits for the relevant public or
+authenticated shell and web fonts, disables animation, then overwrites only the
+five PNG files above. It captures the public landing and login experiences plus
+the dashboard, transaction Review Inbox view, and analytics page.
 
 For an already-running local server on port `3000`, the shorter command is:
 
@@ -89,7 +92,9 @@ Inspect the generated images. Confirm that each is 1440×1050, legible, current
 with the UI, and contains synthetic data only.
 
 ```bash
-file docs/assets/dashboard.png \
+file docs/assets/landing.png \
+  docs/assets/login.png \
+  docs/assets/dashboard.png \
   docs/assets/review-inbox.png \
   docs/assets/analytics.png
 ```
