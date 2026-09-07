@@ -9,8 +9,21 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Normalize is intentionally provider-neutral. It creates stable token identity
-// for human hints while Go still rejects anything that is not uniquely resolved.
+type Status string
+
+const (
+	NoMatch   Status = "NO_MATCH"
+	Resolved  Status = "RESOLVED"
+	Ambiguous Status = "AMBIGUOUS"
+)
+
+type Resolution struct {
+	ID     string
+	Status Status
+}
+
+var lowInformation = map[string]bool{"account": true, "autodebit": true, "bank": true, "payment": true, "rekening": true, "transfer": true}
+
 func Normalize(value string) string {
 	var b strings.Builder
 	space := false
@@ -27,71 +40,76 @@ func Normalize(value string) string {
 	}
 	return b.String()
 }
-func matchScore(hint, candidate string) int {
-	h, c := strings.Fields(Normalize(hint)), strings.Fields(Normalize(candidate))
-	if len(h) == 0 || len(c) == 0 {
-		return 0
+
+func plausible(hint, candidate string) bool {
+	hintTokens := map[string]bool{}
+	for _, token := range strings.Fields(Normalize(hint)) {
+		hintTokens[token] = true
 	}
-	if strings.Join(h, " ") == strings.Join(c, " ") {
-		return 1000
-	}
-	set := map[string]bool{}
-	for _, token := range h {
-		set[token] = true
-	}
-	matches := 0
-	for _, token := range c {
-		if set[token] && len([]rune(token)) >= 3 {
-			matches++
+	for _, token := range strings.Fields(Normalize(candidate)) {
+		if hintTokens[token] && len([]rune(token)) >= 3 && !lowInformation[token] {
+			return true
 		}
 	}
-	if matches == 0 {
-		return 0
-	}
-	return matches*100 - len(c)
+	return false
 }
-func unique(ctx context.Context, tx pgx.Tx, query string, household, hint string) (string, error) {
+
+func resolve(ctx context.Context, tx pgx.Tx, query, household, hint string) (Resolution, error) {
 	rows, err := tx.Query(ctx, query, household)
 	if err != nil {
-		return "", err
+		return Resolution{}, err
 	}
 	defer rows.Close()
-	scores := map[string]int{}
+	exact, candidates := map[string]bool{}, map[string]bool{}
+	normalizedHint := Normalize(hint)
 	for rows.Next() {
 		var id, name, institution, alias string
 		if err = rows.Scan(&id, &name, &institution, &alias); err != nil {
-			return "", err
+			return Resolution{}, err
 		}
-		score := matchScore(hint, name)
-		if v := matchScore(hint, institution); v > score {
-			score = v
+		if normalizedHint != "" && (normalizedHint == Normalize(name) || normalizedHint == Normalize(institution) || normalizedHint == Normalize(alias)) {
+			exact[id] = true
 		}
-		if v := matchScore(hint, alias); v > score {
-			score = v
-		}
-		if score > scores[id] {
-			scores[id] = score
+		if plausible(hint, name) || plausible(hint, institution) || plausible(hint, alias) {
+			candidates[id] = true
 		}
 	}
 	if err = rows.Err(); err != nil {
-		return "", err
+		return Resolution{}, err
 	}
-	best, winner, ties := 0, "", 0
-	for id, score := range scores {
-		if score > best {
-			best, winner, ties = score, id, 1
-		} else if score == best && score > 0 {
-			ties++
+	if len(exact) == 1 {
+		for id := range exact {
+			return Resolution{ID: id, Status: Resolved}, nil
 		}
 	}
-	if best == 0 || ties != 1 {
-		return "", nil
+	if len(exact) > 1 {
+		return Resolution{Status: Ambiguous}, nil
 	}
-	return winner, nil
+	if len(candidates) == 1 {
+		for id := range candidates {
+			return Resolution{ID: id, Status: Resolved}, nil
+		}
+	}
+	if len(candidates) > 1 {
+		return Resolution{Status: Ambiguous}, nil
+	}
+	return Resolution{Status: NoMatch}, nil
 }
+
+func ResolveAccount(ctx context.Context, tx pgx.Tx, household, hint string) (Resolution, error) {
+	return resolve(ctx, tx, `SELECT a.id::text,a.name,COALESCE(a.name,''),COALESCE(fea.alias,'') FROM account a LEFT JOIN financial_entity_alias fea ON fea.account_id=a.id AND fea.active WHERE a.household_id=$1 AND a.active`, household, hint)
+}
+
+func ResolveWealthAccount(ctx context.Context, tx pgx.Tx, household, hint string) (Resolution, error) {
+	return resolve(ctx, tx, `SELECT wa.id::text,wa.name,COALESCE(wa.institution,''),COALESCE(fea.alias,'') FROM wealth_account wa LEFT JOIN financial_entity_alias fea ON fea.wealth_account_id=wa.id AND fea.active WHERE wa.household_id=$1 AND wa.active`, household, hint)
+}
+
 func Account(ctx context.Context, tx pgx.Tx, household, hint string) (string, error) {
-	return unique(ctx, tx, `SELECT a.id::text,a.name,COALESCE(a.name,''),COALESCE(fea.alias,'') FROM account a LEFT JOIN financial_entity_alias fea ON fea.account_id=a.id AND fea.active WHERE a.household_id=$1 AND a.active`, household, hint)
+	result, err := ResolveAccount(ctx, tx, household, hint)
+	return result.ID, err
 }
+
 func WealthAccount(ctx context.Context, tx pgx.Tx, household, hint string) (string, error) {
-	return unique(ctx, tx, `SELECT wa.id::text,wa.name,COALESCE(wa.institution,''),COALESCE(fea.alias,'') FROM wealth_account wa LEFT JOIN financial_entity_alias fea ON fea.wealth_account_id=wa.id AND fea.active WHERE wa.household_id=$1 AND wa.active`, household, hint)
+	result, err := ResolveWealthAccount(ctx, tx, household, hint)
+	return result.ID, err
 }

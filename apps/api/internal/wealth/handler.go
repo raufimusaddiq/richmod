@@ -761,8 +761,8 @@ func completeSnapshotSet(r *http.Request, tx pgx.Tx, snapshotID string, items []
 }
 
 func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observationID string, items []itemInput) bool {
-	var accountID, value string
-	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status='PENDING' FOR UPDATE`, observationID, householdID).Scan(&accountID, &value); err != nil {
+	var accountID, value, financialObservationID string
+	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text,COALESCE(financial_email_observation_id::text,'') FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status='PENDING' FOR UPDATE`, observationID, householdID).Scan(&accountID, &value, &financialObservationID); err != nil {
 		return false
 	}
 	matched := false
@@ -777,6 +777,11 @@ func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observati
 	}
 	if _, err := tx.Exec(r.Context(), `UPDATE wealth_observation SET status='APPLIED',updated_at=now() WHERE id=$1`, observationID); err != nil {
 		return false
+	}
+	if financialObservationID != "" {
+		if _, err := tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='APPLIED',updated_at=now() WHERE id=$1 AND household_id=$2`, financialObservationID, householdID); err != nil {
+			return false
+		}
 	}
 	if _, err := tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolution_action='SNAPSHOT_CREATED',resolved_by_user_id=$2,resolved_at=now(),updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observationID, userID); err != nil {
 		return false

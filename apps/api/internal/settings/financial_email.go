@@ -30,7 +30,7 @@ func (h *Handler) TestFinancialEmailSource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer tx.Rollback(r.Context())
-	err = tx.QueryRow(r.Context(), `INSERT INTO financial_email_preview(household_id,financial_source_id,subject,body,created_by_user_id) SELECT $1,id,$3,$4,$5 FROM financial_email_source WHERE id=$2 AND household_id=$1 RETURNING id`, p.HouseholdID, r.PathValue("id"), in.Subject, in.Body, p.UserID).Scan(&previewID)
+	err = tx.QueryRow(r.Context(), `INSERT INTO financial_email_preview(household_id,financial_source_id,source_config_version,subject,body,created_by_user_id) SELECT $1,id,config_version,$3,$4,$5 FROM financial_email_source WHERE id=$2 AND household_id=$1 RETURNING id`, p.HouseholdID, r.PathValue("id"), in.Subject, in.Body, p.UserID).Scan(&previewID)
 	if err != nil {
 		jsonError(w, 404, "financial source not found")
 		return
@@ -189,9 +189,17 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	configChanged := in.ProviderName != nil || in.SenderAddress != nil || in.Capabilities != nil || in.DefaultWealthAccountID != nil
+	if oldStatus == "ACTIVE" && configChanged {
+		jsonError(w, 409, "disable source before editing configuration")
+		return
+	}
+	if configChanged {
+		status = "DRAFT"
+	}
 	if status == "ACTIVE" && oldStatus != "ACTIVE" {
 		var tested bool
-		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM financial_email_preview WHERE financial_source_id=$1 AND household_id=$2 AND status='SUCCEEDED')`, id, p.HouseholdID).Scan(&tested); err != nil || !tested {
+		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM financial_email_preview p JOIN financial_email_source s ON s.id=p.financial_source_id WHERE p.financial_source_id=$1 AND p.household_id=$2 AND p.status='SUCCEEDED' AND p.source_config_version=s.config_version)`, id, p.HouseholdID).Scan(&tested); err != nil || !tested {
 			jsonError(w, 400, "test configuration before activation")
 			return
 		}
@@ -214,7 +222,7 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 			def = **in.DefaultWealthAccountID
 		}
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE financial_email_source SET provider_name=COALESCE($2,provider_name),sender_address=$3,capabilities=COALESCE($4,capabilities),default_wealth_account_id=$5,status=$6,updated_at=now() WHERE id=$1 AND household_id=$7`, id, in.ProviderName, sender, capsSQL, def, status, p.HouseholdID)
+	_, err = tx.Exec(r.Context(), `UPDATE financial_email_source SET provider_name=COALESCE($2,provider_name),sender_address=$3,capabilities=COALESCE($4,capabilities),default_wealth_account_id=$5,status=$6,config_version=config_version+CASE WHEN $8 THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1 AND household_id=$7`, id, in.ProviderName, sender, capsSQL, def, status, p.HouseholdID, configChanged)
 	if err != nil {
 		jsonError(w, 409, "unable to update financial source")
 		return

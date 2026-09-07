@@ -51,7 +51,7 @@ type transferReviewCandidate struct {
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
-	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE source_event_id=ri.source_event_id AND status='REVIEW' ORDER BY ordinal LIMIT 1),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE source_event_id=ri.source_event_id AND status='REVIEW' ORDER BY ordinal LIMIT 1),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE source_event_id=ri.source_event_id AND status='REVIEW' ORDER BY ordinal LIMIT 1),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE source_event_id=ri.source_event_id AND status='REVIEW' ORDER BY ordinal LIMIT 1),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',t.id,'type',t.type,'status',t.status,'amount',t.amount::text,'transactionAt',t.transaction_at,'description',t.description,'purpose',COALESCE(t.purpose,''),'wealthAccountId',COALESCE(t.related_wealth_account_id::text,'')) ORDER BY t.transaction_at,t.id) FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids)),'[]'::jsonb),ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON trc.source_event_id=ri.source_event_id WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
+	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',t.id,'type',t.type,'status',t.status,'amount',t.amount::text,'transactionAt',t.transaction_at,'description',t.description,'purpose',COALESCE(t.purpose,''),'wealthAccountId',COALESCE(t.related_wealth_account_id::text,'')) ORDER BY t.transaction_at,t.id) FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids)),'[]'::jsonb),ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +122,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var kind, status string
-	var proposal, source, document, transaction, residualCase, wealthObservation *string
-	err = tx.QueryRow(r.Context(), `SELECT review_type,status,proposal_id,source_event_id,document_id,transaction_id,cycle_residual_case_id,wealth_observation_id FROM review_item WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&kind, &status, &proposal, &source, &document, &transaction, &residualCase, &wealthObservation)
+	var proposal, source, document, transaction, residualCase, wealthObservation, financialObservation *string
+	err = tx.QueryRow(r.Context(), `SELECT review_type,status,proposal_id,source_event_id,document_id,transaction_id,cycle_residual_case_id,wealth_observation_id,financial_email_observation_id FROM review_item WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&kind, &status, &proposal, &source, &document, &transaction, &residualCase, &wealthObservation, &financialObservation)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
@@ -184,8 +184,12 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid household financial entities"})
 			return
 		}
+		if financialObservation == nil {
+			writeJSON(w, 409, map[string]string{"error": "financial observation binding is missing"})
+			return
+		}
 		var observationID, fundingHint, providerHint string
-		if err = tx.QueryRow(r.Context(), `SELECT id::text,COALESCE(facts_json->>'funding_account_hint',''),COALESCE(facts_json->>'provider_account_hint','') FROM financial_email_observation WHERE source_event_id=$1 AND household_id=$2 AND status='REVIEW' ORDER BY ordinal LIMIT 1 FOR UPDATE`, *source, household).Scan(&observationID, &fundingHint, &providerHint); err != nil {
+		if err = tx.QueryRow(r.Context(), `SELECT id::text,COALESCE(facts_json->>'funding_account_hint',''),COALESCE(facts_json->>'provider_account_hint','') FROM financial_email_observation WHERE id=$1 AND household_id=$2 AND status='REVIEW' FOR UPDATE`, *financialObservation, household).Scan(&observationID, &fundingHint, &providerHint); err != nil {
 			writeJSON(w, 409, map[string]string{"error": "financial observation is unavailable"})
 			return
 		}
@@ -218,7 +222,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if kind == "TRANSFER_CLASSIFICATION" && source != nil && (in.Action == "MERGE_EXISTING" || in.Action == "CONFIRM_NEW_TRANSFER") {
-		if err = h.resolveTransferReconciliation(r, tx, p.UserID, household, r.PathValue("id"), *source, in.Action, in.Values); err != nil {
+		if err = h.resolveTransferReconciliation(r, tx, p.UserID, household, r.PathValue("id"), *source, financialObservation, in.Action, in.Values); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid or unavailable transfer reconciliation"})
 			return
 		}
@@ -361,9 +365,18 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Action == "IGNORE" {
+		if financialObservation != nil {
+			if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, *financialObservation, household); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to ignore financial observation"})
+				return
+			}
+		}
 		if wealthObservation != nil {
 			if _, err = tx.Exec(r.Context(), `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2`, *wealthObservation, household); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "unable to dismiss wealth observation"})
+				return
+			}
+			if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=(SELECT financial_email_observation_id FROM wealth_observation WHERE id=$1)`, *wealthObservation); err != nil {
 				return
 			}
 		}
@@ -371,13 +384,13 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id=$1`, *proposal)
 		}
 		if err == nil && source != nil {
-			_, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1`, *source)
+			_, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status=CASE WHEN $2::uuid IS NULL THEN 'IGNORED' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1`, *source, financialObservation)
 		}
 		if err == nil && document != nil {
 			_, err = tx.Exec(r.Context(), `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, *document)
 		}
 		if err == nil && source != nil {
-			_, err = tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='DISMISSED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE source_event_id=$1 AND status='OPEN'`, *source, p.UserID)
+			_, err = tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='DISMISSED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE status='OPEN' AND (($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$1))`, *source, p.UserID, financialObservation)
 		}
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
 		err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, in.Action)
@@ -460,11 +473,11 @@ func learnEntityAlias(ctx context.Context, tx pgx.Tx, household, entityType, ent
 	return err
 }
 
-func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user, household, reviewID, sourceID, action string, raw json.RawMessage) error {
+func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user, household, reviewID, sourceID string, financialObservation *string, action string, raw json.RawMessage) error {
 	var accountID, amount, description, purpose, wealthID string
 	var at time.Time
 	var candidates []string
-	if err := tx.QueryRow(r.Context(), `SELECT account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE household_id=$1 AND source_event_id=$2 AND status='OPEN' FOR UPDATE`, household, sourceID).Scan(&accountID, &amount, &description, &purpose, &wealthID, &at, &candidates); err != nil {
+	if err := tx.QueryRow(r.Context(), `SELECT account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE household_id=$1 AND status='OPEN' AND (($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$2)) FOR UPDATE`, household, sourceID, financialObservation).Scan(&accountID, &amount, &description, &purpose, &wealthID, &at, &candidates); err != nil {
 		return errInvalid
 	}
 	var transactionID string
@@ -500,10 +513,15 @@ func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user
 	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING`, transactionID, sourceID, sourceType); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='PROCESSED',parser_name=CASE WHEN source_type='FINANCIAL_EMAIL' THEN 'financial-email-reconciliation' ELSE 'telegram-transfer' END,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, household); err != nil {
+	if financialObservation != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE financial_email_observation SET transaction_id=$2,status='APPLIED',updated_at=now() WHERE id=$1 AND household_id=$3`, *financialObservation, transactionID, household); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status=CASE WHEN source_type='FINANCIAL_EMAIL' AND EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END,parser_name=CASE WHEN source_type='FINANCIAL_EMAIL' THEN 'financial-email-reconciliation' ELSE 'telegram-transfer' END,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, household); err != nil {
 		return err
 	}
-	_, err := tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE source_event_id=$1`, sourceID, user)
+	_, err := tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE ($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$1)`, sourceID, user, financialObservation)
 	return err
 }
 
