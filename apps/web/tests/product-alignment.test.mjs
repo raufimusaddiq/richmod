@@ -73,11 +73,9 @@ test("analytics insight UI is aggregate-only and safely rendered", () => {
 
 test("analytics insight card owns its spacing", () => {
   const styles = text("app/globals.css");
-  assert.match(styles, /\.insight-card\{[^}]*margin-top:14px[^}]*padding:20px/);
-  assert.match(styles, /\.insight-card-compact\{[^}]*padding:15px 18px/);
-  assert.match(styles, /\.insight-card>\.section-title\{margin-bottom:0\}/);
-  assert.match(styles, /\.analytics-detail-layout\{[^}]*1\.55fr[^}]*\.85fr/);
-  assert.match(styles, /@media\(max-width:900px\)\{\.analytics-detail-layout\{grid-template-columns:1fr\}/);
+  assert.match(styles, /\.insight-card \{ padding: 22px; \}/);
+  assert.match(styles, /\.analytics-detail-layout, \.admin-grid \{ display: grid; grid-template-columns: minmax\(0, 1\.55fr\) minmax\(280px, \.75fr\);/);
+  assert.match(styles, /@media \(max-width: 900px\) \{[\s\S]*?\.analytics-detail-layout, \.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 });
 
 test("transaction filters are query-backed", () => {
@@ -113,19 +111,18 @@ test("authenticated app shells are not cached across deployments", () => {
   assert.match(source, /\/transactions/);
 });
 
-test("ledger navigation uses a scalable icon instead of a text glyph", () => {
+test("ledger navigation uses the shared Phosphor icon family", () => {
   const source = text("app/components/AppShell.js");
-  assert.match(source, /function LedgerIcon/);
-  assert.match(source, /<svg viewBox="0 0 24 24"/);
-  assert.equal(source.includes('"↕"'), false);
+  assert.match(source, /Receipt/);
+  assert.match(source, /const icons =/);
+  assert.match(source, /ledger: Receipt/);
 });
 
-test("settings navigation uses the shared scalable icon style", () => {
+test("settings navigation uses the shared Phosphor icon family", () => {
   const source = text("app/components/AppShell.js");
   assert.match(source, /\["\/settings", "Pengaturan", "settings"\]/);
-  assert.match(source, /function SettingsIcon/);
-  assert.match(source, /icon === "settings" \? <SettingsIcon\/>/);
-  assert.equal(source.includes('"⚙"'), false);
+  assert.match(source, /settings: GearSix/);
+  assert.match(source, /<Icon aria-hidden="true"/);
 });
 
 test("mobile shell keeps navigation and dense actions usable", () => {
@@ -134,18 +131,18 @@ test("mobile shell keeps navigation and dense actions usable", () => {
   assert.match(shell, /aria-modal="true"/);
   assert.match(shell, /event\.key === "Escape"/);
   assert.match(shell, /aria-controls="mobile-more-panel"/);
-  assert.match(styles, /\.mobile-nav a,\.mobile-nav button\{min-height:48px/);
-  assert.match(styles, /\.page-actions,\.invite-actions,\.member-actions,\.row-actions,\.review-actions,\.transfer-options,\.dialog-actions\{flex-wrap:wrap/);
-  assert.match(styles, /\.settings-list article\{grid-template-columns:minmax\(0,1fr\)\}/);
-  assert.match(styles, /max-height:min\(82dvh,680px\);overflow-y:auto/);
+  assert.match(styles, /\.mobile-nav a, \.mobile-nav button \{[\s\S]*?min-height: 50px;/);
+  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
+  assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.member-list article, \.settings-list article, \.integration-grid article \{ grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(styles, /max-height: 82dvh; overflow-y: auto;/);
 });
 
 test("email ingress controls stay grouped inside the integration card", () => {
   const settings = text("app/settings/page.js");
   const styles = text("app/globals.css");
   assert.match(settings, /className="integration-actions"/);
-  assert.match(styles, /\.integration-actions\{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px\}/);
-  assert.match(styles, /\.integration-grid small\{[^}]*overflow-wrap:anywhere/);
+  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
+  assert.match(styles, /\.integration-grid small \{ margin-top: 3px; color: var\(--muted\); font-size: 10px; \}/);
 });
 
 test("web and Telegram share the same review object endpoint", () => {
@@ -168,8 +165,8 @@ test("shared UX feedback is accessible and motion respects user preference", () 
   assert.match(feedback, /aria-busy="true"/);
   assert.match(feedback, /role="alert"/);
   assert.match(feedback, /aria-live="polite"/);
-  assert.match(styles, /prefers-reduced-motion:reduce/);
-  assert.match(styles, /transaction-table \.transaction-row/);
+  assert.match(styles, /prefers-reduced-motion: reduce/);
+  assert.match(styles, /\.transaction-row \{ width: 100%;/);
   assert.match(styles, /:focus-visible/);
 });
 
@@ -199,15 +196,13 @@ test("admin console adapts tables and drawer for mobile", () => {
   const styles = text("app/globals.css");
   assert.match(admin, /Children, cloneElement, isValidElement/);
   assert.match(admin, /"data-label": headers\[index\]/);
-  assert.match(styles, /\.admin-table thead\{display:none\}/);
-  assert.match(styles, /\.admin-table td::before\{content:attr\(data-label\)/);
-  assert.match(styles, /\.admin-drawer\{width:100%;padding:20px 16px 96px;border-left:0\}/);
-  assert.match(styles, /\.mobile-more-header button\{display:grid;place-items:center;padding:0;line-height:1\}/);
-  assert.match(styles, /\.admin-table\{min-width:0;border-collapse:separate;border-spacing:0 12px\}/);
-  assert.match(styles, /\.admin-table tr\{padding:13px 15px/);
-  assert.match(styles, /\.admin-table td\{display:grid;grid-template-columns:minmax\(92px,.42fr\) minmax\(0,1fr\);gap:8px;padding:5px 0;border:0;line-height:1\.35/);
-  assert.match(styles, /\.admin-table tr\{padding:12px 13px/);
-  assert.match(styles, /\.admin-table td\{grid-template-columns:minmax\(88px,.4fr\) minmax\(0,1fr\);gap:7px;padding:4px 0\}/);
+  assert.match(styles, /\.admin-table thead \{ display: none; \}/);
+  assert.match(styles, /\.admin-table td::before \{ color: var\(--muted\); content: attr\(data-label\);/);
+  assert.match(styles, /\.detail-drawer, \.admin-drawer \{ padding: 20px 16px 96px; border-left: 0; \}/);
+  assert.match(styles, /\.mobile-more-header button \{ display: grid; width: 38px;/);
+  assert.match(styles, /\.admin-table \{ min-width: 0; border-collapse: separate; border-spacing: 0 10px; \}/);
+  assert.match(styles, /\.admin-table tr \{ padding: 12px 14px;/);
+  assert.match(styles, /\.admin-table td \{ display: grid; grid-template-columns: minmax\(100px, \.38fr\) minmax\(0, 1fr\); gap: 8px; padding: 5px 0; border: 0;/);
 });
 
 test("admin audit defaults to combined bounded feed while retaining scoped views", () => {
