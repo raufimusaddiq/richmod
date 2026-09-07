@@ -782,6 +782,9 @@ func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observati
 		if _, err := tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='APPLIED',updated_at=now() WHERE id=$1 AND household_id=$2`, financialObservationID, householdID); err != nil {
 			return false
 		}
+		if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status=CASE WHEN EXISTS (SELECT 1 FROM financial_email_observation WHERE source_event_id=source_event.id AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS (SELECT 1 FROM financial_email_observation WHERE source_event_id=source_event.id AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END,parser_name='financial-email-wealth-review',parser_version='1' WHERE id=(SELECT source_event_id FROM financial_email_observation WHERE id=$1 AND household_id=$2)`, financialObservationID, householdID); err != nil {
+			return false
+		}
 	}
 	if _, err := tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolution_action='SNAPSHOT_CREATED',resolved_by_user_id=$2,resolved_at=now(),updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observationID, userID); err != nil {
 		return false

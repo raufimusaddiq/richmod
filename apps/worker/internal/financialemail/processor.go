@@ -179,13 +179,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, d
 			return p.review(ctx, tx, household, source, id)
 		}
 		hint := value(v.AccountHint)
-		var wealth string
-		var err error
-		if hint == "" {
-			wealth, err = defaultWealthAccount(ctx, tx, household, defaultWealth)
-		} else {
-			wealth, err = financialentity.WealthAccount(ctx, tx, household, hint)
-		}
+		wealth, err := resolveWealth(ctx, tx, household, defaultWealth, hint)
 		if err != nil {
 			return err
 		}
@@ -207,7 +201,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, d
 		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID)
+		_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
 		return err
 	case "CASH_MOVEMENT":
 		return p.cash(ctx, tx, household, source, id, defaultWealth, v)
@@ -220,7 +214,7 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,financial_email_observation_id,review_type,status) SELECT $1,$2,$3,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$3 AND status IN ('PENDING_SEND','OPEN'))`, household, source, id)
+	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id)
 	return err
 }
 func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) (string, error) {
@@ -233,6 +227,24 @@ func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) 
 		return "", nil
 	}
 	return out, err
+}
+
+func resolveWealth(ctx context.Context, tx pgx.Tx, household, defaultID, hint string) (string, error) {
+	configured, err := defaultWealthAccount(ctx, tx, household, defaultID)
+	if err != nil || hint == "" {
+		return configured, err
+	}
+	resolved, err := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
+	if err != nil {
+		return "", err
+	}
+	if configured != "" {
+		if resolved.Status == financialentity.Ambiguous || (resolved.Status == financialentity.Resolved && resolved.ID != configured) {
+			return "", nil
+		}
+		return configured, nil
+	}
+	return resolved.ID, nil
 }
 func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, hint string, v observation) error {
 	var observationID string
@@ -249,7 +261,7 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID)
+	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
 	return err
 }
 func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, id, defaultWealth string, v observation) error {
@@ -279,17 +291,21 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, id, 
 	}
 	if wealth == "" && configured != "" {
 		if hint != "" {
-			hinted, hintErr := financialentity.WealthAccount(ctx, tx, household, hint)
+			hinted, hintErr := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
 			if hintErr != nil {
 				return hintErr
 			}
-			if hinted != "" && hinted != configured {
+			if hinted.Status == financialentity.Ambiguous || (hinted.Status == financialentity.Resolved && hinted.ID != configured) {
 				return p.resolutionReview(ctx, tx, household, source, id)
 			}
 		}
 		wealth = configured
 	} else if wealth == "" && hint != "" {
-		wealth, err = financialentity.WealthAccount(ctx, tx, household, hint)
+		resolved, resolveErr := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		wealth = resolved.ID
 	}
 	if err != nil {
 		return err
@@ -375,14 +391,14 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, observation); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,financial_email_observation_id,review_type,status) SELECT $1,$2,$3,'CONFLICTING_EVIDENCE','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$3 AND status IN ('PENDING_SEND','OPEN'))`, household, source, observation)
+	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'CONFLICTING_EVIDENCE','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
 	return err
 }
 func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id string) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,financial_email_observation_id,review_type,status) SELECT $1,$2,$3,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$3 AND status IN ('PENDING_SEND','OPEN'))`, household, source, id)
+	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id)
 	return err
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {
@@ -392,10 +408,10 @@ func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, s
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, observation); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,financial_email_observation_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,$5,$6,'Financial provider email',$7,NULLIF($8,'')::uuid,$9::uuid[]) ON CONFLICT(financial_email_observation_id) DO UPDATE SET candidate_transaction_ids=EXCLUDED.candidate_transaction_ids,status='OPEN',updated_at=now()`, household, source, observation, account, amount, at, purpose, wealth, candidates); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,financial_email_observation_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,$5,$6,'Financial provider email',$7,NULLIF($8,'')::uuid,$9::uuid[]) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET candidate_transaction_ids=EXCLUDED.candidate_transaction_ids,status='OPEN',updated_at=now()`, household, source, observation, account, amount, at, purpose, wealth, candidates); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,financial_email_observation_id,review_type,status) SELECT $1,$2,$3,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$3 AND status IN ('PENDING_SEND','OPEN'))`, household, source, observation)
+	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
 	return err
 }
 func value(v *string) string {
