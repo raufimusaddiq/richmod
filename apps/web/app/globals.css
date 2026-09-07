@@ -397,6 +397,7 @@ dialog { width: min(680px, calc(100% - 32px)); max-height: min(760px, calc(100dv
 dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px); }
 
 .mobile-nav, .mobile-more { display: none; }
+
 @media (max-width: 1180px) {
   :root { --sidebar: 218px; }
   .app-main { padding-inline: 30px; }
