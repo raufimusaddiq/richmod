@@ -36,6 +36,41 @@ func TestValidateExtractionUsesWholeIDRAndJakartaYesterday(t *testing.T) {
 	}
 }
 
+func TestNativeExtractionPreservesExplicitDateWithApproximateMorning(t *testing.T) {
+	now := time.Date(2026, time.September, 7, 17, 37, 0, 0, jakartaLocation())
+	validated, err := nativeValidatedExtraction(map[string]any{
+		"type":                "EXPENSE",
+		"amount_idr":          "46000",
+		"merchant":            "Bensin",
+		"category_slug":       "bahan-bakar",
+		"description":         "Beli bensin",
+		"note":                nil,
+		"date_reference":      "EXPLICIT",
+		"explicit_date":       "2026-09-06",
+		"local_time":          "PAGI",
+		"confidence":          0.99,
+		"category_confidence": 0.99,
+	}, now)
+	if err != nil {
+		t.Fatalf("nativeValidatedExtraction() error = %v", err)
+	}
+	want := time.Date(2026, time.September, 6, 9, 0, 0, 0, jakartaLocation())
+	if !validated.TransactionAt.Equal(want) {
+		t.Fatalf("transaction time = %v, want %v", validated.TransactionAt, want)
+	}
+	if validated.TimePrecision != "APPROXIMATE" || validated.TimePeriod != "PAGI" {
+		t.Fatalf("time metadata = %q, %q", validated.TimePrecision, validated.TimePeriod)
+	}
+}
+
+func TestResolveTimeRejectsUnknownApproximatePeriod(t *testing.T) {
+	now := time.Date(2026, time.September, 7, 17, 37, 0, 0, jakartaLocation())
+	dateReference, explicitDate, localTime := "EXPLICIT", "2026-09-06", "subuh"
+	if _, err := resolveTime(now, &dateReference, &explicitDate, &localTime); err == nil {
+		t.Fatal("resolveTime() accepted an unsupported approximate period")
+	}
+}
+
 func TestValidateExtractionRejectsNonIDRAndFractionalAmount(t *testing.T) {
 	now := time.Date(2026, time.August, 25, 10, 0, 0, 0, jakartaLocation())
 	tests := []struct {
@@ -101,6 +136,9 @@ func TestExtractionPromptTreatsContextAsUntrusted(t *testing.T) {
 	}
 	if !strings.Contains(extractionPrompt, "clearly named purchased item or service") {
 		t.Fatal("prompt must direct clear purchases to an allowed category")
+	}
+	if !strings.Contains(extractionPrompt, "PAGI, SIANG, SORE, or MALAM") || !strings.Contains(extractionPrompt, "Never replace an explicitly stated past date with today") {
+		t.Fatal("prompt must preserve past dates and canonicalize named time periods")
 	}
 }
 
