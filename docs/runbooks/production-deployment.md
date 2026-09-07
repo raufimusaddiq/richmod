@@ -50,7 +50,8 @@ images to GHCR tagged `sha-<full-main-commit>`. It does not deploy.
 `Deploy Production` is manual-only and uses the GitHub `production` Environment;
 configure required reviewers there before its first use. It accepts only a commit
 already reachable from `main`. The job sends the ephemeral GitHub token over SSH
-stdin for one GHCR login, pulls exact immutable images, runs migrations, restarts
+stdin for one GHCR login, pulls exact immutable images, runs the one-shot
+migration with `docker compose run --rm`, restarts
 the application with `--no-build`, checks public health, and logs out of GHCR.
 Runtime secrets remain only in `/opt/family-finance/finance.env`.
 
