@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { ArrowRight, CalendarBlank, CheckCircle, UploadSimple, WarningCircle } from "@phosphor-icons/react";
 import AppShell from "./components/AppShell";
 import { ErrorNotice, Skeleton } from "./components/Feedback";
 import { CategoryDonutChart, DashboardDailySpendingChart } from "./components/Charts";
@@ -35,16 +36,19 @@ export default function Home() {
   if (user === null) return <Loading />;
   if (user === false) return <Login onSuccess={() => window.location.reload()} />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
-  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"], ["Arus kas bersih", overview?.netCashflow, "net"]];
-  return <AppShell user={user} eyebrow="RINGKASAN" title={`Keuangan keluarga · ${periodLabel}`} actions={<Link className="button secondary" href="/documents">＋ Unggah dokumen</Link>}>
+  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"]];
+  return <AppShell user={user} eyebrow="Ringkasan" title={`Keuangan keluarga · ${periodLabel}`} actions={<Link className="button secondary" href="/documents"><UploadSimple aria-hidden="true"/> Unggah bukti</Link>}>
     <ErrorNotice message={error} retry={load}/>
     {loading && <Skeleton/>}
     {!loading && <>
-    {cycle && <section className="surface" style={{padding:"14px 17px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}><div><span className="eyebrow">PERIODE AKTIF</span><strong style={{display:"block",marginTop:5}}>{cycle.kind === "CURRENT_CYCLE" ? "Siklus Gaji" : "Bulan Kalender"}</strong></div><small style={{color:"#6d776f"}}>{cycle.start}{cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}</small></section>}
-    {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><span>!</span><div><b>{overview.reviewCount} transaksi butuh bantuanmu</b><small>Selesaikan keputusan agar buku keuangan tetap akurat.</small></div><strong>Buka Inbox →</strong></Link>}
-    <section className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{money(value)}</strong><small>Data terkonfirmasi · IDR</small></article>)}<article><span>Perlu Ditinjau</span><strong>{overview?.reviewCount ?? "—"}</strong><small>Belum masuk analisis</small></article></section>
-    <section className="dashboard-grid"><article className="surface chart-panel"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "SIKLUS GAJI · HARIAN" : "BULAN INI · HARIAN"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis →</Link></div><DashboardDailySpendingChart items={cashflow}/></article><article className="surface category-panel"><div className="section-title"><div><span className="eyebrow">3 BULAN</span><h2>Ke mana uang pergi</h2></div></div><CategoryDonutChart items={categories}/></article></section>
-    <section className="surface recent-panel"><div className="section-title"><div><span className="eyebrow">LEDGER</span><h2>Transaksi terbaru</h2></div><Link href="/transactions">Lihat semua →</Link></div><TransactionList compact items={transactions.slice(0, 8)}/></section></>}
+    <section className="overview-summary">
+      <article className="cashflow-summary"><span>Arus kas bersih · {periodLabel}</span><strong className="net">{money(overview?.netCashflow)}</strong><small><CheckCircle aria-hidden="true" weight="fill"/> Hanya transaksi terkonfirmasi</small></article>
+      <div className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{money(value)}</strong><small>IDR · terkonfirmasi</small></article>)}</div>
+      {cycle && <article className="overview-period"><CalendarBlank aria-hidden="true"/><div><span>Periode aktif</span><strong>{cycle.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender"}</strong><small>{cycle.start}{cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}</small></div></article>}
+    </section>
+    {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><WarningCircle aria-hidden="true" weight="fill"/><div><b>{overview.reviewCount} transaksi membutuhkan keputusan</b><small>Belum masuk analisis sampai kamu mengonfirmasi interpretasinya.</small></div><strong>Buka Inbox <ArrowRight aria-hidden="true"/></strong></Link>}
+    <section className="dashboard-grid"><article className="surface chart-panel"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji · harian" : "Bulan ini · harian"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis <ArrowRight aria-hidden="true"/></Link></div><DashboardDailySpendingChart items={cashflow}/></article><article className="surface category-panel"><div className="section-title"><div><span className="eyebrow">Tiga bulan</span><h2>Ke mana uang pergi</h2></div></div><CategoryDonutChart items={categories}/></article></section>
+    <section className="surface recent-panel"><div className="section-title"><div><span className="eyebrow">Ledger</span><h2>Transaksi terbaru</h2></div><Link href="/transactions">Lihat semua <ArrowRight aria-hidden="true"/></Link></div><TransactionList compact items={transactions.slice(0, 8)}/></section></>}
   </AppShell>;
 }
 
