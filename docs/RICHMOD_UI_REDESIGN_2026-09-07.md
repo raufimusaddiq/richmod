@@ -89,3 +89,16 @@ It captures every major authenticated route at all three target viewports, check
 normal-use horizontal overflow, checks browser/page errors, exercises transaction
 and document drawers, the manual transaction dialog, mobile navigation, and login.
 Generated screenshots are ignored under `apps/web/test-results/`.
+
+## Analytics Visual Recovery — September 7, 2026
+
+Analytics now uses semantic `<strong>` KPI values, an explicit page flow, scoped
+ranked-card padding, deterministic range-control layouts, and structured chart
+tooltips. Chart colors come from Richmod chart tokens derived from income,
+expense, reference, axis, grid, and categorical product colors; `.surface`
+remains appearance-only. Meaningful metadata uses `--muted`; `--faint` remains
+limited to placeholders and genuinely secondary text.
+
+Visual regression baselines live in `apps/web/tests/visual-baselines/` and are
+compared by `apps/web/scripts/visual-smoke.mjs` with deterministic synthetic API
+fixtures. Baseline updates require `UPDATE_VISUAL_BASELINES=1`.

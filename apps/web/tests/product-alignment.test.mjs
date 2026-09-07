@@ -78,6 +78,23 @@ test("analytics insight card owns its spacing", () => {
   assert.match(styles, /@media \(max-width: 1100px\) \{[\s\S]*?\.analytics-detail-layout, \.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 });
 
+test("analytics components own semantics, spacing, controls, and chart colors", () => {
+  const analytics = text("app/analytics/page.js");
+  const charts = text("app/components/Charts.js");
+  const styles = text("app/globals.css");
+  assert.match(analytics, /className="analytics-flow"/);
+  assert.match(analytics, /className="surface analytics-ranked-card"/);
+  assert.match(analytics, /<strong>\{value\}<\/strong>/);
+  assert.doesNotMatch(analytics, /<b>\{value\}<\/b>/);
+  assert.match(analytics, /className="range-control-group"/);
+  assert.match(analytics, /className="custom-range"/);
+  assert.match(styles, /\.analytics-ranked-card \{ padding: 22px; \}/);
+  assert.match(styles, /\.custom-range input \{ width: 142px;/);
+  assert.match(charts, /var\(--chart-income\)/);
+  assert.match(charts, /var\(--chart-expense\)/);
+  assert.doesNotMatch(charts, /#[0-9a-f]{3,8}/i);
+});
+
 test("transaction filters are query-backed", () => {
   const source = text("app/transactions/page.js");
   for (const name of ["from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "q"]) assert.match(source, new RegExp(`name=\\"${name}\\"`));

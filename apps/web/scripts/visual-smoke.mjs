@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
 
 const port = process.env.RICHMOD_VISUAL_PORT || "3200";
 const baseURL = process.env.RICHMOD_VISUAL_BASE_URL || `http://127.0.0.1:${port}`;
 const output = new URL("../test-results/visual-smoke/", import.meta.url);
+const regressionOutput = new URL("../test-results/visual-regression/", import.meta.url);
+const baselines = new URL("../tests/visual-baselines/", import.meta.url);
+const updateBaselines = process.env.UPDATE_VISUAL_BASELINES === "1";
 const routes = ["/", "/transactions", "/analytics", "/inbox", "/documents", "/household", "/settings", "/admin"];
 const viewports = [
   ["desktop", 1440, 900],
@@ -81,8 +84,45 @@ async function waitForServer() {
   throw new Error(`Next.js did not start at ${baseURL}`);
 }
 
+async function compareScreenshot(page, name) {
+  const screenshot = await page.screenshot({ animations: "disabled", caret: "hide", fullPage: true });
+  await writeFile(new URL(`${name}.png`, regressionOutput), screenshot);
+  const baselinePath = new URL(`${name}.png`, baselines);
+  if (updateBaselines) {
+    await writeFile(baselinePath, screenshot);
+    return;
+  }
+  const baseline = await readFile(baselinePath);
+  const result = await page.evaluate(async ({ actual, expected }) => {
+    const pixels = async encoded => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${encoded}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      return { width: canvas.width, height: canvas.height, data: context.getImageData(0, 0, canvas.width, canvas.height).data };
+    };
+    const current = await pixels(actual);
+    const reference = await pixels(expected);
+    if (current.width !== reference.width || current.height !== reference.height) return { width: current.width, height: current.height, expectedWidth: reference.width, expectedHeight: reference.height, ratio: 1 };
+    let changed = 0;
+    for (let index = 0; index < current.data.length; index += 4) {
+      if (Math.abs(current.data[index] - reference.data[index]) > 24 || Math.abs(current.data[index + 1] - reference.data[index + 1]) > 24 || Math.abs(current.data[index + 2] - reference.data[index + 2]) > 24 || Math.abs(current.data[index + 3] - reference.data[index + 3]) > 24) changed += 1;
+    }
+    return { width: current.width, height: current.height, expectedWidth: reference.width, expectedHeight: reference.height, ratio: changed / (current.width * current.height) };
+  }, { actual: screenshot.toString("base64"), expected: baseline.toString("base64") });
+  assert.equal(result.width, result.expectedWidth, `${name} width changed`);
+  assert.equal(result.height, result.expectedHeight, `${name} height changed`);
+  assert.ok(result.ratio <= 0.005, `${name} visual difference ${(result.ratio * 100).toFixed(2)}% exceeds 0.50%`);
+}
+
 async function run() {
   await mkdir(output, { recursive: true });
+  await mkdir(regressionOutput, { recursive: true });
+  await mkdir(baselines, { recursive: true });
   const server = process.env.RICHMOD_VISUAL_BASE_URL ? null : spawn("npm", ["run", "start", "--", "-p", port], { stdio: "inherit", shell: process.platform === "win32" });
   try {
     await waitForServer();
@@ -103,6 +143,16 @@ async function run() {
           const slug = path === "/" ? "overview" : path.slice(1);
           await page.screenshot({ path: new URL(`${name}-${slug}.png`, output).pathname, fullPage: true });
         }
+        await page.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
+        await page.getByRole("button", { name: "Kalender" }).click();
+        await page.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} analytics calendar has horizontal overflow`);
+        await page.screenshot({ path: new URL(`${name}-analytics-calendar.png`, output).pathname, fullPage: true });
+        await page.getByRole("button", { name: "Siklus Gaji" }).click();
+        await page.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+        await page.locator(".recharts-bar-rectangle").first().hover();
+        await page.locator(".chart-tooltip").waitFor();
+        await page.screenshot({ path: new URL(`${name}-analytics-tooltip.png`, output).pathname, fullPage: true });
         await page.goto(`${baseURL}/transactions`, { waitUntil: "networkidle" });
         await page.locator(".transaction-row").first().click();
         await page.getByRole("button", { name: "Tutup detail" }).waitFor();
@@ -125,6 +175,29 @@ async function run() {
         assert.deepEqual(errors, [], `${name} browser errors:\n${errors.join("\n")}`);
         await page.close();
       }
+      const regressionPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      await intercept(regressionPage);
+      for (const [name, path] of [["overview-desktop", "/"], ["transactions-desktop", "/transactions"], ["inbox-desktop", "/inbox"], ["analytics-cycle-desktop", "/analytics"]]) {
+        await regressionPage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
+        await regressionPage.locator("#main-content").waitFor();
+        await compareScreenshot(regressionPage, name);
+      }
+      await regressionPage.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
+      await regressionPage.getByRole("button", { name: "Kalender" }).click();
+      await regressionPage.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
+      await compareScreenshot(regressionPage, "analytics-calendar-desktop");
+      await regressionPage.getByRole("button", { name: "Siklus Gaji" }).click();
+      await regressionPage.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+      await regressionPage.locator(".recharts-bar-rectangle").first().hover();
+      await regressionPage.locator(".chart-tooltip").waitFor();
+      await compareScreenshot(regressionPage, "analytics-cycle-tooltip-desktop");
+      await regressionPage.close();
+      const regressionMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      await intercept(regressionMobile);
+      await regressionMobile.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
+      await regressionMobile.locator("#main-content").waitFor();
+      await compareScreenshot(regressionMobile, "analytics-cycle-mobile");
+      await regressionMobile.close();
       const login = await browser.newPage({ viewport: { width: 390, height: 844 } });
       await intercept(login, false);
       await login.goto(baseURL, { waitUntil: "networkidle" });
