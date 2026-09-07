@@ -35,8 +35,26 @@ export RICHMOD_MIGRATE_IMAGE="$RICHMOD_IMAGE_REGISTRY/richmod-migrate:$RICHMOD_I
 
 compose='docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml'
 $compose config --quiet
+
+previous_image_tag=
+for service in api worker web; do
+  container_id=$($compose ps -q "$service" 2>/dev/null || true)
+  [ -n "$container_id" ] || continue
+  image_ref=$(docker inspect --format '{{.Config.Image}}' "$container_id" 2>/dev/null || true)
+  case "$image_ref" in
+    "$RICHMOD_IMAGE_REGISTRY"/richmod-*:sha-*)
+      previous_image_tag=${image_ref##*:}
+      break
+      ;;
+  esac
+done
 $compose pull migrate api worker web
 $compose run --rm migrate
 $compose up -d --no-build --wait api worker web
-curl --fail --silent --show-error https://finance.investdx.biz.id/healthz >/dev/null
-curl --fail --silent --show-error https://finance.investdx.biz.id/readyz >/dev/null
+if [ -n "$previous_image_tag" ]; then
+  RICHMOD_PREVIOUS_IMAGE_TAG="$previous_image_tag" ./infra/deploy/post-deploy.sh
+else
+  echo "unable to identify previous release image; skipping image cleanup" >&2
+  curl --fail --silent --show-error https://finance.investdx.biz.id/healthz >/dev/null
+  curl --fail --silent --show-error https://finance.investdx.biz.id/readyz >/dev/null
+fi
