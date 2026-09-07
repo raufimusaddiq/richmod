@@ -58,3 +58,34 @@ No new backend endpoints, financial calculations, persistence behavior, or
 infrastructure were added. The design uses the data already supplied by the
 existing application; more granular evidence indicators belong in a separate
 product/API change only if the backend exposes a reliable field for them.
+
+## Recovery Audit — September 7, 2026
+
+The redesign recovery compared `main` with pre-redesign commit
+`f52a91c39fda9a7930c5199f0930e24977ac360b` and inspected the rendered product at
+1440×900, 1024×768, and 390×844 using deterministic Playwright fixtures.
+
+### Root Causes
+
+- Global form defaults forced unchanged household/settings controls to full width.
+- The member layout assumed fewer fields than the current household markup.
+- The desktop ledger minimum columns exceeded the available tablet shell width.
+- The overview KPI grid allowed long formatted amounts to collide.
+- The mobile shell breakpoint left a sidebar active at narrow desktop widths.
+- Transaction drawers and native dialogs lacked safe layout foundations.
+
+### Recovery Conventions
+
+- Global rules provide safe defaults only; route behavior uses explicit classes.
+- Tablet shell behavior starts at the observed layout transition (`1100px`).
+- Ledger columns use bounded minimums; mobile rows use a separate compact layout.
+- Financial values use bounded, tabular typography and preserve scan order.
+- Drawers, dialogs, forms, and member actions define their own responsive layout.
+
+### Verification
+
+`apps/web/scripts/visual-smoke.mjs` intercepts API calls with synthetic data only.
+It captures every major authenticated route at all three target viewports, checks
+normal-use horizontal overflow, checks browser/page errors, exercises transaction
+and document drawers, the manual transaction dialog, mobile navigation, and login.
+Generated screenshots are ignored under `apps/web/test-results/`.

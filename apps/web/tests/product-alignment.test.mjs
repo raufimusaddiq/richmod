@@ -75,7 +75,7 @@ test("analytics insight card owns its spacing", () => {
   const styles = text("app/globals.css");
   assert.match(styles, /\.insight-card \{ padding: 22px; \}/);
   assert.match(styles, /\.analytics-detail-layout, \.admin-grid \{ display: grid; grid-template-columns: minmax\(0, 1\.55fr\) minmax\(280px, \.75fr\);/);
-  assert.match(styles, /@media \(max-width: 900px\) \{[\s\S]*?\.analytics-detail-layout, \.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(styles, /@media \(max-width: 1100px\) \{[\s\S]*?\.analytics-detail-layout, \.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 });
 
 test("transaction filters are query-backed", () => {

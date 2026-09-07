@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "node --test tests/*.test.mjs",
+    "test:visual": "node scripts/visual-smoke.mjs",
     "capture:readme": "node scripts/capture-readme.mjs"
   },
   "dependencies": {
