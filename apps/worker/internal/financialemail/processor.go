@@ -83,7 +83,9 @@ func nonNegativeWholeMoney(v *string) bool {
 	n, ok := new(big.Int).SetString(raw, 10)
 	return ok && len(raw) <= 20 && n.Sign() >= 0 && n.String() == raw
 }
-func positiveWholeMoney(v *string) bool { return nonNegativeWholeMoney(v) && *v != "0" }
+func positiveWholeMoney(v *string) bool {
+	return nonNegativeWholeMoney(v) && strings.TrimSpace(*v) != "0"
+}
 func normalizeProviderReference(v *string) string {
 	return strings.ToLower(strings.TrimSpace(value(v)))
 }
@@ -96,8 +98,9 @@ func validObservedDate(v *string) bool {
 }
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	var household, financialSource, provider, sender, body, subject, defaultWealth, sourceStatus, extractionStatus, extractionModel string
+	var defaultWealthConfigured bool
 	var capabilities []string
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.id::text,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &financialSource, &provider, &sender, &body, &subject, &defaultWealth, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.id::text,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.default_wealth_account_id IS NOT NULL,fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &financialSource, &provider, &sender, &body, &subject, &defaultWealth, &defaultWealthConfigured, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
 	if err != nil {
 		return err
 	}
@@ -140,7 +143,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		if !allowed[v.Kind] {
 			v.Kind = "NON_ACTIONABLE"
 		}
-		if err := p.persist(ctx, tx, household, payload.SourceEventID, financialSource, defaultWealth, i, v); err != nil {
+		if err := p.persist(ctx, tx, household, payload.SourceEventID, financialSource, defaultWealth, defaultWealthConfigured, i, v); err != nil {
 			return err
 		}
 	}
@@ -181,7 +184,7 @@ func (p *Processor) stagedOutput(ctx context.Context, source string) (output, er
 	}
 	return out, rows.Err()
 }
-func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, financialSource, defaultWealth string, ordinal int, v observation) error {
+func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, financialSource, defaultWealth string, defaultWealthConfigured bool, ordinal int, v observation) error {
 	if reference := normalizeProviderReference(v.ProviderReference); reference != "" {
 		v.ProviderReference = &reference
 	}
@@ -202,7 +205,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 			return p.review(ctx, tx, household, source, id)
 		}
 		hint := value(v.AccountHint)
-		wealth, err := resolveWealth(ctx, tx, household, defaultWealth, hint)
+		wealth, err := resolveWealth(ctx, tx, household, defaultWealth, defaultWealthConfigured, hint)
 		if err != nil {
 			return err
 		}
@@ -227,7 +230,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
 		return err
 	case "CASH_MOVEMENT":
-		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, v)
+		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v)
 	default:
 		return p.review(ctx, tx, household, source, id)
 	}
@@ -252,9 +255,12 @@ func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) 
 	return out, err
 }
 
-func resolveWealth(ctx context.Context, tx pgx.Tx, household, defaultID, hint string) (string, error) {
+func resolveWealth(ctx context.Context, tx pgx.Tx, household, defaultID string, defaultConfigured bool, hint string) (string, error) {
 	configured, err := defaultWealthAccount(ctx, tx, household, defaultID)
-	if err != nil || hint == "" {
+	if err != nil || defaultConfigured && configured == "" {
+		return configured, err
+	}
+	if hint == "" {
 		return configured, err
 	}
 	resolved, err := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
@@ -294,7 +300,7 @@ type cashPlan struct {
 	candidates                                                            []string
 }
 
-func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
+func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil || v.Confidence < .8 {
 		plan.review = "TRANSFER_CLASSIFICATION"
@@ -317,6 +323,10 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	configured, err := defaultWealthAccount(ctx, tx, household, defaultWealth)
 	if err != nil {
 		return plan, err
+	}
+	if defaultWealthConfigured && configured == "" {
+		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
+		return plan, nil
 	}
 	if plan.wealth == "" && configured != "" {
 		if hint != "" {
@@ -417,12 +427,12 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	return plan, nil
 }
 
-func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, financialSource, id, defaultWealth string, v observation) error {
+func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, financialSource, id, defaultWealth string, defaultWealthConfigured bool, v observation) error {
 	var selectedAccount, selectedWealth string
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, id).Scan(&selectedAccount, &selectedWealth); err != nil {
 		return err
 	}
-	plan, err := p.planCash(ctx, tx, household, financialSource, defaultWealth, selectedAccount, selectedWealth, v)
+	plan, err := p.planCash(ctx, tx, household, financialSource, defaultWealth, defaultWealthConfigured, selectedAccount, selectedWealth, v)
 	if err != nil {
 		return err
 	}
@@ -485,11 +495,12 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 		return fmt.Errorf("financial email gateway unavailable")
 	}
 	var household, sourceID, provider, sender, subject, body, defaultWealth string
+	var defaultWealthConfigured bool
 	var capabilities []string
 	if err := p.pool.QueryRow(ctx, `UPDATE financial_email_preview SET status='PROCESSING',updated_at=now() WHERE id=$1 AND status IN ('PENDING','PROCESSING') RETURNING household_id::text,financial_source_id::text`, payload.PreviewID).Scan(&household, &sourceID); err != nil {
 		return err
 	}
-	if err := p.pool.QueryRow(ctx, `SELECT provider_name,sender_address,COALESCE(default_wealth_account_id::text,''),capabilities FROM financial_email_source WHERE id=$1 AND household_id=$2`, sourceID, household).Scan(&provider, &sender, &defaultWealth, &capabilities); err != nil {
+	if err := p.pool.QueryRow(ctx, `SELECT provider_name,sender_address,COALESCE(default_wealth_account_id::text,''),default_wealth_account_id IS NOT NULL,capabilities FROM financial_email_source WHERE id=$1 AND household_id=$2`, sourceID, household).Scan(&provider, &sender, &defaultWealth, &defaultWealthConfigured, &capabilities); err != nil {
 		return err
 	}
 	if err := p.pool.QueryRow(ctx, `SELECT subject,body FROM financial_email_preview WHERE id=$1`, payload.PreviewID).Scan(&subject, &body); err != nil {
@@ -521,7 +532,7 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 		item := map[string]any{"kind": v.Kind, "confidence": v.Confidence, "wouldMutate": false}
 		switch v.Kind {
 		case "CASH_MOVEMENT":
-			plan, planErr := p.planCash(ctx, tx, household, sourceID, defaultWealth, "", "", v)
+			plan, planErr := p.planCash(ctx, tx, household, sourceID, defaultWealth, defaultWealthConfigured, "", "", v)
 			if planErr != nil {
 				return planErr
 			}
@@ -537,7 +548,7 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 				item["resolution"] = "CREATE_TRANSFER"
 			}
 		case "WEALTH_VALUE":
-			wealth, resolveErr := resolveWealth(ctx, tx, household, defaultWealth, value(v.AccountHint))
+			wealth, resolveErr := resolveWealth(ctx, tx, household, defaultWealth, defaultWealthConfigured, value(v.AccountHint))
 			if resolveErr != nil {
 				return resolveErr
 			}

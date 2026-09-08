@@ -424,6 +424,99 @@ func TestFinancialEmailDisabledQueuedSourceStopsWithoutRetry(t *testing.T) {
 	}
 }
 
+func TestFinancialEmailInactiveConfiguredDefaultFailsClosed(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, _, wealthA, source := seedFinancialEmail(t, ctx, pool, time.Now().UnixNano(), "ACTIVE")
+	if _, err = pool.Exec(ctx, `UPDATE wealth_account SET active=false WHERE id=$1`, wealthA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'RDN B','ASSET','MUTUAL_FUND','INVESTMENT')`, household); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"3000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago","provider_account_hint":"RDN B","provider_reference":"inactive-default","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	if err = NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	var transactions int
+	var status string
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&transactions); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE source_event_id=$1`, source).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if transactions != 0 || status != "REVIEW" {
+		t.Fatalf("transactions=%d observation=%s", transactions, status)
+	}
+}
+
+func TestFinancialEmailWithoutConfiguredDefaultUsesUniqueHint(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, _, wealth, source := seedFinancialEmail(t, ctx, pool, time.Now().UnixNano(), "ACTIVE")
+	if _, err = pool.Exec(ctx, `UPDATE financial_email_source SET default_wealth_account_id=NULL WHERE id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)`, source); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"3000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago","provider_account_hint":"Investasi","provider_reference":"no-default","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	if err = NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	var related string
+	if err = pool.QueryRow(ctx, `SELECT count(*),COALESCE(min(related_wealth_account_id::text),'') FROM transaction WHERE household_id=$1`, household).Scan(&count, &related); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || related != wealth {
+		t.Fatalf("transactions=%d wealth=%s want=%s", count, related, wealth)
+	}
+}
+
+func TestFinancialEmailWhitespaceZeroRequiresReview(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, _, _, source := seedFinancialEmail(t, ctx, pool, time.Now().UnixNano(), "ACTIVE")
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":" 0 ","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago","provider_account_hint":"Investasi","provider_reference":"zero","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	if err = NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	var transactions int
+	var status string
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&transactions); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE source_event_id=$1`, source).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if transactions != 0 || status != "REVIEW" {
+		t.Fatalf("transactions=%d observation=%s", transactions, status)
+	}
+}
+
 func seedFinancialEmail(t *testing.T, ctx context.Context, pool *pgxpool.Pool, stamp int64, status string) (household, user, account, wealth, source string) {
 	t.Helper()
 	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("financial email %d", stamp)).Scan(&household); err != nil {

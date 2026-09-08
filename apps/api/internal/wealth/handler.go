@@ -195,6 +195,17 @@ func (h *Handler) PatchAccount(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid household owner or linked account")
 		return
 	}
+	if !active {
+		var used bool
+		if err := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM financial_email_source WHERE household_id=$1 AND default_wealth_account_id=$2 AND status='ACTIVE')`, p.HouseholdID, id).Scan(&used); err != nil {
+			fail(w, 500, "unable to validate Wealth Account usage")
+			return
+		}
+		if used {
+			fail(w, 409, "This Wealth Account is used by an active Financial Email Source. Disable or change the Financial Email Source first.")
+			return
+		}
+	}
 	_, err = tx.Exec(r.Context(), `UPDATE wealth_account SET name=$3,institution=$4,usage_role=$5,owner_user_id=$6,linked_account_id=$7,active=$8,updated_at=now() WHERE id=$1 AND household_id=$2`, id, p.HouseholdID, name, institution, role, ownerID, linkedID, active)
 	if err != nil {
 		writeDBError(w, err, "unable to update wealth account")

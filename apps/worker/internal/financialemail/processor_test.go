@@ -16,8 +16,9 @@ func TestMoneyRequiresCanonicalWholeIDR(t *testing.T) {
 }
 
 func TestCashMovementRequiresPositiveBoundedIDR(t *testing.T) {
-	zero, one, tooLarge := "0", "1", "123456789012345678901"
-	if positiveWholeMoney(&zero) || !positiveWholeMoney(&one) || positiveWholeMoney(&tooLarge) {
+	zero, spacedZero, one, large := "0", " 0 ", "1", "3000000"
+	tooLarge, negative, decimal, exponent, empty := "123456789012345678901", "-1", "1.0", "1e3", ""
+	if positiveWholeMoney(nil) || positiveWholeMoney(&zero) || positiveWholeMoney(&spacedZero) || !positiveWholeMoney(&one) || !positiveWholeMoney(&large) || positiveWholeMoney(&tooLarge) || positiveWholeMoney(&negative) || positiveWholeMoney(&decimal) || positiveWholeMoney(&exponent) || positiveWholeMoney(&empty) {
 		t.Fatal("positive whole money contract")
 	}
 }
