@@ -9,6 +9,7 @@ const nav = [
   ["/", "Ringkasan", "⌂"],
   ["/transactions", "Transaksi", "ledger"],
   ["/analytics", "Analisis", "⌁"],
+  ["/wealth", "Wealth", "⌁"],
   ["/inbox", "Inbox", "✓"],
   ["/documents", "Dokumen", "▤"],
   ["/household", "Keluarga", "⌾"],
