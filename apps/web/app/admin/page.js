@@ -169,6 +169,15 @@ function Overview({ setError }) {
           value={number(data.llm.calls24h)}
           note={`${number(data.llm.failed24h)} gagal`}
         />
+        <Metric
+          label="Success LLM"
+          value={
+            data.llm.successRate == null
+              ? "—"
+              : `${(data.llm.successRate * 100).toFixed(1)}%`
+          }
+          note="24 jam"
+        />
         <Metric label="Review terbuka" value={number(data.reviews.open)} />
         <Metric label="Household" value={number(data.households.total)} />
       </div>
