@@ -25,6 +25,10 @@ terminal observations, and never repeats semantic extraction. A staged Wealth
 value owns at most one `wealth_observation`. Strong provider-reference reuse
 also requires compatible Account, amount, time, transfer purpose, and Wealth
 target; incompatible evidence goes to Review without creating a transaction.
+Preview runs the same deterministic resolution and reconciliation planner as
+production inside a zero-canonical-mutation path. Financial-email candidate
+search retains its bounded overflow sentinel; more than ten candidates fails
+closed and cannot be confirmed as a new transfer.
 
 Cashflow uses one shared rule wherever Wealth and Analytics report it:
 `income - (expense - refund)`. A refund reduces expense; it is not a negative

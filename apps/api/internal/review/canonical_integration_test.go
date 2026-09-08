@@ -147,7 +147,7 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 	}
 }
 
-func TestResolveTelegramTransferReconciliation(t *testing.T) {
+func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -180,13 +180,18 @@ func TestResolveTelegramTransferReconciliation(t *testing.T) {
 		return err
 	}())
 
-	newCase := func(suffix string, candidates []string) (string, string) {
-		var source, review string
-		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("telegram-reconcile-%s-%d", suffix, stamp), []byte(fmt.Sprintf("telegram-reconcile-%s-%d", suffix, stamp))).Scan(&source))
-		_, err = pool.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,3000000,$4,'top up RDN','INVESTMENT_CONTRIBUTION',$5,$6::uuid[])`, household, source, account, at, wealth, candidates)
+	var financialSource string
+	must(pool.QueryRow(ctx, `INSERT INTO financial_email_source(household_id,provider_name,sender_address,capabilities,status,created_by_user_id) VALUES($1,'Provider','provider@test.invalid',ARRAY['CASH_MOVEMENT'],'ACTIVE',$2) RETURNING id`, household, user).Scan(&financialSource))
+	newCase := func(suffix string, candidates []string) (string, string, string) {
+		var source, observation, review string
+		external := fmt.Sprintf("financial-reconcile-%s-%d", suffix, stamp)
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, external, []byte(external)).Scan(&source))
+		must(pool.QueryRow(ctx, `INSERT INTO financial_email_event(source_event_id,financial_source_id,observed_sender,message_id,subject,body) VALUES($1,$2,'provider@test.invalid',$3,'transfer','body') RETURNING source_event_id`, source, financialSource, external).Scan(new(string)))
+		must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, household, source).Scan(&observation))
+		_, err = pool.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,financial_email_observation_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,3000000,$5,'top up RDN','INVESTMENT_CONTRIBUTION',$6,$7::uuid[])`, household, source, observation, account, at, wealth, candidates)
 		must(err)
-		must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, source).Scan(&review))
-		return source, review
+		must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, observation).Scan(&review))
+		return source, observation, review
 	}
 	resolve := func(review, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
@@ -196,21 +201,23 @@ func TestResolveTelegramTransferReconciliation(t *testing.T) {
 		NewHandler(pool).Resolve(res, req)
 		return res
 	}
-	source, review := newCase("merge", []string{existing})
+	source, observation, review := newCase("merge", []string{existing})
 	if res := resolve(review, `{"action":"MERGE_EXISTING","values":{"transactionId":"`+existing+`"}}`); res.Code != http.StatusNoContent {
 		t.Fatalf("merge status=%d body=%s", res.Code, res.Body.String())
 	}
 	var kind, status, purpose, linkedSource, caseStatus, proposalStatus, bankStatus, itemStatus, requestStatus, conversationState string
-	must(pool.QueryRow(ctx, `SELECT t.type,t.status,t.purpose,e.source_event_id::text,(SELECT status FROM transfer_reconciliation_case WHERE source_event_id=$2) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id AND e.source_event_id=$2 WHERE t.id=$1`, existing, source).Scan(&kind, &status, &purpose, &linkedSource, &caseStatus))
+	var evidenceSources int
+	must(pool.QueryRow(ctx, `SELECT t.type,t.status,t.purpose,e.source_event_id::text,(SELECT status FROM transfer_reconciliation_case WHERE financial_email_observation_id=$2) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id AND e.source_event_id=$3 WHERE t.id=$1`, existing, observation, source).Scan(&kind, &status, &purpose, &linkedSource, &caseStatus))
 	must(pool.QueryRow(ctx, `SELECT p.proposal_status,s.processing_status,ri.status,rr.status,rc.state FROM transaction_proposal p JOIN source_event s ON s.id=p.source_event_id JOIN review_item ri ON ri.id=$4 JOIN review_request rr ON rr.id=$5 JOIN review_conversation rc ON rc.review_request_id=rr.id WHERE p.id=$1 AND s.id=$2 AND ri.transaction_id=$3`, proposal, bankSource, existing, candidateItem, candidateRequest).Scan(&proposalStatus, &bankStatus, &itemStatus, &requestStatus, &conversationState))
+	must(pool.QueryRow(ctx, `SELECT count(DISTINCT evidence_type) FROM transaction_evidence WHERE transaction_id=$1 AND evidence_type IN ('BANK_EMAIL','FINANCIAL_EMAIL')`, existing).Scan(&evidenceSources))
 	if kind != "TRANSFER" || status != "CONFIRMED" || purpose != "INVESTMENT_CONTRIBUTION" || linkedSource != source || caseStatus != "RESOLVED" {
 		t.Fatalf("merge=%s/%s/%s source=%s case=%s", kind, status, purpose, linkedSource, caseStatus)
 	}
-	if proposalStatus != "ACCEPTED" || bankStatus != "PROCESSED" || itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || conversationState != "RESOLVED" {
-		t.Fatalf("lifecycle proposal=%s source=%s item=%s request=%s conversation=%s", proposalStatus, bankStatus, itemStatus, requestStatus, conversationState)
+	if proposalStatus != "ACCEPTED" || bankStatus != "PROCESSED" || itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || conversationState != "RESOLVED" || evidenceSources != 2 {
+		t.Fatalf("lifecycle proposal=%s source=%s item=%s request=%s conversation=%s evidence=%d", proposalStatus, bankStatus, itemStatus, requestStatus, conversationState, evidenceSources)
 	}
 
-	_, newReview := newCase("new", []string{existing})
+	_, _, newReview := newCase("new", []string{existing})
 	if res := resolve(newReview, `{"action":"CONFIRM_NEW_TRANSFER","values":{}}`); res.Code != http.StatusNoContent {
 		t.Fatalf("new status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -218,6 +225,15 @@ func TestResolveTelegramTransferReconciliation(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND amount=3000000`, household).Scan(&count))
 	if count != 2 {
 		t.Fatalf("transactions=%d", count)
+	}
+	_, overflowObservation, overflowReview := newCase("overflow", []string{existing, existing, existing, existing, existing, existing, existing, existing, existing, existing, existing})
+	if res := resolve(overflowReview, `{"action":"CONFIRM_NEW_TRANSFER","values":{}}`); res.Code != http.StatusBadRequest {
+		t.Fatalf("overflow status=%d body=%s", res.Code, res.Body.String())
+	}
+	var candidates, overflowStatus int
+	must(pool.QueryRow(ctx, `SELECT cardinality(candidate_transaction_ids),(SELECT count(*) FROM transaction WHERE household_id=$2) FROM transfer_reconciliation_case WHERE financial_email_observation_id=$1`, overflowObservation, household).Scan(&candidates, &overflowStatus))
+	if candidates != 11 || overflowStatus != 2 {
+		t.Fatalf("overflow candidates=%d transactions=%d", candidates, overflowStatus)
 	}
 }
 

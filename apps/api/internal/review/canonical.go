@@ -68,7 +68,11 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 		}
 		v.AllowedActions = canonicalActions(v.ReviewType)
 		if v.ReviewType == "TRANSFER_CLASSIFICATION" && (len(v.TransferCandidates) > 0 || v.ProposedPurpose != "") {
-			v.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
+			if v.FinancialObservationID != "" && len(v.TransferCandidates) > 10 {
+				v.AllowedActions = []string{"IGNORE"}
+			} else {
+				v.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
+			}
 		}
 		out = append(out, v)
 	}
@@ -486,6 +490,9 @@ func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user
 	var at time.Time
 	var candidates []string
 	if err := tx.QueryRow(r.Context(), `SELECT account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE household_id=$1 AND status='OPEN' AND (($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$2)) FOR UPDATE`, household, sourceID, financialObservation).Scan(&accountID, &amount, &description, &purpose, &wealthID, &at, &candidates); err != nil {
+		return errInvalid
+	}
+	if financialObservation != nil && len(candidates) > 10 {
 		return errInvalid
 	}
 	var transactionID string

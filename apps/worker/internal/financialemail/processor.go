@@ -3,6 +3,7 @@ package financialemail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -85,10 +86,20 @@ func nonNegativeWholeMoney(v *string) bool {
 	return ok && len(raw) <= 20 && n.Sign() >= 0 && n.String() == raw
 }
 func positiveWholeMoney(v *string) bool { return nonNegativeWholeMoney(v) && *v != "0" }
+func normalizeProviderReference(v *string) string {
+	return strings.ToLower(strings.TrimSpace(value(v)))
+}
+func validObservedDate(v *string) bool {
+	if v == nil || strings.TrimSpace(*v) == "" {
+		return true
+	}
+	_, err := time.Parse("2006-01-02", *v)
+	return err == nil
+}
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
-	var household, provider, sender, body, subject, defaultWealth, sourceStatus, extractionStatus, extractionModel string
+	var household, financialSource, provider, sender, body, subject, defaultWealth, sourceStatus, extractionStatus, extractionModel string
 	var capabilities []string
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &provider, &sender, &body, &subject, &defaultWealth, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.id::text,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &financialSource, &provider, &sender, &body, &subject, &defaultWealth, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
 	if err != nil {
 		return err
 	}
@@ -131,7 +142,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		if !allowed[v.Kind] {
 			v.Kind = "NON_ACTIONABLE"
 		}
-		if err := p.persist(ctx, tx, household, payload.SourceEventID, defaultWealth, i, v); err != nil {
+		if err := p.persist(ctx, tx, household, payload.SourceEventID, financialSource, defaultWealth, i, v); err != nil {
 			return err
 		}
 	}
@@ -172,7 +183,10 @@ func (p *Processor) stagedOutput(ctx context.Context, source string) (output, er
 	}
 	return out, rows.Err()
 }
-func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, defaultWealth string, ordinal int, v observation) error {
+func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, financialSource, defaultWealth string, ordinal int, v observation) error {
+	if reference := normalizeProviderReference(v.ProviderReference); reference != "" {
+		v.ProviderReference = &reference
+	}
 	raw, _ := json.Marshal(v)
 	var id, status string
 	if err := tx.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING') ON CONFLICT(source_event_id,ordinal) DO UPDATE SET updated_at=now() RETURNING id,status`, household, source, ordinal, v.Kind, string(raw)).Scan(&id, &status); err != nil {
@@ -215,7 +229,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, d
 		_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
 		return err
 	case "CASH_MOVEMENT":
-		return p.cash(ctx, tx, household, source, id, defaultWealth, v)
+		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, v)
 	default:
 		return p.review(ctx, tx, household, source, id)
 	}
@@ -275,126 +289,156 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
 	return err
 }
-func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, id, defaultWealth string, v observation) error {
+
+type cashPlan struct {
+	account, wealth, amount, purpose, existing, providerReference, review string
+	at                                                                    time.Time
+	candidates                                                            []string
+}
+
+func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
+	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil || v.Confidence < .8 {
-		return p.review(ctx, tx, household, source, id)
+		plan.review = "TRANSFER_CLASSIFICATION"
+		return plan, nil
 	}
-	at, err := time.Parse(time.RFC3339, *v.OccurredAt)
+	var err error
+	if plan.at, err = time.Parse(time.RFC3339, *v.OccurredAt); err != nil {
+		plan.review = "TRANSFER_CLASSIFICATION"
+		return plan, nil
+	}
+	plan.account = selectedAccount
+	if plan.account == "" {
+		plan.account, err = financialentity.Account(ctx, tx, household, *v.FundingAccountHint)
+		if err != nil {
+			return plan, err
+		}
+	}
+	hint := value(v.ProviderAccountHint)
+	plan.wealth = selectedWealth
+	configured, err := defaultWealthAccount(ctx, tx, household, defaultWealth)
 	if err != nil {
-		return p.review(ctx, tx, household, source, id)
+		return plan, err
 	}
+	if plan.wealth == "" && configured != "" {
+		if hint != "" {
+			hinted, err := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
+			if err != nil {
+				return plan, err
+			}
+			if hinted.Status == financialentity.Ambiguous || (hinted.Status == financialentity.Resolved && hinted.ID != configured) {
+				plan.review = "FINANCIAL_EMAIL_RESOLUTION"
+				return plan, nil
+			}
+		}
+		plan.wealth = configured
+	} else if plan.wealth == "" && hint != "" {
+		resolved, err := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
+		if err != nil {
+			return plan, err
+		}
+		plan.wealth = resolved.ID
+	}
+	if plan.account == "" || plan.wealth == "" {
+		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
+		return plan, nil
+	}
+	var role string
+	if err = tx.QueryRow(ctx, `SELECT usage_role FROM wealth_account WHERE id=$1 AND household_id=$2`, plan.wealth, household).Scan(&role); err != nil {
+		return plan, err
+	}
+	switch value(v.MovementType) {
+	case "CONTRIBUTION":
+		if role == "INVESTMENT" {
+			plan.purpose = "INVESTMENT_CONTRIBUTION"
+		} else if role == "SAVINGS" {
+			plan.purpose = "SAVINGS_TRANSFER"
+		}
+	case "ASSET_PURCHASE":
+		plan.purpose = "ASSET_PURCHASE"
+	case "WITHDRAWAL":
+		plan.purpose = "INTERNAL_TRANSFER"
+	}
+	if plan.purpose == "" {
+		plan.review = "TRANSFER_CLASSIFICATION"
+		return plan, nil
+	}
+	if plan.providerReference != "" {
+		var knownAccount, knownAmount, knownPurpose, knownWealth string
+		var knownAt time.Time
+		err = tx.QueryRow(ctx, `SELECT t.id,t.account_id::text,t.amount::text,t.transaction_at,COALESCE(t.purpose,''),COALESCE(t.related_wealth_account_id::text,'') FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN financial_email_event old_fe ON old_fe.source_event_id=e.source_event_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND old_fe.financial_source_id=$2 AND lower(trim(e.metadata_json->>'provider_reference'))=$3 LIMIT 1`, household, financialSource, plan.providerReference).Scan(&plan.existing, &knownAccount, &knownAmount, &knownAt, &knownPurpose, &knownWealth)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return plan, err
+		}
+		if err == nil && (knownAccount != plan.account || knownAmount != plan.amount || knownAt.Sub(plan.at) > 24*time.Hour || plan.at.Sub(knownAt) > 24*time.Hour || knownPurpose != plan.purpose || knownWealth != plan.wealth) {
+			plan.review = "CONFLICTING_EVIDENCE"
+			return plan, nil
+		}
+	}
+	if plan.existing != "" {
+		return plan, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text FROM transaction WHERE household_id=$1 AND account_id=$2 AND amount=$3::numeric AND type IN ('TRANSFER','UNCLASSIFIED') AND status <> 'VOIDED' AND transaction_at BETWEEN $4::timestamptz - interval '24 hours' AND $4::timestamptz + interval '24 hours' ORDER BY abs(EXTRACT(EPOCH FROM (transaction_at-$4::timestamptz))),id LIMIT 11`, household, plan.account, plan.amount, plan.at)
+	if err != nil {
+		return plan, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var candidate string
+		if err = rows.Scan(&candidate); err != nil {
+			return plan, err
+		}
+		plan.candidates = append(plan.candidates, candidate)
+	}
+	if err = rows.Err(); err != nil {
+		return plan, err
+	}
+	if len(plan.candidates) == 1 {
+		var typ, status, purpose, wealth string
+		var at time.Time
+		if err = tx.QueryRow(ctx, `SELECT type,status,COALESCE(purpose,''),COALESCE(related_wealth_account_id::text,''),transaction_at FROM transaction WHERE id=$1`, plan.candidates[0]).Scan(&typ, &status, &purpose, &wealth, &at); err != nil {
+			return plan, err
+		}
+		if typ == "TRANSFER" && status == "CONFIRMED" && purpose == plan.purpose && wealth == plan.wealth && at.Sub(plan.at) <= time.Minute && plan.at.Sub(at) <= time.Minute {
+			plan.existing = plan.candidates[0]
+			plan.candidates = nil
+		}
+	}
+	if len(plan.candidates) > 0 {
+		plan.review = "TRANSFER_RECONCILIATION"
+	}
+	return plan, nil
+}
+
+func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, financialSource, id, defaultWealth string, v observation) error {
 	var selectedAccount, selectedWealth string
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, id).Scan(&selectedAccount, &selectedWealth); err != nil {
 		return err
 	}
-	account := selectedAccount
-	if account == "" {
-		account, err = financialentity.Account(ctx, tx, household, *v.FundingAccountHint)
-	}
+	plan, err := p.planCash(ctx, tx, household, financialSource, defaultWealth, selectedAccount, selectedWealth, v)
 	if err != nil {
 		return err
 	}
-	hint := value(v.ProviderAccountHint)
-	wealth := selectedWealth
-	configured, configErr := defaultWealthAccount(ctx, tx, household, defaultWealth)
-	if configErr != nil {
-		return configErr
-	}
-	if wealth == "" && configured != "" {
-		if hint != "" {
-			hinted, hintErr := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
-			if hintErr != nil {
-				return hintErr
-			}
-			if hinted.Status == financialentity.Ambiguous || (hinted.Status == financialentity.Resolved && hinted.ID != configured) {
-				return p.resolutionReview(ctx, tx, household, source, id)
-			}
-		}
-		wealth = configured
-	} else if wealth == "" && hint != "" {
-		resolved, resolveErr := financialentity.ResolveWealthAccount(ctx, tx, household, hint)
-		if resolveErr != nil {
-			return resolveErr
-		}
-		wealth = resolved.ID
-	}
-	if err != nil {
-		return err
-	}
-	if account == "" || wealth == "" {
+	switch plan.review {
+	case "FINANCIAL_EMAIL_RESOLUTION":
 		return p.resolutionReview(ctx, tx, household, source, id)
-	}
-	var role string
-	if err = tx.QueryRow(ctx, `SELECT usage_role FROM wealth_account WHERE id=$1 AND household_id=$2`, wealth, household).Scan(&role); err != nil {
-		return err
-	}
-	purpose := ""
-	switch strings.TrimSpace(value(v.MovementType)) {
-	case "CONTRIBUTION":
-		if role == "INVESTMENT" {
-			purpose = "INVESTMENT_CONTRIBUTION"
-		} else if role == "SAVINGS" {
-			purpose = "SAVINGS_TRANSFER"
-		}
-	case "ASSET_PURCHASE":
-		purpose = "ASSET_PURCHASE"
-	case "WITHDRAWAL":
-		purpose = "INTERNAL_TRANSFER"
-	}
-	if purpose == "" {
+	case "CONFLICTING_EVIDENCE":
+		return p.conflictingReferenceReview(ctx, tx, household, source, id)
+	case "TRANSFER_RECONCILIATION":
+		return p.reconcileReview(ctx, tx, household, source, id, plan.account, plan.amount, plan.at, plan.purpose, plan.wealth, plan.candidates)
+	case "TRANSFER_CLASSIFICATION":
 		return p.review(ctx, tx, household, source, id)
 	}
-	var existing string
-	if v.ProviderReference != nil && strings.TrimSpace(*v.ProviderReference) != "" {
-		var knownAccount, knownAmount, knownPurpose, knownWealth string
-		var knownAt time.Time
-		refErr := tx.QueryRow(ctx, `SELECT t.id,t.account_id::text,t.amount::text,t.transaction_at,COALESCE(t.purpose,''),COALESCE(t.related_wealth_account_id::text,'') FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN financial_email_event old_fe ON old_fe.source_event_id=e.source_event_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND old_fe.financial_source_id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$2) AND e.metadata_json->>'provider_reference'=$3 LIMIT 1`, household, source, *v.ProviderReference).Scan(&existing, &knownAccount, &knownAmount, &knownAt, &knownPurpose, &knownWealth)
-		if refErr == nil && (knownAccount != account || knownAmount != *v.AmountIDR || knownAt.Sub(at) > 24*time.Hour || at.Sub(knownAt) > 24*time.Hour || knownPurpose != purpose || knownWealth != wealth) {
-			return p.conflictingReferenceReview(ctx, tx, household, source, id)
-		}
-	}
-	if existing == "" {
-		var candidates []string
-		rows, qerr := tx.Query(ctx, `SELECT id::text FROM transaction WHERE household_id=$1 AND account_id=$2 AND amount=$3::numeric AND type IN ('TRANSFER','UNCLASSIFIED') AND status <> 'VOIDED' AND transaction_at BETWEEN $4::timestamptz - interval '24 hours' AND $4::timestamptz + interval '24 hours' ORDER BY abs(EXTRACT(EPOCH FROM (transaction_at-$4::timestamptz))),id LIMIT 11`, household, account, *v.AmountIDR, at)
-		if qerr != nil {
-			return qerr
-		}
-		for rows.Next() {
-			var c string
-			if qerr = rows.Scan(&c); qerr != nil {
-				rows.Close()
-				return qerr
-			}
-			candidates = append(candidates, c)
-		}
-		rows.Close()
-		if len(candidates) > 0 {
-			if len(candidates) == 1 {
-				var typ, stat, existingPurpose, existingWealth string
-				var existingAt time.Time
-				if qerr = tx.QueryRow(ctx, `SELECT type,status,COALESCE(purpose,''),COALESCE(related_wealth_account_id::text,''),transaction_at FROM transaction WHERE id=$1`, candidates[0]).Scan(&typ, &stat, &existingPurpose, &existingWealth, &existingAt); qerr != nil {
-					return qerr
-				}
-				if typ == "TRANSFER" && stat == "CONFIRMED" && existingPurpose == purpose && existingWealth == wealth && existingAt.Sub(at) <= time.Minute && at.Sub(existingAt) <= time.Minute {
-					existing = candidates[0]
-				}
-			}
-			if existing == "" {
-				return p.reconcileReview(ctx, tx, household, source, id, account, *v.AmountIDR, at, purpose, wealth, candidates)
-			}
-		}
-	}
-	if existing == "" {
-		err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Financial provider email',$5,$6,now()) RETURNING id`, household, account, *v.AmountIDR, at, purpose, wealth).Scan(&existing)
-		if err != nil {
+	if plan.existing == "" {
+		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Financial provider email',$5,$6,now()) RETURNING id`, household, plan.account, plan.amount, plan.at, plan.purpose, plan.wealth).Scan(&plan.existing); err != nil {
 			return err
 		}
 	}
-	metadata, _ := json.Marshal(map[string]any{"financial_email_observation_id": id, "provider_reference": value(v.ProviderReference)})
-	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'FINANCIAL_EMAIL',$3,$4::jsonb) ON CONFLICT DO NOTHING`, existing, source, v.Confidence, string(metadata)); err != nil {
+	metadata, _ := json.Marshal(map[string]any{"financial_email_observation_id": id, "provider_reference": plan.providerReference})
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'FINANCIAL_EMAIL',$3,$4::jsonb) ON CONFLICT DO NOTHING`, plan.existing, source, v.Confidence, string(metadata)); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE financial_email_observation SET transaction_id=$2,status='APPLIED' WHERE id=$1`, id, existing)
+	_, err = tx.Exec(ctx, `UPDATE financial_email_observation SET transaction_id=$2,status='APPLIED' WHERE id=$1`, id, plan.existing)
 	return err
 }
 
@@ -413,9 +457,6 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 	return err
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {
-	if len(candidates) > 10 {
-		candidates = nil
-	}
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, observation); err != nil {
 		return err
 	}
@@ -461,33 +502,43 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 		return err
 	}
 	defer tx.Rollback(ctx)
+	allowed := map[string]bool{"NON_ACTIONABLE": true, "UNKNOWN": true}
+	for _, capability := range capabilities {
+		allowed[capability] = true
+	}
 	results := make([]map[string]any, 0, len(out.Observations))
 	for _, v := range out.Observations {
+		if !allowed[v.Kind] {
+			v.Kind = "NON_ACTIONABLE"
+		}
 		item := map[string]any{"kind": v.Kind, "confidence": v.Confidence, "wouldMutate": false}
 		switch v.Kind {
 		case "CASH_MOVEMENT":
-			account, _ := financialentity.Account(ctx, tx, household, value(v.FundingAccountHint))
-			wealth := ""
-			if value(v.ProviderAccountHint) != "" {
-				wealth, _ = financialentity.WealthAccount(ctx, tx, household, value(v.ProviderAccountHint))
-			} else {
-				wealth, _ = defaultWealthAccount(ctx, tx, household, defaultWealth)
+			plan, planErr := p.planCash(ctx, tx, household, sourceID, defaultWealth, "", "", v)
+			if planErr != nil {
+				return planErr
 			}
-			item["sourceAccountId"], item["wealthAccountId"] = emptyNil(account), emptyNil(wealth)
-			item["amountIdr"], item["movementType"] = value(v.AmountIDR), value(v.MovementType)
-			item["resolution"] = "REVIEW"
-			if account != "" && wealth != "" && positiveWholeMoney(v.AmountIDR) {
-				item["resolution"] = "CANONICAL_TRANSFER_CANDIDATE"
+			item["sourceAccountId"], item["wealthAccountId"] = emptyNil(plan.account), emptyNil(plan.wealth)
+			item["amountIdr"], item["movementType"], item["purpose"] = plan.amount, value(v.MovementType), plan.purpose
+			item["providerReference"], item["candidateCount"] = plan.providerReference, len(plan.candidates)
+			switch {
+			case plan.review != "":
+				item["resolution"] = plan.review
+			case plan.existing != "":
+				item["resolution"] = "REUSE_EXISTING_TRANSFER"
+			default:
+				item["resolution"] = "CREATE_TRANSFER"
 			}
 		case "WEALTH_VALUE":
-			wealth := ""
-			if value(v.AccountHint) != "" {
-				wealth, _ = financialentity.WealthAccount(ctx, tx, household, value(v.AccountHint))
-			} else {
-				wealth, _ = defaultWealthAccount(ctx, tx, household, defaultWealth)
+			wealth, resolveErr := resolveWealth(ctx, tx, household, defaultWealth, value(v.AccountHint))
+			if resolveErr != nil {
+				return resolveErr
 			}
 			item["wealthAccountId"], item["valueIdr"] = emptyNil(wealth), value(v.ValueIDR)
 			item["resolution"] = "WEALTH_OBSERVATION_REVIEW"
+			if !nonNegativeWholeMoney(v.ValueIDR) || !validObservedDate(v.ObservedDate) {
+				item["resolution"] = "TRANSFER_CLASSIFICATION"
+			}
 		default:
 			item["resolution"] = "NO_CANONICAL_MUTATION"
 		}
