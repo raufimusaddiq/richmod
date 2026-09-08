@@ -1,15 +1,19 @@
 {
   "name": "family-finance-web",
   "private": true,
+  "type": "module",
   "version": "0.1.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "test": "node --test tests/*.test.mjs",
+    "test:visual": "node scripts/visual-smoke.mjs",
+    "test:visual:update": "UPDATE_VISUAL_BASELINES=1 node scripts/visual-smoke.mjs",
     "capture:readme": "node scripts/capture-readme.mjs"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",

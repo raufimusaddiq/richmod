@@ -71,7 +71,7 @@ commands.
 | --- | --- |
 | Go API | `go test ./...` and `go vet ./...` in `apps/api` |
 | Go worker | `go test ./...` and `go vet ./...` in `apps/worker` |
-| Schema/migration | Apply migrations to disposable PostgreSQL; run affected integration tests |
+| Schema/migration | Apply migrations to disposable PostgreSQL; run affected integration tests; update `docs/DATABASE_SCHEMA.md` (schema reference and ERD) in the same branch |
 | Web | `npm test` and `npm run build` in `apps/web` |
 | Compose/image files | `docker compose config --quiet`; build affected image(s) |
 | Docs/assets | inspect rendered asset(s), links, and `git diff --check` |
@@ -144,6 +144,29 @@ Never reclaim production containers, PostgreSQL/attachment/backup volumes,
 `/opt/family-finance/finance.env`, or production images in use.
 
 ## 7. Submit deployment approval
+
+Do not dispatch `Deploy Production` until reclaim is complete and verified.
+The release-image gate makes disposable artifact cleanup safe; deployment
+approval is the next step only after the host has been checked.
+
+Before dispatching, record the cleanup result:
+
+```bash
+df -h /
+docker system df
+docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'
+```
+
+For Richmod, retain only the running release and one rollback release for each
+of `api`, `worker`, `web`, and `migrate`. Remove older Richmod release images,
+completed migration containers, sprint-owned build caches, and sprint-owned
+temporary volumes only after confirming they are not in use. Clear disposable
+test/build caches when they are the source of disk pressure. Never remove
+production data volumes, `finance.env`, running containers, or the current and
+N-1 release images. Do not use broad `docker system prune` cleanup.
+
+If reclaim is incomplete or ownership is uncertain, stop before dispatching and
+report the remaining reclaimable usage rather than approving deployment.
 
 Only for a user-requested production deployment, manually dispatch `Deploy
 Production` with the exact verified pushed main SHA. The workflow itself checks

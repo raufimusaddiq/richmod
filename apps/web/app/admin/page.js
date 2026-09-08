@@ -169,6 +169,15 @@ function Overview({ setError }) {
           value={number(data.llm.calls24h)}
           note={`${number(data.llm.failed24h)} gagal`}
         />
+        <Metric
+          label="Success LLM"
+          value={
+            data.llm.successRate == null
+              ? "—"
+              : `${(data.llm.successRate * 100).toFixed(1)}%`
+          }
+          note="24 jam"
+        />
         <Metric label="Review terbuka" value={number(data.reviews.open)} />
         <Metric label="Household" value={number(data.households.total)} />
       </div>
@@ -214,8 +223,6 @@ function Overview({ setError }) {
                 (data.llm.inputTokens || 0) + (data.llm.outputTokens || 0),
               )}
             </dd>
-            <dt>Biaya</dt>
-            <dd>{data.llm.cost ?? "—"}</dd>
             <dt>Gateway</dt>
             <dd>
               {data.integrations.llmGatewayConfigured
@@ -426,14 +433,13 @@ function LLM({ setError }) {
             (summary.inputTokens || 0) + (summary.outputTokens || 0),
           )}
         />
-        <Metric label="Cost" value={summary.cost ?? "—"} />
       </div>
       <article className="surface admin-panel">
         <div className="section-title">
           <h2>Task breakdown</h2>
         </div>
         <Table
-          headers={["Task", "Calls", "Gagal", "P50", "P95", "Tokens", "Biaya"]}
+          headers={["Task", "Calls", "Gagal", "P50", "P95", "Tokens"]}
         >
           {summary.tasks.map((x) => (
             <tr key={x.task}>
@@ -451,7 +457,6 @@ function LLM({ setError }) {
                   : `${Math.round(x.p95DurationMs)} ms`}
               </td>
               <td>{number(x.tokens)}</td>
-              <td>{x.cost ?? "—"}</td>
             </tr>
           ))}
         </Table>

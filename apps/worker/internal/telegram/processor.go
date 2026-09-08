@@ -25,11 +25,26 @@ Use whole Indonesian rupiah (IDR). Map expense categories only to an allowed cat
 For a clearly named purchased item or service, choose the best matching allowed category instead of leaving category_slug empty or asking for clarification. Use category_confidence below the auto-confirm threshold only when two or more allowed categories are genuinely plausible.
 For queries, extract bounded Jakarta date periods and search words only; never calculate totals in the model. Use CURRENT_CYCLE for “sejak gajian terakhir” or “siklus ini”, and PREVIOUS_CYCLE for “siklus sebelumnya”; Go resolves exact boundaries from confirmed primary salary events.
 For corrections, use recent context to identify the target with search_text and include only explicitly requested fields. Date/time follow-ups such as “kemarin” or “sore kemarin” must use the correction_date_reference/correction_local_time fields.
+When a user gives a named time of day, preserve the stated date and set local_time to the canonical Indonesian period: PAGI, SIANG, SORE, or MALAM. Use HH:MM only when the user supplied an exact clock time. Never replace an explicitly stated past date with today.
 When one message clearly contains multiple income/expense entries, use intent BATCH_CREATE and put every entry in items; do not collapse them into one amount. Batch entries require one explicit user confirmation before any are recorded.
 Set ambiguous=true whenever the intended action, target, language, or amount is uncertain.
 The output is data for deterministic Go validation; it is never permission to mutate the ledger.`
 
 var localTimePattern = regexp.MustCompile(`^(?:[01][0-9]|2[0-3]):[0-5][0-9]$`)
+
+var approximateLocalTimes = map[string]struct {
+	hour, minute int
+	period       string
+}{
+	"pagi":      {hour: 9, period: "PAGI"},
+	"morning":   {hour: 9, period: "PAGI"},
+	"siang":     {hour: 13, period: "SIANG"},
+	"afternoon": {hour: 13, period: "SIANG"},
+	"sore":      {hour: 17, period: "SORE"},
+	"evening":   {hour: 17, period: "SORE"},
+	"malam":     {hour: 20, period: "MALAM"},
+	"night":     {hour: 20, period: "MALAM"},
+}
 
 // Telegram must remain responsive when a gateway model stalls. Each LLM
 // strategy gets its own bounded attempt; a fallback must not inherit the
@@ -375,7 +390,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 	case "record_transaction":
 		value, err := nativeValidatedExtraction(args, now)
 		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum cukup jelas. Mohon kirim jenis dan nominal.")
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum valid. Pastikan jenis, nominal, dan tanggal/waktu bila disebutkan.")
 		}
 		if value.Type == "EXPENSE" {
 			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value); offered {
@@ -794,6 +809,14 @@ type validatedExtraction struct {
 	CategoryConfidence float64
 	Ambiguous          bool
 	ResponseMessage    string
+	TimePrecision      string
+	TimePeriod         string
+}
+
+type resolvedTransactionTime struct {
+	At        time.Time
+	Precision string
+	Period    string
 }
 
 func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExtraction, error) {
@@ -815,11 +838,11 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 	if !ok || value.Sign() <= 0 || value.String() != amount {
 		return validatedExtraction{}, fmt.Errorf("amount")
 	}
-	at, err := resolveTime(now, stringPtr(dateReference), stringPtr(explicitDate), stringPtr(localTime))
+	resolved, err := resolveTransactionTime(now, stringPtr(dateReference), stringPtr(explicitDate), stringPtr(localTime))
 	if err != nil {
 		return validatedExtraction{}, err
 	}
-	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: at, Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence}, nil
+	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
 }
 
 func (p *Processor) finishPendingAction(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
@@ -901,18 +924,20 @@ func validateExtraction(value extraction, now time.Time) (validatedExtraction, e
 		return validatedExtraction{}, fmt.Errorf("confidence is outside range")
 	}
 
-	transactionAt, err := resolveTime(now, value.DateReference, value.ExplicitDate, value.LocalTime)
+	resolved, err := resolveTransactionTime(now, value.DateReference, value.ExplicitDate, value.LocalTime)
 	if err != nil {
 		return validatedExtraction{}, err
 	}
 	result := validatedExtraction{
 		Type:               strings.TrimPrefix(value.Intent, "ADD_"),
 		Amount:             amount.String(),
-		TransactionAt:      transactionAt,
+		TransactionAt:      resolved.At,
 		Confidence:         value.Confidence,
 		CategoryConfidence: value.CategoryConfidence,
 		Ambiguous:          value.Ambiguous,
 		ResponseMessage:    clean(value.ResponseMessage, 500),
+		TimePrecision:      resolved.Precision,
+		TimePeriod:         resolved.Period,
 	}
 	if value.Merchant != nil {
 		result.Merchant = clean(*value.Merchant, 160)
@@ -930,6 +955,11 @@ func validateExtraction(value extraction, now time.Time) (validatedExtraction, e
 }
 
 func resolveTime(now time.Time, dateReference, explicitDate, localTime *string) (time.Time, error) {
+	resolved, err := resolveTransactionTime(now, dateReference, explicitDate, localTime)
+	return resolved.At, err
+}
+
+func resolveTransactionTime(now time.Time, dateReference, explicitDate, localTime *string) (resolvedTransactionTime, error) {
 	date := now
 	if dateReference != nil {
 		switch *dateReference {
@@ -938,25 +968,33 @@ func resolveTime(now time.Time, dateReference, explicitDate, localTime *string) 
 			date = date.AddDate(0, 0, -1)
 		case "EXPLICIT":
 			if explicitDate == nil {
-				return time.Time{}, fmt.Errorf("explicit date missing")
+				return resolvedTransactionTime{}, fmt.Errorf("explicit date missing")
 			}
 			parsed, err := time.ParseInLocation("2006-01-02", *explicitDate, now.Location())
 			if err != nil {
-				return time.Time{}, fmt.Errorf("invalid explicit date")
+				return resolvedTransactionTime{}, fmt.Errorf("invalid explicit date")
 			}
 			date = parsed
 		default:
-			return time.Time{}, fmt.Errorf("unknown date reference")
+			return resolvedTransactionTime{}, fmt.Errorf("unknown date reference")
 		}
 	}
 	hour, minute := now.Hour(), now.Minute()
+	precision, period := "OBSERVED_AT_PROCESSING", ""
 	if localTime != nil {
-		if !localTimePattern.MatchString(*localTime) {
-			return time.Time{}, fmt.Errorf("invalid local time")
+		value := strings.ToLower(strings.TrimSpace(*localTime))
+		if approximate, ok := approximateLocalTimes[value]; ok {
+			hour, minute = approximate.hour, approximate.minute
+			precision, period = "APPROXIMATE", approximate.period
+		} else {
+			if !localTimePattern.MatchString(value) {
+				return resolvedTransactionTime{}, fmt.Errorf("invalid local time")
+			}
+			_, _ = fmt.Sscanf(value, "%d:%d", &hour, &minute)
+			precision = "EXACT"
 		}
-		_, _ = fmt.Sscanf(*localTime, "%d:%d", &hour, &minute)
 	}
-	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, now.Location()), nil
+	return resolvedTransactionTime{At: time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, now.Location()), Precision: precision, Period: period}, nil
 }
 
 func (p *Processor) categorySlugs(ctx context.Context, householdID string) ([]string, error) {
@@ -1004,7 +1042,8 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 	metadataJSON, _ := json.Marshal(map[string]any{
 		"gateway_model": metadata.Model, "input_tokens": metadata.InputTokens,
 		"output_tokens": metadata.OutputTokens, "cost": metadata.Cost,
-		"category_confidence": value.CategoryConfidence,
+		"category_confidence": value.CategoryConfidence, "time_precision": value.TimePrecision,
+		"time_period": value.TimePeriod,
 	})
 	var proposalID string
 	if err := tx.QueryRow(ctx, `
@@ -1050,6 +1089,9 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 				kind = "Pemasukan"
 			}
 			message = "✅ " + kind + " tercatat\n\n" + label + "\nRp" + FormatIDR(value.Amount)
+			if value.TimePrecision == "APPROXIMATE" {
+				message += "\n\nWaktu dicatat sekitar " + strings.ToLower(value.TimePeriod) + "."
+			}
 		}
 		if err := enqueueReply(ctx, tx, update, message); err != nil {
 			return err

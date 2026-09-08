@@ -92,7 +92,8 @@ provider-specific production branches or expose canonical IDs to the LLM.
 - Keep HTTP handlers thin; business rules belong in domain/service code.
 - Money uses PostgreSQL `NUMERIC`, never float.
 - Time uses `TIMESTAMPTZ`; household timezone is `Asia/Jakarta`.
-- Schema changes require migrations and relevant tests.
+- Schema changes require migrations, relevant tests, and a same-branch update to
+  `docs/DATABASE_SCHEMA.md` (schema reference and ERD).
 - Do not materially change architecture or add infrastructure without an ADR.
 - Never commit or log secrets.
 - Run relevant tests before marking work complete.

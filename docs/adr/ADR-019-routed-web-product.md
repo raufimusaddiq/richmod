@@ -18,6 +18,12 @@ Desktop uses persistent side navigation and mobile uses bottom navigation.
 Authentication continues to use the existing sliding server session on every
 route.
 
+Logged-out visitors receive a public product explanation at `/` and a focused
+email/password form at `/login`. Authenticated `/` remains the existing
+Overview, while authenticated `/login` returns to `/`. The browser waits for
+the existing session check before choosing public or authenticated content, so
+neither surface flashes before authentication state is known.
+
 The shared presentation layer provides loading skeletons, retryable error
 notices, polite success toasts, visible keyboard focus, reduced-motion support,
 and mobile transaction cards. Motion is CSS-only and never changes or hides a

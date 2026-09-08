@@ -26,6 +26,10 @@ Forward financial notifications, send a message or image through Telegram, or up
 
 ## A quick look
 
+| Public landing | Login |
+| --- | --- |
+| ![Richmod public landing page](docs/assets/landing.png) | ![Richmod login experience](docs/assets/login.png) |
+
 | Dashboard | Review Inbox |
 | --- | --- |
 | ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
@@ -223,6 +227,7 @@ See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployme
 
 - [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md)
 - [ADR-033: Cloudflare email ingress and Gmail sunset](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md)
+- [Database schema and ERD](docs/DATABASE_SCHEMA.md)
 - [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
 - [Wealth, savings, and cycle reconciliation release checklist](docs/WEALTH_SAVINGS_CYCLE_RECONCILIATION_RELEASE_CHECKLIST.md)

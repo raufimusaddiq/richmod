@@ -38,3 +38,7 @@ reclaim must never remove production containers, volumes, or `finance.env`.
   emergency recovery, but normal production deployment uses pull-only images.
 - image publication success is the reclaim gate; production approval and deploy
   do not need to wait for local worktree/cache cleanup.
+- after health/readiness succeeds, the deploy host retains the current and
+  previous Richmod release tags and removes older local `sha-*` tags. Registry
+  versions remain available for rollback until a separate retention policy
+  deletes them.

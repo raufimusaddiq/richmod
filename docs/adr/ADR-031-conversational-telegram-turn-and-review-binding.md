@@ -23,3 +23,8 @@ turns and review delivery are projections only.
   selection stay unavailable until an unknown merchant has been supplied.
 - Missing merchant or purpose reviews ask for a direct reply and expose only an
   ignore action; Go advances their state after validating the bound reply.
+- Backfilled transactions preserve an explicitly stated Jakarta date. Named
+  time periods are normalized by Go, not guessed by the model: `PAGI` 09:00,
+  `SIANG` 13:00, `SORE` 17:00, and `MALAM` 20:00. Proposal metadata records
+  `APPROXIMATE` precision and the confirmation tells the user the time is
+  approximate; exact user-supplied `HH:MM` remains `EXACT`.
