@@ -126,21 +126,14 @@ func (h *Handler) create(ctx context.Context, principal auth.Principal, input ma
 			return "", validationError{"categoryId must identify an active household category"}
 		}
 	}
-	if input.RelatedWealthAccountID != nil {
-		var side, role string
-		if err := tx.QueryRow(ctx, `SELECT side,usage_role FROM wealth_account WHERE id=$1 AND household_id=$2 AND active`, *input.RelatedWealthAccountID, householdID).Scan(&side, &role); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return "", validationError{"relatedWealthAccountId must identify an active household wealth account"}
-			}
-			return "", fmt.Errorf("validate wealth account: %w", err)
+	if input.Type == "TRANSFER" {
+		var compatible bool
+		if err := tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,$2::uuid,$3)`, purpose, input.RelatedWealthAccountID, householdID).Scan(&compatible); err != nil {
+			return "", fmt.Errorf("validate transfer purpose: %w", err)
 		}
-		if purpose == "DEBT_PRINCIPAL_PAYMENT" && side != "LIABILITY" {
-			return "", validationError{"debt principal payment requires a liability Wealth Account"}
+		if !compatible {
+			return "", validationError{"transfer purpose is incompatible with the Wealth Account"}
 		}
-		if purpose != "DEBT_PRINCIPAL_PAYMENT" && side != "ASSET" {
-			return "", validationError{"this transfer purpose requires an asset Wealth Account"}
-		}
-		_ = role
 	}
 	var transactionID string
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction (household_id,account_id,category_id,type,purpose,related_wealth_account_id,status,amount,currency,transaction_at,description,note,created_by_user_id,confirmed_at) VALUES ($1,$2,$3,$4,$5,$6,'CONFIRMED',$7,'IDR',$8,$9,$10,$11,now()) RETURNING id`, householdID, input.AccountID, input.CategoryID, input.Type, purpose, input.RelatedWealthAccountID, amount.String(), transactionAt, input.Description, input.Note, principal.UserID).Scan(&transactionID); err != nil {

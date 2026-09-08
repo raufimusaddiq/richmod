@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00045_one_active_household_per_user.sql`.
+forward migration set through `db/migrations/00054_transfer_wealth_compatibility.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -34,6 +34,8 @@ goose -dir db/migrations postgres "$DATABASE_URL" status
 - Financial amounts are `NUMERIC`, never floating point. The canonical ledger is
   IDR-only and transaction amount is positive; `transaction.type` carries the
   direction/meaning.
+- `transfer_wealth_compatible` is the shared mutation-boundary rule for transfer
+  purpose, Wealth side, usage role, active state, and household ownership.
 - Canonical financial and evidence records are household-scoped. Source evidence
   is linked, deduplicated, and retained rather than hard-deleted.
 - `TIMESTAMPTZ` records time. Household timezone is constrained to

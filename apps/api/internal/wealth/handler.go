@@ -320,11 +320,17 @@ func (h *Handler) CorrectSnapshot(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "snapshot must preserve exactly its existing wealth accounts")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM wealth_snapshot_item WHERE snapshot_id=$1`, r.PathValue("id")); err != nil || !insertItems(r, tx, r.PathValue("id"), in.Items) {
+	beforeItems, err := snapshotAuditItems(r, tx, r.PathValue("id"))
+	if err != nil || !updateItems(r, tx, r.PathValue("id"), in.Items) {
 		fail(w, 500, "unable to correct snapshot")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `UPDATE wealth_snapshot SET updated_at=now() WHERE id=$1`, r.PathValue("id")); err != nil || !audit(r, tx, p, "WEALTH_SNAPSHOT_UPDATE", "wealth_snapshot", r.PathValue("id"), nil, map[string]any{"observedAt": in.ObservedAt}) || tx.Commit(r.Context()) != nil {
+	afterItems, err := snapshotAuditItems(r, tx, r.PathValue("id"))
+	if err != nil {
+		fail(w, 500, "unable to audit snapshot")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE wealth_snapshot SET updated_at=now() WHERE id=$1`, r.PathValue("id")); err != nil || !audit(r, tx, p, "WEALTH_SNAPSHOT_UPDATE", "wealth_snapshot", r.PathValue("id"), map[string]any{"observedAt": in.ObservedAt, "items": beforeItems}, map[string]any{"observedAt": in.ObservedAt, "items": afterItems}) || tx.Commit(r.Context()) != nil {
 		fail(w, 500, "unable to audit snapshot")
 		return
 	}
@@ -570,18 +576,18 @@ func (h *Handler) CycleRecaps(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			allocationRows.Close()
-			if basisIncome != income || basisExpense != expense || basisSavings != savings {
+			var reviewStatus, resolutionAction string
+			x = h.pool.QueryRow(r.Context(), `SELECT status,COALESCE(resolution_action,'') FROM review_item WHERE cycle_residual_case_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`, caseID).Scan(&reviewStatus, &resolutionAction)
+			if x == nil && reviewStatus == "RESOLVED" && resolutionAction == "NO_LONGER_APPLICABLE" {
+				status = "NO_LONGER_APPLICABLE"
+			} else if basisIncome != income || basisExpense != expense || basisSavings != savings {
 				status = "STALE"
 			} else if allocated == residual {
 				status = "RESOLVED"
+			} else if x == nil && reviewStatus == "RESOLVED" {
+				status = "LEFT_UNALLOCATED"
 			} else {
-				var reviewStatus string
-				x = h.pool.QueryRow(r.Context(), `SELECT status FROM review_item WHERE cycle_residual_case_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`, caseID).Scan(&reviewStatus)
-				if x == nil && reviewStatus == "RESOLVED" {
-					status = "LEFT_UNALLOCATED"
-				} else {
-					status = "CURRENT"
-				}
+				status = "CURRENT"
 			}
 		} else if !errors.Is(e, pgx.ErrNoRows) {
 			fail(w, 500, "unable to calculate cycle recaps")
@@ -801,6 +807,34 @@ func insertItems(r *http.Request, tx pgx.Tx, snapshotID string, items []itemInpu
 		}
 	}
 	return true
+}
+
+func updateItems(r *http.Request, tx pgx.Tx, snapshotID string, items []itemInput) bool {
+	for _, item := range items {
+		result, err := tx.Exec(r.Context(), `UPDATE wealth_snapshot_item SET value_idr=$3,quantity=$4,unit=$5,unit_price_idr=$6,source=$7,note=$8,updated_at=now() WHERE snapshot_id=$1 AND wealth_account_id=$2`, snapshotID, item.WealthAccountID, item.ValueIDR, item.Quantity, trim(item.Unit), item.UnitPriceIDR, item.Source, trim(item.Note))
+		if err != nil || result.RowsAffected() != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func snapshotAuditItems(r *http.Request, tx pgx.Tx, snapshotID string) ([]map[string]any, error) {
+	rows, err := tx.Query(r.Context(), `SELECT id::text,wealth_account_id::text,value_idr::text,quantity::text,unit,unit_price_idr::text,source,note FROM wealth_snapshot_item WHERE snapshot_id=$1 ORDER BY wealth_account_id`, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, account, value, source string
+		var quantity, unit, unitPrice, note *string
+		if err := rows.Scan(&id, &account, &value, &quantity, &unit, &unitPrice, &source, &note); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{"id": id, "wealthAccountId": account, "valueIdr": value, "quantity": quantity, "unit": unit, "unitPriceIdr": unitPrice, "source": source, "note": note})
+	}
+	return items, rows.Err()
 }
 
 func validRefs(r *http.Request, tx pgx.Tx, householdID string, ownerID, linkedID *string) bool {

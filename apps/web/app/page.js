@@ -18,6 +18,7 @@ export default function Home() {
   const [cashflow, setCashflow] = useState([]);
   const [categories, setCategories] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [latestWealth, setLatestWealth] = useState(null);
   const [cycle, setCycle] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -25,10 +26,11 @@ export default function Home() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions?limit=8"), fetch("/api/v1/analytics/cycle")]);
+    try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions?limit=8"), fetch("/api/v1/analytics/cycle"), fetch("/api/v1/wealth/snapshots")]);
       if (responses.some(response => !response.ok)) setError("Sebagian ringkasan belum dapat dimuat."); else setError("");
       if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(elapsedDaily(cycleData.daily || [], cycleData.daysElapsed)); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
       if (responses[4].ok) setCycle(await responses[4].json());
+      if (responses[5].ok) { const snapshots = await responses[5].json(); setLatestWealth(Array.isArray(snapshots) ? snapshots[0] || null : null); }
     } catch { setError("Koneksi terputus saat memuat ringkasan."); } finally { setLoading(false); }
   }, [user]);
 
@@ -37,14 +39,14 @@ export default function Home() {
   if (user === null) return <Loading />;
   if (user === false) return <LandingPage />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
-  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"]];
+  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"], ["Tabungan dialokasikan", overview?.savingsAllocated, "income"], ["Surplus belum dialokasikan", overview?.unallocatedSurplus, "net"]];
   return <AppShell user={user} eyebrow="Ringkasan" title={`Keuangan keluarga · ${periodLabel}`} actions={<Link className="button secondary" href="/documents"><UploadSimple aria-hidden="true"/> Unggah bukti</Link>}>
     <ErrorNotice message={error} retry={load}/>
     {loading && <Skeleton/>}
     {!loading && <>
     <section className="overview-summary">
       <article className="cashflow-summary"><span>Arus kas bersih · {periodLabel}</span><strong className="net">{money(overview?.netCashflow)}</strong><small><CheckCircle aria-hidden="true" weight="fill"/> Hanya transaksi terkonfirmasi</small></article>
-      <div className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{money(value)}</strong><small>IDR · terkonfirmasi</small></article>)}</div>
+      <div className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{money(value)}</strong><small>IDR · terkonfirmasi</small></article>)}<article><span>Net Worth</span><strong className="net">{latestWealth ? money(latestWealth.netWorthIdr) : "—"}</strong><small>{latestWealth ? `Snapshot ${new Date(latestWealth.observedAt).toLocaleDateString("id-ID")}` : "Wealth belum diinisialisasi"}</small></article></div>
       {cycle && <article className="overview-period"><CalendarBlank aria-hidden="true"/><div><span>Periode aktif</span><strong>{cycle.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender"}</strong><small>{cycle.start}{cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}</small></div></article>}
     </section>
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><WarningCircle aria-hidden="true" weight="fill"/><div><b>{overview.reviewCount} transaksi membutuhkan keputusan</b><small>Belum masuk analisis sampai kamu mengonfirmasi interpretasinya.</small></div><strong>Buka Inbox <ArrowRight aria-hidden="true"/></strong></Link>}

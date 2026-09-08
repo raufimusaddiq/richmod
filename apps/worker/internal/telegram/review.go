@@ -790,6 +790,10 @@ func (p *Processor) resolveNativeTransferCase(ctx context.Context, sourceEventID
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var compatible bool
+	if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, householdID).Scan(&compatible); err != nil || !compatible {
+		return fmt.Errorf("invalid transfer Wealth relationship")
+	}
 	var userID string
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err

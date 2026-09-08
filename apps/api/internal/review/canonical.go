@@ -495,6 +495,10 @@ func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user
 	if financialObservation != nil && len(candidates) > 10 {
 		return errInvalid
 	}
+	var compatible bool
+	if err := tx.QueryRow(r.Context(), `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, household).Scan(&compatible); err != nil || !compatible {
+		return errInvalid
+	}
 	var transactionID string
 	var sourceType string
 	if err := tx.QueryRow(r.Context(), `SELECT source_type FROM source_event WHERE id=$1 AND household_id=$2`, sourceID, household).Scan(&sourceType); err != nil {

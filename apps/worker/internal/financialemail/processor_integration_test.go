@@ -135,6 +135,54 @@ func TestFinancialEmailPreviewUsesProductionPlanWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestFinancialEmailWithdrawalClearsCanonicalWealthRelation(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, user, _, _, source := seedFinancialEmail(t, ctx, pool, time.Now().UnixNano(), "ACTIVE")
+	var financialSource, preview string
+	if err := pool.QueryRow(ctx, `SELECT financial_source_id::text FROM financial_email_event WHERE source_event_id=$1`, source).Scan(&financialSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_preview(household_id,financial_source_id,source_config_version,subject,body,created_by_user_id) SELECT $1,id,config_version,'test','body',$3 FROM financial_email_source WHERE id=$2 RETURNING id`, household, financialSource, user).Scan(&preview); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"WITHDRAWAL","amount_idr":"3000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"Example Provider","provider_reference":"withdrawal-1","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	if err := NewProcessor(pool, &integrationGateway{raw: raw}).ProcessPreview(ctx, PreviewPayload{PreviewID: preview}); err != nil {
+		t.Fatal(err)
+	}
+	var purpose string
+	var wealth *string
+	if err := pool.QueryRow(ctx, `SELECT result_json->'observations'->0->>'purpose',result_json->'observations'->0->>'wealthAccountId' FROM financial_email_preview WHERE id=$1`, preview).Scan(&purpose, &wealth); err != nil {
+		t.Fatal(err)
+	}
+	if purpose != "INTERNAL_TRANSFER" || wealth != nil {
+		t.Fatalf("preview purpose=%s wealth=%v", purpose, wealth)
+	}
+	if err := NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: source}); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	var typ, status, observed string
+	var related *string
+	if err := pool.QueryRow(ctx, `SELECT type,purpose,status,related_wealth_account_id::text FROM transaction WHERE household_id=$1`, household).Scan(&typ, &purpose, &status, &related); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*),(SELECT status FROM financial_email_observation WHERE source_event_id=$1) FROM transaction WHERE household_id=$2`, source, household).Scan(&count, &observed); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || typ != "TRANSFER" || purpose != "INTERNAL_TRANSFER" || status != "CONFIRMED" || related != nil || observed != "APPLIED" {
+		t.Fatalf("count=%d transaction=%s/%s/%s related=%v observation=%s", count, typ, purpose, status, related, observed)
+	}
+}
+
 func TestFinancialEmailMultipleObservationsKeepIndependentReviewBindings(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

@@ -45,6 +45,10 @@ snapshot; it never creates a partial snapshot or transaction.
 Snapshot correction preserves the original snapshot account membership. It
 does not use the set of accounts active today, so later-created accounts never
 appear in historical snapshots and later-inactive accounts remain correctable.
+Correction updates snapshot items in place, preserving canonical item IDs, and
+audits complete before/after item values. Transfer mutation boundaries share
+one database-backed purpose/Wealth compatibility rule; internal transfers never
+carry a canonical related Wealth Account.
 
 Ambiguous cross-channel Telegram transfers persist a bounded
 `transfer_reconciliation_case`: the interpreted source account, amount, time,

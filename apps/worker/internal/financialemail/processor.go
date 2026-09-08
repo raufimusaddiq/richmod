@@ -356,8 +356,17 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 		plan.purpose = "ASSET_PURCHASE"
 	case "WITHDRAWAL":
 		plan.purpose = "INTERNAL_TRANSFER"
+		plan.wealth = ""
 	}
 	if plan.purpose == "" {
+		plan.review = "TRANSFER_CLASSIFICATION"
+		return plan, nil
+	}
+	var compatible bool
+	if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, plan.purpose, plan.wealth, household).Scan(&compatible); err != nil {
+		return plan, err
+	}
+	if !compatible {
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}

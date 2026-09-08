@@ -39,14 +39,21 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	}
 	accountID, err := resolveUniqueAccountHint(ctx, tx, householdID, source)
 	if err != nil {
-		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Rekening sumber tidak ditemukan secara unik dalam household. Sebutkan nama rekening yang persis seperti di Pengaturan.")
+		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Rekening sumber belum dapat dikenali secara unik. Sebutkan nama rekening yang lebih spesifik.")
 	}
 	wealthID := ""
 	if purpose != "INTERNAL_TRANSFER" {
 		wealthID, err = resolveUniqueWealthHint(ctx, tx, householdID, dest)
 		if err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Wealth Account tujuan tidak ditemukan secara unik dalam household. Sebutkan nama Wealth Account yang persis seperti di Pengaturan.")
+			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Wealth Account tujuan belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
 		}
+	}
+	var compatible bool
+	if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, householdID).Scan(&compatible); err != nil {
+		return err
+	}
+	if !compatible {
+		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tujuan Wealth tidak sesuai dengan jenis transfer.")
 	}
 	var existing string
 	if err = tx.QueryRow(ctx, `SELECT t.id FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1 AND t.household_id=$2 LIMIT 1`, sourceID, householdID).Scan(&existing); err == nil {
