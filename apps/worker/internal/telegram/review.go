@@ -891,7 +891,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 			return fmt.Errorf("invalid recomputed residual")
 		}
 		if recomputed.Sign() <= 0 {
-			if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='STALE_RESIDUAL_NOT_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID, userID, residual); err != nil {
+			if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID, userID, residual); err != nil {
 				return err
 			}
 			if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, requestID); err != nil {

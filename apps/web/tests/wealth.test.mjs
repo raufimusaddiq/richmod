@@ -22,6 +22,13 @@ test("Jakarta datetime-local serialization is explicit", () => {
   assert.match(wealth, /timeZone: "Asia\/Jakarta"/);
   assert.match(wealth, /\+07:00/);
 });
+test("homepage reads canonical Net Worth and distinguishes uninitialized Wealth", () => {
+  const home = text("app/page.js");
+  assert.match(home, /\/api\/v1\/wealth\/snapshots\/latest/);
+  assert.match(home, /latestWealth\.netWorthIdr/);
+  assert.match(home, /Wealth belum diinisialisasi/);
+  assert.match(home, /: "—"/);
+});
 test("manual transfer exposes purpose and wealth account", () => {
   const transactions = text("app/transactions/page.js");
   assert.match(transactions, /value=\"TRANSFER\"/);

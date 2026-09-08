@@ -437,7 +437,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 		return p.review(ctx, tx, household, source, id)
 	}
 	if plan.existing == "" {
-		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Financial provider email',$5,$6,now()) RETURNING id`, household, plan.account, plan.amount, plan.at, plan.purpose, plan.wealth).Scan(&plan.existing); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Financial provider email',$5,NULLIF($6,'')::uuid,now()) RETURNING id`, household, plan.account, plan.amount, plan.at, plan.purpose, plan.wealth).Scan(&plan.existing); err != nil {
 			return err
 		}
 	}
