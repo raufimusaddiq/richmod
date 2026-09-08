@@ -295,7 +295,7 @@ type cashPlan struct {
 }
 
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
-	plan := cashPlan{amount: value(v.AmountIDR), providerReference: value(v.ProviderReference)}
+	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil || v.Confidence < .8 {
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil

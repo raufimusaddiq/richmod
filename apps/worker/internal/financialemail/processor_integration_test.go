@@ -98,10 +98,13 @@ func TestFinancialEmailPreviewUsesProductionPlanWithoutMutation(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',3000000,'2026-09-08T10:00:00+07:00','INVESTMENT_CONTRIBUTION',$3,now()) RETURNING id`, household, account, wealth).Scan(&existing); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'FINANCIAL_EMAIL','{"provider_reference":"reference-1"}')`, existing, source); err != nil {
+		t.Fatal(err)
+	}
 	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_preview(household_id,financial_source_id,source_config_version,subject,body,created_by_user_id) SELECT $1,id,config_version,'test','body',$3 FROM financial_email_source WHERE id=$2 RETURNING id`, household, financialSource, user).Scan(&preview); err != nil {
 		t.Fatal(err)
 	}
-	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"3000000","occurred_at":"2026-09-08T10:00:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"","provider_reference":"preview-1","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
+	raw := `{"observations":[{"kind":"CASH_MOVEMENT","movement_type":"CONTRIBUTION","amount_idr":"3000000","occurred_at":"2026-09-08T10:05:00+07:00","funding_account_hint":"Jago Autodebit","provider_account_hint":"","provider_reference":" Reference-1 ","account_hint":null,"value_idr":null,"observed_date":null,"confidence":0.99}]}`
 	if err := NewProcessor(pool, &integrationGateway{raw: raw}).ProcessPreview(ctx, PreviewPayload{PreviewID: preview}); err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +118,20 @@ func TestFinancialEmailPreviewUsesProductionPlanWithoutMutation(t *testing.T) {
 	}
 	if resolution != "REUSE_EXISTING_TRANSFER" || transactions != 1 || observations != 0 || reviews != 0 || existing == "" {
 		t.Fatalf("resolution=%s transactions=%d observations=%d reviews=%d", resolution, transactions, observations, reviews)
+	}
+	productionSource := seedFinancialEmailFor(t, ctx, pool, household, financialSource)
+	if err := NewProcessor(pool, &integrationGateway{raw: raw}).Process(ctx, Payload{SourceEventID: productionSource}); err != nil {
+		t.Fatal(err)
+	}
+	var productionTransaction string
+	if err := pool.QueryRow(ctx, `SELECT transaction_id::text FROM financial_email_observation WHERE source_event_id=$1`, productionSource).Scan(&productionTransaction); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&transactions); err != nil {
+		t.Fatal(err)
+	}
+	if productionTransaction != existing || transactions != 1 {
+		t.Fatalf("production transaction=%s existing=%s transactions=%d", productionTransaction, existing, transactions)
 	}
 }
 
