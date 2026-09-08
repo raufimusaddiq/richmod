@@ -1192,7 +1192,7 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	}
 	var markup *InlineKeyboardMarkup
 	if markupMode == "category" {
-		markup = reviewActionMarkup(ctx, tx, reviewID, reviewType)
+		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	} else if markupMode == "reply" {
 		markup = requiredFieldReplyMarkup()
 	} else {
@@ -1282,10 +1282,6 @@ func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID stri
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded))
 	return err
-}
-
-func reviewActionMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string) *InlineKeyboardMarkup {
-	return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 }
 
 func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, page int) *InlineKeyboardMarkup {

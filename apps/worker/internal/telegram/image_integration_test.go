@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 )
 
 func TestImageProcessorCreatesGenericDocumentIdempotently(t *testing.T) {
@@ -49,10 +50,11 @@ func TestImageProcessorCreatesGenericDocumentIdempotently(t *testing.T) {
 	bot := NewBot("test-token")
 	bot.base = server.URL
 	bot.http = server.Client()
-	processor, err := NewImageProcessor(pool, bot, t.TempDir())
+	storage, err := blob.NewLocal(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	processor := NewImageProcessorWithStorage(pool, bot, storage)
 	payload := ImagePayload{SourceEventID: sourceID, FileID: "file-id", FileName: "image.png", MIMEType: "image/png", Caption: "receipt", TelegramUserID: 123456, UserID: userID}
 	if err = processor.Process(ctx, payload); err != nil {
 		t.Fatal(err)

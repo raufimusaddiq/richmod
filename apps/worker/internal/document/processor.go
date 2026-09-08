@@ -60,14 +60,6 @@ func (p *Processor) EvictTerminalCaches(ctx context.Context) error {
 	return rows.Err()
 }
 
-func NewProcessor(pool *pgxpool.Pool, llm Gateway, root string) (*Processor, error) {
-	storage, err := blob.NewLocal(root)
-	if err != nil {
-		return nil, err
-	}
-	return NewProcessorWithStorage(pool, llm, storage), nil
-}
-
 func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Store) *Processor {
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }

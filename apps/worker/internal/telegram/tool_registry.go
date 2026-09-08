@@ -4,24 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, flags ...any) []gateway.ToolDefinition {
-	hasSalaryChoice, hasMerchantLearning := false, false
-	reviewMode := reviewType
-	if len(flags) > 0 {
-		hasSalaryChoice, _ = flags[0].(bool)
-	}
-	if len(flags) > 1 {
-		hasMerchantLearning, _ = flags[1].(bool)
-	}
-	if len(flags) > 2 {
-		if mode, ok := flags[2].(string); ok && mode != "" {
-			reviewMode = mode
-		}
+func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
+	if reviewMode == "" {
+		reviewMode = reviewType
 	}
 	stringType := map[string]any{"type": "string"}
 	nullString := map[string]any{"type": []string{"string", "null"}}
@@ -347,11 +338,7 @@ func validateTypedArgs(value any) error {
 			return fmt.Errorf("correction")
 		}
 	case *resolveReviewArgs:
-		allowed := map[string]bool{}
-		for _, action := range reviewActions() {
-			allowed[action] = true
-		}
-		if !allowed[v.Action] {
+		if !slices.Contains(reviewActions(), v.Action) {
 			return fmt.Errorf("review action")
 		}
 	case *salaryChoiceArgs:

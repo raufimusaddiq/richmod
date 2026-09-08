@@ -39,14 +39,6 @@ type ImageProcessor struct {
 	storage *blob.Store
 }
 
-func NewImageProcessor(pool *pgxpool.Pool, bot *Bot, root string) (*ImageProcessor, error) {
-	storage, err := blob.NewLocal(root)
-	if err != nil {
-		return nil, err
-	}
-	return NewImageProcessorWithStorage(pool, bot, storage), nil
-}
-
 func NewImageProcessorWithStorage(pool *pgxpool.Pool, bot *Bot, storage *blob.Store) *ImageProcessor {
 	return &ImageProcessor{pool: pool, bot: bot, storage: storage}
 }

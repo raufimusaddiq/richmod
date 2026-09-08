@@ -9,7 +9,7 @@ import (
 )
 
 func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
-	tools := NativeFinanceTools([]string{"belanja"}, false, false, false, "", true, true)
+	tools := NativeFinanceTools([]string{"belanja"}, false, false, false, "", true, true, "")
 	seen := map[string]bool{}
 	for _, tool := range tools {
 		seen[tool.Name] = true
@@ -79,7 +79,7 @@ func TestRecordTransferUsesHintsAndInternalNeedsNoWealthAccount(t *testing.T) {
 	if err := validateTypedArgs(&investment); err != nil {
 		t.Fatalf("hinted investment transfer rejected: %v", err)
 	}
-	tools := NativeFinanceTools(nil, false, false, false, "", true, true)
+	tools := NativeFinanceTools(nil, false, false, false, "", true, true, "")
 	for _, tool := range tools {
 		if tool.Name != "record_transfer" {
 			continue

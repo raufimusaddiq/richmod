@@ -18,10 +18,6 @@ type classificationGateway struct {
 	options gateway.NativeToolOptions
 }
 
-func (g *classificationGateway) Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error) {
-	return gateway.Metadata{}, fmt.Errorf("structured output must not be used for document classification")
-}
-
 func (g *classificationGateway) NativeToolCall(_ context.Context, _ string, _ string, _ any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	if len(tools) != 1 || tools[0].Name != "classify_financial_document" {
 		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected document tools")

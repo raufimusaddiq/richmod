@@ -16,10 +16,6 @@ type nativeInsightGateway struct {
 	prompt  string
 }
 
-func (g *nativeInsightGateway) Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error) {
-	return gateway.Metadata{}, fmt.Errorf("structured output must not be used for insight generation")
-}
-
 func (g *nativeInsightGateway) NativeToolCall(_ context.Context, _ string, prompt string, _ any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	if len(tools) != 1 || tools[0].Name != "write_financial_insight" {
 		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected insight tools")
