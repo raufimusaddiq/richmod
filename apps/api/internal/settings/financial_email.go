@@ -151,11 +151,11 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var in struct {
-		ProviderName           *string   `json:"providerName"`
-		SenderAddress          *string   `json:"senderAddress"`
-		Capabilities           *[]string `json:"capabilities"`
-		DefaultWealthAccountID **string  `json:"defaultWealthAccountId"`
-		Status                 *string   `json:"status"`
+		ProviderName           *string         `json:"providerName"`
+		SenderAddress          *string         `json:"senderAddress"`
+		Capabilities           *[]string       `json:"capabilities"`
+		DefaultWealthAccountID json.RawMessage `json:"defaultWealthAccountId"`
+		Status                 *string         `json:"status"`
 	}
 	if json.NewDecoder(r.Body).Decode(&in) != nil {
 		jsonError(w, 400, "invalid financial source change")
@@ -211,15 +211,20 @@ func (h *Handler) FinancialEmailSources(w http.ResponseWriter, r *http.Request) 
 	}
 	var def any = oldDefault
 	if in.DefaultWealthAccountID != nil {
-		if *in.DefaultWealthAccountID == nil || **in.DefaultWealthAccountID == "" {
+		var requested *string
+		if json.Unmarshal(in.DefaultWealthAccountID, &requested) != nil {
+			jsonError(w, 400, "invalid default Wealth Account")
+			return
+		}
+		if requested == nil || strings.TrimSpace(*requested) == "" {
 			def = nil
 		} else {
 			var valid string
-			if err = tx.QueryRow(r.Context(), `SELECT id FROM wealth_account WHERE id=$1 AND household_id=$2 AND active`, **in.DefaultWealthAccountID, p.HouseholdID).Scan(&valid); err != nil {
+			if err = tx.QueryRow(r.Context(), `SELECT id FROM wealth_account WHERE id=$1 AND household_id=$2 AND active`, strings.TrimSpace(*requested), p.HouseholdID).Scan(&valid); err != nil {
 				jsonError(w, 400, "invalid default Wealth Account")
 				return
 			}
-			def = **in.DefaultWealthAccountID
+			def = valid
 		}
 	}
 	_, err = tx.Exec(r.Context(), `UPDATE financial_email_source SET provider_name=COALESCE($2,provider_name),sender_address=$3,capabilities=COALESCE($4,capabilities),default_wealth_account_id=$5,status=$6,config_version=config_version+CASE WHEN $8 THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1 AND household_id=$7`, id, in.ProviderName, sender, capsSQL, def, status, p.HouseholdID, configChanged)

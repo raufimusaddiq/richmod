@@ -19,6 +19,13 @@ observation, not merely the parent source event. This permits one email to
 contain several independently actionable cash movements or wealth values
 without one review overwriting another.
 
+Successful Financial Provider Email extraction is durable even when the native
+tool returns zero observations. Reprocessing uses the staged result, skips
+terminal observations, and never repeats semantic extraction. A staged Wealth
+value owns at most one `wealth_observation`. Strong provider-reference reuse
+also requires compatible Account, amount, time, transfer purpose, and Wealth
+target; incompatible evidence goes to Review without creating a transaction.
+
 Cashflow uses one shared rule wherever Wealth and Analytics report it:
 `income - (expense - refund)`. A refund reduces expense; it is not a negative
 income nor a Wealth adjustment.

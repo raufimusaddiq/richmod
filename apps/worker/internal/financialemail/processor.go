@@ -86,9 +86,9 @@ func nonNegativeWholeMoney(v *string) bool {
 }
 func positiveWholeMoney(v *string) bool { return nonNegativeWholeMoney(v) && *v != "0" }
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
-	var household, provider, sender, body, subject, defaultWealth, sourceStatus string
+	var household, provider, sender, body, subject, defaultWealth, sourceStatus, extractionStatus, extractionModel string
 	var capabilities []string
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.capabilities,fs.status FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &provider, &sender, &body, &subject, &defaultWealth, &capabilities, &sourceStatus)
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &provider, &sender, &body, &subject, &defaultWealth, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
 	if err != nil {
 		return err
 	}
@@ -96,12 +96,12 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		_, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='financial-email-disabled',parser_version='1' WHERE id=$1`, payload.SourceEventID)
 		return err
 	}
-	out, found, err := p.stagedOutput(ctx, payload.SourceEventID)
-	model := "staged-review"
+	out, err := p.stagedOutput(ctx, payload.SourceEventID)
+	model := extractionModel
 	if err != nil {
 		return err
 	}
-	if !found {
+	if extractionStatus != "SUCCEEDED" {
 		if p.gateway == nil {
 			return fmt.Errorf("financial email gateway unavailable")
 		}
@@ -114,6 +114,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 			return err
 		}
 		model = meta.Model
+	}
+	if model == "" {
+		model = "staged-review"
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -132,6 +135,11 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 			return err
 		}
 	}
+	if extractionStatus != "SUCCEEDED" {
+		if _, err = tx.Exec(ctx, `UPDATE financial_email_event SET extraction_status='SUCCEEDED',extracted_at=now(),observation_count=$2,extraction_model=$3 WHERE source_event_id=$1 AND extraction_status='PENDING'`, payload.SourceEventID, len(out.Observations), model); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS (SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END,parser_name='financial-email-native',parser_version='1' WHERE id=$1`, payload.SourceEventID); err != nil {
 		return err
 	}
@@ -144,10 +152,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	}
 	return tx.Commit(ctx)
 }
-func (p *Processor) stagedOutput(ctx context.Context, source string) (output, bool, error) {
+func (p *Processor) stagedOutput(ctx context.Context, source string) (output, error) {
 	rows, err := p.pool.Query(ctx, `SELECT facts_json FROM financial_email_observation WHERE source_event_id=$1 ORDER BY ordinal`, source)
 	if err != nil {
-		return output{}, false, err
+		return output{}, err
 	}
 	defer rows.Close()
 	var out output
@@ -155,20 +163,23 @@ func (p *Processor) stagedOutput(ctx context.Context, source string) (output, bo
 		var raw []byte
 		var v observation
 		if err = rows.Scan(&raw); err != nil {
-			return out, false, err
+			return out, err
 		}
 		if err = json.Unmarshal(raw, &v); err != nil {
-			return out, false, err
+			return out, err
 		}
 		out.Observations = append(out.Observations, v)
 	}
-	return out, len(out.Observations) > 0, rows.Err()
+	return out, rows.Err()
 }
 func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, defaultWealth string, ordinal int, v observation) error {
 	raw, _ := json.Marshal(v)
-	var id string
-	if err := tx.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING') ON CONFLICT(source_event_id,ordinal) DO UPDATE SET facts_json=EXCLUDED.facts_json,updated_at=now() RETURNING id`, household, source, ordinal, v.Kind, string(raw)).Scan(&id); err != nil {
+	var id, status string
+	if err := tx.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING') ON CONFLICT(source_event_id,ordinal) DO UPDATE SET updated_at=now() RETURNING id,status`, household, source, ordinal, v.Kind, string(raw)).Scan(&id, &status); err != nil {
 		return err
+	}
+	if status != "PENDING" {
+		return nil
 	}
 	switch v.Kind {
 	case "NON_ACTIONABLE":
@@ -195,7 +206,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, d
 			date = &d
 		}
 		var observationID string
-		if err = tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,$2,'',$3,$4,$5,$6) RETURNING id`, household, wealth, hint, *v.ValueIDR, date, id).Scan(&observationID); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,$2,'',$3,$4,$5,$6) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id`, household, wealth, hint, *v.ValueIDR, date, id).Scan(&observationID); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
@@ -254,7 +265,7 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 			date = d
 		}
 	}
-	err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,NULL,'',$2,$3,$4,$5) RETURNING id`, household, hint, *v.ValueIDR, date, id).Scan(&observationID)
+	err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,NULL,'',$2,$3,$4,$5) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id`, household, hint, *v.ValueIDR, date, id).Scan(&observationID)
 	if err != nil {
 		return err
 	}
@@ -335,10 +346,10 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, id, 
 	}
 	var existing string
 	if v.ProviderReference != nil && strings.TrimSpace(*v.ProviderReference) != "" {
-		var knownAccount, knownAmount string
+		var knownAccount, knownAmount, knownPurpose, knownWealth string
 		var knownAt time.Time
-		refErr := tx.QueryRow(ctx, `SELECT t.id,t.account_id::text,t.amount::text,t.transaction_at FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN financial_email_event old_fe ON old_fe.source_event_id=e.source_event_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND old_fe.financial_source_id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$2) AND e.metadata_json->>'provider_reference'=$3 LIMIT 1`, household, source, *v.ProviderReference).Scan(&existing, &knownAccount, &knownAmount, &knownAt)
-		if refErr == nil && (knownAccount != account || knownAmount != *v.AmountIDR || knownAt.Sub(at) > 24*time.Hour || at.Sub(knownAt) > 24*time.Hour) {
+		refErr := tx.QueryRow(ctx, `SELECT t.id,t.account_id::text,t.amount::text,t.transaction_at,COALESCE(t.purpose,''),COALESCE(t.related_wealth_account_id::text,'') FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN financial_email_event old_fe ON old_fe.source_event_id=e.source_event_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND old_fe.financial_source_id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$2) AND e.metadata_json->>'provider_reference'=$3 LIMIT 1`, household, source, *v.ProviderReference).Scan(&existing, &knownAccount, &knownAmount, &knownAt, &knownPurpose, &knownWealth)
+		if refErr == nil && (knownAccount != account || knownAmount != *v.AmountIDR || knownAt.Sub(at) > 24*time.Hour || at.Sub(knownAt) > 24*time.Hour || knownPurpose != purpose || knownWealth != wealth) {
 			return p.conflictingReferenceReview(ctx, tx, household, source, id)
 		}
 	}
