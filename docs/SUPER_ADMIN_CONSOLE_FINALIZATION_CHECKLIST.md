@@ -8,6 +8,7 @@ Source of truth: `docs/RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md` (uncha
 - [x] Bounded keyset pagination added to LLM calls, logs, platform audit, household audit.
 - [x] Server-side range/filter parameters retained for operational lists.
 - [x] Overview exposes platform health, lane/LLM metrics, and recent structured events.
+- [x] Admin metric presentation stays balanced on desktop; LLM cost is omitted until reliable cost metadata exists.
 - [x] Household detail exposes members, integrations, recent jobs/LLM, failed sources, and audit.
 - [x] Jobs, logs, and LLM expose server-backed filters, refresh, and cursor loading.
 - [x] Platform/household audit views expose filters, cursor loading, request ID, and human-readable summaries.
