@@ -132,6 +132,13 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
 		case "INVESTMENT_ACCOUNT":
 			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
+		case "ASSET_PURCHASE":
+			wealthHint := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(update.Message.Text), "beli aset"), "beli"))
+			if strings.TrimSpace(wealthHint) == "" {
+				return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas dengan Wealth Account tujuan, misalnya: beli aset Emas.")
+			}
+			update.Message.Text = wealthHint
+			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Pembelian aset dicatat sebagai transfer.", "")
 		case "IGNORE":
 			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "UNCLASSIFIED", "VOIDED", intent, "Transfer disimpan sebagai bukti non-pengeluaran.", "")
 		case "EXPENSE":
@@ -449,6 +456,8 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 func transferReviewIntent(value string) string {
 	n := normalizeReviewText(value)
 	switch {
+	case strings.Contains(n, "beli aset") || strings.Contains(n, "pembelian aset"):
+		return "ASSET_PURCHASE"
 	case strings.Contains(n, "investasi") || strings.Contains(n, "rdn"):
 		return "INVESTMENT_ACCOUNT"
 	case strings.Contains(n, "abaikan") || strings.Contains(n, "bukan pengeluaran"):
@@ -487,6 +496,21 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tujuan investasi belum dapat dipetakan ke satu Wealth Account. Lengkapi tautan Known Account di Pengaturan atau selesaikan lewat Review Inbox.")
 		}
 		newType, newStatus, purpose = "TRANSFER", "CONFIRMED", "INVESTMENT_CONTRIBUTION"
+	}
+	if classification == "ASSET_PURCHASE" {
+		wealthHint := strings.TrimSpace(update.Message.Text)
+		if wealthHint == "" {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Sebutkan Wealth Account tujuan, misalnya: beli emas.")
+		}
+		id, resolveErr := resolveUniqueWealthHint(ctx, tx, householdID, wealthHint)
+		if resolveErr != nil {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
+		}
+		var compatible bool
+		if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible('ASSET_PURCHASE',$1,$2)`, id, householdID).Scan(&compatible); err != nil || !compatible {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account tujuan bukan aset yang kompatibel.")
+		}
+		wealthID, purpose = id, "ASSET_PURCHASE"
 	}
 	proposalStatus, sourceStatus := "ACCEPTED", "PROCESSED"
 	if newStatus == "VOIDED" {
@@ -699,6 +723,14 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	}
 	if action == "INVESTMENT_TRANSFER" {
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "INVESTMENT_ACCOUNT", "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
+	}
+	if action == "ASSET_PURCHASE" {
+		wealthHint, _ := args["wealth_account_hint"].(string)
+		if strings.TrimSpace(wealthHint) == "" {
+			return p.continueReview(ctx, sourceEventID, c.id, c.tx, update, "Sebutkan Wealth Account tujuan, misalnya: emas.")
+		}
+		update.Message.Text = wealthHint
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Pembelian aset dicatat sebagai transfer.", "")
 	}
 	categoryID := ""
 	if categorySlug != "" {
@@ -1290,7 +1322,7 @@ func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID stri
 
 func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, page int) *InlineKeyboardMarkup {
 	if reviewType == "TRANSFER_CLASSIFICATION" {
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}}}
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}}}
 	}
 	var transactionType string
 	if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType) == nil && transactionType == "INCOME" {

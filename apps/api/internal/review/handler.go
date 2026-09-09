@@ -315,12 +315,13 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 }
 
 type transferClassificationInput struct {
-	Classification string  `json:"classification"`
-	CategoryID     *string `json:"categoryId"`
-	Remember       bool    `json:"remember"`
-	Institution    string  `json:"institution"`
-	DisplayName    string  `json:"displayName"`
-	MatchHint      string  `json:"matchHint"`
+	Classification  string  `json:"classification"`
+	CategoryID      *string `json:"categoryId"`
+	WealthAccountID *string `json:"wealthAccountId"`
+	Remember        bool    `json:"remember"`
+	Institution     string  `json:"institution"`
+	DisplayName     string  `json:"displayName"`
+	MatchHint       string  `json:"matchHint"`
 }
 
 func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
@@ -337,13 +338,13 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	input.Institution = clean(&input.Institution, 120)
 	input.DisplayName = clean(&input.DisplayName, 160)
 	input.MatchHint = clean(&input.MatchHint, 80)
-	if input.Classification != "EXPENSE" && input.Classification != "IGNORE" && input.Remember {
+	if input.Classification != "EXPENSE" && input.Classification != "ASSET_PURCHASE" && input.Classification != "IGNORE" && input.Remember {
 		if !maskedHintPattern.MatchString(input.MatchHint) || input.Institution == "" {
 			writeJSON(w, 400, map[string]string{"error": "institution and masked match hint are required to remember account"})
 			return
 		}
 	}
-	if input.Classification != "EXPENSE" && input.Classification != "OWN_ACCOUNT" && input.Classification != "HOUSEHOLD_ACCOUNT" && input.Classification != "INVESTMENT_ACCOUNT" && input.Classification != "IGNORE" {
+	if input.Classification != "EXPENSE" && input.Classification != "OWN_ACCOUNT" && input.Classification != "HOUSEHOLD_ACCOUNT" && input.Classification != "INVESTMENT_ACCOUNT" && input.Classification != "ASSET_PURCHASE" && input.Classification != "IGNORE" {
 		writeJSON(w, 400, map[string]string{"error": "invalid transfer classification"})
 		return
 	}
@@ -382,6 +383,20 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		wealthAccountID = &linked
 		purpose = "INVESTMENT_CONTRIBUTION"
 	}
+	if input.Classification == "ASSET_PURCHASE" {
+		if input.WealthAccountID == nil || strings.TrimSpace(*input.WealthAccountID) == "" {
+			writeJSON(w, 400, map[string]string{"error": "asset purchase requires a Wealth Account"})
+			return
+		}
+		var linked string
+		var compatible bool
+		if err = tx.QueryRow(r.Context(), `SELECT id::text,transfer_wealth_compatible('ASSET_PURCHASE',id,$2) FROM wealth_account WHERE id=$1 AND household_id=$2 AND active`, *input.WealthAccountID, household).Scan(&linked, &compatible); err != nil || !compatible {
+			writeJSON(w, 409, map[string]string{"error": "asset purchase requires a compatible active Wealth Account"})
+			return
+		}
+		wealthAccountID = &linked
+		purpose = "ASSET_PURCHASE"
+	}
 	var categoryID *string
 	if input.Classification == "EXPENSE" {
 		newType, purpose = "EXPENSE", "GENERAL"
@@ -407,7 +422,7 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to finalize transfer review"})
 		return
 	}
-	if input.Remember && input.Classification != "EXPENSE" && input.Classification != "IGNORE" {
+	if input.Remember && input.Classification != "EXPENSE" && input.Classification != "ASSET_PURCHASE" && input.Classification != "IGNORE" {
 		if !maskedHintPattern.MatchString(input.MatchHint) || input.Institution == "" {
 			writeJSON(w, 400, map[string]string{"error": "institution and masked match hint are required to remember account"})
 			return

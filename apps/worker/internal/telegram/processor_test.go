@@ -177,6 +177,9 @@ func TestCallbackTextContainsNoTransactionIdentity(t *testing.T) {
 	if got := callbackText("review:own"); got != "rekening sendiri" {
 		t.Fatalf("callback=%q", got)
 	}
+	if got := callbackText("review:asset"); got != "beli aset" {
+		t.Fatalf("asset callback=%q", got)
+	}
 	if got := callbackText("transaction:00000000-0000-0000-0000-000000000000"); got != "" {
 		t.Fatalf("untrusted callback accepted: %q", got)
 	}

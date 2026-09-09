@@ -46,5 +46,7 @@ test("manual transfer exposes purpose and wealth account", () => {
   assert.match(inbox, /api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /Alokasikan saldo tersisa/);
   assert.match(text("app/components/ReviewCards.js"), /ALLOCATE_RETAINED_BALANCE/);
+  assert.match(text("app/components/ReviewCards.js"), /ASSET_PURCHASE/);
+  assert.match(text("app/components/ReviewCards.js"), /Beli aset/);
   assert.match(text("app/components/AppShell.js"), /\["\/wealth", "Wealth"/);
 });

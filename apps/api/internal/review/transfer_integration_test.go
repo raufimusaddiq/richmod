@@ -94,6 +94,43 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 	}
 }
 
+func TestClassifyTransferAsAssetPurchase(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	householdID, userID, _ := seedTransferReviewOwner(t, pool, stamp)
+	var wealthID string
+	if err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Emas','ASSET','GOLD','OTHER') RETURNING id`, householdID).Scan(&wealthID); err != nil {
+		t.Fatal(err)
+	}
+	transactionID, _, _ := seedUnclassifiedTransfer(t, pool, householdID, stamp+1)
+	principal := auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}
+	raw, _ := json.Marshal(map[string]any{"classification": "ASSET_PURCHASE", "wealthAccountId": wealthID})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/classify-transfer", bytes.NewReader(raw))
+	request.SetPathValue("id", transactionID)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+	response := httptest.NewRecorder()
+	NewHandler(pool).ClassifyTransfer(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var typ, status, purpose, related string
+	if err = pool.QueryRow(ctx, `SELECT type,status,purpose,related_wealth_account_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&typ, &status, &purpose, &related); err != nil {
+		t.Fatal(err)
+	}
+	if typ != "TRANSFER" || status != "CONFIRMED" || purpose != "ASSET_PURCHASE" || related != wealthID {
+		t.Fatalf("transaction=%s/%s/%s/%s", typ, status, purpose, related)
+	}
+}
+
 func seedTransferReviewOwner(t *testing.T, pool *pgxpool.Pool, stamp int64) (string, string, string) {
 	t.Helper()
 	ctx := context.Background()
