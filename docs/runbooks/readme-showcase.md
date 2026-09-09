@@ -2,11 +2,12 @@
 
 ## Purpose
 
-`README.md` includes five product screenshots:
+`README.md` includes six product screenshots:
 
 - `docs/assets/landing.png`
 - `docs/assets/login.png`
 - `docs/assets/dashboard.png`
+- `docs/assets/wealth.png`
 - `docs/assets/review-inbox.png`
 - `docs/assets/analytics.png`
 
@@ -58,7 +59,7 @@ Wait until this succeeds:
 curl -fsS http://localhost:3002 >/dev/null
 ```
 
-Capture all five images. `--network host` is intentional for a Linux Docker
+Capture all six images. `--network host` is intentional for a Linux Docker
 host: it lets the disposable browser reach the loopback-only web server.
 
 ```bash
@@ -72,8 +73,8 @@ docker run --rm --network host \
 
 The script uses a 1440×1050 desktop viewport, waits for the relevant public or
 authenticated shell and web fonts, disables animation, then overwrites only the
-five PNG files above. It captures the public landing and login experiences plus
-the dashboard, transaction Review Inbox view, and analytics page.
+six PNG files above. It captures the public landing and login experiences plus
+the dashboard, Wealth, transaction Review Inbox view, and analytics page.
 
 For an already-running local server on port `3000`, the shorter command is:
 
@@ -95,6 +96,7 @@ with the UI, and contains synthetic data only.
 file docs/assets/landing.png \
   docs/assets/login.png \
   docs/assets/dashboard.png \
+  docs/assets/wealth.png \
   docs/assets/review-inbox.png \
   docs/assets/analytics.png
 ```

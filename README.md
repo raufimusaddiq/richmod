@@ -30,9 +30,9 @@ Forward financial notifications, send a message or image through Telegram, or up
 | --- | --- |
 | ![Richmod public landing page](docs/assets/landing.png) | ![Richmod login experience](docs/assets/login.png) |
 
-| Dashboard | Review Inbox |
-| --- | --- |
-| ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
+| Dashboard | Wealth | Review Inbox |
+| --- | --- | --- |
+| ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod household Wealth](docs/assets/wealth.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
 
 ![Richmod household analytics](docs/assets/analytics.png)
 
