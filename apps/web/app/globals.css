@@ -398,6 +398,121 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
 
 .mobile-nav, .mobile-more { display: none; }
 
+/* Wealth owns its financial-statement layout; .surface intentionally remains unpadded. */
+.wealth-page { display: grid; gap: 20px; }
+.wealth-page > .surface, .wealth-analysis-grid > .surface { min-width: 0; }
+.wealth-empty { display: grid; justify-items: start; gap: 14px; padding: 30px; }
+.wealth-empty h2 { margin: 0; font-size: 25px; letter-spacing: -.035em; }
+.wealth-empty p { max-width: 56ch; margin: 0; color: var(--muted); }
+.wealth-position { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(360px, .84fr); overflow: hidden; }
+.wealth-position-primary { padding: 29px 31px; background: var(--surface-strong); }
+.wealth-position-primary h2 { margin: 7px 0 5px; color: var(--ink-soft); font-size: 15px; font-weight: 650; }
+.wealth-position-primary > strong { display: block; margin: 0; font-size: clamp(34px, 4vw, 54px); font-variant-numeric: tabular-nums; letter-spacing: -.06em; line-height: 1.02; }
+.wealth-position-primary p { margin: 14px 0 0; color: var(--muted); font-size: 11px; }
+.wealth-balance-summary { display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.wealth-balance-summary article { display: grid; align-content: center; gap: 4px; padding: 20px 25px; border-left: 1px solid var(--line); }
+.wealth-balance-summary article + article { border-top: 1px solid var(--line); }
+.wealth-balance-summary span, .wealth-balance-summary small { color: var(--muted); font-size: 10px; }
+.wealth-balance-summary strong { font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+.wealth-change { padding: 24px 28px 28px; }
+.wealth-change .section-title { align-items: flex-end; margin-bottom: 21px; }
+.wealth-change-total { font-size: 23px; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+.wealth-change-equation { display: grid; grid-template-columns: minmax(0, 1.08fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1.08fr); align-items: stretch; }
+.wealth-change-equation > div { display: grid; align-content: start; gap: 5px; min-height: 112px; padding: 13px 15px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-strong); }
+.wealth-change-equation > div.is-current { border-color: var(--accent); background: var(--accent-soft); }
+.wealth-change-equation span, .wealth-change-equation small { color: var(--muted); font-size: 10px; }
+.wealth-change-equation strong { font-size: 16px; font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+.wealth-change-equation i { display: grid; place-items: center; color: var(--muted); font-size: 17px; font-style: normal; }
+.wealth-analysis-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(400px, .88fr); gap: 20px; align-items: start; }
+.wealth-composition, .wealth-trend, .wealth-cycle, .wealth-snapshot, .wealth-records { padding: 24px 27px; }
+.wealth-composition .section-title, .wealth-trend .section-title, .wealth-records .section-title { margin-bottom: 20px; }
+.wealth-composition-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px; }
+.wealth-account-group.is-liability { padding-left: 26px; border-left: 1px solid var(--line); }
+.wealth-account-group > header { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.wealth-account-group header div, .wealth-account-group header span, .wealth-account-group header small { display: block; }
+.wealth-account-group header span { color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+.wealth-account-group header small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.wealth-account-group header > strong { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wealth-account-list { display: grid; }
+.wealth-account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.wealth-account-row:last-child { border-bottom: 0; }
+.wealth-account-row b, .wealth-account-row small { display: block; }
+.wealth-account-row b { overflow-wrap: anywhere; font-size: 12px; }
+.wealth-account-row small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.wealth-account-row > strong { font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.wealth-trend .chart-wrap { margin-top: 7px; }
+.wealth-cycle { display: grid; grid-template-columns: minmax(260px, .68fr) minmax(0, 1.32fr); gap: 28px; align-items: stretch; }
+.wealth-cycle-summary { padding-right: 28px; border-right: 1px solid var(--line); }
+.wealth-cycle-summary h2 { margin: 8px 0 5px; font-size: clamp(25px, 2.6vw, 35px); font-variant-numeric: tabular-nums; letter-spacing: -.05em; }
+.wealth-cycle-summary p { margin: 0; color: var(--muted); font-size: 11px; }
+.wealth-cycle-destinations .section-title { align-items: baseline; margin-bottom: 9px; }
+.wealth-cycle-destinations .section-title h3 { margin: 0; font-size: 13px; letter-spacing: -.015em; }
+.wealth-cycle-destinations .section-title small { color: var(--muted); font-size: 10px; }
+.wealth-allocation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.wealth-allocation-row strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wealth-snapshot .section-title { margin-bottom: 20px; }
+.wealth-snapshot-heading-meta { display: grid; justify-items: end; gap: 10px; }
+.wealth-snapshot-heading-meta button { min-height: 34px; padding-inline: 11px; font-size: 10px; }
+.section-copy { max-width: 54ch; margin: 7px 0 0; color: var(--muted); font-size: 11px; }
+.wealth-observation-note { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 20px; margin: 0 0 18px; padding: 13px 15px; border: 1px solid var(--warning); border-radius: var(--radius-sm); background: var(--warning-soft); }
+.wealth-observation-note strong, .wealth-observation-note span { display: block; }
+.wealth-observation-note strong { font-size: 12px; }
+.wealth-observation-note span, .wealth-observation-note p { margin: 2px 0 0; color: var(--ink-soft); font-size: 10px; }
+.wealth-observation-note b { align-self: center; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wealth-observation-note p { grid-column: 1 / -1; }
+.wealth-snapshot-form { display: grid; gap: 16px; }
+.wealth-snapshot-time { display: grid; grid-template-columns: minmax(260px, .78fr) minmax(0, 1.22fr); align-items: end; gap: 18px; padding: 14px 0 17px; border-bottom: 1px solid var(--line); }
+.wealth-snapshot-time label, .wealth-snapshot-account label, .wealth-correction-account label { display: grid; gap: 6px; color: var(--ink-soft); font-size: 11px; font-weight: 650; }
+.wealth-snapshot-time label > span, .wealth-snapshot-account label > span, .wealth-correction-account label > span { color: var(--muted); font-size: 10px; font-weight: 650; }
+.wealth-snapshot-time p { margin: 0 0 10px; color: var(--muted); font-size: 10px; }
+.wealth-snapshot-accounts { display: grid; border-top: 1px solid var(--line); }
+.wealth-snapshot-account { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(190px, .8fr) minmax(170px, .7fr); align-items: end; gap: 14px; min-width: 0; margin: 0; padding: 15px 0; border: 0; border-bottom: 1px solid var(--line); }
+.wealth-snapshot-account legend { display: grid; gap: 3px; min-width: 0; padding: 0; color: var(--ink); font-size: 12px; font-weight: 700; }
+.wealth-snapshot-account legend span { overflow-wrap: anywhere; }
+.wealth-snapshot-account legend small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.wealth-snapshot-account input { min-height: 39px; }
+.wealth-snapshot-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.wealth-snapshot-actions p { margin: 0; color: var(--muted); font-size: 10px; }
+.wealth-snapshot-actions button { flex: 0 0 auto; }
+.wealth-records { padding-bottom: 8px; }
+.wealth-cycle-history, .wealth-history { display: grid; }
+.wealth-cycle-row, .wealth-history-row { border-top: 1px solid var(--line); }
+.wealth-cycle-row { padding: 15px 0; }
+.wealth-cycle-row header { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.wealth-cycle-row header > div, .wealth-cycle-row header span, .wealth-cycle-row header small { display: block; }
+.wealth-cycle-row header span { font-size: 12px; font-weight: 700; }
+.wealth-cycle-row header > strong { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wealth-review-status { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.wealth-review-status.status-current, .wealth-review-status.status-stale { color: var(--warning); }
+.wealth-cycle-row dl { display: grid; grid-template-columns: 150px 190px minmax(0, 1fr); gap: 14px; margin: 13px 0 0; }
+.wealth-cycle-row dl div { min-width: 0; }
+.wealth-cycle-row dt { color: var(--muted); font-size: 9px; }
+.wealth-cycle-row dd { margin: 3px 0 0; font-size: 11px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+button.wealth-history-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(130px, .5fr); align-items: center; gap: 16px; width: 100%; min-height: 0; padding: 14px 0; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; }
+button.wealth-history-row:hover:not(:disabled) { border: 0; background: var(--surface-muted); color: var(--ink); }
+button.wealth-history-row:active:not(:disabled) { transform: none; }
+button.wealth-history-row span { font-size: 12px; }
+button.wealth-history-row strong { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+button.wealth-history-row small { color: var(--accent); font-size: 10px; font-weight: 700; text-align: right; }
+.wealth-drawer > h2 { margin-bottom: 5px; }
+.wealth-drawer-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 21px 0; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.wealth-drawer-summary > div { min-width: 0; padding: 12px; border-left: 1px solid var(--line); }
+.wealth-drawer-summary > div:first-child { border-left: 0; }
+.wealth-drawer-summary span, .wealth-drawer-summary strong { display: block; }
+.wealth-drawer-summary span { color: var(--muted); font-size: 9px; }
+.wealth-drawer-summary strong { margin-top: 4px; font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.wealth-drawer-items { display: grid; margin-bottom: 20px; border-top: 1px solid var(--line); }
+.wealth-detail-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.wealth-detail-row span, .wealth-detail-row small { display: block; }
+.wealth-detail-row span { font-size: 12px; font-weight: 700; }
+.wealth-detail-row small { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.wealth-detail-row strong { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wealth-correction-form { display: grid; gap: 14px; margin-top: 20px; }
+.wealth-correction-account { display: grid; gap: 11px; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.wealth-correction-account legend { padding: 0 4px; font-size: 12px; font-weight: 700; }
+.wealth-correction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.wealth-drawer-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 @media (max-width: 1180px) {
   :root { --sidebar: 218px; }
   .app-main { padding-inline: 30px; }
@@ -406,6 +521,9 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
   .category-visual { grid-template-columns: minmax(210px, .7fr) 1fr; align-items: center; gap: 22px; }
   .document-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wealth-analysis-grid { grid-template-columns: minmax(0, 1fr); }
+  .wealth-change-equation { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .wealth-change-equation > i { display: none; }
 }
 
 @media (max-width: 1100px) {
@@ -446,6 +564,7 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .admin-table td::before { color: var(--muted); content: attr(data-label); font-size: 9px; font-weight: 700; }
   .admin-table td[colspan] { display: block; }
   .admin-table td[colspan]::before { content: none; }
+  .wealth-snapshot-account { grid-template-columns: minmax(160px, .85fr) minmax(180px, 1fr) minmax(150px, .8fr); }
 }
 
 @media (max-width: 680px) {
@@ -520,6 +639,36 @@ dialog::backdrop { background: rgba(26, 30, 27, .42); backdrop-filter: blur(2px)
   .transaction-amount { font-size: 12px; }
   .status { padding: 3px 5px; font-size: 8px; }
   .admin-definition { grid-template-columns: minmax(0, 1fr); }
+  .wealth-page { gap: 16px; }
+  .wealth-empty, .wealth-change, .wealth-composition, .wealth-trend, .wealth-cycle, .wealth-snapshot, .wealth-records { padding: 19px 16px; }
+  .wealth-position { grid-template-columns: minmax(0, 1fr); }
+  .wealth-position-primary { padding: 24px 19px; }
+  .wealth-position-primary > strong { font-size: 39px; }
+  .wealth-balance-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; }
+  .wealth-balance-summary article { padding: 15px; border-top: 1px solid var(--line); border-left: 0; }
+  .wealth-balance-summary article + article { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .wealth-change .section-title { align-items: start; }
+  .wealth-change-total { font-size: 19px; }
+  .wealth-change-equation { grid-template-columns: minmax(0, 1fr); }
+  .wealth-change-equation > div { min-height: 0; }
+  .wealth-composition-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .wealth-account-group.is-liability { padding-top: 20px; padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
+  .wealth-cycle { grid-template-columns: minmax(0, 1fr); gap: 19px; }
+  .wealth-cycle-summary { padding: 0 0 18px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .wealth-observation-note { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .wealth-observation-note b { justify-self: start; }
+  .wealth-snapshot-time, .wealth-snapshot-account { grid-template-columns: minmax(0, 1fr); gap: 11px; }
+  .wealth-snapshot-time p { margin: 0; }
+  .wealth-snapshot-heading-meta { justify-items: start; }
+  .wealth-snapshot-actions { display: grid; }
+  .wealth-snapshot-actions button { width: 100%; }
+  .wealth-cycle-row header { display: grid; gap: 8px; }
+  .wealth-cycle-row dl { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  button.wealth-history-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; padding: 13px 0; }
+  button.wealth-history-row small { grid-column: 1; text-align: left; }
+  .wealth-drawer-summary { grid-template-columns: minmax(0, 1fr); }
+  .wealth-drawer-summary > div { border-top: 1px solid var(--line); border-left: 0; }
+  .wealth-drawer-summary > div:first-child { border-top: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
