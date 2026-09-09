@@ -36,7 +36,8 @@ const document = { id: "doc-1", status: "SUCCEEDED", documentType: "RECEIPT", so
 
 function fixture(path) {
   if (path === "/api/v1/auth/me") return user;
-  if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
+  if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", savingsAllocated: "6500000", unallocatedSurplus: "3410000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
+  if (path === "/api/v1/wealth/snapshots/latest") return { id: "wealth-1", netWorthIdr: "48250000", observedAt: "2026-09-06T10:00:00+07:00" };
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily };
   if (path.startsWith("/api/v1/analytics/categories")) return categories;
   if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-07", income: "11800000", expense: "7200000", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", netCashflow: "9910000" }];

@@ -32,6 +32,11 @@ test("homepage reads canonical Net Worth and distinguishes uninitialized Wealth"
   assert.match(home, /Wealth belum diinisialisasi/);
   assert.match(home, /: "—"/);
 });
+test("Wealth navigation uses a distinct Vault icon", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.match(shell, /wealth: Vault/);
+  assert.match(shell, /\["\/wealth", "Wealth", "wealth"\]/);
+});
 test("manual transfer exposes purpose and wealth account", () => {
   const transactions = text("app/transactions/page.js");
   assert.match(transactions, /value=\"TRANSFER\"/);

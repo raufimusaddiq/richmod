@@ -3,19 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChartDonut, DotsThree, FileText, GearSix, HouseLine, Receipt, ShieldChevron, SignOut, Tray, UsersThree, X } from "@phosphor-icons/react";
+import { ChartDonut, DotsThree, FileText, GearSix, HouseLine, Receipt, ShieldChevron, SignOut, Tray, UsersThree, Vault, X } from "@phosphor-icons/react";
 
 const nav = [
   ["/", "Ringkasan", "⌂"],
   ["/transactions", "Transaksi", "ledger"],
   ["/analytics", "Analisis", "⌁"],
-  ["/wealth", "Wealth", "⌁"],
+  ["/wealth", "Wealth", "wealth"],
   ["/inbox", "Inbox", "✓"],
   ["/documents", "Dokumen", "▤"],
   ["/household", "Keluarga", "⌾"],
   ["/settings", "Pengaturan", "settings"],
 ];
-const icons = { "⌂": HouseLine, ledger: Receipt, "⌁": ChartDonut, "✓": Tray, "▤": FileText, "⌾": UsersThree, settings: GearSix, admin: ShieldChevron };
+const icons = { "⌂": HouseLine, ledger: Receipt, "⌁": ChartDonut, wealth: Vault, "✓": Tray, "▤": FileText, "⌾": UsersThree, settings: GearSix, admin: ShieldChevron };
 
 export default function AppShell({ user, title, eyebrow, actions, children }) {
   const pathname = usePathname();

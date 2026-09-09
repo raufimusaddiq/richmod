@@ -39,19 +39,36 @@ export default function Home() {
   if (user === null) return <Loading />;
   if (user === false) return <LandingPage />;
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
-  const cards = [[`Pemasukan ${periodLabel}`, overview?.income, "income"], [`Pengeluaran ${periodLabel}`, overview?.expense, "expense"], ["Tabungan dialokasikan", overview?.savingsAllocated, "income"], ["Surplus belum dialokasikan", overview?.unallocatedSurplus, "net"]];
-  return <AppShell user={user} eyebrow="Ringkasan" title={`Keuangan keluarga · ${periodLabel}`} actions={<Link className="button secondary" href="/documents"><UploadSimple aria-hidden="true"/> Unggah bukti</Link>}>
+  const cycleName = cycle?.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender";
+  const cycleDates = cycle ? `${cycle.start}${cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}` : "Periode belum tersedia";
+  const wealthObservedAt = new Date(latestWealth?.observedAt);
+  const wealthDate = latestWealth?.observedAt && !Number.isNaN(wealthObservedAt.valueOf()) ? wealthObservedAt.toLocaleDateString("id-ID") : null;
+  return <AppShell user={user} eyebrow="Ringkasan" title="Keuangan keluarga" actions={<Link className="button secondary" href="/documents"><UploadSimple aria-hidden="true"/> Unggah bukti</Link>}>
     <ErrorNotice message={error} retry={load}/>
     {loading && <Skeleton/>}
     {!loading && <>
-    <section className="overview-summary">
-      <article className="cashflow-summary"><span>Arus kas bersih · {periodLabel}</span><strong className="net">{money(overview?.netCashflow)}</strong><small><CheckCircle aria-hidden="true" weight="fill"/> Hanya transaksi terkonfirmasi</small></article>
-      <div className="kpi-grid">{cards.map(([label, value, tone]) => <article key={label}><span>{label}</span><strong className={tone}>{money(value)}</strong><small>IDR · terkonfirmasi</small></article>)}<article><span>Net Worth</span><strong className="net">{latestWealth ? money(latestWealth.netWorthIdr) : "—"}</strong><small>{latestWealth ? `Snapshot ${new Date(latestWealth.observedAt).toLocaleDateString("id-ID")}` : "Wealth belum diinisialisasi"}</small></article></div>
-      {cycle && <article className="overview-period"><CalendarBlank aria-hidden="true"/><div><span>Periode aktif</span><strong>{cycle.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender"}</strong><small>{cycle.start}{cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}</small></div></article>}
+    <section className="overview-flow" aria-labelledby="overview-cashflow-title">
+      <article className="surface overview-position">
+        <header className="overview-position-header">
+          <div><span className="eyebrow">Posisi saat ini</span><h2 id="overview-cashflow-title">Arus kas rumah tangga</h2></div>
+          <div className="overview-period"><CalendarBlank aria-hidden="true"/><div><span>{cycleName}</span><small>{cycleDates}</small></div></div>
+        </header>
+        <div className="overview-position-grid">
+          <div className="overview-net-cashflow"><span>Arus kas bersih · {periodLabel}</span><strong>{money(overview?.netCashflow)}</strong><small><CheckCircle aria-hidden="true" weight="fill"/> Hanya transaksi terkonfirmasi</small></div>
+          <div className="overview-cashflow-parts" aria-label="Pemasukan dan pengeluaran">
+            <div><span>Pemasukan</span><strong className="income">{money(overview?.income)}</strong><small>{periodLabel}</small></div>
+            <div><span>Pengeluaran</span><strong className="expense">{money(overview?.expense)}</strong><small>{periodLabel}</small></div>
+          </div>
+          <div className="overview-allocation" aria-label="Alokasi surplus">
+            <div><span>Tabungan dialokasikan</span><strong>{money(overview?.savingsAllocated)}</strong><small>Sudah punya tujuan</small></div>
+            <div><span>Surplus belum dialokasikan</span><strong>{money(overview?.unallocatedSurplus)}</strong><small>Masih menunggu keputusan</small></div>
+          </div>
+        </div>
+      </article>
     </section>
     {overview?.reviewCount > 0 && <Link className="review-alert" href="/inbox?view=transactions"><WarningCircle aria-hidden="true" weight="fill"/><div><b>{overview.reviewCount} transaksi membutuhkan keputusan</b><small>Belum masuk analisis sampai kamu mengonfirmasi interpretasinya.</small></div><strong>Buka Inbox <ArrowRight aria-hidden="true"/></strong></Link>}
-    <section className="dashboard-grid"><article className="surface chart-panel"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji · harian" : "Bulan ini · harian"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis <ArrowRight aria-hidden="true"/></Link></div><DashboardDailySpendingChart items={cashflow}/></article><article className="surface category-panel"><div className="section-title"><div><span className="eyebrow">Tiga bulan</span><h2>Ke mana uang pergi</h2></div></div><CategoryDonutChart items={categories}/></article></section>
-    <section className="surface recent-panel"><div className="section-title"><div><span className="eyebrow">Ledger</span><h2>Transaksi terbaru</h2></div><Link href="/transactions">Lihat semua <ArrowRight aria-hidden="true"/></Link></div><TransactionList compact items={transactions.slice(0, 8)}/></section></>}
+    <section className="overview-insights"><article className="surface overview-trend"><div className="section-title"><div><span className="eyebrow">{overview?.periodKind === "CURRENT_CYCLE" ? "Siklus gaji · harian" : "Bulan ini · harian"}</span><h2>Pengeluaran harian</h2></div><Link href="/analytics">Lihat analisis <ArrowRight aria-hidden="true"/></Link></div><DashboardDailySpendingChart items={cashflow}/></article><article className="surface overview-categories"><div className="section-title"><div><span className="eyebrow">Tiga bulan</span><h2>Ke mana uang pergi</h2></div></div><CategoryDonutChart items={categories}/></article></section>
+    <section className="overview-lower"><article className="surface overview-activity"><div className="section-title"><div><span className="eyebrow">Ledger</span><h2>Transaksi terbaru</h2></div><Link href="/transactions">Lihat semua <ArrowRight aria-hidden="true"/></Link></div><TransactionList compact items={transactions.slice(0, 8)}/></article><Link className="surface overview-wealth" href="/wealth"><div><span className="eyebrow">Posisi Wealth</span><h2>Nilai bersih keluarga</h2></div><strong>{latestWealth ? money(latestWealth.netWorthIdr) : "—"}</strong><small>{wealthDate ? `Diamati ${wealthDate}` : "Wealth belum diinisialisasi"}</small><span className="overview-wealth-link">Buka Wealth <ArrowRight aria-hidden="true"/></span></Link></section></>}
   </AppShell>;
 }
 
