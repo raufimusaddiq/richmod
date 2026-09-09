@@ -125,13 +125,12 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if reviewState == "AWAITING_DETAIL" {
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "description")
 	}
-	if transactionType == "UNCLASSIFIED" {
+	if reviewState == "AWAITING_ASSET_WEALTH" {
+		return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Pembelian aset dicatat sebagai transfer.", "")
+	}
+	if transactionType == "UNCLASSIFIED" || transactionType == "EXPENSE" {
 		intent := transferReviewIntent(update.Message.Text)
 		switch intent {
-		case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
-			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
-		case "INVESTMENT_ACCOUNT":
-			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
 		case "ASSET_PURCHASE":
 			wealthHint := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(update.Message.Text), "beli aset"), "beli"))
 			if strings.TrimSpace(wealthHint) == "" {
@@ -139,6 +138,15 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			}
 			update.Message.Text = wealthHint
 			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Pembelian aset dicatat sebagai transfer.", "")
+		}
+		if transactionType != "UNCLASSIFIED" {
+			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas 'beli aset Emas' untuk mencatatnya sebagai pembelian aset, atau pilih kategori pengeluaran di Inbox.")
+		}
+		switch intent {
+		case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
+			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
+		case "INVESTMENT_ACCOUNT":
+			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
 		case "IGNORE":
 			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "UNCLASSIFIED", "VOIDED", intent, "Transfer disimpan sebagai bukti non-pengeluaran.", "")
 		case "EXPENSE":
@@ -206,7 +214,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	if data == "review:remember" || data == "review:once" {
 		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
 	}
-	if data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:ignore" {
+	if data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:asset" && data != "review:ignore" {
 		return false, nil
 	}
 	tx, err := p.pool.Begin(ctx)
@@ -257,6 +265,9 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		message = "Pilih kategori pengeluaran:"
 		state = "AWAITING_CATEGORY"
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
+	case "review:asset":
+		message = "Balas pesan ini dengan nama Wealth Account tujuan, misalnya: Emas."
+		state = "AWAITING_ASSET_WEALTH"
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return true, err
@@ -516,8 +527,12 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	if newStatus == "VOIDED" {
 		proposalStatus, sourceStatus = "REJECTED", "IGNORED"
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=NULLIF($4,'')::uuid,status=$5,category_id=NULLIF($6,'')::uuid,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW'`, transactionID, newType, purpose, wealthID, newStatus, categoryID); err != nil {
+	result, err := tx.Exec(ctx, `UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=NULLIF($4,'')::uuid,status=$5,category_id=NULLIF($6,'')::uuid,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' AND (type='UNCLASSIFIED' OR (type='EXPENSE' AND $7='ASSET_PURCHASE'))`, transactionID, newType, purpose, wealthID, newStatus, categoryID, classification)
+	if err != nil {
 		return err
+	}
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("review transaction no longer eligible")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, newType, proposalStatus, categoryID, classification, purpose, wealthID); err != nil {
 		return err
@@ -1410,7 +1425,8 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 	if hasNext {
 		buttons = buttons[:8]
 	}
-	if len(buttons) == 0 {
+	assetPurchase := transactionType == "EXPENSE"
+	if len(buttons) == 0 && !assetPurchase {
 		return nil
 	}
 	var keyboard [][]InlineKeyboardButton
@@ -1432,7 +1448,11 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 	if len(navigation) > 0 {
 		keyboard = append(keyboard, navigation)
 	}
-	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}})
+	detailText, detailCallback := "Ubah detail", "review:edit"
+	if assetPurchase {
+		detailText, detailCallback = "Beli aset", "review:asset"
+	}
+	keyboard = append(keyboard, []InlineKeyboardButton{{Text: detailText, CallbackData: detailCallback}, {Text: "Abaikan", CallbackData: "review:ignore"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
