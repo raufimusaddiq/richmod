@@ -17,7 +17,7 @@ export default function InboxPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [reviewResponse, actionResponse, categoryResponse, wealthResponse] = await Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions"), fetch("/api/v1/categories"), fetch("/api/v1/wealth/accounts"), fetch("/api/v1/accounts")]);
+      const [reviewResponse, actionResponse, categoryResponse, wealthResponse, accountResponse] = await Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions"), fetch("/api/v1/categories"), fetch("/api/v1/wealth/accounts"), fetch("/api/v1/accounts")]);
       if (!reviewResponse.ok || !actionResponse.ok) throw new Error();
       const [reviewItems, actionItems] = await Promise.all([reviewResponse.json(), actionResponse.json()]);
       setReviews(Array.isArray(reviewItems) ? reviewItems : []);

@@ -15,6 +15,7 @@ test("one inbox exposes separate transaction and integration action views", () =
   const shell = text("app/components/AppShell.js");
   assert.match(inbox, /\/api\/v1\/reviews/);
   assert.match(inbox, /\/api\/v1\/integration-actions/);
+  assert.match(inbox, /wealthResponse, accountResponse/);
   assert.match(inbox, />Transaksi <b>/);
   assert.match(inbox, />Tindakan <b>/);
   assert.match(inbox, /Verifikasi penerusan/);
