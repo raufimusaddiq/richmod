@@ -30,9 +30,9 @@ Forward financial notifications, send a message or image through Telegram, or up
 | --- | --- |
 | ![Richmod public landing page](docs/assets/landing.png) | ![Richmod login experience](docs/assets/login.png) |
 
-| Dashboard | Review Inbox |
-| --- | --- |
-| ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
+| Dashboard | Wealth | Review Inbox |
+| --- | --- | --- |
+| ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod household Wealth](docs/assets/wealth.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
 
 ![Richmod household analytics](docs/assets/analytics.png)
 
@@ -57,7 +57,21 @@ Richmod is deliberately conservative around money. PostgreSQL is the source of t
 | 📄 **Document Understanding** | Process receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories through one evidence pipeline. |
 | 🧠 **Human-in-the-loop** | Ambiguous facts never silently become ledger entries. Richmod routes uncertainty to the Review Inbox for an explicit decision. |
 | 📊 **Deterministic Analytics** | Explore cashflow, spending, categories, merchants, members, and salary-cycle views from confirmed financial state. |
+| 🧾 **Wealth snapshots** | Track household assets and liabilities as dated observations, connect salary-cycle savings to their destination, and review Net Worth over time. |
 | 🔎 **Evidence + Audit History** | Preserve source evidence and the decisions it supports so financial state stays explainable and auditable. |
+
+## Wealth and salary-cycle context
+
+Wealth extends the cashflow ledger without replacing it:
+
+- **Cashflow** remains the confirmed income, expense, refund, and transfer history.
+- **Savings allocation** records intentional destinations for confirmed transfers.
+- **Wealth snapshots** capture observed account values for assets and liabilities at a specific time.
+- **Net Worth** brings the latest snapshot together with assets, liabilities, change since the previous observation, and historical context.
+
+Wealth is deliberately observation-based. It does not invent balances, create
+transactions from snapshots, or imply live market prices, investment returns, or
+portfolio performance.
 
 ## How it works
 

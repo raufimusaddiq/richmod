@@ -25,9 +25,21 @@ const reviews = [
   { id: "review-2", reason: "UNKNOWN_MERCHANT", amount: "92500", description: "Merchant perlu dikonfirmasi", transactionAt: "2026-09-05T19:36:00+07:00", sourceType: "Telegram", type: "EXPENSE", proposalStatus: "NEEDS_REVIEW", missingFields: ["merchant"] },
 ];
 const actions = [{ id: "action-1", integrationType: "EMAIL_FORWARDING", actionType: "VERIFY_FORWARDING", status: "OPEN", title: "Verifikasi penerusan email", description: "Google memerlukan konfirmasi sebelum notifikasi finansial dapat diteruskan.", createdAt: "2026-09-06T03:00:00Z" }];
+const wealthAccounts = [
+  { id: "wealth-bank", name: "Tabungan keluarga", institution: "Bank Jago", wealthType: "BANK", usageRole: "SAVINGS", active: true },
+  { id: "wealth-rdn", name: "Dana investasi", institution: "Bibit", wealthType: "MUTUAL_FUND", usageRole: "INVESTMENT", active: true },
+  { id: "wealth-loan", name: "Cicilan rumah", institution: "Bank", wealthType: "LOAN", usageRole: "OTHER", active: true },
+];
+const wealthItems = [
+  { wealthAccountId: "wealth-bank", name: "Tabungan keluarga", side: "ASSET", valueIdr: "18500000" },
+  { wealthAccountId: "wealth-rdn", name: "Dana investasi", side: "ASSET", valueIdr: "34000000" },
+  { wealthAccountId: "wealth-loan", name: "Cicilan rumah", side: "LIABILITY", valueIdr: "4250000" },
+];
+const wealthLatest = { id: "snapshot-2", observedAt: "2026-09-06T10:00:00+07:00", netWorthIdr: "48250000", assetTotalIdr: "52500000", liabilityTotalIdr: "4250000", items: wealthItems };
+const wealthPrevious = { id: "snapshot-1", observedAt: "2026-08-06T10:00:00+07:00", netWorthIdr: "43400000" };
 const responses = new Map([
   ["/api/v1/auth/me", user],
-  ["/api/v1/analytics/overview", { periodKind: "CURRENT_CYCLE", income: "18500000", expense: "2094500", netCashflow: "16405500", reviewCount: 2 }],
+  ["/api/v1/analytics/overview", { periodKind: "CURRENT_CYCLE", income: "18500000", expense: "2094500", netCashflow: "16405500", savingsAllocated: "6500000", unallocatedSurplus: "9905500", reviewCount: 2 }],
   ["/api/v1/analytics/cycle", { kind: "CURRENT_CYCLE", start: "1 Sep 2026", end: "30 Sep 2026" }],
   ["/api/v1/analytics/cycle/daily", { configured: true, daily, salary: "18500000", spent: "2094500", remaining: "16405500", daysElapsed: 6, daysTotal: 30, cycleStart: "2026-09-01", cycleEnd: "2026-09-30" }],
   ["/api/v1/analytics/categories", categories], ["/api/v1/analytics/cashflow", daily],
@@ -35,6 +47,7 @@ const responses = new Map([
   ["/api/v1/analytics/merchants", [{ name: "Super Indo", amount: "438500" }, { name: "Kopi Tuku", amount: "332000" }, { name: "Grab", amount: "274500" }]],
   ["/api/v1/analytics/members", [{ name: "Dimas", amount: "1320000" }, { name: "Maya", amount: "774500" }]],
   ["/api/v1/transactions", transactions], ["/api/v1/reviews", reviews], ["/api/v1/integration-actions", actions], ["/api/v1/categories", categories],
+  ["/api/v1/wealth/accounts", wealthAccounts], ["/api/v1/wealth/summary", { latest: wealthLatest, previous: wealthPrevious, netWorthChangeIdr: "4850000", confirmedCashflowIdr: "3410000", valuationAndOtherChangeIdr: "1440000" }], ["/api/v1/wealth/snapshots/latest", wealthLatest], ["/api/v1/wealth/history", [wealthLatest, wealthPrevious]], ["/api/v1/wealth/current-cycle-savings", { periodKind: "CURRENT_CYCLE", periodStart: "2026-09-01", periodEnd: "2026-09-30", savingsAllocated: "6500000", savingsByDestination: [{ wealthAccountId: "wealth-rdn", name: "Dana investasi", amountIdr: "6500000" }] }], ["/api/v1/wealth/cycle-recaps", []],
   ["/api/v1/insights", [{ id: "insight-1", status: "SUCCEEDED", text: "Pengeluaran enam hari pertama masih terkendali terhadap pemasukan siklus ini. Makan di luar menjadi kategori terbesar; tetapkan batas mingguan agar ruang untuk kebutuhan rutin tetap terjaga.", dataCompleteness: 0.94, completedAt: "2026-09-06T04:15:00Z", metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01" } }]],
 ]);
 
@@ -55,6 +68,7 @@ for (const [path, file, selector, isAuthenticated] of [
   ["/", "landing.png", ".landing-hero", false],
   ["/login", "login.png", ".login-card", false],
   ["/", "dashboard.png", ".app-frame", true],
+  ["/wealth", "wealth.png", ".app-frame", true],
   ["/inbox?view=transactions", "review-inbox.png", ".app-frame", true],
   ["/analytics", "analytics.png", ".app-frame", true],
 ]) {
