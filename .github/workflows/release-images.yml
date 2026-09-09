@@ -36,28 +36,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/api.Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/richmod-api:sha-${{ steps.release.outputs.sha }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/worker.Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/richmod-worker:sha-${{ steps.release.outputs.sha }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/migrate.Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/richmod-migrate:sha-${{ steps.release.outputs.sha }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/web.Dockerfile
