@@ -356,11 +356,16 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	id := r.PathValue("id")
 	var counterparty *string
-	if err = tx.QueryRow(r.Context(), `SELECT counterparty_name FROM transaction WHERE id=$1 AND household_id=$2 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&counterparty); errors.Is(err, pgx.ErrNoRows) {
+	var transactionType string
+	if err = tx.QueryRow(r.Context(), `SELECT type,counterparty_name FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&transactionType, &counterparty); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "transfer review not found"})
 		return
 	} else if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
+		return
+	}
+	if transactionType != "UNCLASSIFIED" && !(transactionType == "EXPENSE" && input.Classification == "ASSET_PURCHASE") {
+		writeJSON(w, 404, map[string]string{"error": "transfer review not found"})
 		return
 	}
 	newType, newStatus, proposalStatus, sourceStatus, purpose := "TRANSFER", "CONFIRMED", "ACCEPTED", "PROCESSED", "INTERNAL_TRANSFER"

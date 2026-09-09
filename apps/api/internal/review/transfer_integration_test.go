@@ -131,6 +131,49 @@ func TestClassifyTransferAsAssetPurchase(t *testing.T) {
 	}
 }
 
+func TestReclassifyExpenseReviewAsAssetPurchase(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	householdID, userID, _ := seedTransferReviewOwner(t, pool, stamp)
+	var wealthID string
+	if err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Emas','ASSET','GOLD','OTHER') RETURNING id`, householdID).Scan(&wealthID); err != nil {
+		t.Fatal(err)
+	}
+	transactionID, _, proposalID := seedUnclassifiedTransfer(t, pool, householdID, stamp+1)
+	if _, err = pool.Exec(ctx, `UPDATE transaction SET type='EXPENSE',purpose='GENERAL' WHERE id=$1`, transactionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='EXPENSE' WHERE id=$1`, proposalID); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"classification": "ASSET_PURCHASE", "wealthAccountId": wealthID})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/classify-transfer", bytes.NewReader(raw))
+	request.SetPathValue("id", transactionID)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
+	response := httptest.NewRecorder()
+	NewHandler(pool).ClassifyTransfer(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var typ, status, purpose, related string
+	var evidence int
+	if err = pool.QueryRow(ctx, `SELECT type,status,purpose,related_wealth_account_id::text,(SELECT count(*) FROM transaction_evidence WHERE transaction_id=$1) FROM transaction WHERE id=$1`, transactionID).Scan(&typ, &status, &purpose, &related, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if typ != "TRANSFER" || status != "CONFIRMED" || purpose != "ASSET_PURCHASE" || related != wealthID || evidence != 1 {
+		t.Fatalf("transaction=%s/%s/%s/%s evidence=%d", typ, status, purpose, related, evidence)
+	}
+}
+
 func seedTransferReviewOwner(t *testing.T, pool *pgxpool.Pool, stamp int64) (string, string, string) {
 	t.Helper()
 	ctx := context.Background()

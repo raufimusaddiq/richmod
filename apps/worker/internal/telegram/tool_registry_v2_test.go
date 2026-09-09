@@ -43,6 +43,9 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 	if got := reviewActionsForType("WEALTH_OBSERVATION"); strings.Join(got, ",") != "PREPARE_SNAPSHOT,SET_WEALTH_ACCOUNT,RECORD_ASSET_PURCHASE,IGNORE" {
 		t.Fatalf("wealth actions=%v", got)
 	}
+	if got := reviewActionsForType("AMBIGUOUS_CATEGORY"); strings.Join(got, ",") != "CONFIRM,ASSET_PURCHASE,IGNORE" {
+		t.Fatalf("expense review actions=%v", got)
+	}
 	for _, tool := range NativeFinanceTools(nil, false, false, true, "WEALTH_OBSERVATION_CONFIRMATION", false, false, "WEALTH_OBSERVATION") {
 		if tool.Name == "resolve_review" {
 			encoded, _ := json.Marshal(tool.Parameters)
