@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./detail-drawer.css";
 import AuthProvider from "./components/AuthProvider";
 
 // The browser-authenticated app must not reuse an HTML shell from an older
