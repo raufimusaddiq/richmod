@@ -4,6 +4,7 @@ import test from "node:test";
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 test("wealth UI keeps decimal strings and supports snapshots", () => {
   const wealth = text("app/wealth/page.js");
+  const charts = text("app/components/Charts.js");
   assert.match(wealth, /\/api\/v1\/wealth\/summary/);
   assert.match(wealth, /\/api\/v1\/wealth\/snapshots\/latest/);
   assert.match(wealth, /\/api\/v1\/wealth\/history/);
@@ -15,6 +16,8 @@ test("wealth UI keeps decimal strings and supports snapshots", () => {
   assert.match(wealth, /Kekayaan belum diatur/);
   assert.match(wealth, /jakartaLocalToRFC3339/);
   assert.match(wealth, /defaultValue=\{previousValues\.get/);
+  assert.match(wealth, /Perbarui nilai/);
+  assert.match(charts, /contentStyle=\{defaultTooltipStyle\}/);
 });
 
 test("Jakarta datetime-local serialization is explicit", () => {
