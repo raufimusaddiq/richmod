@@ -67,6 +67,12 @@ func TestDocumentClassificationRejectsInvalidNativeArguments(t *testing.T) {
 	}
 }
 
+func TestClassificationPromptSeparatesBalanceFromTransactionHistory(t *testing.T) {
+	if !strings.Contains(classificationPrompt, "current balance") || !strings.Contains(classificationPrompt, "transaction-history") || !strings.Contains(classificationPrompt, "never a Wealth observation") {
+		t.Fatal("classification prompt does not distinguish balances from transaction history")
+	}
+}
+
 func TestWealthObservationUsesBoundedNativeSchemaWithoutCanonicalIDs(t *testing.T) {
 	llm := &wealthObservationGateway{call: gateway.ToolCall{Name: "extract_wealth_observation", Arguments: json.RawMessage(`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":null,"unit":null,"unit_price_idr":null,"observed_date":null,"confidence":0.98}`)}}
 	value, _, err := (&Processor{gateway: llm}).extractWealthObservation(context.Background(), "document-1", nil)

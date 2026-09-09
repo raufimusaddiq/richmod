@@ -57,3 +57,48 @@ func TestTerminalTelegramDocumentFailureCreatesReviewAndReply(t *testing.T) {
 		t.Fatalf("document=%s source=%s reviews=%d replies=%d audits=%d", documentStatus, sourceStatus, reviews, replies, audits)
 	}
 }
+
+func TestTelegramWealthReviewCreatesNativePrompt(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	stamp := time.Now().UnixNano()
+	var householdID, sourceID string
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Wealth prompt %d", stamp)).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW',117) RETURNING id`, householdID, fmt.Sprintf("telegram:wealth-prompt:%d", stamp), []byte(fmt.Sprintf("wealth-prompt-%d", stamp))).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,'{"message":{"chat":{"id":719809965}}}')`, sourceID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = enqueueTelegramDocumentReply(ctx, tx, sourceID, "🟡 Nilai Wealth perlu dikonfirmasi"); err != nil {
+		t.Fatal(err)
+	}
+	if err = enqueueTelegramDocumentReply(ctx, tx, sourceID, "🟡 Nilai Wealth perlu dikonfirmasi"); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var replies int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'reply_to_message_id'='117' AND payload_json->>'text'='🟡 Nilai Wealth perlu dikonfirmasi'`).Scan(&replies); err != nil {
+		t.Fatal(err)
+	}
+	if replies != 1 {
+		t.Fatalf("Telegram Wealth prompts = %d, want 1", replies)
+	}
+}

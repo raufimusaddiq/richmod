@@ -773,7 +773,7 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		return true, err
 	}
 	var observationID, resolved, institution, hint string
-	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,COALESCE(wo.resolved_wealth_account_id::text,''),wo.institution,wo.account_hint FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &resolved, &institution, &hint)
+	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,COALESCE(wo.resolved_wealth_account_id::text,''),wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &resolved, &institution, &hint, &originalSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -809,6 +809,69 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 			return true, txErr
 		}
 		return true, tx.Commit(ctx)
+	}
+	if action == "RECORD_ASSET_PURCHASE" {
+		sourceHint, _ := args["source_account_hint"].(string)
+		wealthHint, _ := args["wealth_account_hint"].(string)
+		amount, _ := args["amount_idr"].(string)
+		at, _ := args["transaction_at"].(string)
+		if strings.TrimSpace(sourceHint) == "" || strings.TrimSpace(at) == "" || !validReviewTimestamp(at) {
+			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Sebutkan rekening sumber dan waktu transaksi lengkap, misalnya: Bank Jago, 2026-08-26T08:00:00+07:00.")
+		}
+		if strings.TrimSpace(wealthHint) == "" {
+			wealthHint = strings.TrimSpace(institution + " " + hint)
+		}
+		if strings.TrimSpace(amount) == "" {
+			if err := p.pool.QueryRow(ctx, `SELECT observed_value_idr::text FROM wealth_observation WHERE id=$1 AND status='PENDING'`, observationID).Scan(&amount); err != nil {
+				return true, err
+			}
+		}
+		parsed, _ := time.Parse(time.RFC3339, strings.TrimSpace(at))
+		local := parsed.In(jakartaLocation())
+		if err := p.recordTransfer(ctx, sourceEventID, householdID, update, map[string]any{
+			"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint,
+			"purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"),
+			"local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram",
+		}); err != nil {
+			return true, err
+		}
+		var transactionID string
+		if err := p.pool.QueryRow(ctx, `SELECT transaction_id::text FROM transaction_evidence WHERE source_event_id=$1 ORDER BY created_at DESC LIMIT 1`, sourceEventID).Scan(&transactionID); errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		} else if err != nil {
+			return true, err
+		}
+		tx, err := p.pool.Begin(ctx)
+		if err != nil {
+			return true, err
+		}
+		defer tx.Rollback(ctx)
+		var userID string
+		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TELEGRAM_IMAGE',1,jsonb_build_object('reclassified_from','WEALTH_OBSERVATION','observation_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, originalSource, observationID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND status='PENDING'`, observationID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`, observationID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='RECLASSIFIED_ASSET_PURCHASE',updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observationID, userID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, originalSource); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RECLASSIFY_WEALTH_OBSERVATION','wealth_observation',$3,jsonb_build_object('transaction_id',$4::uuid,'purpose','ASSET_PURCHASE'))`, householdID, userID, observationID, transactionID); err != nil {
+			return true, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return true, err
+		}
+		return true, nil
 	}
 	if action == "IGNORE" {
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Observasi Wealth diabaikan.")

@@ -40,9 +40,19 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 	if got := reviewActionsForType("TRANSFER_RECONCILIATION"); strings.Join(got, ",") != "MERGE_EXISTING,CONFIRM_NEW_TRANSFER,IGNORE" {
 		t.Fatalf("reconciliation actions=%v", got)
 	}
-	if got := reviewActionsForType("WEALTH_OBSERVATION"); strings.Join(got, ",") != "PREPARE_SNAPSHOT,SET_WEALTH_ACCOUNT,IGNORE" {
+	if got := reviewActionsForType("WEALTH_OBSERVATION"); strings.Join(got, ",") != "PREPARE_SNAPSHOT,SET_WEALTH_ACCOUNT,RECORD_ASSET_PURCHASE,IGNORE" {
 		t.Fatalf("wealth actions=%v", got)
 	}
+	for _, tool := range NativeFinanceTools(nil, false, false, true, "WEALTH_OBSERVATION_CONFIRMATION", false, false, "WEALTH_OBSERVATION") {
+		if tool.Name == "resolve_review" {
+			encoded, _ := json.Marshal(tool.Parameters)
+			if !strings.Contains(string(encoded), "RECORD_ASSET_PURCHASE") || !strings.Contains(string(encoded), "source_account_hint") {
+				t.Fatalf("wealth review schema=%s", encoded)
+			}
+			return
+		}
+	}
+	t.Fatal("wealth resolve_review missing")
 }
 
 func TestNativeReviewSchemaUsesOpaqueReconciliationReferences(t *testing.T) {
