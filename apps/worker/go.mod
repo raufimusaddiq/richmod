@@ -3,7 +3,7 @@ module github.com/raufimusaddiq/richmod/apps/worker
 go 1.25.0
 
 require (
-	github.com/jackc/pgx/v5 v5.7.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.3.0
 	golang.org/x/text v0.41.0
 )
