@@ -57,6 +57,11 @@ Review exposes only those candidates. A user may merge one candidate or
 confirm a distinct transfer; Go performs the mutation and attaches Telegram
 evidence. Weak evidence never selects a transaction automatically.
 
+Bank and Telegram transfer reviews may classify one outgoing event as
+`ASSET_PURCHASE` by selecting one compatible active Wealth Account. This
+preserves the original evidence on the same canonical transfer; it never
+creates a second expense or synthetic Wealth value.
+
 Analytics Overview and Wealth current savings share one current-period
 resolver. It uses a confirmed primary salary cycle when available, otherwise
 the Jakarta calendar month. Open periods end at the next Jakarta midnight;

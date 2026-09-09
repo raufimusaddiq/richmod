@@ -25,7 +25,7 @@ func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
 }
 
 func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
-	if got := reviewActionsForType("TRANSFER_CLASSIFICATION"); len(got) != 5 {
+	if got := reviewActionsForType("TRANSFER_CLASSIFICATION"); len(got) != 6 {
 		t.Fatalf("transfer actions=%v", got)
 	}
 	if got := reviewActionsForType("PAYSLIP_CONFIRMATION"); len(got) != 3 {
