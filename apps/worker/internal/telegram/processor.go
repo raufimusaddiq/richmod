@@ -213,13 +213,15 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	hasMerchantLearning, _ := p.hasMerchantLearning(ctx, householdID, update)
 	activeReview, reviewCount, _ := p.activeReviewBinding(ctx, householdID, update)
 	reviewType := ""
+	reviewMode := ""
 	if bound, ok := activeReview.(map[string]any); ok {
 		reviewType, _ = bound["review_type"].(string)
+		reviewMode, _ = bound["review_mode"].(string)
 	}
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
 	content := map[string]any{"turn_context": map[string]any{"current_user_text": "<untrusted_user_message>" + text + "</untrusted_user_message>", "recent_turns": conversation, "current_jakarta_datetime": now.Format(time.RFC3339), "allowed_category_slugs": categories, "has_pending_action": hasPendingAction, "has_pending_batch": hasPendingBatch, "active_review_count": reviewCount, "active_review": activeReview}, "supported_languages": []string{"id", "en"}}
 	attemptCtx, cancel := context.WithTimeout(ctx, telegramLLMAttemptTimeout)
-	call, metadata, err := p.gateway.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, reviewCount == 1, reviewType, hasSalaryChoice, hasMerchantLearning), gateway.NativeToolOptions{Required: true})
+	call, metadata, err := p.gateway.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, reviewCount == 1, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode), gateway.NativeToolOptions{Required: true})
 	cancel()
 	if err != nil {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Richmod belum bisa memproses pesan ini. Coba lagi sebentar.")
@@ -279,7 +281,11 @@ func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID 
 		var sid string
 		err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4) ON CONFLICT(household_id,normalized_employer) WHERE active DO UPDATE SET is_primary=excluded.is_primary RETURNING id`, householdID, employer, norm, choice == "PRIMARY").Scan(&sid)
 		if err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 ON CONFLICT DO NOTHING`, sid, householdID, period, payDate, sourceID, tid)
+			var salaryEventID string
+			err = tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 AND t.household_id=$2 ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id RETURNING id`, sid, householdID, period, payDate, sourceID, tid).Scan(&salaryEventID)
+			if err == nil && choice == "PRIMARY" {
+				_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5) ON CONFLICT DO NOTHING`, householdID, salaryEventID)
+			}
 			if err == nil {
 				_, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status=$2,resolved_at=now() WHERE id=$1`, id, choice)
 			}
@@ -312,7 +318,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Richmod hanya membantu pencatatan dan review keuangan rumah tangga. Fitur investasi dan permintaan sistem tidak didukung.")
 	case "ask_clarification":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Detailnya belum cukup jelas. Sebutkan nominal, tujuan, serta waktu transaksi.")
-	case "query_spending", "query_cashflow", "get_finance_insight":
+	case "query_spending", "query_cashflow", "query_savings", "get_finance_insight":
 		period, _ := args["period"].(string)
 		fromDate, _ := args["from_date"].(string)
 		toDate, _ := args["to_date"].(string)
@@ -329,6 +335,8 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		switch call.Name {
 		case "query_cashflow":
 			return true, p.replyCashflow(ctx, sourceID, householdID, update, r)
+		case "query_savings":
+			return true, p.replySavings(ctx, sourceID, householdID, update, r)
 		case "get_finance_insight":
 			return true, p.replyCycleInsight(ctx, sourceID, householdID, update, r)
 		default:
@@ -352,6 +360,12 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		return true, p.replySearch(ctx, sourceID, householdID, update, r, clean(search, 120))
 	case "list_review_items":
 		return true, p.replyReviews(ctx, sourceID, householdID, update)
+	case "list_wealth_accounts":
+		return true, p.replyWealthAccounts(ctx, sourceID, householdID, update)
+	case "query_wealth":
+		return true, p.replyWealth(ctx, sourceID, householdID, update)
+	case "record_transfer":
+		return true, p.recordTransfer(ctx, sourceID, householdID, update, args)
 	case "resolve_review":
 		return true, p.resolveNativeReview(ctx, sourceID, householdID, update, args)
 	case "resolve_salary_choice":

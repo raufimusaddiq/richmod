@@ -230,14 +230,31 @@ See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployme
 - [Database schema and ERD](docs/DATABASE_SCHEMA.md)
 - [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
+- [Wealth, savings, and cycle reconciliation release checklist](docs/WEALTH_SAVINGS_CYCLE_RECONCILIATION_RELEASE_CHECKLIST.md)
 - [Production deployment runbook](docs/runbooks/production-deployment.md)
 - [`AGENTS.md`](AGENTS.md) for repository architecture and contribution rules
 
 ## Scope
 
-Richmod currently focuses on **household income and expense tracking**.
+Richmod V1 covers **household income and expense tracking**, additive wealth
+observations, savings intent classification, and salary-cycle residual
+reconciliation. Transactions remain the cashflow ledger; wealth snapshots are
+point-in-time observations; residuals become review metadata, not synthetic
+transactions.
 
-Assets, stocks, mutual funds, gold, crypto, portfolio valuation, investment P&L, and market-price feeds are intentionally outside the current MVP scope.
+Supported Wealth V1 is manual, snapshot-level tracking for bank, cash,
+e-wallet, mutual fund, gold, brokerage, deposit, crypto, and loan/liability
+balances. Explicit non-goals: live NAV or market-price feeds, broker or wallet
+sync, per-security positions, cost basis, realized/unrealized P&L, TWR, XIRR,
+investment advice, historical savings inference, and automatic
+residual-to-transaction conversion.
+
+Bank Email remains the frozen `SPENDING_ONLY` compatibility pipeline. Financial
+Provider Email is a generic native-LLM observation path: provider email may
+stand alone as evidence, while Go owns household entity resolution,
+reconciliation, and canonical mutations. Wealth values are observations and
+snapshots, never transactions. Provider-specific production branches are out
+of scope.
 
 ---
 

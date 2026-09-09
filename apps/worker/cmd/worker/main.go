@@ -15,9 +15,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/bankemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerInsight "github.com/raufimusaddiq/richmod/apps/worker/internal/insight"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/residual"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -73,12 +75,19 @@ func run(logger *slog.Logger) error {
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
+	residualProcessor := residual.New(pool)
 	bankModel := os.Getenv("LLM_MODEL_BANK_EXTRACT")
 	if bankModel == "" {
 		bankModel = os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT")
 	}
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
+	financialModel := os.Getenv("LLM_MODEL_FINANCIAL_EMAIL")
+	if financialModel == "" {
+		financialModel = bankModel
+	}
+	financialLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), financialModel).WithRecorder("FINANCIAL_EMAIL_EXTRACTION", recordLLMCall)
+	financialProcessor := financialemail.NewProcessor(pool, financialLLM)
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)
 	jobs := queue.New(pool)
@@ -86,6 +95,7 @@ func run(logger *slog.Logger) error {
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())
 
 	logger.Info("worker started", "worker_id", workerID)
+	catchUpResidualReviews(ctx, logger, pool, 100)
 	if err := documentProcessor.EvictTerminalCaches(ctx); err != nil {
 		logger.Warn("attachment cache eviction failed", "error", err)
 	}
@@ -99,7 +109,7 @@ func run(logger *slog.Logger) error {
 		workers  int
 	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"CHAT", 200 * time.Millisecond, chatWorkers}, {"DEFAULT", time.Second, 1}, {"BACKGROUND", time.Second, 1}} {
 		for i := 0; i < lane.workers; i++ {
-			go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, bankProcessor, documentProcessor, insightProcessor, bot, fmt.Sprintf("%s:%s:%d", workerID, strings.ToLower(lane.name), i+1), lane.name, lane.interval)
+			go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, fmt.Sprintf("%s:%s:%d", workerID, strings.ToLower(lane.name), i+1), lane.name, lane.interval)
 		}
 	}
 	maintenanceTicker := time.NewTicker(time.Minute)
@@ -109,6 +119,7 @@ func run(logger *slog.Logger) error {
 		case <-ctx.Done():
 			return nil
 		case <-maintenanceTicker.C:
+			catchUpResidualReviews(ctx, logger, pool, 25)
 			if err := documentProcessor.EvictTerminalCaches(ctx); err != nil {
 				logger.Warn("attachment cache eviction failed", "error", err)
 			}
@@ -118,6 +129,13 @@ func run(logger *slog.Logger) error {
 				logger.Info("job retention cleanup", "deleted", deleted)
 			}
 		}
+	}
+}
+
+func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, limit int) {
+	_, err := pool.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',se.household_id,'end_salary_event_id',se.id),5 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.status='CONFIRMED' AND ss.active AND ss.is_primary AND EXISTS(SELECT 1 FROM salary_event prior JOIN salary_source ps ON ps.id=prior.salary_source_id WHERE prior.household_id=se.household_id AND prior.status='CONFIRMED' AND ps.active AND ps.is_primary AND prior.pay_date<se.pay_date) AND NOT EXISTS(SELECT 1 FROM cycle_residual_case c WHERE c.household_id=se.household_id AND c.end_salary_event_id=se.id) AND NOT EXISTS(SELECT 1 FROM job j WHERE j.type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND j.status IN('PENDING','RUNNING') AND j.payload_json->>'end_salary_event_id'=se.id::text) ORDER BY se.pay_date DESC LIMIT $1`, limit)
+	if err != nil && ctx.Err() == nil {
+		logger.Warn("residual catch-up failed", "error", err)
 	}
 }
 
@@ -140,11 +158,11 @@ func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int6
 	return tag.RowsAffected(), nil
 }
 
-func runLaneLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string, interval time.Duration) {
+func runLaneLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, bankProcessor, documentProcessor, insightProcessor, bot, workerID, lane); err != nil && ctx.Err() == nil {
+		if err := processAvailable(ctx, logger, jobs, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, workerID, lane); err != nil && ctx.Err() == nil {
 			logger.Error("job polling failed", "lane", lane, "error", err)
 		}
 		select {
@@ -175,7 +193,7 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
-func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, workerID, lane string) error {
+func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string) error {
 	processed := 0
 	for {
 		job, found, err := jobs.Claim(ctx, workerID, lane)
@@ -183,7 +201,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			return err
 		}
 		processed++
-		err = processJob(ctx, processor, imageProcessor, bankProcessor, documentProcessor, insightProcessor, bot, job)
+		err = processJob(ctx, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, job)
 		if err == nil {
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
@@ -208,16 +226,16 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 	}
 }
 
-func processJob(ctx context.Context, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, bot *telegram.Bot, job queue.Job) error {
+func processJob(ctx context.Context, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, job queue.Job) error {
 	budget := time.Duration(0)
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
 		budget = 10 * time.Second
-	case "PROCESS_BANK_EMAIL":
+	case "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
 		budget = 45 * time.Second
 	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "FETCH_TELEGRAM_IMAGE":
 		budget = 60 * time.Second
-	case "GENERATE_INSIGHT":
+	case "GENERATE_INSIGHT", "GENERATE_CYCLE_RESIDUAL_REVIEW":
 		budget = 30 * time.Second
 	}
 	if budget > 0 {
@@ -294,6 +312,18 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		return bankProcessor.Process(ctx, payload)
+	case "PROCESS_FINANCIAL_EMAIL":
+		payload, err := financialemail.DecodePayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return financialProcessor.Process(ctx, payload)
+	case "PROCESS_FINANCIAL_EMAIL_PREVIEW":
+		payload, err := financialemail.DecodePreviewPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return financialProcessor.ProcessPreview(ctx, payload)
 	case "COMPLETE_BANK_REVIEW":
 		payload, err := bankemail.DecodePayload(job.Payload)
 		if err != nil {
@@ -330,6 +360,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		return insightProcessor.Process(ctx, payload.InsightID)
+	case "GENERATE_CYCLE_RESIDUAL_REVIEW":
+		payload, err := residual.Decode(job.Payload)
+		if err != nil {
+			return err
+		}
+		return residualProcessor.Generate(ctx, payload)
 	default:
 		return fmt.Errorf("unsupported job type %q", job.Type)
 	}

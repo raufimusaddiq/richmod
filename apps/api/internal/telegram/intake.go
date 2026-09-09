@@ -39,11 +39,8 @@ type ImageInput struct {
 type Store interface {
 	Capture(context.Context, CaptureInput) (bool, error)
 	CaptureImage(context.Context, ImageInput) (bool, error)
-	Link(context.Context, CaptureInput, string) (bool, error)
-}
-
-type callbackStore interface {
 	CaptureCallback(context.Context, CaptureInput, string, int64, int64) (bool, error)
+	Link(context.Context, CaptureInput, string) (bool, error)
 }
 
 type Handler struct {
@@ -119,12 +116,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		cs, ok := h.store.(callbackStore)
-		if !ok {
-			http.Error(w, "telegram callback integration unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		_, err = cs.CaptureCallback(r.Context(), CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.CallbackQuery.From.ID, RawPayload: raw}, update.CallbackQuery.ID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID)
+		_, err = h.store.CaptureCallback(r.Context(), CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.CallbackQuery.From.ID, RawPayload: raw}, update.CallbackQuery.ID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID)
 		if errors.Is(err, ErrUnauthorized) {
 			w.WriteHeader(http.StatusNoContent)
 			return

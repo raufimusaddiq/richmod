@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -129,7 +130,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		switch intent {
 		case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
 			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
-		case "INVESTMENT_ACCOUNT", "IGNORE":
+		case "INVESTMENT_ACCOUNT":
+			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
+		case "IGNORE":
 			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "UNCLASSIFIED", "VOIDED", intent, "Transfer disimpan sebagai bukti non-pengeluaran.", "")
 		case "EXPENSE":
 			categories, categoryErr := p.categories(ctx, householdID)
@@ -208,7 +211,8 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
+		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
 		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
@@ -380,7 +384,8 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
+		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
 		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
@@ -469,14 +474,28 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
+	purpose, wealthID := "GENERAL", ""
+	if newType == "TRANSFER" {
+		purpose = "INTERNAL_TRANSFER"
+	}
+	if classification == "INVESTMENT_ACCOUNT" {
+		var count int
+		if err = tx.QueryRow(ctx, `SELECT count(DISTINCT ka.wealth_account_id),COALESCE(min(ka.wealth_account_id::text),'') FROM transaction t JOIN known_account ka ON ka.household_id=t.household_id AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower(COALESCE(t.counterparty_name,'')) LIKE '%'||lower(ka.match_hint) JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=t.household_id AND wa.active WHERE t.id=$1 AND t.household_id=$2`, transactionID, householdID).Scan(&count, &wealthID); err != nil {
+			return err
+		}
+		if count != 1 {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tujuan investasi belum dapat dipetakan ke satu Wealth Account. Lengkapi tautan Known Account di Pengaturan atau selesaikan lewat Review Inbox.")
+		}
+		newType, newStatus, purpose = "TRANSFER", "CONFIRMED", "INVESTMENT_CONTRIBUTION"
+	}
 	proposalStatus, sourceStatus := "ACCEPTED", "PROCESSED"
 	if newStatus == "VOIDED" {
 		proposalStatus, sourceStatus = "REJECTED", "IGNORED"
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction SET type=$2,status=$3,category_id=NULLIF($4,'')::uuid,confirmed_at=CASE WHEN $3='CONFIRMED' THEN now() END,voided_at=CASE WHEN $3='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW'`, transactionID, newType, newStatus, categoryID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=NULLIF($4,'')::uuid,status=$5,category_id=NULLIF($6,'')::uuid,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND type='UNCLASSIFIED' AND status='NEEDS_REVIEW'`, transactionID, newType, purpose, wealthID, newStatus, categoryID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, newType, proposalStatus, categoryID, classification); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, newType, proposalStatus, categoryID, classification, purpose, wealthID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
@@ -497,7 +516,7 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification',$4::text)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID, classification); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'status',$7::text))`, householdID, userID, transactionID, reviewID, classification, newType, newStatus); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'purpose',$7::text,'related_wealth_account_id',NULLIF($8,'')::text,'status',$9::text))`, householdID, userID, transactionID, reviewID, classification, newType, purpose, wealthID, newStatus); err != nil {
 		return err
 	}
 	if err = enqueueReply(ctx, tx, update, message); err != nil {
@@ -588,6 +607,20 @@ func (p *Processor) extractReview(ctx context.Context, sourceEventID, text strin
 }
 
 func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, args map[string]any) error {
+	action, _ := args["action"].(string)
+	if handled, err := p.resolveNativeSpecialReview(ctx, sourceEventID, householdID, update, action, args); handled {
+		return err
+	}
+	if update.Message.ReplyToMessage != nil {
+		var requestID, itemID, caseID string
+		err := p.pool.QueryRow(ctx, `SELECT r.id,ri.id,crc.id FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&requestID, &itemID, &caseID)
+		if err == nil {
+			return p.resolveNativeResidualReview(ctx, sourceEventID, householdID, update, requestID, itemID, caseID, action, args)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
 	query := `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
 	params := []any{householdID, update.Message.Chat.ID}
 	if update.Message.ReplyToMessage != nil {
@@ -617,7 +650,6 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	if len(choices) != 1 {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Ada beberapa review aktif. Pilih pesan review yang ingin diselesaikan atau balas pesannya.")
 	}
-	action, _ := args["action"].(string)
 	categorySlug, _ := args["category_slug"].(string)
 	description, _ := args["description"].(string)
 	merchant, _ := args["merchant"].(string)
@@ -666,7 +698,7 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "HOUSEHOLD_ACCOUNT", "Transfer dicatat sebagai perpindahan antar anggota household.", "")
 	}
 	if action == "INVESTMENT_TRANSFER" {
-		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "UNCLASSIFIED", "VOIDED", "INVESTMENT_ACCOUNT", "Transfer disimpan sebagai bukti non-pengeluaran.", "")
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "INVESTMENT_ACCOUNT", "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
 	}
 	categoryID := ""
 	if categorySlug != "" {
@@ -681,6 +713,259 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, c.id, c.tx, categoryID, update, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
+}
+
+func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, action string, args map[string]any) (bool, error) {
+	var caseID, originalSource, accountID, amount, description, purpose, wealthID string
+	var at time.Time
+	var candidates []string
+	err := p.pool.QueryRow(ctx, `SELECT id,source_event_id,account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE household_id=$1 AND status='OPEN' ORDER BY created_at DESC LIMIT 1`, householdID).Scan(&caseID, &originalSource, &accountID, &amount, &description, &purpose, &wealthID, &at, &candidates)
+	if err == nil {
+		if action == "MERGE_EXISTING" {
+			ref, _ := args["candidate_ref"].(string)
+			var index int
+			if _, scanErr := fmt.Sscanf(ref, "candidate_%d", &index); scanErr != nil || index < 1 || index > len(candidates) {
+				return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kandidat transfer yang tersedia.")
+			}
+			return true, p.resolveNativeTransferCase(ctx, sourceEventID, householdID, update, caseID, originalSource, accountID, amount, description, purpose, wealthID, at, candidates[index-1], false)
+		}
+		if action == "CONFIRM_NEW_TRANSFER" {
+			return true, p.resolveNativeTransferCase(ctx, sourceEventID, householdID, update, caseID, originalSource, accountID, amount, description, purpose, wealthID, at, "", true)
+		}
+		if action == "IGNORE" {
+			return true, p.resolveNativeTransferCase(ctx, sourceEventID, householdID, update, caseID, originalSource, accountID, amount, description, purpose, wealthID, at, "", false)
+		}
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih tindakan rekonsiliasi transfer yang valid.")
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return true, err
+	}
+	var observationID, resolved, institution, hint string
+	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,COALESCE(wo.resolved_wealth_account_id::text,''),wo.institution,wo.account_hint FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &resolved, &institution, &hint)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	_ = institution
+	_ = hint
+	if action == "PREPARE_SNAPSHOT" {
+		if resolved == "" {
+			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih Wealth Account terlebih dahulu sebelum menyiapkan snapshot lengkap.")
+		}
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Buka halaman Wealth untuk menyiapkan snapshot lengkap; nilai dokumen belum mengubah saldo sampai snapshot disimpan.")
+	}
+	if action == "SET_WEALTH_ACCOUNT" {
+		wealthHint, _ := args["wealth_account_hint"].(string)
+		tx, txErr := p.pool.Begin(ctx)
+		if txErr != nil {
+			return true, txErr
+		}
+		defer tx.Rollback(ctx)
+		id, resolveErr := resolveUniqueWealthHint(ctx, tx, householdID, wealthHint)
+		if resolveErr != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Wealth Account harus cocok tepat satu.")
+		}
+		if _, txErr = tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND status='PENDING'`, observationID, id); txErr != nil {
+			return true, txErr
+		}
+		if _, txErr = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); txErr != nil {
+			return true, txErr
+		}
+		if txErr = enqueueReply(ctx, tx, update, "Wealth Account tersimpan. Siapkan snapshot lengkap untuk menerapkan nilai dokumen."); txErr != nil {
+			return true, txErr
+		}
+		return true, tx.Commit(ctx)
+	}
+	if action == "IGNORE" {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Observasi Wealth diabaikan.")
+	}
+	return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih tindakan observasi Wealth yang valid.")
+}
+
+func (p *Processor) resolveNativeTransferCase(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, caseID, originalSource, accountID, amount, description, purpose, wealthID string, at time.Time, target string, createNew bool) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var compatible bool
+	if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, householdID).Scan(&compatible); err != nil || !compatible {
+		return fmt.Errorf("invalid transfer Wealth relationship")
+	}
+	var userID string
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+		return err
+	}
+	id := target
+	if createNew {
+		err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`, householdID, accountID, amount, at, description, userID, purpose, wealthID).Scan(&id)
+		if err != nil {
+			return err
+		}
+	} else if id != "" {
+		var kind, status, targetAccount, targetAmount string
+		if err = tx.QueryRow(ctx, `SELECT type,status,account_id::text,amount::text FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`, id, householdID).Scan(&kind, &status, &targetAccount, &targetAmount); err != nil || targetAccount != accountID || targetAmount != amount || status == "VOIDED" {
+			return fmt.Errorf("invalid reconciliation candidate")
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),confirmed_at=COALESCE(confirmed_at,now()),updated_at=now() WHERE id=$1`, id, purpose, wealthID, description); err != nil {
+			return err
+		}
+		if kind == "UNCLASSIFIED" || status == "NEEDS_REVIEW" {
+			if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='TRANSFER',proposal_status='ACCEPTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN ('OPEN','PENDING_SEND')`, id); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1)`, id); err != nil {
+				return err
+			}
+		}
+	}
+	if id != "" {
+		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'TELEGRAM_TEXT',1) ON CONFLICT DO NOTHING`, id, originalSource); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id IN ($1,$2)`, originalSource, sourceEventID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='TRANSFER_RECONCILED',updated_at=now() WHERE source_event_id=$1 AND status IN ('OPEN','PENDING_SEND')`, originalSource, userID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE id=$1`, caseID, userID); err != nil {
+		return err
+	}
+	if err = enqueueReply(ctx, tx, update, "✅ Rekonsiliasi transfer tersimpan tanpa duplikasi."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+type residualAllocation struct {
+	WealthAccountID string `json:"wealth_account_id"`
+	AmountIDR       string `json:"amount_idr"`
+	Note            string `json:"note"`
+}
+
+func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, requestID, itemID, caseID, action string, args map[string]any) error {
+	if action == "TRANSACTION_MISSING" {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Tambahkan transaksi lewat Review Inbox di web, lalu selesaikan rekonsiliasi ini.")
+	}
+	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau tambahkan transaksi di web.")
+	}
+	var input struct {
+		Allocations []residualAllocation `json:"allocations"`
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil || json.Unmarshal(encoded, &input) != nil {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Data alokasi tidak valid.")
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var userID string
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+		return err
+	}
+	var lockedRequest, lockedItem string
+	if err = tx.QueryRow(ctx, `SELECT r.id,ri.id FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND ri.id=$2 AND r.household_id=$3 AND r.status='OPEN' AND ri.status IN ('PENDING_SEND','OPEN') FOR UPDATE`, requestID, itemID, householdID).Scan(&lockedRequest, &lockedItem); err != nil {
+		return err
+	}
+	var oldIncome, oldExpense, oldSavings, oldResidual, income, expense, savings, residual string
+	err = tx.QueryRow(ctx, `SELECT c.basis_income_idr::text,c.basis_expense_idr::text,c.basis_savings_idr::text,c.basis_residual_idr::text,(SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT (COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)-COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0))::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')) FROM cycle_residual_case c WHERE c.id=$1 AND c.household_id=$2 FOR UPDATE`, caseID, householdID).Scan(&oldIncome, &oldExpense, &oldSavings, &oldResidual, &income, &expense, &savings, &residual)
+	if err != nil {
+		return err
+	}
+	if oldIncome != income || oldExpense != expense || oldSavings != savings || oldResidual != residual {
+		recomputed, valid := new(big.Int).SetString(residual, 10)
+		if !valid {
+			return fmt.Errorf("invalid recomputed residual")
+		}
+		if recomputed.Sign() <= 0 {
+			if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID, userID, residual); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, requestID); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CYCLE_RESIDUAL_STALE_NOT_APPLICABLE','cycle_residual_case',$3,jsonb_build_object('incomeIdr',$4,'expenseIdr',$5,'savingsIdr',$6,'residualIdr',$7))`, householdID, userID, caseID, income, expense, savings, residual); err != nil {
+				return err
+			}
+			if err = enqueueReply(ctx, tx, update, "Sisa salary cycle tidak lagi positif. Rekonsiliasi ini ditutup tanpa alokasi."); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
+		}
+		if _, err = tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, caseID, income, expense, savings, residual); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CYCLE_RESIDUAL_STALE','cycle_residual_case',$3,jsonb_build_object('incomeIdr',$4,'expenseIdr',$5,'savingsIdr',$6,'residualIdr',$7))`, householdID, userID, caseID, income, expense, savings, residual); err != nil {
+			return err
+		}
+		if err = enqueueReply(ctx, tx, update, "Basis sisa cycle berubah. Tinjau nominal terbaru, lalu selesaikan lagi."); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	residualInt, ok := new(big.Int).SetString(residual, 10)
+	if !ok {
+		return fmt.Errorf("invalid residual basis")
+	}
+	if action == "ALLOCATE_RETAINED_BALANCE" {
+		total, seen := new(big.Int), map[string]struct{}{}
+		if len(input.Allocations) == 0 {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Minimal satu alokasi diperlukan.")
+		}
+		for _, a := range input.Allocations {
+			amount, valid := new(big.Int).SetString(a.AmountIDR, 10)
+			if a.WealthAccountID == "" || !regexp.MustCompile(`^[0-9]+$`).MatchString(a.AmountIDR) || !valid || amount.Sign() <= 0 || amount.BitLen() > 63 {
+				return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Alokasi harus memakai nominal IDR bulat positif dan rekening valid.")
+			}
+			if _, duplicate := seen[a.WealthAccountID]; duplicate {
+				return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Setiap Wealth Account hanya boleh sekali.")
+			}
+			seen[a.WealthAccountID] = struct{}{}
+			total.Add(total, amount)
+		}
+		if total.Cmp(residualInt) != 0 {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Total alokasi harus sama dengan sisa saldo cycle.")
+		}
+		ids := make([]string, 0, len(seen))
+		for id := range seen {
+			ids = append(ids, id)
+		}
+		var validAccounts int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM wealth_account WHERE household_id=$1 AND active AND id=ANY($2::uuid[])`, householdID, ids).Scan(&validAccounts); err != nil || validAccounts != len(ids) {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Wealth Account harus aktif dan milik household ini.")
+		}
+		for _, a := range input.Allocations {
+			if _, err = tx.Exec(ctx, `INSERT INTO cycle_residual_allocation(cycle_residual_case_id,wealth_account_id,amount_idr,note,created_by_user_id) VALUES($1,$2,$3,$4,$5)`, caseID, a.WealthAccountID, a.AmountIDR, clean(a.Note, 1000), userID); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID, userID, action, string(encoded)); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, requestID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,$3,'cycle_residual_case',$4,jsonb_build_object('residualIdr',$5))`, householdID, userID, "CYCLE_RESIDUAL_"+action, caseID, residual); err != nil {
+		return err
+	}
+	if err = enqueueReply(ctx, tx, update, "Rekonsiliasi sisa salary cycle tersimpan."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {
@@ -911,7 +1196,7 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	}
 	var markup *InlineKeyboardMarkup
 	if markupMode == "category" {
-		markup = reviewActionMarkup(ctx, tx, reviewID, reviewType)
+		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	} else if markupMode == "reply" {
 		markup = requiredFieldReplyMarkup()
 	} else {
@@ -1001,10 +1286,6 @@ func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID stri
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded))
 	return err
-}
-
-func reviewActionMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType string) *InlineKeyboardMarkup {
-	return reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 }
 
 func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, page int) *InlineKeyboardMarkup {

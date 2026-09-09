@@ -31,28 +31,37 @@ type candidate struct {
 }
 
 type item struct {
-	ID             string      `json:"id"`
-	Type           string      `json:"type"`
-	Amount         string      `json:"amount"`
-	Currency       string      `json:"currency"`
-	TransactionAt  time.Time   `json:"transactionAt"`
-	Description    *string     `json:"description"`
-	Note           *string     `json:"note"`
-	CategoryID     *string     `json:"categoryId"`
-	AccountID      *string     `json:"accountId"`
-	CategoryName   *string     `json:"categoryName"`
-	MerchantName   *string     `json:"merchantName"`
-	Counterparty   *string     `json:"counterparty"`
-	SourceType     *string     `json:"sourceType"`
-	Confidence     *string     `json:"confidence"`
-	ProposalStatus *string     `json:"proposalStatus"`
-	Reason         string      `json:"reason"`
-	Candidates     []candidate `json:"candidates"`
-	ReviewType     string      `json:"reviewType,omitempty"`
-	SubjectType    string      `json:"subjectType,omitempty"`
-	SubjectID      string      `json:"subjectId,omitempty"`
-	AllowedActions []string    `json:"allowedActions,omitempty"`
-	MissingFields  []string    `json:"missingFields,omitempty"`
+	ID                      string                    `json:"id"`
+	Type                    string                    `json:"type"`
+	Amount                  string                    `json:"amount"`
+	Currency                string                    `json:"currency"`
+	TransactionAt           time.Time                 `json:"transactionAt"`
+	Description             *string                   `json:"description"`
+	Note                    *string                   `json:"note"`
+	CategoryID              *string                   `json:"categoryId"`
+	AccountID               *string                   `json:"accountId"`
+	CategoryName            *string                   `json:"categoryName"`
+	MerchantName            *string                   `json:"merchantName"`
+	Counterparty            *string                   `json:"counterparty"`
+	SourceType              *string                   `json:"sourceType"`
+	Confidence              *string                   `json:"confidence"`
+	ProposalStatus          *string                   `json:"proposalStatus"`
+	Reason                  string                    `json:"reason"`
+	Candidates              []candidate               `json:"candidates"`
+	ReviewType              string                    `json:"reviewType,omitempty"`
+	SubjectType             string                    `json:"subjectType,omitempty"`
+	SubjectID               string                    `json:"subjectId,omitempty"`
+	AllowedActions          []string                  `json:"allowedActions,omitempty"`
+	MissingFields           []string                  `json:"missingFields,omitempty"`
+	CycleStart              string                    `json:"cycleStart,omitempty"`
+	CycleEnd                string                    `json:"cycleEnd,omitempty"`
+	WealthObservationID     string                    `json:"wealthObservationId,omitempty"`
+	ResolvedWealthAccountID string                    `json:"resolvedWealthAccountId,omitempty"`
+	Institution             string                    `json:"institution,omitempty"`
+	AccountHint             string                    `json:"accountHint,omitempty"`
+	TransferCandidates      []transferReviewCandidate `json:"transferCandidates,omitempty"`
+	ProposedPurpose         string                    `json:"proposedPurpose,omitempty"`
+	ProposedWealthAccountID string                    `json:"proposedWealthAccountId,omitempty"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +115,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, value := range canonical {
 		sourceType := value.Channel
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt})
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: value.ResolvedWealthAccountID, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID})
 	}
 	writeJSON(w, 200, items)
 }
@@ -328,6 +337,12 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	input.Institution = clean(&input.Institution, 120)
 	input.DisplayName = clean(&input.DisplayName, 160)
 	input.MatchHint = clean(&input.MatchHint, 80)
+	if input.Classification != "EXPENSE" && input.Classification != "IGNORE" && input.Remember {
+		if !maskedHintPattern.MatchString(input.MatchHint) || input.Institution == "" {
+			writeJSON(w, 400, map[string]string{"error": "institution and masked match hint are required to remember account"})
+			return
+		}
+	}
 	if input.Classification != "EXPENSE" && input.Classification != "OWN_ACCOUNT" && input.Classification != "HOUSEHOLD_ACCOUNT" && input.Classification != "INVESTMENT_ACCOUNT" && input.Classification != "IGNORE" {
 		writeJSON(w, 400, map[string]string{"error": "invalid transfer classification"})
 		return
@@ -347,10 +362,29 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
 		return
 	}
-	newType, newStatus, proposalStatus, sourceStatus := "TRANSFER", "CONFIRMED", "ACCEPTED", "PROCESSED"
+	newType, newStatus, proposalStatus, sourceStatus, purpose := "TRANSFER", "CONFIRMED", "ACCEPTED", "PROCESSED", "INTERNAL_TRANSFER"
+	var wealthAccountID *string
+	var count int
+	if input.Classification == "INVESTMENT_ACCOUNT" {
+		hint := input.MatchHint
+		if hint == "" && counterparty != nil {
+			hint = strings.TrimSpace(*counterparty)
+		}
+		if err = tx.QueryRow(r.Context(), `SELECT count(DISTINCT ka.wealth_account_id) FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower($2) LIKE '%'||lower(ka.match_hint)`, household, hint).Scan(&count); err != nil || count != 1 {
+			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
+			return
+		}
+		var linked string
+		if err = tx.QueryRow(r.Context(), `SELECT ka.wealth_account_id FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower($2) LIKE '%'||lower(ka.match_hint)`, household, hint).Scan(&linked); err != nil {
+			writeJSON(w, 409, map[string]string{"error": "investment account requires a deterministic linked wealth account"})
+			return
+		}
+		wealthAccountID = &linked
+		purpose = "INVESTMENT_CONTRIBUTION"
+	}
 	var categoryID *string
 	if input.Classification == "EXPENSE" {
-		newType = "EXPENSE"
+		newType, purpose = "EXPENSE", "GENERAL"
 		if input.CategoryID == nil {
 			writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 			return
@@ -362,31 +396,15 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		categoryID = &valid
 	}
-	if input.Classification == "INVESTMENT_ACCOUNT" || input.Classification == "IGNORE" {
-		newType, newStatus, proposalStatus, sourceStatus = "UNCLASSIFIED", "VOIDED", "REJECTED", "IGNORED"
+	if input.Classification == "IGNORE" {
+		newType, newStatus, proposalStatus, sourceStatus, purpose = "UNCLASSIFIED", "VOIDED", "REJECTED", "IGNORED", "GENERAL"
 	}
-	if _, err = tx.Exec(r.Context(), `UPDATE transaction SET type=$2,status=$3,category_id=$4,confirmed_at=CASE WHEN $3='CONFIRMED' THEN now() END,voided_at=CASE WHEN $3='VOIDED' THEN now() END,updated_at=now() WHERE id=$1`, id, newType, newStatus, categoryID); err != nil {
+	if _, err = tx.Exec(r.Context(), `UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=$4,status=$5,category_id=$6,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1`, id, newType, purpose, wealthAccountID, newStatus, categoryID); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to classify transfer"})
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, id, newType, proposalStatus, categoryID, input.Classification); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to update transfer proposal"})
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id, sourceStatus); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to update transfer evidence"})
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve transfer request"})
-		return
-	}
-	if err = resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "CLASSIFY_TRANSFER"); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN(SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve transfer conversation"})
+	if err = finalizeTransferReviewLifecycle(r.Context(), tx, household, p.UserID, id, newType, proposalStatus, sourceStatus, categoryID, input.Classification, "CLASSIFY_TRANSFER"); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to finalize transfer review"})
 		return
 	}
 	if input.Remember && input.Classification != "EXPENSE" && input.Classification != "IGNORE" {
@@ -616,6 +634,23 @@ func resolveTransactionReviewItem(ctx context.Context, tx pgx.Tx, household, use
 		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action=$4,
 		    resolution_values=jsonb_build_object('transaction_id',$2::uuid),updated_at=now()
 		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')`, household, transactionID, user, action)
+	return err
+}
+
+func finalizeTransferReviewLifecycle(ctx context.Context, tx pgx.Tx, household, user, transactionID, proposedType, proposalStatus, sourceStatus string, categoryID *string, classification, action string) error {
+	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, proposedType, proposalStatus, categoryID, classification); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, sourceStatus); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')`, transactionID); err != nil {
+		return err
+	}
+	if err := resolveTransactionReviewItem(ctx, tx, household, user, transactionID, action); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN(SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, transactionID)
 	return err
 }
 

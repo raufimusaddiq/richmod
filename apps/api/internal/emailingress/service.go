@@ -212,6 +212,17 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 			var listenerID string
 			err = tx.QueryRow(ctx, `SELECT id FROM bank_email_listener WHERE household_id=$1 AND sender_address=$2 AND active`, address.HouseholdID, in.Email.Sender).Scan(&listenerID)
 			if errors.Is(err, pgx.ErrNoRows) {
+				var financialID string
+				financialErr := tx.QueryRow(ctx, `SELECT fs.id FROM financial_email_source fs JOIN email_sender_route r ON r.financial_source_id=fs.id AND r.household_id=fs.household_id AND r.active WHERE fs.household_id=$1 AND fs.sender_address=$2 AND fs.status='ACTIVE'`, address.HouseholdID, in.Email.Sender).Scan(&financialID)
+				if financialErr == nil {
+					if err := s.persistFinancialActive(ctx, tx, address, financialID, in); err != nil {
+						return err
+					}
+					return tx.Commit(ctx)
+				}
+				if !errors.Is(financialErr, pgx.ErrNoRows) {
+					return financialErr
+				}
 				status, reason = "IGNORED_UNMATCHED", "UNMATCHED_SENDER"
 			} else if err != nil {
 				return err
@@ -241,6 +252,42 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) persistFinancialActive(ctx context.Context, tx pgx.Tx, address Address, sourceID string, in deliveryInput) error {
+	externalID := "rfc822:" + strings.TrimSpace(in.Email.MessageID)
+	if strings.TrimSpace(in.Email.MessageID) == "" {
+		externalID = "sha256:" + hex.EncodeToString(in.Signed.ContentHash[:])
+	}
+	var eventID string
+	if err := tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,raw_payload_ref,payload_hash,processing_status,parser_name,parser_version) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,$4,'RECEIVED','cloudflare-financial-email','1') ON CONFLICT DO NOTHING RETURNING id`, address.HouseholdID, externalID, "r2://richmod-email-raw/"+in.Signed.ObjectKey, in.Signed.ContentHash[:]).Scan(&eventID); errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	body := in.Email.HTMLBody
+	if body == "" {
+		body = in.Email.TextBody
+	}
+	metadata, _ := json.Marshal(map[string]any{"transport": "cloudflare_email", "objectKey": in.Signed.ObjectKey, "envelopeFrom": in.Signed.EnvelopeFrom, "internetMessageID": in.Email.MessageID, "contentSHA256": hex.EncodeToString(in.Signed.ContentHash[:])})
+	if _, err := tx.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, eventID, string(metadata)); err != nil {
+		return err
+	}
+	messageID := in.Email.MessageID
+	if messageID == "" {
+		messageID = "sha256:" + hex.EncodeToString(in.Signed.ContentHash[:])
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO financial_email_event(source_event_id,financial_source_id,observed_sender,message_id,subject,email_date,authentication_results,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, eventID, sourceID, in.Email.Sender, messageID, in.Email.Subject, in.Email.Date, in.Email.AuthenticationResults+"\n"+in.Email.ARCAuthenticationResults, visibleHTML(body)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO email_ingress_delivery(address_id,household_id,financial_source_id,provider,object_key,content_sha256,raw_size,envelope_from,observed_sender,internet_message_id,subject,email_date,authentication_results,arc_authentication_results,status,received_at) VALUES($1,$2,$3,'CLOUDFLARE_EMAIL',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'INGESTED',now()) ON CONFLICT DO NOTHING`, address.ID, address.HouseholdID, sourceID, in.Signed.ObjectKey, in.Signed.ContentHash[:], len(in.Raw), in.Signed.EnvelopeFrom, in.Email.Sender, in.Email.MessageID, in.Email.Subject, in.Email.Date, in.Email.AuthenticationResults, in.Email.ARCAuthenticationResults); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('PROCESS_FINANCIAL_EMAIL',jsonb_build_object('source_event_id',$1::uuid,'financial_source_id',$2::uuid))`, eventID, sourceID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE email_ingress_address SET last_received_at=now() WHERE id=$1`, address.ID)
+	return err
 }
 
 func trustedAuthConfigured(values []string) bool {

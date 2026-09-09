@@ -75,6 +75,9 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 		if e == nil {
 			e = tx.QueryRow(r.Context(), `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) VALUES($1,$2,$3,$4,$5) RETURNING id`, hid, in.BankName, in.SenderAddress, aid, p.UserID).Scan(&lid)
 		}
+		if e == nil {
+			_, e = tx.Exec(r.Context(), `INSERT INTO email_sender_route(household_id,sender_address,route_kind,bank_listener_id) VALUES($1,$2,'BANK',$3)`, hid, in.SenderAddress, lid)
+		}
 		if e != nil {
 			jsonError(w, 409, "active sender already exists")
 			return
@@ -163,6 +166,16 @@ func (h *Handler) BankEmailListeners(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		jsonError(w, 409, "active sender already exists")
 		return
+	}
+	if _, e = tx.Exec(r.Context(), `UPDATE email_sender_route SET active=false,updated_at=now() WHERE bank_listener_id=$1`, id); e != nil {
+		jsonError(w, 500, "unable to update sender route")
+		return
+	}
+	if active {
+		if _, e = tx.Exec(r.Context(), `INSERT INTO email_sender_route(household_id,sender_address,route_kind,bank_listener_id,active) VALUES($1,$2,'BANK',$3,true)`, hid, senderAddress, id); e != nil {
+			jsonError(w, 409, "active sender already exists")
+			return
+		}
 	}
 	if auditCreate(r.Context(), tx, hid, p.UserID, "bank_email_listener", id, map[string]any{"bankName": bankName, "senderAddress": senderAddress, "active": active, "trackingPolicy": "SPENDING_ONLY"}) != nil || tx.Commit(r.Context()) != nil {
 		jsonError(w, 500, "unable to audit listener")

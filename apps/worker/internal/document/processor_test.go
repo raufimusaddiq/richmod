@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
@@ -15,10 +16,6 @@ import (
 type classificationGateway struct {
 	call    gateway.ToolCall
 	options gateway.NativeToolOptions
-}
-
-func (g *classificationGateway) Structured(context.Context, string, string, string, any, map[string]any, any) (gateway.Metadata, error) {
-	return gateway.Metadata{}, fmt.Errorf("structured output must not be used for document classification")
 }
 
 func (g *classificationGateway) NativeToolCall(_ context.Context, _ string, _ string, _ any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -68,6 +65,56 @@ func TestDocumentClassificationRejectsInvalidNativeArguments(t *testing.T) {
 			t.Fatalf("accepted invalid arguments: %s", arguments)
 		}
 	}
+}
+
+func TestWealthObservationUsesBoundedNativeSchemaWithoutCanonicalIDs(t *testing.T) {
+	llm := &wealthObservationGateway{call: gateway.ToolCall{Name: "extract_wealth_observation", Arguments: json.RawMessage(`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":null,"unit":null,"unit_price_idr":null,"observed_date":null,"confidence":0.98}`)}}
+	value, _, err := (&Processor{gateway: llm}).extractWealthObservation(context.Background(), "document-1", nil)
+	if err != nil || value.ObservedValueIDR != "42700000" || !llm.required {
+		t.Fatalf("value=%+v required=%t err=%v", value, llm.required, err)
+	}
+	encoded, _ := json.Marshal(wealthObservationSchema())
+	if string(encoded) == "" || string(encoded) == "null" || string(encoded) == "{}" || string(encoded) == "[]" {
+		t.Fatal("wealth observation schema missing")
+	}
+	if strings.Contains(string(encoded), "wealth_account_id") || strings.Contains(string(encoded), "household_id") || strings.Contains(string(encoded), "transaction_id") {
+		t.Fatal("wealth observation schema exposed canonical IDs")
+	}
+}
+
+func TestWealthObservationRejectsInvalidOptionalNumerics(t *testing.T) {
+	for _, arguments := range []string{
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"-1","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"abc","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1/2","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1e3","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"123456789012345678901","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"0.12345678901","unit":"unit","unit_price_idr":"1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1","unit":"unit","unit_price_idr":"-1000","observed_date":null,"confidence":0.98}`,
+		`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":"1","unit":"unit","unit_price_idr":"1.5","observed_date":null,"confidence":0.98}`,
+	} {
+		llm := &wealthObservationGateway{call: gateway.ToolCall{Name: "extract_wealth_observation", Arguments: json.RawMessage(arguments)}}
+		value, _, err := (&Processor{gateway: llm}).extractWealthObservation(context.Background(), "document-1", nil)
+		if err != nil {
+			continue
+		}
+		if validOptionalDecimal(value.Quantity) && validOptionalWholeMoney(value.UnitPriceIDR) {
+			t.Fatalf("accepted invalid optional numeric fields: %s", arguments)
+		}
+	}
+}
+
+type wealthObservationGateway struct {
+	call     gateway.ToolCall
+	required bool
+}
+
+func (g *wealthObservationGateway) NativeToolCall(_ context.Context, _ string, _ string, _ any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	if len(tools) != 1 || tools[0].Name != "extract_wealth_observation" {
+		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected wealth observation tool")
+	}
+	g.required = len(options) == 1 && options[0].Required
+	return g.call, gateway.Metadata{}, nil
 }
 
 func TestReadDocumentRejectsPathTraversal(t *testing.T) {
