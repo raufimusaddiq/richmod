@@ -22,7 +22,7 @@ test("one inbox exposes separate transaction and integration action views", () =
   assert.match(inbox, /noopener noreferrer/);
   assert.match(inbox, /user\?\.household\?\.role === "OWNER"/);
   assert.match(inbox, /Pemilik household perlu menyelesaikan tindakan ini/);
-  assert.match(shell, /\["\/inbox", "Inbox", "✓"\]/);
+  assert.match(shell, /\["\/inbox", "Tinjauan", "✓"\]/);
   assert.match(shell, /nav-badge/);
   assert.match(text("app/reviews/page.js"), /redirect\("\/inbox\?view=transactions"\)/);
   assert.match(text("app/actions/page.js"), /redirect\("\/inbox\?view=actions"\)/);
@@ -202,9 +202,9 @@ test("public routes preserve the authenticated overview and dedicated login flow
   assert.match(home, /return <AppShell user=\{user\}/);
   assert.match(landing, /Keuangan keluarga,/);
   assert.match(landing, /Richmod bertanya—bukan mengarang/);
-  assert.match(landing, /Review Inbox/);
+  assert.match(landing, /KOTAK TINJAUAN/);
   assert.match(landing, /richmod-evidence-flow\.svg/);
-  assert.match(landing, /Alur Richmod dari bukti ke ledger atau keputusan manusia/);
+  assert.match(landing, /Alur Richmod dari bukti ke catatan atau keputusan manusia/);
   assert.doesNotMatch(landing, /function EvidenceBoard/);
   assert.match(login, /useAuth\(false\)/);
   assert.match(login, /window\.location\.replace\("\/"\)/);
@@ -235,7 +235,7 @@ test("admin lists use bounded server filters and accessible detail actions", () 
   assert.match(admin, /useAdminList/);
   assert.match(admin, /nextCursor/);
   assert.match(admin, /Muat berikutnya/);
-  assert.match(admin, /aria-label="Status job"/);
+  assert.match(admin, /aria-label="Status tugas"/);
   assert.match(admin, /aria-label="Reference ID"/);
   assert.match(admin, /admin-link admin-id/);
 });
@@ -260,7 +260,7 @@ test("admin audit defaults to combined bounded feed while retaining scoped views
   assert.match(admin, /\/api\/v1\/admin\/audit\/all/);
   assert.match(admin, /<option value="all">Semua<\/option>/);
   assert.match(admin, /<option value="platform">Platform<\/option>/);
-  assert.match(admin, /<option value="household">Household<\/option>/);
+  assert.match(admin, /<option value="household">Rumah tangga<\/option>/);
 });
 
 test("admin user changes require confirmation", () => {

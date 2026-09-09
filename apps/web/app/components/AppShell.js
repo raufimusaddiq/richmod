@@ -9,8 +9,8 @@ const nav = [
   ["/", "Ringkasan", "⌂"],
   ["/transactions", "Transaksi", "ledger"],
   ["/analytics", "Analisis", "⌁"],
-  ["/wealth", "Wealth", "wealth"],
-  ["/inbox", "Inbox", "✓"],
+  ["/wealth", "Kekayaan", "wealth"],
+  ["/inbox", "Tinjauan", "✓"],
   ["/documents", "Dokumen", "▤"],
   ["/household", "Keluarga", "⌾"],
   ["/settings", "Pengaturan", "settings"],
@@ -62,14 +62,14 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
     const active = isActive(href);
     return <Link href={href} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={onClick}>
       <Icon aria-hidden="true" weight={active ? "fill" : "regular"}/><span>{label}</span>
-      {href === "/inbox" && inboxCount > 0 && <b className="nav-badge" aria-label={`${inboxCount} item inbox`}>{inboxCount}</b>}
+      {href === "/inbox" && inboxCount > 0 && <b className="nav-badge" aria-label={`${inboxCount} item menunggu tinjauan`}>{inboxCount}</b>}
     </Link>;
   }
 
   return <div className="app-frame">
     <a className="skip-link" href="#main-content">Lewati ke konten</a>
     <aside className="sidebar">
-      <Link className="brand" href="/" aria-label="Richmod Ringkasan"><span>R</span><div>Richmod<small>Household finance</small></div></Link>
+      <Link className="brand" href="/" aria-label="Richmod Ringkasan"><span>R</span><div>Richmod<small>Keuangan keluarga</small></div></Link>
       <nav aria-label="Navigasi utama">{links.map(item => <NavLink key={item[0]} item={item}/>)}</nav>
       <div className="sidebar-context"><span>Ruang kerja</span><b>{user?.householdName || "Keuangan keluarga"}</b><small>IDR · Asia/Jakarta</small></div>
       <div className="sidebar-user"><span>{user?.displayName?.slice(0, 1) || "U"}</span><div><b>{user?.displayName}</b><small>{user?.isSuperAdmin ? "Super admin" : "Anggota keluarga"}</small></div><button type="button" aria-label="Keluar" title="Keluar" onClick={logout}><SignOut aria-hidden="true"/></button></div>

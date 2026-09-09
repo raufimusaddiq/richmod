@@ -29,13 +29,13 @@ test("homepage reads canonical Net Worth and distinguishes uninitialized Wealth"
   const home = text("app/page.js");
   assert.match(home, /\/api\/v1\/wealth\/snapshots\/latest/);
   assert.match(home, /latestWealth\.netWorthIdr/);
-  assert.match(home, /Wealth belum diinisialisasi/);
+  assert.match(home, /Kekayaan belum diinisialisasi/);
   assert.match(home, /: "—"/);
 });
 test("Wealth navigation uses a distinct Vault icon", () => {
   const shell = text("app/components/AppShell.js");
   assert.match(shell, /wealth: Vault/);
-  assert.match(shell, /\["\/wealth", "Wealth", "wealth"\]/);
+  assert.match(shell, /\["\/wealth", "Kekayaan", "wealth"\]/);
 });
 test("manual transfer exposes purpose and wealth account", () => {
   const transactions = text("app/transactions/page.js");
@@ -49,5 +49,5 @@ test("manual transfer exposes purpose and wealth account", () => {
   assert.match(text("app/components/ReviewCards.js"), /ASSET_PURCHASE/);
   assert.match(text("app/components/ReviewCards.js"), /Beli aset/);
   assert.match(text("app/components/ReviewCards.js"), /item\.type === "EXPENSE".*classification: "ASSET_PURCHASE"/s);
-  assert.match(text("app/components/AppShell.js"), /\["\/wealth", "Wealth"/);
+  assert.match(text("app/components/AppShell.js"), /\["\/wealth", "Kekayaan"/);
 });

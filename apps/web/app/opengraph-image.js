@@ -40,7 +40,7 @@ export default function OpenGraphImage() {
           </div>
           <div style={{ display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-0.03em" }}>Richmod</div>
-            <div style={{ marginTop: 5, color: "#6a625e", fontSize: 16 }}>Household finance, evidence first.</div>
+            <div style={{ marginTop: 5, color: "#6a625e", fontSize: 16 }}>Keuangan keluarga, bukti sebagai dasar.</div>
           </div>
         </div>
 
@@ -75,7 +75,7 @@ export default function OpenGraphImage() {
           </div>
           <div style={{ display: "flex", margin: "0 4px", color: "#6d435c", fontSize: 30 }}>→</div>
           <div style={{ display: "flex", padding: "11px 16px", borderRadius: 999, background: "#eee4ea", color: "#6d435c" }}>
-            Ledger keluarga
+            Catatan keluarga
           </div>
         </div>
       </div>

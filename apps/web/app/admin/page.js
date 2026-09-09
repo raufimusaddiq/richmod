@@ -5,12 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 
 const tabs = [
-  ["overview", "Overview"],
-  ["jobs", "Jobs"],
+  ["overview", "Ringkasan"],
+  ["jobs", "Tugas"],
   ["llm", "LLM"],
-  ["logs", "Logs"],
-  ["households", "Households"],
-  ["users", "Users"],
+  ["logs", "Log"],
+  ["households", "Rumah tangga"],
+  ["users", "Pengguna"],
   ["audit", "Audit"],
 ];
 const time = (v) =>
@@ -30,10 +30,11 @@ async function get(url) {
 function Badge({ value }) {
   return (
     <span className={`admin-badge admin-${String(value || "").toLowerCase()}`}>
-      {value || "—"}
+      {badgeLabel[value] || value || "—"}
     </span>
   );
 }
+const badgeLabel = { ACTIVE: "Aktif", INACTIVE: "Nonaktif", DISABLED: "Dinonaktifkan", PENDING: "Menunggu", RUNNING: "Berjalan", SUCCEEDED: "Berhasil", FAILED: "Gagal", HEALTHY: "Sehat", WARN: "Peringatan", ERROR: "Galat" };
 function Metric({ label, value, note }) {
   return (
     <article className="admin-metric">
@@ -68,7 +69,7 @@ export default function AdminPage() {
     <AppShell
       user={me}
       eyebrow="ADMINISTRASI PLATFORM"
-      title="Platform Console"
+      title="Konsol platform"
     >
       <p className="page-intro">
         Operasi platform. Data sensitif dan isi finansial tidak ditampilkan.
@@ -127,13 +128,13 @@ function useAdminList(path, filters, setError) {
 
 function Overview({ setError }) {
   const [data, refresh] = useLoad("/api/v1/admin/overview", setError);
-  if (!data) return <Empty>Memuat overview…</Empty>;
+  if (!data) return <Empty>Memuat ringkasan…</Empty>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
           <span className="eyebrow">STATUS PLATFORM</span>
-          <h2>Overview</h2>
+          <h2>Ringkasan</h2>
         </div>
         <button className="secondary" onClick={refresh}>
           Perbarui
@@ -146,17 +147,17 @@ function Overview({ setError }) {
           note={`Dicek ${time(data.checkedAt)}`}
         />
         <Metric
-          label="Worker"
+          label="Pemroses latar"
           value={data.worker.healthy ? "Sehat" : "Perlu cek"}
           note={
             data.worker.lastHeartbeatAt
               ? `Terlihat ${time(data.worker.lastHeartbeatAt)}`
-              : "Belum ada heartbeat"
+              : "Belum ada sinyal kesehatan"
           }
         />
         <Metric
           label="Antrean"
-          value={`${number(data.jobs.pending)} pending`}
+          value={`${number(data.jobs.pending)} menunggu`}
           note={`${number(data.jobs.running)} berjalan`}
         />
         <Metric
@@ -179,18 +180,18 @@ function Overview({ setError }) {
           note="24 jam"
         />
         <Metric label="Review terbuka" value={number(data.reviews.open)} />
-        <Metric label="Household" value={number(data.households.total)} />
+        <Metric label="Rumah tangga" value={number(data.households.total)} />
       </div>
       <div className="admin-grid">
         <article className="surface admin-panel">
           <div className="section-title">
-            <h2>Antrean per lane</h2>
+            <h2>Antrean per jalur</h2>
           </div>
           {data.jobs.lanes.map((l) => (
             <div className="admin-lane" key={l.lane}>
               <b>{l.lane}</b>
               <span>
-                {l.pending} pending · {l.running} berjalan
+                {l.pending} menunggu · {l.running} berjalan
               </span>
               <small>
                 {l.oldestDueAgeMs == null
@@ -205,7 +206,7 @@ function Overview({ setError }) {
             <h2>LLM 24 jam</h2>
           </div>
           <dl className="admin-definition">
-            <dt>Success rate</dt>
+            <dt>Tingkat keberhasilan</dt>
             <dd>
               {data.llm.successRate == null
                 ? "—"
@@ -223,7 +224,7 @@ function Overview({ setError }) {
                 (data.llm.inputTokens || 0) + (data.llm.outputTokens || 0),
               )}
             </dd>
-            <dt>Gateway</dt>
+            <dt>Gerbang LLM</dt>
             <dd>
               {data.integrations.llmGatewayConfigured
                 ? data.integrations.llmProtocol
@@ -233,8 +234,8 @@ function Overview({ setError }) {
         </article>
       </div>
       <article className="surface admin-panel">
-        <div className="section-title"><h2>Event operasional terbaru</h2></div>
-        {data.recentEvents?.length ? <Table headers={["Waktu", "Severity", "Event", "Komponen", "Referensi"]}>{data.recentEvents.map((x, i) => <tr key={`${x.referenceId}-${i}`}><td>{time(x.createdAt)}</td><td><Badge value={x.severity} /></td><td>{x.type}</td><td>{x.component}</td><td className="admin-id">{x.referenceId}</td></tr>)}</Table> : <Empty>Belum ada event operasional.</Empty>}
+        <div className="section-title"><h2>Kejadian operasional terbaru</h2></div>
+        {data.recentEvents?.length ? <Table headers={["Waktu", "Keparahan", "Kejadian", "Komponen", "Referensi"]}>{data.recentEvents.map((x, i) => <tr key={`${x.referenceId}-${i}`}><td>{time(x.createdAt)}</td><td><Badge value={x.severity} /></td><td>{x.type}</td><td>{x.component}</td><td className="admin-id">{x.referenceId}</td></tr>)}</Table> : <Empty>Belum ada kejadian operasional.</Empty>}
       </article>
     </section>
   );
@@ -248,16 +249,16 @@ function Jobs({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">POSTGRESQL JOB QUEUE</span>
-          <h2>Jobs</h2>
+          <span className="eyebrow">ANTREAN TUGAS POSTGRESQL</span>
+          <h2>Tugas</h2>
         </div>
         <button className="secondary" onClick={refresh}>
           Perbarui
         </button>
       </div>
       <div className="admin-filters">
-        <select aria-label="Status job" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option>FAILED</option><option>PENDING</option><option>RUNNING</option><option>SUCCEEDED</option></select>
-        <select aria-label="Lane job" value={filters.lane} onChange={(e) => setFilters({...filters, lane:e.target.value})}><option value="">Semua lane</option><option>INTERACTIVE</option><option>DEFAULT</option><option>BACKGROUND</option></select>
+        <select aria-label="Status tugas" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option value="FAILED">Gagal</option><option value="PENDING">Menunggu</option><option value="RUNNING">Berjalan</option><option value="SUCCEEDED">Berhasil</option></select>
+        <select aria-label="Jalur tugas" value={filters.lane} onChange={(e) => setFilters({...filters, lane:e.target.value})}><option value="">Semua jalur</option><option value="INTERACTIVE">Interaktif</option><option value="DEFAULT">Bawaan</option><option value="BACKGROUND">Latar belakang</option></select>
         <input aria-label="Jenis job" placeholder="Jenis job" value={filters.type} onChange={(e) => setFilters({...filters, type:e.target.value})} />
         <select aria-label="Rentang job" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
         <input aria-label="Cari Job ID" placeholder="Cari Job ID" value={filters.q} onChange={(e) => setFilters({...filters, q:e.target.value})} />
@@ -328,19 +329,19 @@ function JobDetail({ id, close, setError }) {
         <Empty>Memuat…</Empty>
       ) : (
         <>
-          <h2>Job</h2>
+          <h2>Tugas</h2>
           <dl className="admin-definition">
             <dt>ID</dt>
             <dd className="admin-id">{data.id}</dd>
-            <dt>Type</dt>
+            <dt>Jenis</dt>
             <dd>{data.type}</dd>
-            <dt>Lane</dt>
+            <dt>Jalur</dt>
             <dd>{data.lane}</dd>
             <dt>Status</dt>
             <dd>
               <Badge value={data.status} />
             </dd>
-            <dt>Attempts</dt>
+            <dt>Percobaan</dt>
             <dd>
               {data.attempts}/{data.maxAttempts}
             </dd>
@@ -366,7 +367,7 @@ function JobDetail({ id, close, setError }) {
           ) : (
             <Empty>Tidak ada.</Empty>
           )}
-          <h3>Riwayat retry</h3>
+          <h3>Riwayat percobaan ulang</h3>
           {data.retries.length ? (
             <Table headers={["#", "Error", "Durasi", "Waktu"]}>
               {data.retries.map((x) => (
@@ -397,7 +398,7 @@ function LLM({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">CLOUD LLM GATEWAY</span>
+          <span className="eyebrow">GERBANG LLM CLOUD</span>
           <h2>LLM</h2>
         </div>
         <button className="secondary" onClick={refresh}>
@@ -406,13 +407,13 @@ function LLM({ setError }) {
       </div>
       <div className="admin-filters">
         <select aria-label="Rentang LLM" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
-        <input aria-label="Task LLM" placeholder="Task" value={filters.task} onChange={(e) => setFilters({...filters, task:e.target.value})} />
+        <input aria-label="Tugas LLM" placeholder="Tugas" value={filters.task} onChange={(e) => setFilters({...filters, task:e.target.value})} />
         <select aria-label="Status LLM" value={filters.status} onChange={(e) => setFilters({...filters, status:e.target.value})}><option value="">Semua status</option><option>SUCCEEDED</option><option>FAILED</option></select>
       </div>
       <div className="admin-metrics">
-        <Metric label="Calls 24 jam" value={number(summary.calls)} />
+        <Metric label="Panggilan 24 jam" value={number(summary.calls)} />
         <Metric
-          label="Success rate"
+          label="Tingkat keberhasilan"
           value={
             summary.successRate == null
               ? "—"
@@ -428,7 +429,7 @@ function LLM({ setError }) {
           }
         />
         <Metric
-          label="Tokens"
+          label="Token"
           value={number(
             (summary.inputTokens || 0) + (summary.outputTokens || 0),
           )}
@@ -436,10 +437,10 @@ function LLM({ setError }) {
       </div>
       <article className="surface admin-panel">
         <div className="section-title">
-          <h2>Task breakdown</h2>
+          <h2>Rincian tugas</h2>
         </div>
         <Table
-          headers={["Task", "Calls", "Gagal", "P50", "P95", "Tokens"]}
+          headers={["Tugas", "Panggilan", "Gagal", "P50", "P95", "Token"]}
         >
           {summary.tasks.map((x) => (
             <tr key={x.task}>
@@ -512,8 +513,8 @@ function Logs({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">STRUCTURED EVENTS</span>
-          <h2>Logs</h2>
+          <span className="eyebrow">KEJADIAN TERSTRUKTUR</span>
+          <h2>Log</h2>
         </div>
         <button className="secondary" onClick={refresh}>
           Perbarui
@@ -521,7 +522,7 @@ function Logs({ setError }) {
       </div>
       <div className="admin-filters">
         <select aria-label="Jenis event" value={filters.type} onChange={(e) => setFilters({...filters, type:e.target.value})}><option value="">Semua event</option><option>JOB_RETRY</option><option>JOB_FAILED</option><option>LLM_FAILED</option><option>SOURCE_FAILED</option></select>
-        <select aria-label="Severity" value={filters.severity} onChange={(e) => setFilters({...filters, severity:e.target.value})}><option value="">Semua severity</option><option>WARN</option><option>ERROR</option></select>
+        <select aria-label="Keparahan" value={filters.severity} onChange={(e) => setFilters({...filters, severity:e.target.value})}><option value="">Semua tingkat keparahan</option><option value="WARN">Peringatan</option><option value="ERROR">Galat</option></select>
         <input aria-label="Komponen" placeholder="Komponen" value={filters.component} onChange={(e) => setFilters({...filters, component:e.target.value})} />
         <select aria-label="Rentang log" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
         <input aria-label="Reference ID" placeholder="Reference ID" value={filters.q} onChange={(e) => setFilters({...filters, q:e.target.value})} />
@@ -529,8 +530,8 @@ function Logs({ setError }) {
       <Table
         headers={[
           "Waktu",
-          "Severity",
-          "Event",
+          "Keparahan",
+          "Kejadian",
           "Komponen",
           "Kelas error",
           "Referensi",
@@ -570,8 +571,8 @@ function Households({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">HOUSEHOLD</span>
-          <h2>Households</h2>
+          <span className="eyebrow">RUMAH TANGGA</span>
+          <h2>Rumah tangga</h2>
         </div>
         <button className="secondary" onClick={refresh}>
           Perbarui
@@ -684,8 +685,8 @@ function Users({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">IDENTITY</span>
-          <h2>Users</h2>
+          <span className="eyebrow">IDENTITAS</span>
+          <h2>Pengguna</h2>
         </div>
         <button className="secondary" onClick={refresh}>
           Perbarui
@@ -693,12 +694,12 @@ function Users({ setError }) {
       </div>
       <Table
         headers={[
-          "User",
+          "Pengguna",
           "Email",
           "Status",
-          "Households",
-          "Password",
-          "Role",
+          "Rumah tangga",
+          "Kata sandi",
+          "Peran",
           "Aksi",
         ]}
       >
@@ -758,7 +759,7 @@ function Audit({ setError }) {
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
-          <span className="eyebrow">IMMUTABLE AUDIT EVENTS</span>
+          <span className="eyebrow">KEJADIAN AUDIT PERMANEN</span>
           <h2>Audit</h2>
         </div>
         <button className="secondary" onClick={refresh}>
@@ -766,9 +767,9 @@ function Audit({ setError }) {
         </button>
       </div>
       <div className="admin-filters">
-        <select aria-label="Jenis audit" value={kind} onChange={(e) => setKind(e.target.value)}><option value="all">Semua</option><option value="platform">Platform</option><option value="household">Household</option></select>
+        <select aria-label="Jenis audit" value={kind} onChange={(e) => setKind(e.target.value)}><option value="all">Semua</option><option value="platform">Platform</option><option value="household">Rumah tangga</option></select>
         {household && <input aria-label="ID household" placeholder="ID household" value={householdId} onChange={(e) => setHouseholdId(e.target.value)} />}
-        <input aria-label="Action audit" placeholder="Action" value={filters.action} onChange={(e) => setFilters({...filters, action:e.target.value})} />
+        <input aria-label="Tindakan audit" placeholder="Tindakan" value={filters.action} onChange={(e) => setFilters({...filters, action:e.target.value})} />
         <select aria-label="Rentang audit" value={filters.range} onChange={(e) => setFilters({...filters, range:e.target.value})}><option value="1h">1 jam</option><option value="24h">24 jam</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select>
       </div>
       {household && !householdId ? <Empty>Masukkan ID household untuk melihat audit scoped.</Empty> : <><Table headers={["Waktu", "Action", "Actor", "Entity", "Ringkasan"]}>
