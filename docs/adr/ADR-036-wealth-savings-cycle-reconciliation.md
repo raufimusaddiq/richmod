@@ -62,6 +62,11 @@ Bank and Telegram transfer reviews may classify one outgoing event as
 preserves the original evidence on the same canonical transfer; it never
 creates a second expense or synthetic Wealth value.
 
+An open expense review may use the same action when evidence describes an
+asset purchase. Web selects the Wealth Account; Telegram accepts its unique
+human-readable name. Both reclassify the existing transaction and preserve its
+evidence instead of creating a replacement row.
+
 Analytics Overview and Wealth current savings share one current-period
 resolver. It uses a confirmed primary salary cycle when available, otherwise
 the Jakarta calendar month. Open periods end at the next Jakarta midnight;
