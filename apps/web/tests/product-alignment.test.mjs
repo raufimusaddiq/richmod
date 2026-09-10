@@ -100,7 +100,9 @@ test("transaction filters are query-backed", () => {
   const source = text("app/transactions/page.js");
   for (const name of ["from", "to", "type", "categoryId", "memberId", "status", "accountId", "source", "q"]) assert.match(source, new RegExp(`name=\\"${name}\\"`));
   assert.match(source, /URLSearchParams/);
-  assert.match(source, /await load\(search\); if \(cursor\) setNextCursor\(cursor\)/);
+  assert.match(source, /window\.history\.pushState/);
+  assert.match(source, /addEventListener\("popstate", onPopState\)/);
+  assert.match(source, /window\.history\.back\(\)/);
 });
 
 test("ledger request failures are recoverable instead of leaving the page loading", () => {

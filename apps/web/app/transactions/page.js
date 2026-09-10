@@ -49,27 +49,33 @@ export default function TransactionsPage() {
     }
   }, []);
 
-  useEffect(() => { if (user) load(); }, [user, load]);
+  useEffect(() => {
+    if (!user) return;
+    const state = { ...window.history.state, cursorHistory: window.history.state?.cursorHistory || [] };
+    setCursorHistory(state.cursorHistory); window.history.replaceState(state, "", window.location.href); load();
+  }, [user, load]);
+  useEffect(() => {
+    const onPopState = event => { setCursorHistory(event.state?.cursorHistory || []); load(); };
+    window.addEventListener("popstate", onPopState); return () => window.removeEventListener("popstate", onPopState);
+  }, [load]);
   useEffect(() => { if (user) { const id = new URLSearchParams(window.location.search).get("id"); if (id) openDetail({ id }); } }, [user]);
 
   async function filter(event) {
     event.preventDefault(); const form = new FormData(event.currentTarget); const query = new URLSearchParams();
     for (const [key, value] of form.entries()) if (value) query.set(key, value);
     query.set("limit", "50"); setCursorHistory([]);
-    const search = query.toString() ? `?${query}` : ""; window.history.replaceState({}, "", `/transactions${search}`); await load(search);
+    const search = query.toString() ? `?${query}` : ""; window.history.replaceState({ ...window.history.state, cursorHistory: [] }, "", `/transactions${search}`); await load(search);
   }
 
   async function nextPage() {
     if (!nextCursor) return;
-    const query = new URLSearchParams(window.location.search); setCursorHistory(history => [...history, query.get("cursor") || ""]); query.set("cursor", nextCursor); query.set("limit", "50");
-    const search = `?${query}`; window.history.replaceState({}, "", `/transactions${search}`); await load(search);
+    const query = new URLSearchParams(window.location.search); const history = [...cursorHistory, query.get("cursor") || ""]; setCursorHistory(history); query.set("cursor", nextCursor); query.set("limit", "50");
+    const search = `?${query}`; window.history.pushState({ ...window.history.state, cursorHistory: history }, "", `/transactions${search}`); await load(search);
   }
 
-  async function previousPage() {
+  function previousPage() {
     if (!cursorHistory.length) return;
-    const history = cursorHistory.slice(0, -1); const cursor = cursorHistory[cursorHistory.length - 1]; setCursorHistory(history);
-    const query = new URLSearchParams(window.location.search); if (cursor) query.set("cursor", cursor); else query.delete("cursor"); query.set("limit", "50");
-    const search = `?${query}`; window.history.replaceState({}, "", `/transactions${search}`); await load(search); if (cursor) setNextCursor(cursor);
+    window.history.back();
   }
 
   async function openDetail(item) {
