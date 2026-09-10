@@ -69,7 +69,7 @@ export default function TransactionsPage() {
     if (!cursorHistory.length) return;
     const history = cursorHistory.slice(0, -1); const cursor = cursorHistory[cursorHistory.length - 1]; setCursorHistory(history);
     const query = new URLSearchParams(window.location.search); if (cursor) query.set("cursor", cursor); else query.delete("cursor"); query.set("limit", "50");
-    const search = `?${query}`; window.history.replaceState({}, "", `/transactions${search}`); await load(search);
+    const search = `?${query}`; window.history.replaceState({}, "", `/transactions${search}`); await load(search); if (cursor) setNextCursor(cursor);
   }
 
   async function openDetail(item) {
