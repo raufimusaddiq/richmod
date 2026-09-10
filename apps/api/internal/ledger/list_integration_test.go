@@ -77,6 +77,24 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 		t.Fatalf("unexpected items: %#v", items)
 	}
 
+	pageOne := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?limit=1", nil).WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+	pageOneResponse := httptest.NewRecorder()
+	NewHandler(pool).ListTransactions(pageOneResponse, pageOne)
+	if pageOneResponse.Code != http.StatusOK || pageOneResponse.Header().Get("X-Next-Cursor") == "" {
+		t.Fatalf("first page status=%d cursor=%q", pageOneResponse.Code, pageOneResponse.Header().Get("X-Next-Cursor"))
+	}
+	var pageOneItems []transactionView
+	if err := json.Unmarshal(pageOneResponse.Body.Bytes(), &pageOneItems); err != nil || len(pageOneItems) != 1 {
+		t.Fatalf("first page body=%s", pageOneResponse.Body.String())
+	}
+	pageTwo := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?limit=1&cursor="+pageOneResponse.Header().Get("X-Next-Cursor"), nil).WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+	pageTwoResponse := httptest.NewRecorder()
+	NewHandler(pool).ListTransactions(pageTwoResponse, pageTwo)
+	var pageTwoItems []transactionView
+	if pageTwoResponse.Code != http.StatusOK || json.Unmarshal(pageTwoResponse.Body.Bytes(), &pageTwoItems) != nil || len(pageTwoItems) != 1 || pageTwoItems[0].ID == pageOneItems[0].ID {
+		t.Fatalf("second page status=%d body=%s", pageTwoResponse.Code, pageTwoResponse.Body.String())
+	}
+
 	auditRequest := httptest.NewRequest(http.MethodGet, "/api/v1/transactions/"+transactionID+"/audit", nil)
 	auditRequest.SetPathValue("id", transactionID)
 	auditRequest = auditRequest.WithContext(auth.ContextWithPrincipal(auditRequest.Context(), principal))

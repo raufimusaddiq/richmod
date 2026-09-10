@@ -448,6 +448,9 @@ Recommended routes:
 
 Mobile should use a drawer or bottom navigation and remain fully usable.
 
+The `/transactions` ledger uses bounded keyset pagination, preserving stable
+ordering while loading only the current page.
+
 ## 12. Overview page
 
 Overview should answer:

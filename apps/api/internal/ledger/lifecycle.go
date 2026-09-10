@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
@@ -74,13 +76,14 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		  AND ($8='' OR t.account_id::text=$8)
 		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND s2.source_type=$9))
 		  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
-		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit)
+		  AND ($12::timestamptz IS NULL OR (t.transaction_at,t.id) < ($12,NULLIF($13,'')::uuid))
+		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return
 	}
 	defer rows.Close()
-	out := make([]transactionView, 0)
+	out := make([]transactionView, 0, filters.Limit)
 	for rows.Next() {
 		var v transactionView
 		if err := rows.Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName); err != nil {
@@ -93,6 +96,11 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return
 	}
+	if len(out) > filters.Limit {
+		last := out[filters.Limit-1]
+		out = out[:filters.Limit]
+		w.Header().Set("X-Next-Cursor", transactionCursor(last))
+	}
 	writeJSON(w, 200, out)
 }
 
@@ -100,6 +108,8 @@ type transactionFilters struct {
 	Start, End                         *time.Time
 	Type, CategoryID, MemberID, Status string
 	AccountID, Source, Search          string
+	CursorAt                           *time.Time
+	CursorID                           string
 	Limit                              int
 }
 
@@ -121,6 +131,21 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 	}
 	if len(result.Search) > 100 {
 		return result, errors.New("search is too long")
+	}
+	if cursor := strings.TrimSpace(query.Get("cursor")); cursor != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			return result, errors.New("invalid transaction cursor")
+		}
+		parts := strings.Split(string(decoded), "|")
+		if len(parts) != 2 || parts[1] == "" {
+			return result, errors.New("invalid transaction cursor")
+		}
+		at, err := time.Parse(time.RFC3339Nano, parts[0])
+		if err != nil || uuid.Validate(parts[1]) != nil {
+			return result, errors.New("invalid transaction cursor")
+		}
+		result.CursorAt, result.CursorID = &at, parts[1]
 	}
 	if result.Type != "" && !oneOf(result.Type, "INCOME", "EXPENSE", "TRANSFER", "REFUND", "ADJUSTMENT", "UNCLASSIFIED") {
 		return result, errors.New("invalid transaction type")
@@ -147,6 +172,10 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 		return result, errors.New("from date must not be after to date")
 	}
 	return result, nil
+}
+
+func transactionCursor(value transactionView) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(value.TransactionAt.UTC().Format(time.RFC3339Nano) + "|" + value.ID))
 }
 
 func oneOf(value string, allowed ...string) bool {
