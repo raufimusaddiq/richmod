@@ -87,7 +87,7 @@ func TestTelegramReplyToBoundMerchantReviewBypassesLLM(t *testing.T) {
 	}
 }
 
-func TestTelegramReplyReusesRememberedMerchantCategory(t *testing.T) {
+func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -136,7 +136,7 @@ func TestTelegramReplyReusesRememberedMerchantCategory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, _ := json.Marshal(map[string]any{"update_id": stamp, "message": map[string]any{"message_id": 18, "text": "  sHoPeEfOoD  ", "reply_to_message": map[string]any{"message_id": 17}, "from": map[string]any{"id": chatID}, "chat": map[string]any{"id": chatID}}})
+	raw, _ := json.Marshal(map[string]any{"update_id": stamp, "message": map[string]any{"message_id": 18, "text": "  sHoPeEfOoD  ", "from": map[string]any{"id": chatID}, "chat": map[string]any{"id": chatID}}})
 	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("remembered-review-%d", stamp), raw).Scan(&sourceID); err != nil {
 		t.Fatal(err)
 	}

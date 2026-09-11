@@ -90,7 +90,17 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 
 func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
-		return false, nil
+		var messageID int64
+		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return true, err
+		}
+		update.Message.ReplyToMessage = &struct {
+			MessageID int64 `json:"message_id"`
+		}{MessageID: messageID}
 	}
 	var reviewID, transactionID, reviewState, transactionType, requestStatus, transactionStatus string
 	var expired bool
