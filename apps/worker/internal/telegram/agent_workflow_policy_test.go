@@ -63,6 +63,45 @@ func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
 	}
 }
 
+func TestPendingCorrectionOutranksOtherImplicitWrites(t *testing.T) {
+	var update telegramUpdate
+	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"})
+	writes := sideEffectNames(filtered)
+	if scope != agentWorkflowPendingAction {
+		t.Fatalf("scope=%s", scope)
+	}
+	if len(writes) != 2 || !writes["confirm_pending_action"] || !writes["cancel_pending_action"] {
+		t.Fatalf("writes=%v; want pending correction writes only", writes)
+	}
+}
+
+func TestPendingBatchOutranksUniqueReview(t *testing.T) {
+	var update telegramUpdate
+	tools := AgentFinanceTools([]string{"dining"}, false, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
+	writes := sideEffectNames(filtered)
+	if scope != agentWorkflowPendingBatch {
+		t.Fatalf("scope=%s", scope)
+	}
+	if len(writes) != 3 || !writes["confirm_pending_batch"] || !writes["cancel_pending_batch"] || !writes["update_pending_batch"] {
+		t.Fatalf("writes=%v; want pending batch writes only", writes)
+	}
+}
+
+func TestUniqueReviewOutranksGeneralWrites(t *testing.T) {
+	var update telegramUpdate
+	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
+	writes := sideEffectNames(filtered)
+	if scope != agentWorkflowUniqueReview {
+		t.Fatalf("scope=%s", scope)
+	}
+	if len(writes) != 1 || !writes["resolve_review"] {
+		t.Fatalf("writes=%v; want resolve_review only", writes)
+	}
+}
+
 func TestCycleResidualToolUsesWealthHintsNotUUIDs(t *testing.T) {
 	tools := AgentFinanceTools(nil, false, false, true, "CYCLE_RESIDUAL_ALLOCATION", false, false, "CYCLE_RESIDUAL")
 	var resolve *gateway.ToolDefinition
