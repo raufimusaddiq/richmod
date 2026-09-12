@@ -70,7 +70,10 @@ func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID stri
 			SELECT 'TRANSFER_RECONCILIATION',trc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
 			       trc.amount_idr::text,COALESCE(trc.description,'Transfer'),r.created_at
 			FROM transfer_reconciliation_case trc
-			JOIN review_item ri ON ri.source_event_id=trc.source_event_id
+			JOIN review_item ri ON (
+				(ri.source_event_id IS NOT NULL AND ri.source_event_id=trc.source_event_id)
+				OR (ri.financial_email_observation_id IS NOT NULL AND ri.financial_email_observation_id=trc.financial_email_observation_id)
+			)
 			JOIN review_request r ON r.review_item_id=ri.id
 			JOIN review_request_recipient rr ON rr.review_request_id=r.id
 			WHERE trc.household_id=$1 AND trc.status='OPEN' AND ri.status IN ('PENDING_SEND','OPEN')
@@ -143,7 +146,10 @@ func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID str
 		LEFT JOIN review_conversation c ON c.review_request_id=r.id
 		LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id
 		LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id AND wo.status='PENDING'
-		LEFT JOIN transfer_reconciliation_case trc ON trc.source_event_id=ri.source_event_id AND trc.status='OPEN'
+		LEFT JOIN transfer_reconciliation_case trc ON (
+			(ri.source_event_id IS NOT NULL AND trc.source_event_id=ri.source_event_id)
+			OR (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id)
+		) AND trc.status='OPEN'
 		WHERE r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
 		LIMIT 1`, householdID, chatID, messageID).Scan(&binding.ReviewRequestID, &binding.TransactionID,
 		&binding.ReviewType, &binding.ConversationState, &binding.MerchantID, &residualID, &wealthID, &transferID,
