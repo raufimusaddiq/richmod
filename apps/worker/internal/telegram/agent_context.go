@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,10 +109,10 @@ func (p *Processor) agentResidualReviewBinding(ctx context.Context, householdID 
 			return nil, 0, err
 		}
 		values = append(values, map[string]any{
-			"review_type": "CYCLE_RESIDUAL_ALLOCATION",
-			"review_mode": "CYCLE_RESIDUAL",
-			"cycle_start": start,
-			"cycle_end":   end,
+			"review_type":  "CYCLE_RESIDUAL_ALLOCATION",
+			"review_mode":  "CYCLE_RESIDUAL",
+			"cycle_start":  start,
+			"cycle_end":    end,
 			"residual_idr": residual,
 		})
 	}
@@ -202,9 +203,14 @@ func buildAgentTurnContext(text string, now time.Time, categories []string, cont
 	}
 }
 
+func agentScopedRefPrefix(sourceEventID, prefix string) string {
+	sum := sha256.Sum256([]byte(sourceEventID))
+	return fmt.Sprintf("a%x_%s", sum[:4], prefix)
+}
+
 // persistAgentTransactionReferences stores opaque refs without exposing UUIDs
-// to the model. Prefixes are unique within an agent turn so two parallel search
-// tools cannot both redefine tx_1.
+// to the model. The source-event hash scopes refs across user turns while the
+// phase/read suffix keeps parallel reads collision-free inside one turn.
 func (p *Processor) persistAgentTransactionReferences(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, prefix string, ids []string) ([]agentPublicRef, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -214,6 +220,7 @@ func (p *Processor) persistAgentTransactionReferences(ctx context.Context, house
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	prefix = agentScopedRefPrefix(sourceEventID, prefix)
 	refs := make([]string, len(ids))
 	for index := range ids {
 		refs[index] = fmt.Sprintf("%s_tx%d", prefix, index+1)
