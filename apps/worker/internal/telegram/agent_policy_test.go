@@ -22,6 +22,24 @@ func TestValidateAgentCallSetAllowsParallelReads(t *testing.T) {
 	}
 }
 
+func TestValidateAgentCallSetAllowsFiveParallelReads(t *testing.T) {
+	calls := make([]gateway.ToolCall, 0, 5)
+	for _, name := range []string{"query_wealth", "query_cashflow", "query_spending", "query_savings", "get_finance_insight"} {
+		args := `{"period":"THIS_MONTH","from_date":null,"to_date":null}`
+		if name == "query_wealth" {
+			args = `{}`
+		}
+		calls = append(calls, gateway.ToolCall{Name: name, Arguments: json.RawMessage(args)})
+	}
+	plan, err := validateAgentCallSet(calls, &agentState{}, defaultAgentLimits)
+	if err != nil {
+		t.Fatalf("validateAgentCallSet() error = %v", err)
+	}
+	if plan.Class != agentToolRead || len(plan.Calls) != 5 {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
 func TestValidateAgentCallSetRejectsReadMixedWithSideEffect(t *testing.T) {
 	calls := []gateway.ToolCall{
 		{Name: "query_spending", Arguments: json.RawMessage(`{"period":"THIS_MONTH","from_date":null,"to_date":null}`)},

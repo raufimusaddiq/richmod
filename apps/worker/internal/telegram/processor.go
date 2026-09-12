@@ -61,6 +61,7 @@ type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
 	now     func() time.Time
+	bot     *Bot
 }
 
 type extraction struct {
@@ -137,6 +138,8 @@ type telegramUpdate struct {
 func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm, now: time.Now}
 }
+
+func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
 
 // EnsureSourceEventFinal prevents a queue job from being acknowledged when a
 // Telegram event is still unprocessed. This turns orphaned successful jobs

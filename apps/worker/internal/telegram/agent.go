@@ -51,6 +51,8 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if strings.HasPrefix(strings.ToLower(text), "/start") {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi atau tanyakan kondisi keuangan rumah tangga. Contoh: makan siang 50rb, atau bulan ini lebih boros nggak?")
 	}
+	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
+	defer stopTyping()
 
 	agentGateway, ok := p.gateway.(conversationalGateway)
 	if !ok {
@@ -145,6 +147,32 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()
 	return p.runAgentLoop(turnCtx, agentGateway, state)
+}
+
+func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
+	if p.bot == nil || chatID == 0 {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	send := func() {
+		typingCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		_ = p.bot.Typing(typingCtx, chatID)
+		cancel()
+	}
+	send()
+	go func() {
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				send()
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() { close(stop) }
 }
 
 func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGateway, state *agentState) error {

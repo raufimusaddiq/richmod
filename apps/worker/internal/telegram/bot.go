@@ -46,6 +46,36 @@ func NewBot(token string) *Bot {
 	return &Bot{token: token, http: &http.Client{Timeout: 15 * time.Second}, base: "https://api.telegram.org"}
 }
 
+func (b *Bot) Typing(ctx context.Context, chatID int64) error {
+	if b.token == "" || chatID == 0 {
+		return fmt.Errorf("Telegram typing is not configured")
+	}
+	body, err := json.Marshal(map[string]any{"chat_id": chatID, "action": "typing"})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/sendChatAction", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("send Telegram typing failed")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("Telegram typing API returned HTTP %d", resp.StatusCode)
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result) != nil || !result.OK {
+		return fmt.Errorf("Telegram typing API returned an invalid response")
+	}
+	return nil
+}
+
 func (b *Bot) Send(ctx context.Context, payload SendPayload) (int64, error) {
 	if b.token == "" {
 		return 0, fmt.Errorf("Telegram bot token is not configured")
@@ -132,9 +162,14 @@ func (b *Bot) Edit(ctx context.Context, payload EditPayload) error {
 
 func DecodeEditPayload(raw json.RawMessage) (EditPayload, error) {
 	var payload EditPayload
-	decoder := json.NewDecoder(strings.NewReader(string(raw))); decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil { return EditPayload{}, fmt.Errorf("decode edit payload: %w", err) }
-	if payload.ChatID == 0 || payload.MessageID == 0 || payload.Text == "" { return EditPayload{}, fmt.Errorf("invalid edit payload") }
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return EditPayload{}, fmt.Errorf("decode edit payload: %w", err)
+	}
+	if payload.ChatID == 0 || payload.MessageID == 0 || payload.Text == "" {
+		return EditPayload{}, fmt.Errorf("invalid edit payload")
+	}
 	return payload, nil
 }
 
