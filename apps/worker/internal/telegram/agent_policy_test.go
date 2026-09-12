@@ -58,6 +58,14 @@ func TestValidateAgentCallSetEnforcesReadBudget(t *testing.T) {
 	}
 }
 
+func TestValidateAgentCallSetRejectsToolNotAvailableInCurrentState(t *testing.T) {
+	state := &agentState{Tools: AgentFinanceTools([]string{"dining"}, false, false, false, "", false, false, "")}
+	call := gateway.ToolCall{Name: "confirm_pending_action", Arguments: json.RawMessage(`{}`)}
+	if _, err := validateAgentCallSet([]gateway.ToolCall{call}, state, defaultAgentLimits); err == nil {
+		t.Fatal("server-unavailable tool must be rejected even if the model returns it")
+	}
+}
+
 func TestAgentFinanceToolsUsesConversationTextInsteadOfArtificialResponseTools(t *testing.T) {
 	tools := AgentFinanceTools([]string{"dining"}, false, false, false, "", false, false, "")
 	seen := map[string]bool{}
@@ -69,6 +77,16 @@ func TestAgentFinanceToolsUsesConversationTextInsteadOfArtificialResponseTools(t
 	}
 	if !seen["query_spending"] || !seen["get_category_breakdown"] || !seen["record_transaction"] {
 		t.Fatalf("required finance capabilities missing: %#v", seen)
+	}
+}
+
+func TestEveryAgentSideEffectHasExactlyOneConversationalExecutor(t *testing.T) {
+	for name := range agentSideEffectTools {
+		core := isAgentCoreSideEffect(name)
+		specialized := isAgentSpecializedSideEffect(name)
+		if core == specialized {
+			t.Fatalf("%s routing invalid: core=%v specialized=%v; want exactly one", name, core, specialized)
+		}
 	}
 }
 
