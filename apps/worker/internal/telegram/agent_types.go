@@ -58,4 +58,12 @@ type agentState struct {
 	ModelPhases   int
 	ReadCalls     int
 	SideEffects   int
+
+	// Review and merchant-learning targets are resolved by Go before the model
+	// turn. These server-only bindings are never exposed as canonical IDs to the
+	// model and prevent a later "latest row wins" query from changing targets.
+	ReviewBinding           *agentReviewBinding
+	ReviewBindingCount      int
+	MerchantLearningBinding *agentMerchantLearningBinding
+	MerchantLearningCount   int
 }
