@@ -230,7 +230,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 	budget := time.Duration(0)
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
-		budget = 10 * time.Second
+		budget = 20 * time.Second
 	case "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
 		budget = 45 * time.Second
 	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "FETCH_TELEGRAM_IMAGE":
@@ -264,7 +264,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
-		if err := processor.Process(ctx, payload.SourceEventID); err != nil {
+		if err := processor.ProcessAgent(ctx, payload.SourceEventID); err != nil {
 			return err
 		}
 		return processor.EnsureSourceEventFinal(ctx, payload.SourceEventID)
