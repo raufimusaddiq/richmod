@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00054_transfer_wealth_compatibility.sql`.
+forward migration set through `db/migrations/00055_conversational_agent_state.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -45,6 +45,10 @@ goose -dir db/migrations postgres "$DATABASE_URL" status
 - Some references are intentionally polymorphic (`audit_log`,
   `telegram_turn_reference`, `platform_audit_log`); their target is recorded by
   type plus ID, not a database foreign key.
+- Conversational LLM phases never write the ledger directly. `telegram_pending_action`
+  stores server-owned proposed date/category/description changes until Go applies
+  or cancels them. `llm_call.call_kind` distinguishes strict native calls from
+  conversational `AGENT_TEXT` and `AGENT_TOOLS` phases without storing content.
 
 ## Entity relationship diagram
 
@@ -91,6 +95,8 @@ erDiagram
     HOUSEHOLD ||--o{ JOB : queues
     JOB ||--o{ JOB_RETRY_LOG : retries
     HOUSEHOLD ||--o{ LLM_CALL : observes
+    TRANSACTION ||--o{ TELEGRAM_PENDING_ACTION : may_be_edited_by
+    CATEGORY ||--o{ TELEGRAM_PENDING_ACTION : proposed_category
 ```
 
 ## Table reference
@@ -150,7 +156,7 @@ erDiagram
 | `review_request` | Telegram delivery/request for review. | Optional `review_item_id`; retains older transaction/proposal review linkage. |
 | `review_request_recipient` | Per-recipient Telegram delivery binding. | `review_request_id → review_request`; stores chat/message IDs. |
 | `review_conversation` | Human review messages and resolution context. | `review_request_id → review_request`. |
-| `telegram_pending_action` | Deterministically bound Telegram follow-up action. | Household/Telegram scoped; references transaction and optional proposed category. |
+| `telegram_pending_action` | Deterministically bound Telegram correction awaiting confirmation. | Household/Telegram scoped; references `transaction`; nullable proposed transaction time plus optional `proposed_category_id → category` and proposed description. |
 | `telegram_pending_batch` | Pending multi-expense Telegram batch. | Household/Telegram scoped; binds batch selection safely. |
 | `telegram_conversation_turn` | Bounded finance conversation turn. | Household/Telegram scoped; optional source event; tool turns hold public context only. |
 | `telegram_turn_reference` | Short-lived transaction/review reference usable in a Telegram turn. | `turn_id → telegram_conversation_turn`; typed target ID is intentionally polymorphic. |
@@ -162,7 +168,7 @@ erDiagram
 | `job` | PostgreSQL-backed durable work queue. | Household/source event payload; lane is enforced by database trigger. |
 | `job_retry_log` | Retry attempt operational history. | `job_id` logical reference; unique attempt per job. |
 | `worker_heartbeat` | Worker liveness/operational status. | Worker instance identity and observed timestamp. |
-| `llm_call` | LLM-call telemetry. | Optional household; task/protocol/model/status/cost metadata only. |
+| `llm_call` | LLM-call telemetry. | Optional household; task/protocol/model/status/cost metadata only; `call_kind` allows `NATIVE_TOOL`, `AGENT_TEXT`, or `AGENT_TOOLS`. |
 | `insight` | Generated household analytics narrative. | Household/time-period scoped; non-authoritative product output. |
 | `audit_log` | Household financial/audit trail. | Household/user optional; typed entity ID is polymorphic. |
 | `platform_audit_log` | Platform-admin audit trail. | `actor_user_id → user`; typed entity ID is polymorphic. |
