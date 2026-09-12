@@ -90,7 +90,8 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 		return result, true, nil
 	}
 
-	dayStart := time.Date(at.In(jakartaLocation()).Year(), at.In(jakartaLocation()).Month(), at.In(jakartaLocation()).Day(), 0, 0, 0, 0, jakartaLocation()).UTC()
+	localAt := at.In(jakartaLocation())
+	dayStart := time.Date(localAt.Year(), localAt.Month(), localAt.Day(), 0, 0, 0, 0, jakartaLocation()).UTC()
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	type candidate struct {
 		id, kind, status string
@@ -220,13 +221,21 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	return result, true, nil
 }
 
-// executeAgentSpecializedSideEffectStrict centralizes the Sprint 1 special
-// mutation safety overrides without changing deterministic callback behavior.
+// executeAgentSpecializedSideEffectStrict centralizes Sprint 1 safety
+// overrides without changing deterministic callback behavior.
 func (p *Processor) executeAgentSpecializedSideEffectStrict(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
-	if call.Name == "resolve_review" && state.ReviewBinding != nil && state.ReviewBinding.Kind == "WEALTH_OBSERVATION" {
-		action, _ := args["action"].(string)
-		if action == "RECORD_ASSET_PURCHASE" {
-			return p.agentResolveBoundWealthAssetPurchaseAtomic(ctx, state, call, args, state.ReviewBinding)
+	if call.Name == "resolve_merchant_learning" {
+		return p.agentResolveBoundMerchantLearningStrict(ctx, state, call, args)
+	}
+	if call.Name == "resolve_review" && state.ReviewBinding != nil {
+		switch state.ReviewBinding.Kind {
+		case "CYCLE_RESIDUAL":
+			return p.agentResolveBoundResidualWithHints(ctx, state, call, args)
+		case "WEALTH_OBSERVATION":
+			action, _ := args["action"].(string)
+			if action == "RECORD_ASSET_PURCHASE" {
+				return p.agentResolveBoundWealthAssetPurchaseAtomic(ctx, state, call, args, state.ReviewBinding)
+			}
 		}
 	}
 	return p.executeAgentSpecializedSideEffectBound(ctx, state, call, args)
