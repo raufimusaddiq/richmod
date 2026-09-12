@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -20,23 +21,23 @@ type agentLimits struct {
 }
 
 var defaultAgentLimits = agentLimits{
-	MaxModelPhases: 5,
+	MaxModelPhases:          5,
 	MaxReadCallsPerResponse: 4,
-	MaxReadCallsPerTurn: 8,
-	MaxSideEffectsPerTurn: 1,
-	PerModelCallTimeout: 8 * time.Second,
-	TotalTurnTimeout: 20 * time.Second,
+	MaxReadCallsPerTurn:     8,
+	MaxSideEffectsPerTurn:   1,
+	PerModelCallTimeout:     8 * time.Second,
+	TotalTurnTimeout:        20 * time.Second,
 }
 
 type agentToolResult struct {
-	CallID     string         `json:"call_id,omitempty"`
-	Tool       string         `json:"tool"`
-	Class      agentToolClass `json:"class"`
-	Status     string         `json:"status"`
-	Facts      map[string]any `json:"facts,omitempty"`
+	CallID     string           `json:"call_id,omitempty"`
+	Tool       string           `json:"tool"`
+	Class      agentToolClass   `json:"class"`
+	Status     string           `json:"status"`
+	Facts      map[string]any   `json:"facts,omitempty"`
 	References []agentPublicRef `json:"references,omitempty"`
-	Mutation   map[string]any `json:"mutation,omitempty"`
-	Review     map[string]any `json:"review,omitempty"`
+	Mutation   map[string]any   `json:"mutation,omitempty"`
+	Review     map[string]any   `json:"review,omitempty"`
 }
 
 type agentPublicRef struct {
@@ -47,14 +48,14 @@ type agentPublicRef struct {
 
 type agentState struct {
 	SourceEventID string
-	HouseholdID string
-	Update telegramUpdate
-	Now time.Time
-	Categories []string
-	Tools []gateway.ToolDefinition
-	TurnContext map[string]any
-	History []agentToolResult
-	ModelPhases int
-	ReadCalls int
-	SideEffects int
+	HouseholdID   string
+	Update        telegramUpdate
+	Now           time.Time
+	Categories    []string
+	Tools         []gateway.ToolDefinition
+	TurnContext   map[string]any
+	History       []agentToolResult
+	ModelPhases   int
+	ReadCalls     int
+	SideEffects   int
 }
