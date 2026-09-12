@@ -46,7 +46,9 @@ A conversational model response is valid in exactly one of these shapes:
 
 A response mixing READ and SIDE EFFECT calls, containing multiple side effects,
 using an unavailable/unknown tool, or containing malformed arguments is rejected
-before any tool in that response executes.
+before any tool in that response executes. Tool availability is server-state
+specific: a globally known tool is still rejected if it was not exposed for the
+current pending/review state.
 
 The conversational model may perform several bounded phases so a later READ can
 depend on an earlier result. Initial production limits are:
@@ -73,9 +75,30 @@ Telegram strings. The model decides which authoritative facts it needs and
 synthesizes the normal user-facing answer. Go remains responsible for numerical
 truth and all canonical calculations.
 
-Exact Telegram callbacks, reply bindings, pending server state, and opaque
-server-scoped references remain stronger than model inference. Canonical UUIDs
-stay server-private when an opaque reference can be used.
+### Server-owned target binding
+
+A side-effect target is resolved by Go before the model is allowed to act on it.
+The binding precedence is:
+
+1. exact Telegram callback or `reply_to_message_id`;
+2. exact pending action/batch or other unique server workflow state;
+3. one uniquely eligible active review;
+4. opaque server-scoped references returned by prior READ tools;
+5. model interpretation only for the semantic change being proposed, never for
+   choosing a hidden canonical identifier.
+
+Exact reply binding must never be displaced by a newer or unrelated review.
+When no exact reply exists, more than one eligible target is ambiguous and the
+mutation tool is not exposed. Bound canonical IDs remain server-only and are
+revalidated immediately before mutation, so a later row becoming "latest" cannot
+redirect an already-bound action. Stale bindings fail closed.
+
+Merchant-learning confirmations follow the same rule: an exact replied review
+wins; otherwise exactly one pending merchant-learning review is required.
+
+Opaque transaction references are scoped to household, Telegram identity, chat,
+and expiry. Parallel READ batches use collision-safe prefixed references so two
+concurrent searches cannot redefine the same short reference.
 
 Post-mutation response synthesis receives only the model-safe authoritative
 mutation result and no side-effect tools. Failure to synthesize does not roll
@@ -113,5 +136,8 @@ allowed to use different LLM contracts.
   fallback/system behavior rather than the normal path.
 - Multiple side effects in one free-text turn are structurally impossible at the
   server policy boundary, not merely discouraged by the prompt.
-- Existing deterministic callback/review bindings remain valid.
+- Registered side effects must map to exactly one conversational executor; there
+  is no implicit fallback from the agent to a legacy canned-reply mutation path.
+- Existing deterministic callback/review bindings remain valid and exact reply
+  targets have precedence over implicit review selection.
 - The document classification/extraction lanes are not changed by this ADR.
