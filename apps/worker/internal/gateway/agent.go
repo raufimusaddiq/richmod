@@ -14,15 +14,15 @@ import (
 // finance lane. Unlike NativeToolCall, a conversational response may contain
 // ordinary assistant text or multiple provider-native tool calls.
 type AgentRequest struct {
-	SystemPrompt   string
-	Content        any
-	Tools          []ToolDefinition
-	AllowParallel  bool
+	SystemPrompt    string
+	Content         any
+	Tools           []ToolDefinition
+	AllowParallel   bool
 	ReasoningEffort string
 }
 
-// AgentResponse intentionally exposes only final display text and native tool
-// calls. Provider reasoning/auxiliary fields are never surfaced as finance data.
+// AgentResponse intentionally exposes only display text and native tool calls.
+// Provider reasoning/auxiliary fields are never surfaced as finance data.
 type AgentResponse struct {
 	ResponseID string
 	Text       string
@@ -48,8 +48,11 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 	allowed := make(map[string]bool, len(request.Tools))
 	for _, tool := range request.Tools {
 		encodedTools = append(encodedTools, map[string]any{
-			"type": "function", "name": tool.Name, "description": tool.Description,
-			"parameters": tool.Parameters, "strict": true,
+			"type":       "function",
+			"name":       tool.Name,
+			"description": tool.Description,
+			"parameters": tool.Parameters,
+			"strict":     true,
 		})
 		allowed[tool.Name] = true
 	}
@@ -62,10 +65,12 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 			{"role": "system", "content": request.SystemPrompt},
 			{"role": "user", "content": content},
 		},
-		"tools": encodedTools,
-		"tool_choice": "auto",
-		"parallel_tool_calls": request.AllowParallel,
 		"stream": true,
+	}
+	if len(encodedTools) > 0 {
+		payload["tools"] = encodedTools
+		payload["tool_choice"] = "auto"
+		payload["parallel_tool_calls"] = request.AllowParallel
 	}
 	if request.ReasoningEffort != "" {
 		payload["reasoning_effort"] = request.ReasoningEffort
@@ -125,10 +130,12 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 			{"role": "system", "content": request.SystemPrompt},
 			{"role": "user", "content": content},
 		},
-		"tools": functions,
-		"tool_choice": "auto",
-		"parallel_tool_calls": request.AllowParallel,
 		"stream": false,
+	}
+	if len(functions) > 0 {
+		payload["tools"] = functions
+		payload["tool_choice"] = "auto"
+		payload["parallel_tool_calls"] = request.AllowParallel
 	}
 	if request.ReasoningEffort != "" {
 		payload["reasoning_effort"] = request.ReasoningEffort
@@ -158,16 +165,16 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	}
 	var env struct {
 		ID, Model, Cost string
-		Usage struct {
-			Input int `json:"prompt_tokens"`
+		Usage           struct {
+			Input  int `json:"prompt_tokens"`
 			Output int `json:"completion_tokens"`
 		} `json:"usage"`
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string `json:"content"`
 				ToolCalls []struct {
 					ID, Type string
-					Function struct { Name, Arguments string } `json:"function"`
+					Function struct{ Name, Arguments string } `json:"function"`
 				} `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -178,7 +185,9 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	response := AgentResponse{ResponseID: env.ID, Metadata: Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost}}
 	for _, choice := range env.Choices {
 		if strings.TrimSpace(choice.Message.Content) != "" {
-			if response.Text != "" { response.Text += "\n" }
+			if response.Text != "" {
+				response.Text += "\n"
+			}
 			response.Text += strings.TrimSpace(choice.Message.Content)
 		}
 		for _, call := range choice.Message.ToolCalls {
@@ -218,8 +227,12 @@ func validateAgentResponse(response AgentResponse, allowed map[string]bool) erro
 
 func joinedToolNames(calls []ToolCall) string {
 	names := make([]string, 0, len(calls))
-	for _, call := range calls { names = append(names, call.Name) }
+	for _, call := range calls {
+		names = append(names, call.Name)
+	}
 	value := strings.Join(names, ",")
-	if len(value) > 240 { value = value[:240] }
+	if len(value) > 240 {
+		value = value[:240]
+	}
 	return value
 }
