@@ -66,6 +66,36 @@ func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, sta
 	return lockedID == binding.ReviewRequestID, nil
 }
 
+func (p *Processor) loadBoundWealthObservationTx(ctx context.Context, tx pgx.Tx, state *agentState, binding *agentReviewBinding) (resolved, institution, hint, originalSource string, valid bool, err error) {
+	valid, err = p.lockAgentReviewBindingTx(ctx, tx, state, binding, "WEALTH_OBSERVATION")
+	if err != nil || !valid {
+		return "", "", "", "", valid, err
+	}
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(wo.resolved_wealth_account_id::text,''),wo.institution,wo.account_hint,
+		       COALESCE(d.source_event_id::text,feo.source_event_id::text,'')
+		FROM wealth_observation wo
+		LEFT JOIN document d ON d.id=wo.document_id
+		LEFT JOIN financial_email_observation feo ON feo.id=wo.financial_email_observation_id
+		WHERE wo.id=$1 AND wo.household_id=$2 AND wo.status='PENDING'
+		FOR UPDATE`, binding.TargetID, state.HouseholdID).Scan(&resolved, &institution, &hint, &originalSource)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", "", "", false, nil
+	}
+	return resolved, institution, hint, originalSource, true, err
+}
+
+func resolveAgentBoundReviewRequestTx(ctx context.Context, tx pgx.Tx, binding *agentReviewBinding, userID, resolution string) error {
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,updated_at=now() WHERE id=(SELECT review_item_id FROM review_request WHERE id=$1) AND status IN ('PENDING_SEND','OPEN')`, binding.ReviewRequestID, userID, resolution); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, binding.ReviewRequestID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, binding.ReviewRequestID)
+	return err
+}
+
 func (p *Processor) agentDismissBoundTransferReconciliation(ctx context.Context, state *agentState, callID string, binding *agentReviewBinding) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: callID, Tool: "resolve_review", Class: agentToolSideEffect}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -92,13 +122,7 @@ func (p *Processor) agentDismissBoundTransferReconciliation(ctx context.Context,
 	if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='DISMISSED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='OPEN'`, binding.TargetID, userID, state.HouseholdID); err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='IGNORED',updated_at=now() WHERE id=(SELECT review_item_id FROM review_request WHERE id=$3 AND household_id=$4) AND status IN ('PENDING_SEND','OPEN')`, binding.TargetID, userID, binding.ReviewRequestID, state.HouseholdID); err != nil {
-		return result, true, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND household_id=$2 AND status='OPEN'`, binding.ReviewRequestID, state.HouseholdID); err != nil {
-		return result, true, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, binding.ReviewRequestID); err != nil {
+	if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "IGNORED"); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, originalSource, state.HouseholdID); err != nil {
