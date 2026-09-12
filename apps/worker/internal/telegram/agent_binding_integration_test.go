@@ -101,8 +101,8 @@ func createMerchantLearningReview(t *testing.T, ctx context.Context, f agentInte
 func TestMerchantLearningRequiresUniqueOrExactBinding(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "merchant-binding")
-	firstReview, _ := createMerchantLearningReview(t, ctx, f, 301, "MerchantA")
-	createMerchantLearningReview(t, ctx, f, 302, "MerchantB")
+	firstReview, _ := createMerchantLearningReview(t, ctx, f, 301, "merchanta")
+	createMerchantLearningReview(t, ctx, f, 302, "merchantb")
 	p := NewProcessor(f.pool, nil)
 
 	binding, count, err := p.loadAgentMerchantLearningBinding(ctx, f.householdID, f.update)
