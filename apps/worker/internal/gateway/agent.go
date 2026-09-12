@@ -200,62 +200,11 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	if request.ReasoningEffort != "" {
 		payload["reasoning_effort"] = request.ReasoningEffort
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return AgentResponse{}, fmt.Errorf("encode chat agent request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	result, err := c.doChatCompletion(ctx, requestID, payload)
 	if err != nil {
 		return AgentResponse{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Request-ID", requestID)
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return AgentResponse{}, fmt.Errorf("call LLM chat completion gateway: %w", err)
-	}
-	defer resp.Body.Close()
-	raw, err := readBounded(resp.Body)
-	if err != nil {
-		return AgentResponse{}, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return AgentResponse{}, fmt.Errorf("LLM chat completion returned HTTP %d", resp.StatusCode)
-	}
-	var env struct {
-		ID, Model, Cost string
-		Usage           struct {
-			Input  int `json:"prompt_tokens"`
-			Output int `json:"completion_tokens"`
-		} `json:"usage"`
-		Choices []struct {
-			Message struct {
-				Content   string `json:"content"`
-				ToolCalls []struct {
-					ID, Type string
-					Function struct{ Name, Arguments string } `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := decodeStrict(raw, &env); err != nil {
-		return AgentResponse{}, err
-	}
-	response := AgentResponse{ResponseID: env.ID, Metadata: Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost}}
-	for _, choice := range env.Choices {
-		if strings.TrimSpace(choice.Message.Content) != "" {
-			if response.Text != "" {
-				response.Text += "\n"
-			}
-			response.Text += strings.TrimSpace(choice.Message.Content)
-		}
-		for _, call := range choice.Message.ToolCalls {
-			if call.Type == "function" {
-				response.ToolCalls = append(response.ToolCalls, ToolCall{ResponseID: env.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)})
-			}
-		}
-	}
+	response := AgentResponse{ResponseID: result.id, Text: result.text, ToolCalls: result.calls, Metadata: result.metadata}
 	if err := validateAgentResponse(response, allowed); err != nil {
 		return AgentResponse{}, err
 	}

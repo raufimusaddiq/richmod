@@ -190,28 +190,52 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 }
 
 func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload map[string]any, options NativeToolOptions) (ToolCall, Metadata, error) {
+	result, err := c.doChatCompletion(ctx, requestID, payload)
+	if err != nil {
+		return ToolCall{}, Metadata{}, err
+	}
+	allowed := map[string]bool{}
+	for _, raw := range payload["tools"].([]map[string]any) {
+		fn := raw["function"].(map[string]any)
+		allowed[fn["name"].(string)] = true
+	}
+	call, metadata, err := validateNativeCalls(result.calls, allowed, options, result.metadata)
+	metadata.CallKind = "NATIVE_TOOL"
+	metadata.ToolName = call.Name
+	return call, metadata, err
+}
+
+type chatCompletionResult struct {
+	id       string
+	text     string
+	calls    []ToolCall
+	metadata Metadata
+}
+
+func (c *Client) doChatCompletion(ctx context.Context, requestID string, payload map[string]any) (chatCompletionResult, error) {
+	var result chatCompletionResult
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return ToolCall{}, Metadata{}, fmt.Errorf("encode chat completion request: %w", err)
+		return result, fmt.Errorf("encode chat completion request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return ToolCall{}, Metadata{}, err
+		return result, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Request-ID", requestID)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return ToolCall{}, Metadata{}, fmt.Errorf("call chat completion gateway: %w", err)
+		return result, fmt.Errorf("call chat completion gateway: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, err := readBounded(resp.Body)
 	if err != nil {
-		return ToolCall{}, Metadata{}, err
+		return result, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ToolCall{}, Metadata{}, fmt.Errorf("LLM chat completion returned HTTP %d", resp.StatusCode)
+		return result, fmt.Errorf("LLM chat completion returned HTTP %d", resp.StatusCode)
 	}
 	var env struct {
 		ID, Model, Cost string
@@ -230,25 +254,24 @@ func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload m
 		} `json:"choices"`
 	}
 	if err := decodeStrict(raw, &env); err != nil {
-		return ToolCall{}, Metadata{}, err
+		return result, err
 	}
-	var calls []ToolCall
-	allowed := map[string]bool{}
-	for _, raw := range payload["tools"].([]map[string]any) {
-		fn := raw["function"].(map[string]any)
-		allowed[fn["name"].(string)] = true
-	}
+	result.id = env.ID
+	result.metadata = Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost}
 	for _, choice := range env.Choices {
+		if strings.TrimSpace(choice.Message.Content) != "" {
+			if result.text != "" {
+				result.text += "\n"
+			}
+			result.text += strings.TrimSpace(choice.Message.Content)
+		}
 		for _, call := range choice.Message.ToolCalls {
 			if call.Type == "function" {
-				calls = append(calls, ToolCall{ResponseID: env.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)})
+				result.calls = append(result.calls, ToolCall{ResponseID: env.ID, CallID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)})
 			}
 		}
 	}
-	call, metadata, err := validateNativeCalls(calls, allowed, options, Metadata{Model: env.Model, InputTokens: env.Usage.Input, OutputTokens: env.Usage.Output, Cost: env.Cost})
-	metadata.CallKind = "NATIVE_TOOL"
-	metadata.ToolName = call.Name
-	return call, metadata, err
+	return result, nil
 }
 
 func validateNativeCalls(calls []ToolCall, allowed map[string]bool, options NativeToolOptions, metadata Metadata) (ToolCall, Metadata, error) {

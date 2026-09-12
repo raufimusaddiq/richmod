@@ -56,76 +56,7 @@ func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sour
 	if err != nil {
 		return state, err
 	}
-	state.HasMerchantLearning, err = p.hasMerchantLearning(ctx, householdID, update)
-	if err != nil {
-		return state, err
-	}
-	state.ActiveReview, state.ActiveReviewCount, err = p.activeReviewBinding(ctx, householdID, update)
-	if err != nil {
-		return state, err
-	}
-	if state.ActiveReviewCount == 0 {
-		state.ActiveReview, state.ActiveReviewCount, err = p.agentResidualReviewBinding(ctx, householdID, update)
-		if err != nil {
-			return state, err
-		}
-	}
-	if bound, ok := state.ActiveReview.(map[string]any); ok {
-		state.ReviewType, _ = bound["review_type"].(string)
-		state.ReviewMode, _ = bound["review_mode"].(string)
-	}
 	return state, nil
-}
-
-func (p *Processor) agentResidualReviewBinding(ctx context.Context, householdID string, update telegramUpdate) (any, int, error) {
-	query := `SELECT r.id,crc.cycle_start::text,crc.cycle_end::text,crc.basis_residual_idr::text
-		FROM review_request r
-		JOIN review_item ri ON ri.id=r.review_item_id
-		JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id
-		JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN'
-		  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
-		ORDER BY r.created_at DESC LIMIT 2`
-	params := []any{householdID, update.Message.Chat.ID}
-	if update.Message.ReplyToMessage != nil {
-		query = `SELECT r.id,crc.cycle_start::text,crc.cycle_end::text,crc.basis_residual_idr::text
-			FROM review_request r
-			JOIN review_item ri ON ri.id=r.review_item_id
-			JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN'
-			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
-		params = append(params, update.Message.ReplyToMessage.MessageID)
-	}
-	rows, err := p.pool.Query(ctx, query, params...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	var values []map[string]any
-	for rows.Next() {
-		var requestID, start, end, residual string
-		if err := rows.Scan(&requestID, &start, &end, &residual); err != nil {
-			return nil, 0, err
-		}
-		values = append(values, map[string]any{
-			"review_type":  "CYCLE_RESIDUAL_ALLOCATION",
-			"review_mode":  "CYCLE_RESIDUAL",
-			"cycle_start":  start,
-			"cycle_end":    end,
-			"residual_idr": residual,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, err
-	}
-	if len(values) == 1 {
-		return values[0], 1, nil
-	}
-	if len(values) > 1 {
-		return values, len(values), nil
-	}
-	return nil, 0, nil
 }
 
 func (p *Processor) loadAgentPendingAction(ctx context.Context, householdID string, update telegramUpdate) (map[string]any, error) {

@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -228,11 +227,4 @@ func (p *Processor) loadAgentMerchantLearningBinding(ctx context.Context, househ
 		return &bindings[0], 1, nil
 	}
 	return nil, len(bindings), nil
-}
-
-func agentReviewBindingDebug(binding *agentReviewBinding) string {
-	if binding == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s:%s", binding.Kind, binding.TargetID)
 }
