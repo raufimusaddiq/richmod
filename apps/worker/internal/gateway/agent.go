@@ -52,7 +52,12 @@ type AgentResponse struct {
 // and contains valid JSON arguments.
 func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentRequest) (response AgentResponse, err error) {
 	started := time.Now()
-	defer func() { c.observe(ctx, started, response.Metadata, err) }()
+	defer func() {
+		if response.Metadata.CallKind == "" {
+			response.Metadata.CallKind = "AGENT_TEXT"
+		}
+		c.observe(ctx, started, response.Metadata, err)
+	}()
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return AgentResponse{}, fmt.Errorf("LLM gateway is not configured")
 	}

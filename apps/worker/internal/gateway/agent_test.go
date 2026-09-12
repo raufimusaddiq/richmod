@@ -166,3 +166,21 @@ func TestAgentTurnRejectsUnknownToolBeforeExecution(t *testing.T) {
 		t.Fatal("unknown tool should fail closed")
 	}
 }
+
+func TestAgentTurnFailureRecordsAgentCallKind(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	var metric Metadata
+	client := New(server.URL, "key", "agent-model")
+	client.record = func(_ context.Context, call CallMetric) { metric.CallKind = call.CallKind }
+	_, err := client.AgentTurn(context.Background(), "request", AgentRequest{SystemPrompt: "system", Content: "hello"})
+	if err == nil {
+		t.Fatal("expected gateway error")
+	}
+	if metric.CallKind != "AGENT_TEXT" {
+		t.Fatalf("call kind=%q", metric.CallKind)
+	}
+}
