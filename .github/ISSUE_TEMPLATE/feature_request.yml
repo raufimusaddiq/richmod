@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a product or engineering improvement for Richmod
+title: "feat: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Richmod is currently focused on household income and expense tracking. Proposals should preserve evidence-first, household-scoped financial state and deterministic validation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or operational problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired experience or contract without assuming a specific implementation unless necessary.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Web product
+        - API / domain
+        - Telegram
+        - Financial email ingress
+        - Documents
+        - Analytics
+        - Household / auth
+        - Deployment / operations
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Financial or security implications
+      description: Note household-boundary, evidence, audit, LLM, migration, or operational implications if applicable.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. What other approaches did you consider?
