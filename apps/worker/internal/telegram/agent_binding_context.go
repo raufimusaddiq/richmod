@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 type agentReviewBinding struct {
@@ -39,15 +38,6 @@ func isAgentCoreSideEffect(name string) bool {
 	default:
 		return false
 	}
-}
-
-func agentToolAvailable(tools []gateway.ToolDefinition, name string) bool {
-	for _, tool := range tools {
-		if tool.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // loadAgentReviewBinding resolves the server-owned review target before the model
