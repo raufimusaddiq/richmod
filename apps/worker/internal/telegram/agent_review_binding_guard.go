@@ -78,7 +78,7 @@ func (p *Processor) loadBoundWealthObservationTx(ctx context.Context, tx pgx.Tx,
 		LEFT JOIN document d ON d.id=wo.document_id
 		LEFT JOIN financial_email_observation feo ON feo.id=wo.financial_email_observation_id
 		WHERE wo.id=$1 AND wo.household_id=$2 AND wo.status='PENDING'
-		FOR UPDATE`, binding.TargetID, state.HouseholdID).Scan(&resolved, &institution, &hint, &originalSource)
+		FOR UPDATE OF wo`, binding.TargetID, state.HouseholdID).Scan(&resolved, &institution, &hint, &originalSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", "", "", false, nil
 	}
