@@ -53,7 +53,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	agentGateway, ok := p.gateway.(conversationalGateway)
 	if !ok {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Richmod belum bisa memproses percakapan ini. Coba lagi sebentar.")
+		return fmt.Errorf("conversational gateway unavailable")
 	}
 	categories, err := p.categorySlugs(ctx, householdID)
 	if err != nil {
@@ -125,7 +125,10 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		response, err := model.AgentTurn(phaseCtx, state.SourceEventID, request)
 		cancel()
 		if err != nil {
-			return p.finishAgentFailure(ctx, state, "Richmod belum bisa memproses percakapan ini. Coba lagi sebentar.")
+			// No model-directed side effect has executed in this phase. Bubble
+			// transient provider/timeouts to the durable job retry lane instead of
+			// marking the source event processed and losing retryability.
+			return fmt.Errorf("conversational model phase: %w", err)
 		}
 		state.ModelPhases++
 
@@ -141,7 +144,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		case agentToolRead:
 			results, err := p.executeAgentReadBatch(ctx, state, plan.Calls)
 			if err != nil {
-				return p.finishAgentFailure(ctx, state, "Data keuangan belum bisa dibaca sekarang. Coba lagi sebentar.")
+				return fmt.Errorf("conversational read batch: %w", err)
 			}
 			state.ReadCalls += len(results)
 			state.History = append(state.History, results...)
@@ -162,13 +165,18 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				err = fmt.Errorf("registered side effect %q has no conversational executor", call.Call.Name)
 			}
 			if err != nil {
-				return p.finishAgentFailure(ctx, state, "Aksi keuangan belum bisa diproses dengan aman. Coba lagi.")
+				// Side-effect executors are idempotent/source-bound and transact their
+				// canonical writes. Bubble execution failures so a pre-commit failure
+				// can retry; a post-commit retry must recover/no-op deterministically.
+				return fmt.Errorf("conversational side effect %s: %w", call.Call.Name, err)
 			}
 			state.SideEffects++
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
 			if !synthesize {
-				return p.finishAgentFailure(ctx, state, "Aksi keuangan selesai tetapi hasilnya tidak dapat diringkas dengan aman.")
+				// At this point an executor may already have committed. Never turn a
+				// missing synthesis flag into a mutation retry.
+				return p.finishAgentText(ctx, state, agentMutationFallback(result))
 			}
 			return p.synthesizeMutationResult(ctx, model, state, result)
 
@@ -266,6 +274,8 @@ func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversa
 	response, err := model.AgentTurn(phaseCtx, state.SourceEventID, gateway.AgentRequest{SystemPrompt: conversationalAgentPrompt, Content: content})
 	cancel()
 	if err != nil || len(response.ToolCalls) != 0 || strings.TrimSpace(response.Text) == "" {
+		// The mutation already has an authoritative result. Never retry it just
+		// because natural-language synthesis failed.
 		return p.finishAgentText(ctx, state, agentMutationFallback(result))
 	}
 	state.ModelPhases++
