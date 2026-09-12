@@ -59,6 +59,14 @@ type agentState struct {
 	ReadCalls     int
 	SideEffects   int
 
+	// Native continuation state for the immediately preceding READ phase. The
+	// gateway consumes these as provider-native tool outputs on the next model
+	// phase, preserving call IDs and ordering rather than pretending tool output
+	// is a new user message.
+	PreviousResponseID string
+	PreviousToolCalls  []gateway.ToolCall
+	PendingToolOutputs []gateway.AgentToolOutput
+
 	// Review and merchant-learning targets are resolved by Go before the model
 	// turn. These server-only bindings are never exposed as canonical IDs to the
 	// model and prevent a later "latest row wins" query from changing targets.
