@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+// AgentToolOutput is one model-safe result returned for a provider-native tool
+// call. Output may contain only the structured projection prepared by the Go
+// finance layer; the gateway never reads canonical state itself.
+type AgentToolOutput struct {
+	CallID string
+	Output any
+}
+
 // AgentRequest is the protocol-neutral contract used by the conversational
 // finance lane. Unlike NativeToolCall, a conversational response may contain
 // ordinary assistant text or multiple provider-native tool calls.
@@ -19,6 +27,14 @@ type AgentRequest struct {
 	Tools           []ToolDefinition
 	AllowParallel   bool
 	ReasoningEffort string
+
+	// Continuation fields preserve provider-native tool-call semantics between
+	// bounded model phases. Responses uses PreviousResponseID plus
+	// function_call_output; Chat Completions reconstructs the immediately
+	// preceding assistant tool_calls plus role=tool messages.
+	PreviousResponseID string
+	PreviousToolCalls  []ToolCall
+	ToolOutputs        []AgentToolOutput
 }
 
 // AgentResponse intentionally exposes only display text and native tool calls.
@@ -44,28 +60,51 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 	if err != nil {
 		return AgentResponse{}, err
 	}
+	if err := validateAgentContinuation(request); err != nil {
+		return AgentResponse{}, err
+	}
+
 	encodedTools := make([]map[string]any, 0, len(request.Tools))
 	allowed := make(map[string]bool, len(request.Tools))
 	for _, tool := range request.Tools {
 		encodedTools = append(encodedTools, map[string]any{
-			"type":       "function",
-			"name":       tool.Name,
+			"type":        "function",
+			"name":        tool.Name,
 			"description": tool.Description,
-			"parameters": tool.Parameters,
-			"strict":     true,
+			"parameters":  tool.Parameters,
+			"strict":      true,
 		})
 		allowed[tool.Name] = true
 	}
 	if c.protocol == "chat_completions" {
 		return c.agentChatCompletion(ctx, requestID, request, content, encodedTools, allowed)
 	}
+
 	payload := map[string]any{
-		"model": c.model,
-		"input": []map[string]any{
+		"model":  c.model,
+		"stream": true,
+	}
+	if len(request.ToolOutputs) > 0 {
+		inputs := make([]map[string]any, 0, len(request.ToolOutputs))
+		for _, output := range request.ToolOutputs {
+			encoded, encodeErr := encodeAgentToolOutput(output.Output)
+			if encodeErr != nil {
+				return AgentResponse{}, encodeErr
+			}
+			inputs = append(inputs, map[string]any{
+				"type":    "function_call_output",
+				"call_id": output.CallID,
+				"output":  encoded,
+			})
+		}
+		payload["previous_response_id"] = request.PreviousResponseID
+		payload["instructions"] = request.SystemPrompt
+		payload["input"] = inputs
+	} else {
+		payload["input"] = []map[string]any{
 			{"role": "system", "content": request.SystemPrompt},
 			{"role": "user", "content": content},
-		},
-		"stream": true,
+		}
 	}
 	if len(encodedTools) > 0 {
 		payload["tools"] = encodedTools
@@ -124,13 +163,34 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 			},
 		})
 	}
+	messages := []map[string]any{
+		{"role": "system", "content": request.SystemPrompt},
+		{"role": "user", "content": content},
+	}
+	if len(request.ToolOutputs) > 0 {
+		toolCalls := make([]map[string]any, 0, len(request.PreviousToolCalls))
+		for _, call := range request.PreviousToolCalls {
+			toolCalls = append(toolCalls, map[string]any{
+				"id":   call.CallID,
+				"type": "function",
+				"function": map[string]any{
+					"name": call.Name, "arguments": string(call.Arguments),
+				},
+			})
+		}
+		messages = append(messages, map[string]any{"role": "assistant", "content": nil, "tool_calls": toolCalls})
+		for _, output := range request.ToolOutputs {
+			encoded, encodeErr := encodeAgentToolOutput(output.Output)
+			if encodeErr != nil {
+				return AgentResponse{}, encodeErr
+			}
+			messages = append(messages, map[string]any{"role": "tool", "tool_call_id": output.CallID, "content": encoded})
+		}
+	}
 	payload := map[string]any{
-		"model": c.model,
-		"messages": []map[string]any{
-			{"role": "system", "content": request.SystemPrompt},
-			{"role": "user", "content": content},
-		},
-		"stream": false,
+		"model":    c.model,
+		"messages": messages,
+		"stream":   false,
 	}
 	if len(functions) > 0 {
 		payload["tools"] = functions
@@ -153,7 +213,7 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	req.Header.Set("X-Request-ID", requestID)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return AgentResponse{}, fmt.Errorf("call LLM chat agent gateway: %w", err)
+		return AgentResponse{}, fmt.Errorf("call LLM chat completion gateway: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, err := readBounded(resp.Body)
@@ -207,6 +267,50 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	return response, nil
 }
 
+func validateAgentContinuation(request AgentRequest) error {
+	if len(request.ToolOutputs) == 0 {
+		if request.PreviousResponseID != "" || len(request.PreviousToolCalls) != 0 {
+			return fmt.Errorf("agent continuation metadata without tool outputs")
+		}
+		return nil
+	}
+	if request.PreviousResponseID == "" {
+		return fmt.Errorf("agent continuation missing previous response id")
+	}
+	if len(request.PreviousToolCalls) == 0 {
+		return fmt.Errorf("agent continuation missing previous tool calls")
+	}
+	known := make(map[string]bool, len(request.PreviousToolCalls))
+	for _, call := range request.PreviousToolCalls {
+		if call.CallID == "" || known[call.CallID] {
+			return fmt.Errorf("agent continuation has invalid tool call id")
+		}
+		known[call.CallID] = true
+	}
+	if len(request.ToolOutputs) != len(known) {
+		return fmt.Errorf("agent continuation tool output count mismatch")
+	}
+	seen := make(map[string]bool, len(request.ToolOutputs))
+	for _, output := range request.ToolOutputs {
+		if !known[output.CallID] || seen[output.CallID] {
+			return fmt.Errorf("agent continuation contains unmatched tool output")
+		}
+		seen[output.CallID] = true
+	}
+	return nil
+}
+
+func encodeAgentToolOutput(output any) (string, error) {
+	if text, ok := output.(string); ok {
+		return text, nil
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return "", fmt.Errorf("encode agent tool output: %w", err)
+	}
+	return string(encoded), nil
+}
+
 func validateAgentResponse(response AgentResponse, allowed map[string]bool) error {
 	if len(response.ToolCalls) == 0 {
 		if strings.TrimSpace(response.Text) == "" {
@@ -217,6 +321,9 @@ func validateAgentResponse(response AgentResponse, allowed map[string]bool) erro
 	for _, call := range response.ToolCalls {
 		if !allowed[call.Name] {
 			return fmt.Errorf("LLM agent returned unknown tool %q", call.Name)
+		}
+		if call.CallID == "" {
+			return fmt.Errorf("LLM agent returned tool call without call id")
 		}
 		if len(call.Arguments) == 0 || !json.Valid(call.Arguments) {
 			return fmt.Errorf("LLM agent returned invalid tool arguments")
