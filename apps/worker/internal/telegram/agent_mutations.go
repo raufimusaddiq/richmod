@@ -76,14 +76,17 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	var transactionID string
 	if err=tx.QueryRow(ctx,`INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,note,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,$3,$4,'IDR',$5,$6,NULLIF($7,''),NULLIF($8,''),NULLIF($9,''),$10,$11,$12,CASE WHEN $3='CONFIRMED' THEN now() END) RETURNING id`,state.HouseholdID,value.Type,transactionStatus,value.Amount,value.TransactionAt,categoryID,value.Description,value.Note,value.Merchant,value.Confidence,value.CategoryConfidence,userID).Scan(&transactionID);err!=nil{return result,true,fmt.Errorf("create reviewed transaction: %w",err)}
 	if _,err=tx.Exec(ctx,`INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TELEGRAM_TEXT',$3,jsonb_build_object('proposal_id',$4::uuid))`,transactionID,state.SourceEventID,value.Confidence,proposalID);err!=nil{return result,true,err}
+	refs, err := persistAgentTransactionReferencesTx(ctx, tx, state.HouseholdID, state.SourceEventID, state.Update, fmt.Sprintf("p%dr0", state.ModelPhases), []string{transactionID})
+	if err != nil{return result,true,fmt.Errorf("persist transaction reference: %w",err)}
+	if len(refs)!=1{return result,true,fmt.Errorf("persist transaction reference: expected one ref, got %d",len(refs))}
 	sourceStatus:="NEEDS_REVIEW";if autoConfirm{sourceStatus="PROCESSED"}
 	if _,err=tx.Exec(ctx,`UPDATE source_event SET processing_status=$2,parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`,state.SourceEventID,sourceStatus);err!=nil{return result,true,err}
 	if _,err=tx.Exec(ctx,`INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_TELEGRAM','transaction',$2,jsonb_build_object('status',$3::text,'proposal_id',$4::uuid,'agent_sprint',1))`,state.HouseholdID,transactionID,transactionStatus,proposalID);err!=nil{return result,true,err}
 	if !autoConfirm{reviewType:="AMBIGUOUS_CATEGORY";if value.Merchant==""{reviewType="UNKNOWN_MERCHANT"};if err=EnqueueReviewRequest(ctx,tx,transactionID,reviewType,state.Update.Message.Chat.ID,state.Update.Message.MessageID,ReviewQuestion(value.Amount,value.Merchant));err!=nil{return result,true,err}}
 	if err=tx.Commit(ctx);err!=nil{return result,true,err}
-	_ = p.persistTransactionReferences(ctx,state.HouseholdID,state.SourceEventID,state.Update,[]string{transactionID})
 	result.Status=transactionStatus
-	result.Mutation=map[string]any{"action":"TRANSACTION_RECORDED","ref":"tx_1","type":value.Type,"amount_idr":value.Amount,"merchant":value.Merchant,"category_slug":value.CategorySlug,"description":value.Description,"transaction_at":value.TransactionAt.In(jakartaLocation()).Format(time.RFC3339),"time_precision":value.TimePrecision,"status":transactionStatus}
+	result.References=refs
+	result.Mutation=map[string]any{"action":"TRANSACTION_RECORDED","ref":refs[0].Ref,"type":value.Type,"amount_idr":value.Amount,"merchant":value.Merchant,"category_slug":value.CategorySlug,"description":value.Description,"transaction_at":value.TransactionAt.In(jakartaLocation()).Format(time.RFC3339),"time_precision":value.TimePrecision,"status":transactionStatus}
 	if !autoConfirm{result.Review=map[string]any{"required":true,"reason":"TRANSACTION_NEEDS_REVIEW"}}
 	return result,true,nil
 }
