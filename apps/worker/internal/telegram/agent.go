@@ -63,18 +63,49 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if err != nil {
 		return err
 	}
+
+	// Re-resolve actionable review targets with the Sprint 1 precedence rules:
+	// exact Telegram reply first, otherwise exactly one eligible server target.
+	// The older context loader is kept for compatibility, but these bindings are
+	// authoritative for the conversational agent.
+	reviewBinding, reviewPublic, reviewCount, err := p.loadAgentReviewBinding(ctx, householdID, update)
+	if err != nil {
+		return err
+	}
+	contextState.ActiveReview = reviewPublic
+	contextState.ActiveReviewCount = reviewCount
+	contextState.ReviewType, contextState.ReviewMode = "", ""
+	if bound, ok := reviewPublic.(map[string]any); ok {
+		contextState.ReviewType, _ = bound["review_type"].(string)
+		contextState.ReviewMode, _ = bound["review_mode"].(string)
+	}
+	merchantBinding, merchantCount, err := p.loadAgentMerchantLearningBinding(ctx, householdID, update)
+	if err != nil {
+		return err
+	}
+	contextState.HasMerchantLearning = merchantCount == 1
+
 	now := p.now().In(jakartaLocation())
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
 
 	tools := AgentFinanceTools(categories, contextState.HasPendingAction, contextState.HasPendingBatch, contextState.ActiveReviewCount == 1, contextState.ReviewType, contextState.HasSalaryChoice, contextState.HasMerchantLearning, contextState.ReviewMode)
+	turnContext := buildAgentTurnContext(text, now, categories, contextState)
+	turnContext["merchant_learning_count"] = merchantCount
+	if merchantBinding != nil {
+		turnContext["merchant_learning"] = map[string]any{"merchant": merchantBinding.Merchant, "category": merchantBinding.Category}
+	}
 	state := &agentState{
-		SourceEventID: sourceEventID,
-		HouseholdID:   householdID,
-		Update:        update,
-		Now:           now,
-		Categories:    categories,
-		Tools:         tools,
-		TurnContext:   buildAgentTurnContext(text, now, categories, contextState),
+		SourceEventID:           sourceEventID,
+		HouseholdID:             householdID,
+		Update:                  update,
+		Now:                     now,
+		Categories:              categories,
+		Tools:                   tools,
+		TurnContext:             turnContext,
+		ReviewBinding:           reviewBinding,
+		ReviewBindingCount:      reviewCount,
+		MerchantLearningBinding: merchantBinding,
+		MerchantLearningCount:   merchantCount,
 	}
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
@@ -122,10 +153,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			call := plan.Calls[0]
 			var result agentToolResult
 			var synthesize bool
-			if isAgentSpecializedSideEffect(call.Call.Name) {
-				result, synthesize, err = p.executeAgentSpecializedSideEffect(ctx, state, call.Call, call.Args)
-			} else {
+			switch {
+			case isAgentSpecializedSideEffect(call.Call.Name):
+				result, synthesize, err = p.executeAgentSpecializedSideEffectBound(ctx, state, call.Call, call.Args)
+			case isAgentCoreSideEffect(call.Call.Name):
 				result, synthesize, err = p.executeAgentSideEffect(ctx, state, call.Call, call.Args, response.Metadata)
+			default:
+				err = fmt.Errorf("registered side effect %q has no conversational executor", call.Call.Name)
 			}
 			if err != nil {
 				return p.finishAgentFailure(ctx, state, "Aksi keuangan belum bisa diproses dengan aman. Coba lagi.")
@@ -134,7 +168,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
 			if !synthesize {
-				return nil
+				return p.finishAgentFailure(ctx, state, "Aksi keuangan selesai tetapi hasilnya tidak dapat diringkas dengan aman.")
 			}
 			return p.synthesizeMutationResult(ctx, model, state, result)
 
@@ -152,6 +186,9 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 	validated := make([]validatedAgentCall, 0, len(calls))
 	readCount, sideEffectCount := 0, 0
 	for _, call := range calls {
+		if len(state.Tools) > 0 && !agentToolAvailable(state.Tools, call.Name) {
+			return agentCallPlan{}, fmt.Errorf("tool %q is not available in the current server state", call.Name)
+		}
 		class, ok := agentToolClassFor(call.Name)
 		if !ok {
 			return agentCallPlan{}, fmt.Errorf("unknown agent tool %q", call.Name)
@@ -183,6 +220,15 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 		return agentCallPlan{}, fmt.Errorf("read tool budget exceeded")
 	}
 	return agentCallPlan{Class: agentToolRead, Calls: validated}, nil
+}
+
+func agentToolAvailable(tools []gateway.ToolDefinition, name string) bool {
+	for _, tool := range tools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState, calls []validatedAgentCall) ([]agentToolResult, error) {
@@ -363,6 +409,8 @@ func agentMutationFallback(result agentToolResult) string {
 		return "Nominal dan waktu transaksi masih perlu dilengkapi."
 	case "INVALID_PAY_DATE":
 		return "Tanggal pembayaran belum valid."
+	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
+		return "Target review sudah berubah atau selesai. Buka atau balas review terbaru sebelum melanjutkan."
 	}
 	return "Aksi keuangan sudah diproses."
 }
