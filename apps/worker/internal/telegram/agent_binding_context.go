@@ -42,7 +42,8 @@ func isAgentCoreSideEffect(name string) bool {
 
 // loadAgentReviewBinding resolves the server-owned review target before the model
 // is invoked. Exact Telegram reply binding always wins. Without an exact reply,
-// exactly one eligible target is required; multiple targets fail closed.
+// exactly one eligible target for the current Telegram chat is required; reviews
+// belonging to another household member/chat never participate in ambiguity.
 func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID string, update telegramUpdate) (*agentReviewBinding, any, int, error) {
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
 		binding, err := p.exactAgentReviewBinding(ctx, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID)
@@ -66,17 +67,23 @@ func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID stri
 			JOIN review_request_recipient rr ON rr.review_request_id=r.id
 			WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2
 			UNION ALL
-			SELECT 'TRANSFER_RECONCILIATION',trc.id::text,'','',ri.review_type,'','',0::bigint,
-			       trc.amount_idr::text,COALESCE(trc.description,'Transfer'),ri.created_at
+			SELECT 'TRANSFER_RECONCILIATION',trc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
+			       trc.amount_idr::text,COALESCE(trc.description,'Transfer'),r.created_at
 			FROM transfer_reconciliation_case trc
 			JOIN review_item ri ON ri.source_event_id=trc.source_event_id
+			JOIN review_request r ON r.review_item_id=ri.id
+			JOIN review_request_recipient rr ON rr.review_request_id=r.id
 			WHERE trc.household_id=$1 AND trc.status='OPEN' AND ri.status IN ('PENDING_SEND','OPEN')
+			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
 			UNION ALL
-			SELECT 'WEALTH_OBSERVATION',wo.id::text,'','',ri.review_type,'','',0::bigint,
-			       wo.observed_value_idr::text,trim(wo.institution||' '||wo.account_hint),ri.created_at
+			SELECT 'WEALTH_OBSERVATION',wo.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
+			       wo.observed_value_idr::text,trim(wo.institution||' '||wo.account_hint),r.created_at
 			FROM wealth_observation wo
 			JOIN review_item ri ON ri.wealth_observation_id=wo.id
+			JOIN review_request r ON r.review_item_id=ri.id
+			JOIN review_request_recipient rr ON rr.review_request_id=r.id
 			WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('PENDING_SEND','OPEN')
+			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
 			UNION ALL
 			SELECT 'CYCLE_RESIDUAL',crc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
 			       crc.basis_residual_idr::text,'Sisa salary cycle',r.created_at
