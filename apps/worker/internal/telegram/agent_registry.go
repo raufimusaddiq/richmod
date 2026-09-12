@@ -44,11 +44,12 @@ func agentToolClassFor(name string) (agentToolClass, bool) {
 func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	base := NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
 	tools := make([]gateway.ToolDefinition, 0, len(base)+4)
+	cycleResidual := hasActiveReview && (reviewMode == "CYCLE_RESIDUAL" || reviewType == "CYCLE_RESIDUAL_ALLOCATION")
 	for _, tool := range base {
-		// Help, clarification, and out-of-scope messages are ordinary assistant
-		// text in Sprint 1. A tool exists only when Richmod needs authoritative
-		// data or a validated financial state transition.
 		if tool.Name == "ask_clarification" || tool.Name == "finance_help" || tool.Name == "finance_out_of_scope" {
+			continue
+		}
+		if cycleResidual && tool.Name == "resolve_review" {
 			continue
 		}
 		if _, ok := agentToolClassFor(tool.Name); ok {
@@ -64,6 +65,34 @@ func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 		gateway.ToolDefinition{Name: "get_largest_transactions", Description: "Return the largest confirmed expense/refund transactions for a bounded period using opaque transaction references.", Parameters: objectSchema(map[string]any{"period": period, "from_date": nullString, "to_date": nullString, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10}}, []string{"period", "from_date", "to_date", "limit"})},
 		gateway.ToolDefinition{Name: "get_transaction_details", Description: "Return model-safe authoritative details for one opaque transaction reference from recent results. Never use or request a database UUID.", Parameters: objectSchema(map[string]any{"target_ref": map[string]any{"type": "string"}}, []string{"target_ref"})},
 	)
+
+	if cycleResidual {
+		allocation := objectSchema(map[string]any{
+			"wealth_account_hint": map[string]any{"type": "string", "description": "Human-readable Wealth Account name/institution hint. Never use a database UUID."},
+			"amount_idr":          map[string]any{"type": "string"},
+			"note":                nullString,
+		}, []string{"wealth_account_hint", "amount_idr", "note"})
+		tools = append(tools, gateway.ToolDefinition{
+			Name:        "resolve_review",
+			Description: "Resolve the server-bound salary-cycle residual review. Wealth allocations use human-readable account hints; Go resolves them uniquely and keeps canonical IDs private.",
+			Parameters: objectSchema(map[string]any{
+				"action": map[string]any{"type": "string", "enum": []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}},
+				"candidate_ref":       nullString,
+				"source_account_hint": nullString,
+				"wealth_account_hint": nullString,
+				"category_slug":       nullString,
+				"merchant":            nullString,
+				"description":         nullString,
+				"pay_date":            nullString,
+				"amount_idr":          nullString,
+				"transaction_at":      nullString,
+				"allocations": map[string]any{
+					"type":  "array",
+					"items": allocation,
+				},
+			}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"}),
+		})
+	}
 
 	if hasPendingBatch {
 		category := map[string]any{"type": []string{"string", "null"}}
@@ -134,6 +163,24 @@ func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 			return nil, fmt.Errorf("pending batch update is empty")
 		}
 		return remarshal(args), nil
+	case "resolve_review":
+		args, err := decodeAgentArgsRaw[agentResolveReviewArgs](call)
+		if err != nil {
+			return nil, err
+		}
+		if !containsAgentReviewAction(args.Action) {
+			return nil, fmt.Errorf("invalid review action")
+		}
+		for _, allocation := range args.Allocations {
+			if strings.TrimSpace(allocation.WealthAccountHint) == "" {
+				return nil, fmt.Errorf("missing wealth account hint")
+			}
+			amount, ok := new(big.Int).SetString(allocation.AmountIDR, 10)
+			if !ok || amount.Sign() <= 0 || amount.String() != allocation.AmountIDR {
+				return nil, fmt.Errorf("invalid residual allocation amount")
+			}
+		}
+		return remarshal(args), nil
 	default:
 		return ValidateNativeToolCall(call)
 	}
@@ -155,6 +202,35 @@ type updatePendingBatchArgs struct {
 	CategorySlug       *string `json:"category_slug"`
 	Description        *string `json:"description"`
 	ConfirmAfterUpdate bool    `json:"confirm_after_update"`
+}
+
+type agentResidualAllocationInput struct {
+	WealthAccountHint string  `json:"wealth_account_hint"`
+	AmountIDR         string  `json:"amount_idr"`
+	Note              *string `json:"note"`
+}
+
+type agentResolveReviewArgs struct {
+	Action        string  `json:"action"`
+	CandidateRef  *string `json:"candidate_ref"`
+	SourceHint    *string `json:"source_account_hint"`
+	WealthHint    *string `json:"wealth_account_hint"`
+	CategorySlug  *string `json:"category_slug"`
+	Merchant      *string `json:"merchant"`
+	Description   *string `json:"description"`
+	PayDate       *string `json:"pay_date"`
+	AmountIDR     *string `json:"amount_idr"`
+	TransactionAt *string `json:"transaction_at"`
+	Allocations   []agentResidualAllocationInput `json:"allocations"`
+}
+
+func containsAgentReviewAction(action string) bool {
+	for _, allowed := range reviewActions() {
+		if action == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeAgentArgsRaw[T any](call gateway.ToolCall) (T, error) {
