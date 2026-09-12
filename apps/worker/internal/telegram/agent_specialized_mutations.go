@@ -199,6 +199,9 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 
 func (p *Processor) agentStageTransferReview(ctx context.Context, state *agentState, call gateway.ToolCall, intent transferReconciliationIntent, candidateIDs []string, reason string) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
+	if candidateIDs == nil {
+		candidateIDs = []string{}
+	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return result, true, err
