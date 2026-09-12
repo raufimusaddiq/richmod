@@ -22,7 +22,7 @@ type agentLimits struct {
 
 var defaultAgentLimits = agentLimits{
 	MaxModelPhases:          5,
-	MaxReadCallsPerResponse: 4,
+	MaxReadCallsPerResponse: 5,
 	MaxReadCallsPerTurn:     8,
 	MaxSideEffectsPerTurn:   1,
 	PerModelCallTimeout:     8 * time.Second,

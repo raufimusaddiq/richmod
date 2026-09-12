@@ -66,7 +66,9 @@ func run(logger *slog.Logger) error {
 		}
 	}
 	llm := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT")).WithRecorder("TELEGRAM_NATIVE", recordLLMCall)
+	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	processor := telegram.NewProcessor(pool, llm)
+	processor.SetBot(bot)
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
 	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))
 	if err != nil {
@@ -88,7 +90,6 @@ func run(logger *slog.Logger) error {
 	}
 	financialLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), financialModel).WithRecorder("FINANCIAL_EMAIL_EXTRACTION", recordLLMCall)
 	financialProcessor := financialemail.NewProcessor(pool, financialLLM)
-	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)
 	jobs := queue.New(pool)
 	hostname, _ := os.Hostname()

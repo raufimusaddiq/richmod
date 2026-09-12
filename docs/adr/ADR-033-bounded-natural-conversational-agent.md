@@ -55,7 +55,7 @@ depend on an earlier result. Initial production limits are:
 
 ```text
 max model phases per user turn:        5
-max read calls per model response:     4
+max read calls per model response:     5
 max read calls per user turn:          8
 max side effects per user turn:        1
 per model call timeout:                8 seconds
