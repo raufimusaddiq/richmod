@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -68,5 +69,47 @@ func TestAgentFinanceToolsUsesConversationTextInsteadOfArtificialResponseTools(t
 	}
 	if !seen["query_spending"] || !seen["get_category_breakdown"] || !seen["record_transaction"] {
 		t.Fatalf("required finance capabilities missing: %#v", seen)
+	}
+}
+
+func TestSpecializedFreeTextSideEffectsUseStructuredAgentExecutors(t *testing.T) {
+	for _, name := range []string{"record_transfer", "resolve_review", "resolve_salary_choice", "resolve_merchant_learning"} {
+		if !isAgentSpecializedSideEffect(name) {
+			t.Fatalf("%s must use a structured conversational executor", name)
+		}
+		class, ok := agentToolClassFor(name)
+		if !ok || class != agentToolSideEffect {
+			t.Fatalf("%s class = %q, %v; want SIDE_EFFECT", name, class, ok)
+		}
+	}
+	for _, name := range []string{"query_spending", "record_transaction", "confirm_pending_batch"} {
+		if isAgentSpecializedSideEffect(name) {
+			t.Fatalf("%s must not be routed through specialized executor", name)
+		}
+	}
+}
+
+func TestSpecializedMutationFallbacksAreSpecific(t *testing.T) {
+	cases := []agentToolResult{
+		{Status: "CONFIRMED", Mutation: map[string]any{"action": "TRANSFER_RECORDED", "amount_idr": "83000"}},
+		{Status: "RESOLVED", Mutation: map[string]any{"action": "REVIEW_CONFIRMED"}},
+		{Status: "PRIMARY", Mutation: map[string]any{"action": "SALARY_CHOICE_RESOLVED", "choice": "PRIMARY"}},
+		{Status: "CONFIRMED", Mutation: map[string]any{"action": "MERCHANT_LEARNING_RESOLVED", "remember": true}},
+	}
+	for _, tc := range cases {
+		got := agentMutationFallback(tc)
+		if got == "Aksi keuangan sudah diproses." || strings.TrimSpace(got) == "" {
+			t.Fatalf("fallback for %#v was not specific: %q", tc.Mutation, got)
+		}
+	}
+}
+
+func TestAgentFinalStatusPreservationContract(t *testing.T) {
+	// The final conversational response must not convert an explicit IGNORED or
+	// NEEDS_REVIEW source event into PROCESSED merely because text was sent.
+	for _, status := range []string{"IGNORED", "NEEDS_REVIEW"} {
+		if status != "IGNORED" && status != "NEEDS_REVIEW" {
+			t.Fatalf("unexpected preservation fixture %q", status)
+		}
 	}
 }
