@@ -227,7 +227,7 @@ func (p *Processor) persistAgentTransactionReferences(ctx context.Context, house
 	}
 	encoded, _ := json.Marshal(refs)
 	var turnID string
-	if err := tx.QueryRow(ctx, `INSERT INTO telegram_conversation_turn(household_id,telegram_user_id,telegram_chat_id,source_event_id,role,message_text,public_context_json,telegram_message_id) VALUES($1,$2,$3,$4::uuid,'TOOL','Agent transaction references.',jsonb_build_object('transaction_refs',$5::jsonb),$6) RETURNING id`, householdID, update.Message.From.ID, update.Message.Chat.ID, sourceEventID, string(encoded), update.Message.MessageID).Scan(&turnID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO telegram_conversation_turn(household_id,telegram_user_id,telegram_chat_id,source_event_id,role,message_text,tool_name,public_context_json,telegram_message_id) VALUES($1,$2,$3,$4::uuid,'TOOL','Agent transaction references.','agent_transaction_refs',jsonb_build_object('transaction_refs',$5::jsonb),$6) RETURNING id`, householdID, update.Message.From.ID, update.Message.Chat.ID, sourceEventID, string(encoded), update.Message.MessageID).Scan(&turnID); err != nil {
 		return nil, err
 	}
 	public := make([]agentPublicRef, 0, len(ids))
