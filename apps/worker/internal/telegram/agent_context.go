@@ -132,16 +132,16 @@ func (p *Processor) loadAgentPendingBatch(ctx context.Context, householdID strin
 
 func buildAgentTurnContext(text string, now time.Time, categories []string, contextState agentContextState) map[string]any {
 	return map[string]any{
-		"current_user_text":       "<untrusted_user_message>" + text + "</untrusted_user_message>",
+		"current_user_text":        "<untrusted_user_message>" + text + "</untrusted_user_message>",
 		"current_jakarta_datetime": now.In(jakartaLocation()).Format(time.RFC3339),
-		"recent_turns":            contextState.Conversation,
-		"allowed_category_slugs":  categories,
-		"pending_action":          contextState.PendingAction,
-		"pending_batch":           contextState.PendingBatch,
-		"active_review_count":     contextState.ActiveReviewCount,
-		"active_review":           contextState.ActiveReview,
-		"has_salary_choice":       contextState.HasSalaryChoice,
-		"has_merchant_learning":   contextState.HasMerchantLearning,
+		"recent_turns":             contextState.Conversation,
+		"allowed_category_slugs":   categories,
+		"pending_action":           contextState.PendingAction,
+		"pending_batch":            contextState.PendingBatch,
+		"active_review_count":      contextState.ActiveReviewCount,
+		"active_review":            contextState.ActiveReview,
+		"has_salary_choice":        contextState.HasSalaryChoice,
+		"has_merchant_learning":    contextState.HasMerchantLearning,
 	}
 }
 
@@ -178,4 +178,24 @@ func (p *Processor) persistAgentTransactionReferences(ctx context.Context, house
 		return nil, err
 	}
 	return public, nil
+}
+
+func agentOptionalString(value any) *string {
+	var raw string
+	switch typed := value.(type) {
+	case string:
+		raw = typed
+	case *string:
+		if typed == nil {
+			return nil
+		}
+		raw = *typed
+	default:
+		return nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	return &raw
 }
