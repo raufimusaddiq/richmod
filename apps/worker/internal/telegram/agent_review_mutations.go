@@ -14,122 +14,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
+// agentResolveReview is retained for internal callers/tests, but review
+// resolution is always server-bound. No conversational path may select the
+// newest household review as a mutation target.
 func (p *Processor) agentResolveReview(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
-	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
-	action, _ := args["action"].(string)
-
-	if handled, special, err := p.agentResolveTransferReconciliation(ctx, state, call, action, args); handled {
-		return special, true, err
-	}
-	if handled, special, err := p.agentResolveWealthObservation(ctx, state, call, action, args); handled {
-		return special, true, err
-	}
-	if handled, special, err := p.agentResolveResidual(ctx, state, call, action, args); handled {
-		return special, true, err
-	}
-
-	review, err := p.agentBoundTransactionReview(ctx, state)
-	if err != nil {
-		return result, true, err
-	}
-	if review == nil {
-		result.Status = "NO_ACTIVE_REVIEW"
-		return result, true, nil
-	}
-	if review.ambiguous {
-		result.Status = "AMBIGUOUS_REVIEW"
-		result.Facts = map[string]any{"active_review_count": review.count}
-		return result, true, nil
-	}
-
-	categorySlug, _ := args["category_slug"].(string)
-	description, _ := args["description"].(string)
-	merchant, _ := args["merchant"].(string)
-	payDate, _ := args["pay_date"].(string)
-	amountIDR, _ := args["amount_idr"].(string)
-	transactionAt, _ := args["transaction_at"].(string)
-	wealthHint, _ := args["wealth_account_hint"].(string)
-
-	switch action {
-	case "PRIMARY_SALARY", "ORDINARY_INCOME":
-		choice := "PRIMARY"
-		if action == "ORDINARY_INCOME" {
-			choice = "ORDINARY"
-		}
-		return p.agentResolveSalaryChoice(ctx, state, call, map[string]any{"choice": choice})
-	case "IGNORE":
-		return p.agentRejectTransactionReview(ctx, state, call, *review)
-	case "OWN_ACCOUNT_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "OWN_ACCOUNT", "", "")
-	case "HOUSEHOLD_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "HOUSEHOLD_ACCOUNT", "", "")
-	case "INVESTMENT_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "INVESTMENT_ACCOUNT", "", "")
-	case "ASSET_PURCHASE":
-		if strings.TrimSpace(wealthHint) == "" {
-			result.Status = "MISSING_WEALTH_ACCOUNT"
-			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"wealth_account_hint"}}
-			return result, true, nil
-		}
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", wealthHint, "")
-	case "EXPENSE":
-		categoryID, err := p.agentCategoryID(ctx, state.HouseholdID, categorySlug)
-		if err != nil {
-			result.Status = "INVALID_CATEGORY"
-			return result, true, nil
-		}
-		if categoryID == "" {
-			result.Status = "MISSING_CATEGORY"
-			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"category_slug"}}
-			return result, true, nil
-		}
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "CONFIRMED", "EXPENSE", "", categoryID)
-	case "SET_PAY_DATE":
-		if !validReviewDate(payDate) {
-			result.Status = "INVALID_PAY_DATE"
-			result.Review = map[string]any{"required": true, "missing_fields": []string{"pay_date"}}
-			return result, true, nil
-		}
-	case "COMPLETE_BANK_FACTS":
-		if strings.TrimSpace(amountIDR) == "" || !validReviewTimestamp(transactionAt) {
-			result.Status = "MISSING_BANK_FACTS"
-			result.Review = map[string]any{"required": true, "missing_fields": []string{"amount_idr", "transaction_at"}}
-			return result, true, nil
-		}
-		amount, ok := new(big.Int).SetString(amountIDR, 10)
-		if !ok || amount.Sign() <= 0 || amount.String() != amountIDR {
-			result.Status = "INVALID_AMOUNT"
-			return result, true, nil
-		}
-		parsed, _ := time.Parse(time.RFC3339, transactionAt)
-		if _, err := p.pool.Exec(ctx, `UPDATE transaction SET amount=$2,transaction_at=$3,updated_at=now() WHERE id=$1 AND household_id=$4 AND status='NEEDS_REVIEW'`, review.transactionID, amountIDR, parsed, state.HouseholdID); err != nil {
-			return result, true, err
-		}
-	case "CONFIRM":
-	default:
-		result.Status = "UNSUPPORTED_REVIEW_ACTION"
-		result.Facts = map[string]any{"action": action, "review_type": review.reviewType}
-		return result, true, nil
-	}
-
-	if field, value, required := requiredNativeReviewDetail(review.reviewType, review.conversationState, review.merchantID, merchant, description); required {
-		if strings.TrimSpace(value) == "" {
-			result.Status = "MISSING_REVIEW_DETAIL"
-			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{field}}
-			return result, true, nil
-		}
-		return p.agentSaveReviewField(ctx, state, call, *review, field, value)
-	}
-
-	categoryID := ""
-	if strings.TrimSpace(categorySlug) != "" {
-		categoryID, err = p.agentCategoryID(ctx, state.HouseholdID, categorySlug)
-		if err != nil || categoryID == "" {
-			result.Status = "INVALID_CATEGORY"
-			return result, true, nil
-		}
-	}
-	return p.agentConfirmTransactionReview(ctx, state, call, *review, categoryID, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
+	return p.agentResolveBoundReview(ctx, state, call, args)
 }
 
 type agentTransactionReview struct {
@@ -225,16 +114,13 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context,state
 	proposalStatus,sourceStatus:="ACCEPTED","PROCESSED";if newStatus=="VOIDED"{proposalStatus,sourceStatus="REJECTED","IGNORED"};updated,err:=tx.Exec(ctx,`UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=NULLIF($4,'')::uuid,status=$5,category_id=NULLIF($6,'')::uuid,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND household_id=$8 AND status='NEEDS_REVIEW' AND (type='UNCLASSIFIED' OR (type='EXPENSE' AND $7='ASSET_PURCHASE'))`,review.transactionID,newType,purpose,wealthID,newStatus,categoryID,classification,state.HouseholdID);if err!=nil{return result,true,err};if updated.RowsAffected()!=1{return result,true,fmt.Errorf("review transaction no longer eligible")};if _,err=tx.Exec(ctx,`UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`,review.transactionID,newType,proposalStatus,categoryID,classification,purpose,wealthID);err!=nil{return result,true,err};if _,err=tx.Exec(ctx,`UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`,review.reviewID);err!=nil{return result,true,err};if err=resolveCanonicalReviewItem(ctx,tx,review.reviewID,"TELEGRAM_TRANSFER_CLASSIFIED");err!=nil{return result,true,err};if _,err=tx.Exec(ctx,`UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`,review.reviewID);err!=nil{return result,true,err};if _,err=tx.Exec(ctx,`UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`,review.transactionID,sourceStatus);err!=nil{return result,true,err};if _,err=tx.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`,state.SourceEventID);err!=nil{return result,true,err};if _,err=tx.Exec(ctx,`INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification',$4::text)) ON CONFLICT DO NOTHING`,review.transactionID,state.SourceEventID,review.reviewID,classification);err!=nil{return result,true,err};if _,err=tx.Exec(ctx,`INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'purpose',$7::text,'related_wealth_account_id',NULLIF($8,'')::text,'status',$9::text,'agent_sprint',1))`,state.HouseholdID,userID,review.transactionID,review.reviewID,classification,newType,purpose,wealthID,newStatus);err!=nil{return result,true,err};if err=tx.Commit(ctx);err!=nil{return result,true,err};result.Status="RESOLVED";result.Mutation=map[string]any{"action":"REVIEW_TRANSFER_CLASSIFIED","classification":classification,"transaction_type":newType,"status":newStatus,"purpose":purpose};return result,true,nil
 }
 
-func (p *Processor) agentResolveTransferReconciliation(ctx context.Context,state *agentState,call gateway.ToolCall,action string,args map[string]any)(bool,agentToolResult,error){
-	result:=agentToolResult{CallID:call.CallID,Tool:call.Name,Class:agentToolSideEffect};var caseID,originalSource,accountID,amount,description,purpose,wealthID string;var at time.Time;var candidates []string;err:=p.pool.QueryRow(ctx,`SELECT id,source_event_id,account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE household_id=$1 AND status='OPEN' ORDER BY created_at DESC LIMIT 1`,state.HouseholdID).Scan(&caseID,&originalSource,&accountID,&amount,&description,&purpose,&wealthID,&at,&candidates);if errors.Is(err,pgx.ErrNoRows){return false,result,nil};if err!=nil{return true,result,err};target:="";createNew:=false;switch action{case "MERGE_EXISTING":ref,_:=args["candidate_ref"].(string);var index int;if _,e:=fmt.Sscanf(ref,"candidate_%d",&index);e!=nil||index<1||index>len(candidates){result.Status="INVALID_CANDIDATE";return true,result,nil};target=candidates[index-1];case "CONFIRM_NEW_TRANSFER":createNew=true;case "IGNORE":default:result.Status="INVALID_REVIEW_ACTION";return true,result,nil};resolved,err:=p.agentResolveTransferCaseTx(ctx,state,caseID,originalSource,accountID,amount,description,purpose,wealthID,at,target,createNew);if err!=nil{return true,result,err};result.Status="RESOLVED";result.Mutation=map[string]any{"action":"TRANSFER_RECONCILIATION_RESOLVED","resolution":action,"amount_idr":amount,"purpose":purpose};if resolved!=""{refs,refErr:=p.persistAgentTransactionReferences(ctx,state.HouseholdID,state.SourceEventID,state.Update,fmt.Sprintf("p%dr0",state.ModelPhases),[]string{resolved});if refErr==nil{result.References=refs}};return true,result,nil
-}
-
 func (p *Processor) agentResolveTransferCaseTx(ctx context.Context,state *agentState,caseID,originalSource,accountID,amount,description,purpose,wealthID string,at time.Time,target string,createNew bool)(string,error){
-	tx,err:=p.pool.BeginTx(ctx,pgx.TxOptions{});if err!=nil{return "",err};defer tx.Rollback(ctx);var compatible bool;if err=tx.QueryRow(ctx,`SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`,purpose,wealthID,state.HouseholdID).Scan(&compatible);err!=nil||!compatible{return "",fmt.Errorf("invalid transfer wealth relationship")};var userID string;if err=tx.QueryRow(ctx,`SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`,state.Update.Message.From.ID,state.HouseholdID).Scan(&userID);err!=nil{return "",err};id:=target;if createNew{if err=tx.QueryRow(ctx,`INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`,state.HouseholdID,accountID,amount,at,description,userID,purpose,wealthID).Scan(&id);err!=nil{return "",err}}else if id!=""{var kind,status,targetAccount,targetAmount string;if err=tx.QueryRow(ctx,`SELECT type,status,account_id::text,amount::text FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`,id,state.HouseholdID).Scan(&kind,&status,&targetAccount,&targetAmount);err!=nil||targetAccount!=accountID||targetAmount!=amount||status=="VOIDED"{return "",fmt.Errorf("invalid reconciliation candidate")};if _,err=tx.Exec(ctx,`UPDATE transaction SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),confirmed_at=COALESCE(confirmed_at,now()),updated_at=now() WHERE id=$1`,id,purpose,wealthID,description);err!=nil{return "",err};if kind=="UNCLASSIFIED"||status=="NEEDS_REVIEW"{if _,err=tx.Exec(ctx,`UPDATE transaction_proposal SET proposed_type='TRANSFER',proposal_status='ACCEPTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`,id);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`,id);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN ('OPEN','PENDING_SEND')`,id);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1)`,id);err!=nil{return "",err}}};if id!=""{if _,err=tx.Exec(ctx,`INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'TELEGRAM_TEXT',1) ON CONFLICT DO NOTHING`,id,originalSource);err!=nil{return "",err}};if _,err=tx.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED' WHERE id IN ($1,$2)`,originalSource,state.SourceEventID);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='TRANSFER_RECONCILED',updated_at=now() WHERE source_event_id=$1 AND status IN ('OPEN','PENDING_SEND')`,originalSource,userID);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE id=$1`,caseID,userID);err!=nil{return "",err};if err=tx.Commit(ctx);err!=nil{return "",err};return id,nil
-}
-
-func (p *Processor) agentResolveWealthObservation(ctx context.Context,state *agentState,call gateway.ToolCall,action string,args map[string]any)(bool,agentToolResult,error){
-	result:=agentToolResult{CallID:call.CallID,Tool:call.Name,Class:agentToolSideEffect};var observationID,resolved,institution,hint,originalSource string;err:=p.pool.QueryRow(ctx,`SELECT wo.id::text,COALESCE(wo.resolved_wealth_account_id::text,''),wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`,state.HouseholdID).Scan(&observationID,&resolved,&institution,&hint,&originalSource);if errors.Is(err,pgx.ErrNoRows){return false,result,nil};if err!=nil{return true,result,err};switch action{case "PREPARE_SNAPSHOT":if resolved==""{result.Status="MISSING_WEALTH_ACCOUNT";result.Review=map[string]any{"required":true,"review_type":"WEALTH_OBSERVATION","missing_fields":[]string{"wealth_account_hint"}};return true,result,nil};if _,err=p.pool.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`,state.SourceEventID);err!=nil{return true,result,err};result.Status="ACTION_REQUIRED";result.Mutation=map[string]any{"action":"PREPARE_WEALTH_SNAPSHOT","requires_web":true};return true,result,nil;case "SET_WEALTH_ACCOUNT":wealthHint,_:=args["wealth_account_hint"].(string);tx,e:=p.pool.BeginTx(ctx,pgx.TxOptions{});if e!=nil{return true,result,e};defer tx.Rollback(ctx);id,e:=resolveUniqueWealthHint(ctx,tx,state.HouseholdID,wealthHint);if e!=nil{result.Status="WEALTH_ACCOUNT_AMBIGUOUS";return true,result,nil};if _,e=tx.Exec(ctx,`UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND status='PENDING'`,observationID,id);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`,state.SourceEventID);e!=nil{return true,result,e};if e=tx.Commit(ctx);e!=nil{return true,result,e};result.Status="UPDATED";result.Mutation=map[string]any{"action":"WEALTH_ACCOUNT_SET","wealth_account_hint":wealthHint};return true,result,nil;case "RECORD_ASSET_PURCHASE":sourceHint,_:=args["source_account_hint"].(string);wealthHint,_:=args["wealth_account_hint"].(string);amount,_:=args["amount_idr"].(string);atText,_:=args["transaction_at"].(string);if strings.TrimSpace(sourceHint)==""||!validReviewTimestamp(atText){result.Status="MISSING_ASSET_PURCHASE_FACTS";result.Review=map[string]any{"required":true,"missing_fields":[]string{"source_account_hint","transaction_at"}};return true,result,nil};if strings.TrimSpace(wealthHint)==""{wealthHint=strings.TrimSpace(institution+" "+hint)};if strings.TrimSpace(amount)==""{if err:=p.pool.QueryRow(ctx,`SELECT observed_value_idr::text FROM wealth_observation WHERE id=$1 AND status='PENDING'`,observationID).Scan(&amount);err!=nil{return true,result,err}};parsed,_:=time.Parse(time.RFC3339,atText);local:=parsed.In(jakartaLocation());transferArgs:=map[string]any{"amount_idr":amount,"source_account_hint":sourceHint,"destination_wealth_account_hint":wealthHint,"purpose":"ASSET_PURCHASE","date_reference":"EXPLICIT","explicit_date":local.Format("2006-01-02"),"local_time":local.Format("15:04"),"description":"Pembelian investasi dari bukti Telegram"};transferResult,_,e:=p.agentRecordTransfer(ctx,state,gateway.ToolCall{CallID:call.CallID,Name:"record_transfer"},transferArgs);if e!=nil{return true,result,e};if transferResult.Status!="CONFIRMED"&&transferResult.Status!="NO_OP_DUPLICATE"{transferResult.Tool=call.Name;return true,transferResult,nil};var transactionID string;if e:=p.pool.QueryRow(ctx,`SELECT transaction_id::text FROM transaction_evidence WHERE source_event_id=$1 ORDER BY created_at DESC LIMIT 1`,state.SourceEventID).Scan(&transactionID);e!=nil{return true,result,e};tx,e:=p.pool.BeginTx(ctx,pgx.TxOptions{});if e!=nil{return true,result,e};defer tx.Rollback(ctx);var userID string;if e=tx.QueryRow(ctx,`SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`,state.Update.Message.From.ID,state.HouseholdID).Scan(&userID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TELEGRAM_IMAGE',1,jsonb_build_object('reclassified_from','WEALTH_OBSERVATION','observation_id',$3::uuid)) ON CONFLICT DO NOTHING`,transactionID,originalSource,observationID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND status='PENDING'`,observationID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`,observationID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='RECLASSIFIED_ASSET_PURCHASE',updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`,observationID,userID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`,originalSource);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RECLASSIFY_WEALTH_OBSERVATION','wealth_observation',$3,jsonb_build_object('transaction_id',$4::uuid,'purpose','ASSET_PURCHASE','agent_sprint',1))`,state.HouseholdID,userID,observationID,transactionID);e!=nil{return true,result,e};if e=tx.Commit(ctx);e!=nil{return true,result,e};result=transferResult;result.Tool=call.Name;result.Mutation["action"]="WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE";return true,result,nil;case "IGNORE":tx,e:=p.pool.BeginTx(ctx,pgx.TxOptions{});if e!=nil{return true,result,e};defer tx.Rollback(ctx);var userID string;if e=tx.QueryRow(ctx,`SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`,state.Update.Message.From.ID,state.HouseholdID).Scan(&userID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND status='PENDING'`,observationID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='IGNORED',updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`,observationID,userID);e!=nil{return true,result,e};if _,e=tx.Exec(ctx,`UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id IN($1,$2)`,originalSource,state.SourceEventID);e!=nil{return true,result,e};if e=tx.Commit(ctx);e!=nil{return true,result,e};result.Status="RESOLVED";result.Mutation=map[string]any{"action":"WEALTH_OBSERVATION_IGNORED"};return true,result,nil;default:result.Status="INVALID_REVIEW_ACTION";return true,result,nil}
+	tx,err:=p.pool.BeginTx(ctx,pgx.TxOptions{});if err!=nil{return "",err};defer tx.Rollback(ctx)
+	valid,err:=p.lockAgentReviewBindingTx(ctx,tx,state,state.ReviewBinding,"TRANSFER_RECONCILIATION");if err!=nil{return "",err};if !valid||state.ReviewBinding.TargetID!=caseID{return "",fmt.Errorf("stale transfer reconciliation binding")}
+	var candidates []string
+	if err=tx.QueryRow(ctx,`SELECT source_event_id::text,account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE id=$1 AND household_id=$2 AND status='OPEN' FOR UPDATE`,caseID,state.HouseholdID).Scan(&originalSource,&accountID,&amount,&description,&purpose,&wealthID,&at,&candidates);err!=nil{return "",err}
+	if target!=""{found:=false;for _,candidate:=range candidates{if candidate==target{found=true;break}};if !found{return "",fmt.Errorf("reconciliation candidate changed")}}
+	var compatible bool;if err=tx.QueryRow(ctx,`SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`,purpose,wealthID,state.HouseholdID).Scan(&compatible);err!=nil||!compatible{return "",fmt.Errorf("invalid transfer wealth relationship")};var userID string;if err=tx.QueryRow(ctx,`SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`,state.Update.Message.From.ID,state.HouseholdID).Scan(&userID);err!=nil{return "",err};id:=target;if createNew{if err=tx.QueryRow(ctx,`INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`,state.HouseholdID,accountID,amount,at,description,userID,purpose,wealthID).Scan(&id);err!=nil{return "",err}}else if id!=""{var kind,status,targetAccount,targetAmount string;if err=tx.QueryRow(ctx,`SELECT type,status,account_id::text,amount::text FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`,id,state.HouseholdID).Scan(&kind,&status,&targetAccount,&targetAmount);err!=nil||targetAccount!=accountID||targetAmount!=amount||status=="VOIDED"{return "",fmt.Errorf("invalid reconciliation candidate")};if _,err=tx.Exec(ctx,`UPDATE transaction SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),confirmed_at=COALESCE(confirmed_at,now()),updated_at=now() WHERE id=$1`,id,purpose,wealthID,description);err!=nil{return "",err};if kind=="UNCLASSIFIED"||status=="NEEDS_REVIEW"{if _,err=tx.Exec(ctx,`UPDATE transaction_proposal SET proposed_type='TRANSFER',proposal_status='ACCEPTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`,id);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`,id);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN ('OPEN','PENDING_SEND')`,id);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1)`,id);err!=nil{return "",err}}};if id!=""{if _,err=tx.Exec(ctx,`INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'TELEGRAM_TEXT',1) ON CONFLICT DO NOTHING`,id,originalSource);err!=nil{return "",err}};if _,err=tx.Exec(ctx,`UPDATE source_event SET processing_status='PROCESSED' WHERE id IN ($1,$2)`,originalSource,state.SourceEventID);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='TRANSFER_RECONCILED',updated_at=now() WHERE id=(SELECT review_item_id FROM review_request WHERE id=$3 AND household_id=$4) AND status IN ('OPEN','PENDING_SEND')`,originalSource,userID,state.ReviewBinding.ReviewRequestID,state.HouseholdID);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND household_id=$2 AND status='OPEN'`,state.ReviewBinding.ReviewRequestID,state.HouseholdID);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`,state.ReviewBinding.ReviewRequestID);err!=nil{return "",err};if _,err=tx.Exec(ctx,`UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='OPEN'`,caseID,userID,state.HouseholdID);err!=nil{return "",err};if err=tx.Commit(ctx);err!=nil{return "",err};return id,nil
 }
 
 func (p *Processor) agentResolveResidual(ctx context.Context,state *agentState,call gateway.ToolCall,action string,args map[string]any)(bool,agentToolResult,error){
