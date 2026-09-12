@@ -93,6 +93,20 @@ mutation tool is not exposed. Bound canonical IDs remain server-only and are
 revalidated immediately before mutation, so a later row becoming "latest" cannot
 redirect an already-bound action. Stale bindings fail closed.
 
+Review eligibility is scoped to the Telegram recipient/chat. A review belonging
+to another member or chat in the same household must not participate in the
+current user's ambiguity set. Transfer-reconciliation and Wealth-observation
+mutations revalidate the bound target ID, household, open review/case state,
+recipient chat, and exact reply message when present **inside the same database
+transaction that performs the mutation**. Those review/request/recipient/subject
+rows are locked for the mutation so the binding cannot drift after validation.
+
+`IGNORE` is a dismissal, not a successful reconciliation. For transfer
+reconciliation, ignoring the review dismisses the reconciliation case, resolves
+the review with an `IGNORED` resolution, and marks the original source ignored;
+it must never record `TRANSFER_RECONCILED` or imply that a canonical transfer was
+successfully reconciled.
+
 Merchant-learning confirmations follow the same rule: an exact replied review
 wins; otherwise exactly one pending merchant-learning review is required.
 
