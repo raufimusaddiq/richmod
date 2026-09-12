@@ -93,11 +93,11 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	dayStart := time.Date(localAt.Year(), localAt.Month(), localAt.Day(), 0, 0, 0, 0, jakartaLocation()).UTC()
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	type candidate struct {
-		id, kind, status string
-		at               time.Time
+		id, kind, status, purpose, existingWealth string
+		at                                      time.Time
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id::text,type,status,transaction_at
+		SELECT id::text,type,status,COALESCE(purpose,''),COALESCE(related_wealth_account_id::text,''),transaction_at
 		FROM transaction
 		WHERE household_id=$1 AND account_id=$2 AND type IN ('TRANSFER','UNCLASSIFIED')
 		  AND status<>'VOIDED' AND amount=$3 AND transaction_at >= $4 AND transaction_at < $5
@@ -109,7 +109,7 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if err = rows.Scan(&c.id, &c.kind, &c.status, &c.at); err != nil {
+		if err = rows.Scan(&c.id, &c.kind, &c.status, &c.purpose, &c.existingWealth, &c.at); err != nil {
 			rows.Close()
 			return result, true, err
 		}
@@ -140,24 +140,39 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 			return result, true, nil
 		}
 		transactionID = candidate.id
-		updated, updateErr := tx.Exec(ctx, `
-			UPDATE transaction
-			SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose='ASSET_PURCHASE',
-			    related_wealth_account_id=$2::uuid,
-			    description=COALESCE(NULLIF(description,''),'Pembelian investasi dari observasi Wealth'),
-			    confirmed_at=COALESCE(confirmed_at,now()),voided_at=NULL,updated_at=now()
-			WHERE id=$1 AND household_id=$3 AND status<>'VOIDED'`, transactionID, wealthID, state.HouseholdID)
-		if updateErr != nil {
-			return result, true, updateErr
-		}
-		if updated.RowsAffected() != 1 {
-			result.Status = "TRANSFER_RECONCILIATION_REQUIRED"
-			return result, true, nil
-		}
-		if candidate.kind == "UNCLASSIFIED" || candidate.status == "NEEDS_REVIEW" {
+
+		// A confirmed transfer is authoritative finance state. Reuse it only when
+		// it already has the exact ASSET_PURCHASE semantics requested here. Never
+		// overwrite a savings/internal/investment transfer merely because amount
+		// and time happen to match the Wealth observation.
+		if candidate.kind == "TRANSFER" && candidate.status == "CONFIRMED" {
+			if candidate.purpose != "ASSET_PURCHASE" || candidate.existingWealth != wealthID {
+				result.Status = "TRANSFER_RECONCILIATION_REQUIRED"
+				result.Facts = map[string]any{"candidate_count": 1}
+				return result, true, nil
+			}
+		} else if candidate.kind == "UNCLASSIFIED" || candidate.status == "NEEDS_REVIEW" {
+			updated, updateErr := tx.Exec(ctx, `
+				UPDATE transaction
+				SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose='ASSET_PURCHASE',
+				    related_wealth_account_id=$2::uuid,
+				    description=COALESCE(NULLIF(description,''),'Pembelian investasi dari observasi Wealth'),
+				    confirmed_at=COALESCE(confirmed_at,now()),voided_at=NULL,updated_at=now()
+				WHERE id=$1 AND household_id=$3 AND status<>'VOIDED'`, transactionID, wealthID, state.HouseholdID)
+			if updateErr != nil {
+				return result, true, updateErr
+			}
+			if updated.RowsAffected() != 1 {
+				result.Status = "TRANSFER_RECONCILIATION_REQUIRED"
+				return result, true, nil
+			}
 			if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='TRANSFER',proposal_status='ACCEPTED',metadata_json=metadata_json||jsonb_build_object('purpose','ASSET_PURCHASE','agent_sprint',1),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID); err != nil {
 				return result, true, err
 			}
+		} else {
+			result.Status = "TRANSFER_RECONCILIATION_REQUIRED"
+			result.Facts = map[string]any{"candidate_count": 1}
+			return result, true, nil
 		}
 	} else {
 		if err = tx.QueryRow(ctx, `
