@@ -272,7 +272,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 			state = "AWAITING_MERCHANT"
 			break
 		}
-		message = "Pilih kategori pengeluaran:"
+		message = "Pilih kategori pengeluaran (halaman 1):"
 		state = "AWAITING_CATEGORY"
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	case "review:asset":
@@ -393,7 +393,7 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	}
 	original := update
 	original.Message.MessageID = update.Message.ReplyToMessage.MessageID
-	if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, original, "Detail disimpan. Pilih kategori pengeluaran:", reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)); err != nil {
+	if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, original, "Detail disimpan. Pilih kategori pengeluaran (halaman 1):", reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -436,7 +436,7 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return err
 		}
-		if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih kategori pengeluaran:", markup); err != nil {
+		if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, fmt.Sprintf("Pilih kategori pengeluaran (halaman %d):", page+1), markup); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
