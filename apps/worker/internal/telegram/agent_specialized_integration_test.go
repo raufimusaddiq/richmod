@@ -125,6 +125,13 @@ func TestAgentReviewConfirmationReturnsStructuredResultWithoutCannedReply(t *tes
 	_, err = f.pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,99)`, reviewID, f.chatID)
 	mustAgentTest(t, err)
 	p := NewProcessor(f.pool, nil)
+	binding, _, count, bindErr := p.loadAgentReviewBinding(ctx, f.householdID, f.update)
+	mustAgentTest(t, bindErr)
+	if binding == nil || count != 1 {
+		t.Fatalf("review binding=%#v count=%d; want one bound review", binding, count)
+	}
+	f.state.ReviewBinding = binding
+	f.state.ReviewBindingCount = count
 	result, synthesize, err := p.agentResolveReview(ctx, f.state, gateway.ToolCall{CallID: "call-review", Name: "resolve_review"}, map[string]any{"action": "CONFIRM", "category_slug": "dining"})
 	mustAgentTest(t, err)
 	if !synthesize || result.Status != "RESOLVED" || result.Mutation["action"] != "REVIEW_CONFIRMED" {
