@@ -120,7 +120,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 
 		case agentToolSideEffect:
 			call := plan.Calls[0]
-			result, synthesize, err := p.executeAgentSideEffect(ctx, state, call.Call, call.Args, response.Metadata)
+			var result agentToolResult
+			var synthesize bool
+			if isAgentSpecializedSideEffect(call.Call.Name) {
+				result, synthesize, err = p.executeAgentSpecializedSideEffect(ctx, state, call.Call, call.Args)
+			} else {
+				result, synthesize, err = p.executeAgentSideEffect(ctx, state, call.Call, call.Args, response.Metadata)
+			}
 			if err != nil {
 				return p.finishAgentFailure(ctx, state, "Aksi keuangan belum bisa diproses dengan aman. Coba lagi.")
 			}
@@ -202,9 +208,12 @@ func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState
 }
 
 func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversationalGateway, state *agentState, result agentToolResult) error {
+	if state.ModelPhases >= defaultAgentLimits.MaxModelPhases {
+		return p.finishAgentText(ctx, state, agentMutationFallback(result))
+	}
 	content := map[string]any{
-		"instruction": "Write the final user-facing response for this completed finance action. Use only the authoritative result below. Do not add financial facts and do not request another action.",
-		"current_user_text": state.TurnContext["current_user_text"],
+		"instruction":                 "Write the final user-facing response for this completed finance action. Use only the authoritative result below. Do not add financial facts and do not request another action.",
+		"current_user_text":           state.TurnContext["current_user_text"],
 		"authoritative_action_result": result,
 	}
 	phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
@@ -219,8 +228,8 @@ func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversa
 
 func agentModelContent(state *agentState) map[string]any {
 	return map[string]any{
-		"turn_context":       state.TurnContext,
-		"agent_tool_results": state.History,
+		"turn_context":        state.TurnContext,
+		"agent_tool_results":  state.History,
 		"supported_languages": []string{"id", "en"},
 	}
 }
@@ -244,7 +253,7 @@ func (p *Processor) finishAgentText(ctx context.Context, state *agentState, mess
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `
 		UPDATE source_event
-		SET processing_status=CASE WHEN processing_status='NEEDS_REVIEW' THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END,
+		SET processing_status=CASE WHEN processing_status IN ('NEEDS_REVIEW','IGNORED') THEN processing_status ELSE 'PROCESSED' END,
 		    parser_name='telegram-conversational-agent',parser_version='1'
 		WHERE id=$1`, state.SourceEventID); err != nil {
 		return err
@@ -270,15 +279,20 @@ func agentMutationFallback(result agentToolResult) string {
 		switch action {
 		case "TRANSACTION_RECORDED":
 			if result.Status == "NEEDS_REVIEW" {
-				if amount != "" {
-					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Review karena masih perlu konfirmasi."
-				}
+				if amount != "" { return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Review karena masih perlu konfirmasi." }
 				return "Transaksi sudah masuk ke Review karena masih perlu konfirmasi."
 			}
-			if amount != "" {
-				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
-			}
+			if amount != "" { return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat." }
 			return "Transaksi sudah tercatat."
+		case "TRANSFER_RECORDED":
+			if amount != "" { return "Transfer Rp" + FormatIDR(amount) + " sudah tercatat." }
+			return "Transfer sudah tercatat."
+		case "TRANSFER_ALREADY_RECORDED":
+			return "Transfer ini sudah tercatat sebelumnya; tidak ada duplikasi baru."
+		case "TRANSFER_RECONCILIATION_STAGED":
+			return "Transfer ini perlu ditinjau karena ada transaksi yang mungkin sama."
+		case "TRANSFER_RECONCILIATION_RESOLVED":
+			return "Rekonsiliasi transfer sudah diselesaikan."
 		case "BATCH_STAGED":
 			return "Batch transaksi sudah disiapkan. Balas konfirmasi jika semuanya benar, atau sebutkan item yang ingin diubah."
 		case "BATCH_UPDATED":
@@ -288,15 +302,41 @@ func agentMutationFallback(result agentToolResult) string {
 		case "CORRECTION_STAGED", "CORRECT_EXISTING_TRANSACTION":
 			return "Perubahan transaksi sudah disiapkan. Konfirmasi jika sudah benar."
 		case "CORRECTION_RESOLVED":
-			if confirmed, _ := result.Mutation["confirmed"].(bool); confirmed {
-				return "Perubahan transaksi sudah disimpan."
-			}
+			if confirmed, _ := result.Mutation["confirmed"].(bool); confirmed { return "Perubahan transaksi sudah disimpan." }
 			return "Perubahan transaksi dibatalkan."
+		case "SALARY_CHOICE_RESOLVED":
+			choice, _ := result.Mutation["choice"].(string)
+			switch choice { case "PRIMARY": return "Gaji utama sudah disimpan dan menjadi acuan siklus keuangan."; case "ORDINARY": return "Gaji sudah disimpan sebagai pemasukan biasa."; case "IGNORE": return "Gaji tersebut sudah diabaikan." }
+		case "MERCHANT_LEARNING_RESOLVED":
+			if remember, _ := result.Mutation["remember"].(bool); remember { return "Kategori merchant sudah disimpan sebagai aturan." }
+			return "Kategori merchant tidak disimpan sebagai aturan."
+		case "REVIEW_CONFIRMED", "REVIEW_TRANSFER_CLASSIFIED":
+			return "Review sudah diselesaikan dan data keuangan diperbarui."
+		case "REVIEW_IGNORED":
+			return "Review sudah diselesaikan tanpa mencatatnya sebagai transaksi aktif."
+		case "REVIEW_DETAIL_SAVED", "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
+			return "Detail review sudah diperbarui."
+		case "WEALTH_ACCOUNT_SET":
+			return "Wealth Account untuk observasi tersebut sudah diperbarui."
+		case "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE":
+			return "Observasi Wealth sudah direklasifikasi sebagai pembelian aset."
+		case "WEALTH_OBSERVATION_IGNORED":
+			return "Observasi Wealth sudah diabaikan."
+		case "PREPARE_WEALTH_SNAPSHOT":
+			return "Wealth Account sudah siap; lanjutkan snapshot lengkap di halaman Wealth."
+		case "CYCLE_RESIDUAL_RESOLVED":
+			return "Rekonsiliasi sisa salary cycle sudah diselesaikan."
+		case "CYCLE_RESIDUAL_REFRESHED":
+			return "Nilai sisa salary cycle berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
+		case "CYCLE_RESIDUAL_CLOSED":
+			return "Rekonsiliasi sisa salary cycle ditutup karena tidak lagi berlaku."
+		case "ADD_MISSING_TRANSACTION_IN_WEB":
+			return "Tambahkan transaksi yang belum ada lewat Review Inbox di web, lalu lanjutkan rekonsiliasinya."
 		}
 	}
 	switch result.Status {
-	case "AMBIGUOUS_TARGET":
-		return "Ada lebih dari satu transaksi yang mungkin kamu maksud. Sebutkan merchant, nominal, tanggal, atau pilih dari hasil pencarian sebelumnya."
+	case "AMBIGUOUS_TARGET", "AMBIGUOUS_REVIEW":
+		return "Ada lebih dari satu kandidat yang mungkin kamu maksud. Balas atau pilih item yang spesifik."
 	case "TARGET_UNAVAILABLE":
 		return "Referensi transaksi itu sudah tidak tersedia. Cari transaksinya lagi dulu."
 	case "MISSING_TARGET":
@@ -307,6 +347,22 @@ func agentMutationFallback(result agentToolResult) string {
 		return "Tidak ada batch transaksi aktif untuk dikonfirmasi."
 	case "NO_PENDING_ACTION":
 		return "Tidak ada perubahan transaksi aktif untuk dikonfirmasi."
+	case "NO_PENDING_SALARY_CHOICE":
+		return "Tidak ada pilihan gaji aktif yang perlu diselesaikan."
+	case "NO_MERCHANT_LEARNING_PENDING":
+		return "Tidak ada konfirmasi aturan merchant yang aktif."
+	case "ACCOUNT_AMBIGUOUS":
+		return "Rekening sumber belum bisa dikenali secara unik. Sebutkan nama rekening yang lebih spesifik."
+	case "WEALTH_ACCOUNT_AMBIGUOUS", "MISSING_WEALTH_ACCOUNT":
+		return "Wealth Account belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
+	case "MISSING_REVIEW_DETAIL":
+		return "Masih ada detail review yang perlu dilengkapi."
+	case "MISSING_CATEGORY":
+		return "Pilih kategori pengeluaran untuk menyelesaikan review ini."
+	case "MISSING_BANK_FACTS":
+		return "Nominal dan waktu transaksi masih perlu dilengkapi."
+	case "INVALID_PAY_DATE":
+		return "Tanggal pembayaran belum valid."
 	}
 	return "Aksi keuangan sudah diproses."
 }
