@@ -150,10 +150,13 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGateway, state *agentState) error {
 	for state.ModelPhases < defaultAgentLimits.MaxModelPhases {
 		request := gateway.AgentRequest{
-			SystemPrompt:  conversationalAgentPrompt,
-			Content:       agentModelContent(state),
-			Tools:         state.Tools,
-			AllowParallel: true,
+			SystemPrompt:       conversationalAgentPrompt,
+			Content:            agentModelContent(state),
+			Tools:              state.Tools,
+			AllowParallel:      true,
+			PreviousResponseID: state.PreviousResponseID,
+			PreviousToolCalls:  state.PreviousToolCalls,
+			ToolOutputs:        state.PendingToolOutputs,
 		}
 		phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
 		response, err := model.AgentTurn(phaseCtx, state.SourceEventID, request)
@@ -161,6 +164,11 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		if err != nil {
 			return fmt.Errorf("conversational model phase: %w", err)
 		}
+		// Continuation data is single-use. If this response asks for another READ
+		// phase, the new response/call IDs replace it below.
+		state.PreviousResponseID = ""
+		state.PreviousToolCalls = nil
+		state.PendingToolOutputs = nil
 		state.ModelPhases++
 
 		if len(response.ToolCalls) == 0 {
@@ -179,9 +187,15 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			}
 			state.ReadCalls += len(results)
 			state.History = append(state.History, results...)
+			outputs := make([]gateway.AgentToolOutput, 0, len(results))
 			for _, result := range results {
-				_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
+				public := agentToolResultPublic(result)
+				outputs = append(outputs, gateway.AgentToolOutput{CallID: result.CallID, Output: public})
+				_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, public)
 			}
+			state.PreviousResponseID = response.ResponseID
+			state.PreviousToolCalls = append([]gateway.ToolCall(nil), response.ToolCalls...)
+			state.PendingToolOutputs = outputs
 
 		case agentToolSideEffect:
 			call := plan.Calls[0]
