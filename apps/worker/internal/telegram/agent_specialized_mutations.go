@@ -213,6 +213,21 @@ func (p *Processor) agentStageTransferReview(ctx context.Context, state *agentSt
 	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) SELECT $1,$2,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE source_event_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, state.HouseholdID, state.SourceEventID); err != nil {
 		return result, true, err
 	}
+	var itemID string
+	if err = tx.QueryRow(ctx, `SELECT id::text FROM review_item WHERE household_id=$1 AND source_event_id=$2 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, state.HouseholdID, state.SourceEventID).Scan(&itemID); err != nil {
+		return result, true, err
+	}
+	var reviewID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE household_id=$1 AND review_item_id=$2 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, state.HouseholdID, itemID).Scan(&reviewID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,review_type,telegram_chat_id,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION',$3,'OPEN') RETURNING id`, state.HouseholdID, itemID, state.Update.Message.Chat.ID).Scan(&reviewID)
+	}
+	if err != nil {
+		return result, true, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT(review_request_id,telegram_chat_id) DO NOTHING`, reviewID, state.Update.Message.Chat.ID); err != nil {
+		return result, true, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, true, err
 	}
