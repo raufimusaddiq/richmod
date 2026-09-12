@@ -40,7 +40,7 @@ func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, sta
 			  AND trc.id=$3 AND trc.household_id=$2 AND trc.status='OPEN'
 			  AND rr.telegram_chat_id=$4
 			  AND ($5::bigint=0 OR rr.telegram_message_id=$5)
-			FOR UPDATE OF r,ri,trc`, binding.ReviewRequestID, state.HouseholdID, binding.TargetID, state.Update.Message.Chat.ID, messageID).Scan(&lockedID)
+			FOR UPDATE OF r,ri,rr,trc`, binding.ReviewRequestID, state.HouseholdID, binding.TargetID, state.Update.Message.Chat.ID, messageID).Scan(&lockedID)
 	case "WEALTH_OBSERVATION":
 		err = tx.QueryRow(ctx, `
 			SELECT r.id::text
@@ -53,7 +53,7 @@ func (p *Processor) lockAgentReviewBindingTx(ctx context.Context, tx pgx.Tx, sta
 			  AND wo.id=$3 AND wo.household_id=$2 AND wo.status='PENDING'
 			  AND rr.telegram_chat_id=$4
 			  AND ($5::bigint=0 OR rr.telegram_message_id=$5)
-			FOR UPDATE OF r,ri,wo`, binding.ReviewRequestID, state.HouseholdID, binding.TargetID, state.Update.Message.Chat.ID, messageID).Scan(&lockedID)
+			FOR UPDATE OF r,ri,rr,wo`, binding.ReviewRequestID, state.HouseholdID, binding.TargetID, state.Update.Message.Chat.ID, messageID).Scan(&lockedID)
 	default:
 		return false, fmt.Errorf("unsupported bound review kind %q", expectedKind)
 	}
