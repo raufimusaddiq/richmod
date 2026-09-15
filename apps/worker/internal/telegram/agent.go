@@ -143,6 +143,21 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		MerchantLearningBinding: merchantBinding,
 		MerchantLearningCount:   merchantCount,
 	}
+	if contextState.HasPendingBatch {
+		if confirm, cancel := pendingBatchIntent(text); confirm || cancel {
+			callName := "cancel_pending_batch"
+			if confirm {
+				callName = "confirm_pending_batch"
+			}
+			result, _, err := p.executeAgentSideEffect(ctx, state, gateway.ToolCall{Name: callName}, nil, gateway.Metadata{})
+			if err != nil {
+				return err
+			}
+			state.SideEffects++
+			_ = p.persistTurn(ctx, householdID, sourceEventID, update, "TOOL", "", callName, agentToolResultPublic(result))
+			return p.finishAgentText(ctx, state, agentMutationFallback(result))
+		}
+	}
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()

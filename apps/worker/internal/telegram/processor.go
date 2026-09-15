@@ -732,9 +732,7 @@ func (p *Processor) offerBatch(ctx context.Context, householdID string, update t
 }
 
 func (p *Processor) processPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID, text string) (bool, error) {
-	a := strings.ToLower(strings.TrimSpace(text))
-	confirm := a == "yes" || a == "ya" || a == "y" || a == "confirm" || a == "konfirmasi"
-	cancel := a == "no" || a == "tidak" || a == "n" || a == "batal" || a == "cancel"
+	confirm, cancel := pendingBatchIntent(text)
 	if !confirm && !cancel {
 		return false, nil
 	}
@@ -798,6 +796,13 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 		return true, err
 	}
 	return true, tx.Commit(ctx)
+}
+
+func pendingBatchIntent(text string) (confirm, cancel bool) {
+	a := strings.ToLower(strings.TrimSpace(text))
+	confirm = a == "yes" || a == "ya" || a == "y" || a == "confirm" || a == "konfirmasi" || a == "iya" || a == "iya bener" || a == "iya benar" || a == "betul" || a == "benar" || a == "setuju" || a == "oke" || a == "ok"
+	cancel = a == "no" || a == "tidak" || a == "n" || a == "batal" || a == "cancel"
+	return confirm, cancel
 }
 
 type validatedExtraction struct {

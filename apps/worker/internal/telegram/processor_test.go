@@ -122,6 +122,19 @@ func TestExtractionSchemaSupportsMultipleExpenseItems(t *testing.T) {
 	}
 }
 
+func TestPendingBatchIntentAcceptsNaturalConfirmation(t *testing.T) {
+	for _, text := range []string{"iya bener", "iya benar", "setuju", "oke"} {
+		confirm, cancel := pendingBatchIntent(text)
+		if !confirm || cancel {
+			t.Fatalf("%q -> confirm=%t cancel=%t", text, confirm, cancel)
+		}
+	}
+	confirm, cancel := pendingBatchIntent("tidak")
+	if confirm || !cancel {
+		t.Fatalf("cancel -> confirm=%t cancel=%t", confirm, cancel)
+	}
+}
+
 func TestValidateExtractionRejectsUnsupportedLanguage(t *testing.T) {
 	amount, currency := "1000", "IDR"
 	_, err := validateExtraction(extraction{Language: "fr", Intent: "ADD_EXPENSE", Amount: &amount, Currency: &currency}, time.Now().In(jakartaLocation()))
