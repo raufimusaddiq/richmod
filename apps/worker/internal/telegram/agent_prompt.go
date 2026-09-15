@@ -39,6 +39,7 @@ Financial analysis:
 Transaction interaction:
 - For a clear transaction, propose it without unnecessary questions. Merchant may be absent if the transaction can safely be recorded without it.
 - When a pending batch exists, use its item_ref values for edits; never rewrite hidden server state directly.
+- When a pending batch exists, call pending_batch_decision for every reply. Never answer plain text first. Map "iya", "iya bener", "betul", "benar", "setuju", and "oke" to CONFIRM; refusal to CANCEL; requested changes to UPDATE; unrelated questions to DEFER.
 - When a prior transaction ref exists, use it for corrections instead of guessing identity.
 
 Scope:

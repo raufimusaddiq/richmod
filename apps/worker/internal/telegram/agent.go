@@ -137,11 +137,15 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		Now:                     now,
 		Categories:              categories,
 		Tools:                   tools,
+		RequiredTool:            "",
 		TurnContext:             turnContext,
 		ReviewBinding:           reviewBinding,
 		ReviewBindingCount:      reviewCount,
 		MerchantLearningBinding: merchantBinding,
 		MerchantLearningCount:   merchantCount,
+	}
+	if workflowScope == agentWorkflowPendingBatch {
+		state.RequiredTool = "pending_batch_decision"
 	}
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
@@ -185,6 +189,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			PreviousResponseID: state.PreviousResponseID,
 			PreviousToolCalls:  state.PreviousToolCalls,
 			ToolOutputs:        state.PendingToolOutputs,
+			RequiredTool:       state.RequiredTool,
 		}
 		phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
 		response, err := model.AgentTurn(phaseCtx, state.SourceEventID, request)
@@ -200,7 +205,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		state.ModelPhases++
 
 		if len(response.ToolCalls) == 0 {
+			if state.RequiredTool != "" {
+				return fmt.Errorf("required native tool %q was not returned", state.RequiredTool)
+			}
 			return p.finishAgentText(ctx, state, response.Text)
+		}
+		if state.RequiredTool != "" && (len(response.ToolCalls) != 1 || response.ToolCalls[0].Name != state.RequiredTool) {
+			return fmt.Errorf("required native tool %q was not selected", state.RequiredTool)
 		}
 		plan, err := validateAgentCallSet(response.ToolCalls, state, defaultAgentLimits)
 		if err != nil {
@@ -399,6 +410,9 @@ func (p *Processor) finishAgentFailure(ctx context.Context, state *agentState, m
 }
 
 func agentMutationFallback(result agentToolResult) string {
+	if result.Status == "DEFERRED" {
+		return "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau sebutkan item yang ingin diubah."
+	}
 	if result.Mutation != nil {
 		action, _ := result.Mutation["action"].(string)
 		amount, _ := result.Mutation["amount_idr"].(string)

@@ -44,6 +44,12 @@ A conversational model response is valid in exactly one of these shapes:
    calls. Go strictly decodes and validates it and owns the resulting domain
    transition. At most one side effect may execute in one free-text user turn.
 
+Pending transaction batches are a stricter workflow lane: while one is active,
+the model must call the server-exposed `pending_batch_decision` tool for every
+reply. The gateway uses a named required tool choice. `CONFIRM`, `CANCEL`, and
+`UPDATE` mutate only the bound batch; `DEFER` preserves it for unrelated
+questions. Plain assistant text is invalid before this decision.
+
 A response mixing READ and SIDE EFFECT calls, containing multiple side effects,
 using an unavailable/unknown tool, or containing malformed arguments is rejected
 before any tool in that response executes. Tool availability is server-state

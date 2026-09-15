@@ -27,6 +27,9 @@ type AgentRequest struct {
 	Tools           []ToolDefinition
 	AllowParallel   bool
 	ReasoningEffort string
+	// RequiredTool forces one named native tool for workflow lanes that cannot
+	// safely accept ordinary assistant text.
+	RequiredTool string
 
 	// Continuation fields preserve provider-native tool-call semantics between
 	// bounded model phases. Responses uses PreviousResponseID plus
@@ -44,6 +47,20 @@ type AgentResponse struct {
 	Text       string
 	ToolCalls  []ToolCall
 	Metadata   Metadata
+}
+
+func agentToolChoice(name string) any {
+	if name == "" {
+		return "auto"
+	}
+	return map[string]any{"type": "function", "name": name}
+}
+
+func chatToolChoice(name string) any {
+	if name == "" {
+		return "auto"
+	}
+	return map[string]any{"type": "function", "function": map[string]any{"name": name}}
 }
 
 // AgentTurn performs one conversational model phase. It never executes tools.
@@ -113,7 +130,7 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 	}
 	if len(encodedTools) > 0 {
 		payload["tools"] = encodedTools
-		payload["tool_choice"] = "auto"
+		payload["tool_choice"] = agentToolChoice(request.RequiredTool)
 		payload["parallel_tool_calls"] = request.AllowParallel
 	}
 	if request.ReasoningEffort != "" {
@@ -199,7 +216,7 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 	}
 	if len(functions) > 0 {
 		payload["tools"] = functions
-		payload["tool_choice"] = "auto"
+		payload["tool_choice"] = chatToolChoice(request.RequiredTool)
 		payload["parallel_tool_calls"] = request.AllowParallel
 	}
 	if request.ReasoningEffort != "" {

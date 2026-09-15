@@ -32,6 +32,8 @@ func (p *Processor) executeAgentSideEffect(ctx context.Context, state *agentStat
 		return p.agentResolvePendingBatch(ctx, state, call, false)
 	case "update_pending_batch":
 		return p.agentUpdatePendingBatch(ctx, state, call, args)
+	case "pending_batch_decision":
+		return p.agentPendingBatchDecision(ctx, state, call, args)
 	default:
 		return agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}, false, fmt.Errorf("unsupported core side-effect tool %q", call.Name)
 	}
@@ -163,7 +165,7 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 	}
 	type pending struct {
 		Type, Amount, Merchant, CategorySlug, Description string
-		TransactionAt                                    time.Time
+		TransactionAt                                     time.Time
 	}
 	vals := make([]pending, 0, len(raw))
 	total := big.NewInt(0)
@@ -361,6 +363,33 @@ func (p *Processor) agentResolvePendingBatch(ctx context.Context, state *agentSt
 	return p.agentFinalizePendingBatch(ctx, state, call, confirm, nil)
 }
 
+func (p *Processor) agentPendingBatchDecision(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
+	action, _ := args["action"].(string)
+	switch action {
+	case "CONFIRM":
+		return p.agentResolvePendingBatch(ctx, state, call, true)
+	case "CANCEL":
+		return p.agentResolvePendingBatch(ctx, state, call, false)
+	case "UPDATE":
+		ref, _ := args["item_ref"].(string)
+		index, err := strconv.Atoi(strings.TrimPrefix(ref, "batch_"))
+		if err != nil || index < 1 {
+			return agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}, true, fmt.Errorf("invalid item_ref")
+		}
+		return p.agentFinalizePendingBatch(ctx, state, call, false, &pendingBatchPatch{
+			Index:        index - 1,
+			Amount:       agentOptionalString(args["amount_idr"]),
+			Merchant:     agentOptionalString(args["merchant"]),
+			CategorySlug: agentOptionalString(args["category_slug"]),
+			Description:  agentOptionalString(args["description"]),
+		})
+	case "DEFER":
+		return agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect, Status: "DEFERRED", Facts: map[string]any{"pending_batch_preserved": true}}, true, nil
+	default:
+		return agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}, true, fmt.Errorf("invalid pending batch action")
+	}
+}
+
 func (p *Processor) agentUpdatePendingBatch(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {
 	ref, _ := args["item_ref"].(string)
 	indexText := strings.TrimPrefix(ref, "batch_")
@@ -379,16 +408,16 @@ func (p *Processor) agentUpdatePendingBatch(ctx context.Context, state *agentSta
 }
 
 type pendingBatchPatch struct {
-	Index                                      int
+	Index                                       int
 	Amount, Merchant, CategorySlug, Description *string
 }
 
 type agentPendingBatchItem struct {
-	Type         string    `json:"Type"`
-	Amount       string    `json:"Amount"`
-	Merchant     string    `json:"Merchant"`
-	CategorySlug string    `json:"CategorySlug"`
-	Description  string    `json:"Description"`
+	Type          string    `json:"Type"`
+	Amount        string    `json:"Amount"`
+	Merchant      string    `json:"Merchant"`
+	CategorySlug  string    `json:"CategorySlug"`
+	Description   string    `json:"Description"`
 	TransactionAt time.Time `json:"TransactionAt"`
 }
 

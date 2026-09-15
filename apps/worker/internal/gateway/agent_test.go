@@ -61,6 +61,61 @@ func TestAgentTurnAllowsMultipleReadToolCalls(t *testing.T) {
 	}
 }
 
+func TestAgentTurnForcesNamedTool(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		choice, ok := request["tool_choice"].(map[string]any)
+		if !ok || choice["type"] != "function" || choice["name"] != "pending_batch_decision" {
+			t.Fatalf("tool choice=%#v", request["tool_choice"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-required","model":"agent-model","output":[{"type":"function_call","name":"pending_batch_decision","call_id":"call-1","arguments":"{\"action\":\"CONFIRM\",\"item_ref\":null,\"amount_idr\":null,\"merchant\":null,\"category_slug\":null,\"description\":null}"}]}`))
+	}))
+	defer server.Close()
+
+	response, err := New(server.URL, "key", "agent-model").AgentTurn(context.Background(), "request", AgentRequest{
+		SystemPrompt: "system", Content: "iya bener", RequiredTool: "pending_batch_decision",
+		Tools: []ToolDefinition{{Name: "pending_batch_decision", Parameters: map[string]any{"type": "object"}}},
+	})
+	if err != nil {
+		t.Fatalf("AgentTurn() error = %v", err)
+	}
+	if len(response.ToolCalls) != 1 || response.ToolCalls[0].Name != "pending_batch_decision" {
+		t.Fatalf("calls=%#v", response.ToolCalls)
+	}
+}
+
+func TestAgentTurnChatForcesNamedTool(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		choice, ok := request["tool_choice"].(map[string]any)
+		function, _ := choice["function"].(map[string]any)
+		if !ok || choice["type"] != "function" || function["name"] != "pending_batch_decision" {
+			t.Fatalf("tool choice=%#v", request["tool_choice"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chat-required","model":"agent-model","choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"pending_batch_decision","arguments":"{\"action\":\"CONFIRM\",\"item_ref\":null,\"amount_idr\":null,\"merchant\":null,\"category_slug\":null,\"description\":null}"}}]}}]}`))
+	}))
+	defer server.Close()
+
+	response, err := NewWithProtocol(server.URL, "key", "agent-model", "chat_completions").AgentTurn(context.Background(), "request", AgentRequest{
+		SystemPrompt: "system", Content: "iya bener", RequiredTool: "pending_batch_decision",
+		Tools: []ToolDefinition{{Name: "pending_batch_decision", Parameters: map[string]any{"type": "object"}}},
+	})
+	if err != nil {
+		t.Fatalf("AgentTurn() error = %v", err)
+	}
+	if len(response.ToolCalls) != 1 || response.ToolCalls[0].Name != "pending_batch_decision" {
+		t.Fatalf("calls=%#v", response.ToolCalls)
+	}
+}
+
 func TestAgentTurnResponsesUsesFunctionCallOutputContinuation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any

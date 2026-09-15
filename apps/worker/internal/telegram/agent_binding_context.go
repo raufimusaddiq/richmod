@@ -32,7 +32,7 @@ func isAgentCoreSideEffect(name string) bool {
 	switch name {
 	case "record_transaction", "record_transaction_batch", "propose_transaction_correction",
 		"confirm_pending_action", "cancel_pending_action", "confirm_pending_batch",
-		"cancel_pending_batch", "update_pending_batch":
+		"cancel_pending_batch", "update_pending_batch", "pending_batch_decision":
 		return true
 	default:
 		return false

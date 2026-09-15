@@ -84,7 +84,7 @@ func TestPendingBatchOutranksUniqueReview(t *testing.T) {
 	if scope != agentWorkflowPendingBatch {
 		t.Fatalf("scope=%s", scope)
 	}
-	if len(writes) != 3 || !writes["confirm_pending_batch"] || !writes["cancel_pending_batch"] || !writes["update_pending_batch"] {
+	if len(writes) != 1 || !writes["pending_batch_decision"] {
 		t.Fatalf("writes=%v; want pending batch writes only", writes)
 	}
 }

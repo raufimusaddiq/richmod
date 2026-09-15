@@ -58,10 +58,8 @@ func applyAgentWorkflowToolPolicy(
 			allowed["confirm_pending_action"] = true
 			allowed["cancel_pending_action"] = true
 			scope = agentWorkflowPendingAction
-		case available("confirm_pending_batch") || available("cancel_pending_batch") || available("update_pending_batch"):
-			allowed["confirm_pending_batch"] = true
-			allowed["cancel_pending_batch"] = true
-			allowed["update_pending_batch"] = true
+		case available("pending_batch_decision"):
+			allowed["pending_batch_decision"] = true
 			scope = agentWorkflowPendingBatch
 		case reviewBinding != nil:
 			allowed["resolve_review"] = true
