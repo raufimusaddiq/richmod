@@ -29,6 +29,7 @@ var agentSideEffectTools = map[string]struct{}{
 	"propose_transaction_correction": {}, "resolve_review": {}, "resolve_salary_choice": {},
 	"resolve_merchant_learning": {}, "confirm_pending_action": {}, "cancel_pending_action": {},
 	"confirm_pending_batch": {}, "cancel_pending_batch": {}, "update_pending_batch": {},
+	"pending_batch_decision": {},
 }
 
 func agentToolClassFor(name string) (agentToolClass, bool) {
@@ -76,7 +77,7 @@ func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 			Name:        "resolve_review",
 			Description: "Resolve the server-bound salary-cycle residual review. Wealth allocations use human-readable account hints; Go resolves them uniquely and keeps canonical IDs private.",
 			Parameters: objectSchema(map[string]any{
-				"action": map[string]any{"type": "string", "enum": []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}},
+				"action":              map[string]any{"type": "string", "enum": []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}},
 				"candidate_ref":       nullString,
 				"source_account_hint": nullString,
 				"wealth_account_hint": nullString,
@@ -104,6 +105,18 @@ func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 			}
 			category["enum"] = values
 		}
+		tools = append(tools, gateway.ToolDefinition{
+			Name:        "pending_batch_decision",
+			Description: "Required decision for the one active pending transaction batch. Call this for every user reply while the batch is pending. Map natural confirmations such as iya, iya bener, betul, benar, setuju, oke to CONFIRM; refusals to CANCEL; requested changes to UPDATE; unrelated questions to DEFER. Never answer plain text before calling this tool.",
+			Parameters: objectSchema(map[string]any{
+				"action":        map[string]any{"type": "string", "enum": []string{"CONFIRM", "CANCEL", "UPDATE", "DEFER"}},
+				"item_ref":      map[string]any{"type": []string{"string", "null"}},
+				"amount_idr":    map[string]any{"type": []string{"string", "null"}},
+				"merchant":      map[string]any{"type": []string{"string", "null"}},
+				"category_slug": category,
+				"description":   map[string]any{"type": []string{"string", "null"}},
+			}, []string{"action", "item_ref", "amount_idr", "merchant", "category_slug", "description"}),
+		})
 		tools = append(tools, gateway.ToolDefinition{
 			Name:        "update_pending_batch",
 			Description: "Update exactly one item in the server-bound pending transaction batch using its item_ref. Optionally confirm the entire batch after the deterministic update. This is one logical side effect.",
@@ -163,6 +176,33 @@ func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 			return nil, fmt.Errorf("pending batch update is empty")
 		}
 		return remarshal(args), nil
+	case "pending_batch_decision":
+		args, err := decodeAgentArgsRaw[pendingBatchDecisionArgs](call)
+		if err != nil {
+			return nil, err
+		}
+		switch args.Action {
+		case "CONFIRM", "CANCEL", "DEFER":
+			if args.ItemRef != nil || args.Amount != nil || args.Merchant != nil || args.CategorySlug != nil || args.Description != nil {
+				return nil, fmt.Errorf("unexpected update fields for %s", args.Action)
+			}
+		case "UPDATE":
+			if args.ItemRef == nil || !strings.HasPrefix(*args.ItemRef, "batch_") {
+				return nil, fmt.Errorf("update requires batch item_ref")
+			}
+			if args.Amount == nil && args.Merchant == nil && args.CategorySlug == nil && args.Description == nil {
+				return nil, fmt.Errorf("update is empty")
+			}
+			if args.Amount != nil {
+				value, ok := new(big.Int).SetString(*args.Amount, 10)
+				if !ok || value.Sign() <= 0 || value.String() != *args.Amount {
+					return nil, fmt.Errorf("invalid batch amount")
+				}
+			}
+		default:
+			return nil, fmt.Errorf("invalid pending batch action")
+		}
+		return remarshal(args), nil
 	case "resolve_review":
 		args, err := decodeAgentArgsRaw[agentResolveReviewArgs](call)
 		if err != nil {
@@ -204,6 +244,15 @@ type updatePendingBatchArgs struct {
 	ConfirmAfterUpdate bool    `json:"confirm_after_update"`
 }
 
+type pendingBatchDecisionArgs struct {
+	Action       string  `json:"action"`
+	ItemRef      *string `json:"item_ref"`
+	Amount       *string `json:"amount_idr"`
+	Merchant     *string `json:"merchant"`
+	CategorySlug *string `json:"category_slug"`
+	Description  *string `json:"description"`
+}
+
 type agentResidualAllocationInput struct {
 	WealthAccountHint string  `json:"wealth_account_hint"`
 	AmountIDR         string  `json:"amount_idr"`
@@ -211,16 +260,16 @@ type agentResidualAllocationInput struct {
 }
 
 type agentResolveReviewArgs struct {
-	Action        string  `json:"action"`
-	CandidateRef  *string `json:"candidate_ref"`
-	SourceHint    *string `json:"source_account_hint"`
-	WealthHint    *string `json:"wealth_account_hint"`
-	CategorySlug  *string `json:"category_slug"`
-	Merchant      *string `json:"merchant"`
-	Description   *string `json:"description"`
-	PayDate       *string `json:"pay_date"`
-	AmountIDR     *string `json:"amount_idr"`
-	TransactionAt *string `json:"transaction_at"`
+	Action        string                         `json:"action"`
+	CandidateRef  *string                        `json:"candidate_ref"`
+	SourceHint    *string                        `json:"source_account_hint"`
+	WealthHint    *string                        `json:"wealth_account_hint"`
+	CategorySlug  *string                        `json:"category_slug"`
+	Merchant      *string                        `json:"merchant"`
+	Description   *string                        `json:"description"`
+	PayDate       *string                        `json:"pay_date"`
+	AmountIDR     *string                        `json:"amount_idr"`
+	TransactionAt *string                        `json:"transaction_at"`
 	Allocations   []agentResidualAllocationInput `json:"allocations"`
 }
 

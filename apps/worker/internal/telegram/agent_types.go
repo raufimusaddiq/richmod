@@ -53,6 +53,7 @@ type agentState struct {
 	Now           time.Time
 	Categories    []string
 	Tools         []gateway.ToolDefinition
+	RequiredTool  string
 	TurnContext   map[string]any
 	History       []agentToolResult
 	ModelPhases   int
