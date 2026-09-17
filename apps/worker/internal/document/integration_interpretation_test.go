@@ -57,7 +57,7 @@ func TestShadowInterpretationPersistsOnlyShadowRecord(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status) VALUES($1,$2,$3,'RECEIVED') RETURNING id`, householdID, sourceID, attachmentID).Scan(&documentID); err != nil {
 		t.Fatal(err)
 	}
-	gatewayStub := &shadowInterpretationGateway{call: gateway.ToolCall{Name: "interpret_receipt", Arguments: json.RawMessage(`{"confidence":0.97,"reason":"merchant and total visible"}`)}}
+	gatewayStub := &shadowInterpretationGateway{call: gateway.ToolCall{Name: "interpret_receipt", Arguments: typedInterpretationFixture(toolInterpretReceipt)}}
 	processor := &Processor{pool: pool, gateway: gatewayStub, Interpretation: InterpretationShadow}
 	if err = processor.Process(ctx, documentID); err != nil {
 		t.Fatal(err)
