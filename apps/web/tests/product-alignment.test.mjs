@@ -272,3 +272,29 @@ test("admin user changes require confirmation", () => {
   assert.match(admin, /ADMINISTRASI PLATFORM/);
   assert.match(text("app/globals.css"), /admin-table-wrap/);
 });
+
+test("settings lists are bounded with pagination and keep empty states", () => {
+  const settings = text("app/settings/page.js");
+  const styles = text("app/globals.css");
+  for (const dataset of ["accounts", "wealthAccounts", "salarySources", "known", "listeners", "financialSources", "categories", "aliases"]) {
+    assert.match(settings, new RegExp(`<BoundedList items=\\{data\\.${dataset}\\}`), dataset);
+  }
+  assert.match(settings, /const pageCount = Math\.ceil\(items\.length \/ limit\);/);
+  assert.match(settings, /Halaman \{currentPage \+ 1\} dari \{pageCount\}/);
+  assert.match(settings, /Belum ada rekening\./);
+  assert.match(settings, /Belum ada Wealth Account\./);
+  assert.match(settings, /Belum ada kategori keluarga\./);
+  assert.match(settings, /Belum ada notifikasi bank yang dipercaya\./);
+  assert.doesNotMatch(settings, /settings-list">\{data\.[A-Za-z]+\.map/);
+  assert.match(styles, /\.list-pagination button \{ min-height: 34px;/);
+  assert.match(styles, /\.settings-index a:focus-visible/);
+});
+
+test("settings sections are labelled landmarks without duplicate kickers", () => {
+  const settings = text("app/settings/page.js");
+  assert.match(settings, /aria-labelledby=\{\`\$\{id\}-title\`\}/);
+  assert.match(settings, /<h2 id=\{\`\$\{id\}-title\`\}>\{title\}<\/h2>/);
+  assert.doesNotMatch(settings, /SettingsSection eyebrow=/);
+  assert.match(settings, /AppShell user=\{user\} eyebrow="PENGATURAN"/);
+  assert.match(settings, /aria-label="Bagian pengaturan"/);
+});

@@ -311,6 +311,9 @@ button.document-card:active:not(:disabled) { transform: none; }
 .analytics-detail-layout, .admin-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, .75fr); gap: 18px; }
 .analytics-detail-side, .admin-stack, .settings-sections { display: grid; align-content: start; gap: 18px; }
 .settings-sections { max-width: 1680px; }
+.settings-index { display: flex; flex-wrap: wrap; gap: 7px 14px; margin: 0 0 18px; padding: 0 2px; color: var(--muted); font-size: 11px; }
+.settings-index a { color: inherit; text-decoration: none; }
+.settings-index a:hover, .settings-index a:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .analytics-ranked-card { padding: 22px; }
 .ranked > div { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 9px; padding: 11px 0; border-top: 1px solid var(--line); }
 .ranked > div > span { color: var(--muted); font-size: 10px; }
@@ -342,6 +345,9 @@ button.document-card:active:not(:disabled) { transform: none; }
 .panel, .settings-section { padding: 24px; }
 .settings-heading { margin-bottom: 18px; }
 .settings-heading p { max-width: 64ch; margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+.list-count { margin: 0; padding: 8px 0; color: var(--muted); font-size: 10px; }
+.list-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+.list-pagination button { min-height: 34px; padding: 7px 11px; }
 .integration-grid article { grid-template-columns: 12px minmax(0, 1fr) auto; }
 .health-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
 .health-dot.ok { background: var(--income); box-shadow: 0 0 0 4px var(--income-soft); }
