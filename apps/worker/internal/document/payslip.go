@@ -256,6 +256,9 @@ func (p *Processor) persistInvalidPayslip(ctx context.Context, documentID, house
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN') ON CONFLICT DO NOTHING`, householdID, documentID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_PAYSLIP_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'reason',$4::text))`, householdID, sourceID, documentID, cause.Error()); err != nil {
 		return err
 	}
