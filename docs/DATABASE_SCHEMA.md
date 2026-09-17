@@ -140,7 +140,7 @@ erDiagram
 | `attachment` | Stored uploaded or fetched binary metadata. | Household-scoped; object key/hash/content metadata. |
 | `document` | Evidence document derived from a source event and attachment. | One source event per document; links `attachment`. |
 | `document_page` | Page/image record for a multi-page document. | `document_id → document`; ordered page content. |
-| `document_extraction` | Structured extraction attempt/result. | `document_id → document`; extraction state, facts, and model metadata. |
+| `document_extraction` | Structured extraction attempt/result. | `document_id → document`; extraction state, facts, and model metadata. `stage` values include `CLASSIFICATION`, per-family extraction stages, `INTERPRETATION_SHADOW` (redacted shadow classification), and `INTERPRETATION_SHADOW_METRIC` (redacted agreement/counter/error-class/latency row). Primary interpretation is disabled pending its rollout gate, so no `INTERPRETATION_PRIMARY` rows are written. |
 | `bank_email_listener` | Household-scoped bank-email listener configuration. | References household/account; fixed spending-only policy in application behavior. |
 | `bank_email_event` | Bank-email processing record. | References listener and source event; message ID is the provider-neutral identifier. |
 | `bank_email_extraction` | Bank-email extraction result. | Shares the bank-email source-event identity; supports deterministic validation/review. |

@@ -47,11 +47,17 @@ multi-observation pipeline. No provider-specific branches are introduced.
 
 The legacy classify-then-extract pipeline remains the production path.
 
+- All six bounded interpretation tools decode typed per-family observations
+  with per-field `{value, status: PRESENT|MISSING|AMBIGUOUS, confidence}`.
+  Unknown tools, malformed JSON, out-of-family payloads, and invalid statuses
+  fail closed into Review; legacy/unknown mode behavior is unchanged.
 - `RICHMOD_DOCUMENT_INTERPRETATION=shadow` records one redacted
   `INTERPRETATION_SHADOW` classification row beside the legacy classification
   plus an `INTERPRETATION_SHADOW_METRIC` row containing only class agreement,
-  a bounded error category, and latency; prompts, evidence, and financial
-  values are never persisted. Shadow never mutates canonical state.
+  bounded agree/disagree/malformed counters per document type, a bounded error
+  class, and latency; prompts, evidence, captions, filenames, tool arguments,
+  amounts, merchants, and identifiers are never persisted. Shadow never
+  mutates canonical state.
 - Field-restricted repair is wired into the production receipt, payslip, and
   screenshot validators with same-validator revalidation. A failed, malformed,
   or out-of-allowlist repair appends the deterministic `REPAIR_FAILED` issue to
