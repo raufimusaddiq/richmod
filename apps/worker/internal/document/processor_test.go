@@ -80,6 +80,9 @@ func TestInterpretationContractIsBoundedAndFailClosed(t *testing.T) {
 	if got := parseInterpretationMode("unexpected"); got != InterpretationLegacy {
 		t.Fatalf("unknown mode = %q", got)
 	}
+	if got := parseInterpretationMode("primary"); got != InterpretationLegacy {
+		t.Fatalf("primary must stay legacy until the rollout gate: %q", got)
+	}
 	tools := interpretationToolDefinitions()
 	if len(tools) != 6 {
 		t.Fatalf("tool count = %d", len(tools))

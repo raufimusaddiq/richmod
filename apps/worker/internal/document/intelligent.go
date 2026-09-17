@@ -8,16 +8,19 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// ADR-037: one bounded native interpretation call replaces the
-// classify-then-extract double read for the happy path. The model still holds
-// no canonical state; Go maps the observation onto the existing typed extractors.
+// ADR-037: one bounded native interpretation call is the future happy path.
+// The current rollout keeps legacy as primary until every typed extraction
+// contract and state transition has moved under the unified tool dispatch.
 type InterpretationMode string
 
 const (
 	// ADR-037 shadow rollout stages. RICHMOD_DOCUMENT_INTERPRETATION selects the
 	// stage; anything unknown keeps the legacy classify-then-extract pipeline.
-	InterpretationLegacy  InterpretationMode = "legacy"
-	InterpretationShadow  InterpretationMode = "shadow"
+	InterpretationLegacy InterpretationMode = "legacy"
+	InterpretationShadow InterpretationMode = "shadow"
+	// InterpretationPrimary is reserved for the post-gate rollout. Until every
+	// typed extraction contract is available through unified dispatch, selecting
+	// it keeps the legacy pipeline rather than failing production jobs.
 	InterpretationPrimary InterpretationMode = "primary"
 )
 
@@ -47,12 +50,16 @@ func parseInterpretationMode(value string) InterpretationMode {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case string(InterpretationShadow):
 		return InterpretationShadow
-	case string(InterpretationPrimary):
-		return InterpretationPrimary
 	default:
+		// primary and every unknown value stay legacy until the ADR-037 gate is
+		// satisfied; this keeps a premature flag from breaking processing.
 		return InterpretationLegacy
 	}
 }
+
+// ParseInterpretationMode is the exported selector for worker wiring. Unknown
+// values keep the legacy pipeline.
+func ParseInterpretationMode(value string) InterpretationMode { return parseInterpretationMode(value) }
 
 // Interpretation is the validated classification produced by one call. The
 // typed values are decoded separately by the existing stage schemas, which stay

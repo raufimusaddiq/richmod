@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -38,6 +39,9 @@ type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
 	storage *blob.Store
+	// Interpretation selects the ADR-037 rollout stage. Empty keeps the
+	// legacy classify-then-extract path so existing deployments are unchanged.
+	Interpretation InterpretationMode
 }
 
 type Payload struct {
@@ -76,7 +80,8 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 
 func (p *Processor) Process(ctx context.Context, documentID string) error {
 	var householdID, sourceID, status string
-	if err := p.pool.QueryRow(ctx, `SELECT household_id,source_event_id,status FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID, &status); err != nil {
+	var receivedAt time.Time
+	if err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,d.status,s.received_at FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &status, &receivedAt); err != nil {
 		return fmt.Errorf("load document: %w", err)
 	}
 	if status == "CLASSIFIED" || status == "EXTRACTED" || status == "NEEDS_REVIEW" {
@@ -115,6 +120,22 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		}
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount = 1
+	}
+	mode := p.Interpretation
+	if mode == "" {
+		mode = parseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
+	}
+	if mode == InterpretationShadow {
+		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+		interpretation, interpretationMeta, interpretationErr := p.Interpret(ctx, documentID, evidence.promptText(), evidence.modelContent())
+		if interpretationErr == nil {
+			if err := p.recordShadowInterpretation(ctx, householdID, sourceID, documentID, interpretation, interpretationMeta.Model); err != nil {
+				return err
+			}
+		}
 	}
 	result, metadata, err := p.classify(ctx, documentID, content)
 	if err != nil {

@@ -14,6 +14,13 @@ model sees evidence and safe public context only; never household/database IDs.
 The call returns typed observations, not financial decisions or mutation
 capabilities. Go validates, reconciles, and owns every persistence transition.
 
+Extraction validation reports deterministic `{field, code}` issues. When any
+issue exists, Go may run exactly one field-restricted repair call: the model
+receives only the flagged field names plus issue codes, may return only those
+fields, and Go revalidates with the same validator before accepting the patch.
+A failed, malformed, out-of-allowlist, or absent repair keeps the original
+invalid result and sends the document to Review. Repair never mutates state.
+
 The transitional `shadow` stage may make an independent interpretation call
 beside legacy classification, persist no result, and compare only redacted
 classification outcomes. `primary` cannot be enabled until all typed extraction
@@ -35,3 +42,12 @@ multi-observation pipeline. No provider-specific branches are introduced.
 - Primary rollout requires separate implementation and verification of
   field-level uncertainty, structured validation issues, targeted field-only
   repair (maximum one attempt), and review on any failed validation/repair.
+
+## Current rollout state
+
+The legacy classify-then-extract pipeline remains the production path. Shadow
+mode (`RICHMOD_DOCUMENT_INTERPRETATION=shadow`) records one redacted
+`INTERPRETATION_SHADOW` classification row beside the legacy classification and
+mutates nothing. Per-field uncertainty/missing/ambiguous contract and the
+`primary` mode remain follow-up work; this ADR documents the boundary and the
+bounded repair contract they must satisfy.
