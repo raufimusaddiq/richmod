@@ -100,9 +100,26 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	if err != nil {
 		return fmt.Errorf("invalid receipt native tool arguments: %w", err)
 	}
-	validated, err := validateReceipt(result, receivedAt)
-	if err != nil {
-		return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "RECEIPT", result, result.Confidence, metadata.Model, err)
+	validated, issues := validateReceiptIssues(result, receivedAt)
+	if len(issues) > 0 {
+		// ADR-037: one field-restricted repair with the same validator. A failed
+		// repair appends REPAIR_FAILED and keeps the invalid-review path.
+		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "RECEIPT", &result, &issues, func(value receiptExtraction) error {
+			_, repairIssues := validateReceiptIssues(value, receivedAt)
+			if len(repairIssues) > 0 {
+				return fmt.Errorf("receipt still invalid: %s", repairIssues.String())
+			}
+			return nil
+		})
+		if repairMeta.Model != "" {
+			metadata.Model = repairMeta.Model
+		}
+		if !issues.has("", repairFailedCode) {
+			result = patched
+			validated, _ = validateReceiptIssues(result, receivedAt)
+		} else {
+			return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "RECEIPT", result, result.Confidence, metadata.Model, fmt.Errorf("receipt validation issues: %s", issues.String()))
+		}
 	}
 	return p.persistReceipt(ctx, documentID, householdID, sourceID, result, metadata.Model, validated, categories)
 }

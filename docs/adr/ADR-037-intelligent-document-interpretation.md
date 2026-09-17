@@ -45,9 +45,19 @@ multi-observation pipeline. No provider-specific branches are introduced.
 
 ## Current rollout state
 
-The legacy classify-then-extract pipeline remains the production path. Shadow
-mode (`RICHMOD_DOCUMENT_INTERPRETATION=shadow`) records one redacted
-`INTERPRETATION_SHADOW` classification row beside the legacy classification and
-mutates nothing. Per-field uncertainty/missing/ambiguous contract and the
-`primary` mode remain follow-up work; this ADR documents the boundary and the
-bounded repair contract they must satisfy.
+The legacy classify-then-extract pipeline remains the production path.
+
+- `RICHMOD_DOCUMENT_INTERPRETATION=shadow` records one redacted
+  `INTERPRETATION_SHADOW` classification row beside the legacy classification
+  plus an `INTERPRETATION_SHADOW_METRIC` row containing only class agreement,
+  a bounded error category, and latency; prompts, evidence, and financial
+  values are never persisted. Shadow never mutates canonical state.
+- Field-restricted repair is wired into the production receipt, payslip, and
+  screenshot validators with same-validator revalidation. A failed, malformed,
+  or out-of-allowlist repair appends the deterministic `REPAIR_FAILED` issue to
+  the original validation issues and keeps the invalid document on Review.
+- The unified primary dispatch implementation exists, but `primary` remains
+  disabled in the selector until the full typed per-field
+  uncertainty/missing/ambiguous contract and primary integration tests pass.
+  The existing per-document extraction tools remain the field source of truth
+  meanwhile. Do not promote the flag based on partial dispatch coverage.

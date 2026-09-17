@@ -103,6 +103,23 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 			result.PayDate = captionDate
 		}
 	}
+	issues := payslipValidationIssues(result)
+	if len(issues) > 0 {
+		// ADR-037: one field-restricted repair, revalidated by the same rules.
+		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "PAYSLIP", &result, &issues, func(value payslipExtraction) error {
+			if repairIssues := payslipValidationIssues(value); len(repairIssues) > 0 {
+				return fmt.Errorf("payslip still invalid: %s", repairIssues.String())
+			}
+			return nil
+		})
+		if repairMeta.Model != "" {
+			metadata.Model = repairMeta.Model
+		}
+		if issues.has("", repairFailedCode) {
+			return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, fmt.Errorf("payslip validation issues: %s", issues.String()))
+		}
+		result = patched
+	}
 	transactionAt, arithmeticOK, err := validatePayslip(result)
 	if err != nil {
 		return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, err)

@@ -17,6 +17,12 @@ func (i ValidationIssue) String() string { return i.Field + ":" + i.Code }
 
 type validationIssues []ValidationIssue
 
+// append records one more structured issue without replacing the original
+// validator findings.
+func (list *validationIssues) append(issue ValidationIssue) {
+	*list = append(*list, issue)
+}
+
 func (list validationIssues) has(field, code string) bool {
 	for _, issue := range list {
 		if issue.Field == field && issue.Code == code {
@@ -147,17 +153,42 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 // field the model may re-answer. Row-local problems stay on the rows field so a
 // repair cannot silently restructure the row set.
 func screenshotValidationIssues(value screenshotExtraction, documentType string) validationIssues {
+	issues := validationIssues{}
 	if value.Confidence < 0 || value.Confidence > 1 {
-		return validationIssues{{Field: "confidence", Code: "INVALID_CONFIDENCE"}}
+		issues = append(issues, ValidationIssue{"confidence", "INVALID_CONFIDENCE"})
 	}
 	if len([]rune(value.AccountHint)) > 160 {
-		return validationIssues{{Field: "account_hint", Code: "TEXT_TOO_LONG"}}
+		issues = append(issues, ValidationIssue{"account_hint", "TEXT_TOO_LONG"})
 	}
 	if documentType == "BILL_OR_INVOICE" && value.PaymentStatus != "PAID" {
-		return validationIssues{{Field: "payment_status", Code: "PAYMENT_NOT_CONFIRMED"}}
+		issues = append(issues, ValidationIssue{"payment_status", "PAYMENT_NOT_CONFIRMED"})
 	}
 	if len(value.Transactions) == 0 || len(value.Transactions) > 50 {
-		return validationIssues{{Field: "transactions", Code: "INVALID_ROW_COUNT"}}
+		issues = append(issues, ValidationIssue{"transactions", "INVALID_ROW_COUNT"})
+	} else {
+		for i, row := range value.Transactions {
+			prefix := fmt.Sprintf("transactions[%d]", i)
+			if row.Currency != "IDR" || (row.Direction != "OUT" && row.Direction != "IN") {
+				issues = append(issues, ValidationIssue{prefix, "INVALID_DIRECTION_OR_CURRENCY"})
+			}
+			if _, ok := wholeMoney(row.Amount, true); !ok {
+				issues = append(issues, ValidationIssue{prefix + ".amount", "INVALID_AMOUNT"})
+			}
+			if row.Confidence < 0 || row.Confidence > 1 {
+				issues = append(issues, ValidationIssue{prefix + ".confidence", "INVALID_CONFIDENCE"})
+			}
+			if row.CategoryConfidence < 0 || row.CategoryConfidence > 1 {
+				issues = append(issues, ValidationIssue{prefix + ".category_confidence", "INVALID_CONFIDENCE"})
+			}
+			if len([]rune(strings.TrimSpace(row.Merchant))) > 160 || len([]rune(strings.TrimSpace(row.Description))) > 500 {
+				issues = append(issues, ValidationIssue{prefix, "TEXT_TOO_LONG"})
+			}
+		}
 	}
-	return validationIssues{{Field: "transactions", Code: "UNMAPPED_VALIDATION_FAILURE"}}
+	if len(issues) == 0 {
+		if _, err := validateScreenshot(value, time.Now(), nil, documentType); err != nil {
+			return validationIssues{{Field: "transactions", Code: "UNMAPPED_VALIDATION_FAILURE"}}
+		}
+	}
+	return issues
 }

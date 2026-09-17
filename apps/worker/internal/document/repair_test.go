@@ -31,11 +31,13 @@ func TestRepairUpdatesOnlyRequestedFieldsAndRevalidates(t *testing.T) {
 	value := receiptExtraction{Merchant: "Solaria", Currency: "IDR", Total: "65000", Confidence: 0.9}
 	issues := validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}, {Field: "merchant", Code: "TEXT_TOO_LONG"}}
 	llm := &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"65000","unrequested":"x"}}`)}}
-	if _, _, err := repairExtracted(context.Background(), llm, "doc-1", "RECEIPT", &value, issues, func(receiptExtraction) error { return nil }); err == nil {
-		t.Fatal("accepted unrequested field")
+	got, _, err := repairExtracted(context.Background(), llm, "doc-1", "RECEIPT", &value, &issues, func(receiptExtraction) error { return nil })
+	if err != nil || got.Total != value.Total || !issues.has("", repairFailedCode) {
+		t.Fatal("failed repair did not preserve original invalid result")
 	}
+	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
 	llm = &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"95000"}}`)}}
-	patched, metadata, err := repairExtracted(context.Background(), llm, "doc-1", "RECEIPT", &value, issues, func(v receiptExtraction) error {
+	patched, metadata, err := repairExtracted(context.Background(), llm, "doc-2", "RECEIPT", &value, &issues, func(v receiptExtraction) error {
 		if v.Total != "95000" || v.Merchant != "Solaria" {
 			return fmt.Errorf("patch changed unflagged fields")
 		}
@@ -46,8 +48,9 @@ func TestRepairUpdatesOnlyRequestedFieldsAndRevalidates(t *testing.T) {
 	}
 	// Revalidate failure keeps the original value.
 	llm = &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"95000"}}`)}}
-	if _, _, err := repairExtracted(context.Background(), llm, "doc-1", "RECEIPT", &value, issues, func(receiptExtraction) error { return fmt.Errorf("still invalid") }); err == nil {
-		t.Fatal("accepted failed revalidation")
+	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
+	if got, _, err := repairExtracted(context.Background(), llm, "doc-3", "RECEIPT", &value, &issues, func(receiptExtraction) error { return fmt.Errorf("still invalid") }); err != nil || got.Total != value.Total || !issues.has("", repairFailedCode) {
+		t.Fatal("failed revalidation did not preserve invalid result")
 	}
 }
 

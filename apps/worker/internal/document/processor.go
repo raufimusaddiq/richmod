@@ -126,25 +126,60 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if mode == "" {
 		mode = parseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
 	}
+	shadowStarted := map[string]shadowStart{}
+	var primary *Interpretation
+	if mode == InterpretationPrimary {
+		// ADR-037 primary: the unified bounded interpretation call selects the
+		// document type. Go still owns every canonical transition below; the
+		// legacy classify call is only used when interpretation is unavailable so
+		// the deterministic pipeline keeps working if the gateway is degraded.
+		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+		interpretation, _, interpretationErr := p.interpretWithPrompt(ctx, documentID, evidence)
+		if interpretationErr == nil {
+			primary = &interpretation
+		} else {
+			slog.WarnContext(ctx, "document primary interpretation failed; falling back to legacy classification", "error_type", fmt.Sprintf("%T", interpretationErr))
+		}
+	}
 	if mode == InterpretationShadow {
 		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
 		if evidenceErr != nil {
 			return evidenceErr
 		}
-		interpretation, interpretationMeta, interpretationErr := p.Interpret(ctx, documentID, evidence.promptText(), evidence.modelContent())
+		startedAt := time.Now()
+		interpretation, interpretationMeta, interpretationErr := p.interpretWithPrompt(ctx, documentID, evidence)
 		if interpretationErr == nil {
 			if err := p.recordShadowInterpretation(ctx, householdID, sourceID, documentID, interpretation, interpretationMeta.Model); err != nil {
 				return err
 			}
+			shadowStarted[documentID] = shadowStart{At: startedAt, Value: interpretation, Model: interpretationMeta.Model}
 		} else {
 			// Shadow failures never block the compatible legacy path; log only a
 			// bounded, redacted error category, not gateway text or evidence.
-			slog.WarnContext(ctx, "document shadow interpretation failed", "error_type", fmt.Sprintf("%T", interpretationErr))
+			errorType := fmt.Sprintf("%T", interpretationErr)
+			slog.WarnContext(ctx, "document shadow interpretation failed", "error_type", errorType)
+			if metricErr := p.recordShadowFailure(ctx, documentID, errorType, time.Since(startedAt)); metricErr != nil {
+				slog.WarnContext(ctx, "document shadow metric persistence failed", "error_type", fmt.Sprintf("%T", metricErr))
+			}
 		}
 	}
-	result, metadata, err := p.classify(ctx, documentID, content)
-	if err != nil {
-		return err
+	var result documentClassification
+	var metadata gateway.Metadata
+	if primary != nil {
+		result = documentClassification{DocumentType: primary.DocumentType, Confidence: primary.Confidence}
+	} else {
+		result, metadata, err = p.classify(ctx, documentID, content)
+		if err != nil {
+			return err
+		}
+	}
+	if start, ok := shadowStarted[documentID]; ok {
+		if err := p.recordShadowComparison(ctx, documentID, start.Value, start.Model, result, time.Since(start.At)); err != nil {
+			return err
+		}
 	}
 	if !allowedType(result.DocumentType) || result.Confidence < 0 || result.Confidence > 1 {
 		return fmt.Errorf("invalid document classification")
