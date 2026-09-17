@@ -109,7 +109,7 @@ docker run --rm \
   --network "$TEST_NETWORK" \
   -e TEST_DATABASE_URL="$TEST_DATABASE_URL" \
   -v "$PWD:/src" -w /src \
-  golang:1.25.0-bookworm \
+  golang:1.27.0-bookworm \
   sh -ec '
     go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
     goose -dir db/migrations postgres "$TEST_DATABASE_URL" up
@@ -121,10 +121,10 @@ docker run --rm \
 For a narrow non-DB change, the applicable module can run alone without D1:
 
 ```bash
-docker run --rm -v "$PWD:/src" -w /src/apps/api golang:1.25.0-bookworm \
+docker run --rm -v "$PWD:/src" -w /src/apps/api golang:1.27.0-bookworm \
   sh -ec 'go test ./... && go vet ./...'
 
-docker run --rm -v "$PWD:/src" -w /src/apps/worker golang:1.25.0-bookworm \
+docker run --rm -v "$PWD:/src" -w /src/apps/worker golang:1.27.0-bookworm \
   sh -ec 'go test ./... && go vet ./...'
 ```
 
