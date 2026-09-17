@@ -62,8 +62,14 @@ The legacy classify-then-extract pipeline remains the production path.
   screenshot validators with same-validator revalidation. A failed, malformed,
   or out-of-allowlist repair appends the deterministic `REPAIR_FAILED` issue to
   the original validation issues and keeps the invalid document on Review.
-- The unified primary dispatch implementation exists, but `primary` remains
-  disabled in the selector until the full typed per-field
-  uncertainty/missing/ambiguous contract and primary integration tests pass.
-  The existing per-document extraction tools remain the field source of truth
-  meanwhile. Do not promote the flag based on partial dispatch coverage.
+- The typed dispatch contract includes `document_type_confidence` (0..1),
+  `quality` (`CLEAR|DEGRADED|UNREADABLE`), complete per-field status/value
+  observations, critical-only `field_confidence`, and bounded
+  `missing_fields`/`ambiguous_fields`. Go rejects out-of-range values, unknown
+  enum members, extra fields, inconsistent lists, and non-critical confidence
+  keys. The review floor is 0.80; any lower document/critical-field confidence,
+  non-clear quality, missing field, or ambiguous field routes to Review.
+- Typed interpretation remains observations only. It cannot provide canonical
+  IDs or mutate canonical state. The existing per-document extractors remain
+  the canonical candidate source until their field schemas/validators consume
+  the typed dispatch directly; do not enable `primary` ahead of that migration.

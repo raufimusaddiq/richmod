@@ -87,8 +87,14 @@ func (p *Processor) recordShadowComparison(ctx context.Context, documentID strin
 
 // shadowStatus maps a shadow observation to a bounded status token.
 func shadowStatus(shadow Interpretation) string {
-	if shadow.DocumentType == "" || shadow.Confidence < 0 || shadow.Confidence > 1 {
+	if shadow.DocumentType == "" || shadow.Confidence < 0 || shadow.Confidence > 1 || (shadow.Quality != "" && shadow.Quality != QualityClear && shadow.Quality != QualityDegraded && shadow.Quality != QualityUnreadable) {
 		return "malformed"
+	}
+	if len(shadow.AmbiguousFields) > 0 {
+		return "ambiguous"
+	}
+	if len(shadow.MissingFields) > 0 {
+		return "missing"
 	}
 	for _, field := range shadow.Fields {
 		switch field.Status {
