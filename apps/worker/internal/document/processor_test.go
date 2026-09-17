@@ -73,6 +73,33 @@ func TestClassificationPromptSeparatesBalanceFromTransactionHistory(t *testing.T
 	}
 }
 
+func TestInterpretationContractIsBoundedAndFailClosed(t *testing.T) {
+	if got := parseInterpretationMode("SHADOW"); got != InterpretationShadow {
+		t.Fatalf("mode = %q", got)
+	}
+	if got := parseInterpretationMode("unexpected"); got != InterpretationLegacy {
+		t.Fatalf("unknown mode = %q", got)
+	}
+	tools := interpretationToolDefinitions()
+	if len(tools) != 6 {
+		t.Fatalf("tool count = %d", len(tools))
+	}
+	for _, tool := range tools {
+		if _, ok := interpretationTools[tool.Name]; !ok {
+			t.Fatalf("unmapped tool %q", tool.Name)
+		}
+		if tool.Parameters["additionalProperties"] != false {
+			t.Fatalf("tool %q accepts additional properties", tool.Name)
+		}
+		encoded, _ := json.Marshal(tool.Parameters)
+		for _, forbidden := range []string{"household_id", "transaction_id", "wealth_account_id", "category_id"} {
+			if strings.Contains(string(encoded), forbidden) {
+				t.Fatalf("tool %q exposed %s", tool.Name, forbidden)
+			}
+		}
+	}
+}
+
 func TestWealthObservationUsesBoundedNativeSchemaWithoutCanonicalIDs(t *testing.T) {
 	llm := &wealthObservationGateway{call: gateway.ToolCall{Name: "extract_wealth_observation", Arguments: json.RawMessage(`{"institution":"Bibit","account_hint":"Reksadana","observed_value_idr":"42700000","quantity":null,"unit":null,"unit_price_idr":null,"observed_date":null,"confidence":0.98}`)}}
 	value, _, err := (&Processor{gateway: llm}).extractWealthObservation(context.Background(), "document-1", nil)

@@ -186,3 +186,8 @@ When adding or changing a migration:
 4. Review tenant scoping, evidence retention, auditability, idempotency, and
    rollback/down-migration behavior explicitly.
 5. Include the schema-document update in the same commit as the migration.
+
+No database schema change accompanies ADR-037's initial interpretation
+interface. Classification/interpretation telemetry remains metadata-only through
+the existing `llm_call` boundary; no document observation or field-level
+uncertainty columns are introduced until a later reviewed migration.
