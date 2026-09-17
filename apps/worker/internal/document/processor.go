@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 	"strings"
@@ -135,6 +136,10 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			if err := p.recordShadowInterpretation(ctx, householdID, sourceID, documentID, interpretation, interpretationMeta.Model); err != nil {
 				return err
 			}
+		} else {
+			// Shadow failures never block the compatible legacy path; log only a
+			// bounded, redacted error category, not gateway text or evidence.
+			slog.WarnContext(ctx, "document shadow interpretation failed", "error_type", fmt.Sprintf("%T", interpretationErr))
 		}
 	}
 	result, metadata, err := p.classify(ctx, documentID, content)

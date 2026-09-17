@@ -131,7 +131,7 @@ func sanitizeEvidenceText(value string) string {
 // modelContent renders the interpretation request content. Only safe context
 // is included; internal identifiers are never added.
 func (e EvidenceContext) modelContent() []map[string]any {
-	content := []map[string]any{{"type": "input_text", "text": e.promptText()}}
+	content := make([]map[string]any, 0, len(e.Pages))
 	for _, page := range e.Pages {
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + page.mediaType + ";base64," + base64.StdEncoding.EncodeToString(page.raw)})
 	}

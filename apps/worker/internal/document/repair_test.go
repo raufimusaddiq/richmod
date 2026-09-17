@@ -68,3 +68,16 @@ func TestRepairIsBoundedToOneAttempt(t *testing.T) {
 		t.Fatal("repair must stay bounded to one attempt")
 	}
 }
+
+func TestRepairIssueFieldsMapToTopLevelAllowlist(t *testing.T) {
+	for _, test := range []struct{ doc, issue, want string }{
+		{"RECEIPT", "items[2].amount", "items"},
+		{"PAYSLIP", "allowances[0].amount", "allowances"},
+		{"PAYSLIP", "deductions[1].amount", "deductions"},
+		{"RECEIPT", "unknown", ""},
+	} {
+		if got := repairableTopLevelField(test.doc, test.issue); got != test.want {
+			t.Errorf("repairableTopLevelField(%q,%q)=%q, want %q", test.doc, test.issue, got, test.want)
+		}
+	}
+}

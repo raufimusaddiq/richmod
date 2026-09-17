@@ -138,11 +138,7 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 		}
 	}
 	if len(issues) == 0 {
-		field := "pay_date"
-		if value.PayDate == nil {
-			field = "period"
-		}
-		issues = append(issues, ValidationIssue{field, "INVALID_DATE_OR_ARITHMETIC"})
+		issues = append(issues, ValidationIssue{"payslip", "UNMAPPED_VALIDATION_FAILURE"})
 	}
 	return issues
 }
@@ -163,5 +159,5 @@ func screenshotValidationIssues(value screenshotExtraction, documentType string)
 	if len(value.Transactions) == 0 || len(value.Transactions) > 50 {
 		return validationIssues{{Field: "transactions", Code: "INVALID_ROW_COUNT"}}
 	}
-	return validationIssues{{Field: "transactions", Code: "INVALID_ROW_FIELDS"}}
+	return validationIssues{{Field: "transactions", Code: "UNMAPPED_VALIDATION_FAILURE"}}
 }
