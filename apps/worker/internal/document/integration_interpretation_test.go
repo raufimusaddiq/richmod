@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -58,7 +60,14 @@ func TestShadowInterpretationPersistsOnlyShadowRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	gatewayStub := &shadowInterpretationGateway{call: gateway.ToolCall{Name: "interpret_receipt", Arguments: typedInterpretationFixture(toolInterpretReceipt)}}
-	processor := &Processor{pool: pool, gateway: gatewayStub, Interpretation: InterpretationShadow}
+	storage, err := blob.NewLocal(filepath.Join(t.TempDir(), "documents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = storage.Put(ctx, fmt.Sprintf("test/%d.jpg", stamp), []byte("img"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	processor := &Processor{pool: pool, gateway: gatewayStub, storage: storage, Interpretation: InterpretationShadow}
 	if err = processor.Process(ctx, documentID); err != nil {
 		t.Fatal(err)
 	}
