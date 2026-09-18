@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -38,6 +40,9 @@ type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
 	storage *blob.Store
+	// Interpretation selects the ADR-037 rollout stage. Empty keeps the
+	// legacy classify-then-extract path so existing deployments are unchanged.
+	Interpretation InterpretationMode
 }
 
 type Payload struct {
@@ -76,7 +81,8 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 
 func (p *Processor) Process(ctx context.Context, documentID string) error {
 	var householdID, sourceID, status string
-	if err := p.pool.QueryRow(ctx, `SELECT household_id,source_event_id,status FROM document WHERE id=$1`, documentID).Scan(&householdID, &sourceID, &status); err != nil {
+	var receivedAt time.Time
+	if err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,d.status,s.received_at FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &status, &receivedAt); err != nil {
 		return fmt.Errorf("load document: %w", err)
 	}
 	if status == "CLASSIFIED" || status == "EXTRACTED" || status == "NEEDS_REVIEW" {
@@ -116,9 +122,71 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount = 1
 	}
-	result, metadata, err := p.classify(ctx, documentID, content)
-	if err != nil {
-		return err
+	mode := p.Interpretation
+	if mode == "" {
+		mode = parseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
+	}
+	shadowStarted := map[string]shadowStart{}
+	var primary *Interpretation
+	var primaryNeedsReview bool
+	var primaryInterpretationErr error
+	if mode == InterpretationPrimary {
+		// ADR-037 primary: the unified bounded interpretation call selects the
+		// document type. Go still owns every canonical transition below; the
+		// legacy classify call is only used when interpretation is unavailable so
+		// the deterministic pipeline keeps working if the gateway is degraded.
+		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+		interpretation, _, interpretationErr := p.interpretWithPrompt(ctx, documentID, evidence)
+		if interpretationErr == nil {
+			primary = &interpretation
+			primaryNeedsReview = interpretation.NeedsReview()
+		} else {
+			primaryInterpretationErr = interpretationErr
+			slog.WarnContext(ctx, "document primary interpretation failed; routing to Review", "error_type", fmt.Sprintf("%T", interpretationErr))
+		}
+	}
+	if primaryInterpretationErr != nil {
+		return p.HandleTerminalFailure(ctx, documentID, fmt.Errorf("primary document interpretation failed: %w", primaryInterpretationErr))
+	}
+	if mode == InterpretationShadow {
+		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+		startedAt := time.Now()
+		interpretation, interpretationMeta, interpretationErr := p.interpretWithPrompt(ctx, documentID, evidence)
+		if interpretationErr == nil {
+			if err := p.recordShadowInterpretation(ctx, householdID, sourceID, documentID, interpretation, interpretationMeta.Model); err != nil {
+				return err
+			}
+			shadowStarted[documentID] = shadowStart{At: startedAt, Value: interpretation, Model: interpretationMeta.Model}
+		} else {
+			// Shadow failures never block the compatible legacy path; log only a
+			// bounded, redacted error category, not gateway text or evidence.
+			errorType := fmt.Sprintf("%T", interpretationErr)
+			slog.WarnContext(ctx, "document shadow interpretation failed", "error_type", errorType)
+			if metricErr := p.recordShadowFailure(ctx, documentID, errorType, time.Since(startedAt)); metricErr != nil {
+				slog.WarnContext(ctx, "document shadow metric persistence failed", "error_type", fmt.Sprintf("%T", metricErr))
+			}
+		}
+	}
+	var result documentClassification
+	var metadata gateway.Metadata
+	if primary != nil {
+		result = documentClassification{DocumentType: primary.DocumentType, Confidence: primary.Confidence}
+	} else {
+		result, metadata, err = p.classify(ctx, documentID, content)
+		if err != nil {
+			return err
+		}
+	}
+	if start, ok := shadowStarted[documentID]; ok {
+		if err := p.recordShadowComparison(ctx, documentID, start.Value, start.Model, result, time.Since(start.At)); err != nil {
+			return err
+		}
 	}
 	if !allowedType(result.DocumentType) || result.Confidence < 0 || result.Confidence > 1 {
 		return fmt.Errorf("invalid document classification")
@@ -130,6 +198,10 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	}
 	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" && validated {
 		documentStatus, sourceStatus = "CLASSIFIED", "IGNORED"
+	}
+	if primary != nil && primaryNeedsReview {
+		validated = false
+		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
 	output, _ := json.Marshal(result)
 	var observation *wealthObservation

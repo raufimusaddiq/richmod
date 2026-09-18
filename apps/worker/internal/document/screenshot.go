@@ -90,6 +90,24 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	if err != nil {
 		return fmt.Errorf("invalid screenshot native tool arguments: %w", err)
 	}
+	issues := screenshotValidationIssues(result, documentType)
+	if len(issues) > 0 {
+		// ADR-037: one field-restricted repair; the same validator re-derives
+		// every row after the patch.
+		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, documentType, &result, &issues, func(value screenshotExtraction) error {
+			if _, err := validateScreenshot(value, receivedAt, categories, documentType); err != nil {
+				return err
+			}
+			return nil
+		})
+		if repairMeta.Model != "" {
+			metadata.Model = repairMeta.Model
+		}
+		if issues.has("", repairFailedCode) {
+			return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, fmt.Errorf("screenshot validation issues: %s", issues.String()))
+		}
+		result = patched
+	}
 	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, err)

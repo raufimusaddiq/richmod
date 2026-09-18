@@ -103,6 +103,23 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 			result.PayDate = captionDate
 		}
 	}
+	issues := payslipValidationIssues(result)
+	if len(issues) > 0 {
+		// ADR-037: one field-restricted repair, revalidated by the same rules.
+		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "PAYSLIP", &result, &issues, func(value payslipExtraction) error {
+			if repairIssues := payslipValidationIssues(value); len(repairIssues) > 0 {
+				return fmt.Errorf("payslip still invalid: %s", repairIssues.String())
+			}
+			return nil
+		})
+		if repairMeta.Model != "" {
+			metadata.Model = repairMeta.Model
+		}
+		if issues.has("", repairFailedCode) {
+			return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, fmt.Errorf("payslip validation issues: %s", issues.String()))
+		}
+		result = patched
+	}
 	transactionAt, arithmeticOK, err := validatePayslip(result)
 	if err != nil {
 		return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, err)
@@ -237,6 +254,9 @@ func (p *Processor) persistInvalidPayslip(ctx context.Context, documentID, house
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN') ON CONFLICT DO NOTHING`, householdID, documentID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_PAYSLIP_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'reason',$4::text))`, householdID, sourceID, documentID, cause.Error()); err != nil {

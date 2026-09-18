@@ -140,7 +140,7 @@ erDiagram
 | `attachment` | Stored uploaded or fetched binary metadata. | Household-scoped; object key/hash/content metadata. |
 | `document` | Evidence document derived from a source event and attachment. | One source event per document; links `attachment`. |
 | `document_page` | Page/image record for a multi-page document. | `document_id → document`; ordered page content. |
-| `document_extraction` | Structured extraction attempt/result. | `document_id → document`; extraction state, facts, and model metadata. |
+| `document_extraction` | Structured extraction attempt/result. | `document_id → document`; extraction state, facts, and model metadata. `stage` values include `CLASSIFICATION`, per-family extraction stages, `INTERPRETATION_SHADOW` (redacted shadow classification), and `INTERPRETATION_SHADOW_METRIC` (redacted agreement/counter/error-class/latency row). Primary interpretation is disabled pending its rollout gate, so no `INTERPRETATION_PRIMARY` rows are written. |
 | `bank_email_listener` | Household-scoped bank-email listener configuration. | References household/account; fixed spending-only policy in application behavior. |
 | `bank_email_event` | Bank-email processing record. | References listener and source event; message ID is the provider-neutral identifier. |
 | `bank_email_extraction` | Bank-email extraction result. | Shares the bank-email source-event identity; supports deterministic validation/review. |
@@ -186,3 +186,14 @@ When adding or changing a migration:
 4. Review tenant scoping, evidence retention, auditability, idempotency, and
    rollback/down-migration behavior explicitly.
 5. Include the schema-document update in the same commit as the migration.
+
+No database schema change accompanies ADR-037's initial interpretation
+interface. Classification/interpretation telemetry remains metadata-only through
+the existing `llm_call` boundary; no document observation or field-level
+uncertainty columns are introduced until a later reviewed migration.
+
+Shadow-stage rows (stage `INTERPRETATION_SHADOW` and
+`INTERPRETATION_SHADOW_METRIC` in `document_extraction`) stay classification-only
+metadata: bounded `agree`/`disagree`/`malformed` counters per document type, one
+bounded error class, and latency. No prompt, caption, filename, amount, merchant,
+or identifier string is persisted in these rows.
