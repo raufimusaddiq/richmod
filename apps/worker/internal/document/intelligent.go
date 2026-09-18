@@ -150,7 +150,7 @@ func (p *Processor) Interpret(ctx context.Context, documentID, systemPrompt stri
 	if !ok {
 		return Interpretation{}, metadata, fmt.Errorf("LLM gateway returned unexpected interpretation tool %q", call.Name)
 	}
-	value, err := gateway.DecodeToolArguments[gatewayInterpretation](call, call.Name)
+	value, err := decodeInterpretationArguments(call)
 	if err != nil {
 		return Interpretation{}, metadata, fmt.Errorf("invalid document interpretation arguments: %w", err)
 	}
@@ -169,6 +169,53 @@ func (p *Processor) Interpret(ctx context.Context, documentID, systemPrompt stri
 		AmbiguousFields:  value.AmbiguousFields,
 		CriticalFields:   criticalFieldNames(call.Name),
 	}, metadata, nil
+}
+
+// decodeInterpretationArguments strictly decodes one interpretation call.
+// Per-field values stay raw JSON, so the outer decode cannot catch unknown
+// members inside a field's {value,status,confidence} object; the exact-shape
+// comparison refuses any extra or missing key before validation runs.
+func decodeInterpretationArguments(call gateway.ToolCall) (gatewayInterpretation, error) {
+	var value gatewayInterpretation
+	if _, ok := interpretationTools[call.Name]; !ok {
+		return value, fmt.Errorf("unexpected native tool %q", call.Name)
+	}
+	value, err := gateway.DecodeToolArguments[gatewayInterpretation](call, call.Name)
+	if err != nil {
+		return value, err
+	}
+	var raw struct {
+		Fields map[string]json.RawMessage `json:"fields"`
+	}
+	if err := json.Unmarshal(call.Arguments, &raw); err != nil {
+		return value, fmt.Errorf("decode %s fields: %w", call.Name, err)
+	}
+	for name, encoded := range raw.Fields {
+		var observed struct {
+			Value      json.RawMessage   `json:"value"`
+			Status     ObservationStatus `json:"status"`
+			Confidence *float64          `json:"confidence"`
+		}
+		if err := json.Unmarshal(encoded, &observed); err != nil {
+			return value, fmt.Errorf("decode interpretation field %q: %w", name, err)
+		}
+		if observed.Confidence == nil {
+			return value, fmt.Errorf("interpretation field %q is missing confidence", name)
+		}
+		var decoded map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			return value, fmt.Errorf("decode interpretation field %q: %w", name, err)
+		}
+		if len(decoded) != 3 {
+			return value, fmt.Errorf("interpretation field %q has unknown members", name)
+		}
+		for _, key := range []string{"value", "status", "confidence"} {
+			if _, ok := decoded[key]; !ok {
+				return value, fmt.Errorf("interpretation field %q is missing %q", name, key)
+			}
+		}
+	}
+	return value, nil
 }
 
 var interpretationFieldTypes = map[string]map[string]string{
@@ -264,11 +311,19 @@ func validObservationValue(raw json.RawMessage, kind string) bool {
 	}
 	switch kind {
 	case "string":
-		_, ok := value.(string)
-		return ok
+		text, ok := value.(string)
+		return ok && strings.TrimSpace(text) != ""
 	case "array":
-		_, ok := value.([]any)
-		return ok
+		items, ok := value.([]any)
+		if !ok {
+			return false
+		}
+		for _, item := range items {
+			if _, ok := item.(map[string]any); !ok {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}

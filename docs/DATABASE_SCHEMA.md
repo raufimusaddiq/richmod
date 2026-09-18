@@ -191,3 +191,9 @@ No database schema change accompanies ADR-037's initial interpretation
 interface. Classification/interpretation telemetry remains metadata-only through
 the existing `llm_call` boundary; no document observation or field-level
 uncertainty columns are introduced until a later reviewed migration.
+
+Shadow-stage rows (stage `INTERPRETATION_SHADOW` and
+`INTERPRETATION_SHADOW_METRIC` in `document_extraction`) stay classification-only
+metadata: bounded `agree`/`disagree`/`malformed` counters per document type, one
+bounded error class, and latency. No prompt, caption, filename, amount, merchant,
+or identifier string is persisted in these rows.

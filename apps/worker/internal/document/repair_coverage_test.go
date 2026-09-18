@@ -1,6 +1,7 @@
 package document
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -9,7 +10,6 @@ import (
 // top-level field, or the repair helper fails closed to Review.
 func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 	received := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
-	_ = received
 	receiptIssues := []string{
 		"currency", "confidence", "category_confidence", "total", "merchant",
 		"payment_method_hint", "items[0].name", "items[0].amount",
@@ -57,6 +57,33 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 					t.Errorf("%s does not map to a repairable screenshot field for %s", issue, docType)
 				}
 			}
+		}
+	}
+	// Validate concrete malformed samples, then assert every actual emitted
+	// {field,code} is repairable or explicitly no-repair.
+	receipt := receiptExtraction{Currency: "USD", Total: "1.2", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: -1, Items: []receiptItem{{Name: "", Amount: "x"}}, TransactionAt: ptr("not-a-date")}
+	_, receiptActual := validateReceiptIssues(receipt, received)
+	assertIssueCoverage(t, "RECEIPT", receiptActual, "receipt")
+	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: "x", Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}})
+	assertIssueCoverage(t, "PAYSLIP", payslipActual, "payslip")
+	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: "x", Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE")
+	assertIssueCoverage(t, "BILL_OR_INVOICE", screenshotActual)
+	if repairableTopLevelField("RECEIPT", "receipt") != "" || repairableTopLevelField("PAYSLIP", "payslip") != "" {
+		t.Fatal("family-level validation failures must remain no-repair")
+	}
+}
+
+func ptr(value string) *string { return &value }
+
+func assertIssueCoverage(t *testing.T, documentType string, issues validationIssues, noRepairFields ...string) {
+	t.Helper()
+	noRepair := map[string]bool{}
+	for _, field := range noRepairFields {
+		noRepair[field] = true
+	}
+	for _, issue := range issues {
+		if repairableTopLevelField(documentType, issue.Field) == "" && !noRepair[issue.Field] {
+			t.Errorf("unclassified %s issue %s", documentType, issue)
 		}
 	}
 }

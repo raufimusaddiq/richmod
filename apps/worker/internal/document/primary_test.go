@@ -144,6 +144,8 @@ func TestInterpretationRejectsMalformedUnknownAndOutOfFamilyPayload(t *testing.T
 		{name: "not-a-tool", args: `{}`},
 		{name: toolInterpretReceipt, args: `not-json`},
 		{name: toolInterpretReceipt, args: `{"confidence":0.9,"fields":{}}`},
+		{name: toolInterpretReceipt, args: strings.Replace(string(typedInterpretationFixture(toolInterpretReceipt)), `"total":{"value":"visible","status":"PRESENT","confidence":0.9}`, `"total":{"value":"visible","status":"PRESENT","confidence":0.9,"extra":true}`, 1)},
+		{name: toolInterpretReceipt, args: strings.Replace(string(typedInterpretationFixture(toolInterpretReceipt)), `"total":{"value":"visible","status":"PRESENT","confidence":0.9}`, `"total":{"value":"visible","status":"PRESENT"}`, 1)},
 	} {
 		llm := &recordingInterpretationGateway{call: gateway.ToolCall{Name: test.name, Arguments: json.RawMessage(test.args)}}
 		if _, _, err := (&Processor{gateway: llm}).Interpret(context.Background(), "doc", "", nil); err == nil {

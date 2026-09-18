@@ -69,6 +69,11 @@ The legacy classify-then-extract pipeline remains the production path.
   enum members, extra fields, inconsistent lists, and non-critical confidence
   keys. The review floor is 0.80; any lower document/critical-field confidence,
   non-clear quality, missing field, or ambiguous field routes to Review.
+- Per-family observation values are strictly typed at decode time: non-present
+  observations must be null, PRESENT strings are non-empty, array members are
+  objects, and every field object carries exactly `value`, `status`, and
+  `confidence`. Out-of-family payloads, unknown tools, and malformed field
+  objects fail closed into Review instead of being adopted or guessed.
 - Typed interpretation remains observations only. It cannot provide canonical
   IDs or mutate canonical state. The existing per-document extractors remain
   the canonical candidate source until their field schemas/validators consume
