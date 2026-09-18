@@ -129,6 +129,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	shadowStarted := map[string]shadowStart{}
 	var primary *Interpretation
 	var primaryNeedsReview bool
+	var primaryInterpretationErr error
 	if mode == InterpretationPrimary {
 		// ADR-037 primary: the unified bounded interpretation call selects the
 		// document type. Go still owns every canonical transition below; the
@@ -143,8 +144,12 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			primary = &interpretation
 			primaryNeedsReview = interpretation.NeedsReview()
 		} else {
-			slog.WarnContext(ctx, "document primary interpretation failed; falling back to legacy classification", "error_type", fmt.Sprintf("%T", interpretationErr))
+			primaryInterpretationErr = interpretationErr
+			slog.WarnContext(ctx, "document primary interpretation failed; routing to Review", "error_type", fmt.Sprintf("%T", interpretationErr))
 		}
+	}
+	if primaryInterpretationErr != nil {
+		return p.HandleTerminalFailure(ctx, documentID, fmt.Errorf("primary document interpretation failed: %w", primaryInterpretationErr))
 	}
 	if mode == InterpretationShadow {
 		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)

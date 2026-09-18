@@ -96,6 +96,64 @@ func TestInterpretationDecodesAllSixTypedTools(t *testing.T) {
 	}
 }
 
+func TestInterpretationSchemaArrayItemsAcceptRows(t *testing.T) {
+	for _, tool := range interpretationToolDefinitions() {
+		encoded, err := json.Marshal(tool.Parameters)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var schema map[string]any
+		if err := json.Unmarshal(encoded, &schema); err != nil {
+			t.Fatal(err)
+		}
+		properties := schema["properties"].(map[string]any)["fields"].(map[string]any)["properties"].(map[string]any)
+		for name, field := range properties {
+			value := field.(map[string]any)["properties"].(map[string]any)["value"].(map[string]any)
+			types, _ := value["type"].([]any)
+			isArray := false
+			for _, entry := range types {
+				if entry == "array" {
+					isArray = true
+				}
+			}
+			if !isArray {
+				continue
+			}
+			items := value["items"].(map[string]any)
+			inner, _ := items["properties"].(map[string]any)
+			if len(inner) == 0 {
+				t.Errorf("tool=%s field=%s array items schema has no properties", tool.Name, name)
+			}
+			if items["additionalProperties"] != false {
+				t.Errorf("tool=%s field=%s array items schema is not strict", tool.Name, name)
+			}
+		}
+	}
+}
+
+func TestInterpretationArrayItemsUseRealRowShapes(t *testing.T) {
+	rows := map[string]string{
+		toolInterpretReceipt:     "[{\"name\":\"Kopi\",\"quantity\":null,\"amount\":\"25000\"}]",
+		toolInterpretPayslip:     "[{\"name\":\"Transport\",\"amount\":\"300000\"}]",
+		toolInterpretTransaction: "[{\"direction\":\"OUT\",\"amount\":\"15000\",\"currency\":\"IDR\",\"transaction_at\":null,\"merchant\":\"Warung\",\"description\":\"nasi goreng\"}]",
+	}
+	for tool, row := range rows {
+		fixture := typedInterpretationFixture(tool)
+		for name, kind := range interpretationFieldTypes[tool] {
+			if kind != "array" {
+				continue
+			}
+			fixture = json.RawMessage(strings.Replace(string(fixture),
+				"\""+name+"\":{\"value\":[],\"status\":\"PRESENT\",\"confidence\":0.9}",
+				"\""+name+"\":{\"value\":"+row+",\"status\":\"PRESENT\",\"confidence\":0.9}", 1))
+		}
+		llm := &recordingInterpretationGateway{call: gateway.ToolCall{Name: tool, Arguments: fixture}}
+		if _, _, err := (&Processor{gateway: llm}).Interpret(context.Background(), "doc", "", nil); err != nil {
+			t.Errorf("tool=%s rejected real row shape: %v", tool, err)
+		}
+	}
+}
+
 func TestW3QualityContractDecodesFailClosedAndRoutesReview(t *testing.T) {
 	llm := &recordingInterpretationGateway{call: gateway.ToolCall{Name: toolInterpretReceipt, Arguments: typedInterpretationFixture(toolInterpretReceipt)}}
 	value, _, err := (&Processor{gateway: llm}).Interpret(context.Background(), "doc", "", nil)

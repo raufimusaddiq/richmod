@@ -227,6 +227,32 @@ var interpretationFieldTypes = map[string]map[string]string{
 	toolInterpretReject:      {"rejection_reason": "string"},
 }
 
+var interpretationArrayItemSchemas = map[string]map[string]map[string]any{
+	toolInterpretReceipt: {
+		"items": {"type": "object", "additionalProperties": false, "properties": map[string]any{
+			"name": map[string]any{"type": "string"}, "quantity": map[string]any{"type": []string{"string", "null"}},
+			"amount": map[string]any{"type": "string", "pattern": "^[0-9]+$"},
+		}, "required": []string{"name", "quantity", "amount"}},
+	},
+	toolInterpretPayslip: {
+		"allowances": {"type": "object", "additionalProperties": false, "properties": map[string]any{
+			"name": map[string]any{"type": "string"}, "amount": map[string]any{"type": "string", "pattern": "^[0-9]+$"},
+		}, "required": []string{"name", "amount"}},
+		"deductions": {"type": "object", "additionalProperties": false, "properties": map[string]any{
+			"name": map[string]any{"type": "string"}, "amount": map[string]any{"type": "string", "pattern": "^[0-9]+$"},
+		}, "required": []string{"name", "amount"}},
+	},
+	toolInterpretTransaction: {
+		"transactions": {"type": "object", "additionalProperties": false, "properties": map[string]any{
+			"direction":      map[string]any{"type": "string", "enum": []string{"OUT", "IN"}},
+			"amount":         map[string]any{"type": "string", "pattern": "^[0-9]+$"},
+			"currency":       map[string]any{"type": "string", "enum": []string{"IDR"}},
+			"transaction_at": map[string]any{"type": []string{"string", "null"}},
+			"merchant":       map[string]any{"type": "string"}, "description": map[string]any{"type": "string"},
+		}, "required": []string{"direction", "amount", "currency", "transaction_at", "merchant", "description"}},
+	},
+}
+
 // interpretationCriticalFields is the W3 allow-list of fields whose confidence
 // may be reported in field_confidence and that drive deterministic review
 // routing. Unknown/reject tools have no critical fields.
@@ -379,7 +405,11 @@ func interpretationToolDefinitions() []gateway.ToolDefinition {
 			}
 			value := map[string]any{"type": []string{kind, "null"}}
 			if kind == "array" {
-				value = map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "object", "additionalProperties": false}}
+				items := interpretationArrayItemSchemas[name][fieldName]
+				if items == nil {
+					items = map[string]any{"type": "object", "additionalProperties": false}
+				}
+				value = map[string]any{"type": []string{"array", "null"}, "items": items}
 			}
 			fields[fieldName] = map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"value": value, "status": map[string]any{"type": "string", "enum": []string{string(ObservationPresent), string(ObservationMissing), string(ObservationAmbiguous)}}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"value", "status", "confidence"}}
 		}
