@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "action": "PRODUCTION_DEPLOY",
+  "environment": "production",
+  "steps": [
+    {
+      "key": "release-images",
+      "name": "Wait for release images",
+      "type": "GITHUB_WORKFLOW",
+      "timeoutSeconds": 1800,
+      "config": {
+        "mode": "WAIT",
+        "repository": "raufimusaddiq/richmod",
+        "workflow": "release-images.yml",
+        "ref": "main",
+        "headSha": "${param:sha}"
+      }
+    },
+    {
+      "key": "deploy",
+      "name": "Request production deployment",
+      "type": "GITHUB_WORKFLOW",
+      "timeoutSeconds": 3600,
+      "config": {
+        "mode": "DISPATCH",
+        "repository": "raufimusaddiq/richmod",
+        "workflow": "deploy-production.yml",
+        "ref": "main",
+        "expectedHeadSha": "${param:sha}",
+        "inputs": {
+          "sha": "${param:sha}"
+        }
+      }
+    },
+    {
+      "key": "health",
+      "name": "Verify production health endpoint",
+      "type": "HTTP_CHECK",
+      "timeoutSeconds": 60,
+      "config": { "url": "https://finance.investdx.biz.id/healthz" }
+    },
+    {
+      "key": "readiness",
+      "name": "Verify production readiness endpoint",
+      "type": "HTTP_CHECK",
+      "timeoutSeconds": 60,
+      "config": { "url": "https://finance.investdx.biz.id/readyz" }
+    }
+  ]
+}
