@@ -31,20 +31,6 @@
           "sha": "${param:sha}"
         }
       }
-    },
-    {
-      "key": "health",
-      "name": "Verify production health endpoint",
-      "type": "HTTP_CHECK",
-      "timeoutSeconds": 60,
-      "config": { "url": "https://finance.investdx.biz.id/healthz" }
-    },
-    {
-      "key": "readiness",
-      "name": "Verify production readiness endpoint",
-      "type": "HTTP_CHECK",
-      "timeoutSeconds": 60,
-      "config": { "url": "https://finance.investdx.biz.id/readyz" }
     }
   ]
 }
