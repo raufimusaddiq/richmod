@@ -74,7 +74,9 @@ func (p *Processor) loadEvidenceContext(ctx context.Context, documentID, househo
 }
 
 func (p *Processor) merchantHints(ctx context.Context, householdID string) ([]merchantHint, error) {
-	rows, err := p.pool.Query(ctx, `SELECT raw_name FROM merchant_alias WHERE household_id=$1 ORDER BY updated_at DESC LIMIT 50`, householdID)
+	// merchant_alias rows are immutable (no updated_at column); newest aliases
+	// by creation order are the most useful public hints.
+	rows, err := p.pool.Query(ctx, `SELECT raw_name FROM merchant_alias WHERE household_id=$1 ORDER BY created_at DESC LIMIT 50`, householdID)
 	if err != nil {
 		return nil, fmt.Errorf("load merchant hints: %w", err)
 	}
