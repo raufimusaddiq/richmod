@@ -160,7 +160,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		interpretation, interpretationMeta, interpretationErr := p.interpretWithPrompt(ctx, documentID, evidence)
 		if interpretationErr == nil {
 			if err := p.recordShadowInterpretation(ctx, householdID, sourceID, documentID, interpretation, interpretationMeta.Model); err != nil {
-				return err
+				slog.WarnContext(ctx, "document shadow interpretation persistence failed", "error_type", fmt.Sprintf("%T", err))
 			}
 			shadowStarted[documentID] = shadowStart{At: startedAt, Value: interpretation, Model: interpretationMeta.Model}
 		} else {
@@ -183,13 +183,13 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			return err
 		}
 	}
-	if start, ok := shadowStarted[documentID]; ok {
-		if err := p.recordShadowComparison(ctx, documentID, start.Value, start.Model, result, time.Since(start.At)); err != nil {
-			return err
-		}
-	}
 	if !allowedType(result.DocumentType) || result.Confidence < 0 || result.Confidence > 1 {
 		return fmt.Errorf("invalid document classification")
+	}
+	if start, ok := shadowStarted[documentID]; ok {
+		if err := p.recordShadowComparison(ctx, documentID, start.Value, start.Model, result, time.Since(start.At)); err != nil {
+			slog.WarnContext(ctx, "document shadow comparison persistence failed", "error_type", fmt.Sprintf("%T", err))
+		}
 	}
 	validated := result.Confidence >= 0.80
 	documentStatus, sourceStatus := "CLASSIFIED", "PROCESSED"

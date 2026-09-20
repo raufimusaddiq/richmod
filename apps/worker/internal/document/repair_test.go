@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,29 +16,61 @@ type repairGateway struct {
 	required bool
 	tools    []gateway.ToolDefinition
 	content  any
+	prompt   string
 }
 
-func (g *repairGateway) NativeToolCall(_ context.Context, _ string, _ string, content any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+func (g *repairGateway) NativeToolCall(_ context.Context, _ string, prompt string, content any, tools []gateway.ToolDefinition, options ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	if len(tools) != 1 || tools[0].Name != "repair_receipt_fields" {
 		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected repair tools")
 	}
 	g.required = len(options) == 1 && options[0].Required
 	g.tools = tools
 	g.content = content
+	g.prompt = prompt
 	return g.call, gateway.Metadata{Model: "vision-model"}, nil
+}
+
+// Repair must re-read the document: a flagged amount cannot be corrected from
+// an empty prompt with no evidence attached.
+func TestRepairSendsDocumentEvidenceAndFlaggedFields(t *testing.T) {
+	value := receiptExtraction{Merchant: "Solaria", Currency: "IDR", Total: "6500", Confidence: 0.9}
+	issues := validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
+	llm := &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"65000"}}`)}}
+	content := []map[string]any{{"type": "input_text", "text": "Extract this receipt."}, {"type": "input_image", "image_url": "data:image/jpeg;base64,AA=="}}
+	if _, _, err := repairExtracted(context.Background(), llm, "doc-evidence", "RECEIPT", content, &value, &issues, func(receiptExtraction) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if llm.content == nil {
+		t.Fatal("repair call omitted document evidence")
+	}
+	pages, ok := llm.content.([]map[string]any)
+	if !ok || len(pages) != 2 {
+		t.Fatalf("repair content = %#v", llm.content)
+	}
+	for _, want := range []string{"repair_receipt_fields", "total", "INVALID_AMOUNT", "6500"} {
+		if !strings.Contains(llm.prompt, want) {
+			t.Fatalf("repair prompt missing %q: %s", want, llm.prompt)
+		}
+	}
+	// A repair without evidence must fail closed, never proceed unevidenced.
+	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
+	unchanged, _, err := repairExtracted(context.Background(), llm, "doc-no-evidence", "RECEIPT", nil, &value, &issues, func(receiptExtraction) error { return nil })
+	if err != nil || unchanged.Total != value.Total || !issues.has("", repairFailedCode) {
+		t.Fatalf("unevidenced repair was not rejected: value=%+v issues=%s", unchanged, issues.String())
+	}
 }
 
 func TestRepairUpdatesOnlyRequestedFieldsAndRevalidates(t *testing.T) {
 	value := receiptExtraction{Merchant: "Solaria", Currency: "IDR", Total: "65000", Confidence: 0.9}
 	issues := validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}, {Field: "merchant", Code: "TEXT_TOO_LONG"}}
 	llm := &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"65000","unrequested":"x"}}`)}}
-	got, _, err := repairExtracted(context.Background(), llm, "doc-1", "RECEIPT", &value, &issues, func(receiptExtraction) error { return nil })
+	got, _, err := repairExtracted(context.Background(), llm, "doc-1", "RECEIPT", repairTestContent(), &value, &issues, func(receiptExtraction) error { return nil })
 	if err != nil || got.Total != value.Total || !issues.has("", repairFailedCode) {
 		t.Fatal("failed repair did not preserve original invalid result")
 	}
 	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
 	llm = &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"95000"}}`)}}
-	patched, metadata, err := repairExtracted(context.Background(), llm, "doc-2", "RECEIPT", &value, &issues, func(v receiptExtraction) error {
+	patched, metadata, err := repairExtracted(context.Background(), llm, "doc-2", "RECEIPT", repairTestContent(), &value, &issues, func(v receiptExtraction) error {
 		if v.Total != "95000" || v.Merchant != "Solaria" {
 			return fmt.Errorf("patch changed unflagged fields")
 		}
@@ -49,9 +82,14 @@ func TestRepairUpdatesOnlyRequestedFieldsAndRevalidates(t *testing.T) {
 	// Revalidate failure keeps the original value.
 	llm = &repairGateway{call: gateway.ToolCall{Name: "repair_receipt_fields", Arguments: json.RawMessage(`{"fields":{"total":"95000"}}`)}}
 	issues = validationIssues{{Field: "total", Code: "INVALID_AMOUNT"}}
-	if got, _, err := repairExtracted(context.Background(), llm, "doc-3", "RECEIPT", &value, &issues, func(receiptExtraction) error { return fmt.Errorf("still invalid") }); err != nil || got.Total != value.Total || !issues.has("", repairFailedCode) {
+	if got, _, err := repairExtracted(context.Background(), llm, "doc-3", "RECEIPT", repairTestContent(), &value, &issues, func(receiptExtraction) error { return fmt.Errorf("still invalid") }); err != nil || got.Total != value.Total || !issues.has("", repairFailedCode) {
 		t.Fatal("failed revalidation did not preserve invalid result")
 	}
+}
+
+// repairTestContent is the document evidence every successful repair needs.
+func repairTestContent() []map[string]any {
+	return []map[string]any{{"type": "input_text", "text": "Extract this receipt."}, {"type": "input_image", "image_url": "data:image/jpeg;base64,AA=="}}
 }
 
 func TestReceiptValidationIssuesMapFieldCodes(t *testing.T) {

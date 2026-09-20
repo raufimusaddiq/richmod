@@ -106,7 +106,7 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	issues := payslipValidationIssues(result)
 	if len(issues) > 0 {
 		// ADR-037: one field-restricted repair, revalidated by the same rules.
-		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "PAYSLIP", &result, &issues, func(value payslipExtraction) error {
+		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "PAYSLIP", content, &result, &issues, func(value payslipExtraction) error {
 			if repairIssues := payslipValidationIssues(value); len(repairIssues) > 0 {
 				return fmt.Errorf("payslip still invalid: %s", repairIssues.String())
 			}

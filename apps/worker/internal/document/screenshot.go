@@ -94,7 +94,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	if len(issues) > 0 {
 		// ADR-037: one field-restricted repair; the same validator re-derives
 		// every row after the patch.
-		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, documentType, &result, &issues, func(value screenshotExtraction) error {
+		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, documentType, content, &result, &issues, func(value screenshotExtraction) error {
 			if _, err := validateScreenshot(value, receivedAt, categories, documentType); err != nil {
 				return err
 			}

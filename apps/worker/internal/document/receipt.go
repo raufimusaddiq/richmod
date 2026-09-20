@@ -104,7 +104,7 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 	if len(issues) > 0 {
 		// ADR-037: one field-restricted repair with the same validator. A failed
 		// repair appends REPAIR_FAILED and keeps the invalid-review path.
-		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "RECEIPT", &result, &issues, func(value receiptExtraction) error {
+		patched, repairMeta, _ := repairExtracted(ctx, p.gateway, sourceID, "RECEIPT", content, &result, &issues, func(value receiptExtraction) error {
 			_, repairIssues := validateReceiptIssues(value, receivedAt)
 			if len(repairIssues) > 0 {
 				return fmt.Errorf("receipt still invalid: %s", repairIssues.String())
