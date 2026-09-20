@@ -6,368 +6,672 @@
 **Implementation branch:** `docs/jev-system-one-prd`  
 **Baseline:** `main@81e466ca0f71c8c056dd2c500f4ca17fb4466c51`  
 **Date:** 2026-09-20  
+**Gateway dependency:** LiteRouter `POST /v1/systemone` available on `main` via merge commit `fd48eac93f2464a38d47a39106fd9c5b47e83e38`
 
 ---
 
-## 1. Product Goal
+# 1. Product Goal
 
-Integrate TypeSafe AI Jev into Richmod as a first-class semantic judgment layer.
+Richmod will use TypeSafe AI Jev as its primary **bounded semantic decision plane**.
 
-Responsibility split:
+The goal is not merely to add a second model behind existing generative workflows. The goal is to reduce unnecessary generative-model calls, native-tool parsing, self-reported confidence, prompt complexity, and hand-written fuzzy branching wherever the required result can be represented as a typed decision.
+
+Target responsibility split:
 
 ```text
-Generative LLM = understand, extract, converse, propose
-Jev            = typed semantic judgments with probabilities
-Go             = authorize, validate, reconcile, review, commit
-PostgreSQL     = canonical truth
+Go deterministic rules
+  = exact validation, authorization, binding, arithmetic, reconciliation, persistence
+
+Jev / System One
+  = bounded semantic classification, routing, verification, scoring, uncertainty
+
+Generative LLM
+  = arbitrary string/value extraction, open-ended reasoning, vision, synthesis, prose
+
+PostgreSQL
+  = canonical financial truth
 ```
 
-Jev is **not** a replacement for the Telegram conversational model, document vision model, or insight writer.
+The preferred execution order is:
 
-This rollout is **not shadow mode**. Once enabled, covered production paths actively depend on Jev judgments.
+```text
+deterministic Go
+      |
+      v
+bounded semantic decision needed?
+    /   \
+   no   yes
+   |     |
+   |    Jev
+   |     |
+   |     v
+   |  enough information to finish?
+   |       /       \
+   |     yes       no
+   |      |         |
+   |      |     generative LLM
+   |      |   extraction/reasoning
+   |      |         |
+   |      |    Jev when another
+   |      |    bounded judgment remains
+   |      |         |
+   +------+---------+
+          |
+          v
+       Go policy
+       /      \
+   commit     review
+```
+
+Jev is therefore not only a guard after the LLM. It is allowed to **replace the LLM entirely** for bounded decision tasks.
+
+This rollout is direct production integration, not shadow mode.
 
 ---
 
-## 2. Existing Richmod Invariants
+# 2. Architecture Invariants
 
 Implementation MUST preserve:
 
-- PostgreSQL remains canonical financial state.
-- Go owns every financial state transition.
-- Generative-model output remains untrusted.
-- Jev output is also untrusted input to Go policy, never mutation authority.
-- Neither model receives database credentials or direct DB access.
-- Exact Telegram callback / `reply_to_message_id` binding remains authoritative.
-- Existing reconciliation semantics remain authoritative.
-- Evidence remains preserved and auditable.
-- Deterministic READ and calculation paths continue without Jev.
-- No Python service or sidecar is introduced.
+1. PostgreSQL remains canonical financial state.
+2. Go owns every canonical financial state transition.
+3. Exact deterministic facts are never delegated to AI.
+4. Jev output is typed semantic evidence, not mutation authority.
+5. Generative LLM output remains untrusted.
+6. No AI model receives database credentials or direct database access.
+7. Exact Telegram callbacks, reply bindings, opaque references, and household authorization remain Go-owned.
+8. Deterministic reconciliation and arithmetic take precedence over model judgment.
+9. Ambiguity that cannot safely resolve routes to Review Inbox or clarification.
+10. All external model inference goes through LiteRouter.
+11. Richmod never stores or uses the upstream TypeSafe credential.
+12. No Python service or sidecar is introduced.
 
-Because this changes the AI architecture, implementation MUST add a dedicated ADR before merge to `main`.
+This PR adds ADR-038 to formalize this decision and amends the existing gateway documentation.
 
 ---
 
-## 3. Problem
+# 3. Gateway Boundary
 
-Richmod currently allows a generative model to both:
+LiteRouter already exposes native System One pass-through:
 
-1. propose a semantic interpretation; and
-2. emit confidence about its own proposal.
+```text
+POST /v1/responses
+POST /v1/chat/completions
+POST /v1/systemone
+```
+
+Richmod uses the same gateway boundary for both model families:
+
+```text
+Richmod
+   |
+   +--> LiteRouter /v1/responses
+   |        |
+   |        +--> generative providers
+   |
+   +--> LiteRouter /v1/systemone
+            |
+            +--> TypeSafe Jev
+```
+
+Important:
+
+- Richmod does not call `api.typesafe.ai` directly.
+- Richmod does not possess `TYPESAFE_API_KEY`.
+- LiteRouter owns upstream provider credentials, account fallback, provider health, and routing.
+- System One keeps its native payload. It is not translated to OpenAI Responses.
+- Jev is not represented as a fake chat model.
+- No automatic fallback from Jev to a generative model is permitted because their semantics differ.
+
+LiteRouter currently accepts the native TypeSafe request shape:
+
+```json
+{
+  "model": "typesafe/jev-latest",
+  "state": {},
+  "questions": {}
+}
+```
+
+and passes the structured response through.
+
+---
+
+# 4. Why Jev Changes the Richmod Design
+
+Richmod currently uses native generative tool calls in several places for two different jobs:
+
+1. **unbounded extraction** — amount, date, merchant, arbitrary text, document fields;
+2. **bounded decisions** — choose transaction type, category, review action, salary choice, transfer purpose, yes/no confirmation, ambiguity.
+
+The first job still fits a generative model.
+
+The second job fits Jev better because the output space is already known to software.
+
+Example of the current pattern:
+
+```text
+LLM native tool:
+resolve_salary_choice {
+  choice: "PRIMARY"
+}
+```
+
+Desired pattern:
+
+```text
+Jev Choice:
+PRIMARY
+ORDINARY
+IGNORE
+OTHER_OR_UNCLEAR
+```
+
+There is no reason to invoke a generative model, generate a tool call, parse JSON arguments, validate the tool name, and decode a struct just to choose one member of a finite set.
+
+The same reasoning applies to many other Richmod decisions.
+
+---
+
+# 5. Decision Hierarchy
+
+Every semantic workflow MUST follow this hierarchy.
+
+## Level 1 — deterministic Go
+
+Use Go when the answer can be computed exactly.
+
+Examples:
+
+- household authorization;
+- exact Telegram reply binding;
+- callback identity;
+- amount arithmetic;
+- date interval arithmetic;
+- category IDs/slugs that are already explicit;
+- known account alias resolution when unique;
+- duplicate hashes;
+- transaction status transition validity;
+- exact reconciliation rules;
+- salary-cycle boundaries;
+- canonical totals and analytics.
+
+Do not ask Jev or an LLM for these.
+
+## Level 2 — Jev
+
+Use Jev when:
+
+- the possible answers are known;
+- the problem is semantic or fuzzy;
+- a probability or distribution is useful;
+- arbitrary string generation is not required.
+
+Examples:
+
+- classify intent;
+- choose one review action;
+- choose category;
+- choose transfer purpose;
+- decide whether two descriptions likely represent the same event;
+- decide whether evidence supports a proposed fact;
+- decide whether a user explicitly consented;
+- classify finance vs out-of-scope;
+- rank review urgency;
+- choose which bounded workflow should run.
+
+## Level 3 — generative LLM
+
+Use the generative model only when Richmod needs something Jev cannot natively return:
+
+- arbitrary merchant names;
+- arbitrary descriptions;
+- arbitrary dates/times not captured by deterministic candidates;
+- free-form document fields;
+- image/vision understanding;
+- multi-step READ reasoning;
+- open-ended financial explanation;
+- user-facing prose.
+
+After the generative model returns an extraction/proposal, any remaining bounded semantic choice should return to Jev rather than relying on generative self-confidence.
+
+---
+
+# 6. Jev-First Telegram Fast Path
+
+Telegram should no longer assume every free-text finance message must enter the full conversational LLM agent.
+
+New flow:
+
+```text
+Telegram text
+    |
+    v
+Go context + candidate harvesting
+    |
+    v
+Jev routing / semantic questions
+    |
+    +--> bounded READ fully resolvable
+    |       -> Go READ
+    |       -> deterministic concise response
+    |
+    +--> bounded mutation fully resolvable
+    |       -> Go validation
+    |       -> Go mutation/review
+    |
+    +--> server-bound workflow reply
+    |       -> Jev chooses allowed action
+    |       -> Go executes bound transition
+    |
+    +--> needs arbitrary extraction/reasoning/prose
+            -> existing conversational LLM agent
+            -> Jev only for remaining bounded judgments
+            -> Go
+```
+
+This is the main architectural change.
+
+Jev should be used to avoid generative calls, not merely to add another call after them.
+
+---
+
+# 7. Telegram Route Decision
+
+For ordinary free text, Jev may answer a `Choice` over a server-owned route set:
+
+```text
+READ_SPENDING
+READ_CASHFLOW
+READ_SAVINGS
+READ_WEALTH
+SEARCH_TRANSACTIONS
+CREATE_TRANSACTION
+CREATE_TRANSFER
+CORRECT_TRANSACTION
+REVIEW_INTERACTION
+SALARY_INTERACTION
+MERCHANT_LEARNING_INTERACTION
+FINANCE_HELP
+OUT_OF_SCOPE
+NEEDS_GENERATIVE_AGENT
+OTHER_OR_UNCLEAR
+```
+
+The available choices are state-dependent.
+
+For example, `SALARY_INTERACTION` is exposed only when a salary choice is actually pending.
+
+Go decides which routes are available. Jev only chooses among them.
+
+If route probability/margin is insufficient, send the turn to the generative conversational agent or ask clarification, depending on available context.
+
+---
+
+# 8. Candidate-Based Extraction Before Generative LLM
+
+Jev cannot produce arbitrary strings. Richmod should exploit that constraint instead of treating it as a weakness.
+
+Before invoking a generative model, Go may harvest **candidates** without deciding semantics:
+
+```text
+amount candidates
+date-reference candidates
+time candidates
+known account aliases
+known merchant aliases
+opaque transaction refs
+active category slugs
+review actions
+transfer purposes
+```
 
 Example:
 
 ```text
-User:
-"beli bensin 50rb tadi"
-
-Generative proposal:
-type = EXPENSE
-amount = 50000
-category = transport
-confidence = 0.94
-category_confidence = 0.91
+"kemarin makan 50rb sama parkir 5rb"
 ```
 
-The same model is deciding the answer and grading itself.
-
-Target architecture:
+Go can harvest:
 
 ```text
-unstructured source
-      |
-      v
-generative model
-      |
-      v
-typed proposal
-      |
-      v
-Go structural validation
-      |
-      v
-Jev semantic judgments
-      |
-      v
-Go policy
-   /      \
-commit   review
+amount_candidates = [50000, 5000]
+date_candidate = YESTERDAY
 ```
 
-Generative models stay responsible for language and extraction. Jev becomes useful for bounded classification, verification, and confidence-aware branching.
+Jev can then answer bounded questions about which amount belongs to which candidate transaction when the structure is sufficiently clear.
+
+If candidate harvesting is incomplete or arbitrary extraction is required, fall through to the generative LLM.
+
+This allows a large common subset of Telegram commands to avoid native-tool LLM calls.
 
 ---
 
-## 4. Why Jev Fits Richmod
+# 9. Replace Bounded Native Tool Decisions With Jev
 
-Jev is designed around:
+The following current native-tool decisions are candidates to move out of the generative conversational agent.
+
+## 9.1 Review resolution
+
+Current:
 
 ```text
-state + typed questions -> typed probabilistic answers
+LLM -> resolve_review(action=...)
 ```
 
-rather than:
+Target:
 
 ```text
-messages -> generated string
+Go binds exact review
+   |
+   v
+Go exposes only allowed actions
+   |
+   v
+Jev Choice over allowed actions + OTHER_OR_UNCLEAR
+   |
+   v
+Go validates and executes
 ```
 
-That matches Richmod's existing rule that AI can interpret, while Go owns canonical financial state.
+No generative tool call is required for replies such as:
 
-P0 should use:
+- "iya expense aja";
+- "itu transfer ke rekening sendiri";
+- "abaikan";
+- "jadikan asset purchase".
 
-- **Noul** for yes/no probabilistic predicates.
-- **Choice** for mutually competing known alternatives.
+The target review remains server-owned.
 
-P0 does not require Score.
+## 9.2 Salary choice
 
-References current at PRD creation time:
-
-- https://typesafe.ai/blog/introducing-system-one-models-and-jev
-- https://typesafe.ai/
-- https://learnjev.com/reference
-- https://learnjev.com/tutorials/three-primitives
-
-API details MUST be rechecked against current TypeSafe documentation during implementation because Jev is new and may evolve quickly.
-
----
-
-## 5. Explicit Non-Goals
-
-Jev MUST NOT replace:
+Current tool:
 
 ```text
-Telegram natural conversation
-final user-facing prose
-multi-phase conversational reasoning
-document image understanding
-OCR / arbitrary visual extraction
-financial insight prose
-transaction search
-READ-tool orchestration
-```
-
-Jev MUST NOT:
-
-```text
-run SQL
-receive database credentials
-choose hidden canonical database IDs
-bypass household authorization
-bypass exact reply/callback binding
-bypass reconciliation rules
-commit a transaction directly
-resolve a review directly
-```
-
-Do not turn Jev into a second autonomous agent framework.
-
----
-
-# 6. P0 — Telegram Side-Effect Semantic Gate
-
-Every **generative-model-originated Telegram side effect** must pass Jev before Go executes it.
-
-Initial covered actions include:
-
-```text
-record_transaction
-record_transaction_batch
-record_transfer
-propose_transaction_correction
-resolve_review
 resolve_salary_choice
-resolve_merchant_learning
-wealth-related side effects
 ```
 
-Deterministic callbacks or exact button actions do not require Jev when Go already has an exact target, explicit transition, and authenticated actor.
-
-Target flow:
+Target Jev Choice:
 
 ```text
-user text
-   |
-   v
-conversational LLM
-   |
-   v
-one SIDE EFFECT proposal
-   |
-   v
-Go schema/domain validation
-   |
-   v
-Jev semantic gate
-   |
-   v
-Go authorization / binding / reconciliation
-   |
-   +--> execute
-   |
-   +--> clarify/review
+PRIMARY
+ORDINARY
+IGNORE
+OTHER_OR_UNCLEAR
 ```
 
-### Critical rule
+## 9.3 Merchant-learning reply
 
-Jev may judge **what the user appears to mean**.
+Current tool:
 
-Jev may not decide **which hidden canonical row to mutate**.
+```text
+resolve_merchant_learning { remember: boolean }
+```
 
-ADR-033 server-owned binding continues to take precedence.
+Target Jev Noul:
+
+```text
+did_user_explicitly_consent_to_remember_rule?
+```
+
+A high probability may map to true; a low probability to false; uncertainty asks clarification.
+
+The explicit opt-in requirement remains.
+
+## 9.4 Pending batch decision
+
+Confirmation/cancel/update/defer is a bounded state-machine decision.
+
+Use deterministic lexical shortcuts first, then Jev Choice when natural language is not exact.
+
+## 9.5 Finance scope
+
+Use Jev to distinguish finance request vs non-finance/out-of-scope when deterministic routing cannot decide.
 
 ---
 
-## 7. Telegram Judgment Questions
+# 10. Transaction Creation
 
-Avoid one opaque question such as:
+Transaction creation has both bounded and unbounded components.
 
-```text
-safe_to_commit?
-```
-
-Use decomposed judgments.
-
-For transaction creation:
+Bounded:
 
 ```text
-transaction_intent_supported
-amount_supported
-type_supported
+transaction intent
+INCOME vs EXPENSE
 category
-material_ambiguity
+is amount candidate supported?
+is date candidate supported?
+material ambiguity
 ```
 
-For transfer:
+Potentially unbounded:
 
 ```text
-transfer_intent_supported
-amount_supported
-source_account_semantics_supported
-destination_semantics_supported
-purpose_supported
-material_ambiguity
+merchant string
+free-form description
+arbitrary date text
+multiple transaction decomposition
 ```
 
-For corrections:
+Preferred path:
 
 ```text
-correction_intent_supported
-requested_change_supported
-material_ambiguity
+Go harvest candidates
+   |
+   v
+Jev:
+- is this a record-transaction request?
+- INCOME or EXPENSE?
+- which amount candidate?
+- which category?
+- which date-reference candidate?
+- material ambiguity?
+   |
+   v
+all required values available?
+   | yes
+   v
+Go directly records/stages transaction
 ```
 
-For review resolution:
+Only invoke the generative LLM when required values cannot be obtained from deterministic candidates and Jev choices.
+
+For a simple command such as:
 
 ```text
-resolution_intent_supported
-selected_resolution_semantics
-material_ambiguity
+"catat bensin 50rb hari ini"
 ```
 
-Exact target binding remains Go-owned.
+the target is **zero generative-model calls**.
 
 ---
 
-# 8. P0 — Category Judgment
+# 11. Transaction Category
 
-Generative `category_confidence` must stop being final auto-confirm authority on Jev-enabled paths.
+Category classification becomes Jev-owned after deterministic rules.
 
-The generative model may propose a `category_slug`, but Jev independently evaluates category fit.
+Order:
 
-Use a Jev **Choice** over active Richmod categories and always include:
+```text
+explicit category from user
+    -> use it
+
+existing explicit merchant rule
+    -> use it
+
+otherwise
+    -> Jev Choice
+```
+
+Choice includes every active allowed category plus:
 
 ```text
 OTHER_OR_UNCLEAR
 ```
 
-Suggested initial policy:
+Initial Go acceptance policy:
 
 ```text
 winner != OTHER_OR_UNCLEAR
-AND top_probability >= 0.85
-AND top_probability - second_probability >= 0.20
+AND top_probability >= configured minimum
+AND top_probability - second_probability >= configured margin
 ```
 
-These are Richmod configuration defaults, not universal claims about Jev.
-
-If policy fails:
-
-```text
--> existing category review
-```
-
-Do not force probability mass onto a normal category when evidence is weak.
+Generative `category_confidence` is removed from decision authority and may eventually be removed from the tool schema entirely.
 
 ---
 
-# 9. P0 — Bank Email Semantic Verification
+# 12. Transfer Purpose and Accounting Semantics
 
-Keep the current bank-email native LLM extraction.
+Transfer semantics are a strong Jev use case.
 
-Target flow:
+Deterministic rules run first:
+
+- exact own-account match;
+- exact known household account;
+- exact reconciliation candidate;
+- explicit user-specified purpose.
+
+If unresolved, Jev Choice may classify among:
 
 ```text
-trusted inbound email
+SAVINGS_TRANSFER
+INVESTMENT_CONTRIBUTION
+ASSET_PURCHASE
+DEBT_PRINCIPAL_PAYMENT
+INTERNAL_TRANSFER
+ORDINARY_EXPENSE
+OTHER_OR_UNCLEAR
+```
+
+Go still validates whether the chosen semantic class is legal for the bound accounts and transaction state.
+
+This can reduce review volume without moving canonical accounting authority into the model.
+
+---
+
+# 13. Corrections
+
+When a correction target is already bound through:
+
+- exact reply;
+- opaque ref;
+- unique search result;
+- pending action;
+
+Jev may interpret the **bounded semantic change** directly.
+
+Examples:
+
+```text
+change category to transport
+mark as internal transfer
+ignore this
+use yesterday
+```
+
+Arbitrary replacement text still requires deterministic extraction or the generative agent.
+
+Jev never selects hidden transaction IDs.
+
+---
+
+# 14. Bank Email
+
+Bank email still requires arbitrary observed-fact extraction, so the generative model remains useful there.
+
+However the current extractor should stop asking the generative model to judge its own confidence wherever Jev can do it.
+
+Target:
+
+```text
+trusted email
    |
    v
-native LLM extraction
+generative extraction
+(amount, time, merchant, channel, description)
    |
    v
 Go structural validation
    |
    v
-Jev evidence-vs-proposal judgment
+deterministic reconciliation
    |
    v
-Go policy / proposal / review
+Jev bounded semantic workflow
+   |
+   +--> evidence supports amount?
+   +--> evidence supports direction?
+   +--> evidence supports channel?
+   +--> counterparty semantics?
+   +--> transfer purpose/accounting family if unresolved?
+   +--> material ambiguity?
+   |
+   v
+Go commit/proposal/review
 ```
 
-Initial predicates:
+The generative model should not emit authoritative confidence values for these decisions once Jev owns them.
+
+Where generic deterministic candidate extraction can reliably identify an exact amount/date from the email without bank-specific parsing, implementation may skip the generative extractor for that field. Do not add bank-specific production branches.
+
+---
+
+# 15. Financial Provider Email
+
+Jev should be the default classifier for bounded provider-email decisions after any necessary arbitrary extraction.
+
+Candidate questions:
 
 ```text
-transaction_observed
-amount_supported
-direction_supported
-channel_supported
-merchant_or_counterparty_supported
+observation_type
+evidence_sufficient
+is_balance_observation
+is_trade_or_asset_purchase
+is_cashflow_event
+likely_same_event_as_candidate
 material_ambiguity
+review_reason
 ```
 
-Jev is not asked to re-extract arbitrary strings.
+The generative model is used only for fields that require arbitrary textual extraction.
+
+---
+
+# 16. Reconciliation
+
+Do not replace exact deterministic reconciliation with AI.
+
+Jev may be used only for unresolved semantic similarity after deterministic filters narrow the candidates.
 
 Example:
 
 ```text
-LLM extracted:
-amount_idr = 500000
-direction = OUT
-channel = TRANSFER
+Go:
+same household
+compatible amount
+compatible time window
+compatible direction
+candidate count = 2
 
-Jev judges:
-Does the source support amount 500000?
-Does it support OUT?
-Does it support TRANSFER?
+Jev Noul for each:
+does this evidence likely describe the same real event?
+
+Go:
+accept only if policy threshold and margin pass
+otherwise review
 ```
 
-Jev must not decide canonical accounting semantics such as:
-
-```text
-EXPENSE
-OWN_ACCOUNT_TRANSFER
-HOUSEHOLD_TRANSFER
-INVESTMENT_TRANSFER
-ASSET_PURCHASE
-```
-
-Those remain owned by existing Go policy, reconciliation, and review workflows.
+This can reduce brittle hand-written text similarity rules while preserving exact financial constraints.
 
 ---
 
-# 10. P1 — Review Inbox Explainability
+# 17. Review Inbox Triage
 
-Jev may contribute structured review reasons.
+Jev should produce structured review metadata rather than requiring an LLM to write classification JSON.
 
-Suggested normalized reasons:
+Candidate Choice:
 
 ```text
 AMOUNT_UNSUPPORTED
@@ -377,135 +681,196 @@ ACTION_INTENT_AMBIGUOUS
 EVIDENCE_INSUFFICIENT
 COUNTERPARTY_AMBIGUOUS
 TRANSFER_SEMANTICS_AMBIGUOUS
+RECONCILIATION_AMBIGUOUS
+OTHER
 ```
 
-Review UI may render:
+Optional Score may be used for review urgency only if the product needs prioritization.
 
-```text
-✓ Amount supported
-✓ Expense intent supported
-! Category ambiguous between Groceries and Household
-```
+The UI can render deterministic explanations from Jev probabilities.
 
-Do not expose raw provider payloads.
+No generative prose is required for routine review reasons.
 
 ---
 
-# 11. Deferred — Document Integration
+# 18. Document Pipeline
 
-Jev is not the primary vision model.
+Jev cannot replace vision understanding of an image.
 
-The existing document path stays:
+The generative vision model remains responsible for arbitrary visual extraction.
+
+But the current document contract asks the same generative model for:
+
+- document type;
+- per-field status;
+- per-field confidence;
+- missing/ambiguous fields.
+
+Those are bounded judgments that should migrate to Jev **when Jev receives sufficient text/structured evidence**.
+
+Long-term target:
 
 ```text
-image / PDF
-   |
-   v
-generative vision extraction
-   |
-   v
-Go validation
+image
+  |
+  v
+vision model
+  |
+  +--> observed arbitrary values / text only
+  |
+  v
+Jev
+  |
+  +--> document type
+  +--> field support
+  +--> field ambiguity
+  +--> evidence sufficiency
+  +--> review reason
+  |
+  v
+Go
 ```
 
-Do not ask Jev to verify information that only exists visually unless Richmod first has a text/structured representation Jev can actually evaluate.
+Do not claim Jev verified pixels it never received.
 
-Document integration is not required for P0.
+Until a reliable text-backed representation exists, keep the current vision confidence path for document-only facts.
 
 ---
 
-# 12. Jev Question-Type Rules
+# 19. Insights and Analytics
+
+Canonical numbers always come from Go/PostgreSQL.
+
+Jev may reduce generative insight work by deciding which structured observations are noteworthy before prose generation.
+
+Examples:
+
+```text
+spending_change_material?
+category_shift_material?
+merchant_concentration_noteworthy?
+cashflow_pattern_noteworthy?
+savings_pattern_noteworthy?
+which bounded insight family is most relevant?
+```
+
+Then:
+
+```text
+Go aggregates
+   |
+   v
+Jev chooses relevant signals
+   |
+   +--> no notable signal -> deterministic response
+   |
+   +--> notable signals -> LLM writes concise explanation
+```
+
+This keeps the LLM focused on language rather than classification.
+
+---
+
+# 20. System One Question Design
+
+Prefer many narrow independent questions over one opaque question.
+
+Good:
+
+```text
+amount_supported?
+transaction_type?
+category?
+explicit_user_consent?
+material_ambiguity?
+same_real_event?
+```
+
+Avoid:
+
+```text
+safe_to_commit?
+```
+
+because it hides domain policy inside the model.
 
 ## Noul
 
-Use for predicates whose probability maps directly to policy:
+Use for independent yes/no judgments:
 
 ```text
 amount_supported
 action_matches_user_intent
-transaction_observed
-material_ambiguity
 evidence_sufficient
+material_ambiguity
+same_real_event
+explicit_consent
 ```
 
-A Noul around `0.5` means uncertainty, not a medium score.
+A value near 0.5 is uncertainty.
 
 ## Choice
 
-Use for competing known alternatives:
+Use for one answer from a known set:
 
 ```text
+route
+transaction_type
 category
+transfer_purpose
+review_action
 review_reason
-semantic_family
+salary_choice
 ```
 
-Include an escape option when the set may be incomplete.
+When the list may not contain the correct answer, include `OTHER_OR_UNCLEAR`.
 
 ## Score
 
-Do not use in P0 unless a concrete ordered qualitative decision requires it.
+Use only for genuinely ordered qualitative judgments such as review urgency or insight materiality.
+
+Do not use Score as fake exact arithmetic.
 
 ---
 
-# 13. Jev State Design
+# 21. Go Candidate Harvesting
 
-Go constructs provider state. It is application state, not a conversational prompt.
+Go is allowed to generate candidate sets because candidate generation is not the same as semantic judgment.
 
-Example:
-
-```json
-{
-  "source": {
-    "type": "TELEGRAM_TEXT",
-    "user_text": "tadi beli bensin 50 ribu"
-  },
-  "proposal": {
-    "tool": "record_transaction",
-    "type": "EXPENSE",
-    "amount_idr": "50000",
-    "category_slug": "transport",
-    "merchant": null,
-    "date_reference": "TODAY"
-  },
-  "policy_context": {
-    "currency": "IDR",
-    "allowed_categories": [
-      "food_dining",
-      "groceries",
-      "transport",
-      "household",
-      "health",
-      "other"
-    ]
-  }
-}
-```
-
-Send only data required for selected questions.
-
-Never send:
+Useful generic candidate harvesters:
 
 ```text
-database credentials
-SQL
-session secrets
-provider credentials
-unrelated household history
-unnecessary canonical UUIDs
-raw attachments Jev cannot process
+IDR amount tokens
+relative-date tokens
+explicit date tokens
+time tokens
+known account aliases
+known merchant aliases
+category slugs
+opaque transaction refs
+currently allowed workflow actions
 ```
+
+Rules:
+
+- harvesters MUST be generic, not bank-template specific;
+- harvesting must not silently choose a candidate when multiple exist;
+- Jev may choose among candidates;
+- if no candidate exists for a required arbitrary value, use the generative extractor or clarify.
+
+This pattern minimizes both LLM calls and hand-written semantic logic.
 
 ---
 
-# 14. Go Architecture
+# 22. Richmod System One Client
 
-Add a provider-neutral package:
+Add a provider-neutral client package, for example:
 
 ```text
 apps/worker/internal/judgment
 ```
 
-Suggested contract:
+Suggested interface:
 
 ```go
 type Request struct {
@@ -514,10 +879,9 @@ type Request struct {
 }
 
 type Result struct {
-    Provider string
-    Model    string
-    Answers  map[string]Answer
-    Usage    Usage
+    Model   string
+    Answers map[string]Answer
+    Usage   Usage
 }
 
 type Engine interface {
@@ -525,192 +889,160 @@ type Engine interface {
 }
 ```
 
-TypeSafe implementation:
+Gateway implementation:
 
 ```text
-apps/worker/internal/judgment/typesafe
+apps/worker/internal/judgment/systemone
 ```
 
-Domain packages must not depend on raw TypeSafe response structs.
-
-Use a narrow Go HTTP client. Do not add Python or Node sidecars.
-
-Expected provider routes at design time:
+It talks only to:
 
 ```text
-POST /v1/systemone
-GET  /v1/models
+<LLM_GATEWAY_BASE_URL>/systemone
 ```
 
-Provider host and model are configuration, not financial business logic.
+Given the existing deployment default:
+
+```text
+LLM_GATEWAY_BASE_URL=http://9router:20128/v1
+```
+
+the effective endpoint is:
+
+```text
+http://9router:20128/v1/systemone
+```
+
+The System One client reuses the existing LiteRouter client API credential:
+
+```text
+LLM_GATEWAY_API_KEY
+```
+
+It does not have a TypeSafe provider key.
+
+Suggested additional configuration:
+
+```text
+JUDGMENT_MODEL=typesafe/jev-latest
+JUDGMENT_TIMEOUT_MS=3000
+
+JUDGMENT_CHOICE_MIN_PROBABILITY=0.85
+JUDGMENT_CHOICE_MIN_MARGIN=0.20
+JUDGMENT_NOUL_HIGH=0.90
+JUDGMENT_NOUL_LOW=0.10
+```
+
+Per-workflow thresholds may override the defaults when justified.
 
 ---
 
-# 15. Configuration
+# 23. Native System One Contract
 
-Suggested configuration:
+Richmod sends the native request shape through LiteRouter:
 
-```text
-JEV_ENABLED=true
-JEV_BASE_URL=https://api.typesafe.ai
-JEV_MODEL=jev-latest
-JEV_TIMEOUT_MS=3000
-
-JEV_TRANSACTION_EVIDENCE_THRESHOLD=0.90
-JEV_AMOUNT_THRESHOLD=0.95
-JEV_ACTION_INTENT_THRESHOLD=0.90
-JEV_MAX_AMBIGUITY=0.10
-
-JEV_CATEGORY_MIN_PROBABILITY=0.85
-JEV_CATEGORY_MIN_MARGIN=0.20
+```json
+{
+  "model": "typesafe/jev-latest",
+  "state": {
+    "source": {},
+    "server_context": {},
+    "candidates": {}
+  },
+  "questions": {
+    "route": {
+      "type": "choice",
+      "instructions": "Choose the workflow that best matches the user request.",
+      "criteria": []
+    }
+  }
+}
 ```
 
-Provider authentication must be supplied only through deployment secrets/environment.
+Exact primitive fields MUST follow the deployed System One/TypeSafe API contract at implementation time.
 
-No real credential belongs in repository files, docs, tests, fixtures, PR text, CI logs, or screenshots.
+Richmod MUST:
 
-Thresholds belong to Richmod policy, not hidden inside model instructions.
+- validate expected question keys;
+- validate answer type;
+- validate probabilities;
+- reject missing expected answers;
+- reject unexpected model-level schema changes;
+- cap response size;
+- use context cancellation;
+- record model/gateway metadata without raw financial source content.
+
+Richmod does not need native-tool-call parsing for System One decisions.
 
 ---
 
-# 16. Decision Policy
+# 24. Failure Policy
 
-## Telegram
+Jev is a production decision dependency for workflows that choose to use it.
 
-Execute a generative side effect only when:
+Failure does not mean "trust the LLM instead".
 
-```text
-Go structural validation passes
-AND Go authorization passes
-AND server-owned binding passes
-AND action_matches_user_intent >= configured threshold
-AND material_ambiguity <= configured maximum
-AND operation-specific Jev judgments pass
-AND existing reconciliation/domain policy passes
-```
-
-A high Jev probability cannot rescue invalid money, unauthorized operations, stale targets, invalid transitions, or failed reconciliation invariants.
-
-## Category
-
-Accept only when:
-
-```text
-winner != OTHER_OR_UNCLEAR
-AND top probability >= configured minimum
-AND margin to second option >= configured minimum
-```
-
-Otherwise route to category review.
-
-## Bank Email
-
-Jev verifies proposed observed facts. It cannot override deterministic validation.
-
----
-
-# 17. Failure Policy
-
-This is direct production integration.
-
-For Jev-required mutation paths, any of these:
+For a Jev-owned bounded decision:
 
 ```text
 timeout
-network failure
-authentication failure
+gateway failure
 rate limit
-provider overload
-malformed JSON
+upstream overload
+malformed response
 missing answer
-unexpected answer type
 invalid probability
+unsupported model
 ```
 
-must result in:
+results in one of:
 
 ```text
-NO AI-originated canonical mutation
-```
-
-Then use appropriate existing behavior:
-
-```text
-review
+deterministic fallback if the exact answer can still be computed
 clarification
-deterministic retry/failure response
-safe job retry
+Review Inbox
+retryable background job
+generative agent only if the task genuinely changes into an unbounded extraction/reasoning task
 ```
 
-There is **no fallback** to generative self-reported confidence.
+Do not silently substitute a generative model to answer the same Jev question.
 
-Existing deterministic features continue normally when Jev is unavailable.
+This preserves semantic consistency.
 
 ---
 
-# 18. Telegram Agent After Jev
+# 25. Reducing Native Tool Complexity
 
-ADR-033 remains the conversational model.
+A successful implementation should shrink the generative tool surface.
+
+Current examples that may eventually disappear from the conversational LLM catalog when fully Jev-owned:
 
 ```text
-model phase
-  |
-  +--> final text
-  |
-  +--> READ batch -> Go -> next model phase
-  |
-  +--> SIDE EFFECT
-          |
-          v
-       Go validate
-          |
-          v
-         Jev
-          |
-          v
-       Go policy
-        /    \
-     execute review/clarify
+resolve_salary_choice
+resolve_merchant_learning
+bounded resolve_review actions
+pending batch decision
+finance_out_of_scope
+simple finance route selection
 ```
 
-Do not invoke Jev for normal READ batches.
+`record_transaction` and `record_transfer` may remain available as generative fallback tools for turns requiring arbitrary extraction, but should no longer be the mandatory path for simple explicit commands.
 
-Post-mutation user-facing synthesis remains generative.
+Generative `confidence` and `category_confidence` should become non-authoritative immediately and should be removed from schemas once downstream compatibility no longer needs them.
 
----
-
-# 19. Provider Client Requirements
-
-The Go client must:
-
-- use bearer authentication;
-- use JSON;
-- use configurable base URL;
-- use configured model;
-- propagate context cancellation;
-- enforce a bounded timeout;
-- cap response size;
-- strictly decode responses;
-- allow-list requested answer IDs;
-- validate answer types;
-- validate probabilities are within `0..1`;
-- classify authentication, validation, rate-limit, overload, transport, and invalid-response errors;
-- never execute financial actions;
-- never receive database credentials.
-
-One Jev request should contain all independent questions for the same decision state where practical.
+The target is fewer prompts, fewer generated JSON arguments, fewer schema retries, and fewer duplicated confidence fields.
 
 ---
 
-# 20. Observability and Audit
+# 26. Observability
 
-Add provider-neutral judgment telemetry.
+Add provider-neutral decision telemetry.
 
-Recommended metadata:
+Recommended fields:
 
 ```text
 task
-provider
+protocol = systemone
 model
 status
 error_class
@@ -719,282 +1051,269 @@ question_count
 question_keys
 policy_version
 outcome
-household_id
+used_generative_fallback
 source_event_id
+household_id
 created_at
 ```
 
-Do not store raw Telegram text, email body, document contents, or full provider payloads in operational metrics.
+Do not log:
 
-For every canonical mutation gated by Jev, Richmod must be able to reconstruct:
+- raw Telegram text;
+- raw email body;
+- document contents;
+- System One provider key;
+- full model request/response bodies.
+
+Measure whether Jev is actually reducing generative work:
+
+```text
+telegram_turns_total
+telegram_turns_jev_only
+telegram_turns_generative
+telegram_turns_jev_then_generative
+native_tool_calls_avoided
+review_rate
+clarification_rate
+judgment_latency
+generative_latency
+```
+
+These metrics are essential to prove the integration has product value.
+
+---
+
+# 27. Auditability
+
+For canonical changes influenced by Jev, audit should be able to reconstruct:
 
 ```text
 source event
-generative action proposal
-relevant Jev judgments
-policy version
-deterministic validation result
-final Go outcome
+server-owned candidates
+question keys
+selected answer/probability
+policy threshold/version
+deterministic validation outcome
+canonical mutation/review outcome
 ```
 
-The audit subject is the final Go decision.
+Do not store raw Jev request state merely for convenience.
+
+The audit authority is the Go decision that consumed Jev signals.
 
 ---
 
-# 21. Optional Data Model
+# 28. Security and Privacy
 
-Do not add another financial ledger.
+All model inference remains behind LiteRouter.
 
-If existing audit tables cannot cleanly represent judgment provenance, add an audit-style record such as:
+Richmod:
 
-```text
-ai_judgment
------------
-id
-household_id
-source_event_id
-task
-provider
-model
-policy_version
-status
-outcome
-answers_jsonb
-duration_ms
-created_at
-```
+- sends its LiteRouter API key only to LiteRouter;
+- never stores TypeSafe credentials;
+- minimizes System One state;
+- never sends SQL or DB credentials;
+- never lets model text choose canonical IDs;
+- never sends unrelated household history;
+- preserves household scoping before model invocation;
+- treats user/email/document text as untrusted data.
 
-`answers_jsonb` contains bounded typed answers only, never raw source content.
-
-Any schema change requires migration, integration tests, `docs/DATABASE_SCHEMA.md` update, and ERD update.
+LiteRouter owns TypeSafe provider credential storage and provider fallback.
 
 ---
 
-# 22. Product Examples
+# 29. Direct Production Rollout
 
-## Clear expense
+There is no shadow-mode requirement.
 
-```text
-User:
-"beli bensin 50rb tadi"
+Roll out by capability:
 
-LLM:
-EXPENSE / 50000 / transport
+## Phase A — System One client foundation
 
-Jev:
-transaction intent -> high
-amount support      -> high
-expense support     -> high
-category transport  -> dominant
-ambiguity           -> low
+- `internal/judgment/systemone`;
+- LiteRouter `/v1/systemone`;
+- strict decode/telemetry;
+- configuration;
+- tests.
 
-Go:
-record transaction
-```
+## Phase B — bounded server-state interactions
 
-## Ambiguous exact amount
+Replace generative tool calls for:
 
-```text
-User:
-"makan tadi sekitar 50an"
+- salary choice;
+- merchant-learning reply;
+- pending batch decision;
+- bounded review resolution.
 
-LLM:
-amount = 50000
+These have the clearest typed state and lowest migration risk.
 
-Jev:
-transaction intent -> high
-exact amount        -> weak
-ambiguity           -> high
+## Phase C — category and transfer semantics
 
-Go:
-ask clarification or review
-```
+- Jev category Choice;
+- Jev transfer-purpose Choice;
+- remove generative confidence from authority;
+- route uncertainty to review.
 
-## Ambiguous category
+## Phase D — Telegram Jev-first fast path
 
-```text
-User:
-"belanja di Superindo 180 ribu"
+- route Choice;
+- generic candidate harvesting;
+- simple READs without generative agent;
+- simple transaction creation without generative agent;
+- generative fallback only when arbitrary extraction/reasoning is needed.
 
-Jev Choice:
-groceries          0.57
-household          0.34
-OTHER_OR_UNCLEAR   0.09
+## Phase E — email/reconciliation
 
-Go:
-category review
-```
+- evidence support judgments;
+- unresolved transfer semantic classification;
+- semantic reconciliation after deterministic filters.
 
-## Exact review callback
+## Phase F — analytics/document optimization
 
-```text
-User clicks CONFIRM on a server-bound review.
-
-Go already owns exact target and transition.
-
-Jev:
-not required
-```
-
-## Provider failure
-
-```text
-LLM proposes a transaction.
-Jev times out.
-
-Go:
-does not execute proposal;
-does not trust LLM confidence;
-uses deterministic review/retry behavior.
-```
+- Jev structured insight selection;
+- migrate document bounded confidence/classification when sufficient text-backed evidence exists.
 
 ---
 
-# 23. Implementation Sprints
+# 30. Testing Requirements
 
-## Sprint A — Foundation
+## System One client
 
-- add ADR for System One/Jev boundary;
-- add `internal/judgment`;
-- add TypeSafe Go HTTP adapter;
-- add configuration;
-- add strict response validation;
-- add telemetry;
-- add unit tests.
+Test:
 
-## Sprint B — Telegram Production Gate
+- request encoding;
+- LiteRouter auth;
+- model field;
+- Noul response;
+- Choice response;
+- Score response if introduced;
+- missing answers;
+- unexpected question;
+- invalid probability;
+- timeout;
+- 401;
+- 429;
+- 529/upstream overload;
+- response-size cap;
+- no direct TypeSafe credential.
 
-- gate conversational SIDE EFFECT calls;
-- implement intent, amount, ambiguity, and category questions;
-- preserve exact binding;
-- add integration tests;
-- enable production path.
+## Telegram bounded workflows
 
-## Sprint C — Bank Email
+Test:
 
-- construct minimized source/proposal state;
-- add evidence-support judgments;
-- connect outcomes to current review policy;
-- preserve current extractor contract;
-- add integration tests.
+- review CONFIRM/IGNORE/classification action;
+- salary PRIMARY/ORDINARY/IGNORE;
+- merchant learning yes/no/ambiguous;
+- batch confirm/cancel/update/defer;
+- exact callback bypasses Jev when deterministic;
+- stale server binding fails regardless of Jev.
 
-## Sprint D — Review Explainability
+## Jev-first route
 
-- normalize Jev-backed review reasons;
-- expose understandable review explanation;
-- preserve typed decision provenance.
+Test:
 
-## Sprint E — Optional Expansion
+- "berapa pengeluaran bulan ini" -> Jev route + deterministic READ, no generative call;
+- "saldo wealth sekarang" -> Jev route + deterministic READ, no generative call;
+- "catat bensin 50rb" -> candidate harvest + Jev + Go, no generative call;
+- ambiguous amount -> generative extraction or clarification;
+- open-ended analytics question -> generative agent;
+- non-finance -> bounded Jev classification.
 
-- financial-provider email;
-- additional bounded classifiers;
-- document judgment only when text-backed state exists.
+## Category / transfer
 
----
+Test:
 
-# 24. Required Tests
+- strong category winner;
+- low probability;
+- insufficient margin;
+- OTHER_OR_UNCLEAR;
+- exact merchant rule bypasses Jev;
+- explicit user category bypasses Jev;
+- transfer known-own-account deterministic;
+- unresolved transfer purpose via Jev;
+- Jev cannot bypass invalid Go account/reconciliation rule.
 
-Unit tests:
+## Bank email
 
-```text
-request encoding
-response decoding
-Noul
-Choice
-timeout
-authentication failure
-rate limit
-overload
-malformed JSON
-missing answer
-wrong answer type
-out-of-range probability
-category threshold
-category margin
-no generative-confidence fallback
-```
+Test:
 
-Telegram integration tests:
-
-```text
-clear expense
-clear income
-transfer
-ambiguous amount
-ambiguous category
-correction
-exact reply-bound review
-multiple reviews
-stale review
-Jev timeout
-malformed Jev response
-Jev cannot override invalid Go rule
-READ-only turn does not invoke Jev
-```
-
-Bank email tests:
-
-```text
-supported amount
-unsupported amount
-transfer observation
-ambiguous counterparty
-Jev provider failure
-deterministic invalid input remains invalid
-```
+- arbitrary extraction still generative;
+- Jev verifies extracted semantic facts;
+- deterministic reconciliation precedes Jev;
+- unclear transfer semantics routes by Jev;
+- provider failure does not trust LLM confidence.
 
 ---
 
-# 25. Acceptance Criteria
+# 31. Acceptance Criteria
 
-Complete when:
+The integration is complete when:
 
-1. Jev is an active production dependency for covered generative Telegram side effects.
-2. No shadow-only launch mode is required.
-3. The conversational model still owns natural-language conversation.
-4. READ-only flows do not unnecessarily call Jev.
-5. Jev cannot mutate PostgreSQL.
-6. Go owns every final financial decision.
-7. Generative self-confidence is no longer final category/auto-confirm authority on Jev-enabled paths.
-8. Category Choice includes `OTHER_OR_UNCLEAR`.
-9. Exact server bindings cannot be overridden by Jev.
-10. Provider failure never silently means "trust the generative model".
-11. Deterministic Richmod features remain functional without Jev.
-12. No real provider credential is committed or logged.
-13. Relevant unit and integration tests pass.
-14. ADR and architecture documentation are updated.
-15. Production enablement is configuration-only.
+1. All external AI inference still goes through LiteRouter.
+2. Richmod uses `/v1/systemone` natively rather than translating Jev into OpenAI Responses.
+3. Richmod never needs the upstream TypeSafe key.
+4. Jev replaces generative native-tool calls for bounded server-state decisions.
+5. Simple Telegram READ requests can complete without a generative model.
+6. Common explicit transaction commands can complete without a generative model when candidate harvesting is sufficient.
+7. Category classification is Jev-owned after deterministic rules.
+8. Unresolved transfer semantics can use Jev after deterministic account/reconciliation logic.
+9. Generative self-reported confidence is not authoritative on Jev-enabled workflows.
+10. Generative LLM remains available for arbitrary extraction, vision, reasoning, and prose.
+11. Go remains the only authority for canonical mutation.
+12. Exact server bindings cannot be overridden by any model.
+13. Jev failure never silently becomes generative decision fallback for the same bounded question.
+14. Review/clarification receives ambiguous cases.
+15. Telemetry can quantify generative calls avoided.
+16. ADR-038, ADR-005, README, and AGENTS.md describe the new architecture.
+17. No secret is committed.
+18. Relevant tests pass before implementation is merged.
 
 ---
 
-# 26. Final Architecture
+# 32. Final Architecture
 
 ```text
-                         RICHMOD
+                           RICHMOD
 
-Telegram ---------+
-Bank email -------+--> Generative AI --> typed proposal
-Documents --------+                         |
-                                             v
-                                   Go structural validation
-                                             |
-                          +------------------+------------------+
-                          |                                     |
-                  deterministic path                  semantic judgment
-                          |                                     |
-                          |                                     v
-                          |                                    Jev
-                          |                             typed probabilities
-                          |                                     |
-                          +------------------+------------------+
-                                             v
-                                         Go policy
-                                      /             \
-                                  canonical         Review
-                                   mutation          Inbox
-                                      |
-                                      v
-                                  PostgreSQL
+                      user / evidence
+                            |
+                            v
+                 Go deterministic context
+              validation + candidate harvesting
+                            |
+                            v
+                  bounded decision needed?
+                     /              \
+                   no                yes
+                   |                  |
+                   |                  v
+                   |          LiteRouter /systemone
+                   |                  |
+                   |                 Jev
+                   |                  |
+                   |          typed probabilities
+                   |                  |
+                   |          enough to finish?
+                   |             /        \
+                   |           yes         no
+                   |            |           |
+                   |            |           v
+                   |            |   LiteRouter /responses
+                   |            |           |
+                   |            |    generative LLM
+                   |            |  extraction/reasoning
+                   |            |           |
+                   +------------+-----------+
+                                |
+                                v
+                           Go policy
+                    auth / bind / reconcile
+                         /            \
+                    canonical         Review
+                     mutation          Inbox
+                         |
+                         v
+                     PostgreSQL
 ```
 
-> Generative AI may understand and propose. Jev may judge. Go authorizes and decides. PostgreSQL remains truth.
+> Use deterministic code for facts, Jev for bounded judgment, generative models for open-ended intelligence, and Go for authority.
