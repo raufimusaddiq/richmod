@@ -20,7 +20,7 @@ Richmod is a self-hosted household finance system for tracking **income and expe
 
 Forward financial notifications, send a message or image through Telegram, or upload receipts, payslips, screenshots, invoices, and transfer proofs. Richmod turns clear evidence into canonical financial records and routes uncertainty to a human instead of silently guessing.
 
-> **LLM understands unstructured input. Go decides whether and how it may change financial state.**
+> **Deterministic Go handles facts, Jev handles bounded semantic judgment, generative models handle open-ended understanding, and Go still owns financial state.**
 
 ---
 
@@ -46,7 +46,7 @@ For reproducible capture, verification, and disposable cleanup, see the
 | --- | --- | --- |
 | Raw source evidence stays attached to the decisions it supports. | Every mutation is scoped to exactly one household and remains auditable. | Ambiguous facts become review items instead of invented ledger entries. |
 
-Richmod is deliberately conservative around money. PostgreSQL is the source of truth, Go owns financial state transitions, and deterministic paths continue to work even when the LLM gateway is unavailable.
+Richmod is deliberately conservative around money. PostgreSQL is the source of truth, Go owns financial state transitions, and deterministic paths continue to work even when the AI gateway is unavailable. Bounded semantic decisions may use Jev through LiteRouter; arbitrary extraction, vision, reasoning, and prose may use generative models through the same gateway.
 
 ## What it does
 
@@ -77,21 +77,25 @@ portfolio performance.
 
 ```mermaid
 flowchart LR
-    E[Financial email] --> I[Evidence intake]
-    T[Telegram] --> I
-    D[Documents] --> I
+    E[Financial email] --> G[Go context + deterministic rules]
+    T[Telegram] --> G
+    D[Documents] --> G
 
-    I --> U[Structured understanding]
-    U --> V[Go validation + policy]
+    G --> J{Bounded semantic decision?}
+    J -->|yes| S[Jev via LiteRouter /v1/systemone]
+    J -->|needs extraction or reasoning| M[Generative model via LiteRouter]
 
-    V -->|clear| L[(PostgreSQL ledger)]
-    V -->|ambiguous| R[Review Inbox]
+    S --> P[Go validation + policy]
+    M --> P
+
+    P -->|clear| L[(PostgreSQL ledger)]
+    P -->|ambiguous| R[Review Inbox]
 
     R -->|human decision| L
     L --> A[Analytics + household views]
 ```
 
-The model can interpret unstructured evidence, but it cannot directly mutate the database. Amounts, identity, household boundaries, transaction state, reconciliation, and final persistence remain deterministic application decisions.
+Exact facts, arithmetic, authorization, target binding, reconciliation, and persistence remain deterministic Go decisions. Jev handles bounded semantic choices when the output domain is known; generative models are reserved for arbitrary extraction, vision, open-ended reasoning, and prose. Neither model family can directly mutate the database.
 
 ## Three ways data gets in
 
@@ -130,7 +134,7 @@ Review replies and callbacks remain deterministically bound to the exact underly
 
 Receipts, payslips, bank or e-wallet screenshots, invoices, transfer proofs, and transaction histories share one evidence pipeline.
 
-Extraction may use the cloud LLM gateway, but Go validates the result and decides whether the evidence:
+Extraction may use a generative model through LiteRouter, while bounded semantic judgments may use System One/Jev through the same gateway. Go validates the result and decides whether the evidence:
 
 - creates a proposal;
 - enriches an existing transaction;
@@ -148,7 +152,7 @@ Richmod treats AI output as untrusted input.
 - **Source evidence is preserved.** Deduplication links evidence rather than deleting it.
 - **Ambiguity is surfaced, not guessed.**
 - **Webhooks and jobs are idempotent.**
-- **Deterministic features work without the LLM gateway.**
+- **Deterministic features work without the AI gateway.**
 - **Merchant learning requires explicit opt-in.** One corrected transaction does not silently create a permanent rule.
 
 ## Product surfaces
@@ -176,13 +180,13 @@ Financial review and integration setup are intentionally separate. A forwarding 
 | Background jobs | Go + PostgreSQL-backed queue |
 | Web app | Next.js + React |
 | Canonical database | PostgreSQL |
-| LLM access | Cloud LLM Gateway |
+| AI model access | LiteRouter / Cloud AI Gateway — generative Responses + native System One |
 | Financial email transport | Cloudflare Email Routing + R2 + Queues + Workers |
 | Object storage | S3-compatible storage |
 | Production edge | Caddy |
 | Deployment | Docker Compose + GHCR images |
 
-No LLM receives direct database access, and financial state does not depend on an LLM process being available.
+No AI model receives direct database access. Richmod authenticates only to LiteRouter; upstream provider credentials stay in the gateway. Jev/System One is used natively for bounded semantic decisions, while generative protocols remain available for extraction, reasoning, vision, and prose.
 
 ## Quick start
 
@@ -241,6 +245,8 @@ See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployme
 
 - [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md)
 - [ADR-033: Cloudflare email ingress and Gmail sunset](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md)
+- [ADR-038: System One semantic decision plane](docs/adr/ADR-038-system-one-semantic-decision-plane.md)
+- [Jev / System One integration PRD](docs/RICHMOD_JEV_SYSTEM_ONE_PRD.md)
 - [Database schema and ERD](docs/DATABASE_SCHEMA.md)
 - [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
