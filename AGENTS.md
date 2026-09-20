@@ -20,50 +20,67 @@ Do not treat an initial design document as permanently authoritative.
 - Frontend: Next.js + React + JavaScript
 - Database: PostgreSQL
 - Jobs: PostgreSQL-backed queue
-- LLM: Cloud LLM Gateway only
+- AI model access: LiteRouter / Cloud AI Gateway only
+  - Generative inference: `/v1/responses` or `/v1/chat/completions`
+  - Bounded semantic decisions: `/v1/systemone`
 - No Python, Java, Ollama, Redis, Kafka, RabbitMQ, or vector DB unless explicitly approved
 
 ## Core rules
 
 - PostgreSQL is the canonical financial state.
 - Go owns all financial state transitions.
-- LLM output is untrusted and must pass deterministic validation before DB mutation.
-- LLM must never directly access or mutate the database.
+- Exact deterministic facts, arithmetic, authorization, binding, and reconciliation stay in Go.
+- AI model output is untrusted and must pass deterministic validation before DB mutation.
+- AI models must never directly access or mutate the database.
+- Prefer System One/Jev over a generative LLM when the required result is a bounded semantic choice, predicate, or score.
+- Use generative models only when arbitrary extraction, vision, open-ended reasoning, or prose is required.
 - Preserve source events/evidence; dedup links evidence instead of deleting it.
 - Never hard-delete canonical financial records.
 - Ambiguity goes to Review Inbox instead of being guessed.
 - Financial mutations must be auditable and household-scoped.
 - Webhooks and jobs must be idempotent.
-- Deterministic flows must keep working when the LLM gateway is unavailable.
+- Deterministic flows must keep working when the AI gateway is unavailable.
+- Richmod must never store upstream provider credentials such as the TypeSafe API key; it authenticates only to LiteRouter.
 
 ## Bank email ingestion
 
 Bank email sources are configured as household-scoped listeners and all use
-the generic native-tool extraction pipeline with fixed `SPENDING_ONLY` policy.
+the generic extraction pipeline with fixed `SPENDING_ONLY` policy.
 Do not add bank-specific parsers, sender environment variables, or provider
-branches to the active ingestion path. Ambiguous or incomplete facts go to
+branches to the active ingestion path. Arbitrary observed fields may still use
+generative extraction; bounded semantic judgments should use System One when
+sufficient source/proposal state exists. Ambiguous or incomplete facts go to
 review and are never guessed.
 
 ## Telegram
 
 - Authorize by numeric Telegram user ID.
 - Telegram is finance-only, not a general-purpose agent.
+- Prefer deterministic handling first, then Jev for bounded routing/choices, then the generative conversational agent only when arbitrary extraction, multi-step retrieval/reasoning, or prose is needed.
 - Ambiguous transactions may trigger interactive review.
 - Bind review replies using `reply_to_message_id` / stored Telegram message ID.
-- Never let the LLM guess transaction identity when deterministic binding exists.
+- Never let any model guess transaction identity when deterministic binding exists.
+- Server-owned workflow state determines which Jev choices or generative tools are available.
 
 ## Images and documents
 
 All finance images use one generic document pipeline: payslip, receipt, bank/e-wallet screenshot, transfer proof, invoice, transaction history, etc.
 
 ```text
-source_event -> LLM structured extraction -> Go validation -> proposal -> reconciliation -> transaction or review
+source_event
+  -> generative vision/extraction when needed
+  -> System One bounded judgments when supported by text/structured evidence
+  -> Go validation
+  -> proposal
+  -> reconciliation
+  -> transaction or review
 ```
 
 - Payslip net pay may become income after validation.
 - Payroll deductions are not automatically household expenses.
 - Receipt evidence should enrich an existing matching transaction instead of creating duplicates.
 - Invoice/bill alone is not proof of payment.
+- Jev must never be described as having verified pixels or source evidence it did not receive.
 
 ## V1 scope
 
@@ -80,12 +97,12 @@ investment advice, historical savings inference, and automatic conversion of
 residuals into transactions.
 
 Bank Email is the frozen `SPENDING_ONLY` compatibility pipeline. Financial
-Provider Email is a separate generic native-LLM observation pipeline. Provider
-email is valid standalone evidence; bank email is optional corroboration. Go
-owns household-scoped entity aliases, reconciliation, and canonical mutations.
+Provider Email is a separate generic observation pipeline. Provider email is
+valid standalone evidence; bank email is optional corroboration. Go owns
+household-scoped entity aliases, reconciliation, and canonical mutations.
 One real event has one canonical transaction with many evidence rows. Wealth
 values remain observations/snapshots, never transactions. Do not add
-provider-specific production branches or expose canonical IDs to the LLM.
+provider-specific production branches or expose canonical IDs to AI models.
 
 ## Development rules
 
