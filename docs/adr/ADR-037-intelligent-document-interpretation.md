@@ -16,9 +16,10 @@ capabilities. Go validates, reconciles, and owns every persistence transition.
 
 Extraction validation reports deterministic `{field, code}` issues. When any
 issue exists, Go may run exactly one field-restricted repair call: the model
-receives only the flagged field names plus issue codes, may return only those
-fields, and Go revalidates with the same validator before accepting the patch.
-A failed, malformed, out-of-allowlist, or absent repair keeps the original
+receives the original document evidence plus the flagged field names, issue
+codes, and current extracted values for context; it may return only those
+fields. Go revalidates with the same validator before accepting the patch. A
+failed, malformed, out-of-allowlist, or absent repair keeps the original
 invalid result and sends the document to Review. Repair never mutates state.
 
 The transitional `shadow` stage may make an independent interpretation call
