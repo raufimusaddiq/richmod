@@ -59,16 +59,29 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Production-shaped rows: the bounded plane writes protocol 'systemone',
+	// call_kind JUDGMENT/DECISION, and the gateway's SUCCEEDED/FAILED status
+	// vocabulary. An earlier revision of this test used the bogus 'SUCCESS'/
+	// 'ERROR' spellings the code used to emit, which is exactly why the counter
+	// read zero against real data.
 	for _, row := range []struct {
 		status     string
+		callKind   string
 		durationMs int
 	}{
-		{"SUCCEEDED", 120},
-		{"FAILED", 40},
+		{"SUCCEEDED", "JUDGMENT", 120},
+		{"FAILED", "JUDGMENT", 40},
+		{"FAILED", "JUDGMENT", 30},
+		{"SUCCEEDED", "DECISION", 0},
 	} {
-		if _, err := pool.Exec(ctx, `INSERT INTO llm_call(household_id,task,protocol,model,status,error_class,duration_ms,call_kind) VALUES($1,'TRANSACTION_SEMANTICS','systemone','jev-test',$2,NULLIF($2,'SUCCEEDED')::text,$3,'JUDGMENT')`, householdID, row.status, row.durationMs); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO llm_call(household_id,task,protocol,model,status,error_class,duration_ms,call_kind) VALUES($1,'TRANSACTION_SEMANTICS','systemone','jev-test',$2,NULLIF($2,'SUCCEEDED')::text,$3,$4)`, householdID, row.status, row.durationMs, row.callKind); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A generative call in the same window must not be mistaken for a bounded
+	// call: the aggregate filters on protocol.
+	if _, err := pool.Exec(ctx, `INSERT INTO llm_call(household_id,task,protocol,model,status,duration_ms,call_kind) VALUES($1,'TELEGRAM_NATIVE','responses','gpt-test','FAILED',9000,'NATIVE_TOOL')`, householdID); err != nil {
+		t.Fatal(err)
 	}
 
 	aggregate, err := NewHandler(pool).loadJudgmentAggregate(ctx, householdID)
@@ -87,10 +100,10 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 	if aggregate.Avoided != 3 {
 		t.Fatalf("native tool calls avoided = %d, want 3", aggregate.Avoided)
 	}
-	if got, _ := aggregate.Decisions["judgmentCalls"].(int); got != 2 {
-		t.Fatalf("judgment calls = %v, want 2", aggregate.Decisions["judgmentCalls"])
+	if got, _ := aggregate.Decisions["judgmentCalls"].(int); got != 3 {
+		t.Fatalf("judgment calls = %v, want 3", aggregate.Decisions["judgmentCalls"])
 	}
-	if got, _ := aggregate.Decisions["judgmentFailures"].(int); got != 1 {
-		t.Fatalf("judgment failures = %v, want 1", aggregate.Decisions["judgmentFailures"])
+	if got, _ := aggregate.Decisions["judgmentFailures"].(int); got != 2 {
+		t.Fatalf("judgment failures = %v, want 2", aggregate.Decisions["judgmentFailures"])
 	}
 }

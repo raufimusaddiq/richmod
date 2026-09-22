@@ -56,6 +56,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// The turn trace lives in the context so concurrent turns on the shared
 	// Processor cannot contaminate each other's value telemetry (PRD §23).
 	ctx, trace := withTurnTrace(ctx)
+	trace.householdID = householdID
 	generativeRan := false
 	defer func() {
 		// Turn-level Jev value (PRD §23): classify how this turn was resolved so

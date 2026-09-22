@@ -9,6 +9,10 @@ import "context"
 type turnTrace struct {
 	tasks []string
 	model string
+	// householdID lets the bounded-call recorder attribute llm_call rows to a
+	// household, which is what makes the per-household value aggregate possible.
+	// The gateway recorder is process-wide and sees no turn state otherwise.
+	householdID string
 }
 
 type turnTraceKey struct{}
@@ -24,6 +28,16 @@ func withTurnTrace(ctx context.Context) (context.Context, *turnTrace) {
 func turnTraceFrom(ctx context.Context) *turnTrace {
 	trace, _ := ctx.Value(turnTraceKey{}).(*turnTrace)
 	return trace
+}
+
+// TurnHouseholdID returns the household a turn's context belongs to, or "" when
+// the caller is not a Telegram turn (tests, background jobs). The worker's
+// process-wide metric recorder calls it so a bounded-call row is attributable.
+func TurnHouseholdID(ctx context.Context) string {
+	if trace := turnTraceFrom(ctx); trace != nil {
+		return trace.householdID
+	}
+	return ""
 }
 
 func (t *turnTrace) record(task judgmentTask, model string) {

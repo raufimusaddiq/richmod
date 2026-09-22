@@ -62,7 +62,10 @@ func run(logger *slog.Logger) error {
 				cost = metric.Cost
 			}
 		}
-		if _, err := pool.Exec(metricCtx, `INSERT INTO llm_call(task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,call_kind,tool_name) VALUES($1,$2,NULLIF($3,''),$4,NULLIF($5,''),$6,$7,$8,$9::numeric,1,$10,NULLIF($11,''))`, metric.Task, metric.Protocol, metric.Model, metric.Status, metric.ErrorClass, metric.DurationMs, metric.InputTokens, metric.OutputTokens, cost, metric.CallKind, metric.ToolName); err != nil {
+		// The turn context carries the household, so a bounded-call row is
+		// attributable and the per-household value scoreboard can read it.
+		householdID := telegram.TurnHouseholdID(callCtx)
+		if _, err := pool.Exec(metricCtx, `INSERT INTO llm_call(household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,call_kind,tool_name) VALUES(NULLIF($1,'')::uuid,$2,$3,NULLIF($4,''),$5,NULLIF($6,''),$7,$8,$9,$10::numeric,1,$11,NULLIF($12,''))`, householdID, metric.Task, metric.Protocol, metric.Model, metric.Status, metric.ErrorClass, metric.DurationMs, metric.InputTokens, metric.OutputTokens, cost, metric.CallKind, metric.ToolName); err != nil {
 			logger.Warn("LLM metric write failed", "task", metric.Task, "error", err)
 		}
 	}

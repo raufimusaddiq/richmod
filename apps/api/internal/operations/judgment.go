@@ -41,9 +41,11 @@ func (h *Handler) loadJudgmentAggregate(ctx context.Context, householdID string)
 		return aggregate, err
 	}
 
-	// A reused proxy for Jev-vs-generative call share, latency, and whether the
-	// decision plane is failing: every bounded call and consumed decision lands
-	// in llm_call as protocol 'systemone'.
+	// Jev-vs-generative call share, latency, and whether the decision plane is
+	// failing: every bounded call and consumed decision lands in llm_call as
+	// protocol 'systemone'. Only JUDGMENT rows are transport calls, so failures
+	// are counted there (a DECISION row's status is SUCCEEDED/FAILED, not the
+	// outcome, which travels in error_class).
 	var calls, failures int
 	var latencyP50 float64
 	if err := h.pool.QueryRow(ctx, `
