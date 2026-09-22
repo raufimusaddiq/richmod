@@ -65,6 +65,10 @@ type Processor struct {
 	// temporary outage degrades per turn instead of silently shrinking the tool
 	// surface and reopening hidden LLM mutation authority (PRD §7/§8).
 	judgmentPlaneConfigured bool
+	// metrics records bounded-call telemetry and per-task decision outcomes so
+	// review/clarification rates stay measurable per decision task (PRD §17).
+	// The zero value is a no-op recorder.
+	metrics judgmentMetrics
 	now                     func() time.Time
 	bot                     *Bot
 }
@@ -148,6 +152,9 @@ func (p *Processor) SetJudgment(engine judgment.Engine) {
 	p.judgment = engine
 	p.judgmentPlaneConfigured = engine != nil
 }
+
+// SetJudgmentMetrics wires bounded-call telemetry and decision outcomes.
+func (p *Processor) SetJudgmentMetrics(metrics judgmentMetrics) { p.metrics = metrics }
 
 func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
 
@@ -405,30 +412,27 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		if err != nil {
 			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum valid. Pastikan jenis, nominal, dan tanggal/waktu bila disebutkan.")
 		}
-		if value.Type == "EXPENSE" && p.judgment != nil {
-			allowedCategories, categoriesErr := p.categorySlugs(ctx, householdID)
-			if categoriesErr != nil {
-				return true, categoriesErr
-			}
-			category, confidence, ok, classifyErr := p.resolveCategoryWithJudgment(ctx, sourceID, householdID, value.Merchant, value.Description, allowedCategories)
-			if classifyErr != nil {
-				return true, classifyErr
-			}
-			if !ok {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori pengeluaran belum cukup jelas untuk dicatat otomatis.")
-			}
-			value.CategorySlug, value.CategoryConfidence = category, confidence
-		}
 		if value.Type == "EXPENSE" {
 			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value); offered {
 				return true, err
 			}
 		}
 		allowedCategories, _ := p.categorySlugs(ctx, householdID)
-		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, false)
+		// One semantic call decides direction, amount/date support, ambiguity, and
+		// category together. Asking category separately and then asking the same
+		// bundle again spent two System One round trips for one answer set (PRD §10).
+		exactCategory, aliasErr := p.exactMerchantCategory(ctx, householdID, value.Merchant)
+		if aliasErr != nil {
+			return true, aliasErr
+		}
+		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, exactCategory)
 		if decisionErr != nil {
 			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa memastikan transaksi ini dengan aman. Coba jelaskan lagi.")
 		}
+		if !decision.decisionAllowed() {
+			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori dan jenis pengeluaran belum cukup jelas untuk dicatat otomatis.")
+		}
+		value.CategorySlug = decision.CategorySlug
 		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata, decision)
 	case "record_transaction_batch":
 		items, ok := args["items"].([]any)

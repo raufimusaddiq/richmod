@@ -18,7 +18,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return false, nil
 	}
 	if state.HasPendingAction {
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "pending_action", "Choose the user's bounded response to the pending correction.", map[string]any{"CONFIRM": "save the pending correction", "CANCEL": "discard the pending correction", "OTHER_OR_UNCLEAR": "no bounded action"})
+		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskPendingAction, text, "pending_action", "Choose the user's bounded response to the pending correction.", map[string]any{"CONFIRM": "save the pending correction", "CANCEL": "discard the pending correction", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
 			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan konfirmasi ini dengan aman. Balas iya untuk simpan atau tidak untuk batal.")
 		}
@@ -28,7 +28,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, p.finishPendingAction(ctx, state.HouseholdID, state.Update, state.SourceEventID, choice == "CONFIRM")
 	}
 	if state.HasPendingBatch {
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "pending_batch", "Choose one bounded action for the pending transaction batch.", map[string]any{"CONFIRM": "record every pending item", "CANCEL": "discard the batch", "UPDATE": "change one or more pending items", "DEFER": "decide later, keep the batch", "OTHER_OR_UNCLEAR": "no bounded action"})
+		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskPendingBatch, text, "pending_batch", "Choose one bounded action for the pending transaction batch.", map[string]any{"CONFIRM": "record every pending item", "CANCEL": "discard the batch", "UPDATE": "change one or more pending items", "DEFER": "decide later, keep the batch", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
 			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan aksi batch dengan aman. Balas iya, batal, atau jelaskan item yang ingin diubah.")
 		}
@@ -48,7 +48,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		}
 	}
 	if state.HasSalaryChoice {
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "salary_choice", "Choose how to classify the pending payslip.", map[string]any{"PRIMARY": "the primary salary cycle income", "ORDINARY": "ordinary non-salary income", "IGNORE": "not household income", "OTHER_OR_UNCLEAR": "no bounded choice"})
+		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskSalaryChoice, text, "salary_choice", "Choose how to classify the pending payslip.", map[string]any{"PRIMARY": "the primary salary cycle income", "ORDINARY": "ordinary non-salary income", "IGNORE": "not household income", "OTHER_OR_UNCLEAR": "no bounded choice"})
 		if err != nil {
 			return true, p.finishAgentText(ctx, state, "Pilihan slip gaji belum cukup jelas. Pilih gaji utama, pemasukan biasa, atau abaikan.")
 		}
@@ -59,7 +59,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, err
 	}
 	if state.MerchantLearningBinding != nil {
-		remember, decided, err := p.judgmentNoul(ctx, state, text, "merchant_learning", "Did the user explicitly consent to remember this merchant category rule?")
+		remember, decided, err := p.judgmentNoul(ctx, state, judgmentTaskMerchantLearning, text, "merchant_learning", "Did the user explicitly consent to remember this merchant category rule?")
 		if err != nil || !decided {
 			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
 		}
@@ -68,7 +68,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 	if state.ReviewBinding != nil {
 		allowed := reviewActionsForType(state.ReviewMode)
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
+		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok || choice == "OTHER_OR_UNCLEAR" {
 			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
 		}
@@ -93,35 +93,6 @@ func boundedReviewAction(action string) bool {
 	}
 }
 
-// judgmentServerPolicy is the versioned acceptance policy for bounded
-// server-state workflows (pending actions, batches, salary, review actions).
-var judgmentServerPolicy = judgment.ChoicePolicy{MinTop: 0.80, MinMargin: 0.15, MinConfidence: 0.60}
-
-// judgmentMerchantConsentPolicy maps the merchant-consent Noul into remember /
-// do-not-remember / clarify.
-var judgmentConsentPolicy = judgment.NoulPolicy{High: 0.85, Low: 0.15}
-
-// judgmentAmountSupportPolicy / judgmentDateSupportPolicy gate a harvested
-// candidate before Go persists a transaction from it.
-var (
-	judgmentAmountSupportPolicy = judgment.NoulPolicy{High: 0.85, Low: 0.15}
-	judgmentDateSupportPolicy   = judgment.NoulPolicy{High: 0.85, Low: 0.15}
-)
-
-// judgmentTransactionPolicy / judgmentCategoryPolicy are the versioned
-// acceptance policies for the simple-transaction bundle and category Choice.
-var (
-	judgmentTransactionPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
-	judgmentCategoryPolicy    = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
-)
-
-// judgmentAmbiguityPolicy decides whether a candidate is materially ambiguous,
-// and the same High threshold is the ceiling above which a generative model's
-// self-reported confidence stops being usable as a signal at all (PRD §6).
-// A decided "yes" (>= High) blocks automatic confirmation; only a decided
-// "no" (<= Low) lets Go persist. The undecided middle band also fails closed.
-var judgmentAmbiguityPolicy = judgment.NoulPolicy{High: 0.15, Low: 0.05}
-
 // judgmentTypeCriteria is the model-visible option set for transaction type.
 var judgmentTypeCriteria = map[string]any{
 	"INCOME":           "money received",
@@ -129,8 +100,8 @@ var judgmentTypeCriteria = map[string]any{
 	"OTHER_OR_UNCLEAR": "not safe to decide",
 }
 
-func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, text, key, instructions string, criteria map[string]any) (string, bool, error) {
-	result, err := p.judgment.Evaluate(ctx, state.SourceEventID, judgment.Request{
+func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task judgmentTask, text, key, instructions string, criteria map[string]any) (string, bool, error) {
+	result, err := p.evaluate(ctx, task, state.SourceEventID, judgment.Request{
 		State: map[string]any{
 			"user_text":       "<untrusted_user_message>" + text + "</untrusted_user_message>",
 			"workflow":        state.TurnContext["workflow_scope"],
@@ -146,19 +117,22 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, text,
 		return "", false, err
 	}
 	answer, ok := result.Answers[key]
-	if !ok || !judgment.AcceptChoice(answer, criteria, judgmentServerPolicy) {
+	if !ok || !judgment.AcceptChoice(answer, criteria, judgmentPolicy.Server) {
+		p.metrics.recordDecision(task, judgmentOutcomeClarification)
 		return "", false, nil
 	}
 	if _, exists := criteria[answer.Choice]; !exists {
+		p.metrics.recordDecision(task, judgmentOutcomeRejected)
 		return "", false, nil
 	}
+	p.metrics.recordDecision(task, judgmentOutcomeAccepted)
 	return answer.Choice, true, nil
 }
 
 // judgmentNoul asks one yes/no question. The bool reports a usable decision;
 // the middle band returns decided=false so callers ask for clarification.
-func (p *Processor) judgmentNoul(ctx context.Context, state *agentState, text, key, instructions string) (bool, bool, error) {
-	result, err := p.judgment.Evaluate(ctx, state.SourceEventID, judgment.Request{
+func (p *Processor) judgmentNoul(ctx context.Context, state *agentState, task judgmentTask, text, key, instructions string) (bool, bool, error) {
+	result, err := p.evaluate(ctx, task, state.SourceEventID, judgment.Request{
 		State: map[string]any{
 			"user_text":    "<untrusted_user_message>" + text + "</untrusted_user_message>",
 			"workflow":     state.TurnContext["workflow_scope"],
@@ -167,13 +141,20 @@ func (p *Processor) judgmentNoul(ctx context.Context, state *agentState, text, k
 		Questions: map[string]judgment.Question{key: {Type: "noul", Instructions: instructions}},
 	})
 	if err != nil {
+		p.metrics.recordDecision(task, judgmentOutcomeProviderFailure)
 		return false, false, err
 	}
 	answer, ok := result.Answers[key]
 	if !ok {
+		p.metrics.recordDecision(task, judgmentOutcomeClarification)
 		return false, false, nil
 	}
-	remember, decided := judgment.AcceptNoul(answer, judgmentConsentPolicy)
+	remember, decided := judgment.AcceptNoul(answer, judgmentPolicy.Consent)
+	if decided {
+		p.metrics.recordDecision(task, judgmentOutcomeAccepted)
+	} else {
+		p.metrics.recordDecision(task, judgmentOutcomeClarification)
+	}
 	return remember, decided, nil
 }
 
@@ -201,37 +182,20 @@ func judgmentSupported(answer judgment.Answer, policy judgment.NoulPolicy) bool 
 	return remember && decided
 }
 
-func (p *Processor) resolveCategoryWithJudgment(ctx context.Context, sourceID, householdID, merchant, description string, categories []string) (string, float64, bool, error) {
-	if strings.TrimSpace(merchant) != "" {
-		var slug string
-		err := p.pool.QueryRow(ctx, `SELECT c.slug FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND c.active LIMIT 1`, householdID, merchant).Scan(&slug)
-		if err == nil {
-			return slug, 1, true, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return "", 0, false, err
-		}
+// exactMerchantCategory reports whether a confirmed merchant rule already fixes
+// this merchant's category. That is deterministic server state, so the semantic
+// decision short-circuits instead of paying for a bounded call.
+func (p *Processor) exactMerchantCategory(ctx context.Context, householdID, merchant string) (bool, error) {
+	if strings.TrimSpace(merchant) == "" {
+		return false, nil
 	}
-	if len(categories) == 0 {
-		return "", 0, false, nil
+	var slug string
+	err := p.pool.QueryRow(ctx, `SELECT c.slug FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND c.active LIMIT 1`, householdID, merchant).Scan(&slug)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
 	}
-	criteria := judgment.CategoryCriteria(categories)
-	result, err := p.judgment.Evaluate(ctx, sourceID, judgment.Request{
-		State: map[string]any{
-			"merchant":               merchant,
-			"description":            description,
-			"allowed_category_slugs": categories,
-		},
-		Questions: map[string]judgment.Question{
-			"category": {Type: "choice", Instructions: "Choose the best active expense category. Use OTHER_OR_UNCLEAR when the evidence does not support a safe choice.", Criteria: criteria},
-		},
-	})
 	if err != nil {
-		return "", 0, false, err
+		return false, err
 	}
-	answer, ok := result.Answers["category"]
-	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, judgment.CategoryCriteria(categories), judgmentCategoryPolicy) || !contains(categories, answer.Choice) {
-		return "", 0, false, nil
-	}
-	return answer.Choice, answer.Confidence, true, nil
+	return true, nil
 }

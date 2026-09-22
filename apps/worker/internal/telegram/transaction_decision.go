@@ -9,11 +9,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// judgmentPolicyVersion identifies the threshold policy that produced a
-// decision. Audit rows carry it so a stored decision stays reproducible against
-// the code that consumed it (PRD §18).
-const judgmentPolicyVersion = "2026-09-jev1"
-
 // TransactionSemanticDecision is the single authority for mutating a Telegram
 // (or, later, email) transaction candidate. Extraction produces facts; this
 // object is the semantic ruling over those facts; Go persistence only checks
@@ -75,7 +70,7 @@ func (p *Processor) evaluateTransactionSemantics(ctx context.Context, requestID 
 	if hint, ok := state["transaction_type_hint"].(string); ok {
 		typeHint = hint
 	}
-	result, err := p.judgment.Evaluate(ctx, requestID, judgment.Request{State: state, Questions: transactionQuestions(categories, typeHint)})
+	result, err := p.evaluate(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: transactionQuestions(categories, typeHint)})
 	if err != nil {
 		return TransactionSemanticDecision{}, err
 	}
@@ -92,23 +87,25 @@ func noulSupported(answers map[string]judgment.Answer, key string, policy judgme
 // already-narrowed fact-free proposal skip Jev; everything else must be ruled
 // on by the one shared evaluator.
 func (p *Processor) resolveTransactionDecision(ctx context.Context, sourceEventID, householdID, userText string, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
-	if value.Confidence < 0 || value.Confidence > 1 || value.Confidence > judgmentAmbiguityPolicy.High {
+	if value.Confidence < 0 || value.Confidence > 1 || value.Confidence > judgmentPolicy.Ambiguity.High {
 		// A generative model may not grade its own answer into mutation authority
 		// (PRD §6). A high self-reported confidence is therefore treated as material
 		// ambiguity and must be re-decided by the bounded evaluator.
 		value.Ambiguous = true
 	}
 	if exactCategory && !value.Ambiguous {
+		p.metrics.recordDecision(judgmentTaskTransaction, judgmentOutcomeAccepted)
 		return TransactionSemanticDecision{
 			RouteAccepted: true, TransactionType: value.Type, TypeAccepted: true,
 			AmountSupported: true, DateSupported: true, CategoryAccepted: true, CategorySlug: value.CategorySlug,
-			DecisionSource: "DETERMINISTIC_POLICY", PolicyVersion: judgmentPolicyVersion,
+			DecisionSource: "DETERMINISTIC_POLICY", PolicyVersion: judgmentPolicy.Version,
 		}, nil
 	}
 	if p.judgment == nil {
 		// Fail closed. Without the configured judgment plane Go cannot authorize a
 		// semantic mutation, so the proposal is preserved for review instead.
-		return TransactionSemanticDecision{DecisionSource: "JUDGMENT_UNAVAILABLE", PolicyVersion: judgmentPolicyVersion}, nil
+		p.metrics.recordDecision(judgmentTaskTransaction, judgmentOutcomeJudgmentUnavailable)
+		return TransactionSemanticDecision{DecisionSource: "JUDGMENT_UNAVAILABLE", PolicyVersion: judgmentPolicy.Version}, nil
 	}
 	state := map[string]any{
 		"user_text":              "<untrusted_user_message>" + userText + "</untrusted_user_message>",
