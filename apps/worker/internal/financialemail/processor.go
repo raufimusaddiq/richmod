@@ -466,6 +466,26 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	if err != nil {
 		return err
 	}
+	// PRD §20: Go has already narrowed by household, account, amount, direction,
+	// and a 24h window. When exactly one candidate survives, ask the bounded plane
+	// whether it is the same real event before spending a human review on it.
+	// More than one survivor stays ambiguous and goes to Review; a ruling of "no"
+	// or an undecided middle leaves the review in place.
+	if plan.canReconcileSemantically() {
+		var candidateType, candidatePurpose, candidateAt string
+		if err = tx.QueryRow(ctx, `SELECT type,COALESCE(purpose,''),transaction_at::text FROM transaction WHERE id=$1`, plan.candidates[0]).Scan(&candidateType, &candidatePurpose, &candidateAt); err != nil {
+			return err
+		}
+		answer, reconcileErr := p.reconcileSemantically(ctx, "financial-email:"+id, plan.amount, plan.at.Format(time.RFC3339), "Financial provider email", candidateType, candidatePurpose, candidateAt)
+		if reconcileErr != nil {
+			return reconcileErr
+		}
+		if answer.SameEvent {
+			plan.existing = plan.candidates[0]
+			plan.candidates = nil
+			plan.review = ""
+		}
+	}
 	switch plan.review {
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return p.resolutionReview(ctx, tx, household, source, id)

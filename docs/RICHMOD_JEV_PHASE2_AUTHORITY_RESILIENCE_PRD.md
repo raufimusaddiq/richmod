@@ -43,11 +43,24 @@
 > The `evaluate` telemetry wrapper also fails closed on an unconfigured judgment
 > plane instead of dereferencing it.
 >
-> Still on the target design: the real LiteRouter → TypeSafe opt-in smoke (§12),
-> the zero-generative transfer fast path (§14 — a transfer turn still needs the
-> generative extractor to harvest arbitrary hints before Go can resolve them),
-> duplicate bounded generative tool removal (§19), and Sprint D/E
-> evidence-channel and insight work (§20–§22).
+> Sprint D and E are implemented and merged on `main`: the real
+> LiteRouter → TypeSafe opt-in smoke (§12) runs as
+> `TestRealLiteRouterSystemOneSmoke`, skipped unless the smoke endpoint and key
+> are supplied (PR #105); bank email verification (§20) and provider-email
+> classification (§21) were already wired from the shared judgment plane; and
+> insight signal selection (§22) rules on already-computed aggregates before any
+> generative prose. The provider-email planner now also asks the one bounded
+> question §20 names — `same_real_event?` — for a single surviving candidate
+> after Go narrows by household, account, amount, direction, and window.
+>
+> Telemetry (§23) records one row per Telegram turn with the resolving lane and
+> the bounded generative calls the decision plane replaced, and
+> `/api/v1/operations/status` exposes the per-household scoreboard.
+>
+> Still on the target design: the zero-generative transfer fast path (§14 — a
+> transfer turn still needs the generative extractor to harvest arbitrary hints
+> before Go can resolve them) and duplicate bounded generative tool removal
+> (§19).
 **Repository:** `raufimusaddiq/richmod`  
 **Baseline:** `main@68fbd0fc73887b95983e8f460c4bd3d26eb34ca7`  
 **Date:** 2026-09-22  
