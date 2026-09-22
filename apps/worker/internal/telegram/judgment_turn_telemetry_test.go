@@ -2,8 +2,33 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
+
+// failingEngine answers nothing: every bounded call is a provider failure.
+type failingEngine struct{}
+
+func (failingEngine) Evaluate(context.Context, string, judgment.Request) (judgment.Result, error) {
+	return judgment.Result{}, errors.New("provider down")
+}
+
+// A provider failure is not a consumed Jev decision. It must not be recorded in
+// the turn trace, or the turn would report JEV_ONLY and count avoided generative
+// calls it never actually avoided (Hermes PR #103).
+func TestTurnTraceIgnoresFailedEvaluations(t *testing.T) {
+	ctx, trace := withTurnTrace(context.Background())
+	p := NewProcessor(nil, nil)
+	p.SetJudgment(failingEngine{})
+	if _, err := p.evaluate(ctx, judgmentTaskRoute, "req", judgment.Request{}); err == nil {
+		t.Fatal("expected the failing engine to surface an error")
+	}
+	if trace.consumed() {
+		t.Fatalf("a provider failure must not count as a consumed decision, got %v", trace.tasks)
+	}
+}
 
 // turnTrace records each bounded task once, in first-seen order, and keeps the
 // model that answered it. Duplicate tasks must not inflate the count, because

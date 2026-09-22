@@ -203,8 +203,10 @@ func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID s
 	result, err := p.judgment.Evaluate(ctx, requestID, request)
 	// Track which bounded tasks this turn consumed for turn-level value
 	// telemetry (PRD §23). The trace rides in the turn context, so concurrent
-	// turns never share it. Only the task name and model are kept.
-	if trace := turnTraceFrom(ctx); trace != nil {
+	// turns never share it. Only a call that actually answered counts: a provider
+	// failure is not a consumed Jev decision and must not read as one when the
+	// turn lane is classified. Only the task name and model are kept.
+	if trace := turnTraceFrom(ctx); trace != nil && err == nil {
 		trace.record(task, result.Model)
 	}
 	status := "SUCCESS"
