@@ -28,6 +28,11 @@ Required integration settings are `LLM_GATEWAY_BASE_URL`, `LLM_GATEWAY_API_KEY`,
 `TELEGRAM_WEBHOOK_SECRET`. The worker joins `idx_default` only to reach the cloud
 gateway; PostgreSQL remains on the internal network. Never commit the real values.
 
+The optional Jev fast path is enabled only when `JUDGMENT_MODEL` is set. It uses
+the same LiteRouter URL/key and `/v1/systemone`; `JUDGMENT_TIMEOUT_MS` is capped
+by the worker. Leave `JUDGMENT_MODEL` unset to keep the existing conversational
+path during staged rollout.
+
 Off-host storage requires `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_PREFIX`,
 `OSS_ACCESS_KEY`, and `OSS_SECRET_KEY`. API and worker mirror private attachments
 under `<prefix>/attachments`; backup stores encrypted restic data under

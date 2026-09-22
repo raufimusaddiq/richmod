@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-09-12.
+Accepted — 2026-09-12; amended by ADR-038.
 
 ## Context
 
@@ -142,6 +142,18 @@ allowed to use different LLM contracts.
 - ADR-027's 10-second Telegram budget is amended for free-text conversation to a
   20-second overall turn budget with an 8-second per-model-call limit. Other
   task budgets remain unchanged.
+
+## ADR-038 amendment
+
+System One/Jev may handle bounded Telegram routing and server-state decisions
+before a turn enters this generative conversational loop. When deterministic
+context plus typed Jev decisions are sufficient, Richmod may complete a READ or
+side-effect workflow without invoking the conversational model. This does not
+change the server-owned binding, authorization, one-side-effect, reconciliation,
+or canonical-state rules in this ADR.
+
+The conversational agent remains the fallback/primary path for turns requiring
+arbitrary extraction, dependent READ reasoning, open-ended synthesis, or prose.
 
 ## Consequences
 
