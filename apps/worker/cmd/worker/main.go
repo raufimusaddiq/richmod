@@ -86,6 +86,9 @@ func run(logger *slog.Logger) error {
 		// and the decision counter records what policy did with the answer, which
 		// is what makes review rate per decision task measurable (PRD §17).
 		processor.SetJudgmentMetrics(telegram.JudgmentMetricsFor(recordLLMCall))
+		// Turn-level value: records which lane resolved each turn and how many
+		// bounded generative decisions the judgment plane replaced (PRD §23).
+		processor.SetTurnTelemetry(true)
 	}
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
 	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))

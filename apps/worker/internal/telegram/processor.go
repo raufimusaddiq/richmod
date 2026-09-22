@@ -69,8 +69,10 @@ type Processor struct {
 	// review/clarification rates stay measurable per decision task (PRD §17).
 	// The zero value is a no-op recorder.
 	metrics judgmentMetrics
-	now                     func() time.Time
-	bot                     *Bot
+	// turnTelemetryEnabled records one value row per Telegram turn (PRD §23).
+	turnTelemetryEnabled bool
+	now                  func() time.Time
+	bot                  *Bot
 }
 
 type extraction struct {
