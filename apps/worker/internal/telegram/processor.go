@@ -62,8 +62,13 @@ type Processor struct {
 	pool     *pgxpool.Pool
 	gateway  Gateway
 	judgment judgment.Engine
-	now      func() time.Time
-	bot      *Bot
+	// judgmentPlaneConfigured records configuration, not runtime provider
+	// health. A configured-but-unreachable engine still reports true so a
+	// temporary outage degrades per turn instead of silently shrinking the tool
+	// surface and reopening hidden LLM mutation authority (PRD §7/§8).
+	judgmentPlaneConfigured bool
+	now                     func() time.Time
+	bot                     *Bot
 }
 
 type extraction struct {
@@ -141,7 +146,10 @@ func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm, now: time.Now}
 }
 
-func (p *Processor) SetJudgment(engine judgment.Engine) { p.judgment = engine }
+func (p *Processor) SetJudgment(engine judgment.Engine) {
+	p.judgment = engine
+	p.judgmentPlaneConfigured = engine != nil
+}
 
 func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
 
@@ -418,7 +426,12 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 				return true, err
 			}
 		}
-		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata)
+		allowedCategories, _ := p.categorySlugs(ctx, householdID)
+		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, false)
+		if decisionErr != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa memastikan transaksi ini dengan aman. Coba jelaskan lagi.")
+		}
+		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata, decision)
 	case "record_transaction_batch":
 		items, ok := args["items"].([]any)
 		if !ok {
@@ -533,7 +546,12 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 				return true, err
 			}
 		}
-		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata)
+		allowedCategories, _ := p.categorySlugs(ctx, householdID)
+		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, false)
+		if decisionErr != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa memastikan transaksi ini dengan aman.")
+		}
+		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata, decision)
 	case "create_transaction_batch":
 		raw, _ := args["items"].([]any)
 		items := make([]extractionItem, 0, len(raw))
@@ -1035,7 +1053,7 @@ func (p *Processor) categorySlugs(ctx context.Context, householdID string) ([]st
 	return result, rows.Err()
 }
 
-func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, value validatedExtraction, metadata gateway.Metadata) error {
+func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, value validatedExtraction, metadata gateway.Metadata, decision TransactionSemanticDecision) error {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -1055,7 +1073,7 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 			return fmt.Errorf("validate category: %w", err)
 		}
 	}
-	autoConfirm := shouldAutoConfirmTransaction(value, categoryID != nil)
+	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil)
 	proposalStatus, transactionStatus := "NEEDS_REVIEW", "NEEDS_REVIEW"
 	if autoConfirm {
 		proposalStatus, transactionStatus = "ACCEPTED", "CONFIRMED"
@@ -1064,8 +1082,12 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 		"gateway_model": metadata.Model, "input_tokens": metadata.InputTokens,
 		"output_tokens": metadata.OutputTokens, "cost": metadata.Cost,
 		"category_confidence": value.CategoryConfidence, "time_precision": value.TimePrecision,
-		"time_period": value.TimePeriod,
+		"time_period":     value.TimePeriod,
+		"decision_source": decision.DecisionSource, "policy_version": decision.PolicyVersion,
 	})
+	if err := p.recordJudgmentDecision(ctx, tx, householdID, sourceEventID, decision, autoConfirm); err != nil {
+		return err
+	}
 	var proposalID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO transaction_proposal

@@ -70,7 +70,15 @@ func run(logger *slog.Logger) error {
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	processor := telegram.NewProcessor(pool, llm)
 	processor.SetBot(bot)
-	if judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL")); judgmentModel != "" {
+	// The judgment plane owns bounded semantic mutation authority (ADR-038), so
+	// production must not be able to disable it by leaving the model unset.
+	// Non-production environments opt out explicitly with JUDGMENT_MODE=disabled-dev.
+	judgmentMode := strings.ToLower(strings.TrimSpace(os.Getenv("JUDGMENT_MODE")))
+	judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL"))
+	if judgmentMode != "disabled-dev" {
+		if judgmentModel == "" {
+			return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
+		}
 		judgmentClient := systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second)).WithRecorder(func(_ context.Context, metric systemone.Metric) {
 			recordLLMCall(context.Background(), gateway.CallMetric{Task: "JUDGMENT", Protocol: "systemone", Model: metric.Model, Status: metric.Status, ErrorClass: metric.ErrorClass, DurationMs: metric.DurationMs, CallKind: "JUDGMENT"})
 		})

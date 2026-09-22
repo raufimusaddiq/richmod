@@ -1,6 +1,25 @@
 # RICHMOD JEV PHASE 2 — AUTHORITY, RESILIENCE, AND EXPANSION PRD
 
 **Status:** Ready for implementation  
+
+> **Implementation status (updated in the same branch as the code).**
+> Sprint A of the implementation order is implemented in `feat/jev-authority-resilience`:
+> an explicit `TransactionSemanticDecision` now owns Telegram transaction
+> confirmation, generative self-reported confidence is non-authoritative (it is
+> treated as material ambiguity above the ambiguity ceiling and can never
+> skip the bounded evaluator), both the harvested fast path and the
+> post-extraction path consume one shared evaluator and policy version, the
+> initial route/period call also carries the transaction sub-bundle when Go
+> pre-harvested one amount candidate, already-loaded categories are passed
+> through instead of re-queried, `JUDGMENT_MODEL` is required unless
+> `JUDGMENT_MODE=disabled-dev`, a judgment outage degrades to a READ-only tool
+> surface and refuses mutations, and bounded decision provenance is persisted in
+> `judgment_decision` (migration 00056).
+>
+> Still on the target design: the real LiteRouter → TypeSafe opt-in smoke (§12),
+> transfer-purpose ownership and the zero-generative transfer fast path (§13/§14),
+> Jev-vs-generative product metrics (§17), duplicate bounded generative tool
+> removal (§19), and Sprint D/E evidence-channel and insight work (§20–§22).
 **Repository:** `raufimusaddiq/richmod`  
 **Baseline:** `main@68fbd0fc73887b95983e8f460c4bd3d26eb34ca7`  
 **Date:** 2026-09-22  

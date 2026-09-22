@@ -108,11 +108,23 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	now := p.now().In(jakartaLocation())
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
-	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, contextState); handled || err != nil {
+	// The initial bounded bundle consumes the already-loaded category set and
+	// pending-workflow state; the fast path must not re-query them (PRD §11).
+	judgmentState := turnAgentContextState{
+		Categories:          categories,
+		HasPendingAction:    contextState.HasPendingAction,
+		HasPendingBatch:     contextState.HasPendingBatch,
+		HasSalaryChoice:     contextState.HasSalaryChoice,
+		HasMerchantLearning: contextState.HasMerchantLearning,
+		HasPendingWorkflow:  contextState.HasPendingAction || contextState.HasPendingBatch || contextState.HasSalaryChoice || contextState.HasMerchantLearning,
+		ActiveReviewCount:   contextState.ActiveReviewCount,
+		ExactReply:          explicitReply,
+	}
+	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, judgmentState); handled || err != nil {
 		return err
 	}
 
-	tools := AgentFinanceTools(
+	tools := agentFinanceTools(
 		categories,
 		contextState.HasPendingAction,
 		contextState.HasPendingBatch,
@@ -121,6 +133,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.HasSalaryChoice,
 		contextState.HasMerchantLearning,
 		contextState.ReviewMode,
+		p.judgmentPlaneConfigured,
 	)
 	tools, workflowScope := applyAgentWorkflowToolPolicy(tools, update, reviewBinding, merchantBinding)
 

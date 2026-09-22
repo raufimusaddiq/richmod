@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 type boundReviewGateway struct{}
@@ -22,6 +23,29 @@ type clearPurchaseGateway struct{}
 
 func (clearPurchaseGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	return gateway.ToolCall{Name: "record_transaction", Arguments: json.RawMessage(`{"type":"EXPENSE","amount_idr":"9000","merchant":"Indomaret","category_slug":"makanan-minuman","description":"Beli es krim","note":null,"date_reference":"TODAY","explicit_date":null,"local_time":null,"confidence":0.98,"category_confidence":0.88}`)}, gateway.Metadata{Model: "test"}, nil
+}
+
+// clearPurchaseJudgmentEngine is a grounded stub for the bounded evaluator: a
+// clear purchase with a deterministic category must be affirmatively supported
+// so the transaction can confirm. It fails the test if Go skips the judgment
+// call entirely, and is intentionally not a test of provider behavior.
+type clearPurchaseJudgmentEngine struct{ t *testing.T }
+
+func (e clearPurchaseJudgmentEngine) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
+	answers := map[string]judgment.Answer{
+		"transaction_type":   confidentChoice(judgmentTypeCriteria, "EXPENSE"),
+		"amount_support":     decidedNoul(0.99),
+		"date_support":       decidedNoul(0.99),
+		"material_ambiguity": decidedNoul(0.02),
+	}
+	if category, ok := request.Questions["category"]; ok {
+		criteria, valid := category.Criteria.(map[string]any)
+		if !valid {
+			e.t.Fatalf("expected category criteria, got %T", category.Criteria)
+		}
+		answers["category"] = confidentChoice(criteria, "makanan-minuman")
+	}
+	return judgment.Result{Model: "jev-clear-purchase", Answers: answers}, nil
 }
 
 func TestTelegramReplyToBoundMerchantReviewBypassesLLM(t *testing.T) {
@@ -200,7 +224,9 @@ func TestClearPurchaseWithValidCategoryDoesNotCreateReview(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, sourceID, raw); err != nil {
 		t.Fatal(err)
 	}
-	if err = NewProcessor(pool, clearPurchaseGateway{}).Process(ctx, sourceID); err != nil {
+	clearPurchase := NewProcessor(pool, clearPurchaseGateway{})
+	clearPurchase.SetJudgment(clearPurchaseJudgmentEngine{t: t})
+	if err = clearPurchase.Process(ctx, sourceID); err != nil {
 		t.Fatal(err)
 	}
 	var status, merchant, description, gotCategoryID string
