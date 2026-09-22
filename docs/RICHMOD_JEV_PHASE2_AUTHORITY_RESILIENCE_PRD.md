@@ -29,7 +29,7 @@
 > counted with its product outcome so review/clarification rate per decision
 > task and Jev-vs-generative share are measurable (§17/§18/§25).
 >
-> Sprint C is implemented in `feat/jev-transfer-semantics`:
+> Sprint C is implemented and merged on `main`:
 > `record_transfer` no longer accepts a `purpose` argument at all. The generative
 > model supplies only arbitrary facts (amount, source/destination hints, date/time),
 > and Go resolves the canonical purpose *after* both sides are known, through the
