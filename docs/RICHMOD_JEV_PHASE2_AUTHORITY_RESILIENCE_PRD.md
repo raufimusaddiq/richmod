@@ -3,7 +3,7 @@
 **Status:** Ready for implementation  
 
 > **Implementation status (updated in the same branch as the code).**
-> Sprint A of the implementation order is implemented in `feat/jev-authority-resilience`:
+> Sprint A of the implementation order is implemented and merged on `main` (PR #98):
 > an explicit `TransactionSemanticDecision` now owns Telegram transaction
 > confirmation, generative self-reported confidence is non-authoritative (it is
 > treated as material ambiguity above the ambiguity ceiling and can never
@@ -16,7 +16,7 @@
 > surface and refuses mutations, and bounded decision provenance is persisted in
 > `judgment_decision` (migration 00056).
 >
-> Sprint B is implemented in `feat/jev-efficiency-provenance`:
+> Sprint B is implemented and merged on `main` (PR #99):
 > `record_transaction` now spends **one** System One round trip — the same
 > bundled request decides direction, amount/date support, material ambiguity,
 > and category, and the post-extraction path consumes that decision's category
@@ -1058,6 +1058,16 @@ Jev never receives authority to search arbitrary canonical rows.
 ---
 
 # 23. P2 — Insight Signal Selection
+
+**Implemented** (`feat/jev-insight-signals`). Before prose generation,
+`insight.selectSignal` asks one bounded bundle over the same deterministic
+aggregates the prose model receives: `primary_signal_family` plus
+`spending_change_material`, `category_shift_material`,
+`merchant_concentration_noteworthy`, `cashflow_pattern_noteworthy`,
+`savings_pattern_noteworthy`, and `material_ambiguity`. A decided `NONE`, an
+undecided claim, or material ambiguity completes the insight with a
+deterministic response and spends no generative call. The generative model now
+writes language; it no longer decides whether already-computed numbers matter.
 
 Current insight generation always invokes the generative model once data completeness is sufficient.
 

@@ -96,6 +96,11 @@ func run(logger *slog.Logger) error {
 	documentProcessor.Interpretation = workerDocument.ParseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
+	if judgmentClient != nil {
+		// Insight prose is only generated when a bounded selection says the
+		// aggregates contain something worth narrating (PRD §23).
+		insightProcessor.SetVerifier(judgmentClient)
+	}
 	residualProcessor := residual.New(pool)
 	bankModel := os.Getenv("LLM_MODEL_BANK_EXTRACT")
 	if bankModel == "" {
