@@ -95,6 +95,14 @@ services:
       OSS_SECRET_KEY: ${OSS_SECRET_KEY:-}
       LLM_MODEL_DOCUMENT_VISION: ${LLM_MODEL_DOCUMENT_VISION:-}
       LLM_MODEL_INSIGHTS: ${LLM_MODEL_INSIGHTS:-}
+      # Bounded decision plane (ADR-038). The worker refuses to start without a
+      # model unless it is explicitly opted out, so these must reach the
+      # container: env-file entries alone only interpolate the compose file.
+      JUDGMENT_MODE: ${JUDGMENT_MODE:-}
+      JUDGMENT_MODEL: ${JUDGMENT_MODEL:-}
+      JUDGMENT_TIMEOUT_MS: ${JUDGMENT_TIMEOUT_MS:-}
+      LLM_MODEL_FINANCIAL_EMAIL: ${LLM_MODEL_FINANCIAL_EMAIL:-}
+      RICHMOD_DOCUMENT_INTERPRETATION: ${RICHMOD_DOCUMENT_INTERPRETATION:-}
     volumes:
       - attachment_data:/var/lib/finance/attachments
     depends_on:
