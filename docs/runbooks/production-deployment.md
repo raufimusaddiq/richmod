@@ -41,6 +41,23 @@ while mutation requests are refused instead of falling back to generative
 semantic authority. Do not describe an outage as a reason to unset
 `JUDGMENT_MODEL`.
 
+Before trusting a new LiteRouter or Jev deployment, run the opt-in live contract
+smoke that exercises Richmod → LiteRouter `/v1/systemone` → TypeSafe and back
+through the Richmod decoder. It is skipped by default because it consumes live
+provider credits, so run it from an approved secret-bearing environment:
+
+```bash
+cd apps/worker && SYSTEMONE_SMOKE_BASE_URL=<literouter base url> \
+  SYSTEMONE_SMOKE_LITEROUTER_KEY=<literouter client key> \
+  go test ./internal/judgment/systemone/ -run TestRealLiteRouterSystemOneSmoke -v
+```
+
+`SYSTEMONE_SMOKE_MODEL` is optional and defaults to `typesafe/jev-latest`, the
+same model id production sets in `JUDGMENT_MODEL`. The smoke
+asserts the provider accepts the native question schema, returns a real
+versioned model id, and picks inside the server-supplied criteria. Supply only
+the LiteRouter client key; no upstream provider key belongs in Richmod.
+
 Off-host storage requires `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_PREFIX`,
 `OSS_ACCESS_KEY`, and `OSS_SECRET_KEY`. API and worker mirror private attachments
 under `<prefix>/attachments`; backup stores encrypted restic data under
