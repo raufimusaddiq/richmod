@@ -18,11 +18,20 @@ import (
 type Processor struct {
 	pool      *pgxpool.Pool
 	extractor *Extractor
+	// verifier scores the already-extracted facts against the original email
+	// through the bounded judgment plane. It is optional: a nil verifier keeps the
+	// deterministic structural gate and never silently invents semantic approval
+	// (PRD §20).
+	verifier jeverifier
 }
 
 func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
 	return &Processor{pool: pool, extractor: extractor}
 }
+
+// SetVerifier wires the bounded evidence verifier. Production sets it from the
+// same configured judgment plane the Telegram decision plane uses.
+func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
 type Payload struct {
 	SourceEventID string  `json:"source_event_id"`
@@ -221,25 +230,73 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	if _, err = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result) VALUES($1,$2,'native_tool',$3,$4,$5::jsonb,'VALID',$6) ON CONFLICT(source_event_id) DO UPDATE SET output_json=excluded.output_json,gateway_model=excluded.gateway_model,validation_status=excluded.validation_status,policy_result=excluded.policy_result`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion, string(output), status); err != nil {
 		return err
 	}
-	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") || extraction.Confidence < 0.80 {
-		tx, beginErr := p.pool.Begin(ctx)
-		if beginErr != nil {
-			return beginErr
+	// Structural completeness is a deterministic Go check and always applies. The
+	// semantic gate then asks the bounded plane whether the email actually supports
+	// the extracted facts; the extractor's self-reported confidence is no longer
+	// allowed to authorize (or to hide) a semantic claim (ADR-038, PRD §20).
+	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") {
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion)
+	}
+	verification, verified, verifyErr := p.verifyEvidence(ctx, payload.SourceEventID, extraction, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
+	if verifyErr != nil {
+		// Provider failure is infrastructure state, not semantic uncertainty: keep
+		// the source event recoverable instead of confirming on extractor confidence.
+		_ = p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "VERIFICATION_FAILED", "RETRY")
+		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
+	}
+	if verified && !verification.supported() {
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion)
+	}
+	if !verified && extraction.Confidence < 0.80 {
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion)
+	}
+	if verified {
+		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
+			return persistErr
 		}
-		defer tx.Rollback(ctx)
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, payload.SourceEventID, ToolSchemaVersion); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN') ON CONFLICT DO NOTHING`, household, payload.SourceEventID); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
 	}
 	var alreadyPersisted bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
 		return nil
 	}
 	return p.persist(ctx, listener, payload.SourceEventID, extraction, result)
+}
+
+// reviewIncompleteExtraction parks a notification whose facts are structurally
+// incomplete or semantically unsupported. It never mutates the ledger.
+func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, sourceEventID, schemaVersion string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, sourceEventID, schemaVersion); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN') ON CONFLICT DO NOTHING`, household, sourceEventID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// persistEvidenceVerification records the bounded ruling next to the extraction
+// so an operator can see what the decision plane actually claimed, without
+// storing the email body again (PRD §15/§20).
+func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEventID, listenerID, model string, verification EvidenceVerification) error {
+	summary, err := json.Marshal(map[string]any{
+		"transaction_observed": verification.TransactionObserved,
+		"amount_supported":     verification.AmountSupported,
+		"direction_supported":  verification.DirectionSupported,
+		"channel_supported":    verification.ChannelSupported,
+		"material_ambiguity":   verification.MaterialAmbiguity,
+		"supported":            verification.supported(),
+		"policy_version":       verification.PolicyVersion,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_evidence_verification(source_event_id,listener_id,bank_email_verification_policy_version,gateway_model,answer_summary_json) VALUES($1,$2,$3,NULLIF($4,''),$5::jsonb) ON CONFLICT(source_event_id) DO UPDATE SET gateway_model=excluded.gateway_model,answer_summary_json=excluded.answer_summary_json,bank_email_verification_policy_version=excluded.bank_email_verification_policy_version`, sourceEventID, listenerID, verification.PolicyVersion, verification.Model, string(summary))
+	return err
 }
 
 func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time) bool {
