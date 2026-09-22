@@ -75,11 +75,12 @@ func run(logger *slog.Logger) error {
 	// Non-production environments opt out explicitly with JUDGMENT_MODE=disabled-dev.
 	judgmentMode := strings.ToLower(strings.TrimSpace(os.Getenv("JUDGMENT_MODE")))
 	judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL"))
+	var judgmentClient *systemone.Client
 	if judgmentMode != "disabled-dev" {
 		if judgmentModel == "" {
 			return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
 		}
-		judgmentClient := systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second))
+		judgmentClient = systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second))
 		processor.SetJudgment(judgmentClient)
 		// Task-attributed bounded telemetry: the client records the transport call,
 		// and the decision counter records what policy did with the answer, which
@@ -102,12 +103,21 @@ func run(logger *slog.Logger) error {
 	}
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
+	// Evidence-channel semantic verification: the bounded plane rules on claims Go
+	// already holds, so neither email channel trusts generative self-confidence as
+	// its semantic gate (ADR-038, PRD §20/§21).
+	if judgmentClient != nil {
+		bankProcessor.SetVerifier(judgmentClient)
+	}
 	financialModel := os.Getenv("LLM_MODEL_FINANCIAL_EMAIL")
 	if financialModel == "" {
 		financialModel = bankModel
 	}
 	financialLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), financialModel).WithRecorder("FINANCIAL_EMAIL_EXTRACTION", recordLLMCall)
 	financialProcessor := financialemail.NewProcessor(pool, financialLLM)
+	if judgmentClient != nil {
+		financialProcessor.SetVerifier(judgmentClient)
+	}
 	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)
 	jobs := queue.New(pool)
 	hostname, _ := os.Hostname()

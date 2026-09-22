@@ -914,6 +914,18 @@ This reduces:
 
 # 20. P2 — Bank Email: Jev After Arbitrary Extraction
 
+**Implemented** (`feat/jev-evidence-verification`). Extraction still produces the
+arbitrary facts, and the deterministic structural checks still run, but the
+semantic gate is now a bounded verification bundle
+(`bankemail.verifyEvidence`): `transaction_observed`, `amount_supported`,
+`direction_supported`, `channel_supported`, and `material_ambiguity`, all from one
+minimized state snapshot. A provider failure is reported as infrastructure
+failure (retry/review), never as a passing grade. The extractor's own confidence
+remains only the fallback when no verification plane is configured, so it is no
+longer the sole semantic authority in production. Rulings are persisted in
+`bank_email_evidence_verification` (migration 00057) as bounded booleans — never
+the email body again.
+
 Bank Email currently still relies on a generative extractor and a generic `extraction.Confidence < 0.80` gate.
 
 The arbitrary extraction itself is reasonable.
@@ -953,6 +965,16 @@ Replace generic extraction confidence as policy paths migrate.
 ---
 
 # 21. P2 — Financial Provider Email: Move Kind/Movement Semantics to Jev
+
+**Implemented** (`feat/jev-evidence-verification`). `planCash` no longer gates on
+the extractor's `Confidence`. A bounded classification bundle
+(`financialemail.classifyObservation`) rules on `observation_type`,
+`movement_type`, `cash_movement_supported`, `wealth_value_supported`,
+`evidence_sufficient`, and `material_ambiguity`; a decided
+`WEALTH_VALUE` can never authorize a cash movement, and an undecided movement
+type fails closed into Review. Capabilities still restrict the extraction schema,
+while this Choice is what actually rules on the semantics — two independent
+enforcements of the same invariant.
 
 Current provider-email processing still uses generative:
 

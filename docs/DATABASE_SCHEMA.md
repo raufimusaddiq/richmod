@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00056_judgment_decision.sql`.
+forward migration set through `db/migrations/00057_bank_email_evidence_verification.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -170,6 +170,7 @@ erDiagram
 | `worker_heartbeat` | Worker liveness/operational status. | Worker instance identity and observed timestamp. |
 | `llm_call` | LLM-call telemetry. | Optional household; task/protocol/model/status/cost metadata only; `call_kind` allows `NATIVE_TOOL`, `AGENT_TEXT`, or `AGENT_TOOLS`. |
 | `judgment_decision` | Bounded System One / Jev decision provenance. | Household-scoped; optional `source_event_id → source_event`; `policy_version` plus bounded question keys, answer summary, and outcome. Stores no raw user text, email body, document bytes, or credentials; the canonical mutation stays in `transaction`/`audit_log`. |
+| `bank_email_evidence_verification` | Bounded verification ruling for one bank-email extraction. | One row per `source_event_id`; records the `bank_email_verification_policy_version`, the gateway model, and bounded boolean claims (observed, amount, direction, channel, ambiguity). Additive audit only — it writes no canonical financial state and never stores the email body. |
 | `insight` | Generated household analytics narrative. | Household/time-period scoped; non-authoritative product output. |
 | `audit_log` | Household financial/audit trail. | Household/user optional; typed entity ID is polymorphic. |
 | `platform_audit_log` | Platform-admin audit trail. | `actor_user_id → user`; typed entity ID is polymorphic. |

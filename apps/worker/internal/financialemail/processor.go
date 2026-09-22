@@ -21,6 +21,10 @@ type Gateway interface {
 type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
+	// verifier scores extracted observations against the source email through the
+	// bounded judgment plane, replacing generative self-confidence as the policy
+	// gate (PRD §21). Nil keeps the deterministic checks only.
+	verifier jeverifier
 }
 type Payload struct {
 	SourceEventID     string `json:"source_event_id"`
@@ -33,6 +37,10 @@ type PreviewPayload struct {
 func NewProcessor(pool *pgxpool.Pool, client Gateway) *Processor {
 	return &Processor{pool: pool, gateway: client}
 }
+
+// SetVerifier wires the bounded classification plane. Production sets it from the
+// same configured judgment plane the Telegram decision plane uses.
+func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 func DecodePreviewPayload(raw json.RawMessage) (PreviewPayload, error) {
 	var v PreviewPayload
 	err := json.Unmarshal(raw, &v)
@@ -302,7 +310,29 @@ type cashPlan struct {
 
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
-	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil || v.Confidence < .8 {
+	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil {
+		plan.review = "TRANSFER_CLASSIFICATION"
+		return plan, nil
+	}
+	// A configured bounded plane rules on whether the email actually supports the
+	// extracted facts. Only when no plane is configured does the extractor's own
+	// confidence remain the gate, and it is never the *sole* authority in
+	// production (ADR-038, PRD §21).
+	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
+	if classifyErr != nil {
+		plan.review = "TRANSFER_CLASSIFICATION"
+		return plan, nil
+	}
+	if verified {
+		if !classification.cashAllowed() {
+			plan.review = "TRANSFER_CLASSIFICATION"
+			return plan, nil
+		}
+		if classification.MovementType != "" {
+			movement := classification.MovementType
+			v.MovementType = &movement
+		}
+	} else if v.Confidence < .8 {
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
