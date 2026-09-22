@@ -34,10 +34,16 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan aksi batch dengan aman. Balas iya, batal, atau jelaskan item yang ingin diubah.")
 		}
 		switch {
-		case !ok || choice == "OTHER_OR_UNCLEAR", choice == "DEFER", choice == "UPDATE":
+		case !ok || choice == "OTHER_OR_UNCLEAR", choice == "DEFER":
 			return true, p.finishAgentText(ctx, state, "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau gunakan pesan baru untuk mengubah item.")
 		case choice == "CONFIRM":
 			return true, p.finishPendingBatch(ctx, state.HouseholdID, state.Update, state.SourceEventID, true)
+		case choice == "UPDATE":
+			// A batch update needs arbitrary replacement values, so Jev only
+			// classifies the intent. Fall through to the generative
+			// `update_pending_batch` path, which validates the server-bound item
+			// reference and the replacement fields in Go.
+			return false, nil
 		default:
 			return true, p.finishPendingBatch(ctx, state.HouseholdID, state.Update, state.SourceEventID, false)
 		}

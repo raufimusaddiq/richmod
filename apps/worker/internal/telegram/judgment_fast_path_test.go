@@ -2,6 +2,18 @@ package telegram
 
 import "testing"
 
+func TestBoundedJudgmentWorkflowsOnlyHandleFactFreeChoices(t *testing.T) {
+	// A pending-batch UPDATE needs arbitrary replacement values, so Jev must not
+	// own it: the bounded handler reports "not handled" and the generative
+	// update_pending_batch path keeps its server-bound validation.
+	if boundedReviewAction("UPDATE") {
+		t.Fatal("UPDATE is not a bounded review action")
+	}
+	if !boundedReviewAction("CONFIRM") || !boundedReviewAction("IGNORE") {
+		t.Fatal("fact-free review actions must stay bounded")
+	}
+}
+
 func TestHarvestSimpleTransaction(t *testing.T) {
 	tests := []struct {
 		text, amount, date, explicit, merchant string
