@@ -53,16 +53,17 @@ func TestJudgmentPeriodChoiceMapsToExactRange(t *testing.T) {
 	}
 }
 
-func TestWealthRouteIsDispatchedBeforePeriodResolution(t *testing.T) {
-	// Guard the ordering bug: READ_WEALTH must not be gated on a usable period.
+func TestOnlyAggregateReadRoutesConsumePeriod(t *testing.T) {
+	// Guard the ordering bug: only the aggregate READ routes may be gated on a
+	// usable reporting period, so an unclear period can never block wealth,
+	// transaction, or review routes.
 	source, err := os.ReadFile("judgment_fast_path.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wealthIndex := strings.Index(string(source), `if answer.Choice == "READ_WEALTH" {`)
-	periodIndex := strings.Index(string(source), "period, periodOK := p.resolveJudgmentPeriod")
-	if wealthIndex < 0 || periodIndex < 0 || wealthIndex > periodIndex {
-		t.Fatalf("READ_WEALTH must be dispatched before period resolution (wealth=%d period=%d)", wealthIndex, periodIndex)
+	guard := `if answer.Choice == "READ_SPENDING" || answer.Choice == "READ_CASHFLOW" || answer.Choice == "READ_SAVINGS" {`
+	if !strings.Contains(string(source), guard) {
+		t.Fatal("period resolution must be restricted to the aggregate READ routes")
 	}
 }
 
