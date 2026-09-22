@@ -25,11 +25,18 @@ type Gateway interface {
 type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
+	// verifier selects whether the deterministic aggregates contain anything
+	// noteworthy before prose generation is paid for (PRD §23). Nil keeps the
+	// previous behaviour and never invents a signal.
+	verifier jeverifier
 }
 
 func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm}
 }
+
+// SetVerifier wires the bounded signal-selection plane.
+func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
 type Payload struct {
 	InsightID string `json:"insight_id"`
@@ -67,6 +74,15 @@ func (p *Processor) Process(ctx context.Context, insightID string) error {
 	}
 	if belowThreshold(completeness, "0.7000") {
 		return p.complete(ctx, insightID, householdID, "DETERMINISTIC", "", "Data belum cukup lengkap untuk membuat insight yang andal. Selesaikan Review Inbox dan kategorikan pengeluaran terlebih dahulu.", 1)
+	}
+	// Bounded selection runs before prose: the generative model writes language,
+	// it does not decide whether already-computed numbers matter (PRD §23).
+	selection, selected, selectionErr := p.selectSignal(ctx, insightID, facts)
+	if selectionErr != nil {
+		return p.fail(ctx, insightID, householdID)
+	}
+	if selected && !selection.noteworthy() {
+		return p.complete(ctx, insightID, householdID, "DETERMINISTIC", selection.Model, noSignalResponse, 1)
 	}
 	result, metadata, err := p.generate(ctx, insightID, facts)
 	if err != nil {
