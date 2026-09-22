@@ -23,6 +23,18 @@ import (
 //	SYSTEMONE_SMOKE_LITEROUTER_KEY=<literouter client key>
 //	SYSTEMONE_SMOKE_MODEL=<model id>   # optional, defaults to typesafe/jev-latest
 //
+// Point BASE_URL at LiteRouter's internal address on a shared Docker network
+// (http://9router:20128/v1), not a public hostname. The worker reaches LiteRouter
+// directly over the container network by design: routing a bounded decision out
+// through the public edge and back into the same host would add a round trip and
+// a failure surface for no benefit. That name resolves only inside those
+// networks, so run this from a container alongside LiteRouter.
+//
+// The asserted model id is the *concrete* version the alias resolved to (for
+// example jev-1.13.0). typesafe/jev-latest is deliberately an alias; the concrete
+// version is what belongs on a stored judgment_decision row so a decision stays
+// reproducible after the alias advances (PRD §18).
+//
 // Only the LiteRouter client key is read here. No upstream provider key (for
 // example a TypeSafe key) is configured in Richmod, by design.
 func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
