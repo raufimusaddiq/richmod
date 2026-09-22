@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -69,8 +70,11 @@ func (c *Client) Evaluate(ctx context.Context, requestID string, input judgment.
 		return result, fmt.Errorf("System One request has no questions")
 	}
 	for key, question := range input.Questions {
-		if strings.TrimSpace(key) == "" || strings.TrimSpace(question.Type) == "" || strings.TrimSpace(question.Instructions) == "" {
+		if strings.TrimSpace(key) == "" {
 			return result, fmt.Errorf("invalid System One question %q", key)
+		}
+		if _, err = json.Marshal(question); err != nil {
+			return result, fmt.Errorf("invalid System One question %q: %w", key, err)
 		}
 	}
 	body, err := json.Marshal(struct {
@@ -150,72 +154,118 @@ func decodeAnswer(raw json.RawMessage, expectedType string) (judgment.Answer, er
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return judgment.Answer{}, fmt.Errorf("answer must be an object")
 	}
-	answer := judgment.Answer{Type: expectedType}
-	_, hasProbability := fields["probability"]
+	allowed := map[string]bool{"type": true}
+	switch expectedType {
+	case "choice":
+		allowed["choice"], allowed["probabilities"], allowed["confidence"] = true, true, true
+	case "noul":
+		allowed["noul"] = true
+	case "score":
+		allowed["score"], allowed["legend"], allowed["probabilities"], allowed["confidence"] = true, true, true, true
+	default:
+		return judgment.Answer{}, fmt.Errorf("unsupported question type %q", expectedType)
+	}
 	for key := range fields {
-		switch key {
-		case "type", "choice", "value", "probability", "distribution", "score":
-		default:
+		if !allowed[key] {
 			return judgment.Answer{}, fmt.Errorf("unexpected field %q", key)
 		}
 	}
+	answer := judgment.Answer{Type: expectedType}
 	if value, ok := fields["type"]; ok {
 		if err := json.Unmarshal(value, &answer.Type); err != nil || answer.Type != expectedType {
 			return judgment.Answer{}, fmt.Errorf("type mismatch")
 		}
 	}
-	if rawChoice, ok := fields["choice"]; ok {
-		if err := json.Unmarshal(rawChoice, &answer.Choice); err != nil || strings.TrimSpace(answer.Choice) == "" {
-			return judgment.Answer{}, fmt.Errorf("invalid choice")
-		}
-	}
-	if answer.Choice == "" {
-		if rawValue, ok := fields["value"]; ok {
-			_ = json.Unmarshal(rawValue, &answer.Choice)
-		}
-	}
-	if rawProbability, ok := fields["probability"]; ok {
-		if bytes.Equal(bytes.TrimSpace(rawProbability), []byte("null")) || json.Unmarshal(rawProbability, &answer.Probability) != nil || answer.Probability < 0 || answer.Probability > 1 {
-			return judgment.Answer{}, fmt.Errorf("invalid probability")
-		}
-	}
-	if rawDistribution, ok := fields["distribution"]; ok {
-		if err := json.Unmarshal(rawDistribution, &answer.Distribution); err != nil {
-			return judgment.Answer{}, fmt.Errorf("invalid distribution")
-		}
-		for choice, probability := range answer.Distribution {
-			if strings.TrimSpace(choice) == "" || probability < 0 || probability > 1 {
-				return judgment.Answer{}, fmt.Errorf("invalid distribution")
-			}
-		}
-	}
-	if rawBool, ok := fields["value"]; ok && expectedType == "noul" {
-		if err := json.Unmarshal(rawBool, &answer.Bool); err != nil || answer.Bool == nil {
-			return judgment.Answer{}, fmt.Errorf("invalid noul value")
-		}
-	}
-	if rawScore, ok := fields["score"]; ok && expectedType == "score" {
-		if err := json.Unmarshal(rawScore, &answer.Score); err != nil || answer.Score == nil || *answer.Score < 0 || *answer.Score > 1 {
-			return judgment.Answer{}, fmt.Errorf("invalid score")
-		}
-	}
 	switch expectedType {
 	case "choice":
-		if answer.Choice == "" || !hasProbability || answer.Probability < 0 || answer.Probability > 1 {
-			return judgment.Answer{}, fmt.Errorf("incomplete choice")
+		if err := json.Unmarshal(fields["choice"], &answer.Choice); err != nil || strings.TrimSpace(answer.Choice) == "" {
+			return judgment.Answer{}, fmt.Errorf("invalid choice")
+		}
+		probabilities, err := decodeProbabilities(fields["probabilities"], true)
+		if err != nil {
+			return judgment.Answer{}, err
+		}
+		answer.Distribution = probabilities
+		top, ok := probabilities[answer.Choice]
+		if !ok {
+			return judgment.Answer{}, fmt.Errorf("choice %q missing from probabilities", answer.Choice)
+		}
+		answer.Probability = top
+		if answer.HasConfidence, err = decodeConfidence(&answer, fields["confidence"]); err != nil {
+			return judgment.Answer{}, err
 		}
 	case "noul":
-		if answer.Bool == nil && !hasProbability && len(answer.Distribution) == 0 {
-			return judgment.Answer{}, fmt.Errorf("incomplete noul")
+		if err := json.Unmarshal(fields["noul"], &answer.Noul); err != nil || answer.Noul < 0 || answer.Noul > 1 {
+			return judgment.Answer{}, fmt.Errorf("invalid noul")
 		}
+		answer.HasNoul = true
 	case "score":
-		if answer.Score == nil {
-			return judgment.Answer{}, fmt.Errorf("incomplete score")
+		if err := json.Unmarshal(fields["score"], &answer.Score); err != nil || answer.Score == nil {
+			return judgment.Answer{}, fmt.Errorf("invalid score")
+		}
+		if rawLegend, ok := fields["legend"]; ok {
+			if err := json.Unmarshal(rawLegend, &answer.Legend); err != nil {
+				return judgment.Answer{}, fmt.Errorf("invalid legend")
+			}
+		}
+		probabilities, err := decodeProbabilities(fields["probabilities"], len(fields["probabilities"]) > 0)
+		if err != nil {
+			return judgment.Answer{}, err
+		}
+		answer.Distribution = probabilities
+		if answer.HasConfidence, err = decodeConfidence(&answer, fields["confidence"]); err != nil {
+			return judgment.Answer{}, err
 		}
 	default:
 		return judgment.Answer{}, fmt.Errorf("unsupported question type %q", expectedType)
 	}
 	return answer, nil
+}
+
+func decodeProbabilities(raw json.RawMessage, required bool) (map[string]float64, error) {
+	if len(raw) == 0 {
+		if required {
+			return nil, fmt.Errorf("missing probabilities")
+		}
+		return nil, nil
+	}
+	var rawProbabilities map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rawProbabilities); err != nil {
+		return nil, fmt.Errorf("invalid probabilities")
+	}
+	if rawProbabilities == nil {
+		return nil, fmt.Errorf("invalid probabilities")
+	}
+	probabilities := make(map[string]float64, len(rawProbabilities))
+	for label, rawProbability := range rawProbabilities {
+		if bytes.Equal(bytes.TrimSpace(rawProbability), []byte("null")) {
+			return nil, fmt.Errorf("invalid probabilities")
+		}
+		var probability float64
+		if err := json.Unmarshal(rawProbability, &probability); err != nil {
+			return nil, fmt.Errorf("invalid probabilities")
+		}
+		probabilities[label] = probability
+	}
+	if len(probabilities) == 0 {
+		return nil, fmt.Errorf("empty probabilities")
+	}
+	for label, probability := range probabilities {
+		if strings.TrimSpace(label) == "" || math.IsNaN(probability) || math.IsInf(probability, 0) || probability < 0 || probability > 1 {
+			return nil, fmt.Errorf("invalid probabilities")
+		}
+	}
+	return probabilities, nil
+}
+
+func decodeConfidence(answer *judgment.Answer, raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 {
+		return false, nil
+	}
+	if err := json.Unmarshal(raw, &answer.Confidence); err != nil || math.IsNaN(answer.Confidence) || math.IsInf(answer.Confidence, 0) || answer.Confidence < 0 || answer.Confidence > 1 {
+		return false, fmt.Errorf("invalid confidence")
+	}
+	return true, nil
 }
 
 func readBounded(reader io.Reader) ([]byte, error) {

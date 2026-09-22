@@ -1,6 +1,71 @@
 package telegram
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+)
+
+func TestJudgmentPeriodChoiceMapsToExactRange(t *testing.T) {
+	// Wednesday 2026-09-23 10:00 Jakarta.
+	now := time.Date(2026, 9, 23, 10, 0, 0, 0, jakartaLocation())
+	processor := &Processor{}
+	criteria := judgment.ChoiceCriteria(judgmentPeriodCriteria)
+	policy := judgmentRoutePolicy
+	for period, wantFrom := range map[string]string{
+		"TODAY":      "2026-09-23",
+		"THIS_WEEK":  "2026-09-21",
+		"LAST_WEEK":  "2026-09-14",
+		"THIS_MONTH": "2026-09-01",
+		"LAST_MONTH": "2026-08-01",
+	} {
+		answer := judgment.Answer{Type: "choice", Choice: period, HasConfidence: true, Confidence: 0.95}
+		answer.Distribution = map[string]float64{}
+		for label := range criteria {
+			answer.Distribution[label] = 0.001
+		}
+		answer.Distribution[period] = 1 - 0.001*float64(len(criteria)-1)
+		answer.Probability = answer.Distribution[period]
+		if !judgment.AcceptChoice(answer, criteria, policy) {
+			t.Fatalf("period %s answer should be accepted: %+v", period, answer)
+		}
+		rangeValue, ok := processor.resolveJudgmentPeriod(nil, "household", now, answer)
+		if !ok {
+			t.Fatalf("period %s should resolve", period)
+		}
+		if got := rangeValue.From.In(jakartaLocation()).Format("2006-01-02"); got != wantFrom {
+			t.Fatalf("period %s from=%s want %s", period, got, wantFrom)
+		}
+	}
+
+	// An unclear period must never silently become THIS_MONTH.
+	unclear := judgment.Answer{Type: "choice", Choice: "CUSTOM_OR_UNCLEAR", HasConfidence: true, Confidence: 0.95, Distribution: map[string]float64{}}
+	for label := range criteria {
+		unclear.Distribution[label] = 0.001
+	}
+	unclear.Distribution["CUSTOM_OR_UNCLEAR"] = 1 - 0.001*float64(len(criteria)-1)
+	unclear.Probability = unclear.Distribution["CUSTOM_OR_UNCLEAR"]
+	if _, ok := processor.resolveJudgmentPeriod(nil, "household", now, unclear); ok {
+		t.Fatal("CUSTOM_OR_UNCLEAR must not resolve to a default period")
+	}
+}
+
+func TestOnlyAggregateReadRoutesConsumePeriod(t *testing.T) {
+	// Guard the ordering bug: only the aggregate READ routes may be gated on a
+	// usable reporting period, so an unclear period can never block wealth,
+	// transaction, or review routes.
+	source, err := os.ReadFile("judgment_fast_path.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := `if answer.Choice == "READ_SPENDING" || answer.Choice == "READ_CASHFLOW" || answer.Choice == "READ_SAVINGS" {`
+	if !strings.Contains(string(source), guard) {
+		t.Fatal("period resolution must be restricted to the aggregate READ routes")
+	}
+}
 
 func TestBoundedJudgmentWorkflowsOnlyHandleFactFreeChoices(t *testing.T) {
 	// A pending-batch UPDATE needs arbitrary replacement values, so Jev must not

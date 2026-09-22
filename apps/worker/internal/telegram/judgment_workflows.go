@@ -19,7 +19,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return false, nil
 	}
 	if state.HasPendingAction {
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "pending_action", "Choose the user's bounded response to the pending correction.", []string{"CONFIRM", "CANCEL", "OTHER_OR_UNCLEAR"})
+		choice, ok, err := p.judgmentChoice(ctx, state, text, "pending_action", "Choose the user's bounded response to the pending correction.", map[string]any{"CONFIRM": "save the pending correction", "CANCEL": "discard the pending correction", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
 			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan konfirmasi ini dengan aman. Balas iya untuk simpan atau tidak untuk batal.")
 		}
@@ -29,7 +29,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, p.finishPendingAction(ctx, state.HouseholdID, state.Update, state.SourceEventID, choice == "CONFIRM")
 	}
 	if state.HasPendingBatch {
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "pending_batch", "Choose one bounded action for the pending transaction batch.", []string{"CONFIRM", "CANCEL", "UPDATE", "DEFER", "OTHER_OR_UNCLEAR"})
+		choice, ok, err := p.judgmentChoice(ctx, state, text, "pending_batch", "Choose one bounded action for the pending transaction batch.", map[string]any{"CONFIRM": "record every pending item", "CANCEL": "discard the batch", "UPDATE": "change one or more pending items", "DEFER": "decide later, keep the batch", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
 			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan aksi batch dengan aman. Balas iya, batal, atau jelaskan item yang ingin diubah.")
 		}
@@ -49,7 +49,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		}
 	}
 	if state.HasSalaryChoice {
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "salary_choice", "Choose how to classify the pending payslip.", []string{"PRIMARY", "ORDINARY", "IGNORE", "OTHER_OR_UNCLEAR"})
+		choice, ok, err := p.judgmentChoice(ctx, state, text, "salary_choice", "Choose how to classify the pending payslip.", map[string]any{"PRIMARY": "the primary salary cycle income", "ORDINARY": "ordinary non-salary income", "IGNORE": "not household income", "OTHER_OR_UNCLEAR": "no bounded choice"})
 		if err != nil {
 			return true, p.finishAgentText(ctx, state, "Pilihan slip gaji belum cukup jelas. Pilih gaji utama, pemasukan biasa, atau abaikan.")
 		}
@@ -60,16 +60,16 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, err
 	}
 	if state.MerchantLearningBinding != nil {
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "merchant_learning", "Choose whether the user explicitly consents to remember this merchant category rule.", []string{"REMEMBER", "DO_NOT_REMEMBER", "OTHER_OR_UNCLEAR"})
-		if err != nil || !ok || choice == "OTHER_OR_UNCLEAR" {
+		remember, decided, err := p.judgmentNoul(ctx, state, text, "merchant_learning", "Did the user explicitly consent to remember this merchant category rule?")
+		if err != nil || !decided {
 			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
 		}
-		return true, p.resolveNativeMerchantLearning(ctx, state.SourceEventID, state.HouseholdID, state.Update, map[string]any{"remember": choice == "REMEMBER"})
+		return true, p.resolveNativeMerchantLearning(ctx, state.SourceEventID, state.HouseholdID, state.Update, map[string]any{"remember": remember})
 	}
 	if state.ReviewBinding != nil {
 		allowed := reviewActionsForType(state.ReviewMode)
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
-		choice, ok, err := p.judgmentChoice(ctx, state, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", allowed)
+		choice, ok, err := p.judgmentChoice(ctx, state, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok || choice == "OTHER_OR_UNCLEAR" {
 			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
 		}
@@ -94,7 +94,36 @@ func boundedReviewAction(action string) bool {
 	}
 }
 
-func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, text, key, instructions string, choices []string) (string, bool, error) {
+// judgmentServerPolicy is the versioned acceptance policy for bounded
+// server-state workflows (pending actions, batches, salary, review actions).
+var judgmentServerPolicy = judgment.ChoicePolicy{MinTop: 0.80, MinMargin: 0.15, MinConfidence: 0.60}
+
+// judgmentMerchantConsentPolicy maps the merchant-consent Noul into remember /
+// do-not-remember / clarify.
+var judgmentConsentPolicy = judgment.NoulPolicy{High: 0.85, Low: 0.15}
+
+// judgmentAmountSupportPolicy / judgmentDateSupportPolicy gate a harvested
+// candidate before Go persists a transaction from it.
+var (
+	judgmentAmountSupportPolicy = judgment.NoulPolicy{High: 0.85, Low: 0.15}
+	judgmentDateSupportPolicy   = judgment.NoulPolicy{High: 0.85, Low: 0.15}
+)
+
+// judgmentTransactionPolicy / judgmentCategoryPolicy are the versioned
+// acceptance policies for the simple-transaction bundle and category Choice.
+var (
+	judgmentTransactionPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
+	judgmentCategoryPolicy    = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
+)
+
+// judgmentTypeCriteria is the model-visible option set for transaction type.
+var judgmentTypeCriteria = map[string]any{
+	"INCOME":           "money received",
+	"EXPENSE":          "money spent",
+	"OTHER_OR_UNCLEAR": "not safe to decide",
+}
+
+func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, text, key, instructions string, criteria map[string]any) (string, bool, error) {
 	result, err := p.judgment.Evaluate(ctx, state.SourceEventID, judgment.Request{
 		State: map[string]any{
 			"user_text":       "<untrusted_user_message>" + text + "</untrusted_user_message>",
@@ -103,23 +132,43 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, text,
 			"pending_batch":   state.TurnContext["pending_batch"],
 			"pending_action":  state.TurnContext["pending_action"],
 			"server_bound":    true,
-			"allowed_choices": choices,
+			"allowed_choices": judgment.CriteriaLabels(criteria),
 		},
-		Questions: map[string]judgment.Question{key: {Type: "choice", Instructions: instructions, Criteria: choices}},
+		Questions: map[string]judgment.Question{key: {Type: "choice", Instructions: instructions, Criteria: criteria}},
 	})
 	if err != nil {
 		return "", false, err
 	}
 	answer, ok := result.Answers[key]
-	if !ok || !judgment.AcceptChoice(answer, 0.80, 0.15) {
+	if !ok || !judgment.AcceptChoice(answer, criteria, judgmentServerPolicy) {
 		return "", false, nil
 	}
-	for _, choice := range choices {
-		if answer.Choice == choice {
-			return choice, true, nil
-		}
+	if _, exists := criteria[answer.Choice]; !exists {
+		return "", false, nil
 	}
-	return "", false, nil
+	return answer.Choice, true, nil
+}
+
+// judgmentNoul asks one yes/no question. The bool reports a usable decision;
+// the middle band returns decided=false so callers ask for clarification.
+func (p *Processor) judgmentNoul(ctx context.Context, state *agentState, text, key, instructions string) (bool, bool, error) {
+	result, err := p.judgment.Evaluate(ctx, state.SourceEventID, judgment.Request{
+		State: map[string]any{
+			"user_text":    "<untrusted_user_message>" + text + "</untrusted_user_message>",
+			"workflow":     state.TurnContext["workflow_scope"],
+			"server_bound": true,
+		},
+		Questions: map[string]judgment.Question{key: {Type: "noul", Instructions: instructions}},
+	})
+	if err != nil {
+		return false, false, err
+	}
+	answer, ok := result.Answers[key]
+	if !ok {
+		return false, false, nil
+	}
+	remember, decided := judgment.AcceptNoul(answer, judgmentConsentPolicy)
+	return remember, decided, nil
 }
 
 func simpleJevState(text string, candidates map[string]any, categories []string) map[string]any {
@@ -149,29 +198,36 @@ func (p *Processor) tryJudgmentSimpleTransaction(ctx context.Context, sourceID, 
 	}
 	state := simpleJevState(text, map[string]any{"amount_candidates": []string{candidate.Amount}, "date_reference": candidate.DateRef}, categories)
 	questions := map[string]judgment.Question{
-		"type": {Type: "choice", Instructions: "Choose the transaction direction. Use INCOME for money received and EXPENSE for money spent. Use OTHER_OR_UNCLEAR if ambiguous.", Criteria: []string{"INCOME", "EXPENSE", "OTHER_OR_UNCLEAR"}},
+		"type":           {Type: "choice", Instructions: "Choose the transaction direction. Use INCOME for money received and EXPENSE for money spent. Use OTHER_OR_UNCLEAR if ambiguous.", Criteria: judgmentTypeCriteria},
+		"amount_support": {Type: "noul", Instructions: "Does the harvested amount candidate clearly belong to the transaction the user asked to record?"},
+		"date_support":   {Type: "noul", Instructions: "Does the resolved date reference clearly match when this transaction happened?"},
 	}
 	if len(categories) > 0 {
-		choices := append(append([]string{}, categories...), "OTHER_OR_UNCLEAR")
-		questions["category"] = judgment.Question{Type: "choice", Instructions: "Choose the best active expense category for this purchased item. Use OTHER_OR_UNCLEAR only when no category is safe.", Criteria: choices}
+		questions["category"] = judgment.Question{Type: "choice", Instructions: "Choose the best active expense category for this purchased item. Use OTHER_OR_UNCLEAR only when no category is safe.", Criteria: judgment.CategoryCriteria(categories)}
 	}
 	result, err := p.judgment.Evaluate(ctx, sourceID, judgment.Request{State: state, Questions: questions})
 	if err != nil {
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa menentukan transaksi ini dengan aman. Coba jelaskan lagi.")
 	}
+	if support, ok := result.Answers["amount_support"]; !ok || !judgmentSupported(support, judgmentAmountSupportPolicy) {
+		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Jumlah transaksinya belum bisa dipastikan. Tulis ulang nominalnya dengan jelas.")
+	}
+	if support, ok := result.Answers["date_support"]; !ok || !judgmentSupported(support, judgmentDateSupportPolicy) {
+		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Waktu transaksinya belum bisa dipastikan. Sebutkan tanggalnya dengan jelas.")
+	}
 	typeAnswer, ok := result.Answers["type"]
-	if !ok || !judgment.AcceptChoice(typeAnswer, 0.85, 0.20) || (typeAnswer.Choice != "INCOME" && typeAnswer.Choice != "EXPENSE") {
+	if !ok || !judgment.AcceptChoice(typeAnswer, judgmentTypeCriteria, judgmentTransactionPolicy) || (typeAnswer.Choice != "INCOME" && typeAnswer.Choice != "EXPENSE") {
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Transaksi ini belum jelas sebagai pemasukan atau pengeluaran.")
 	}
 	category := ""
 	categoryConfidence := 1.0
 	if typeAnswer.Choice == "EXPENSE" {
 		categoryAnswer, exists := result.Answers["category"]
-		if !exists || !judgment.AcceptChoice(categoryAnswer, 0.85, 0.20) || categoryAnswer.Choice == "OTHER_OR_UNCLEAR" {
+		if !exists || !judgment.AcceptChoice(categoryAnswer, judgment.CategoryCriteria(categories), judgmentCategoryPolicy) || categoryAnswer.Choice == "OTHER_OR_UNCLEAR" {
 			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori pengeluaran belum cukup jelas untuk dicatat otomatis.")
 		}
 		category = categoryAnswer.Choice
-		categoryConfidence = categoryAnswer.Probability
+		categoryConfidence = categoryAnswer.Confidence
 	}
 	resolved, err := resolveTransactionTime(now, &candidate.DateRef, stringPtr(candidate.ExplicitDate), nil)
 	if err != nil {
@@ -180,9 +236,16 @@ func (p *Processor) tryJudgmentSimpleTransaction(ctx context.Context, sourceID, 
 	return true, p.persistTransaction(ctx, sourceID, householdID, update, validatedExtraction{
 		Type: typeAnswer.Choice, Amount: candidate.Amount, TransactionAt: resolved.At,
 		Merchant: candidate.Merchant, Description: candidate.Merchant, CategorySlug: category,
-		Confidence: typeAnswer.Probability, CategoryConfidence: categoryConfidence,
+		Confidence: typeAnswer.Confidence, CategoryConfidence: categoryConfidence,
 		TimePrecision: resolved.Precision, TimePeriod: resolved.Period,
 	}, gateway.Metadata{Model: result.Model})
+}
+
+// judgmentSupported reports a decided, affirmative Noul (the harvested candidate
+// is supported). Undecided middle-band answers fail closed.
+func judgmentSupported(answer judgment.Answer, policy judgment.NoulPolicy) bool {
+	remember, decided := judgment.AcceptNoul(answer, policy)
+	return remember && decided
 }
 
 func (p *Processor) resolveCategoryWithJudgment(ctx context.Context, sourceID, householdID, merchant, description string, categories []string) (string, float64, bool, error) {
@@ -199,7 +262,7 @@ func (p *Processor) resolveCategoryWithJudgment(ctx context.Context, sourceID, h
 	if len(categories) == 0 {
 		return "", 0, false, nil
 	}
-	choices := append(append([]string{}, categories...), "OTHER_OR_UNCLEAR")
+	criteria := judgment.CategoryCriteria(categories)
 	result, err := p.judgment.Evaluate(ctx, sourceID, judgment.Request{
 		State: map[string]any{
 			"merchant":               merchant,
@@ -207,15 +270,15 @@ func (p *Processor) resolveCategoryWithJudgment(ctx context.Context, sourceID, h
 			"allowed_category_slugs": categories,
 		},
 		Questions: map[string]judgment.Question{
-			"category": {Type: "choice", Instructions: "Choose the best active expense category. Use OTHER_OR_UNCLEAR when the evidence does not support a safe choice.", Criteria: choices},
+			"category": {Type: "choice", Instructions: "Choose the best active expense category. Use OTHER_OR_UNCLEAR when the evidence does not support a safe choice.", Criteria: criteria},
 		},
 	})
 	if err != nil {
 		return "", 0, false, err
 	}
 	answer, ok := result.Answers["category"]
-	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, 0.85, 0.20) || !contains(categories, answer.Choice) {
+	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, judgment.CategoryCriteria(categories), judgmentCategoryPolicy) || !contains(categories, answer.Choice) {
 		return "", 0, false, nil
 	}
-	return answer.Choice, answer.Probability, true, nil
+	return answer.Choice, answer.Confidence, true, nil
 }
