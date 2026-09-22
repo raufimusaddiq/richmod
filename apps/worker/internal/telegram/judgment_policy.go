@@ -116,24 +116,24 @@ type judgmentCallMetric struct {
 // whatever records bounded-call telemetry. The zero value is a no-op recorder,
 // so tests and unconfigured environments need no wiring.
 type judgmentMetrics struct {
-	Record func(judgmentCallMetric)
+	Record func(context.Context, judgmentCallMetric)
 	// Decision is incremented once per consumed decision with its product
 	// outcome, which is what makes "review rate per decision task" computable.
-	Decision func(task judgmentTask, outcome judgmentOutcome)
+	Decision func(context.Context, judgmentTask, judgmentOutcome)
 }
 
-func (m judgmentMetrics) recordCall(metric judgmentCallMetric) {
+func (m judgmentMetrics) recordCall(ctx context.Context, metric judgmentCallMetric) {
 	if m.Record == nil {
 		return
 	}
-	m.Record(metric)
+	m.Record(ctx, metric)
 }
 
-func (m judgmentMetrics) recordDecision(task judgmentTask, outcome judgmentOutcome) {
+func (m judgmentMetrics) recordDecision(ctx context.Context, task judgmentTask, outcome judgmentOutcome) {
 	if m.Decision == nil {
 		return
 	}
-	m.Decision(task, outcome)
+	m.Decision(ctx, task, outcome)
 }
 
 // errorClassFrom reduces an error to a bounded, log-safe class so telemetry
@@ -163,12 +163,16 @@ func errorClassFrom(err error) string {
 // decision-plane metric seam. Bounded calls are reported as protocol
 // `systemone` with the task name, and each consumed decision is reported as a
 // zero-duration DECISION row carrying the product outcome. Only task, model,
-// status, error class, and outcome are reported: no prompt, answer text,
-// household identifier, or financial value (PRD §16/§17).
+// status, error class, and outcome are reported: no prompt, answer text, or
+// financial value (PRD §16/§17).
+//
+// The turn context supplies the household so the row is attributable; the
+// recorder is process-wide and would otherwise write household-less rows that
+// no per-household scoreboard can read.
 func JudgmentMetricsFor(record func(context.Context, gateway.CallMetric)) judgmentMetrics {
 	return judgmentMetrics{
-		Record: func(metric judgmentCallMetric) {
-			record(context.Background(), gateway.CallMetric{
+		Record: func(ctx context.Context, metric judgmentCallMetric) {
+			record(metricCtx(ctx), gateway.CallMetric{
 				Task:       string(metric.Task),
 				Protocol:   "systemone",
 				Model:      metric.Model,
@@ -178,15 +182,34 @@ func JudgmentMetricsFor(record func(context.Context, gateway.CallMetric)) judgme
 				CallKind:   metric.CallKind,
 			})
 		},
-		Decision: func(task judgmentTask, outcome judgmentOutcome) {
-			record(context.Background(), gateway.CallMetric{
-				Task:     string(task),
-				Protocol: "systemone",
-				Status:   string(outcome),
-				CallKind: "DECISION",
+		Decision: func(ctx context.Context, task judgmentTask, outcome judgmentOutcome) {
+			// A decision row records what Go policy did with the answer. That
+			// outcome is not a transport status, and llm_call.status only accepts
+			// SUCCEEDED/FAILED, so the outcome travels in error_class (with the
+			// bounded vocabulary in errorClassFrom for real failures) and the
+			// status stays inside the contract.
+			status := "SUCCEEDED"
+			if outcome == judgmentOutcomeProviderFailure || outcome == judgmentOutcomeJudgmentUnavailable {
+				status = "FAILED"
+			}
+			record(metricCtx(ctx), gateway.CallMetric{
+				Task:       string(task),
+				Protocol:   "systemone",
+				Status:     status,
+				ErrorClass: string(outcome),
+				CallKind:   "DECISION",
 			})
 		},
 	}
+}
+
+// metricCtx preserves the turn's household attribution without letting a
+// cancelled turn drop the metric write.
+func metricCtx(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 // evaluate runs one bounded judgment call with task attribution. Every call goes
@@ -197,7 +220,7 @@ func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID s
 	if p.judgment == nil {
 		// Unconfigured judgment plane. Callers own the fail-closed policy; this
 		// wrapper must never turn "not configured" into a nil dereference.
-		p.metrics.recordCall(judgmentCallMetric{Task: task, Status: "ERROR", ErrorClass: "UNCONFIGURED", CallKind: "JUDGMENT"})
+		p.metrics.recordCall(ctx, judgmentCallMetric{Task: task, Status: "FAILED", ErrorClass: "UNCONFIGURED", CallKind: "JUDGMENT"})
 		return judgment.Result{}, errJudgmentUnavailable
 	}
 	result, err := p.judgment.Evaluate(ctx, requestID, request)
@@ -209,11 +232,13 @@ func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID s
 	if trace := turnTraceFrom(ctx); trace != nil && err == nil {
 		trace.record(task, result.Model)
 	}
-	status := "SUCCESS"
+	// The gateway reports SUCCEEDED/FAILED and llm_call enforces that contract;
+	// a bounded call must not invent a third vocabulary or its rows are rejected.
+	status := "SUCCEEDED"
 	if err != nil {
-		status = "ERROR"
+		status = "FAILED"
 	}
-	p.metrics.recordCall(judgmentCallMetric{
+	p.metrics.recordCall(ctx, judgmentCallMetric{
 		Task:       task,
 		Model:      result.Model,
 		Status:     status,

@@ -94,7 +94,7 @@ func (p *Processor) resolveTransactionDecision(ctx context.Context, sourceEventI
 		value.Ambiguous = true
 	}
 	if exactCategory && !value.Ambiguous {
-		p.metrics.recordDecision(judgmentTaskTransaction, judgmentOutcomeAccepted)
+		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeAccepted)
 		return TransactionSemanticDecision{
 			RouteAccepted: true, TransactionType: value.Type, TypeAccepted: true,
 			AmountSupported: true, DateSupported: true, CategoryAccepted: true, CategorySlug: value.CategorySlug,
@@ -104,7 +104,7 @@ func (p *Processor) resolveTransactionDecision(ctx context.Context, sourceEventI
 	if p.judgment == nil {
 		// Fail closed. Without the configured judgment plane Go cannot authorize a
 		// semantic mutation, so the proposal is preserved for review instead.
-		p.metrics.recordDecision(judgmentTaskTransaction, judgmentOutcomeJudgmentUnavailable)
+		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeJudgmentUnavailable)
 		return TransactionSemanticDecision{DecisionSource: "JUDGMENT_UNAVAILABLE", PolicyVersion: judgmentPolicy.Version}, nil
 	}
 	state := map[string]any{

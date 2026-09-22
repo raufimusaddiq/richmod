@@ -118,14 +118,14 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task 
 	}
 	answer, ok := result.Answers[key]
 	if !ok || !judgment.AcceptChoice(answer, criteria, judgmentPolicy.Server) {
-		p.metrics.recordDecision(task, judgmentOutcomeClarification)
+		p.metrics.recordDecision(ctx, task, judgmentOutcomeClarification)
 		return "", false, nil
 	}
 	if _, exists := criteria[answer.Choice]; !exists {
-		p.metrics.recordDecision(task, judgmentOutcomeRejected)
+		p.metrics.recordDecision(ctx, task, judgmentOutcomeRejected)
 		return "", false, nil
 	}
-	p.metrics.recordDecision(task, judgmentOutcomeAccepted)
+	p.metrics.recordDecision(ctx, task, judgmentOutcomeAccepted)
 	return answer.Choice, true, nil
 }
 
@@ -141,19 +141,19 @@ func (p *Processor) judgmentNoul(ctx context.Context, state *agentState, task ju
 		Questions: map[string]judgment.Question{key: {Type: "noul", Instructions: instructions}},
 	})
 	if err != nil {
-		p.metrics.recordDecision(task, judgmentOutcomeProviderFailure)
+		p.metrics.recordDecision(ctx, task, judgmentOutcomeProviderFailure)
 		return false, false, err
 	}
 	answer, ok := result.Answers[key]
 	if !ok {
-		p.metrics.recordDecision(task, judgmentOutcomeClarification)
+		p.metrics.recordDecision(ctx, task, judgmentOutcomeClarification)
 		return false, false, nil
 	}
 	remember, decided := judgment.AcceptNoul(answer, judgmentPolicy.Consent)
 	if decided {
-		p.metrics.recordDecision(task, judgmentOutcomeAccepted)
+		p.metrics.recordDecision(ctx, task, judgmentOutcomeAccepted)
 	} else {
-		p.metrics.recordDecision(task, judgmentOutcomeClarification)
+		p.metrics.recordDecision(ctx, task, judgmentOutcomeClarification)
 	}
 	return remember, decided, nil
 }
@@ -231,15 +231,15 @@ func (p *Processor) resolveTransferPurpose(ctx context.Context, requestID, descr
 		},
 	})
 	if err != nil {
-		p.metrics.recordDecision(judgmentTaskTransferPurpose, judgmentOutcomeProviderFailure)
+		p.metrics.recordDecision(ctx, judgmentTaskTransferPurpose, judgmentOutcomeProviderFailure)
 		return "", 0, false, err
 	}
 	answer, ok := result.Answers["purpose"]
 	if !ok || !contains(transferPurposes, answer.Choice) || !judgment.AcceptChoice(answer, criteria, judgmentPolicy.TransferPurpose) {
-		p.metrics.recordDecision(judgmentTaskTransferPurpose, judgmentOutcomeClarification)
+		p.metrics.recordDecision(ctx, judgmentTaskTransferPurpose, judgmentOutcomeClarification)
 		return "", 0, false, nil
 	}
-	p.metrics.recordDecision(judgmentTaskTransferPurpose, judgmentOutcomeAccepted)
+	p.metrics.recordDecision(ctx, judgmentTaskTransferPurpose, judgmentOutcomeAccepted)
 	return answer.Choice, answer.Confidence, true, nil
 }
 

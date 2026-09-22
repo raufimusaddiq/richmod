@@ -89,12 +89,18 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		}
 		lanes[lane] = map[string]any{"pending": pending, "running": running, "oldestDueAgeMs": oldestAge, "executionP50Ms": p50, "executionP95Ms": p95}
 	}
+	judgment, judgmentErr := h.loadJudgmentAggregate(r.Context(), householdID)
+	if judgmentErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load judgment telemetry"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":        status,
 		"worker":        map[string]any{"healthy": workerHealthy, "lastHeartbeatAt": lastHeartbeat},
 		"jobs":          map[string]any{"pending": pendingJobs, "running": runningJobs, "recentFailures": failedJobs, "lanes": lanes},
 		"reviewBacklog": openReviews,
 		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only", "protocol": h.protocol},
+		"judgment":      judgment,
 		"checkedAt":     time.Now(),
 	})
 }

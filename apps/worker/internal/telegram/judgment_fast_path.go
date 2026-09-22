@@ -75,15 +75,15 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	if err != nil {
 		// Provider failure is not semantic uncertainty (PRD §9). READs may still
 		// degrade to a generative READ-only turn; mutation lanes must not.
-		p.metrics.recordDecision(judgmentTaskRoute, judgmentOutcomeProviderFailure)
+		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeProviderFailure)
 		return p.degradeWithoutJudgment(ctx, sourceID, householdID, update, text, now, state)
 	}
 	answer, ok := result.Answers["route"]
 	if !ok || !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentRouteCriteria), judgmentPolicy.Route) || !contains(judgmentRoutes, answer.Choice) {
-		p.metrics.recordDecision(judgmentTaskRoute, judgmentOutcomeClarification)
+		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeClarification)
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
 	}
-	p.metrics.recordDecision(judgmentTaskRoute, judgmentOutcomeAccepted)
+	p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeAccepted)
 	// Only the aggregate READ routes consume a reporting period. Every other
 	// route must keep working when the period is CUSTOM_OR_UNCLEAR.
 	var period assistantRange
