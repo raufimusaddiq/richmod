@@ -885,6 +885,17 @@ Version the policy used for auditable decisions.
 
 After each Jev-owned workflow is stable, remove or narrow duplicate generative tools.
 
+Status: the bounded tools for server-owned workflows
+(`resolve_salary_choice`, `resolve_merchant_learning`, `confirm_pending_action`,
+`cancel_pending_action`, `pending_batch_decision`, fact-free `resolve_review`) are
+**fallback-only** when the judgment plane is configured.
+`tryJudgmentBoundWorkflow` consumes those turns before the generative loop runs,
+so the model never reaches those definitions for a Jev-owned turn. Each tool is
+still registered so the workflow-policy filter and degraded-mode surface keep
+working, and `update_pending_batch` stays generative because a batch update
+needs arbitrary replacement values. `TestJevOwnedWorkflowsPreemptTheirGenerativeTools`
+pins this reachability.
+
 Strong candidates already substantially replaced by PR #93:
 
 ```text

@@ -77,8 +77,8 @@ func run(logger *slog.Logger) error {
 	judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL"))
 	var judgmentClient *systemone.Client
 	if judgmentMode != "disabled-dev" {
-		if judgmentModel == "" {
-			return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
+		if err := requireJudgmentModel(judgmentMode, judgmentModel); err != nil {
+			return err
 		}
 		judgmentClient = systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second))
 		processor.SetJudgment(judgmentClient)
@@ -167,6 +167,16 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}
+}
+
+// requireJudgmentModel enforces the production invariant that bounded mutation
+// semantics cannot be silently disabled by omitting the model. Only an explicit
+// opt-out outside production is allowed (PRD §Configuration).
+func requireJudgmentModel(mode, model string) error {
+	if mode == "disabled-dev" || strings.TrimSpace(model) != "" {
+		return nil
+	}
+	return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
 }
 
 func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, limit int) {
