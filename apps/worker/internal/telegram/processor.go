@@ -71,11 +71,8 @@ type Processor struct {
 	metrics judgmentMetrics
 	// turnTelemetryEnabled records one value row per Telegram turn (PRD §23).
 	turnTelemetryEnabled bool
-	// turnTrace accumulates the bounded tasks a single turn consumed. One
-	// Telegram turn is processed by one goroutine, so no lock is needed.
-	turnTrace turnTrace
-	now       func() time.Time
-	bot       *Bot
+	now                  func() time.Time
+	bot                  *Bot
 }
 
 type extraction struct {

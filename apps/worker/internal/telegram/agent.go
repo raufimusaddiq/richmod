@@ -53,7 +53,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
-	p.turnTrace.reset()
+	// The turn trace lives in the context so concurrent turns on the shared
+	// Processor cannot contaminate each other's value telemetry (PRD §23).
+	ctx, trace := withTurnTrace(ctx)
 	generativeRan := false
 	defer func() {
 		// Turn-level Jev value (PRD §23): classify how this turn was resolved so
@@ -61,18 +63,18 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		lane := judgmentLaneGenerativeOnly
 		avoided := 0
 		switch {
-		case p.turnTrace.consumed() && !generativeRan:
+		case trace.consumed() && !generativeRan:
 			lane = judgmentLaneJevOnly
 			// Each bounded task replaced one would-be generative decision in the
 			// lanes it now owns (route, transfer purpose, category, review action).
-			avoided = len(p.turnTrace.tasks)
-		case p.turnTrace.consumed():
+			avoided = len(trace.tasks)
+		case trace.consumed():
 			lane = judgmentLaneJevThenGenerative
 		}
 		p.recordTurnTelemetry(context.WithoutCancel(ctx), householdID, sourceEventID, judgmentTurnObservation{
 			Lane:                   lane,
-			DecisionTasks:          p.turnTrace.tasks,
-			Model:                  p.turnTrace.model,
+			DecisionTasks:          trace.tasks,
+			Model:                  trace.model,
 			NativeToolCallsAvoided: avoided,
 		})
 	}()

@@ -202,8 +202,11 @@ func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID s
 	}
 	result, err := p.judgment.Evaluate(ctx, requestID, request)
 	// Track which bounded tasks this turn consumed for turn-level value
-	// telemetry (PRD §23). Only the task name and model are kept.
-	p.turnTrace.record(task, result.Model)
+	// telemetry (PRD §23). The trace rides in the turn context, so concurrent
+	// turns never share it. Only the task name and model are kept.
+	if trace := turnTraceFrom(ctx); trace != nil {
+		trace.record(task, result.Model)
+	}
 	status := "SUCCESS"
 	if err != nil {
 		status = "ERROR"

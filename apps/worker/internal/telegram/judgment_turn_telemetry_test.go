@@ -9,7 +9,7 @@ import (
 // model that answered it. Duplicate tasks must not inflate the count, because
 // that count is reported as native tool calls avoided (PRD §23).
 func TestTurnTraceRecordsEachTaskOnce(t *testing.T) {
-	var trace turnTrace
+	trace := &turnTrace{}
 	if trace.consumed() {
 		t.Fatal("a fresh trace must not report consumed decisions")
 	}
@@ -22,9 +22,25 @@ func TestTurnTraceRecordsEachTaskOnce(t *testing.T) {
 	if trace.model != "jev-1" {
 		t.Fatalf("model=%q, want jev-1", trace.model)
 	}
-	trace.reset()
-	if trace.consumed() || trace.model != "" {
-		t.Fatalf("reset must clear the trace, got %+v", trace)
+}
+
+// The trace must travel with the turn, not with the Processor: two concurrent
+// turns on one Processor must not see each other's bounded decisions.
+func TestTurnTraceIsScopedToTheTurnContext(t *testing.T) {
+	firstCtx, firstTrace := withTurnTrace(context.Background())
+	secondCtx, secondTrace := withTurnTrace(context.Background())
+	if firstTrace == secondTrace {
+		t.Fatal("each turn must get its own trace")
+	}
+	firstTrace.record(judgmentTaskRoute, "jev-1")
+	if turnTraceFrom(firstCtx) != firstTrace || turnTraceFrom(secondCtx) != secondTrace {
+		t.Fatal("traces must be retrievable from their own turn context")
+	}
+	if turnTraceFrom(secondCtx).consumed() {
+		t.Fatal("a concurrent turn must not observe another turn's decisions")
+	}
+	if turnTraceFrom(context.Background()) != nil {
+		t.Fatal("a context without a turn trace must report none")
 	}
 }
 
@@ -37,14 +53,14 @@ func TestTurnTelemetryRecordsLaneAndAvoidedCalls(t *testing.T) {
 	p := NewProcessor(f.pool, nil)
 	p.SetTurnTelemetry(true)
 
-	p.turnTrace.reset()
-	p.turnTrace.record(judgmentTaskRoute, "jev-1")
-	p.turnTrace.record(judgmentTaskReviewAction, "jev-1")
+	trace := &turnTrace{}
+	trace.record(judgmentTaskRoute, "jev-1")
+	trace.record(judgmentTaskReviewAction, "jev-1")
 	p.recordTurnTelemetry(ctx, f.householdID, f.sourceID, judgmentTurnObservation{
 		Lane:                   judgmentLaneJevOnly,
-		DecisionTasks:          p.turnTrace.tasks,
-		Model:                  p.turnTrace.model,
-		NativeToolCallsAvoided: len(p.turnTrace.tasks),
+		DecisionTasks:          trace.tasks,
+		Model:                  trace.model,
+		NativeToolCallsAvoided: len(trace.tasks),
 	})
 
 	var lane, policyVersion string

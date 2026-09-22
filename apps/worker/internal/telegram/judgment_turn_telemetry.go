@@ -3,14 +3,28 @@ package telegram
 import "context"
 
 // turnTrace accumulates the bounded decision tasks one turn consumed, plus the
-// model that answered them. A single Telegram turn is handled by one goroutine,
-// so the field needs no synchronization.
+// model that answered them. It is carried in the turn's context rather than on
+// the Processor, because one Processor serves concurrent Telegram turns
+// (WORKER_CHAT_CONCURRENCY) and shared mutable state would race between them.
 type turnTrace struct {
 	tasks []string
 	model string
 }
 
-func (t *turnTrace) reset() { t.tasks = nil; t.model = "" }
+type turnTraceKey struct{}
+
+// withTurnTrace attaches a fresh trace to a turn's context.
+func withTurnTrace(ctx context.Context) (context.Context, *turnTrace) {
+	trace := &turnTrace{}
+	return context.WithValue(ctx, turnTraceKey{}, trace), trace
+}
+
+// turnTraceFrom returns the trace attached to the context, or nil when the
+// context has none (tests, non-turn callers).
+func turnTraceFrom(ctx context.Context) *turnTrace {
+	trace, _ := ctx.Value(turnTraceKey{}).(*turnTrace)
+	return trace
+}
 
 func (t *turnTrace) record(task judgmentTask, model string) {
 	for _, existing := range t.tasks {
