@@ -151,6 +151,7 @@ func decodeAnswer(raw json.RawMessage, expectedType string) (judgment.Answer, er
 		return judgment.Answer{}, fmt.Errorf("answer must be an object")
 	}
 	answer := judgment.Answer{Type: expectedType}
+	_, hasProbability := fields["probability"]
 	for key := range fields {
 		switch key {
 		case "type", "choice", "value", "probability", "distribution", "score":
@@ -174,7 +175,7 @@ func decodeAnswer(raw json.RawMessage, expectedType string) (judgment.Answer, er
 		}
 	}
 	if rawProbability, ok := fields["probability"]; ok {
-		if err := json.Unmarshal(rawProbability, &answer.Probability); err != nil || answer.Probability < 0 || answer.Probability > 1 {
+		if bytes.Equal(bytes.TrimSpace(rawProbability), []byte("null")) || json.Unmarshal(rawProbability, &answer.Probability) != nil || answer.Probability < 0 || answer.Probability > 1 {
 			return judgment.Answer{}, fmt.Errorf("invalid probability")
 		}
 	}
@@ -200,11 +201,10 @@ func decodeAnswer(raw json.RawMessage, expectedType string) (judgment.Answer, er
 	}
 	switch expectedType {
 	case "choice":
-		if answer.Choice == "" || answer.Probability < 0 || answer.Probability > 1 {
+		if answer.Choice == "" || !hasProbability || answer.Probability < 0 || answer.Probability > 1 {
 			return judgment.Answer{}, fmt.Errorf("incomplete choice")
 		}
 	case "noul":
-		_, hasProbability := fields["probability"]
 		if answer.Bool == nil && !hasProbability && len(answer.Distribution) == 0 {
 			return judgment.Answer{}, fmt.Errorf("incomplete noul")
 		}

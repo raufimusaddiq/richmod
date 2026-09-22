@@ -40,9 +40,11 @@ func TestEvaluateUsesNativeSystemOneEndpointAndStrictAnswers(t *testing.T) {
 
 func TestEvaluateRejectsMissingUnexpectedAndInvalidAnswers(t *testing.T) {
 	for name, body := range map[string]string{
-		"missing":    `{"answers":{}}`,
-		"unexpected": `{"answers":{"other":{"type":"choice","choice":"X","probability":1}}}`,
-		"invalid":    `{"answers":{"route":{"type":"choice","choice":"X","probability":2}}}`,
+		"missing":          `{"answers":{}}`,
+		"unexpected":       `{"answers":{"other":{"type":"choice","choice":"X","probability":1}}}`,
+		"invalid":          `{"answers":{"route":{"type":"choice","choice":"X","probability":2}}}`,
+		"no probability":   `{"answers":{"route":{"type":"choice","choice":"X"}}}`,
+		"null probability": `{"answers":{"route":{"type":"choice","choice":"X","probability":null}}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
