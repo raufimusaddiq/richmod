@@ -35,7 +35,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		{Name: "record_transaction_batch", Description: "Stage 1-10 observed household IDR transactions for explicit confirmation.", Parameters: objectSchema(map[string]any{"items": map[string]any{"type": "array", "minItems": 1, "maxItems": 10, "items": entry}}, []string{"items"})},
 		{Name: "query_spending", Description: "Ask Go for deterministic expense totals for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
 		{Name: "query_cashflow", Description: "Ask Go for deterministic cash-flow totals for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
-		{Name: "record_transfer", Description: "Record a confirmed whole-IDR transfer using human-readable account hints only. Go resolves each hint uniquely inside this household, reconciles existing canonical transactions, and never accepts or guesses database IDs. destination_wealth_account_hint must be null for INTERNAL_TRANSFER and is required otherwise.", Parameters: objectSchema(map[string]any{"amount_idr": stringType, "source_account_hint": stringType, "destination_wealth_account_hint": nullString, "purpose": map[string]any{"type": "string", "enum": []string{"SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT", "INTERNAL_TRANSFER"}}, "date_reference": dateRef, "explicit_date": nullString, "local_time": nullString, "description": nullString}, []string{"amount_idr", "source_account_hint", "destination_wealth_account_hint", "purpose", "date_reference", "explicit_date", "local_time", "description"})},
+		{Name: "record_transfer", Description: "Record an observed whole-IDR transfer between the household's own accounts, using human-readable account hints only. Supply amount, source, destination Wealth hint, and date/time; omit the destination hint for a plain transfer between two transaction accounts. Go resolves each hint uniquely inside this household, decides the canonical transfer purpose itself, reconciles existing canonical transactions, and never accepts or guesses database IDs.", Parameters: objectSchema(map[string]any{"amount_idr": stringType, "source_account_hint": stringType, "destination_wealth_account_hint": nullString, "date_reference": dateRef, "explicit_date": nullString, "local_time": nullString, "description": nullString}, []string{"amount_idr", "source_account_hint", "destination_wealth_account_hint", "date_reference", "explicit_date", "local_time", "description"})},
 		{Name: "query_savings", Description: "Ask Go for deterministic confirmed savings totals, using canonical savings purposes only.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
 		{Name: "query_wealth", Description: "Ask Go for net worth from the latest complete Wealth Snapshot and its observed timestamp.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "list_wealth_accounts", Description: "Ask Go for active household Wealth Accounts.", Parameters: objectSchema(map[string]any{}, []string{})},
@@ -225,7 +225,6 @@ type transferArgs struct {
 	Amount                       string  `json:"amount_idr"`
 	SourceAccountHint            string  `json:"source_account_hint"`
 	DestinationWealthAccountHint *string `json:"destination_wealth_account_hint"`
-	Purpose                      string  `json:"purpose"`
 	DateReference                string  `json:"date_reference"`
 	ExplicitDate                 *string `json:"explicit_date"`
 	LocalTime                    *string `json:"local_time"`
@@ -316,12 +315,11 @@ func validateTypedArgs(value any) error {
 		}
 	case *transferArgs:
 		n, ok := new(big.Int).SetString(v.Amount, 10)
-		validPurpose := map[string]bool{"SAVINGS_TRANSFER": true, "INVESTMENT_CONTRIBUTION": true, "ASSET_PURCHASE": true, "DEBT_PRINCIPAL_PAYMENT": true, "INTERNAL_TRANSFER": true}[v.Purpose]
-		destination := ""
-		if v.DestinationWealthAccountHint != nil {
-			destination = strings.TrimSpace(*v.DestinationWealthAccountHint)
-		}
-		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || !validPurpose || (v.Purpose == "INTERNAL_TRANSFER" && destination != "") || (v.Purpose != "INTERNAL_TRANSFER" && destination == "") || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
+		// Purpose is deliberately absent: it is a bounded semantic Choice owned by
+		// the judgment plane, not an argument the generative model gets to assert
+		// (PRD §13). A missing destination hint is fine here because INTERNAL_TRANSFER
+		// legitimately has none; the purpose resolver rules on which case applies.
+		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")
 		}
 	case *searchArgs:

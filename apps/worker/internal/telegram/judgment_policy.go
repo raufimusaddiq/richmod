@@ -2,12 +2,18 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
+
+// errJudgmentUnavailable is the single sentinel for "the bounded decision plane
+// could not answer". Callers must fail closed: it is infrastructure state, not
+// semantic uncertainty (PRD §9).
+var errJudgmentUnavailable = errors.New("judgment plane is not configured")
 
 // judgmentPolicyVersion identifies the threshold policy set that produced a
 // decision. Reproducibility requires model version + policy version + bounded
@@ -20,13 +26,14 @@ const judgmentPolicyVersion = "2026-09-jev2"
 type judgmentTask string
 
 const (
-	judgmentTaskRoute             judgmentTask = "ROUTE"
-	judgmentTaskTransaction       judgmentTask = "TRANSACTION_SEMANTICS"
-	judgmentTaskPendingAction     judgmentTask = "PENDING_ACTION"
-	judgmentTaskPendingBatch      judgmentTask = "PENDING_BATCH"
-	judgmentTaskSalaryChoice      judgmentTask = "SALARY_CHOICE"
-	judgmentTaskMerchantLearning  judgmentTask = "MERCHANT_LEARNING"
-	judgmentTaskReviewAction      judgmentTask = "REVIEW_ACTION"
+	judgmentTaskRoute            judgmentTask = "ROUTE"
+	judgmentTaskTransaction      judgmentTask = "TRANSACTION_SEMANTICS"
+	judgmentTaskPendingAction    judgmentTask = "PENDING_ACTION"
+	judgmentTaskPendingBatch     judgmentTask = "PENDING_BATCH"
+	judgmentTaskSalaryChoice     judgmentTask = "SALARY_CHOICE"
+	judgmentTaskMerchantLearning judgmentTask = "MERCHANT_LEARNING"
+	judgmentTaskReviewAction     judgmentTask = "REVIEW_ACTION"
+	judgmentTaskTransferPurpose  judgmentTask = "TRANSFER_PURPOSE"
 )
 
 // judgmentOutcome classifies what Go policy did with a bounded answer. The
@@ -35,12 +42,12 @@ const (
 type judgmentOutcome string
 
 const (
-	judgmentOutcomeAccepted              judgmentOutcome = "ACCEPTED"
-	judgmentOutcomeClarification         judgmentOutcome = "CLARIFICATION"
-	judgmentOutcomeReview                judgmentOutcome = "REVIEW"
-	judgmentOutcomeRejected              judgmentOutcome = "REJECTED"
-	judgmentOutcomeProviderFailure       judgmentOutcome = "PROVIDER_FAILURE"
-	judgmentOutcomeJudgmentUnavailable   judgmentOutcome = "JUDGMENT_UNAVAILABLE"
+	judgmentOutcomeAccepted            judgmentOutcome = "ACCEPTED"
+	judgmentOutcomeClarification       judgmentOutcome = "CLARIFICATION"
+	judgmentOutcomeReview              judgmentOutcome = "REVIEW"
+	judgmentOutcomeRejected            judgmentOutcome = "REJECTED"
+	judgmentOutcomeProviderFailure     judgmentOutcome = "PROVIDER_FAILURE"
+	judgmentOutcomeJudgmentUnavailable judgmentOutcome = "JUDGMENT_UNAVAILABLE"
 )
 
 // judgmentOutcomeFor maps a policy result onto a telemetry outcome. A provider
@@ -68,6 +75,10 @@ var judgmentPolicy = struct {
 	// Transaction governs whether a transaction direction was chosen safely.
 	Transaction judgment.ChoicePolicy
 	Category    judgment.ChoicePolicy
+	// TransferPurpose decides which canonical transfer purpose a resolved
+	// source/destination pair represents. It is a bounded Choice over Go-owned
+	// candidates, so it carries the same strictness as the other choices.
+	TransferPurpose judgment.ChoicePolicy
 	// Support Nouls answer "does this harvested candidate belong to the request?".
 	AmountSupport judgment.NoulPolicy
 	DateSupport   judgment.NoulPolicy
@@ -77,15 +88,16 @@ var judgmentPolicy = struct {
 	Ambiguity judgment.NoulPolicy
 	Consent   judgment.NoulPolicy
 }{
-	Version:       judgmentPolicyVersion,
-	Route:         judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20},
-	Server:        judgment.ChoicePolicy{MinTop: 0.80, MinMargin: 0.15, MinConfidence: 0.60},
-	Transaction:   judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60},
-	Category:      judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60},
-	AmountSupport: judgment.NoulPolicy{High: 0.85, Low: 0.15},
-	DateSupport:   judgment.NoulPolicy{High: 0.85, Low: 0.15},
-	Ambiguity:     judgment.NoulPolicy{High: 0.15, Low: 0.05},
-	Consent:       judgment.NoulPolicy{High: 0.85, Low: 0.15},
+	Version:         judgmentPolicyVersion,
+	Route:           judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20},
+	Server:          judgment.ChoicePolicy{MinTop: 0.80, MinMargin: 0.15, MinConfidence: 0.60},
+	Transaction:     judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60},
+	Category:        judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60},
+	TransferPurpose: judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60},
+	AmountSupport:   judgment.NoulPolicy{High: 0.85, Low: 0.15},
+	DateSupport:     judgment.NoulPolicy{High: 0.85, Low: 0.15},
+	Ambiguity:       judgment.NoulPolicy{High: 0.15, Low: 0.05},
+	Consent:         judgment.NoulPolicy{High: 0.85, Low: 0.15},
 }
 
 // judgmentCallMetric is one bounded-call observation. It is deliberately
@@ -168,10 +180,10 @@ func JudgmentMetricsFor(record func(context.Context, gateway.CallMetric)) judgme
 		},
 		Decision: func(task judgmentTask, outcome judgmentOutcome) {
 			record(context.Background(), gateway.CallMetric{
-				Task:       string(task),
-				Protocol:   "systemone",
-				Status:     string(outcome),
-				CallKind:   "DECISION",
+				Task:     string(task),
+				Protocol: "systemone",
+				Status:   string(outcome),
+				CallKind: "DECISION",
 			})
 		},
 	}
@@ -182,6 +194,12 @@ func JudgmentMetricsFor(record func(context.Context, gateway.CallMetric)) judgme
 // decision task without touching prompt or answer content (PRD §17).
 func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID string, request judgment.Request) (judgment.Result, error) {
 	started := time.Now()
+	if p.judgment == nil {
+		// Unconfigured judgment plane. Callers own the fail-closed policy; this
+		// wrapper must never turn "not configured" into a nil dereference.
+		p.metrics.recordCall(judgmentCallMetric{Task: task, Status: "ERROR", ErrorClass: "UNCONFIGURED", CallKind: "JUDGMENT"})
+		return judgment.Result{}, errJudgmentUnavailable
+	}
 	result, err := p.judgment.Evaluate(ctx, requestID, request)
 	status := "SUCCESS"
 	if err != nil {
