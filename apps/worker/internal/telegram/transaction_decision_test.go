@@ -222,6 +222,7 @@ func TestBothTransactionChannelsShareOneDecisionPolicy(t *testing.T) {
 
 // A fact-free proposal with an exact deterministic category skips Jev entirely.
 func TestExactCategorySkipsJudgmentWithoutCallingProvider(t *testing.T) {
+
 	engine := &stubJudgmentEngine{err: errors.New("must not be called")}
 	processor := &Processor{judgment: engine}
 	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "bayar kopi", validatedExtraction{Type: "EXPENSE", Amount: "25000", CategorySlug: "dining"}, []string{"dining"}, true)
@@ -233,6 +234,51 @@ func TestExactCategorySkipsJudgmentWithoutCallingProvider(t *testing.T) {
 	}
 	if !decision.decisionAllowed() || decision.DecisionSource != "DETERMINISTIC_POLICY" {
 		t.Fatalf("expected deterministic decision, got %+v", decision)
+	}
+}
+
+// One round trip: the post-extraction path must take the category out of the same
+// bounded bundle that decides direction, support, and ambiguity, instead of
+// asking a separate category-only call after extraction (PRD §10, Sprint B).
+func TestPostExtractionDecisionCarriesCategoryInOneCall(t *testing.T) {
+	engine := &stubJudgmentEngine{answers: transactionBundle("EXPENSE", true, true, false, "dining"), categoryChoice: "dining"}
+	processor := &Processor{judgment: engine}
+	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Merchant: "makan siang"}, []string{"dining", "transport"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine.calls != 1 {
+		t.Fatalf("expected exactly one bounded call, got %d", engine.calls)
+	}
+	if !decision.decisionAllowed() {
+		t.Fatalf("expected a confirming decision, got %+v", decision)
+	}
+	if decision.CategorySlug != "dining" {
+		t.Fatalf("category must come from the shared bundle, got %q", decision.CategorySlug)
+	}
+	if _, asked := engine.request.Questions["category"]; !asked {
+		t.Fatalf("the same request must carry the category question, questions=%v", engine.request.Questions)
+	}
+}
+
+// A confirmed merchant rule is deterministic server state, so the decision is
+// authorized with no bounded call at all — and it must carry the matched slug,
+// because extraction is allowed to send no category in that case (Hermes PR #99).
+func TestConfirmedAliasDecisionCarriesMatchedCategory(t *testing.T) {
+	engine := &stubJudgmentEngine{err: errors.New("must not be called")}
+	processor := &Processor{judgment: engine}
+	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "shopeefood 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Merchant: "ShopeeFood", CategorySlug: "dining"}, []string{"dining"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine.calls != 0 {
+		t.Fatalf("confirmed alias must not call the provider, calls=%d", engine.calls)
+	}
+	if !decision.decisionAllowed() {
+		t.Fatalf("confirmed alias should authorize confirmation: %+v", decision)
+	}
+	if decision.CategorySlug != "dining" {
+		t.Fatalf("decision must carry the matched slug, got %q", decision.CategorySlug)
 	}
 }
 

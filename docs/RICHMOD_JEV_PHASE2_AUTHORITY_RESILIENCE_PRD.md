@@ -16,10 +16,23 @@
 > surface and refuses mutations, and bounded decision provenance is persisted in
 > `judgment_decision` (migration 00056).
 >
+> Sprint B is implemented in `feat/jev-efficiency-provenance`:
+> `record_transaction` now spends **one** System One round trip — the same
+> bundled request decides direction, amount/date support, material ambiguity,
+> and category, and the post-extraction path consumes that decision's category
+> instead of issuing a second category-only call (the now-removed
+> `resolveCategoryWithJudgment`). Deterministic confirmed merchant aliases still
+> short-circuit the bounded call entirely via `exactMerchantCategory`. All
+> thresholds and policy values moved into one versioned registry
+> (`judgment_policy.go`, `judgmentPolicyVersion = 2026-09-jev2`), every bounded
+> call is attributed to a named `judgmentTask`, and each consumed decision is
+> counted with its product outcome so review/clarification rate per decision
+> task and Jev-vs-generative share are measurable (§17/§18/§25).
+>
 > Still on the target design: the real LiteRouter → TypeSafe opt-in smoke (§12),
 > transfer-purpose ownership and the zero-generative transfer fast path (§13/§14),
-> Jev-vs-generative product metrics (§17), duplicate bounded generative tool
-> removal (§19), and Sprint D/E evidence-channel and insight work (§20–§22).
+> duplicate bounded generative tool removal (§19), and Sprint D/E
+> evidence-channel and insight work (§20–§22).
 **Repository:** `raufimusaddiq/richmod`  
 **Baseline:** `main@68fbd0fc73887b95983e8f460c4bd3d26eb34ca7`  
 **Date:** 2026-09-22  

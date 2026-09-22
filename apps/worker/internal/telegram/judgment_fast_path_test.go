@@ -14,7 +14,7 @@ func TestJudgmentPeriodChoiceMapsToExactRange(t *testing.T) {
 	now := time.Date(2026, 9, 23, 10, 0, 0, 0, jakartaLocation())
 	processor := &Processor{}
 	criteria := judgment.ChoiceCriteria(judgmentPeriodCriteria)
-	policy := judgmentRoutePolicy
+	policy := judgmentPolicy.Route
 	for period, wantFrom := range map[string]string{
 		"TODAY":      "2026-09-23",
 		"THIS_WEEK":  "2026-09-21",

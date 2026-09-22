@@ -79,10 +79,12 @@ func run(logger *slog.Logger) error {
 		if judgmentModel == "" {
 			return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
 		}
-		judgmentClient := systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second)).WithRecorder(func(_ context.Context, metric systemone.Metric) {
-			recordLLMCall(context.Background(), gateway.CallMetric{Task: "JUDGMENT", Protocol: "systemone", Model: metric.Model, Status: metric.Status, ErrorClass: metric.ErrorClass, DurationMs: metric.DurationMs, CallKind: "JUDGMENT"})
-		})
+		judgmentClient := systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second))
 		processor.SetJudgment(judgmentClient)
+		// Task-attributed bounded telemetry: the client records the transport call,
+		// and the decision counter records what policy did with the answer, which
+		// is what makes review rate per decision task measurable (PRD §17).
+		processor.SetJudgmentMetrics(telegram.JudgmentMetricsFor(recordLLMCall))
 	}
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
 	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))

@@ -71,16 +71,19 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		candidate = simpleTransactionCandidate{}
 	}
 	request := p.initialJudgmentRequest(text, state, candidate)
-	result, err := p.judgment.Evaluate(ctx, sourceID, request)
+	result, err := p.evaluate(ctx, judgmentTaskRoute, sourceID, request)
 	if err != nil {
 		// Provider failure is not semantic uncertainty (PRD §9). READs may still
 		// degrade to a generative READ-only turn; mutation lanes must not.
+		p.metrics.recordDecision(judgmentTaskRoute, judgmentOutcomeProviderFailure)
 		return p.degradeWithoutJudgment(ctx, sourceID, householdID, update, text, now, state)
 	}
 	answer, ok := result.Answers["route"]
-	if !ok || !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentRouteCriteria), judgmentRoutePolicy) || !contains(judgmentRoutes, answer.Choice) {
+	if !ok || !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentRouteCriteria), judgmentPolicy.Route) || !contains(judgmentRoutes, answer.Choice) {
+		p.metrics.recordDecision(judgmentTaskRoute, judgmentOutcomeClarification)
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
 	}
+	p.metrics.recordDecision(judgmentTaskRoute, judgmentOutcomeAccepted)
 	// Only the aggregate READ routes consume a reporting period. Every other
 	// route must keep working when the period is CUSTOM_OR_UNCLEAR.
 	var period assistantRange
@@ -110,9 +113,6 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba jelaskan lagi dengan lebih spesifik.")
 	}
 }
-
-// judgmentRoutePolicy is the versioned acceptance policy for READ route choice.
-var judgmentRoutePolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20}
 
 // initialJudgmentRequest bundles every bounded question that can be answered
 // from one shared server-state snapshot: route, reporting period, and — when Go
@@ -193,7 +193,7 @@ func (p *Processor) finishJudgmentSimpleTransaction(ctx context.Context, sourceI
 // The second return reports whether a period was usable; READ routes must never
 // silently substitute THIS_MONTH when the period is unclear.
 func (p *Processor) resolveJudgmentPeriod(ctx context.Context, householdID string, now time.Time, answer judgment.Answer) (assistantRange, bool) {
-	if !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentPeriodCriteria), judgmentRoutePolicy) {
+	if !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentPeriodCriteria), judgmentPolicy.Route) {
 		return assistantRange{}, false
 	}
 	switch answer.Choice {
@@ -221,18 +221,18 @@ func contains(values []string, target string) bool {
 // semantic decision object. It is used by both the harvested fast path and the
 // post-extraction evaluator so neither path grows its own acceptance rules.
 func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTransactionCandidate, categories []string) TransactionSemanticDecision {
-	decision := TransactionSemanticDecision{DecisionSource: "JEV", Model: result.Model, PolicyVersion: judgmentPolicyVersion}
+	decision := TransactionSemanticDecision{DecisionSource: "JEV", Model: result.Model, PolicyVersion: judgmentPolicy.Version}
 	typeAnswer, ok := result.Answers["transaction_type"]
-	decision.TypeAccepted = ok && judgment.AcceptChoice(typeAnswer, judgmentTypeCriteria, judgmentTransactionPolicy) && (typeAnswer.Choice == "INCOME" || typeAnswer.Choice == "EXPENSE")
+	decision.TypeAccepted = ok && judgment.AcceptChoice(typeAnswer, judgmentTypeCriteria, judgmentPolicy.Transaction) && (typeAnswer.Choice == "INCOME" || typeAnswer.Choice == "EXPENSE")
 	if decision.TypeAccepted {
 		decision.TransactionType = typeAnswer.Choice
 	}
 	decision.RouteAccepted = true
-	decision.AmountSupported = noulSupported(result.Answers, "amount_support", judgmentAmountSupportPolicy)
-	decision.DateSupported = noulSupported(result.Answers, "date_support", judgmentDateSupportPolicy)
-	decision.MaterialAmbiguity = noulSupported(result.Answers, "material_ambiguity", judgmentAmbiguityPolicy)
+	decision.AmountSupported = noulSupported(result.Answers, "amount_support", judgmentPolicy.AmountSupport)
+	decision.DateSupported = noulSupported(result.Answers, "date_support", judgmentPolicy.DateSupport)
+	decision.MaterialAmbiguity = noulSupported(result.Answers, "material_ambiguity", judgmentPolicy.Ambiguity)
 	if decision.TransactionType == "EXPENSE" && len(categories) > 0 {
-		if categoryAnswer, exists := result.Answers["category"]; exists && categoryAnswer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(categoryAnswer, judgment.CategoryCriteria(categories), judgmentCategoryPolicy) && contains(categories, categoryAnswer.Choice) {
+		if categoryAnswer, exists := result.Answers["category"]; exists && categoryAnswer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(categoryAnswer, judgment.CategoryCriteria(categories), judgmentPolicy.Category) && contains(categories, categoryAnswer.Choice) {
 			decision.CategorySlug, decision.CategoryAccepted = categoryAnswer.Choice, true
 		}
 	}
