@@ -58,6 +58,29 @@ asserts the provider accepts the native question schema, returns a real
 versioned model id, and picks inside the server-supplied criteria. Supply only
 the LiteRouter client key; no upstream provider key belongs in Richmod.
 
+Run the smoke from a host that shares a Docker network with LiteRouter and use
+its internal address (`http://9router:20128/v1`), not the public hostname. The
+worker reaches LiteRouter directly over the container network by design; sending
+a bounded decision out through Cloudflare and back into the same host would add
+a public round trip and a needless failure surface for no benefit. The internal
+name only resolves inside those networks, so a shell on the host itself cannot
+reach it:
+
+```bash
+docker run --rm --network idx_default -v "$PWD:/src" \
+  -v richmod-gomod:/go/pkg/mod -w /src/apps/worker \
+  --env-file /opt/family-finance/finance.env \
+  -e SYSTEMONE_SMOKE_BASE_URL=http://9router:20128/v1 \
+  golang:1.27-alpine sh -c '
+    export SYSTEMONE_SMOKE_LITEROUTER_KEY="${LLM_GATEWAY_API_KEY}"
+    go test ./internal/judgment/systemone/ -run TestRealLiteRouterSystemOneSmoke -v'
+```
+
+The smoke reports the concrete version the alias resolved to (for example
+`jev-1.13.0`). `typesafe/jev-latest` is intentionally an alias; the concrete
+version is what belongs on a stored `judgment_decision` row, so a decision stays
+reproducible after the alias advances (PRD §18).
+
 Off-host storage requires `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_PREFIX`,
 `OSS_ACCESS_KEY`, and `OSS_SECRET_KEY`. API and worker mirror private attachments
 under `<prefix>/attachments`; backup stores encrypted restic data under
