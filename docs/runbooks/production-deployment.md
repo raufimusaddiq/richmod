@@ -72,7 +72,7 @@ docker run --rm --network idx_default -v "$PWD:/src" \
   --env-file /opt/family-finance/finance.env \
   -e SYSTEMONE_SMOKE_BASE_URL=http://9router:20128/v1 \
   golang:1.27-alpine sh -c '
-    export SYSTEMONE_SMOKE_LITEROUTER_KEY="$LLM_GATEWAY_API_KEY"
+    export SYSTEMONE_SMOKE_LITEROUTER_KEY="${LLM_GATEWAY_API_KEY}"
     go test ./internal/judgment/systemone/ -run TestRealLiteRouterSystemOneSmoke -v'
 ```
 
