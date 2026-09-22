@@ -399,6 +399,20 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		if err != nil {
 			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum valid. Pastikan jenis, nominal, dan tanggal/waktu bila disebutkan.")
 		}
+		if value.Type == "EXPENSE" && p.judgment != nil {
+			allowedCategories, categoriesErr := p.categorySlugs(ctx, householdID)
+			if categoriesErr != nil {
+				return true, categoriesErr
+			}
+			category, confidence, ok, classifyErr := p.resolveCategoryWithJudgment(ctx, sourceID, householdID, value.Merchant, value.Description, allowedCategories)
+			if classifyErr != nil {
+				return true, classifyErr
+			}
+			if !ok {
+				return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori pengeluaran belum cukup jelas untuk dicatat otomatis.")
+			}
+			value.CategorySlug, value.CategoryConfidence = category, confidence
+		}
 		if value.Type == "EXPENSE" {
 			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value); offered {
 				return true, err
