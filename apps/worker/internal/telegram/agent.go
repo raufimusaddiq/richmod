@@ -146,9 +146,16 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		ReviewBindingCount:      reviewCount,
 		MerchantLearningBinding: merchantBinding,
 		MerchantLearningCount:   merchantCount,
+		HasPendingAction:        contextState.HasPendingAction,
+		HasPendingBatch:         contextState.HasPendingBatch,
+		HasSalaryChoice:         contextState.HasSalaryChoice,
+		ReviewMode:              contextState.ReviewMode,
 	}
 	if workflowScope == agentWorkflowPendingBatch {
 		state.RequiredTool = "pending_batch_decision"
+	}
+	if handled, err := p.tryJudgmentBoundWorkflow(ctx, state, text); handled || err != nil {
+		return err
 	}
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)

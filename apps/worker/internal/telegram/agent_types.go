@@ -47,18 +47,22 @@ type agentPublicRef struct {
 }
 
 type agentState struct {
-	SourceEventID string
-	HouseholdID   string
-	Update        telegramUpdate
-	Now           time.Time
-	Categories    []string
-	Tools         []gateway.ToolDefinition
-	RequiredTool  string
-	TurnContext   map[string]any
-	History       []agentToolResult
-	ModelPhases   int
-	ReadCalls     int
-	SideEffects   int
+	SourceEventID    string
+	HouseholdID      string
+	Update           telegramUpdate
+	Now              time.Time
+	Categories       []string
+	Tools            []gateway.ToolDefinition
+	RequiredTool     string
+	TurnContext      map[string]any
+	History          []agentToolResult
+	ModelPhases      int
+	ReadCalls        int
+	SideEffects      int
+	HasPendingAction bool
+	HasPendingBatch  bool
+	HasSalaryChoice  bool
+	ReviewMode       string
 
 	// Native continuation state for the immediately preceding READ phase. The
 	// gateway consumes these as provider-native tool outputs on the next model

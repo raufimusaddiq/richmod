@@ -1,5 +1,43 @@
 # RICHMOD JEV / SYSTEM ONE INTEGRATION PRD
 
+> **Implementation status (2026-09-22), updated in the same branch as the code.**
+> PRD baseline `main@81e466c`. The first merged increment (#91) added the System
+> One client, strict decode/telemetry, configuration, and the Jev-first Telegram
+> READ routing fast path. The current increment finishes the bounded-workflow
+> and simple-command gaps and records what remains deferred. This header is the
+> authoritative status; sections below stay as the original target design.
+
+## Landed in this branch
+
+- System One client, strict typed decode, probability/margin enforcement,
+  `llm_call` telemetry, `JUDGMENT_MODEL` configuration (PR #91).
+- Jev-first Telegram routing for bounded READs (`/spending`, `/cashflow`,
+  `/savings`, `/wealth`, review listing, out-of-scope) with no generative call.
+- Bounded server-state replies resolved by Jev before any generative agent:
+  pending correction confirm/cancel, pending batch confirm/cancel/defer,
+  salary choice `PRIMARY|ORDINARY|IGNORE`, merchant-learning explicit consent,
+  and fact-free review actions (for example `CONFIRM`, `IGNORE`,
+  `OWN_ACCOUNT_TRANSFER`, `LEAVE_UNALLOCATED`).
+- Simple explicit transaction commands complete without a generative call when
+  Go harvests exactly one amount candidate: Go parses amount/date, Jev answers
+  bounded `type` and `category`, then Go validates and persists.
+- Jev category classification for expense transactions that need free-form
+  merchant/description extraction, after deterministic merchant aliases.
+
+## Deliberately deferred (not claimed complete)
+
+Anything not listed above is still on the target design and runs on the
+existing generative path. Largest remaining items: Jev ownership of Bank Email
+semantic verification (the extractor still emits `confidence` that Go policy
+consumes in the frozen `SPENDING_ONLY` pipeline), Financial Provider Email and
+reconciliation semantic Noul checks, document-pipeline bounded field judgments
+(a text-backed evidence path is required before Jev can judge fields it never
+saw), insight-family selection, transfer-purpose classification for genuinely
+ambiguous cases, and the richer decision telemetry in §26 (question keys,
+outcome, `used_generative_fallback`). The native tool catalog is intentionally
+unchanged: it stays as the funnel and fallback while Jev handles the bounded
+cases above.
+
 **Status:** Ready for implementation — direct production integration  
 **Repository:** `raufimusaddiq/richmod`  
 **Target branch:** `RICHMOD`  
