@@ -227,7 +227,7 @@ func (p *Processor) tryJudgmentSimpleTransaction(ctx context.Context, sourceID, 
 			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori pengeluaran belum cukup jelas untuk dicatat otomatis.")
 		}
 		category = categoryAnswer.Choice
-		categoryConfidence = categoryAnswer.Probability
+		categoryConfidence = categoryAnswer.Confidence
 	}
 	resolved, err := resolveTransactionTime(now, &candidate.DateRef, stringPtr(candidate.ExplicitDate), nil)
 	if err != nil {
@@ -262,7 +262,7 @@ func (p *Processor) resolveCategoryWithJudgment(ctx context.Context, sourceID, h
 	if len(categories) == 0 {
 		return "", 0, false, nil
 	}
-	choices := append(append([]string{}, categories...), "OTHER_OR_UNCLEAR")
+	criteria := judgment.CategoryCriteria(categories)
 	result, err := p.judgment.Evaluate(ctx, sourceID, judgment.Request{
 		State: map[string]any{
 			"merchant":               merchant,
@@ -270,7 +270,7 @@ func (p *Processor) resolveCategoryWithJudgment(ctx context.Context, sourceID, h
 			"allowed_category_slugs": categories,
 		},
 		Questions: map[string]judgment.Question{
-			"category": {Type: "choice", Instructions: "Choose the best active expense category. Use OTHER_OR_UNCLEAR when the evidence does not support a safe choice.", Criteria: choices},
+			"category": {Type: "choice", Instructions: "Choose the best active expense category. Use OTHER_OR_UNCLEAR when the evidence does not support a safe choice.", Criteria: criteria},
 		},
 	})
 	if err != nil {
