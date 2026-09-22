@@ -337,6 +337,14 @@ Minimum assertions:
 
 This smoke should run only in an approved secret-bearing environment.
 
+Status: implemented as the opt-in `TestRealLiteRouterSystemOneSmoke` in
+`apps/worker/internal/judgment/systemone/smoke_test.go`. It is skipped unless
+`SYSTEMONE_SMOKE_BASE_URL` and `SYSTEMONE_SMOKE_API_KEY` are set, so CI stays
+green without live credits, and it asserts the real provider accepts the native
+question schema, returns an actual versioned model id, and answers inside the
+server criteria. Only the LiteRouter client key is read; no upstream provider
+key is configured in Richmod. See `docs/runbooks/production-deployment.md`.
+
 ---
 
 # 8. P0 Correctness — READ Period Is Still Hardcoded
