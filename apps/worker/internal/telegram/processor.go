@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 const extractionPrompt = `You are Richmod's finance-only conversational understanding layer.
@@ -58,10 +59,11 @@ type Gateway interface {
 }
 
 type Processor struct {
-	pool    *pgxpool.Pool
-	gateway Gateway
-	now     func() time.Time
-	bot     *Bot
+	pool     *pgxpool.Pool
+	gateway  Gateway
+	judgment judgment.Engine
+	now      func() time.Time
+	bot      *Bot
 }
 
 type extraction struct {
@@ -138,6 +140,8 @@ type telegramUpdate struct {
 func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm, now: time.Now}
 }
+
+func (p *Processor) SetJudgment(engine judgment.Engine) { p.judgment = engine }
 
 func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
 

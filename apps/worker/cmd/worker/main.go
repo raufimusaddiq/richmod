@@ -18,6 +18,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerInsight "github.com/raufimusaddiq/richmod/apps/worker/internal/insight"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment/systemone"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/residual"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
@@ -69,6 +70,12 @@ func run(logger *slog.Logger) error {
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	processor := telegram.NewProcessor(pool, llm)
 	processor.SetBot(bot)
+	if judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL")); judgmentModel != "" {
+		judgmentClient := systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second)).WithRecorder(func(_ context.Context, metric systemone.Metric) {
+			recordLLMCall(context.Background(), gateway.CallMetric{Task: "JUDGMENT", Protocol: "systemone", Model: metric.Model, Status: metric.Status, ErrorClass: metric.ErrorClass, DurationMs: metric.DurationMs, CallKind: "JUDGMENT"})
+		})
+		processor.SetJudgment(judgmentClient)
+	}
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
 	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))
 	if err != nil {
@@ -150,6 +157,18 @@ func envPositiveInt(name string, fallback, maximum int) int {
 		return maximum
 	}
 	return value
+}
+
+func envDuration(name string, fallback, maximum time.Duration) time.Duration {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	duration := time.Duration(value) * time.Millisecond
+	if duration > maximum {
+		return maximum
+	}
+	return duration
 }
 
 func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int64, error) {

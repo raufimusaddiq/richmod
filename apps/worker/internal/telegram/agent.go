@@ -108,6 +108,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	now := p.now().In(jakartaLocation())
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
+	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, contextState); handled || err != nil {
+		return err
+	}
 
 	tools := AgentFinanceTools(
 		categories,
