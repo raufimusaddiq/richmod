@@ -21,6 +21,9 @@ type signalSelection struct {
 	CashflowPattern       bool
 	SavingsPattern        bool
 	MaterialAmbiguity     bool
+	// AmbiguityDecidedNotAmbiguous records that the ambiguity question resolved
+	// affirmatively to "no". Undecided and "yes" both block prose.
+	AmbiguityDecidedNotAmbiguous bool
 
 	Model         string
 	PolicyVersion string
@@ -31,8 +34,24 @@ type signalSelection struct {
 // the deterministic response, which is both cheaper and safer than narrating
 // nothing.
 func (s signalSelection) noteworthy() bool {
-	return s.Family != "" && s.Family != "NONE" && !s.MaterialAmbiguity &&
-		(s.SpendingChange || s.CategoryShift || s.MerchantConcentration || s.CashflowPattern || s.SavingsPattern)
+	// Ambiguity must be affirmatively ruled out. A decided "not ambiguous" is the
+	// only safe reading; the undecided middle band of the ambiguity policy blocks
+	// prose just like a positive ambiguity ruling does (Hermes PR #102).
+	if !s.AmbiguityDecidedNotAmbiguous || s.Family == "" || s.Family == "NONE" {
+		return false
+	}
+	flags := map[string]bool{
+		"spending_change_material":          s.SpendingChange,
+		"category_shift_material":           s.CategoryShift,
+		"merchant_concentration_noteworthy": s.MerchantConcentration,
+		"cashflow_pattern_noteworthy":       s.CashflowPattern,
+		"savings_pattern_noteworthy":        s.SavingsPattern,
+	}
+	// Only the claim belonging to the named family counts, so a bundle that names
+	// one family while affirming a different predicate is rejected instead of
+	// authorizing prose on an inconsistent ruling.
+	claim, known := familyClaim[s.Family]
+	return known && flags[claim]
 }
 
 // InsightSignalPolicyVersion marks the thresholds behind these rulings so a
@@ -105,7 +124,10 @@ func (p *Processor) selectSignal(ctx context.Context, insightID string, facts js
 	selection.MerchantConcentration = noulSelected(result.Answers, "merchant_concentration_noteworthy")
 	selection.CashflowPattern = noulSelected(result.Answers, "cashflow_pattern_noteworthy")
 	selection.SavingsPattern = noulSelected(result.Answers, "savings_pattern_noteworthy")
-	selection.MaterialAmbiguity = noulSelected(result.Answers, "material_ambiguity")
+	// Ambiguity is a different question from "is a signal present", so it uses its
+	// own (much stricter) policy. Sharing the signal thresholds would treat the
+	// 0.05-0.15 band as a decided "no" and authorize prose on an ambiguous ruling.
+	selection.MaterialAmbiguity, selection.AmbiguityDecidedNotAmbiguous = noulVerdict(result.Answers, "material_ambiguity", signalPolicy.Ambiguity)
 	return selection, true, nil
 }
 
@@ -114,12 +136,35 @@ func (p *Processor) selectSignal(ctx context.Context, insightID string, facts js
 const noSignalResponse = "Data keuangan periode ini sudah tercatat dan tidak ada perubahan yang mencolok untuk dibahas. Arus kas, pengeluaran, dan alokasi tabungan masih dalam pola yang biasa."
 
 func noulSelected(answers map[string]judgment.Answer, key string) bool {
+	return noulSelectedWith(answers, key, signalPolicy.Signal)
+}
+
+func noulSelectedWith(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) bool {
+	selected, _ := noulVerdict(answers, key, policy)
+	return selected
+}
+
+// noulVerdict separates an affirmative ruling from a decided negative: callers
+// that must fail closed on an undecided answer need both halves.
+func noulVerdict(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) (selected, decidedNotSelected bool) {
 	answer, ok := answers[key]
 	if !ok {
-		return false
+		return false, false
 	}
-	selected, decided := judgment.AcceptNoul(answer, signalPolicy.Signal)
-	return selected && decided
+	selected, decided := judgment.AcceptNoul(answer, policy)
+	return selected, decided && !selected
+}
+
+// familyClaim maps a selected family onto the claim that must support it. A
+// family the model named is not a signal on its own: the matching predicate has
+// to hold too, or the bundle is internally inconsistent and must not authorize
+// prose.
+var familyClaim = map[string]string{
+	"SPENDING_CHANGE":        "spending_change_material",
+	"CATEGORY_SHIFT":         "category_shift_material",
+	"MERCHANT_CONCENTRATION": "merchant_concentration_noteworthy",
+	"CASHFLOW_PATTERN":       "cashflow_pattern_noteworthy",
+	"SAVINGS_PATTERN":        "savings_pattern_noteworthy",
 }
 
 func containsString(values []string, target string) bool {

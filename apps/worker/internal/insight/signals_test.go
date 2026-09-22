@@ -149,6 +149,72 @@ func TestSignalSelectionProviderFailureIsInfrastructure(t *testing.T) {
 	}
 }
 
+// Hermes PR #102: ambiguity must use its own policy. Under the signal thresholds
+// (0.85/0.15) a 0.10 answer reads as a decided "not ambiguous"; under the
+// ambiguity policy (0.15/0.05) it is undecided and must block prose.
+func TestAmbiguityBandBlocksNoteworthy(t *testing.T) {
+	for _, probability := range []float64{0.10, 0.14} {
+		processor := &Processor{verifier: &stubVerifier{answers: map[string]judgment.Answer{
+			"primary_signal_family":             familyAnswer("SPENDING_CHANGE"),
+			"spending_change_material":          noul(0.97),
+			"category_shift_material":           noul(0.02),
+			"merchant_concentration_noteworthy": noul(0.02),
+			"cashflow_pattern_noteworthy":       noul(0.02),
+			"savings_pattern_noteworthy":        noul(0.02),
+			"material_ambiguity":                noul(probability),
+		}}}
+		selection, _, err := processor.selectSignal(context.Background(), "insight-band", facts(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The ambiguity policy (0.15/0.05) leaves this band undecided, so the claim
+		// must be neither affirmed nor denied, and prose must not be authorized.
+		if selection.MaterialAmbiguity {
+			t.Fatalf("probability %v is undecided under the ambiguity policy, not ambiguous", probability)
+		}
+		if selection.noteworthy() {
+			t.Fatalf("probability %v must not authorize prose: %+v", probability, selection)
+		}
+	}
+	processor := &Processor{verifier: &stubVerifier{answers: map[string]judgment.Answer{
+		"primary_signal_family":             familyAnswer("SPENDING_CHANGE"),
+		"spending_change_material":          noul(0.97),
+		"category_shift_material":           noul(0.02),
+		"merchant_concentration_noteworthy": noul(0.02),
+		"cashflow_pattern_noteworthy":       noul(0.02),
+		"savings_pattern_noteworthy":        noul(0.02),
+		"material_ambiguity":                noul(0.20),
+	}}}
+	selection, _, err := processor.selectSignal(context.Background(), "insight-ambiguous", facts(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selection.MaterialAmbiguity || selection.noteworthy() {
+		t.Fatalf("a decided ambiguous ruling must block prose: %+v", selection)
+	}
+}
+
+// Hermes PR #102: a named family must be backed by its own predicate, otherwise
+// the bundle is internally inconsistent and must not authorize prose.
+func TestMismatchedFamilyAndClaimIsNotNoteworthy(t *testing.T) {
+	processor := &Processor{verifier: &stubVerifier{answers: map[string]judgment.Answer{
+		"primary_signal_family":             familyAnswer("CATEGORY_SHIFT"),
+		"spending_change_material":          noul(0.97),
+		"category_shift_material":           noul(0.02),
+		"merchant_concentration_noteworthy": noul(0.02),
+		"cashflow_pattern_noteworthy":       noul(0.02),
+		"savings_pattern_noteworthy":        noul(0.02),
+		"material_ambiguity":                noul(0.02),
+	}}}
+	selection, _, err := processor.selectSignal(context.Background(), "insight-mismatch", facts(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.noteworthy() {
+		t.Fatalf("a family without its own supporting claim must not authorize prose: %+v", selection)
+	}
+}
+
 func TestUnconfiguredSelectionIsNotApproval(t *testing.T) {
 	processor := &Processor{}
 	if _, selected, err := processor.selectSignal(context.Background(), "insight-6", facts(t)); err != nil || selected {
