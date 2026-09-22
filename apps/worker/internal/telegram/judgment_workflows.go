@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -116,6 +115,13 @@ var (
 	judgmentCategoryPolicy    = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
 )
 
+// judgmentAmbiguityPolicy decides whether a candidate is materially ambiguous,
+// and the same High threshold is the ceiling above which a generative model's
+// self-reported confidence stops being usable as a signal at all (PRD §6).
+// A decided "yes" (>= High) blocks automatic confirmation; only a decided
+// "no" (<= Low) lets Go persist. The undecided middle band also fails closed.
+var judgmentAmbiguityPolicy = judgment.NoulPolicy{High: 0.15, Low: 0.05}
+
 // judgmentTypeCriteria is the model-visible option set for transaction type.
 var judgmentTypeCriteria = map[string]any{
 	"INCOME":           "money received",
@@ -171,13 +177,14 @@ func (p *Processor) judgmentNoul(ctx context.Context, state *agentState, text, k
 	return remember, decided, nil
 }
 
-func simpleJevState(text string, candidates map[string]any, categories []string) map[string]any {
-	return map[string]any{
-		"user_text":              "<untrusted_user_message>" + text + "</untrusted_user_message>",
-		"amount_candidates":      candidates["amount_candidates"],
-		"date_reference":         candidates["date_reference"],
-		"allowed_category_slugs": categories,
+// categoriesOrEmpty never fails a transaction turn on a category query error:
+// the decision simply cannot authorize a category, so Go falls back to review.
+func (p *Processor) categoriesOrEmpty(ctx context.Context, householdID string) []string {
+	categories, err := p.categorySlugs(ctx, householdID)
+	if err != nil {
+		return nil
 	}
+	return categories
 }
 
 type simpleTransactionCandidate struct {
@@ -185,60 +192,6 @@ type simpleTransactionCandidate struct {
 	DateRef      string
 	ExplicitDate string
 	Merchant     string
-}
-
-func (p *Processor) tryJudgmentSimpleTransaction(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time) (bool, error) {
-	candidate, ok := harvestSimpleTransaction(text)
-	if !ok || p.judgment == nil {
-		return false, nil
-	}
-	categories, err := p.categorySlugs(ctx, householdID)
-	if err != nil {
-		return true, err
-	}
-	state := simpleJevState(text, map[string]any{"amount_candidates": []string{candidate.Amount}, "date_reference": candidate.DateRef}, categories)
-	questions := map[string]judgment.Question{
-		"type":           {Type: "choice", Instructions: "Choose the transaction direction. Use INCOME for money received and EXPENSE for money spent. Use OTHER_OR_UNCLEAR if ambiguous.", Criteria: judgmentTypeCriteria},
-		"amount_support": {Type: "noul", Instructions: "Does the harvested amount candidate clearly belong to the transaction the user asked to record?"},
-		"date_support":   {Type: "noul", Instructions: "Does the resolved date reference clearly match when this transaction happened?"},
-	}
-	if len(categories) > 0 {
-		questions["category"] = judgment.Question{Type: "choice", Instructions: "Choose the best active expense category for this purchased item. Use OTHER_OR_UNCLEAR only when no category is safe.", Criteria: judgment.CategoryCriteria(categories)}
-	}
-	result, err := p.judgment.Evaluate(ctx, sourceID, judgment.Request{State: state, Questions: questions})
-	if err != nil {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa menentukan transaksi ini dengan aman. Coba jelaskan lagi.")
-	}
-	if support, ok := result.Answers["amount_support"]; !ok || !judgmentSupported(support, judgmentAmountSupportPolicy) {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Jumlah transaksinya belum bisa dipastikan. Tulis ulang nominalnya dengan jelas.")
-	}
-	if support, ok := result.Answers["date_support"]; !ok || !judgmentSupported(support, judgmentDateSupportPolicy) {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Waktu transaksinya belum bisa dipastikan. Sebutkan tanggalnya dengan jelas.")
-	}
-	typeAnswer, ok := result.Answers["type"]
-	if !ok || !judgment.AcceptChoice(typeAnswer, judgmentTypeCriteria, judgmentTransactionPolicy) || (typeAnswer.Choice != "INCOME" && typeAnswer.Choice != "EXPENSE") {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Transaksi ini belum jelas sebagai pemasukan atau pengeluaran.")
-	}
-	category := ""
-	categoryConfidence := 1.0
-	if typeAnswer.Choice == "EXPENSE" {
-		categoryAnswer, exists := result.Answers["category"]
-		if !exists || !judgment.AcceptChoice(categoryAnswer, judgment.CategoryCriteria(categories), judgmentCategoryPolicy) || categoryAnswer.Choice == "OTHER_OR_UNCLEAR" {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori pengeluaran belum cukup jelas untuk dicatat otomatis.")
-		}
-		category = categoryAnswer.Choice
-		categoryConfidence = categoryAnswer.Confidence
-	}
-	resolved, err := resolveTransactionTime(now, &candidate.DateRef, stringPtr(candidate.ExplicitDate), nil)
-	if err != nil {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Waktu transaksi belum jelas.")
-	}
-	return true, p.persistTransaction(ctx, sourceID, householdID, update, validatedExtraction{
-		Type: typeAnswer.Choice, Amount: candidate.Amount, TransactionAt: resolved.At,
-		Merchant: candidate.Merchant, Description: candidate.Merchant, CategorySlug: category,
-		Confidence: typeAnswer.Confidence, CategoryConfidence: categoryConfidence,
-		TimePrecision: resolved.Precision, TimePeriod: resolved.Period,
-	}, gateway.Metadata{Model: result.Model})
 }
 
 // judgmentSupported reports a decided, affirmative Noul (the harvested candidate

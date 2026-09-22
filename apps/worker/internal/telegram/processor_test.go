@@ -142,14 +142,29 @@ func TestExtractionPromptTreatsContextAsUntrusted(t *testing.T) {
 	}
 }
 
-func TestClearExpenseCategoryAtEightyEightPercentAutoConfirms(t *testing.T) {
-	value := validatedExtraction{Type: "EXPENSE", Confidence: 0.98, CategoryConfidence: 0.88}
-	if !shouldAutoConfirmTransaction(value, true) {
-		t.Fatal("clear valid category should not create avoidable review")
+// A clear purchase with an accepted category must not create avoidable review,
+// and an expense without an accepted category must stay reviewable. The old
+// model self-confidence thresholds no longer exist: the semantic decision object
+// is the only authority (ADR-038), so a 0.88 category_confidence from the
+// generative model is irrelevant to confirmation.
+func TestClearExpenseDecisionDoesNotCreateAvoidableReview(t *testing.T) {
+	clear := TransactionSemanticDecision{
+		RouteAccepted: true, TransactionType: "EXPENSE", TypeAccepted: true,
+		AmountSupported: true, DateSupported: true, CategorySlug: "makanan-minuman", CategoryAccepted: true,
+		DecisionSource: "JEV", PolicyVersion: judgmentPolicyVersion,
 	}
-	value.CategoryConfidence = 0.84
-	if shouldAutoConfirmTransaction(value, true) || shouldAutoConfirmTransaction(value, false) {
-		t.Fatal("low-confidence or unknown category must remain reviewable")
+	if !clear.decisionAllowed() {
+		t.Fatal("a supported expense decision must be allowed")
+	}
+	unknownCategory := clear
+	unknownCategory.CategoryAccepted = false
+	unknownCategory.CategorySlug = ""
+	if unknownCategory.decisionAllowed() {
+		t.Fatal("an expense without an accepted category must remain reviewable")
+	}
+	// A generative model grading itself highly cannot substitute for the decision.
+	if (TransactionSemanticDecision{}).decisionAllowed() {
+		t.Fatal("an empty decision must never confirm a transaction")
 	}
 }
 

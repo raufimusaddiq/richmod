@@ -19,6 +19,7 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 	mustAgentTest(t, err)
 
 	p := NewProcessor(f.pool, nil)
+	p.SetJudgment(clearPurchaseJudgmentEngine{t: t})
 	result, synthesize, err := p.agentRecordTransaction(ctx, f.state, gateway.ToolCall{CallID: "new-gacoan", Name: "record_transaction"}, map[string]any{
 		"type":                "EXPENSE",
 		"amount_idr":          "83000",
@@ -98,11 +99,11 @@ func TestAgentWealthAssetPurchaseCommitsOneAtomicOutcome(t *testing.T) {
 	}{MessageID: 701}
 	at := time.Now().In(jakartaLocation()).Truncate(time.Minute)
 	result, synthesize, err := p.agentResolveBoundWealthAssetPurchaseAtomic(ctx, &state, gateway.ToolCall{CallID: "asset-purchase", Name: "resolve_review"}, map[string]any{
-		"action":               "RECORD_ASSET_PURCHASE",
-		"source_account_hint":  "Jago",
-		"wealth_account_hint":  "Bibit",
-		"amount_idr":           "5000000",
-		"transaction_at":       at.Format(time.RFC3339),
+		"action":              "RECORD_ASSET_PURCHASE",
+		"source_account_hint": "Jago",
+		"wealth_account_hint": "Bibit",
+		"amount_idr":          "5000000",
+		"transaction_at":      at.Format(time.RFC3339),
 	}, binding)
 	mustAgentTest(t, err)
 	if !synthesize || result.Status != "RESOLVED" || result.Mutation["action"] != "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE" {

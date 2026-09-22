@@ -52,8 +52,6 @@ var approximateLocalTimes = map[string]struct {
 // gateway client's much longer transport timeout.
 const telegramLLMAttemptTimeout = 10 * time.Second
 
-const minimumCategoryAutoConfirmConfidence = 0.85
-
 type Gateway interface {
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
@@ -62,8 +60,13 @@ type Processor struct {
 	pool     *pgxpool.Pool
 	gateway  Gateway
 	judgment judgment.Engine
-	now      func() time.Time
-	bot      *Bot
+	// judgmentPlaneConfigured records configuration, not runtime provider
+	// health. A configured-but-unreachable engine still reports true so a
+	// temporary outage degrades per turn instead of silently shrinking the tool
+	// surface and reopening hidden LLM mutation authority (PRD §7/§8).
+	judgmentPlaneConfigured bool
+	now                     func() time.Time
+	bot                     *Bot
 }
 
 type extraction struct {
@@ -141,7 +144,10 @@ func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm, now: time.Now}
 }
 
-func (p *Processor) SetJudgment(engine judgment.Engine) { p.judgment = engine }
+func (p *Processor) SetJudgment(engine judgment.Engine) {
+	p.judgment = engine
+	p.judgmentPlaneConfigured = engine != nil
+}
 
 func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
 
@@ -418,7 +424,12 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 				return true, err
 			}
 		}
-		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata)
+		allowedCategories, _ := p.categorySlugs(ctx, householdID)
+		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, false)
+		if decisionErr != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa memastikan transaksi ini dengan aman. Coba jelaskan lagi.")
+		}
+		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata, decision)
 	case "record_transaction_batch":
 		items, ok := args["items"].([]any)
 		if !ok {
@@ -533,7 +544,12 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 				return true, err
 			}
 		}
-		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata)
+		allowedCategories, _ := p.categorySlugs(ctx, householdID)
+		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, false)
+		if decisionErr != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa memastikan transaksi ini dengan aman.")
+		}
+		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata, decision)
 	case "create_transaction_batch":
 		raw, _ := args["items"].([]any)
 		items := make([]extractionItem, 0, len(raw))
@@ -783,6 +799,41 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 			return true, err
 		}
+		// Batch confirmation is a canonical mutation and must pass the same
+		// semantic decision policy as a single transaction. Evaluate every item
+		// BEFORE writing anything so an unavailable or unclear judgment plane can
+		// never confirm a batch through a different authority (ADR-038).
+		allowedCategories, _ := p.categorySlugs(ctx, householdID)
+		decisions := make([]TransactionSemanticDecision, len(items))
+		for i, v := range items {
+			exactCategory := false
+			if v.CategorySlug != "" {
+				var confirmed bool
+				if e := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND ma.auto_apply AND ma.created_from_user_confirmation AND c.slug=$2)`, householdID, v.CategorySlug).Scan(&confirmed); e != nil {
+					return true, e
+				}
+				exactCategory = confirmed
+			}
+			decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, validatedExtraction{
+				Type: v.Type, Amount: v.Amount, TransactionAt: v.TransactionAt, Merchant: v.Merchant, CategorySlug: v.CategorySlug,
+			}, allowedCategories, exactCategory)
+			if decisionErr != nil {
+				return true, decisionErr
+			}
+			if !decision.decisionAllowed() {
+				if _, e := tx.Exec(ctx, `UPDATE telegram_pending_batch SET status='CANCELLED',resolved_at=now() WHERE id=$1`, batchID); e != nil {
+					return true, e
+				}
+				if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); e != nil {
+					return true, e
+				}
+				if e := enqueueReply(ctx, tx, update, "Batch ini belum bisa dicatat otomatis karena salah satu item belum cukup jelas. Kirim ulang dengan nominal, waktu, dan kategori yang lebih pasti."); e != nil {
+					return true, e
+				}
+				return true, tx.Commit(ctx)
+			}
+			decisions[i] = decision
+		}
 		for i, v := range items {
 			var cat *string
 			var cid string
@@ -797,6 +848,11 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 				return true, err
 			}
 			if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,'CONFIRMED',$3,'IDR',$4,$5,NULLIF($6,''),NULLIF($7,''),1,1,$8,now()) RETURNING id`, householdID, v.Type, v.Amount, v.TransactionAt, cat, v.Description, v.Merchant, userID).Scan(&tid); err != nil {
+				return true, err
+			}
+			// One bounded decision row per confirmed batch item, in the same
+			// transaction as the canonical write (PRD §15/§16).
+			if err = p.recordJudgmentDecision(ctx, tx, householdID, sourceID, decisions[i], true); err != nil {
 				return true, err
 			}
 			if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),'TELEGRAM_TEXT',1,jsonb_build_object('proposal_id',$3::uuid))`, tid, batchID, pid); err != nil {
@@ -1035,7 +1091,7 @@ func (p *Processor) categorySlugs(ctx context.Context, householdID string) ([]st
 	return result, rows.Err()
 }
 
-func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, value validatedExtraction, metadata gateway.Metadata) error {
+func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, value validatedExtraction, metadata gateway.Metadata, decision TransactionSemanticDecision) error {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -1055,7 +1111,7 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 			return fmt.Errorf("validate category: %w", err)
 		}
 	}
-	autoConfirm := shouldAutoConfirmTransaction(value, categoryID != nil)
+	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil)
 	proposalStatus, transactionStatus := "NEEDS_REVIEW", "NEEDS_REVIEW"
 	if autoConfirm {
 		proposalStatus, transactionStatus = "ACCEPTED", "CONFIRMED"
@@ -1064,8 +1120,12 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 		"gateway_model": metadata.Model, "input_tokens": metadata.InputTokens,
 		"output_tokens": metadata.OutputTokens, "cost": metadata.Cost,
 		"category_confidence": value.CategoryConfidence, "time_precision": value.TimePrecision,
-		"time_period": value.TimePeriod,
+		"time_period":     value.TimePeriod,
+		"decision_source": decision.DecisionSource, "policy_version": decision.PolicyVersion,
 	})
+	if err := p.recordJudgmentDecision(ctx, tx, householdID, sourceEventID, decision, autoConfirm); err != nil {
+		return err
+	}
 	var proposalID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO transaction_proposal
@@ -1127,10 +1187,6 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 		}
 	}
 	return tx.Commit(ctx)
-}
-
-func shouldAutoConfirmTransaction(value validatedExtraction, categoryFound bool) bool {
-	return !value.Ambiguous && value.Confidence >= 0.90 && (value.Type == "INCOME" || (categoryFound && value.CategoryConfidence >= minimumCategoryAutoConfirmConfidence))
 }
 
 func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID, status string, update telegramUpdate, message string) error {

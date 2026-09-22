@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -59,29 +60,26 @@ var judgmentPeriodCriteria = map[string]string{
 	"CUSTOM_OR_UNCLEAR": "explicit dates or no period stated",
 }
 
-func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state agentContextState) (bool, error) {
-	if p.judgment == nil || state.HasPendingAction || state.HasPendingBatch || state.HasSalaryChoice || state.HasMerchantLearning || state.ActiveReviewCount > 0 || update.Message.ReplyToMessage != nil {
+func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state turnAgentContextState) (bool, error) {
+	if p.judgment == nil {
 		return false, nil
 	}
-	result, err := p.judgment.Evaluate(ctx, sourceID, judgment.Request{
-		State: map[string]any{
-			"user_text":      "<untrusted_user_message>" + text + "</untrusted_user_message>",
-			"allowed_routes": judgmentRoutes,
-		},
-		Questions: map[string]judgment.Question{
-			"route":  {Type: "choice", Instructions: "Choose exactly one allowed finance workflow route. Use NEEDS_GENERATIVE_AGENT when arbitrary extraction, reasoning, or prose is required.", Criteria: judgment.ChoiceCriteria(judgmentRouteCriteria)},
-			"period": {Type: "choice", Instructions: "Choose the time period the user asked about. Use CUSTOM_OR_UNCLEAR when the user gave explicit dates or stated no period.", Criteria: judgment.ChoiceCriteria(judgmentPeriodCriteria)},
-		},
-	})
+	// Harvest generic candidates before the call so a common transaction can be
+	// decided inside the same System One request as the route (PRD §10).
+	candidate, harvested := harvestSimpleTransaction(text)
+	if !harvested || !state.harvestable() {
+		candidate = simpleTransactionCandidate{}
+	}
+	request := p.initialJudgmentRequest(text, state, candidate)
+	result, err := p.judgment.Evaluate(ctx, sourceID, request)
 	if err != nil {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Richmod belum bisa menentukan jenis permintaan ini. Coba jelaskan lagi dengan lebih spesifik.")
+		// Provider failure is not semantic uncertainty (PRD §9). READs may still
+		// degrade to a generative READ-only turn; mutation lanes must not.
+		return p.degradeWithoutJudgment(ctx, sourceID, householdID, update, text, now, state)
 	}
 	answer, ok := result.Answers["route"]
 	if !ok || !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentRouteCriteria), judgmentRoutePolicy) || !contains(judgmentRoutes, answer.Choice) {
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
-	}
-	if answer.Choice == "NEEDS_GENERATIVE_AGENT" || answer.Choice == "SEARCH_TRANSACTIONS" || answer.Choice == "CREATE_TRANSFER" || answer.Choice == "CORRECT_TRANSACTION" || answer.Choice == "SALARY_INTERACTION" || answer.Choice == "MERCHANT_LEARNING_INTERACTION" || answer.Choice == "FINANCE_HELP" {
-		return false, nil
 	}
 	// Only the aggregate READ routes consume a reporting period. Every other
 	// route must keep working when the period is CUSTOM_OR_UNCLEAR.
@@ -95,7 +93,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	}
 	switch answer.Choice {
 	case "CREATE_TRANSACTION":
-		return p.tryJudgmentSimpleTransaction(ctx, sourceID, householdID, update, text, now)
+		return p.finishJudgmentSimpleTransaction(ctx, sourceID, householdID, update, text, now, result, candidate)
 	case "READ_SPENDING":
 		return true, p.replySpending(ctx, sourceID, householdID, update, period)
 	case "READ_CASHFLOW":
@@ -115,6 +113,81 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 
 // judgmentRoutePolicy is the versioned acceptance policy for READ route choice.
 var judgmentRoutePolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20}
+
+// initialJudgmentRequest bundles every bounded question that can be answered
+// from one shared server-state snapshot: route, reporting period, and — when Go
+// already harvested exactly one amount candidate — the transaction sub-bundle.
+// Speculative transaction answers are ignored when the route is unrelated.
+func (p *Processor) initialJudgmentRequest(text string, state turnAgentContextState, candidate simpleTransactionCandidate) judgment.Request {
+	statePayload := map[string]any{
+		"user_text":              "<untrusted_user_message>" + text + "</untrusted_user_message>",
+		"allowed_routes":         judgmentRoutes,
+		"allowed_category_slugs": state.Categories,
+	}
+	questions := map[string]judgment.Question{
+		"route":  {Type: "choice", Instructions: "Choose exactly one allowed finance workflow route. Use NEEDS_GENERATIVE_AGENT when arbitrary extraction, reasoning, or prose is required.", Criteria: judgment.ChoiceCriteria(judgmentRouteCriteria)},
+		"period": {Type: "choice", Instructions: "Choose the time period the user asked about. Use CUSTOM_OR_UNCLEAR when the user gave explicit dates or stated no period.", Criteria: judgment.ChoiceCriteria(judgmentPeriodCriteria)},
+	}
+	if candidate.Amount != "" {
+		statePayload["amount_candidates"] = []string{candidate.Amount}
+		statePayload["date_reference"] = candidate.DateRef
+		statePayload["merchant"] = candidate.Merchant
+		for key, question := range transactionQuestions(state.Categories, "") {
+			questions[key] = question
+		}
+	}
+	return judgment.Request{State: statePayload, Questions: questions}
+}
+
+// judgmentUnavailableReason is the explicit product state used when the initial
+// bounded call fails. It distinguishes infrastructure failure from semantic
+// uncertainty for telemetry and for the user-facing response.
+const judgmentUnavailableReason = "JUDGMENT_UNAVAILABLE"
+
+// degradeWithoutJudgment handles a provider failure on the initial call. READs
+// fall through to the generative agent with a READ-only tool surface; mutation
+// requests never reach a mutation tool, so no hidden LLM authority appears.
+func (p *Processor) degradeWithoutJudgment(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state turnAgentContextState) (bool, error) {
+	if !readOnlyFallbackRequest(text) {
+		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Permintaan ini belum dicatat karena layanan keputusan sedang tidak tersedia. Coba lagi sebentar lagi.")
+	}
+	return false, nil
+}
+
+// readOnlyFallbackRequest reports whether a message is clearly a read-only
+// finance question. Anything else (including every mutation wording) fails
+// closed while the judgment plane is unavailable.
+func readOnlyFallbackRequest(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	for _, token := range []string{"berapa", "total", "lihat", "tampilkan", "tunjukkan", "cari", "list", "tren", "insight", "net worth", "tabungan", "pengeluaran", "pemasukan", "arus kas", "how much", "show", "list", "find", "summary"} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// finishJudgmentSimpleTransaction consumes transaction answers that were
+// returned by the initial bundle. It performs no second System One call and no
+// generative call (PRD §10).
+func (p *Processor) finishJudgmentSimpleTransaction(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, result judgment.Result, candidate simpleTransactionCandidate) (bool, error) {
+	if candidate.Amount == "" {
+		return false, nil
+	}
+	decision := transactionDecisionFromAnswers(result, candidate, p.categoriesOrEmpty(ctx, householdID))
+	if !decision.decisionAllowed() {
+		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Transaksi ini belum bisa dicatat otomatis. Coba sebutkan nominal, waktu, dan jenisnya lebih jelas.")
+	}
+	resolved, err := resolveTransactionTime(now, &candidate.DateRef, stringPtr(candidate.ExplicitDate), nil)
+	if err != nil {
+		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Waktu transaksi belum jelas.")
+	}
+	return true, p.persistTransaction(ctx, sourceID, householdID, update, validatedExtraction{
+		Type: decision.TransactionType, Amount: candidate.Amount, TransactionAt: resolved.At,
+		Merchant: candidate.Merchant, Description: candidate.Merchant, CategorySlug: decision.CategorySlug,
+		TimePrecision: resolved.Precision, TimePeriod: resolved.Period,
+	}, gateway.Metadata{Model: result.Model}, decision)
+}
 
 // resolveJudgmentPeriod turns the Jev period Choice into an exact server range.
 // The second return reports whether a period was usable; READ routes must never
@@ -142,6 +215,28 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// transactionDecisionFromAnswers maps one shared answer bundle into the single
+// semantic decision object. It is used by both the harvested fast path and the
+// post-extraction evaluator so neither path grows its own acceptance rules.
+func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTransactionCandidate, categories []string) TransactionSemanticDecision {
+	decision := TransactionSemanticDecision{DecisionSource: "JEV", Model: result.Model, PolicyVersion: judgmentPolicyVersion}
+	typeAnswer, ok := result.Answers["transaction_type"]
+	decision.TypeAccepted = ok && judgment.AcceptChoice(typeAnswer, judgmentTypeCriteria, judgmentTransactionPolicy) && (typeAnswer.Choice == "INCOME" || typeAnswer.Choice == "EXPENSE")
+	if decision.TypeAccepted {
+		decision.TransactionType = typeAnswer.Choice
+	}
+	decision.RouteAccepted = true
+	decision.AmountSupported = noulSupported(result.Answers, "amount_support", judgmentAmountSupportPolicy)
+	decision.DateSupported = noulSupported(result.Answers, "date_support", judgmentDateSupportPolicy)
+	decision.MaterialAmbiguity = noulSupported(result.Answers, "material_ambiguity", judgmentAmbiguityPolicy)
+	if decision.TransactionType == "EXPENSE" && len(categories) > 0 {
+		if categoryAnswer, exists := result.Answers["category"]; exists && categoryAnswer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(categoryAnswer, judgment.CategoryCriteria(categories), judgmentCategoryPolicy) && contains(categories, categoryAnswer.Choice) {
+			decision.CategorySlug, decision.CategoryAccepted = categoryAnswer.Choice, true
+		}
+	}
+	return decision
 }
 
 var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta)?(?:\s|$)`)

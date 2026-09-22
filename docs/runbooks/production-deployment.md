@@ -28,10 +28,18 @@ Required integration settings are `LLM_GATEWAY_BASE_URL`, `LLM_GATEWAY_API_KEY`,
 `TELEGRAM_WEBHOOK_SECRET`. The worker joins `idx_default` only to reach the cloud
 gateway; PostgreSQL remains on the internal network. Never commit the real values.
 
-The optional Jev fast path is enabled only when `JUDGMENT_MODEL` is set. It uses
+`JUDGMENT_MODEL` is **required** in production. Jev/System One owns bounded
+semantic mutation authority (ADR-038), so the worker refuses to start when the
+model is unset, which prevents silently disabling Jev-owned semantics. It uses
 the same LiteRouter URL/key and `/v1/systemone`; `JUDGMENT_TIMEOUT_MS` is capped
-by the worker. Leave `JUDGMENT_MODEL` unset to keep the existing conversational
-path during staged rollout.
+by the worker. Non-production environments opt out explicitly by setting
+`JUDGMENT_MODE=disabled-dev`.
+
+Configuration and availability are different states. A configured-but-unreachable
+Jev degrades per turn: READ questions may still use a generative READ-only agent,
+while mutation requests are refused instead of falling back to generative
+semantic authority. Do not describe an outage as a reason to unset
+`JUDGMENT_MODEL`.
 
 Off-host storage requires `OSS_ENDPOINT`, `OSS_REGION`, `OSS_BUCKET`, `OSS_PREFIX`,
 `OSS_ACCESS_KEY`, and `OSS_SECRET_KEY`. API and worker mirror private attachments

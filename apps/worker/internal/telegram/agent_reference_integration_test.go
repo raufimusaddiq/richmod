@@ -13,6 +13,10 @@ import (
 func recordAgentTransactionForRefTest(t *testing.T, ctx context.Context, f agentIntegrationFixture, sourceID string, update telegramUpdate, amount, merchant string) agentToolResult {
 	t.Helper()
 	p := NewProcessor(f.pool, nil)
+	// The conversational record_transaction tool consumes the shared semantic
+	// decision, so the fixture supplies a bounded engine instead of relying on
+	// generative self-confidence.
+	p.SetJudgment(clearPurchaseJudgmentEngine{t: t})
 	state := &agentState{
 		SourceEventID: sourceID,
 		HouseholdID:   f.householdID,

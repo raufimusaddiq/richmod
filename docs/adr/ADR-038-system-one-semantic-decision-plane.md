@@ -160,6 +160,29 @@ Deterministic flows remain usable when model inference is unavailable.
 
 ## Consequences
 
+### Amendment — production requirement and safe degradation (2026-09)
+
+`JUDGMENT_MODEL` is a production configuration invariant, not an optional
+fast-path switch. Because Jev owns bounded semantic mutation authority, the
+worker refuses to start when the model is unset; non-production environments opt
+out explicitly with `JUDGMENT_MODE=disabled-dev`. Omitting an environment
+variable must never silently reopen a different mutation authority.
+
+Availability is a separate state from configuration. When a configured Jev is
+unreachable:
+
+- deterministic features and READ tools keep working;
+- a READ question may still be served by a generative READ-only agent;
+- the conversational tool surface exposes no mutation tool, so no hidden LLM
+  semantic authority appears;
+- a mutation request returns an explicit non-success response and preserves
+  evidence/proposal state instead of confirming.
+
+Every Jev-influenced canonical mutation also records bounded decision provenance
+(`judgment_decision`: task, model, policy version, question keys, bounded answer
+summary, outcome) in the same transaction as the mutation. Raw user text, email
+bodies, document bytes, and credentials are never stored there.
+
 - Simple Telegram requests can avoid generative inference entirely.
 - Bounded native-tool calls can be removed from the conversational LLM surface.
 - Category and transfer-purpose decisions gain explicit probability
