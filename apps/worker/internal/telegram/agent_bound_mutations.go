@@ -317,7 +317,10 @@ func (p *Processor) agentResolveBoundWealthAssetPurchase(ctx context.Context, st
 	}
 	parsed, _ := time.Parse(time.RFC3339, atText)
 	local := parsed.In(jakartaLocation())
-	transferArgs := map[string]any{"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint, "purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"), "local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram"}
+		// No purpose argument: this is a fixed asset-purchase reclassification, and the
+		// transfer semantics are the caller's own deterministic decision, not a model
+		// assertion (PRD §13).
+		transferArgs := map[string]any{"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint, "reclassification_purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"), "local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram"}
 	transferResult, _, err := p.agentRecordTransfer(ctx, state, gateway.ToolCall{CallID: call.CallID, Name: "record_transfer"}, transferArgs)
 	if err != nil { return result,true,err }
 	if transferResult.Status != "CONFIRMED" && transferResult.Status != "NO_OP_DUPLICATE" {

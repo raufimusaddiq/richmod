@@ -855,7 +855,7 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		local := parsed.In(jakartaLocation())
 		if err := p.recordTransfer(ctx, sourceEventID, householdID, update, map[string]any{
 			"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint,
-			"purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"),
+			"reclassification_purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"),
 			"local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram",
 		}); err != nil {
 			return true, err

@@ -412,3 +412,79 @@ func TestEveryExposedMutationToolIsClassified(t *testing.T) {
 	}
 	_ = gateway.ToolCall{}
 }
+
+// stubPurposeEngine answers a transfer-purpose Choice against the criteria the
+// processor actually sent, so the stub models a real provider.
+type stubPurposeEngine struct {
+	choice  string
+	err     error
+	calls   int
+	request judgment.Request
+}
+
+func (s *stubPurposeEngine) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
+	s.calls++
+	s.request = request
+	if s.err != nil {
+		return judgment.Result{}, s.err
+	}
+	question, ok := request.Questions["purpose"]
+	if !ok {
+		return judgment.Result{}, errors.New("stub: no purpose question")
+	}
+	criteria, ok := question.Criteria.(map[string]any)
+	if !ok {
+		return judgment.Result{}, errors.New("stub: criteria is not a map")
+	}
+	return judgment.Result{Model: "stub-jev", Answers: map[string]judgment.Answer{"purpose": confidentChoice(criteria, s.choice)}}, nil
+}
+
+// The canonical transfer purpose must come from the bounded decision, never from
+// the tool contract, and an unclear answer must fail closed instead of picking a
+// purpose (PRD §13/§14).
+func TestTransferPurposeComesFromJudgmentNotToolArguments(t *testing.T) {
+	engine := &stubPurposeEngine{choice: "INVESTMENT_CONTRIBUTION"}
+	processor := &Processor{judgment: engine}
+	destination := "wealth-1"
+	purpose, _, ok, err := processor.resolveTransferPurpose(context.Background(), "src", "beli reksa dana", "3000000", "Bank Jago", "RDN", &destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || purpose != "INVESTMENT_CONTRIBUTION" {
+		t.Fatalf("expected the bounded purpose, got %q ok=%v", purpose, ok)
+	}
+	if engine.calls != 1 {
+		t.Fatalf("expected one bounded call, got %d", engine.calls)
+	}
+	if _, offered := engine.request.Questions["purpose"]; !offered {
+		t.Fatalf("questions=%v", engine.request.Questions)
+	}
+	state, _ := engine.request.State.(map[string]any)
+	if got := state["destination_kind"]; got != "WEALTH_ACCOUNT" {
+		t.Fatalf("destination_kind=%v", got)
+	}
+}
+
+func TestTransferPurposeUnclearFailsClosed(t *testing.T) {
+	engine := &stubPurposeEngine{choice: "OTHER_OR_UNCLEAR"}
+	processor := &Processor{judgment: engine}
+	purpose, _, ok, err := processor.resolveTransferPurpose(context.Background(), "src", "transfer saja", "2000000", "Jago", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || purpose != "" {
+		t.Fatalf("unclear purpose must fail closed, got %q ok=%v", purpose, ok)
+	}
+	state, _ := engine.request.State.(map[string]any)
+	if got := state["destination_kind"]; got != "NONE" {
+		t.Fatalf("a missing destination must be reported as NONE, got %v", got)
+	}
+}
+
+func TestTransferPurposeProviderFailureIsInfrastructure(t *testing.T) {
+	engine := &stubPurposeEngine{err: errors.New("gateway down")}
+	processor := &Processor{judgment: engine}
+	if _, _, ok, err := processor.resolveTransferPurpose(context.Background(), "src", "d", "1000", "Jago", "RDN", stringPtr("wealth-1")); err == nil || ok {
+		t.Fatalf("provider failure must surface as an error, got ok=%v err=%v", ok, err)
+	}
+}

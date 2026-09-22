@@ -29,8 +29,23 @@
 > counted with its product outcome so review/clarification rate per decision
 > task and Jev-vs-generative share are measurable (§17/§18/§25).
 >
+> Sprint C is implemented in `feat/jev-transfer-semantics`:
+> `record_transfer` no longer accepts a `purpose` argument at all. The generative
+> model supplies only arbitrary facts (amount, source/destination hints, date/time),
+> and Go resolves the canonical purpose *after* both sides are known, through the
+> bounded `TRANSFER_PURPOSE` Choice (`resolveTransferPurpose`, PRD §13). The tool
+> contract now mirrors the canonical rule instead of contradicting it: a missing
+> destination hint is a plain internal transfer rather than a validation error,
+> which was the actual reason an INTERNAL_TRANSFER transaction could be persisted
+> with a related Wealth account. In-process callers that already know the purpose
+> deterministically (a fixed asset-purchase reclassification) pass it as
+> `reclassification_purpose`; that value is never read from model arguments.
+> The `evaluate` telemetry wrapper also fails closed on an unconfigured judgment
+> plane instead of dereferencing it.
+>
 > Still on the target design: the real LiteRouter → TypeSafe opt-in smoke (§12),
-> transfer-purpose ownership and the zero-generative transfer fast path (§13/§14),
+> the zero-generative transfer fast path (§14 — a transfer turn still needs the
+> generative extractor to harvest arbitrary hints before Go can resolve them),
 > duplicate bounded generative tool removal (§19), and Sprint D/E
 > evidence-channel and insight work (§20–§22).
 **Repository:** `raufimusaddiq/richmod`  
@@ -617,7 +632,13 @@ This must not commit TypeSafe credentials.
 
 # 13. P1 — Transfer Purpose Must Move Out of the Generative Tool Contract
 
-Current `record_transfer` still asks the generative model to emit:
+**Implemented.** `record_transfer` no longer has a `purpose` argument; the schema
+and the typed decoder both reject it, and a regression test asserts the contract
+stays purpose-free. The generative model supplies only arbitrary facts, and
+`resolveTransferPurpose` decides the canonical value through a bounded
+`TRANSFER_PURPOSE` Choice over the server-owned candidate set.
+
+Before it was removed, `record_transfer` asked the generative model to emit:
 
 ```text
 purpose:

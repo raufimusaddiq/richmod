@@ -74,21 +74,16 @@ func TestNativeReviewSchemaUsesOpaqueReconciliationReferences(t *testing.T) {
 	t.Fatal("resolve_review missing")
 }
 
-func TestRecordTransferUsesHintsAndInternalNeedsNoWealthAccount(t *testing.T) {
-	internal := transferArgs{Amount: "3000000", SourceAccountHint: "Jago", Purpose: "INTERNAL_TRANSFER", DateReference: "TODAY"}
+// The generative model supplies only arbitrary facts (amount, hints, time). The
+// canonical purpose is a bounded semantic Choice owned by Go + the judgment
+// plane, so it must not appear in the tool contract at all (PRD §13).
+func TestRecordTransferContractCarriesNoPurpose(t *testing.T) {
+	internal := transferArgs{Amount: "3000000", SourceAccountHint: "Jago", DateReference: "TODAY"}
 	if err := validateTypedArgs(&internal); err != nil {
-		t.Fatalf("internal transfer rejected: %v", err)
+		t.Fatalf("destination-less transfer rejected: %v", err)
 	}
 	wrong := "RDN"
-	internal.DestinationWealthAccountHint = &wrong
-	if err := validateTypedArgs(&internal); err == nil {
-		t.Fatal("internal transfer accepted wealth destination")
-	}
-	investment := transferArgs{Amount: "3000000", SourceAccountHint: "Jago", Purpose: "INVESTMENT_CONTRIBUTION", DateReference: "TODAY"}
-	if err := validateTypedArgs(&investment); err == nil {
-		t.Fatal("investment transfer accepted missing wealth hint")
-	}
-	investment.DestinationWealthAccountHint = &wrong
+	investment := transferArgs{Amount: "3000000", SourceAccountHint: "Jago", DestinationWealthAccountHint: &wrong, DateReference: "TODAY"}
 	if err := validateTypedArgs(&investment); err != nil {
 		t.Fatalf("hinted investment transfer rejected: %v", err)
 	}
@@ -98,15 +93,12 @@ func TestRecordTransferUsesHintsAndInternalNeedsNoWealthAccount(t *testing.T) {
 			continue
 		}
 		encoded, _ := json.Marshal(tool.Parameters)
-		if !strings.Contains(string(encoded), "source_account_hint") || !strings.Contains(string(encoded), "destination_wealth_account_hint") {
-			t.Fatal("record_transfer schema missing")
-		}
-		if strings.Contains(string(encoded), "source_account_id") || strings.Contains(string(encoded), "destination_wealth_account_id") {
-			t.Fatal("record_transfer must not expose canonical IDs")
+		if strings.Contains(string(encoded), `"purpose"`) {
+			t.Fatalf("record_transfer must not expose a purpose argument: %s", encoded)
 		}
 		return
 	}
-	t.Fatal("record_transfer tool missing")
+	t.Fatal("record_transfer missing")
 }
 
 func TestNativeResidualAllocationUsesSnakeCaseFields(t *testing.T) {

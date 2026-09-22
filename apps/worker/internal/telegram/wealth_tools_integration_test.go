@@ -55,8 +55,8 @@ func TestRecordTransferReusesOneCrossChannelCandidateAndRejectsAmbiguity(t *test
 	update.Message.From.ID, update.Message.Chat.ID, update.Message.MessageID = chatID, chatID, 1
 	processor := NewProcessor(pool, nil)
 	processor.now = func() time.Time { return day }
-	args := map[string]any{"amount_idr": "3000000", "source_account_hint": "Jago", "destination_wealth_account_hint": "RDN", "purpose": "INVESTMENT_CONTRIBUTION", "date_reference": "TODAY", "local_time": "12:00", "description": "top up RDN"}
-	weak := map[string]any{"amount_idr": "3000000", "source_account_hint": "Jago", "destination_wealth_account_hint": "RDN", "purpose": "INVESTMENT_CONTRIBUTION", "date_reference": "TODAY", "description": "top up RDN"}
+	args := map[string]any{"amount_idr": "3000000", "source_account_hint": "Jago", "destination_wealth_account_hint": "RDN", "reclassification_purpose": "INVESTMENT_CONTRIBUTION", "date_reference": "TODAY", "local_time": "12:00", "description": "top up RDN"}
+	weak := map[string]any{"amount_idr": "3000000", "source_account_hint": "Jago", "destination_wealth_account_hint": "RDN", "reclassification_purpose": "INVESTMENT_CONTRIBUTION", "date_reference": "TODAY", "description": "top up RDN"}
 	weakSourceID := newSource("weak")
 	must(processor.recordTransfer(ctx, weakSourceID, householdID, update, weak))
 	var transactions, evidence int

@@ -182,6 +182,76 @@ func judgmentSupported(answer judgment.Answer, policy judgment.NoulPolicy) bool 
 	return remember && decided
 }
 
+// transferPurposes is the canonical possibility space for a household-internal
+// transfer purpose. Go owns the option set; the judgment plane only picks inside
+// it (PRD §13).
+var transferPurposes = []string{
+	"SAVINGS_TRANSFER",
+	"INVESTMENT_CONTRIBUTION",
+	"ASSET_PURCHASE",
+	"DEBT_PRINCIPAL_PAYMENT",
+	"INTERNAL_TRANSFER",
+}
+
+// transferPurposeCriteria describes each purpose for the model without naming
+// any provider, product, or household-specific account.
+var transferPurposeCriteria = map[string]string{
+	"SAVINGS_TRANSFER":        "money moved into a savings account",
+	"INVESTMENT_CONTRIBUTION": "money moved into an investment account",
+	"ASSET_PURCHASE":          "money spent to acquire an asset",
+	"DEBT_PRINCIPAL_PAYMENT":  "money paid to reduce a debt or loan principal",
+	"INTERNAL_TRANSFER":       "a plain transfer between the household's own accounts",
+	"OTHER_OR_UNCLEAR":        "no safe purpose can be decided",
+}
+
+// resolveTransferPurpose decides the canonical purpose for a transfer whose
+// source and destination Go has already resolved. It is deliberately the LAST
+// step of the permitted flow (PRD §13): Go's deterministic account and
+// reconciliation rules run first, and only an unresolved purpose reaches the
+// bounded judgment plane.
+//
+// candidateHints are server-owned, resolved account identities. They arrive as
+// nil when that side does not exist (no transaction account, or structurally no
+// destination Wealth), which is exactly why an omitted destination means a plain
+// internal transfer rather than an error.
+func (p *Processor) resolveTransferPurpose(ctx context.Context, requestID, description, amountIDR, sourceLabel, destinationLabel string, destinationWealthID *string) (string, float64, bool, error) {
+	state := map[string]any{
+		"allowed_purposes":  transferPurposes,
+		"description":       description,
+		"amount_idr":        amountIDR,
+		"source_label":      strings.TrimSpace(sourceLabel),
+		"destination_kind":  transferDestinationKind(destinationWealthID),
+		"destination_label": strings.TrimSpace(destinationLabel),
+	}
+	criteria := judgment.ChoiceCriteria(transferPurposeCriteria)
+	result, err := p.evaluate(ctx, judgmentTaskTransferPurpose, requestID, judgment.Request{
+		State: state,
+		Questions: map[string]judgment.Question{
+			"purpose": {Type: "choice", Instructions: "Choose the single canonical purpose for this household-internal transfer. Use OTHER_OR_UNCLEAR when the evidence does not support a safe choice.", Criteria: criteria},
+		},
+	})
+	if err != nil {
+		p.metrics.recordDecision(judgmentTaskTransferPurpose, judgmentOutcomeProviderFailure)
+		return "", 0, false, err
+	}
+	answer, ok := result.Answers["purpose"]
+	if !ok || !contains(transferPurposes, answer.Choice) || !judgment.AcceptChoice(answer, criteria, judgmentPolicy.TransferPurpose) {
+		p.metrics.recordDecision(judgmentTaskTransferPurpose, judgmentOutcomeClarification)
+		return "", 0, false, nil
+	}
+	p.metrics.recordDecision(judgmentTaskTransferPurpose, judgmentOutcomeAccepted)
+	return answer.Choice, answer.Confidence, true, nil
+}
+
+// transferDestinationKind reports the structural shape of the destination. It is
+// deterministic server state, never a provider judgement.
+func transferDestinationKind(destinationWealthID *string) string {
+	if destinationWealthID == nil || strings.TrimSpace(*destinationWealthID) == "" {
+		return "NONE"
+	}
+	return "WEALTH_ACCOUNT"
+}
+
 // exactMerchantCategory resolves a confirmed merchant rule for this merchant.
 // That is deterministic server state, so the semantic decision short-circuits
 // instead of paying for a bounded call — and the matched slug is the category,

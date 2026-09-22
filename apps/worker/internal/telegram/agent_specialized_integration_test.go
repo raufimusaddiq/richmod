@@ -77,7 +77,7 @@ func TestAgentRecordTransferReturnsStructuredResultWithoutCannedReply(t *testing
 	p := NewProcessor(f.pool, nil)
 	result, synthesize, err := p.agentRecordTransfer(ctx, f.state, gateway.ToolCall{CallID: "call-transfer", Name: "record_transfer"}, map[string]any{
 		"amount_idr": "83000", "source_account_hint": "Jago", "destination_wealth_account_hint": nil,
-		"purpose": "INTERNAL_TRANSFER", "date_reference": "TODAY", "explicit_date": nil, "local_time": "12:30", "description": "pindah rekening",
+		"reclassification_purpose": "INTERNAL_TRANSFER", "date_reference": "TODAY", "explicit_date": nil, "local_time": "12:30", "description": "pindah rekening",
 	})
 	mustAgentTest(t, err)
 	if !synthesize || result.Status != "CONFIRMED" || result.Mutation["action"] != "TRANSFER_RECORDED" {

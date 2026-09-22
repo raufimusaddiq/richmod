@@ -43,7 +43,6 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 	amount, _ := args["amount_idr"].(string)
 	sourceHint, _ := args["source_account_hint"].(string)
 	wealthHint, _ := args["destination_wealth_account_hint"].(string)
-	purpose, _ := args["purpose"].(string)
 	description, _ := args["description"].(string)
 
 	value, ok := new(big.Int).SetString(amount, 10)
@@ -79,11 +78,32 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 		return result, true, nil
 	}
 	wealthID := ""
-	if purpose != "INTERNAL_TRANSFER" {
+	if strings.TrimSpace(wealthHint) != "" {
 		wealthID, err = resolveUniqueWealthHint(ctx, tx, state.HouseholdID, wealthHint)
 		if err != nil {
 			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
 			result.Facts = map[string]any{"wealth_account_hint": clean(wealthHint, 160)}
+			return result, true, nil
+		}
+	}
+	// Purpose is a bounded semantic Choice, so the generative model no longer
+	// asserts it. An in-process caller may already know it deterministically
+	// (a fixed asset-purchase reclassification) and pass it as
+	// reclassification_purpose; that value never comes from model arguments (PRD §13).
+	purpose, _ := args["reclassification_purpose"].(string)
+	if !contains(transferPurposes, purpose) {
+		if p.judgment == nil {
+			result.Status = "JUDGMENT_UNAVAILABLE"
+			return result, true, nil
+		}
+		var ok bool
+		purpose, _, ok, err = p.resolveTransferPurpose(ctx, state.SourceEventID, clean(description, 500), amount, sourceHint, wealthHint, stringPtr(wealthID))
+		if err != nil {
+			result.Status = "JUDGMENT_UNAVAILABLE"
+			return result, true, nil
+		}
+		if !ok {
+			result.Status = "INVALID_TRANSFER_PURPOSE"
 			return result, true, nil
 		}
 	}

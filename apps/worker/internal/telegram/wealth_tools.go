@@ -15,7 +15,6 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	amount, _ := args["amount_idr"].(string)
 	source, _ := args["source_account_hint"].(string)
 	dest, _ := args["destination_wealth_account_hint"].(string)
-	purpose, _ := args["purpose"].(string)
 	n, ok := new(big.Int).SetString(amount, 10)
 	if !ok || n.Sign() <= 0 || n.String() != amount {
 		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Nominal transfer harus berupa IDR bulat positif.")
@@ -41,11 +40,32 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	if err != nil {
 		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Rekening sumber belum dapat dikenali secara unik. Sebutkan nama rekening yang lebih spesifik.")
 	}
+	// A destination hint that is present must resolve; an absent one is not an
+	// error, it is the structural difference between a plain internal transfer and
+	// a transfer into a Wealth Account. Only after Go has resolved both sides does
+	// the bounded plane decide the canonical purpose (PRD §13).
 	wealthID := ""
-	if purpose != "INTERNAL_TRANSFER" {
+	if strings.TrimSpace(dest) != "" {
 		wealthID, err = resolveUniqueWealthHint(ctx, tx, householdID, dest)
 		if err != nil {
 			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Wealth Account tujuan belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
+		}
+	}
+	// An in-process caller may already know the purpose deterministically (a fixed
+	// asset-purchase reclassification reuses this path); otherwise the bounded
+	// plane decides. Neither case reads a purpose from model arguments (PRD §13).
+	purpose, _ := args["reclassification_purpose"].(string)
+	if !contains(transferPurposes, purpose) {
+		if p.judgment == nil {
+			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tujuan transfer belum bisa dipastikan dengan aman. Coba jelaskan lagi.")
+		}
+		var ok bool
+		purpose, _, ok, err = p.resolveTransferPurpose(ctx, sourceID, strings.TrimSpace(desc), amount, source, dest, stringPtr(wealthID))
+		if err != nil {
+			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tujuan transfer belum bisa dipastikan dengan aman. Coba jelaskan lagi.")
+		}
+		if !ok {
+			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tujuan transfer belum cukup jelas untuk dicatat otomatis.")
 		}
 	}
 	var compatible bool
