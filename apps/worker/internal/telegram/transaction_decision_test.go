@@ -261,6 +261,27 @@ func TestPostExtractionDecisionCarriesCategoryInOneCall(t *testing.T) {
 	}
 }
 
+// A confirmed merchant rule is deterministic server state, so the decision is
+// authorized with no bounded call at all — and it must carry the matched slug,
+// because extraction is allowed to send no category in that case (Hermes PR #99).
+func TestConfirmedAliasDecisionCarriesMatchedCategory(t *testing.T) {
+	engine := &stubJudgmentEngine{err: errors.New("must not be called")}
+	processor := &Processor{judgment: engine}
+	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "shopeefood 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Merchant: "ShopeeFood", CategorySlug: "dining"}, []string{"dining"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine.calls != 0 {
+		t.Fatalf("confirmed alias must not call the provider, calls=%d", engine.calls)
+	}
+	if !decision.decisionAllowed() {
+		t.Fatalf("confirmed alias should authorize confirmation: %+v", decision)
+	}
+	if decision.CategorySlug != "dining" {
+		t.Fatalf("decision must carry the matched slug, got %q", decision.CategorySlug)
+	}
+}
+
 // Provider failure is infrastructure failure, not semantic uncertainty: Go must
 // fail closed instead of trusting whatever the extractor reported.
 func TestJudgmentOutageFailsClosed(t *testing.T) {

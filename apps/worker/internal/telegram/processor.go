@@ -421,9 +421,14 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		// One semantic call decides direction, amount/date support, ambiguity, and
 		// category together. Asking category separately and then asking the same
 		// bundle again spent two System One round trips for one answer set (PRD §10).
-		exactCategory, aliasErr := p.exactMerchantCategory(ctx, householdID, value.Merchant)
+		aliasCategory, exactCategory, aliasErr := p.exactMerchantCategory(ctx, householdID, value.Merchant)
 		if aliasErr != nil {
 			return true, aliasErr
+		}
+		if exactCategory {
+			// A confirmed rule already fixed the category, so the extraction may
+			// legitimately carry none.
+			value.CategorySlug = aliasCategory
 		}
 		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, exactCategory)
 		if decisionErr != nil {

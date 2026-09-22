@@ -182,20 +182,21 @@ func judgmentSupported(answer judgment.Answer, policy judgment.NoulPolicy) bool 
 	return remember && decided
 }
 
-// exactMerchantCategory reports whether a confirmed merchant rule already fixes
-// this merchant's category. That is deterministic server state, so the semantic
-// decision short-circuits instead of paying for a bounded call.
-func (p *Processor) exactMerchantCategory(ctx context.Context, householdID, merchant string) (bool, error) {
+// exactMerchantCategory resolves a confirmed merchant rule for this merchant.
+// That is deterministic server state, so the semantic decision short-circuits
+// instead of paying for a bounded call — and the matched slug is the category,
+// never an empty one (the rule already decided it).
+func (p *Processor) exactMerchantCategory(ctx context.Context, householdID, merchant string) (string, bool, error) {
 	if strings.TrimSpace(merchant) == "" {
-		return false, nil
+		return "", false, nil
 	}
 	var slug string
 	err := p.pool.QueryRow(ctx, `SELECT c.slug FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND c.active LIMIT 1`, householdID, merchant).Scan(&slug)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return "", false, nil
 	}
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
-	return true, nil
+	return slug, true, nil
 }
