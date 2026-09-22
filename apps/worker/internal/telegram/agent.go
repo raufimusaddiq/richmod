@@ -53,6 +53,29 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
+	p.turnTrace.reset()
+	generativeRan := false
+	defer func() {
+		// Turn-level Jev value (PRD §23): classify how this turn was resolved so
+		// Jev-only, Jev-then-generative, and generative-only turns are countable.
+		lane := judgmentLaneGenerativeOnly
+		avoided := 0
+		switch {
+		case p.turnTrace.consumed() && !generativeRan:
+			lane = judgmentLaneJevOnly
+			// Each bounded task replaced one would-be generative decision in the
+			// lanes it now owns (route, transfer purpose, category, review action).
+			avoided = len(p.turnTrace.tasks)
+		case p.turnTrace.consumed():
+			lane = judgmentLaneJevThenGenerative
+		}
+		p.recordTurnTelemetry(context.WithoutCancel(ctx), householdID, sourceEventID, judgmentTurnObservation{
+			Lane:                   lane,
+			DecisionTasks:          p.turnTrace.tasks,
+			Model:                  p.turnTrace.model,
+			NativeToolCallsAvoided: avoided,
+		})
+	}()
 
 	agentGateway, ok := p.gateway.(conversationalGateway)
 	if !ok {
@@ -173,6 +196,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()
+	generativeRan = true
 	return p.runAgentLoop(turnCtx, agentGateway, state)
 }
 

@@ -201,6 +201,9 @@ func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID s
 		return judgment.Result{}, errJudgmentUnavailable
 	}
 	result, err := p.judgment.Evaluate(ctx, requestID, request)
+	// Track which bounded tasks this turn consumed for turn-level value
+	// telemetry (PRD §23). Only the task name and model are kept.
+	p.turnTrace.record(task, result.Model)
 	status := "SUCCESS"
 	if err != nil {
 		status = "ERROR"
