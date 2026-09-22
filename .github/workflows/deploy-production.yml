@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: Verified main commit SHA to deploy
+        description: Verified main commit SHA to deploy (full 40-char SHA)
         required: true
         type: string
 
@@ -17,6 +17,19 @@ jobs:
     environment: production
     runs-on: ubuntu-latest
     steps:
+      # A short SHA is not rejected by workflow_dispatch, and actions/checkout
+      # treats it as a ref name, so the run fails late with a confusing
+      # "branch or tag ... could not be found". It would also build the wrong
+      # immutable tag (sha-<short>). Fail fast with the actual requirement
+      # instead of spending a human production approval on it.
+      - name: Validate sha input
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          if ! printf '%s' "$INPUT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "sha must be a full 40-character lowercase hex commit SHA (got: '$INPUT_SHA')" >&2
+            exit 1
+          fi
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.sha }}
