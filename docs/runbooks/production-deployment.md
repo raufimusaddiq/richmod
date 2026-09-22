@@ -52,7 +52,8 @@ cd apps/worker && SYSTEMONE_SMOKE_BASE_URL=<literouter base url> \
   go test ./internal/judgment/systemone/ -run TestRealLiteRouterSystemOneSmoke -v
 ```
 
-`SYSTEMONE_SMOKE_MODEL` is optional and defaults to `jev-latest`. The smoke
+`SYSTEMONE_SMOKE_MODEL` is optional and defaults to `typesafe/jev-latest`, the
+same model id production sets in `JUDGMENT_MODEL`. The smoke
 asserts the provider accepts the native question schema, returns a real
 versioned model id, and picks inside the server-supplied criteria. Supply only
 the LiteRouter client key; no upstream provider key belongs in Richmod.

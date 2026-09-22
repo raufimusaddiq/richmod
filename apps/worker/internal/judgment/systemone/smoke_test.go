@@ -21,7 +21,7 @@ import (
 //
 //	SYSTEMONE_SMOKE_BASE_URL=<literouter base url>
 //	SYSTEMONE_SMOKE_LITEROUTER_KEY=<literouter client key>
-//	SYSTEMONE_SMOKE_MODEL=<model id>   # optional, defaults to jev-latest
+//	SYSTEMONE_SMOKE_MODEL=<model id>   # optional, defaults to typesafe/jev-latest
 //
 // Only the LiteRouter client key is read here. No upstream provider key (for
 // example a TypeSafe key) is configured in Richmod, by design.
@@ -33,7 +33,7 @@ func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 		t.Skip("SYSTEMONE_SMOKE_BASE_URL and SYSTEMONE_SMOKE_LITEROUTER_KEY are required for the real smoke")
 	}
 	if model == "" {
-		model = "jev-latest"
+		model = "typesafe/jev-latest"
 	}
 
 	criteria := map[string]any{"READ_WEALTH": "net worth of the household", "OTHER_OR_UNCLEAR": "no safe route"}
