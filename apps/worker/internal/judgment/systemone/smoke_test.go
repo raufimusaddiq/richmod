@@ -19,25 +19,25 @@ import (
 // It is skipped unless a secret-bearing environment supplies a real LiteRouter
 // endpoint and client key, because it consumes live provider credits:
 //
-//	SYSTEMONE_SMOKE_BASE_URL=https://<literouter-host>
-//	SYSTEMONE_SMOKE_API_KEY=<literouter client key>
+//	SYSTEMONE_SMOKE_BASE_URL=<literouter base url>
+//	SYSTEMONE_SMOKE_LITEROUTER_KEY=<literouter client key>
 //	SYSTEMONE_SMOKE_MODEL=<model id>   # optional, defaults to jev-latest
 //
 // Only the LiteRouter client key is read here. No upstream provider key (for
 // example a TypeSafe key) is configured in Richmod, by design.
 func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 	baseURL := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_BASE_URL"))
-	apiKey := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_API_KEY"))
+	clientKey := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_LITEROUTER_KEY"))
 	model := strings.TrimSpace(os.Getenv("SYSTEMONE_SMOKE_MODEL"))
-	if baseURL == "" || apiKey == "" {
-		t.Skip("SYSTEMONE_SMOKE_BASE_URL and SYSTEMONE_SMOKE_API_KEY are required for the real smoke")
+	if baseURL == "" || clientKey == "" {
+		t.Skip("SYSTEMONE_SMOKE_BASE_URL and SYSTEMONE_SMOKE_LITEROUTER_KEY are required for the real smoke")
 	}
 	if model == "" {
 		model = "jev-latest"
 	}
 
 	criteria := map[string]any{"READ_WEALTH": "net worth of the household", "OTHER_OR_UNCLEAR": "no safe route"}
-	client := New(baseURL, apiKey, model, 20*time.Second)
+	client := New(baseURL, clientKey, model, 20*time.Second)
 	result, err := client.Evaluate(context.Background(), "richmod-systemone-smoke", judgment.Request{
 		State: map[string]any{"user_text": "berapa net worth saya?"},
 		Questions: map[string]judgment.Question{

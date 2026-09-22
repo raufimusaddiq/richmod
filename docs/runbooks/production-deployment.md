@@ -48,7 +48,7 @@ provider credits, so run it from an approved secret-bearing environment:
 
 ```bash
 cd apps/worker && SYSTEMONE_SMOKE_BASE_URL=<literouter base url> \
-  SYSTEMONE_SMOKE_API_KEY=<literouter client key> \
+  SYSTEMONE_SMOKE_LITEROUTER_KEY=<literouter client key> \
   go test ./internal/judgment/systemone/ -run TestRealLiteRouterSystemOneSmoke -v
 ```
 
