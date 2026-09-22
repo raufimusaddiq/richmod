@@ -1,6 +1,8 @@
 package telegram
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +50,19 @@ func TestJudgmentPeriodChoiceMapsToExactRange(t *testing.T) {
 	unclear.Probability = unclear.Distribution["CUSTOM_OR_UNCLEAR"]
 	if _, ok := processor.resolveJudgmentPeriod(nil, "household", now, unclear); ok {
 		t.Fatal("CUSTOM_OR_UNCLEAR must not resolve to a default period")
+	}
+}
+
+func TestWealthRouteIsDispatchedBeforePeriodResolution(t *testing.T) {
+	// Guard the ordering bug: READ_WEALTH must not be gated on a usable period.
+	source, err := os.ReadFile("judgment_fast_path.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wealthIndex := strings.Index(string(source), `if answer.Choice == "READ_WEALTH" {`)
+	periodIndex := strings.Index(string(source), "period, periodOK := p.resolveJudgmentPeriod")
+	if wealthIndex < 0 || periodIndex < 0 || wealthIndex > periodIndex {
+		t.Fatalf("READ_WEALTH must be dispatched before period resolution (wealth=%d period=%d)", wealthIndex, periodIndex)
 	}
 }
 

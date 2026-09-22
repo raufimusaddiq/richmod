@@ -83,6 +83,11 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	if answer.Choice == "NEEDS_GENERATIVE_AGENT" || answer.Choice == "SEARCH_TRANSACTIONS" || answer.Choice == "CREATE_TRANSFER" || answer.Choice == "CORRECT_TRANSACTION" || answer.Choice == "SALARY_INTERACTION" || answer.Choice == "MERCHANT_LEARNING_INTERACTION" || answer.Choice == "FINANCE_HELP" {
 		return false, nil
 	}
+	// Wealth is a point-in-time read: the period Choice is irrelevant and a
+	// CUSTOM_OR_UNCLEAR period must not block it.
+	if answer.Choice == "READ_WEALTH" {
+		return true, p.replyWealth(ctx, sourceID, householdID, update)
+	}
 	period, periodOK := p.resolveJudgmentPeriod(ctx, householdID, now, result.Answers["period"])
 	if !periodOK {
 		return false, nil
@@ -96,8 +101,6 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		return true, p.replyCashflow(ctx, sourceID, householdID, update, period)
 	case "READ_SAVINGS":
 		return true, p.replySavings(ctx, sourceID, householdID, update, period)
-	case "READ_WEALTH":
-		return true, p.replyWealth(ctx, sourceID, householdID, update)
 	case "REVIEW_INTERACTION":
 		return true, p.replyReviews(ctx, sourceID, householdID, update)
 	case "OUT_OF_SCOPE":
