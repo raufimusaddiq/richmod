@@ -1,11 +1,12 @@
 # RICHMOD JEV / SYSTEM ONE INTEGRATION PRD
 
 > **Implementation status (2026-09-22), updated in the same branch as the code.**
-> PRD baseline `main@81e466c`. The first merged increment (#91) added the System
-> One client, strict decode/telemetry, configuration, and the Jev-first Telegram
-> READ routing fast path. The current increment finishes the bounded-workflow
-> and simple-command gaps and records what remains deferred. This header is the
-> authoritative status; sections below stay as the original target design.
+> PRD baseline `main@81e466c`. PR #91 added the System One client, configuration
+> and the Jev-first Telegram READ fast path; PR #93 extended bounded workflows
+> and simple commands. The current increment (`feat/jev-native-contract`) aligns
+> the request/answer contract with the native System One primitives and fixes
+> READ period correctness. This header is the authoritative status; sections
+> below stay as the original target design while §3–§9 are now implemented.
 
 ## Landed in this branch
 
@@ -23,6 +24,21 @@
   bounded `type` and `category`, then Go validates and persists.
 - Jev category classification for expense transactions that need free-form
   merchant/description extraction, after deterministic merchant aliases.
+- Native System One request contract (§3, §4): `Question` carries
+  primitive-specific criteria — Choice requires a criteria map, Noul accepts
+  optional true/false, Score takes ordered levels — and an invalid combination
+  fails locally before the provider call.
+- Native answer contract (§5): Choice decodes `choice` + `probabilities` +
+  `confidence`, Noul decodes `noul`, Score decodes `score`/`legend` with
+  `probabilities`/`confidence`. `AcceptChoice` now requires the full
+  distribution to match the criteria keys, sum to 1, and agree with the argmax;
+  legacy fields (`probability`, `distribution`, `value`) are rejected.
+- READ period correctness (§8): the route and period Choices are answered in
+  one System One request, and Go resolves the exact server range from the
+  returned period. `CUSTOM_OR_UNCLEAR` falls through to extraction instead of
+  silently becoming `THIS_MONTH`; wealth ignores the period.
+- Bounded workflows send a criteria map, and the simple-transaction bundle adds
+  support Nouls (`amount_support`, `date_support`) before Go persists.
 
 ## Deliberately deferred (not claimed complete)
 
@@ -34,7 +50,10 @@ reconciliation semantic Noul checks, document-pipeline bounded field judgments
 (a text-backed evidence path is required before Jev can judge fields it never
 saw), insight-family selection, transfer-purpose classification for genuinely
 ambiguous cases, and the richer decision telemetry in §26 (question keys,
-outcome, `used_generative_fallback`). The native tool catalog is intentionally
+outcome, `used_generative_fallback`). The parallel single-request bundle (§9)
+is only partially implemented: route + period and the simple-transaction
+questions share one request, while bounded server-state choices still issue
+their own focused request. The native tool catalog is intentionally
 unchanged: it stays as the funnel and fallback while Jev handles the bounded
 cases above.
 
