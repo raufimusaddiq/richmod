@@ -49,8 +49,8 @@ func TestAgentRecordTransactionKeepsRepeatedSameAmountExpense(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Camilan','camilan') RETURNING id`, f.householdID).Scan(&categoryID))
 	mustAgentTest(t, func() error {
 		_, err := f.pool.Exec(ctx, `
-			INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,created_by_user_id)
-			VALUES($1,'EXPENSE','CONFIRMED',5000,'IDR',now()-interval '1 minute','Kopi',$2)`, f.householdID, f.userID)
+			INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,created_by_user_id,confirmed_at)
+			VALUES($1,'EXPENSE','CONFIRMED',5000,'IDR',now()-interval '1 minute','Kopi',$2,now()-interval '1 minute')`, f.householdID, f.userID)
 		return err
 	}())
 

@@ -105,7 +105,9 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 	for i, r := range loaded {
 		ids[i] = r.ID
 	}
-	refs, err := p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, "recent", ids)
+	// The ref_key column constrains keys to the tx phase pattern, so recent rows
+	// use the phase-0 shape ("p0r0") rather than a descriptive prefix.
+	refs, err := p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, "p0r0", ids)
 	if err != nil {
 		return nil, fmt.Errorf("persist recent transaction references: %w", err)
 	}
