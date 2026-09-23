@@ -65,8 +65,8 @@ var verificationClaims = []struct {
 }{
 	{"transaction_observed", "Does the email describe one real completed transaction rather than a promotion, statement, or unrelated notice?", evidenceVerificationPolicy.Observed},
 	{"amount_supported", "Is the extracted amount exactly what the email states, with no other plausible amount in the message?", evidenceVerificationPolicy.Amount},
-	{"direction_supported", "Is the extracted money direction (INCOMING or OUTGOING) directly supported by the email wording?", evidenceVerificationPolicy.Direction},
-	{"channel_supported", "Is the extracted channel directly supported by the email wording rather than inferred?", evidenceVerificationPolicy.Channel},
+	{"direction_supported", "Does the email's wording support the extracted money direction (INCOMING or OUTGOING)? Answer yes when ordinary wording implies it, for example a debit-card or payment notification for OUTGOING and a transfer-received notice for INCOMING. Answer no only when the email suggests the opposite direction or none at all.", evidenceVerificationPolicy.Direction},
+	{"channel_supported", "Does the email describe the same payment method as the extracted channel? The channel is a server vocabulary token (DEBIT_CARD, MERCHANT_PAYMENT, QR, TRANSFER, ATM, BANK_FEE, INTERNAL_TRANSFER, RDN, OTHER), so ordinary wording that names that method counts, for example 'kartu debit' or 'debit card' for DEBIT_CARD, 'QR' for QR, 'transfer' for TRANSFER. Answer no only when the email names a different method or none.", evidenceVerificationPolicy.Channel},
 	{"material_ambiguity", "Is this notification genuinely ambiguous, for example two plausible amounts, dates, or targets?", evidenceVerificationPolicy.Ambiguity},
 }
 

@@ -235,7 +235,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// the extracted facts; the extractor's self-reported confidence is no longer
 	// allowed to authorize (or to hide) a semantic claim (ADR-038, PRD §20).
 	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion)
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
 	}
 	verification, verified, verifyErr := p.verifyEvidence(ctx, payload.SourceEventID, extraction, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
 	if verifyErr != nil {
@@ -245,10 +245,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
 	}
 	if verified && !verification.supported() {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion)
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE")
 	}
 	if !verified && extraction.Confidence < 0.80 {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion)
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
 	}
 	if verified {
 		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
@@ -264,7 +264,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 
 // reviewIncompleteExtraction parks a notification whose facts are structurally
 // incomplete or semantically unsupported. It never mutates the ledger.
-func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, sourceEventID, schemaVersion string) error {
+func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, sourceEventID, schemaVersion, reviewType string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -273,7 +273,7 @@ func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, s
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, sourceEventID, schemaVersion); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN') ON CONFLICT DO NOTHING`, household, sourceEventID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,$3,'OPEN') ON CONFLICT DO NOTHING`, household, sourceEventID, reviewType); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
