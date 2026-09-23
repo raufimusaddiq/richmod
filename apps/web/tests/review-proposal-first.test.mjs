@@ -32,10 +32,15 @@ test("a known financial entity is never requested again", () => {
 });
 
 
-test("the primary accept action sends the proposed category, not a null one", () => {
-  // The AMBIGUOUS_CATEGORY case is exactly the one where item.categoryId is null,
-  // so a quick accept that only sends item.categoryId returns 400 (Hermes review).
-  assert.match(source, /categoryId: item\.categoryId \|\| proposed\.categoryId \|\| null/);
+test("the primary accept action never posts a request the server must reject", () => {
+  // A legacy AMBIGUOUS_CATEGORY card has no categoryId and no proposal, so a
+  // one-click accept would post a null category and 400. The primary action is
+  // quick-accept only when the card can satisfy the server contract; otherwise it
+  // opens the edit form (PRD 13.1/13.3).
+  assert.match(source, /const canQuickAccept =/);
+  assert.match(source, /const quickCategoryId = item\.categoryId \|\| proposed\.categoryId \|\| null/);
+  assert.match(source, /canQuickAccept \? <button/);
+  assert.match(source, /Benar, lanjut isi detail/);
 });
 
 test("the asset-purchase affordance is reachable without a dead switch", () => {
