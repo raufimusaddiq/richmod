@@ -1961,6 +1961,13 @@ not:
 full form
 ~~~
 
+Status: implemented on `feat/proposal-first-inbox` (ADR-044). The Inbox renders
+the stored ReviewDecision — proposal, reason, one primary action — and renders a
+required input only for a dimension the decision named in `missingFacts`. Known
+accounts and Wealth Accounts are shown, never re-asked; full editing sits behind
+an explicit edit step and evidence behind a secondary disclosure. Reviews created
+before the decision contract existed keep rendering the full form.
+
 ## Stage 8 — Semantic Canary and Threshold Calibration
 
 After behavior ships:
