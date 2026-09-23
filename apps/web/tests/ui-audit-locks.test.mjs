@@ -52,7 +52,6 @@ test("loading, tab, and drawer states are announced to assistive technology", ()
 test("toast dismissal is owned by a stable callback", () => {
   const feedback = text("app/components/Feedback.js");
   assert.doesNotMatch(feedback, /\}, \[message, onClose\]\)/);
-  
   assert.match(text("app/inbox/page.js"), /<Toast message={toast} onClose={closeToast}\/>/);
   assert.match(text("app/documents/page.js"), /<Toast message={toast} onClose={closeToast}\/>/);
 });
