@@ -610,18 +610,33 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 	return result, true, nil
 }
 
-// recentDuplicateExpense finds an existing non-voided EXPENSE for the same
-// amount created in the last 10 minutes and returns a model-safe ref for it.
-// Deterministic, no LLM judgment: the raw amount match is the whole test so a
-// repeated line cannot silently double-book.
-// ponytail: 10-minute window, exact amount, EXPENSE only. Widen to a per-merchant
-// window if genuine late duplicates show up.
+// recentDuplicateExpense finds an existing non-voided EXPENSE from the last 10
+// minutes that is the same event as the incoming one, and returns a model-safe
+// ref for it.
+//
+// Amount alone is not identity: two distinct Rp5.000 purchases ("kopi" and
+// "jajan") are legitimate. A row only counts as a duplicate when the amount
+// matches AND the description/merchant text overlaps, so a repeated line or a
+// double-fired retry is caught while genuinely distinct same-amount spend is
+// still recorded. The incoming extraction must also carry no new merchant for
+// the existing row (a merchant-bearing line is a labelling follow-up, not a
+// duplicate of an unlabelled row).
+// ponytail: 10-minute window, text-overlap heuristic. Tighten to an explicit
+// per-turn idempotency key if the model ever retries across longer gaps.
 func (p *Processor) recentDuplicateExpense(ctx context.Context, state *agentState, value validatedExtraction) (*agentPublicRef, error) {
 	if value.Type != "EXPENSE" {
 		return nil, nil
 	}
 	var existingID string
-	err := p.pool.QueryRow(ctx, `SELECT id FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND type='EXPENSE' AND amount=$2 AND created_at >= now()-interval '10 minutes' ORDER BY created_at DESC LIMIT 1`, state.HouseholdID, value.Amount).Scan(&existingID)
+	err := p.pool.QueryRow(ctx, `
+		SELECT id FROM transaction
+		WHERE household_id=$1 AND status<>'VOIDED' AND type='EXPENSE' AND amount=$2
+		  AND created_at >= now()-interval '10 minutes'
+		  AND (
+		    ($3<>'' AND (COALESCE(counterparty_name,'') ILIKE '%'||$3||'%' OR COALESCE(description,'') ILIKE '%'||$3||'%'))
+		    OR ($4<>'' AND (COALESCE(counterparty_name,'') ILIKE '%'||$4||'%' OR COALESCE(description,'') ILIKE '%'||$4||'%'))
+		  )
+		ORDER BY created_at DESC LIMIT 1`, state.HouseholdID, value.Amount, strings.TrimSpace(value.Description), strings.TrimSpace(value.Merchant)).Scan(&existingID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
