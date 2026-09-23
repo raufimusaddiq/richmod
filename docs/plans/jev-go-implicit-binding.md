@@ -1,7 +1,18 @@
 # Plan: seamless Jev↔Go binding (implicit workflow lanes)
 
-Status: proposed — supersedes the ad-hoc fall-through added in PR #115.
+Status: implemented — Stages 1-3 shipped; supersedes the ad-hoc fall-through
+added in PR #115.
 Related: ADR-038 (amendment 2026-09), ADR-033.
+
+Shipped:
+
+- Stage 1 (PR #116): merchant-learning binding uses a bounded choice and falls
+  through when the classifier says the message is not an answer.
+- Stage 2 (this change): route-first lane selection. Implicit bindings narrow
+  only when the decided route names their interaction; both per-binding
+  fall-through branches are deleted.
+- Stage 3 (this change): `TestOpenReviewChatRecordsNewExpenseWithGeneralCatalog`
+  pins the invariant end to end.
 
 ## Problem
 

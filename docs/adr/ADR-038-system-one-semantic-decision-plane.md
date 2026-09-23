@@ -242,10 +242,16 @@ names the bound workflow. Under that shape an implicit binding can no longer
 mis-own a turn, because the route call — not chat state — decides whether the
 turn is a workflow reply at all.
 
-Until route-first selection is adopted, every implicit binding MUST follow the
-three-way rule above, MUST carry a test proving a new-event message falls
-through, and MUST NOT be introduced without one. See
-`docs/plans/jev-go-implicit-binding.md` for the staged work.
+Route-first selection is now implemented. The route is threaded into
+`applyAgentWorkflowToolPolicy`, and an implicit binding is attached to the turn
+only when the scope matches. Exact bindings — pending correction, pending batch,
+pending salary choice, and an explicit Telegram reply — still outrank the route,
+because they are unambiguous by construction. The per-binding fall-through
+branches are deleted.
+
+Any future implicit binding MUST follow the same shape: narrow only under its
+matching route, and carry a test proving a new-event message keeps the general
+catalog. See `docs/plans/jev-go-implicit-binding.md`.
 
 - ADR-005: Cloud LLM Gateway boundary — amended to include native System One.
 - ADR-024: Native finance tool calls — remains applicable to generative paths
