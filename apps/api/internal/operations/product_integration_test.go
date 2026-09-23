@@ -78,7 +78,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.ExplicitInputs != 0 || aggregate.TypedFields != 0 {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
-	if len(aggregate.Coverage) != 2 {
+	if len(aggregate.Coverage) != 1 {
 		t.Fatalf("signals that cannot be reconstructed must stay named: %+v", aggregate.Coverage)
 	}
 

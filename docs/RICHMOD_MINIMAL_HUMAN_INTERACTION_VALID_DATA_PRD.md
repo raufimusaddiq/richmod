@@ -1852,12 +1852,16 @@ a typed field, and accepted-without-edit is the resolution actions that only
 accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
 `TELEGRAM_MERCHANT_DECISION`).
 
-`notYetMeasurable` names the two §22.4 signals that no current row can
-reconstruct — bounded choices per event and review round trips — because they
-need a write-side per-event tally and a round-trip counter. §22.3
-auto-confirm correction is not reconstructable either: nothing distinguishes a
-correction to an auto-confirmed event from an ordinary reviewed correction, so it
-is deliberately not reported rather than approximated from unrelated rows.
+It also reports review round trips (a resolved review the user answered more than
+once, from the review conversation) and the mean time to resolution (the
+open-to-resolve interval, §22.2/§22.4).
+
+`notYetMeasurable` names the one §22.4 signal that no current row can
+reconstruct — bounded choices per event — because it needs a write-side per-event
+tally. §22.3 auto-confirm correction is not reconstructable either: nothing
+distinguishes a correction to an auto-confirmed event from an ordinary reviewed
+correction, so it is deliberately not reported rather than approximated from
+unrelated rows.
 
 Before materially expanding auto-confirmation:
 

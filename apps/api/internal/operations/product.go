@@ -50,6 +50,12 @@ type productAggregate struct {
 	// Coverage names the section 22 signals that current canonical history cannot
 	// reconstruct. Naming them here keeps a partial RHICE from reading as complete.
 	Coverage []string `json:"notYetMeasurable"`
+	// ReviewRoundTrips counts resolved reviews the user had to answer more than
+	// once: a conversation updated after it was created means a follow-up turn.
+	// TimeToResolutionMs is the mean wall-clock time from review open to resolve
+	// for the resolutions in the window.
+	ReviewRoundTrips   int   `json:"reviewRoundTrips"`
+	TimeToResolutionMs int64 `json:"timeToResolutionMs"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
@@ -167,9 +173,19 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	if aggregate.CanonicalEvents > 0 {
 		aggregate.RHICE = float64(aggregate.ExplicitInputs) / float64(aggregate.CanonicalEvents)
 	}
+	// Section 22.2/22.4: a resolved review the user answered more than once is a
+	// round trip, and the open-to-resolve interval is the time to canonical state.
+	// Both are derived from the review_request row; no new write is needed.
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM review_conversation rc WHERE rc.review_request_id=rr.id AND rc.updated_at > rc.created_at)),
+		 COALESCE(avg(EXTRACT(EPOCH FROM (rr.resolved_at - rr.created_at)) * 1000)::bigint, 0)
+		FROM review_request rr
+		WHERE rr.household_id=$1 AND rr.created_at >= now() - interval '30 days' AND rr.status='RESOLVED'`, householdID).Scan(&aggregate.ReviewRoundTrips, &aggregate.TimeToResolutionMs); err != nil {
+		return aggregate, err
+	}
 	// Section 22.4 signals no current row can reconstruct: they need a write-side
 	// per-event input tally and a round-trip counter. Naming them keeps a partial
 	// RHICE from reading as complete.
-	aggregate.Coverage = []string{"bounded_choices_per_event", "review_round_trips"}
+	aggregate.Coverage = []string{"bounded_choices_per_event"}
 	return aggregate, nil
 }
