@@ -236,11 +236,16 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// the extracted facts; the extractor's self-reported confidence is no longer
 	// allowed to authorize (or to hide) a semantic claim (ADR-038, PRD §20).
 	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") {
-		missingFact := "amount"
-		if !missing(extraction, "amount_idr") {
-			missingFact = "transaction_at"
+		// List every absent required fact, not just the first: both amount and time
+		// can be missing, and the review must request exactly what is unresolved.
+		missingFacts := []string{}
+		if missing(extraction, "amount_idr") {
+			missingFacts = append(missingFacts, "amount")
 		}
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{missingFact}, "a required canonical fact was absent from the email extraction"))
+		if missing(extraction, "transaction_at") {
+			missingFacts = append(missingFacts, "transaction_at")
+		}
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", missingFacts, "a required canonical fact was absent from the email extraction"))
 	}
 	verification, verified, verifyErr := p.verifyEvidence(ctx, payload.SourceEventID, extraction, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
 	if verifyErr != nil {
