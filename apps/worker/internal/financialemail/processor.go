@@ -236,8 +236,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
-		return err
+		return p.wealthObservationReview(ctx, tx, household, id, observationID, hint, *v.ValueIDR)
 	case "CASH_MOVEMENT":
 		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v)
 	default:
@@ -299,7 +298,26 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
+	return p.wealthObservationReview(ctx, tx, household, id, observationID, "", *v.ValueIDR)
+}
+
+// wealthObservationReview parks a Financial Email wealth value as a review that
+// carries the PRD §7 contract, so the Inbox offers the snapshot flow and the
+// observed value without re-asking for it.
+func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, household, observationID, wealthID, hint, valueIDR string) error {
+	decision, _ := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "financial_email_observation", observationID)
+	decision.KnownFacts["observed_value_idr"] = valueIDR
+	if hint != "" {
+		decision.KnownFacts["account_hint"] = hint
+	}
+	if wealthID != "" {
+		decision.KnownFacts["wealth_account"] = wealthID
+	}
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$4::jsonb) ON CONFLICT DO NOTHING`, household, wealthID, observationID, string(encoded))
 	return err
 }
 

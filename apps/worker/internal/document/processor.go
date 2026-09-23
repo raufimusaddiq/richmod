@@ -17,6 +17,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -254,7 +255,22 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10) ON CONFLICT(document_id) DO UPDATE SET updated_at=now() RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate).Scan(&observationID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, householdID, observationID); err != nil {
+		decision, _ := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
+		decision.KnownFacts["observed_value_idr"] = observation.ObservedValueIDR
+		if observation.Institution != "" {
+			decision.KnownFacts["institution"] = strings.TrimSpace(observation.Institution)
+		}
+		if observation.AccountHint != "" {
+			decision.KnownFacts["account_hint"] = strings.TrimSpace(observation.AccountHint)
+		}
+		if resolvedWealthID != "" {
+			decision.KnownFacts["wealth_account"] = resolvedWealthID
+		}
+		encoded, encodeErr := decision.JSON()
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb) ON CONFLICT DO NOTHING`, householdID, observationID, string(encoded)); err != nil {
 			return err
 		}
 		message := "🟡 Nilai Wealth perlu dikonfirmasi\n\n" + strings.TrimSpace(observation.Institution+" "+observation.AccountHint) + "\nRp" + workerTelegram.FormatIDR(observation.ObservedValueIDR) + "\n\nBalas pesan ini untuk menyiapkan snapshot lengkap, memilih Wealth Account lain, atau mengabaikannya."
@@ -388,7 +404,13 @@ func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID); err != nil {
 		return err
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status) VALUES($1,$2,'DOCUMENT_CLASSIFICATION','OPEN') ON CONFLICT DO NOTHING RETURNING id`, householdID, documentID).Scan(new(string)); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	classification, _ := reviewdec.Preset("DOCUMENT_CLASSIFICATION", "document", documentID)
+	classification.WhyNotAuto = "document classification failed: " + truncate(cause)
+	classificationJSON, encodeErr := classification.JSON()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_CLASSIFICATION','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, documentID, string(classificationJSON)).Scan(new(string)); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if tag.RowsAffected() > 0 {

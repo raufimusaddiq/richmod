@@ -50,7 +50,6 @@ func TestReceiptWithWeakSameAmountCandidateStaysInReview(t *testing.T) {
 	}
 }
 
-
 func seedReceiptFixture(t *testing.T, label string) receiptFixture {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

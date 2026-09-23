@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -256,7 +257,13 @@ func (p *Processor) persistInvalidPayslip(ctx context.Context, documentID, house
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN') ON CONFLICT DO NOTHING`, householdID, documentID); err != nil {
+	decision, _ := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
+	decision.WhyNotAuto = "the payslip extraction failed validation: " + truncate(cause)
+	encoded, encodeErr := decision.JSON()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN',$3::jsonb) ON CONFLICT DO NOTHING`, householdID, documentID, string(encoded)); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_PAYSLIP_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'reason',$4::text))`, householdID, sourceID, documentID, cause.Error()); err != nil {
@@ -323,7 +330,19 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return err
 	}
 	if reviewWithoutTransaction {
-		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,review_type,status) VALUES($1,$2,$3,'OPEN') ON CONFLICT DO NOTHING`, householdID, proposalID, reviewType); err != nil {
+		decision, _ := reviewdec.Preset(reviewType, "proposal", proposalID)
+		decision.KnownFacts["amount_idr"] = value.NetPay
+		if value.Employer != "" {
+			decision.KnownFacts["merchant"] = value.Employer
+		}
+		if value.Period != "" {
+			decision.KnownFacts["payroll_period"] = value.Period
+		}
+		encoded, encodeErr := decision.JSON()
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN',$4::jsonb) ON CONFLICT DO NOTHING`, householdID, proposalID, reviewType, string(encoded)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
