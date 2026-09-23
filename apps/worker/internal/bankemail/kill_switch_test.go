@@ -1,6 +1,10 @@
 package bankemail
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+)
 
 // PRD §33: the bank-email category auto-confirm path has an independent
 // kill-switch. When off, a remembered merchant category must not confirm ledger
@@ -45,5 +49,25 @@ func TestCategoryAutoConfirmKillSwitchLeavesReviewsAlone(t *testing.T) {
 	review := PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "UNKNOWN_MERCHANT"}
 	if got := applyCategoryAutoConfirmSwitch(review, false); got != review {
 		t.Fatalf("switch altered an already-parked review: %+v", got)
+	}
+}
+
+// With the switch off the bounded category path must not run either: it also
+// confirms ledger money, so a switch that gated only the remembered-merchant
+// branch would be re-opened by the classifier it exists to stop.
+func TestCategoryAutoConfirmKillSwitchGatesTheBoundedPath(t *testing.T) {
+	processor := &Processor{verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": {
+		Distribution:  map[string]float64{"food-and-drink": 0.9, "groceries": 0.1, "OTHER_OR_UNCLEAR": 0},
+		Confidence:    0.9,
+		HasConfidence: true,
+	}}}}
+	processor.SetCategoryAutoConfirm(false)
+	if processor.categoryAutoConfirm {
+		t.Fatal("the switch must be off")
+	}
+	policy := PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "AMBIGUOUS_CATEGORY"}
+	gated := applyCategoryAutoConfirmSwitch(policy, processor.categoryAutoConfirm)
+	if gated.AutoConfirm {
+		t.Fatalf("a disabled switch must not auto-confirm: %+v", gated)
 	}
 }

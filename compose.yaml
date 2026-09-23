@@ -106,6 +106,7 @@ services:
       # Per-source auto-confirm kill-switch (PRD 33). A set value disables category
       # auto-confirm for bank email without touching the other sources.
       RICHMOD_AUTOCONFIRM_BANK_CATEGORY: ${RICHMOD_AUTOCONFIRM_BANK_CATEGORY:-}
+      RICHMOD_AUTOCONFIRM_RECEIPT: ${RICHMOD_AUTOCONFIRM_RECEIPT:-}
     volumes:
       - attachment_data:/var/lib/finance/attachments
     depends_on:

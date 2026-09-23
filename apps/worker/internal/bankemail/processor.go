@@ -223,9 +223,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// applied to the policy result the deterministic rules already produced,
 	// before the bounded classifier gets a chance to decide a category.
 	result = applyCategoryAutoConfirmSwitch(result, p.categoryAutoConfirm)
-	// A kill-switched result is a review, so the bounded decision below never
-	// re-confirms it; the resolved category still rides on the parked review.
-	if !payload.Shadow {
+	// The kill-switch also disables the bounded category path, so the switch
+	// cannot be re-opened by the very decision it exists to gate.
+	if !payload.Shadow && p.categoryAutoConfirm {
 		result = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
 	}
 	status := result.Status

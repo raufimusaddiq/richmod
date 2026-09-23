@@ -100,6 +100,7 @@ func run(logger *slog.Logger) error {
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
 	documentProcessor.Interpretation = workerDocument.ParseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
+	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
 	if judgmentClient != nil {
