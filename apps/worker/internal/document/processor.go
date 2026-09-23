@@ -40,6 +40,10 @@ type Processor struct {
 	pool    *pgxpool.Pool
 	gateway Gateway
 	storage *blob.Store
+	// verifier is the bounded judgment plane, used for row-level category
+	// rulings on transaction screenshots. A nil verifier disables auto-confirm
+	// and keeps the review path, so intake still works without the gateway.
+	verifier jeverifier
 	// Interpretation selects the ADR-037 rollout stage. Empty keeps the
 	// legacy classify-then-extract path so existing deployments are unchanged.
 	Interpretation InterpretationMode
@@ -70,6 +74,9 @@ func (p *Processor) EvictTerminalCaches(ctx context.Context) error {
 func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Store) *Processor {
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
+
+// SetVerifier wires the bounded judgment plane (PRD §11.2).
+func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
 func DecodePayload(raw json.RawMessage) (Payload, error) {
 	var payload Payload

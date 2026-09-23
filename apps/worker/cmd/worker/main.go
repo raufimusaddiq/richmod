@@ -100,6 +100,12 @@ func run(logger *slog.Logger) error {
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
 	documentProcessor.Interpretation = workerDocument.ParseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
+	if judgmentClient != nil {
+		// Row-level category rulings let a clear screenshot row reach the ledger
+		// without a review; the bounded plane, not generative confidence, is what
+		// authorises that write (PRD §11.2).
+		documentProcessor.SetVerifier(judgmentClient)
+	}
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
 	if judgmentClient != nil {
