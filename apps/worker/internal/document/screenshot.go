@@ -44,8 +44,26 @@ type validatedScreenshotRow struct {
 	TransactionAt time.Time
 	DateKnown     bool
 	CategoryID    *string
-	Candidates    []matchCandidate
-	Matched       *matchCandidate
+	// CategoryDecided marks a decisive bounded-plane ruling on the row's
+	// category, which is what authorises an auto-confirm; CategoryConflict marks
+	// two independent semantic sources disagreeing about it (PRD §11.2, §17).
+	CategoryDecided  bool
+	CategoryConflict bool
+	Candidates       []matchCandidate
+	Matched          *matchCandidate
+}
+
+// autoConfirmable reports the conditions this source can check before writing
+// canonical state without a human (PRD §17, §11.1). An unmatched OUT row needs a
+// decisive bounded category, a printed date, and high extraction confidence;
+// the merchant may be absent (PRD §18.1). Incoming rows never auto-confirm
+// because evidence cannot separate income from an own-account transfer yet
+// (PRD §11.5).
+func (row validatedScreenshotRow) autoConfirmable() bool {
+	// A matched row links evidence; a row with candidates it could not resolve is
+	// exactly the duplicate ambiguity PRD 17/10.3 refuses to auto-confirm, so it
+	// must still go to review rather than writing a second CONFIRMED transaction.
+	return row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown && row.Value.Confidence >= .90
 }
 
 func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) error {
@@ -139,7 +157,23 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 			usedMatches[match.ID] = true
 		}
 	}
-	return p.persistScreenshot(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, rows)
+	// One bounded request rules on every unmatched OUT row's category (PRD §11.3)
+	// so an unmatched row means "new transaction", not "ambiguous transaction".
+	decided, provenance, err := p.resolveRowCategories(ctx, sourceID, rows, categories)
+	if err != nil {
+		return err
+	}
+	for index, categoryID := range decided {
+		if rows[index].CategoryID != nil && *rows[index].CategoryID != categoryID {
+			// Two independent semantic sources disagree; PRD §17 forbids
+			// confirming through an unresolved evidence conflict.
+			rows[index].CategoryConflict = true
+			continue
+		}
+		id := categoryID
+		rows[index].CategoryID, rows[index].CategoryDecided = &id, true
+	}
+	return p.persistScreenshot(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, provenance, rows)
 }
 
 func screenshotType(value string) bool {
@@ -198,14 +232,23 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 	return result, nil
 }
 
-func (p *Processor) persistScreenshot(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, rows []validatedScreenshotRow) error {
+func (p *Processor) persistScreenshot(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, provenance rowChoiceProvenance, rows []validatedScreenshotRow) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var chatID int64
+	hasChat := true
+	if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		hasChat = false
+	}
 	needsReview := false
+	recorded, linked, pending := 0, 0, 0
 	for index, row := range rows {
 		proposalKey := fmt.Sprintf("row-%03d", index+1)
 		if row.Matched != nil {
@@ -219,9 +262,18 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_SCREENSHOT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'match_score',$5::numeric))`, householdID, row.Matched.ID, documentID, index, row.Matched.Score); err != nil {
 				return err
 			}
+			linked++
+			continue
+		}
+		if !p.rowAutoConfirmOff && row.autoConfirmable() {
+			if err := confirmScreenshotRow(ctx, tx, householdID, sourceID, documentID, proposalKey, index, row, provenance); err != nil {
+				return err
+			}
+			recorded++
 			continue
 		}
 		needsReview = true
+		pending++
 		var merchantID *string
 		if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
 			var id string
@@ -244,8 +296,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_SCREENSHOT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text))`, householdID, transactionID, documentID, index, row.Value.Direction); err != nil {
 			return err
 		}
-		var chatID int64
-		if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err == nil {
+		if hasChat {
 			reviewType := "AMBIGUOUS_CATEGORY"
 			message := workerTelegram.ReviewQuestion(row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
@@ -257,7 +308,19 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message); err != nil {
 				return err
 			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
+			// PRD §7/§13: store the decision contract so the Inbox can ask only
+			// about the dimension that is genuinely unresolved.
+			if encoded, encodeErr := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row).JSON(); encodeErr == nil {
+				if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, householdID, string(encoded), transactionID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// PRD §11.4: one batch summary, so a many-row screenshot never floods the
+	// chat with one message per row.
+	if hasChat {
+		if err := enqueueScreenshotSummary(ctx, tx, chatID, screenshotSummary(len(rows), recorded, linked, pending)); err != nil {
 			return err
 		}
 	}
@@ -268,13 +331,25 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
 		return err
 	}
+	if provenance.Questions > 0 {
+		// ADR-038/PRD §21: every Jev-influenced canonical mutation keeps its
+		// bounded decision provenance, not just its audit entry.
+		summary, _ := json.Marshal(map[string]any{"questioned_rows": provenance.Questions, "decided_rows": provenance.Decided, "recorded_rows": recorded})
+		outcome := "REVIEW"
+		if recorded > 0 {
+			outcome = "AUTO_CONFIRM"
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'SCREENSHOT_ROW_CATEGORY',NULLIF($3,''),$4,$5,$6::jsonb,$7)`, householdID, sourceID, provenance.Model, provenance.PolicyVersion, provenance.QuestionKeys, string(summary), outcome); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(ctx, `UPDATE document SET status=$2,updated_at=now() WHERE id=$1`, documentID, documentStatus); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceID, sourceStatus); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean))`, householdID, sourceID, documentID, documentType, len(rows), needsReview); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean,'auto_confirmed_rows',$7::integer,'linked_rows',$8::integer,'review_rows',$9::integer,'category_policy_version',$10::text))`, householdID, sourceID, documentID, documentType, len(rows), needsReview, recorded, linked, pending, provenance.PolicyVersion); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

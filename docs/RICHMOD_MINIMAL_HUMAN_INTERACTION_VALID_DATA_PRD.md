@@ -1938,6 +1938,11 @@ Implement:
 - batch processing summary;
 - row-specific minimal review.
 
+Status: implemented on `feat/screenshot-rows` (ADR-042). One batched bounded
+category ruling per image; a row auto-confirms only with a decisive category, a
+printed date, no source conflict, and high extraction confidence. Unresolved
+rows store the PRD §7 decision and the document sends one batch summary.
+
 Exit criterion:
 
 clear rows do not create mandatory review cards.
