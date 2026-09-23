@@ -100,6 +100,9 @@ func run(logger *slog.Logger) error {
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
 	documentProcessor.Interpretation = workerDocument.ParseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
+	// PRD §33 operational kill-switch: an operator must be able to park screenshot
+	// rows in review without a deploy. Unset keeps auto-confirm on.
+	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
 	if judgmentClient != nil {
 		// Row-level category rulings let a clear screenshot row reach the ledger
 		// without a review; the bounded plane, not generative confidence, is what
