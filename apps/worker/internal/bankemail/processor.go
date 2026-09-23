@@ -193,6 +193,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
+	if !payload.Shadow {
+		result = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
+	}
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
@@ -346,14 +349,42 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 		"direction_supported":  verification.DirectionSupported,
 		"channel_supported":    verification.ChannelSupported,
 		"material_ambiguity":   verification.MaterialAmbiguity,
-		"supported":            verification.supported(),
-		"policy_version":       verification.PolicyVersion,
+		// Without this an operator reading the row cannot tell "ruled not ambiguous"
+		// from "the plane could not tell", which is the distinction that decides
+		// whether the event may auto-confirm.
+		"ambiguity_decided_not_ambiguous": verification.AmbiguityDecidedNotAmbiguous,
+		"supported":                       verification.supported(),
+		"policy_version":                  verification.PolicyVersion,
 	})
 	if err != nil {
 		return err
 	}
 	_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_evidence_verification(source_event_id,listener_id,bank_email_verification_policy_version,gateway_model,answer_summary_json) VALUES($1,$2,$3,NULLIF($4,''),$5::jsonb) ON CONFLICT(source_event_id) DO UPDATE SET gateway_model=excluded.gateway_model,answer_summary_json=excluded.answer_summary_json,bank_email_verification_policy_version=excluded.bank_email_verification_policy_version`, sourceEventID, listenerID, verification.PolicyVersion, verification.Model, string(summary))
 	return err
+}
+
+// applyCategoryDecision lets a new merchant confirm without a review when the
+// bounded plane decides its category (PRD 9.3). The bounded question is answered
+// by the same plane that rules on the rest of the event, Go resolves the
+// canonical ID, and an undecided answer or provider failure leaves the policy
+// result untouched so the category-only review still applies. It is a pure
+// function of the resolver so the confirm-no-review half is testable without a
+// full email fixture.
+func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) PolicyResult {
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
+		return result
+	}
+	categoryID, provenance := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
+	if categoryID == "" {
+		return result
+	}
+	result.CategoryID, result.AutoConfirm = categoryID, true
+	result.Status, result.ReviewType = "CONFIRMED", ""
+	// A Jev-chosen category is a category we now know, so the row must not keep
+	// the review-flavoured placeholder as its ledger description (Hermes #133).
+	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
+	result.CategoryProvenance = &provenance
+	return result
 }
 
 func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time) bool {
@@ -495,6 +526,15 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_BANK_EMAIL','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'policy_result',$6::text,'auto_confirm',$7::boolean,'tool_schema_version',$8::text))`, listener.HouseholdID, transactionID, sourceID, listener.ID, proposalID, result.Status, result.AutoConfirm, ToolSchemaVersion); err != nil {
 		return err
+	}
+	if provenance := result.CategoryProvenance; provenance != nil {
+		summary, marshalErr := json.Marshal(map[string]any{"category": provenance.Slug, "category_accepted": provenance.Accepted})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'BANK_EMAIL_CATEGORY',NULLIF($3,''),$4,$5,$6::jsonb,'CONFIRMED')`, listener.HouseholdID, sourceID, provenance.Model, provenance.PolicyVersion, []string{"category"}, string(summary)); err != nil {
+			return err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err
