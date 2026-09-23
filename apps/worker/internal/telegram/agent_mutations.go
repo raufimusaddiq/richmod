@@ -596,5 +596,3 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 	result.Mutation = map[string]any{"action": "BATCH_RECORDED", "confirmed": true, "count": len(items)}
 	return result, true, nil
 }
-
-// recentDuplicateExpense finds an existing non-voided EXPENSE from the last 10
