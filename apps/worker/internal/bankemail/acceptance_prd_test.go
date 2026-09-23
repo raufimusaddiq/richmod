@@ -80,14 +80,18 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 	processor := &Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{
 		"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"})),
 	}}}
-	if got := processor.resolveNewMerchantCategory(ctx, householdID, outgoingCard("54000", "Warung Baru")); got != foodID {
-		t.Fatalf("a decisive category must resolve to its canonical id: got %q want %q", got, foodID)
+	// The decisive answer must turn the category review into a confirmation with no
+	// review left behind, not merely resolve an id.
+	decided := processor.applyCategoryDecision(ctx, householdID, outgoingCard("54000", "Warung Baru"), result)
+	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != foodID {
+		t.Fatalf("a decisive category must confirm with no review: %+v", decided)
 	}
 
 	// A provider failure must leave the review in place rather than guess.
 	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
-	if got := undecided.resolveNewMerchantCategory(ctx, householdID, outgoingCard("54000", "Warung Baru")); got != "" {
-		t.Fatalf("a provider failure must not resolve a category: %q", got)
+	kept := undecided.applyCategoryDecision(ctx, householdID, outgoingCard("54000", "Warung Baru"), result)
+	if kept.ReviewType != "AMBIGUOUS_CATEGORY" || kept.Status != "NEEDS_REVIEW" || kept.AutoConfirm {
+		t.Fatalf("a provider failure must keep the category review: %+v", kept)
 	}
 }
 

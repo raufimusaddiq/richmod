@@ -193,17 +193,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
-	// A new merchant with a decisive bounded category ruling must confirm without
-	// a review: the category question is answered by the same plane that rules on
-	// the rest of the event, and Go resolves the canonical ID (PRD §9.3). An
-	// undecided ruling leaves the policy result untouched, so the category-only
-	// review below still applies.
-	if result.ReviewType == "AMBIGUOUS_CATEGORY" {
-		if categoryID := p.resolveNewMerchantCategory(ctx, household, extraction); categoryID != "" {
-			result.CategoryID, result.AutoConfirm = categoryID, true
-			result.Status, result.ReviewType = "CONFIRMED", ""
-		}
-	}
+	result = p.applyCategoryDecision(ctx, household, extraction, result)
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
@@ -369,6 +359,24 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 	}
 	_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_evidence_verification(source_event_id,listener_id,bank_email_verification_policy_version,gateway_model,answer_summary_json) VALUES($1,$2,$3,NULLIF($4,''),$5::jsonb) ON CONFLICT(source_event_id) DO UPDATE SET gateway_model=excluded.gateway_model,answer_summary_json=excluded.answer_summary_json,bank_email_verification_policy_version=excluded.bank_email_verification_policy_version`, sourceEventID, listenerID, verification.PolicyVersion, verification.Model, string(summary))
 	return err
+}
+
+// applyCategoryDecision lets a new merchant confirm without a review when the
+// bounded plane decides its category (PRD 9.3). The bounded question is answered
+// by the same plane that rules on the rest of the event, Go resolves the
+// canonical ID, and an undecided answer or provider failure leaves the policy
+// result untouched so the category-only review still applies. It is a pure
+// function of the resolver so the confirm-no-review half is testable without a
+// full email fixture.
+func (p *Processor) applyCategoryDecision(ctx context.Context, household string, extraction Extraction, result PolicyResult) PolicyResult {
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
+		return result
+	}
+	if categoryID := p.resolveNewMerchantCategory(ctx, household, extraction); categoryID != "" {
+		result.CategoryID, result.AutoConfirm = categoryID, true
+		result.Status, result.ReviewType = "CONFIRMED", ""
+	}
+	return result
 }
 
 func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time) bool {
