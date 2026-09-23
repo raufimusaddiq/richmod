@@ -47,6 +47,12 @@ type Processor struct {
 	// Interpretation selects the ADR-037 rollout stage. Empty keeps the
 	// legacy classify-then-extract path so existing deployments are unchanged.
 	Interpretation InterpretationMode
+	// rowAutoConfirmOff is this source's PRD §33 operational kill-switch, stored
+	// inverted so the zero-value Processor keeps the documented default
+	// (auto-confirm on). When set, a clear row parks a review instead of
+	// confirming, so this source can be rolled back without touching the bank or
+	// receipt switches.
+	rowAutoConfirmOff bool
 }
 
 type Payload struct {
@@ -74,6 +80,10 @@ func (p *Processor) EvictTerminalCaches(ctx context.Context) error {
 func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Store) *Processor {
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
+
+// SetRowAutoConfirm is the screenshot row kill-switch (PRD §33). Passing false
+// disables auto-confirm for this source.
+func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !enabled }
 
 // SetVerifier wires the bounded judgment plane (PRD §11.2).
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }

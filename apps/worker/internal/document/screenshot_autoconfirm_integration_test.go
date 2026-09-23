@@ -100,6 +100,27 @@ func (f screenshotFixture) persist(t *testing.T, provenance rowChoiceProvenance,
 	}
 }
 
+// PRD §33: the screenshot row auto-confirm must be independently disable-able.
+// With the switch off, the same clear row waits for a human instead of writing.
+func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
+	fixture := seedScreenshotFixture(t, "Screenshot kill switch")
+	categoryID := fixture.categoryID
+	row := screenshotDataRow("EXPENSE", "54000", "Indomaret")
+	row.CategoryID, row.CategoryDecided = &categoryID, true
+	processor := &Processor{pool: fixture.pool}
+	processor.SetRowAutoConfirm(false)
+	if err := processor.persistScreenshot(context.Background(), fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 1, Decided: 1, QuestionKeys: []string{"row_000"}}, []validatedScreenshotRow{row}); err != nil {
+		t.Fatal(err)
+	}
+	var confirmed, needsReview int
+	if err := fixture.pool.QueryRow(context.Background(), `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
+		t.Fatal(err)
+	}
+	if confirmed != 0 || needsReview != 1 {
+		t.Fatalf("the screenshot switch off must park the clear row: confirmed=%d needs_review=%d", confirmed, needsReview)
+	}
+}
+
 // PRD §11.1: an unmatched row with a decisive bounded category and a printed date
 // is a new transaction, not an ambiguous one, so it must reach the ledger while
 // the genuinely uncertain rows still ask exactly one question.

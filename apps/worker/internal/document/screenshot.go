@@ -265,7 +265,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			linked++
 			continue
 		}
-		if row.autoConfirmable() {
+		if !p.rowAutoConfirmOff && row.autoConfirmable() {
 			if err := confirmScreenshotRow(ctx, tx, householdID, sourceID, documentID, proposalKey, index, row, provenance); err != nil {
 				return err
 			}

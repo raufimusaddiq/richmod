@@ -195,6 +195,18 @@ func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxp
 	}
 }
 
+// envEnabled reads a kill-switch. Any value other than an explicit negative
+// keeps the switch enabled, so an unset or mistyped variable never silently
+// changes auto-confirm behavior (PRD §33).
+func envEnabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "0", "false", "off", "no", "disabled":
+		return false
+	default:
+		return true
+	}
+}
+
 func envPositiveInt(name string, fallback, maximum int) int {
 	value, err := strconv.Atoi(os.Getenv(name))
 	if err != nil || value < 1 {
