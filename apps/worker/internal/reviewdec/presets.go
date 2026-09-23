@@ -55,6 +55,18 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"SET_PAY_DATE", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the pay date is not present in the evidence"
+	case "TRANSFER_CLASSIFICATION":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"transfer_relationship"}
+		base.AllowedActions = []string{"CLASSIFY_TRANSFER", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
+		base.InteractionMode = ModeBoundedChoice
+		base.WhyNotAuto = "the transfer relationship is ambiguous, so the household must classify it"
+	case "CONFLICTING_EVIDENCE":
+		base.DecisionClass = ClassDuplicateAmbiguity
+		base.MissingFacts = []string{"duplicate_relationship"}
+		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
+		base.InteractionMode = ModeConflictResolution
+		base.WhyNotAuto = "two sources disagree about the same provider reference, so Go refuses to guess"
 	default:
 		return Decision{}, false
 	}
