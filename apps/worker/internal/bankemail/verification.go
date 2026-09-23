@@ -63,11 +63,11 @@ var verificationClaims = []struct {
 	Instructions string
 	Policy       judgment.NoulPolicy
 }{
-	{"transaction_observed", "Does the email describe one real completed transaction rather than a promotion, statement, or unrelated notice?", evidenceVerificationPolicy.Observed},
-	{"amount_supported", "Is the extracted amount exactly what the email states, with no other plausible amount in the message?", evidenceVerificationPolicy.Amount},
+	{"transaction_observed", "Does the email report one real completed transaction (a purchase, payment, transfer, or fee the customer has made), as opposed to a promotion, statement, balance update, or unrelated notice? Answer yes when the email states a completed transaction, even if it also contains routine security or support boilerplate such as 'if you did not make this transaction, lock your card', 'contact us if this was not you', or a link to check your transaction history. Those protective footers do not make a completed transaction unreal or uncertain.", evidenceVerificationPolicy.Observed},
+	{"amount_supported", "Is the extracted amount the amount this email states for its transaction? Answer yes when the email names that amount for the transaction; other numbers elsewhere in the email, such as a customer-service phone number, an OTP validity window, or a phone/SIM digit string, do not count as a competing transaction amount.", evidenceVerificationPolicy.Amount},
 	{"direction_supported", "Does the email's wording support the extracted money direction (INCOMING or OUTGOING)? Answer yes when ordinary wording implies it, for example a debit-card or payment notification for OUTGOING and a transfer-received notice for INCOMING. Answer no only when the email suggests the opposite direction or none at all.", evidenceVerificationPolicy.Direction},
 	{"channel_supported", "Does the email describe the same payment method as the extracted channel? The channel is a server vocabulary token (DEBIT_CARD, MERCHANT_PAYMENT, QR, TRANSFER, ATM, BANK_FEE, INTERNAL_TRANSFER, RDN, OTHER), so ordinary wording that names that method counts, for example 'kartu debit' or 'debit card' for DEBIT_CARD, 'QR' for QR, 'transfer' for TRANSFER. Answer no only when the email names a different method or none.", evidenceVerificationPolicy.Channel},
-	{"material_ambiguity", "Is this notification genuinely ambiguous, for example two plausible amounts, dates, or targets?", evidenceVerificationPolicy.Ambiguity},
+	{"material_ambiguity", "Is this notification genuinely ambiguous about the transaction itself, for example two plausible transaction amounts, or two plausible transaction dates? Routine email boilerplate is not ambiguity: a security footer like 'if this was not you, lock your card', a support phone number, or a link to view your history does not make the transaction ambiguous.", evidenceVerificationPolicy.Ambiguity},
 }
 
 // verifyEvidence asks one bounded bundle about an already-extracted bank email.
