@@ -1,0 +1,119 @@
+package document
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type receiptFixture struct {
+	pool                     *pgxpool.Pool
+	householdID, sourceID    string
+	documentID               string
+	categoryID, categorySlug string
+}
+
+func seedReceiptFixture(t *testing.T, label string) receiptFixture {
+	t.Helper()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	stamp := time.Now().UnixNano()
+	fixture := receiptFixture{pool: pool}
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("%s %d", label, stamp)).Scan(&fixture.householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Belanja Rumah','groceries') RETURNING id`, fixture.householdID).Scan(&fixture.categoryID); err != nil {
+		t.Fatal(err)
+	}
+	fixture.categorySlug = "groceries"
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING') RETURNING id`, fixture.householdID, fmt.Sprintf("receipt-autoconfirm-%d", stamp), []byte(fmt.Sprintf("receipt-autoconfirm-%d", stamp))).Scan(&fixture.sourceID); err != nil {
+		t.Fatal(err)
+	}
+	var attachmentID string
+	if err := pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/jpeg',3,1,1,$3) RETURNING id`, fixture.householdID, []byte(fmt.Sprintf("receipt-hash-%d", stamp)), fmt.Sprintf("test/receipt-%d.jpg", stamp)).Scan(&attachmentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status,document_type) VALUES($1,$2,$3,'RECEIVED','RECEIPT') RETURNING id`, fixture.householdID, fixture.sourceID, attachmentID).Scan(&fixture.documentID); err != nil {
+		t.Fatal(err)
+	}
+	// Receipt reviews are delivered through the Telegram review request, so the
+	// household needs a bound identity for the review path to be exercised.
+	var userID string
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Recipient','test-only-hash') RETURNING id`, fmt.Sprintf("receipt-%d@example.test", stamp)).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, stamp%1000000000, fixture.householdID, userID); err != nil {
+		t.Fatal(err)
+	}
+	return fixture
+}
+
+func receiptTime() time.Time {
+	return time.Date(2026, 9, 23, 13, 45, 0, 0, time.FixedZone("WIB", 7*3600))
+}
+
+// R1: a clear new receipt with valid arithmetic, a known date, and a resolved
+// category must reach canonical state without a review (PRD §10, example D).
+func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt auto confirm")
+	ctx := context.Background()
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var status, purpose string
+	var amount string
+	if err := fixture.pool.QueryRow(ctx, `SELECT status,amount::text,type FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&status, &amount, &purpose); err != nil {
+		t.Fatal(err)
+	}
+	if status != "CONFIRMED" || amount != "57500" || purpose != "EXPENSE" {
+		t.Fatalf("clear receipt must auto-confirm: status=%s amount=%s type=%s", status, amount, purpose)
+	}
+	var reviews int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, fixture.householdID).Scan(&reviews); err != nil {
+		t.Fatal(err)
+	}
+	if reviews != 0 {
+		t.Fatalf("a clear receipt must not create a review, got %d", reviews)
+	}
+}
+
+// R4/R5: a receipt that cannot resolve the category must still go to review and
+// must not be confirmed on a guess.
+func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt review")
+	ctx := context.Background()
+	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := fixture.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" {
+		t.Fatalf("an undecided category must not auto-confirm, status=%s", status)
+	}
+	var reviews int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reviews); err != nil {
+		t.Fatal(err)
+	}
+	if reviews != 1 {
+		t.Fatalf("an undecided category must open one review, got %d", reviews)
+	}
+}
