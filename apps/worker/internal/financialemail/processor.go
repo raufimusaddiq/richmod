@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type Gateway interface {
@@ -488,7 +489,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	}
 	switch plan.review {
 	case "FINANCIAL_EMAIL_RESOLUTION":
-		return p.resolutionReview(ctx, tx, household, source, id)
+		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth)
 	case "CONFLICTING_EVIDENCE":
 		return p.conflictingReferenceReview(ctx, tx, household, source, id)
 	case "TRANSFER_RECONCILIATION":
@@ -516,11 +517,58 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'CONFLICTING_EVIDENCE','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
 	return err
 }
-func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id string) error {
-	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
+
+// resolutionReview opens the PRD §12 partial-resolution review: it records which
+// of the two entities the evidence already resolved and which one is still
+// missing, so the Inbox asks only for the unresolved dimension (§13.4, §20.1).
+// resolutionReview parks a Financial Email whose entities Go could not fully
+// resolve. The resolved entity is persisted on the observation so the Inbox and
+// the resolver agree on what is already known; only the unresolved dimension is
+// recorded as missing (PRD 12, 7).
+func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string) error {
+	// The columns are the single source of truth for "already known": the list API
+	// reads resolvedAccountId from them and the resolver requires the other id on
+	// submit, so a decision that named a known entity without writing it here would
+	// render a card the server then rejects.
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW',resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,updated_at=now() WHERE id=$1`, id, account, wealth); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id)
+	missing := make([]string, 0, 2)
+	if account == "" {
+		missing = append(missing, "funding_account")
+	}
+	if wealth == "" {
+		missing = append(missing, "wealth_account")
+	}
+	known := map[string]any{}
+	if account != "" {
+		known["funding_account"] = account
+	}
+	if wealth != "" {
+		known["wealth_account"] = wealth
+	}
+	decision, encodeErr := reviewdec.Decision{
+		Version:         reviewdec.Version,
+		Subject:         reviewdec.Subject{Type: "financial_email_observation", ID: id},
+		SourceEventID:   source,
+		ReasonCode:      "FINANCIAL_EMAIL_RESOLUTION",
+		DecisionClass:   reviewdec.ClassEvidenceGap,
+		KnownFacts:      known,
+		MissingFacts:    missing,
+		DecisionSource:  reviewdec.SourceGenerativePlusJev,
+		PolicyVersion:   ProviderEmailClassificationPolicyVersion,
+		Provenance:      map[string]any{"pipeline": "financial-provider-email"},
+		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: source}},
+		AllowedActions:  []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
+		WhyNotAuto:      "an entity the evidence identifies only in prose must be bound by the household",
+		InteractionMode: reviewdec.ModeSingleField,
+	}.JSON()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	// Insert the review with the decision already attached: writing it in a second
+	// statement that runs first would match zero rows and drop the contract.
+	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id, string(decision))
 	return err
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {
