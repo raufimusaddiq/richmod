@@ -152,32 +152,36 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	// inflate RHICE. Typed fields are the subset whose action names a value the
 	// user entered rather than a bounded choice.
 	if err := h.pool.QueryRow(ctx, `
+		WITH recent_transactions AS (
+		  SELECT id FROM transaction WHERE household_id=$1 AND created_at >= now() - interval '30 days'
+		), review_events AS (
+		  SELECT DISTINCT ri.id,ri.resolution_action
+		  FROM review_item ri
+		  JOIN recent_transactions t ON ri.transaction_id=t.id OR EXISTS (
+		    SELECT 1 FROM transaction_evidence te
+		    WHERE te.transaction_id=t.id AND (
+		      (ri.financial_email_observation_id IS NOT NULL AND te.metadata_json->>'financial_email_observation_id'=ri.financial_email_observation_id::text)
+		      OR (ri.financial_email_observation_id IS NULL AND te.source_event_id=COALESCE(
+		        ri.source_event_id,
+		        (SELECT source_event_id FROM transaction_proposal WHERE id=ri.proposal_id),
+		        (SELECT source_event_id FROM document WHERE id=ri.document_id)))
+		    )
+		  )
+		  WHERE ri.household_id=$1 AND ri.status='RESOLVED' AND ri.resolved_at >= now() - interval '30 days'
+		)
 		SELECT
-		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN (
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES','ALLOCATE_RETAINED_BALANCE')
-		   AND ri.transaction_id IN (SELECT id FROM transaction WHERE created_at >= now() - interval '30 days')),
-		 count(*) FILTER (WHERE ri.status='OPEN'),
-		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN (
-		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
-		FROM review_item ri
-		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
-		return aggregate, err
-	}
-	// RHICE must be inputs per event over one cohort: scope the numerator to
-	// resolutions bound to a canonical event created in the same window, so a
-	// review resolved against an older event cannot land in the numerator while
-	// its event sits outside the denominator.
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*) FROM review_item ri
-		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
-		  AND ri.status='RESOLVED'
-		  AND ri.resolution_action IN (
+		 count(*) FILTER (WHERE resolution_action IN (
 		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
 		   'TELEGRAM_TRANSFER_CLASSIFIED','TRANSFER_RECONCILED','RECLASSIFIED_ASSET_PURCHASE',
 		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES',
 		   'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER',
-		   'ALLOCATE_RETAINED_BALANCE','LEAVE_UNALLOCATED','TRANSACTION_MISSING')
-		  AND ri.transaction_id IN (SELECT id FROM transaction WHERE created_at >= now() - interval '30 days')`, householdID).Scan(&aggregate.ExplicitInputs); err != nil {
+		   'ALLOCATE_RETAINED_BALANCE','LEAVE_UNALLOCATED')),
+		 count(*) FILTER (WHERE resolution_action IN (
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES','ALLOCATE_RETAINED_BALANCE')),
+		 (SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
+		 count(*) FILTER (WHERE resolution_action IN (
+		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
+		FROM review_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
 		return aggregate, err
 	}
 	if err := h.pool.QueryRow(ctx, `

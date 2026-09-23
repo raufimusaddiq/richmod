@@ -74,6 +74,11 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 		}
 		return txID
 	}
+	attachEvent := func(txID, eventID string) {
+		if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'TEST')`, txID, eventID); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	// An IGNORE resolves a review without producing a canonical event, so it must
 	// not count as an explicit input: the metric would otherwise credit the system
@@ -95,7 +100,8 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	// A resolved typed-field resolution bound to an in-window transaction is one
 	// explicit input, one typed field, and one canonical event.
 	bankTx := seedTx()
-	if _, err := pool.Exec(ctx, `UPDATE review_item SET transaction_id=$2,status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr','54000','transaction_at',now()) WHERE household_id=$1 AND review_type='AMBIGUOUS_CATEGORY'`, householdID, bankTx); err != nil {
+	attachEvent(bankTx, bankEventID)
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr','54000','transaction_at',now()) WHERE household_id=$1 AND source_event_id=$2 AND review_type='AMBIGUOUS_CATEGORY'`, householdID, bankEventID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -114,7 +120,9 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,confirmed_at,created_at) VALUES($1,'EXPENSE','CONFIRMED',1000,'IDR',now()-interval '60 days','old',now()-interval '60 days',now()-interval '60 days') RETURNING id`, householdID).Scan(&oldTx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,transaction_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','RESOLVED','COMPLETE_BANK_FACTS',now(),now())`, householdID, telegramEventID, oldTx); err != nil {
+	oldEventID := seedEvent("TELEGRAM_TEXT", "NEEDS_REVIEW", "product-old")
+	attachEvent(oldTx, oldEventID)
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','COMPLETE_BANK_FACTS',now(),now())`, householdID, oldEventID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -130,7 +138,9 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 
 	// An accepted proposal is an explicit input that carried no typed value.
 	tgTx := seedTx()
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,transaction_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,$3,'POSSIBLE_DUPLICATE','RESOLVED','CONFIRM_REVIEW',now(),now())`, householdID, telegramEventID, tgTx); err != nil {
+	acceptedEventID := seedEvent("TELEGRAM_TEXT", "NEEDS_REVIEW", "product-accepted")
+	attachEvent(tgTx, acceptedEventID)
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'POSSIBLE_DUPLICATE','RESOLVED','CONFIRM_REVIEW',now(),now())`, householdID, acceptedEventID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -146,7 +156,9 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	// A system resolution (no human answered) must not inflate RHICE: the
 	// numerator is an allow-list of explicit user actions, not a deny-list.
 	sysTx := seedTx()
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,transaction_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now())`, householdID, telegramEventID, sysTx); err != nil {
+	systemEventID := seedEvent("BANK_EMAIL", "PROCESSED", "product-system")
+	attachEvent(sysTx, systemEventID)
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now())`, householdID, systemEventID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)

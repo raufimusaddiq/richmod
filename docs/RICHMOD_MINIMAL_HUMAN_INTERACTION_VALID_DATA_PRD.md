@@ -1848,16 +1848,16 @@ are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
 `RECLASSIFIED_ASSET_PURCHASE`, `COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
 `SET_FINANCIAL_EMAIL_ENTITIES`, `PRIMARY_SALARY`, `ORDINARY_INCOME`,
 `MERGE_EXISTING`, `CONFIRM_NEW_TRANSFER`, `ALLOCATE_RETAINED_BALANCE`,
-`LEAVE_UNALLOCATED`, `TRANSACTION_MISSING`; typed fields are the subset whose
+`LEAVE_UNALLOCATED`; typed fields are the subset whose
 action names a value the user entered (`COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
 `SET_FINANCIAL_EMAIL_ENTITIES`, `ALLOCATE_RETAINED_BALANCE`). System
 resolutions (`EMAIL_RECEIVED_AT_FALLBACK`, `RECONCILED_TERMINAL_TRANSACTION`,
 `LEGACY_TRANSACTION_RESOLVED`, `NO_LONGER_APPLICABLE`) and `IGNORE` are neither
 an input nor a typed field, and accepted-without-edit is the resolution actions
 that only accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
-`TELEGRAM_MERCHANT_DECISION`). Explicit inputs are counted only on resolutions
-bound to a canonical event created in the same window, so the RHICE numerator
-and denominator share one cohort.
+`TELEGRAM_MERCHANT_DECISION`). RHICE counts only recent resolutions linked to a
+recent canonical transaction through its review binding or preserved evidence,
+so the numerator and denominator share the same canonical-event cohort.
 
 It also reports the mean time to resolution (the open-to-resolve interval,
 §22.2/§22.4).
