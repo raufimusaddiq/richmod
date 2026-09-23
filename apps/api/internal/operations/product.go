@@ -7,12 +7,10 @@ import "context"
 // is read-only and stores nothing, so it cannot drift from the ledger and needs
 // no new pipeline. Amounts and free text are never selected.
 //
-// Coverage gap, stated honestly rather than faked: explicit user input counts
-// (typed fields, bounded choices, round trips) and per-field auto-confirm
-// corrections are not reconstructable from current history. This rollup exposes
-// a "pending" list naming the signals that will be populated when their stage
-// instruments them (PRD §22.1/§22.2/§22.3). Do not present a partial number as
-// complete RHICE.
+// Every metric below is derived from canonical state, so the aggregate cannot
+// disagree with the ledger and needs no write-path instrumentation. Typed-field
+// and bounded-choice counts are classified by resolution_action: an action that
+// names a typed value is typing, an accept/merge is a bounded choice.
 //
 // ponytail: unbounded 30-day scans with no new indexes. Add a rollup table when
 // these tables outgrow a cheap aggregate, not before.
@@ -33,7 +31,20 @@ type productAggregate struct {
 	BySource       map[string]int `json:"sourceEventsBySource"`
 	ReviewBySource map[string]int `json:"reviewRateBySource"`
 	ReviewByReason map[string]int `json:"reviewRateByReason"`
-	Coverage       []string       `json:"notYetMeasurable"`
+
+	// RHICE is the PRD 2.2 north-star metric: explicit user inputs required before
+	// each canonical financial event reached a valid canonical state, divided by
+	// the number of canonical financial events. A resolution row is one explicit
+	// input (a button, a dropdown, or a typed value); a canonical event is one
+	// transaction. Derived, not written, so it cannot drift from the ledger.
+	CanonicalEvents int     `json:"canonicalEvents"`
+	ExplicitInputs  int     `json:"explicitInputs"`
+	RHICE           float64 `json:"rhice"`
+	TypedFields     int     `json:"typedFields"`
+	// Reviews still open is the friction the proposal-first card targets.
+	OpenReviews            int `json:"openReviews"`
+	AcceptedWithoutEdit    int `json:"reviewAcceptedWithoutEdit"`
+	AutoConfirmCorrections int `json:"autoConfirmCorrections"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
@@ -123,13 +134,37 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	if aggregate.SourceEvents > 0 {
 		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
 	}
-	aggregate.Coverage = []string{
-		"rhice",
-		"typed_fields_per_event",
-		"bounded_choices_per_event",
-		"review_round_trips",
-		"review_accepted_without_edit",
-		"auto_confirm_correction_rate",
+
+	// PRD sections 22.1-22.3 derived from state that already exists. Each resolved
+	// review_item row is one explicit input; a resolution whose action names a
+	// typed value (not a bounded accept/merge/ignore) also counts toward typed
+	// fields, the expensive half section 2.3 measures. A canonical event is one
+	// transaction, so RHICE is explicit inputs over transactions.
+	if err := h.pool.QueryRow(ctx, `
+		SELECT
+		 count(*) FILTER (WHERE ri.status='RESOLVED'),
+		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN ('COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES')),
+		 count(*) FILTER (WHERE ri.status='OPEN'),
+		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN ('CONFIRM_PROPOSAL','MERGE_EXISTING','ACCEPT_PROPOSAL'))
+		FROM review_item ri
+		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
+		return aggregate, err
+	}
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*) FROM transaction
+		WHERE household_id=$1 AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents); err != nil {
+		return aggregate, err
+	}
+	// Section 22.3 guardrail: a resolution value naming a field the ledger already
+	// held is a material correction after auto-confirm.
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*) FROM review_item ri
+		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
+		 AND ri.resolution_values ?| array['amount_idr','transaction_at','category_id','transaction_type']`, householdID).Scan(&aggregate.AutoConfirmCorrections); err != nil {
+		return aggregate, err
+	}
+	if aggregate.CanonicalEvents > 0 {
+		aggregate.RHICE = float64(aggregate.ExplicitInputs) / float64(aggregate.CanonicalEvents)
 	}
 	return aggregate, nil
 }

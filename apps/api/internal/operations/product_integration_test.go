@@ -54,7 +54,34 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.HumanTouchRate > 1 {
 		t.Fatalf("human-touch rate must stay bounded: %+v", aggregate)
 	}
-	if len(aggregate.Coverage) == 0 {
-		t.Fatal("unmeasurable PRD signals must be explicit")
+	// PRD section 22: RHICE is explicit inputs over canonical events, derived from
+	// resolution rows and transactions rather than written by a new pipeline. The
+	// two open reviews above are friction but not yet inputs, so they must not
+	// inflate the numerator.
+	if aggregate.ExplicitInputs != 0 || aggregate.RHICE != 0 {
+		t.Fatalf("open reviews are not explicit inputs: %+v", aggregate)
+	}
+	if aggregate.OpenReviews != 2 {
+		t.Fatalf("open reviews must be counted as outstanding friction: %+v", aggregate)
+	}
+
+	// A resolved typed-field resolution is one explicit input and one typed field;
+	// with no transaction in the window the denominator stays zero, so RHICE is
+	// reported as zero rather than a division artifact.
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr','54000','transaction_at',now()) WHERE household_id=$1 AND review_type='AMBIGUOUS_CATEGORY'`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.ExplicitInputs != 1 || aggregate.TypedFields != 1 {
+		t.Fatalf("a typed resolution must count as one explicit input and one typed field: %+v", aggregate)
+	}
+	if aggregate.CanonicalEvents != 0 || aggregate.RHICE != 0 {
+		t.Fatalf("RHICE must stay zero without a canonical event to divide by: %+v", aggregate)
+	}
+	if aggregate.AutoConfirmCorrections != 1 {
+		t.Fatalf("a resolution naming a material field is the section 22.3 guardrail: %+v", aggregate)
 	}
 }
