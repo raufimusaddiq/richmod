@@ -19,14 +19,28 @@ type EvidenceVerification struct {
 	ChannelSupported    bool
 	MaterialAmbiguity   bool
 
+	// AmbiguityDecidedNotAmbiguous records that the ambiguity question resolved to
+	// a decided *negative*. It is tracked separately because material_ambiguity is
+	// the one claim where a decided negative is the favourable answer, so
+	// MaterialAmbiguity alone cannot distinguish "ruled not ambiguous" from "the
+	// model could not tell" (PRD 17, 20).
+	AmbiguityDecidedNotAmbiguous bool
+
 	Model         string
 	PolicyVersion string
 }
 
 // supported reports whether every bounded claim was decided in the extractor's
-// favour. Anything undecided or affirmative-ambiguous fails closed.
+// favour. Anything undecided fails closed.
+//
+// The ambiguity claim is inverted relative to the others: a decided *negative*
+// is what clears it. An answer in the undecided middle band means the bounded
+// plane could not tell whether the email was ambiguous about the transaction, and
+// that must hold the event for review rather than open the auto-confirm path
+// (PRD 17). Reading it as "not ambiguous" is fail-open, which is what this
+// previously did.
 func (v EvidenceVerification) supported() bool {
-	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.ChannelSupported && !v.MaterialAmbiguity
+	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.ChannelSupported && v.AmbiguityDecidedNotAmbiguous
 }
 
 // jeverifier is the seam onto the bounded judgment plane. It is defined here, in
@@ -53,6 +67,83 @@ var evidenceVerificationPolicy = struct {
 	Channel:   judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Observed:  judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Ambiguity: judgment.NoulPolicy{High: 0.15, Low: 0.05},
+}
+
+// bankCategoryPolicy is the bounded-choice strictness for the new-merchant
+// category question. It mirrors the Telegram category policy so a category is
+// only auto-applied when the same plane would have accepted it there (PRD §9.3).
+var bankCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
+
+const bankCategoryQuestion = "Choose the best active expense category for this purchase. Use OTHER_OR_UNCLEAR only when no category is safe."
+
+// resolveNewMerchantCategory asks the bounded plane to choose among the server's
+// active categories for a new merchant, then returns the canonical category ID
+// only when the answer is decisive and the chosen slug is one Go offered. It is
+// the deterministic Go half of PRD §9.3: the model picks a slug, Go resolves the
+// ID, and an undecided or ambiguous answer returns "" so the caller keeps its
+// category-only review. A provider failure also returns "" rather than guessing.
+func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventID, householdID string, extraction Extraction) (string, categoryProvenance) {
+	if p.verifier == nil || extraction.Merchant == nil || strings.TrimSpace(*extraction.Merchant) == "" {
+		return "", categoryProvenance{}
+	}
+	categories, err := p.activeExpenseCategories(ctx, householdID)
+	if err != nil || len(categories) == 0 {
+		return "", categoryProvenance{}
+	}
+	slugs := make([]string, 0, len(categories))
+	for _, category := range categories {
+		slugs = append(slugs, category.Slug)
+	}
+	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
+		State: map[string]any{
+			"merchant": "<untrusted_merchant>" + strings.TrimSpace(*extraction.Merchant) + "</untrusted_merchant>",
+		},
+		Questions: map[string]judgment.Question{
+			"category": {Type: "choice", Instructions: bankCategoryQuestion, Criteria: judgment.CategoryCriteria(slugs)},
+		},
+	})
+	if err != nil {
+		return "", categoryProvenance{}
+	}
+	answer, ok := result.Answers["category"]
+	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, judgment.CategoryCriteria(slugs), bankCategoryPolicy) {
+		return "", categoryProvenance{}
+	}
+	for _, category := range categories {
+		if category.Slug == answer.Choice {
+			return category.ID, categoryProvenance{Model: result.Model, PolicyVersion: BankEmailVerificationPolicyVersion, Slug: answer.Choice, Accepted: true}
+		}
+	}
+	return "", categoryProvenance{}
+}
+
+// categoryProvenance is the bounded answer that authorised a Jev-chosen
+// category. It is persisted next to the mutation so an operator can tell a
+// Jev-picked category from a deterministic merchant rule (ADR-038, PRD 15/16).
+type categoryProvenance struct {
+	Model         string
+	PolicyVersion string
+	Slug          string
+	Accepted      bool
+}
+
+type expenseCategory struct{ ID, Slug string }
+
+func (p *Processor) activeExpenseCategories(ctx context.Context, householdID string) ([]expenseCategory, error) {
+	rows, err := p.pool.Query(ctx, `SELECT id,slug FROM category WHERE household_id=$1 AND active AND parent_id IS NULL ORDER BY slug`, householdID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []expenseCategory
+	for rows.Next() {
+		var category expenseCategory
+		if err := rows.Scan(&category.ID, &category.Slug); err != nil {
+			return nil, err
+		}
+		out = append(out, category)
+	}
+	return out, rows.Err()
 }
 
 // verificationClaims is the bounded question set. Each claim is about facts the
@@ -107,7 +198,7 @@ func (p *Processor) verifyEvidence(ctx context.Context, sourceEventID string, ex
 	verification.AmountSupported = noulClaimed(result.Answers, "amount_supported", evidenceVerificationPolicy.Amount)
 	verification.DirectionSupported = noulClaimed(result.Answers, "direction_supported", evidenceVerificationPolicy.Direction)
 	verification.ChannelSupported = noulClaimed(result.Answers, "channel_supported", evidenceVerificationPolicy.Channel)
-	verification.MaterialAmbiguity = noulClaimed(result.Answers, "material_ambiguity", evidenceVerificationPolicy.Ambiguity)
+	verification.MaterialAmbiguity, verification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity", evidenceVerificationPolicy.Ambiguity)
 	return verification, true, nil
 }
 
@@ -120,6 +211,18 @@ func noulClaimed(answers map[string]judgment.Answer, key string, policy judgment
 	}
 	claimed, decided := judgment.AcceptNoul(answer, policy)
 	return claimed && decided
+}
+
+// ambiguityVerdict reads the inverted claim. It returns (isAmbiguous,
+// decidedNotAmbiguous) so a caller can require an affirmative not-ambiguous
+// ruling instead of treating an undecided answer as approval.
+func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) (bool, bool) {
+	answer, ok := answers[key]
+	if !ok {
+		return false, false
+	}
+	ambiguous, decided := judgment.AcceptNoul(answer, policy)
+	return ambiguous, decided && !ambiguous
 }
 
 func pointerValue(value *string) string {
