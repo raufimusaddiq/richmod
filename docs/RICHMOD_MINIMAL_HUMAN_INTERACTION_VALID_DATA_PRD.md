@@ -1824,6 +1824,12 @@ This initiative MUST NOT:
 
 # 32. Implementation Stages
 
+**Implementation status (2026-09-23):** PR #121 merged as the normative product
+contract. Existing main already contains substantial Telegram route-first and
+exact-binding behavior from PRs #117/#120, but Stage 0 RHICE/guardrail telemetry
+and the remaining stages below are not yet complete. Track implementation by
+stage; do not treat this status note as implying completion.
+
 ## Stage 0 — Baseline and Telemetry
 
 Before materially expanding auto-confirmation:

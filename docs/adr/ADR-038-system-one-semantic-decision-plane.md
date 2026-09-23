@@ -254,6 +254,22 @@ matching route, and carry a test proving a new-event message keeps the general
 catalog. See `docs/plans/jev-go-implicit-binding.md`.
 
 - ADR-005: Cloud LLM Gateway boundary — amended to include native System One.
+
+### Amendment — exhaustive route lanes (2026-09)
+
+The bounded fast path decides exactly one server-owned route per turn, and each
+route now maps to exactly one lane in a server-owned table
+(`apps/worker/internal/telegram/judgment_route_lane.go`): `FAST_PATH_TERMINAL`,
+`AGENT_FALLTHROUGH`, `WORKFLOW`, `CLARIFICATION`, or `OUT_OF_SCOPE` (PRD §8.1/§8.2
+of `RICHMOD_MINIMAL_HUMAN_INTERACTION_VALID_DATA_PRD.md`).
+
+A decided route that the fast path does not terminally own must return control to
+the conversational agent rather than terminate as an unclear reply. Terminating
+`CREATE_TRANSFER`, `SEARCH_TRANSACTIONS`, `CORRECT_TRANSACTION`, `FINANCE_HELP`,
+or `NEEDS_GENERATIVE_AGENT` as "belum cukup jelas" is prohibited. Adding a route
+to the route vocabulary without a lane fails
+`TestEveryServerOwnedRouteMapsToExactlyOneLane`.
+
 - ADR-024: Native finance tool calls — remains applicable to generative paths
   that still require native tools.
 - ADR-030: Native-only model tool contract — remains applicable to strict

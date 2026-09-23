@@ -83,6 +83,13 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeClarification)
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
 	}
+	lane, knownRoute := laneForRoute(answer.Choice)
+	if !knownRoute {
+		// Choice validation and route-lane coverage are independent guards. A
+		// vocabulary/table mismatch must not cause a guessed action.
+		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeClarification)
+		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
+	}
 	p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeAccepted)
 	// Record the decided route for the caller: implicit workflow bindings are
 	// narrowed only when the route names their interaction (ADR-038 amendment).
@@ -113,7 +120,25 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	case "OUT_OF_SCOPE":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.")
 	default:
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba jelaskan lagi dengan lebih spesifik.")
+		// Any decided route that the fast path does not terminally own — including
+		// CREATE_TRANSFER, SEARCH_TRANSACTIONS, CORRECT_TRANSACTION, FINANCE_HELP,
+		// NEEDS_GENERATIVE_AGENT, SALARY_INTERACTION, and
+		// MERCHANT_LEARNING_INTERACTION — falls through to the conversational agent
+		// (PRD §8.1). Terminating them as an unclear reply is prohibited. The
+		// classification is server-owned and exhaustive, so a future route cannot
+		// reach this branch without also being added to the lane table.
+		switch lane {
+		case laneAgentFallthrough, laneWorkflow:
+			return false, nil
+		case laneClarification:
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba jelaskan lagi dengan lebih spesifik.")
+		case laneOutOfScope:
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.")
+		default:
+			// A FAST_PATH_TERMINAL route reaching the default is a wiring defect:
+			// fast-path-owned routes must be handled explicitly above. Fail closed.
+			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Permintaan ini belum bisa diproses dengan aman. Coba lagi.")
+		}
 	}
 }
 
