@@ -52,7 +52,7 @@ type item struct {
 	SubjectType             string                    `json:"subjectType,omitempty"`
 	SubjectID               string                    `json:"subjectId,omitempty"`
 	AllowedActions          []string                  `json:"allowedActions,omitempty"`
-	MissingFields           []string                  `json:"missingFields,omitempty"`
+	MissingFields           []string                  `json:"missingFields"`
 	CycleStart              string                    `json:"cycleStart,omitempty"`
 	CycleEnd                string                    `json:"cycleEnd,omitempty"`
 	WealthObservationID     string                    `json:"wealthObservationId,omitempty"`

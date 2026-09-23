@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type Gateway interface {
@@ -304,6 +305,7 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 
 type cashPlan struct {
 	account, wealth, amount, purpose, existing, providerReference, review string
+	missingEntities                                                       []string
 	at                                                                    time.Time
 	candidates                                                            []string
 }
@@ -356,6 +358,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	}
 	if defaultWealthConfigured && configured == "" {
 		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
+		plan.missingEntities = []string{"wealth_account"}
 		return plan, nil
 	}
 	if plan.wealth == "" && configured != "" {
@@ -366,6 +369,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			}
 			if hinted.Status == financialentity.Ambiguous || (hinted.Status == financialentity.Resolved && hinted.ID != configured) {
 				plan.review = "FINANCIAL_EMAIL_RESOLUTION"
+				plan.missingEntities = []string{"wealth_account"}
 				return plan, nil
 			}
 		}
@@ -379,6 +383,12 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	}
 	if plan.account == "" || plan.wealth == "" {
 		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
+		if plan.account == "" {
+			plan.missingEntities = append(plan.missingEntities, "funding_account")
+		}
+		if plan.wealth == "" {
+			plan.missingEntities = append(plan.missingEntities, "wealth_account")
+		}
 		return plan, nil
 	}
 	var role string
@@ -488,7 +498,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	}
 	switch plan.review {
 	case "FINANCIAL_EMAIL_RESOLUTION":
-		return p.resolutionReview(ctx, tx, household, source, id)
+		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth, plan.missingEntities)
 	case "CONFLICTING_EVIDENCE":
 		return p.conflictingReferenceReview(ctx, tx, household, source, id)
 	case "TRANSFER_RECONCILIATION":
@@ -516,11 +526,51 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'CONFLICTING_EVIDENCE','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
 	return err
 }
-func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id string) error {
+
+// resolutionReview parks a Financial Email whose entities Go could not fully
+// resolve. The stored ReviewDecision names only the unresolved dimension and
+// carries the entity it already resolved, so the Inbox asks for the one missing
+// fact instead of re-requesting both (PRD 12/37, 7).
+func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string, missingEntities []string) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id)
+	if missingEntities == nil {
+		missingEntities = []string{"funding_account", "wealth_account"}
+	}
+	known := map[string]any{}
+	resolved := map[string]any{}
+	if account != "" {
+		known["funding_account"] = account
+		resolved["resolvedAccountId"] = account
+	}
+	if wealth != "" {
+		known["wealth_account"] = wealth
+		resolved["resolvedWealthAccountId"] = wealth
+	}
+	decision := reviewdec.Decision{
+		Version:         reviewdec.Version,
+		Subject:         reviewdec.Subject{Type: "financial_email_observation", ID: id},
+		ReasonCode:      "FINANCIAL_EMAIL_RESOLUTION",
+		DecisionClass:   reviewdec.ClassEvidenceGap,
+		KnownFacts:      known,
+		MissingFacts:    missingEntities,
+		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "financial_email_observation", ID: id}},
+		DecisionSource:  reviewdec.SourceJev,
+		PolicyVersion:   ProviderEmailClassificationPolicyVersion,
+		WhyNotAuto:      "the email named an account or Wealth Account Go could not resolve to exactly one household entity",
+		AllowedActions:  []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
+		InteractionMode: reviewdec.ModeBoundedChoice,
+		Provenance:      map[string]any{},
+	}
+	for key, value := range resolved {
+		decision.Provenance[key] = value
+	}
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id, string(encoded))
 	return err
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {
