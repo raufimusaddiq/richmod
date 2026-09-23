@@ -30,6 +30,7 @@ type canonicalReview struct {
 	Institution             string                    `json:"institution,omitempty"`
 	AccountHint             string                    `json:"accountHint,omitempty"`
 	FinancialObservationID  string                    `json:"financialObservationId,omitempty"`
+	ResolvedAccountID       string                    `json:"resolvedAccountId,omitempty"`
 	FundingAccountHint      string                    `json:"fundingAccountHint,omitempty"`
 	ProviderAccountHint     string                    `json:"providerAccountHint,omitempty"`
 	TransferCandidates      []transferReviewCandidate `json:"transferCandidates,omitempty"`
@@ -52,7 +53,7 @@ type transferReviewCandidate struct {
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
-	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.financial_email_observation_id IS NOT NULL THEN 'financial_email_observation' WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.financial_email_observation_id,ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',t.id,'type',t.type,'status',t.status,'amount',t.amount::text,'transactionAt',t.transaction_at,'description',t.description,'purpose',COALESCE(t.purpose,''),'wealthAccountId',COALESCE(t.related_wealth_account_id::text,'')) ORDER BY t.transaction_at,t.id) FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids)),'[]'::jsonb),ri.decision,ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
+	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.financial_email_observation_id IS NOT NULL THEN 'financial_email_observation' WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.financial_email_observation_id,ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',t.id,'type',t.type,'status',t.status,'amount',t.amount::text,'transactionAt',t.transaction_at,'description',t.description,'purpose',COALESCE(t.purpose,''),'wealthAccountId',COALESCE(t.related_wealth_account_id::text,'')) ORDER BY t.transaction_at,t.id) FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids)),'[]'::jsonb),ri.decision,ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +62,7 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 	for rows.Next() {
 		var v canonicalReview
 		var candidatesJSON []byte
-		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.AmountIDR, &v.Channel, &v.CycleStart, &v.CycleEnd, &v.WealthObservationID, &v.ResolvedWealthAccountID, &v.Institution, &v.AccountHint, &v.FinancialObservationID, &v.FundingAccountHint, &v.ProviderAccountHint, &v.ProposedPurpose, &v.ProposedWealthAccountID, &candidatesJSON, &v.Decision, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.AmountIDR, &v.Channel, &v.CycleStart, &v.CycleEnd, &v.WealthObservationID, &v.ResolvedWealthAccountID, &v.Institution, &v.AccountHint, &v.FinancialObservationID, &v.ResolvedAccountID, &v.FundingAccountHint, &v.ProviderAccountHint, &v.ProposedPurpose, &v.ProposedWealthAccountID, &candidatesJSON, &v.Decision, &v.CreatedAt); err != nil {
 			return nil, err
 		}
 		if len(candidatesJSON) > 0 && string(candidatesJSON) != "null" && json.Unmarshal(candidatesJSON, &v.TransferCandidates) != nil {
@@ -184,36 +185,67 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if kind == "FINANCIAL_EMAIL_RESOLUTION" && source != nil && in.Action == "SET_FINANCIAL_EMAIL_ENTITIES" {
-		var values struct {
-			AccountID       string `json:"accountId"`
-			WealthAccountID string `json:"wealthAccountId"`
-		}
-		if json.Unmarshal(in.Values, &values) != nil || values.AccountID == "" || values.WealthAccountID == "" {
-			writeJSON(w, 400, map[string]string{"error": "account and Wealth Account are required"})
-			return
-		}
-		var valid bool
-		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$3 AND active) AND EXISTS(SELECT 1 FROM wealth_account WHERE id=$2 AND household_id=$3 AND active)`, values.AccountID, values.WealthAccountID, household).Scan(&valid); err != nil || !valid {
-			writeJSON(w, 400, map[string]string{"error": "invalid household financial entities"})
-			return
-		}
 		if financialObservation == nil {
 			writeJSON(w, 409, map[string]string{"error": "financial observation binding is missing"})
 			return
 		}
-		var observationID, fundingHint, providerHint string
-		if err = tx.QueryRow(r.Context(), `SELECT id::text,COALESCE(facts_json->>'funding_account_hint',''),COALESCE(facts_json->>'provider_account_hint','') FROM financial_email_observation WHERE id=$1 AND household_id=$2 AND status='REVIEW' FOR UPDATE`, *financialObservation, household).Scan(&observationID, &fundingHint, &providerHint); err != nil {
+		var values struct {
+			AccountID       string `json:"accountId"`
+			WealthAccountID string `json:"wealthAccountId"`
+		}
+		if json.Unmarshal(in.Values, &values) != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid financial entity values"})
+			return
+		}
+		var observationID, fundingHint, providerHint, knownAccount, knownWealth string
+		if err = tx.QueryRow(r.Context(), `SELECT id::text,COALESCE(facts_json->>'funding_account_hint',''),COALESCE(facts_json->>'provider_account_hint',''),COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1 AND household_id=$2 AND status='REVIEW' FOR UPDATE`, *financialObservation, household).Scan(&observationID, &fundingHint, &providerHint, &knownAccount, &knownWealth); err != nil {
 			writeJSON(w, 409, map[string]string{"error": "financial observation is unavailable"})
 			return
 		}
-		if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET resolved_account_id=$2,resolved_wealth_account_id=$3,status='PENDING',updated_at=now() WHERE id=$1`, observationID, values.AccountID, values.WealthAccountID); err == nil {
-			err = learnEntityAlias(r.Context(), tx, household, "ACCOUNT", values.AccountID, fundingHint)
+		// PRD §12/§20.1: the request supplies only the unresolved entities. Already
+		// resolved entities are reloaded from persisted state and merged here, so a
+		// review that already knows the funding account never asks for it again.
+		// An entity that is still unresolved must be supplied: a resolution that
+		// leaves one blank would write a half-bound observation.
+		if knownAccount == "" && values.AccountID == "" {
+			writeJSON(w, 400, map[string]string{"error": "the unresolved funding account is required"})
+			return
+		}
+		if knownWealth == "" && values.WealthAccountID == "" {
+			writeJSON(w, 400, map[string]string{"error": "the unresolved Wealth Account is required"})
+			return
+		}
+		accountID, wealthAccountID := values.AccountID, values.WealthAccountID
+		if accountID == "" {
+			accountID = knownAccount
+		}
+		if wealthAccountID == "" {
+			wealthAccountID = knownWealth
+		}
+		if accountID != "" {
+			var valid bool
+			if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, accountID, household).Scan(&valid); err != nil || !valid {
+				writeJSON(w, 400, map[string]string{"error": "invalid household account"})
+				return
+			}
+		}
+		if wealthAccountID != "" {
+			var valid bool
+			if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM wealth_account WHERE id=$1 AND household_id=$2 AND active)`, wealthAccountID, household).Scan(&valid); err != nil || !valid {
+				writeJSON(w, 400, map[string]string{"error": "invalid household wealth account"})
+				return
+			}
+		}
+		values.AccountID, values.WealthAccountID = accountID, wealthAccountID
+		merged, _ := json.Marshal(values)
+		if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status='PENDING',updated_at=now() WHERE id=$1`, observationID, values.AccountID, values.WealthAccountID); err == nil {
+			err = learnEntityAliasIfNew(r.Context(), tx, household, "ACCOUNT", values.AccountID, fundingHint, knownAccount)
 		}
 		if err == nil {
-			err = learnEntityAlias(r.Context(), tx, household, "WEALTH_ACCOUNT", values.WealthAccountID, providerHint)
+			err = learnEntityAliasIfNew(r.Context(), tx, household, "WEALTH_ACCOUNT", values.WealthAccountID, providerHint, knownWealth)
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, string(in.Values))
+			_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, string(merged))
 		}
 		if err == nil {
 			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
@@ -478,12 +510,26 @@ func learnEntityAlias(ctx context.Context, tx pgx.Tx, household, entityType, ent
 	if normalized == "" {
 		return nil
 	}
+	// A mapping the household set itself is never overwritten by review learning:
+	// an explicit user choice outranks an inferred one (PRD §19, 'learning != silent
+	// assumption').
 	if entityType == "ACCOUNT" {
-		_, err := tx.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,account_id,alias,normalized_alias,source) VALUES($1,'ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET account_id=EXCLUDED.account_id,wealth_account_id=NULL,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now()`, household, entityID, strings.TrimSpace(alias), normalized)
+		_, err := tx.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,account_id,alias,normalized_alias,source) VALUES($1,'ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET account_id=EXCLUDED.account_id,wealth_account_id=NULL,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now() WHERE financial_entity_alias.source <> 'USER'`, household, entityID, strings.TrimSpace(alias), normalized)
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,wealth_account_id,alias,normalized_alias,source) VALUES($1,'WEALTH_ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET wealth_account_id=EXCLUDED.wealth_account_id,account_id=NULL,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now()`, household, entityID, strings.TrimSpace(alias), normalized)
+	_, err := tx.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,wealth_account_id,alias,normalized_alias,source) VALUES($1,'WEALTH_ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET wealth_account_id=EXCLUDED.wealth_account_id,account_id=NULL,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now() WHERE financial_entity_alias.source <> 'USER'`, household, entityID, strings.TrimSpace(alias), normalized)
 	return err
+}
+
+// learnEntityAliasIfNew records the alias a user supplied for an entity this
+// review just resolved. An entity that was already known before the request is
+// left alone: its alias was learned when it was first bound, and re-learning it
+// here would let a partial resolution quietly rewrite an existing mapping.
+func learnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, household, entityType, entityID, alias, known string) error {
+	if strings.TrimSpace(known) != "" {
+		return nil
+	}
+	return learnEntityAlias(ctx, tx, household, entityType, entityID, alias)
 }
 
 func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user, household, reviewID, sourceID string, financialObservation *string, action string, raw json.RawMessage) error {

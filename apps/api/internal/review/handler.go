@@ -122,11 +122,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for _, value := range canonical {
 		sourceType := value.Channel
 		stored := proposalFacts(value.Decision)
-		resolvedWealth := value.ResolvedWealthAccountID
-		if resolvedWealth == "" {
-			resolvedWealth = stored.resolvedEntity("resolvedWealthAccountId")
-		}
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: stored.resolvedEntity("resolvedAccountId"), Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: stored.MissingFacts, WhyNotAutoConfirm: stored.WhyNotAuto})
+		// The persisted observation columns are the single source of truth for what
+		// this review already resolved; the stored decision is only a fallback for
+		// reviews written before those columns existed (PRD 12, 13.4).
+		resolvedWealth := firstNonEmpty(value.ResolvedWealthAccountID, stored.resolvedEntity("resolvedWealthAccountId"))
+		resolvedAccount := firstNonEmpty(value.ResolvedAccountID, stored.resolvedEntity("resolvedAccountId"))
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: stored.MissingFacts, WhyNotAutoConfirm: stored.WhyNotAuto})
 	}
 	writeJSON(w, 200, items)
 }
@@ -726,6 +727,16 @@ func firstText(values ...*string) string {
 	for _, value := range values {
 		if value != nil && strings.TrimSpace(*value) != "" {
 			return *value
+		}
+	}
+	return ""
+}
+
+// firstNonEmpty returns the first non-empty string of a short fallback chain.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
 		}
 	}
 	return ""

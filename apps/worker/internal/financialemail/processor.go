@@ -528,45 +528,46 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 }
 
 // resolutionReview parks a Financial Email whose entities Go could not fully
-// resolve. The stored ReviewDecision names only the unresolved dimension and
-// carries the entity it already resolved, so the Inbox asks for the one missing
-// fact instead of re-requesting both (PRD 12/37, 7).
+// resolve (PRD 12/37, 7). It persists which entity the evidence already resolved
+// on the observation -- the columns are the single source of truth the list API
+// and the resolver agree on -- and records only the unresolved dimension as
+// missing, so the Inbox asks for the one fact still open (13.4, 20.1).
 func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string, missingEntities []string) error {
-	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW',resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,updated_at=now() WHERE id=$1`, id, account, wealth); err != nil {
 		return err
 	}
 	if missingEntities == nil {
-		missingEntities = []string{"funding_account", "wealth_account"}
+		missingEntities = make([]string, 0, 2)
+		if account == "" {
+			missingEntities = append(missingEntities, "funding_account")
+		}
+		if wealth == "" {
+			missingEntities = append(missingEntities, "wealth_account")
+		}
 	}
 	known := map[string]any{}
-	resolved := map[string]any{}
 	if account != "" {
 		known["funding_account"] = account
-		resolved["resolvedAccountId"] = account
 	}
 	if wealth != "" {
 		known["wealth_account"] = wealth
-		resolved["resolvedWealthAccountId"] = wealth
 	}
-	decision := reviewdec.Decision{
+	encoded, err := reviewdec.Decision{
 		Version:         reviewdec.Version,
 		Subject:         reviewdec.Subject{Type: "financial_email_observation", ID: id},
+		SourceEventID:   source,
 		ReasonCode:      "FINANCIAL_EMAIL_RESOLUTION",
 		DecisionClass:   reviewdec.ClassEvidenceGap,
 		KnownFacts:      known,
 		MissingFacts:    missingEntities,
-		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "financial_email_observation", ID: id}},
-		DecisionSource:  reviewdec.SourceJev,
+		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: source}},
+		DecisionSource:  reviewdec.SourceGenerativePlusJev,
 		PolicyVersion:   ProviderEmailClassificationPolicyVersion,
-		WhyNotAuto:      "the email named an account or Wealth Account Go could not resolve to exactly one household entity",
+		Provenance:      map[string]any{"pipeline": "financial-provider-email"},
+		WhyNotAuto:      "an entity the evidence identifies only in prose must be bound by the household",
 		AllowedActions:  []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
 		InteractionMode: reviewdec.ModeBoundedChoice,
-		Provenance:      map[string]any{},
-	}
-	for key, value := range resolved {
-		decision.Provenance[key] = value
-	}
-	encoded, err := decision.JSON()
+	}.JSON()
 	if err != nil {
 		return err
 	}

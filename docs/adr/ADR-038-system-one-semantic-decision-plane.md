@@ -279,3 +279,30 @@ to the route vocabulary without a lane fails
 - ADR-037: Bounded intelligent document interpretation — vision extraction stays
   generative until sufficient text-backed evidence exists for System One
   judgments.
+
+### Amendment — inverted claims must be read as decided negatives (2026-09)
+
+Some bounded claims are inverted: the question asks "is this ambiguous?", so a
+decided *negative* is the favourable answer. `material_ambiguity` is the case
+that matters, and `judgment.AcceptNoul` alone cannot carry it, because an
+answer in the undecided middle band returns `(false, false)`, the same
+`false` a decided negative returns. Reading the two as equivalent opened
+auto-confirm on exactly the answers the plane declined to decide.
+
+This landed for `bankemail.EvidenceVerification` first. The two sibling lanes that
+ask the same question, `telegram.TransactionSemanticDecision` and
+`financialemail.ObservationClassification`, carry the same fix in PR #134; until
+that merges they still read the undecided band as approval. When it lands, every
+lane records the decided negative separately (`AmbiguityDecidedNotAmbiguous`) and
+requires it before a canonical write. The Telegram exact-category deterministic
+path never asks the plane and is unambiguous by construction, so it is the one
+exempt source (`DecisionSource == "DETERMINISTIC_POLICY"`).
+
+### Amendment — new-merchant category is a bounded choice, not a review (2026-09)
+
+PRD 9.3 replaces "new merchant -> AMBIGUOUS_CATEGORY review" with a bounded
+choice over the household's active categories. A decisive answer lets Go resolve
+the canonical category ID and confirm with no review; an undecided answer, a
+provider failure, or a slug Go did not offer keeps the category-only review. The
+category policy mirrors the Telegram category thresholds so a category is only
+auto-applied where the same plane would have accepted it.
