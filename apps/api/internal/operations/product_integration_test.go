@@ -22,9 +22,10 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 		}
 		return eventID
 	}
-	// Two reviewed events (one bank, one telegram) plus two canonical terminal
-	// events. Human-touch rate is distinct reviewed events (2) over canonical
-	// events (3); a lingering NEEDS_REVIEW event must not inflate the denominator.
+	// Two reviewed events (one bank, one telegram) plus two terminal events. The
+	// reviewed events are still NEEDS_REVIEW, so they are also part of the cohort:
+	// human-touch rate is distinct reviewed events (2) over all source events (4).
+	// A denominator of only terminal events would let the ratio exceed 1.
 	bankEventID := seedEvent("BANK_EMAIL", "NEEDS_REVIEW", "product-bank")
 	telegramEventID := seedEvent("TELEGRAM_TEXT", "NEEDS_REVIEW", "product-telegram")
 	seedEvent("TELEGRAM_TEXT", "PROCESSED", "product-terminal-a")
@@ -39,14 +40,19 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aggregate.SourceEvents != 4 || aggregate.CanonicalEvents != 2 || aggregate.Confirmed != 1 {
+	if aggregate.SourceEvents != 4 || aggregate.Processed != 1 || aggregate.Ignored != 1 || aggregate.NeedsReview != 2 {
 		t.Fatalf("unexpected product aggregate: %+v", aggregate)
 	}
-	if aggregate.ReviewedEvents != 2 || aggregate.HumanTouchRate != 1 {
+	if aggregate.ReviewedEvents != 2 || aggregate.HumanTouchRate != 0.5 {
 		t.Fatalf("human-touch rate must count distinct reviewed events: %+v", aggregate)
 	}
 	if aggregate.BySource["BANK_EMAIL"] != 2 || aggregate.ReviewBySource["BANK_EMAIL"] != 1 || aggregate.ReviewBySource["TELEGRAM_TEXT"] != 1 || aggregate.ReviewByReason["AMBIGUOUS_CATEGORY"] != 1 || aggregate.ReviewByReason["UNKNOWN_MERCHANT"] != 1 {
 		t.Fatalf("source/reason counts missing: %+v", aggregate)
+	}
+	// Fewer terminal events than reviewed events must not push the rate above 1:
+	// both sides use the whole window cohort.
+	if aggregate.HumanTouchRate > 1 {
+		t.Fatalf("human-touch rate must stay bounded: %+v", aggregate)
 	}
 	if len(aggregate.Coverage) == 0 {
 		t.Fatal("unmeasurable PRD signals must be explicit")

@@ -1834,10 +1834,11 @@ stage; do not treat this status note as implying completion.
 
 **Status (2026-09-23): review-side metrics measurable; RHICE is not yet.**
 `GET /api/v1/operations/status` now returns a read-only `product` rollup
-(`apps/api/internal/operations/product.go`) over existing rows: source events,
-canonical events (terminal PROCESSED/IGNORED), confirmed, human-touch rate (over
-distinct reviewed events, so multiple reviews on one event cannot push it above
-1), review rate by source, review rate by reason. It
+(`apps/api/internal/operations/product.go`) over existing rows: source events
+with their processing states (processed/ignored/needs-review), human-touch rate
+(distinct reviewed events over the whole window cohort, so a review on a
+still-pending event cannot push it above 1), review rate by source, and review
+rate by reason. It
 also returns `notYetMeasurable`, naming the §22 signals that current history
 cannot reconstruct (`rhice`, typed fields per event, bounded choices per event,
 review round trips, accepted-without-edit, auto-confirm correction). Those are

@@ -18,30 +18,38 @@ import "context"
 // these tables outgrow a cheap aggregate, not before.
 type productAggregate struct {
 	WindowDays int `json:"windowDays"`
-	// SourceEvents is raw ingestion. CanonicalEvents is the subset that reached
-	// a terminal canonical state (PROCESSED or IGNORED); an event still in
-	// NEEDS_REVIEW is not yet a canonical financial event, so using all source
-	// events would overstate the human-touch denominator.
-	SourceEvents    int            `json:"sourceEvents"`
-	CanonicalEvents int            `json:"canonicalEvents"`
-	Confirmed       int            `json:"confirmed"`
-	ReviewedEvents  int            `json:"reviewedEvents"`
-	HumanTouchRate  float64        `json:"humanTouchRate"`
-	BySource        map[string]int `json:"sourceEventsBySource"`
-	ReviewBySource  map[string]int `json:"reviewRateBySource"`
-	ReviewByReason  map[string]int `json:"reviewRateByReason"`
-	Coverage        []string       `json:"notYetMeasurable"`
+	// SourceEvents is raw ingestion in the window and is the cohort for the rate
+	// below. Processed / Ignored / NeedsReview are the source-event *processing*
+	// states, named as such because IGNORED (a promo, an internal move) is not a
+	// canonical financial event. HumanTouchRate uses the same population for its
+	// numerator and denominator — distinct events in the window that carry a
+	// review, over all events in the window — so it cannot exceed 1.
+	SourceEvents   int            `json:"sourceEvents"`
+	Processed      int            `json:"processed"`
+	Ignored        int            `json:"ignored"`
+	NeedsReview    int            `json:"needsReview"`
+	ReviewedEvents int            `json:"reviewedEvents"`
+	HumanTouchRate float64        `json:"humanTouchRate"`
+	BySource       map[string]int `json:"sourceEventsBySource"`
+	ReviewBySource map[string]int `json:"reviewRateBySource"`
+	ReviewByReason map[string]int `json:"reviewRateByReason"`
+	Coverage       []string       `json:"notYetMeasurable"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
 	aggregate := productAggregate{WindowDays: 30, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}}
 
-	// Canonical financial events: source events that reached a terminal state in
-	// the window. PROCESSED/Ignored are terminal; NEEDS_REVIEW still needs input.
+	// Source-event processing states in the window, plus the distinct reviewed
+	// events counted over the exact same cohort so the human-touch ratio is
+	// internally consistent and bounded by 1.
 	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*), count(*) FILTER (WHERE processing_status IN ('PROCESSED','IGNORED')), count(*) FILTER (WHERE processing_status='PROCESSED')
-		FROM source_event
-		WHERE household_id=$1 AND received_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.SourceEvents, &aggregate.CanonicalEvents, &aggregate.Confirmed); err != nil {
+		SELECT count(*),
+		 count(*) FILTER (WHERE processing_status='PROCESSED'),
+		 count(*) FILTER (WHERE processing_status='IGNORED'),
+		 count(*) FILTER (WHERE processing_status='NEEDS_REVIEW'),
+		 count(DISTINCT se.id) FILTER (WHERE EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id=se.id))
+		FROM source_event se
+		WHERE se.household_id=$1 AND se.received_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.SourceEvents, &aggregate.Processed, &aggregate.Ignored, &aggregate.NeedsReview, &aggregate.ReviewedEvents); err != nil {
 		return aggregate, err
 	}
 
@@ -66,13 +74,11 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		return aggregate, err
 	}
 
-	// Review rate by source, and human-touch rate over distinct reviewed events.
-	// A review with no source event (legacy/proposal-scoped) is grouped as
-	// "unattributed" instead of dropped, so the total stays honest. One event can
-	// carry several review_item rows, so the rate divides distinct reviewed events
-	// by canonical events, never review rows by events.
+	// Review rate by source: review rows attributed to their originating source
+	// type. A review with no source event (legacy/proposal-scoped) is grouped as
+	// "unattributed" instead of dropped, so the total stays honest.
 	reviewRows, err := h.pool.Query(ctx, `
-		SELECT COALESCE(se.source_type,'unattributed') AS source_type, count(*), count(DISTINCT ri.source_event_id)
+		SELECT COALESCE(se.source_type,'unattributed') AS source_type, count(*)
 		FROM review_item ri
 		LEFT JOIN source_event se ON se.id=ri.source_event_id
 		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
@@ -83,12 +89,11 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	defer reviewRows.Close()
 	for reviewRows.Next() {
 		var sourceType string
-		var count, distinctEvents int
-		if err := reviewRows.Scan(&sourceType, &count, &distinctEvents); err != nil {
+		var count int
+		if err := reviewRows.Scan(&sourceType, &count); err != nil {
 			return aggregate, err
 		}
 		aggregate.ReviewBySource[sourceType] = count
-		aggregate.ReviewedEvents += distinctEvents
 	}
 	if err := reviewRows.Err(); err != nil {
 		return aggregate, err
@@ -115,8 +120,8 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		return aggregate, err
 	}
 
-	if aggregate.CanonicalEvents > 0 {
-		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.CanonicalEvents)
+	if aggregate.SourceEvents > 0 {
+		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
 	}
 	aggregate.Coverage = []string{
 		"rhice",
