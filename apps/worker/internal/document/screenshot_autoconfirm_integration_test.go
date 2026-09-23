@@ -68,6 +68,27 @@ func screenshotRowTime() time.Time {
 	return time.Date(2026, 9, 23, 15, 30, 0, 0, time.FixedZone("WIB", 7*3600))
 }
 
+// PRD S3 / 17: a row that plausibly matches an existing transaction must link
+// evidence, never write a second CONFIRMED transaction beside it. A row with
+// candidates but no single decisive match is exactly that case.
+func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
+	fixture := seedScreenshotFixture(t, "Screenshot ambiguous row")
+	ctx := context.Background()
+	categoryID := fixture.categoryID
+	row := screenshotDataRow("EXPENSE", "54000", "Indomaret")
+	row.CategoryID, row.CategoryDecided = &categoryID, true
+	row.Candidates = []matchCandidate{{ID: "a", Score: 0.95}, {ID: "b", Score: 0.90}}
+	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 1, Decided: 1, QuestionKeys: []string{"row_001"}}
+	fixture.persist(t, provenance, []validatedScreenshotRow{row})
+	var confirmed, needsReview int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
+		t.Fatal(err)
+	}
+	if confirmed != 0 || needsReview != 1 {
+		t.Fatalf("an ambiguous row must not be recorded as a second transaction: confirmed=%d needs_review=%d", confirmed, needsReview)
+	}
+}
+
 func screenshotDataRow(rowType, amount, merchant string) validatedScreenshotRow {
 	return validatedScreenshotRow{Value: screenshotRow{Amount: amount, Currency: "IDR", Merchant: merchant, Confidence: .95}, Type: rowType, TransactionAt: screenshotRowTime(), DateKnown: true}
 }

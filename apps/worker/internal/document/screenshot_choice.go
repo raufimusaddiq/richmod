@@ -19,12 +19,13 @@ type jeverifier interface {
 
 // ScreenshotRowCategoryPolicyVersion marks the thresholds behind a row-level
 // category ruling, so a stored decision stays reproducible (PRD §21).
-const ScreenshotRowCategoryPolicyVersion = "2026-09-screenshot-category1"
+const ScreenshotRowCategoryPolicyVersion = "2026-09-screenshot-category2"
 
-// rowCategoryPolicy is the same decisive-answer bar the bank email path uses: a
-// confident, well-separated top category, otherwise the row asks one question
-// instead of guessing (PRD §11.2, §17).
-var rowCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.70, MinMargin: 0.35, MinConfidence: 0.60}
+// rowCategoryPolicy is the same decisive-answer bar the bank-email category and
+// Telegram category policies use (MinTop .85 / MinMargin .20): a confident,
+// well-separated top category, otherwise the row asks one question instead of
+// guessing. Bump ScreenshotRowCategoryPolicyVersion when the bar moves.
+var rowCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
 
 // rowChoiceProvenance records what one batched bounded request decided, so the
 // canonical mutation keeps its decision provenance (PRD §21, ADR-038).
@@ -71,8 +72,10 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID stri
 		}
 		key := rowQuestionKey(index)
 		state[key] = map[string]any{
-			"merchant":       strings.TrimSpace(row.Value.Merchant),
-			"description":    strings.TrimSpace(row.Value.Description),
+			// Image-derived text is untrusted: delimit it so a crafted merchant cannot
+			// steer the ruling that authorises a canonical write.
+			"merchant":       "<untrusted_row_merchant>" + strings.TrimSpace(row.Value.Merchant) + "</untrusted_row_merchant>",
+			"description":    "<untrusted_row_description>" + strings.TrimSpace(row.Value.Description) + "</untrusted_row_description>",
 			"amount_idr":     row.Value.Amount,
 			"transaction_at": row.Value.TransactionAt,
 		}

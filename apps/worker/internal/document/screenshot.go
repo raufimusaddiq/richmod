@@ -60,7 +60,10 @@ type validatedScreenshotRow struct {
 // because evidence cannot separate income from an own-account transfer yet
 // (PRD §11.5).
 func (row validatedScreenshotRow) autoConfirmable() bool {
-	return row.Matched == nil && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown && row.Value.Confidence >= .90
+	// A matched row links evidence; a row with candidates it could not resolve is
+	// exactly the duplicate ambiguity PRD 17/10.3 refuses to auto-confirm, so it
+	// must still go to review rather than writing a second CONFIRMED transaction.
+	return row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown && row.Value.Confidence >= .90
 }
 
 func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) error {

@@ -50,8 +50,8 @@ the gateway is unavailable.
   uncertain rows ask a question (PRD §11 exit criterion).
 - A many-row screenshot produces one summary plus one question per uncertain row,
   not one card per row.
-- Thresholds are unchanged from the bank-email category policy; no threshold was
-  relaxed to reduce reviews.
+- Thresholds match the bank-email and Telegram category policies (MinTop .85 /
+  MinMargin .20); no threshold was relaxed to reduce reviews.
 - No provider-specific branch, no new table, no new dependency, and no extra
   bounded call per row.
 

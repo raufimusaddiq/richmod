@@ -42,7 +42,7 @@ func unmatchedOutRow(amount string) validatedScreenshotRow {
 
 // PRD §11.3: every unmatched row of one image shares a single bounded request.
 func TestResolveRowCategoriesBatchesOneRequestPerImage(t *testing.T) {
-	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor("food-and-drink", 0.8), "row_002": {Type: "choice", Choice: "", Confidence: 0, HasConfidence: false}}}
+	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor("food-and-drink", 0.9), "row_002": {Type: "choice", Choice: "", Confidence: 0, HasConfidence: false}}}
 	rows := []validatedScreenshotRow{unmatchedOutRow("54000"), unmatchedOutRow("25000"), {Value: screenshotRow{Direction: "IN", Amount: "100000", Currency: "IDR", Confidence: .95}, Type: "INCOME", DateKnown: true}}
 	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", rows, rowCategoryOptions)
 	if err != nil {
