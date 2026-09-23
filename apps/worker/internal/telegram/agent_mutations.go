@@ -46,6 +46,19 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		return result, true, fmt.Errorf("invalid transaction proposal: %w", err)
 	}
 
+	// A re-sent or double-fired line must not become a second canonical row. A
+	// same-household, same-type, same-amount EXPENSE within a short window is
+	// almost certainly the same event; surface the existing row instead of
+	// inserting a duplicate. The model decides whether to reuse or record anew.
+	if dedup, err := p.recentDuplicateExpense(ctx, state, value); err != nil {
+		return result, true, err
+	} else if dedup != nil {
+		result.Status = "NO_OP_DUPLICATE"
+		result.References = []agentPublicRef{*dedup}
+		result.Mutation = map[string]any{"action": "DUPLICATE_EXPENSE_DETECTED", "ref": dedup.Ref, "amount_idr": value.Amount, "merchant": value.Merchant}
+		return result, false, nil
+	}
+
 	// Creating a new transaction must never silently turn into a correction of a
 	// similar recent transaction. Corrections require the dedicated correction
 	// tool and an opaque/uniquely resolved target.
@@ -595,4 +608,32 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 	result.Status = "CONFIRMED"
 	result.Mutation = map[string]any{"action": "BATCH_RECORDED", "confirmed": true, "count": len(items)}
 	return result, true, nil
+}
+
+// recentDuplicateExpense finds an existing non-voided EXPENSE for the same
+// amount created in the last 10 minutes and returns a model-safe ref for it.
+// Deterministic, no LLM judgment: the raw amount match is the whole test so a
+// repeated line cannot silently double-book.
+// ponytail: 10-minute window, exact amount, EXPENSE only. Widen to a per-merchant
+// window if genuine late duplicates show up.
+func (p *Processor) recentDuplicateExpense(ctx context.Context, state *agentState, value validatedExtraction) (*agentPublicRef, error) {
+	if value.Type != "EXPENSE" {
+		return nil, nil
+	}
+	var existingID string
+	err := p.pool.QueryRow(ctx, `SELECT id FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND type='EXPENSE' AND amount=$2 AND created_at >= now()-interval '10 minutes' ORDER BY created_at DESC LIMIT 1`, state.HouseholdID, value.Amount).Scan(&existingID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("check recent duplicate expense: %w", err)
+	}
+	refs, err := p.persistAgentTransactionReferences(ctx, state.HouseholdID, state.SourceEventID, state.Update, fmt.Sprintf("p%dr0", state.ModelPhases), []string{existingID})
+	if err != nil {
+		return nil, fmt.Errorf("persist duplicate reference: %w", err)
+	}
+	if len(refs) != 1 {
+		return nil, fmt.Errorf("persist duplicate reference: expected one ref, got %d", len(refs))
+	}
+	return &refs[0], nil
 }

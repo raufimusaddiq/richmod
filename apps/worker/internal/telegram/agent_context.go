@@ -24,6 +24,10 @@ type agentContextState struct {
 	ActiveReviewCount   int
 	ReviewType          string
 	ReviewMode          string
+	// RecentTransactions gives the model a structured view of what it just
+	// recorded, so a follow-up ("ibu kantin") can bind to the pending row and a
+	// re-sent line can be recognized as the same event instead of a second row.
+	RecentTransactions []map[string]any
 }
 
 func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (agentContextState, error) {
@@ -56,7 +60,69 @@ func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sour
 	if err != nil {
 		return state, err
 	}
+	state.RecentTransactions, err = p.recentAgentTransactions(ctx, householdID, sourceEventID, update)
+	if err != nil {
+		return state, err
+	}
 	return state, nil
+}
+
+// recentAgentTransactions lists the household's most recent ledger rows as
+// opaque turn refs, mirroring the ref scheme used for freshly recorded
+// transactions. Only model-safe fields are exposed (no canonical UUIDs), so the
+// model can reference an existing row but never address the database directly.
+func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) ([]map[string]any, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT t.id,t.type,t.status,t.amount::text,COALESCE(t.counterparty_name,''),
+		       COALESCE(c.slug,''),COALESCE(t.description,''),t.transaction_at
+		FROM transaction t
+		LEFT JOIN category c ON c.id=t.category_id
+		WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.created_at >= now()-interval '60 minutes'
+		ORDER BY t.created_at DESC LIMIT 5`, householdID)
+	if err != nil {
+		return nil, fmt.Errorf("load recent agent transactions: %w", err)
+	}
+	defer rows.Close()
+	type recent struct {
+		ID, Type, Status, Amount, Merchant, CategorySlug, Description string
+		At                                                           time.Time
+	}
+	var loaded []recent
+	for rows.Next() {
+		var r recent
+		if err := rows.Scan(&r.ID, &r.Type, &r.Status, &r.Amount, &r.Merchant, &r.CategorySlug, &r.Description, &r.At); err != nil {
+			return nil, err
+		}
+		loaded = append(loaded, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(loaded) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(loaded))
+	for i, r := range loaded {
+		ids[i] = r.ID
+	}
+	refs, err := p.persistAgentTransactionReferences(ctx, householdID, sourceEventID, update, "recent", ids)
+	if err != nil {
+		return nil, fmt.Errorf("persist recent transaction references: %w", err)
+	}
+	out := make([]map[string]any, 0, len(loaded))
+	for i, r := range loaded {
+		out = append(out, map[string]any{
+			"ref":            refs[i].Ref,
+			"type":           r.Type,
+			"status":         r.Status,
+			"amount_idr":     r.Amount,
+			"merchant":       r.Merchant,
+			"category_slug":  r.CategorySlug,
+			"description":    r.Description,
+			"transaction_at": r.At.In(jakartaLocation()).Format(time.RFC3339),
+		})
+	}
+	return out, nil
 }
 
 func (p *Processor) loadAgentPendingAction(ctx context.Context, householdID string, update telegramUpdate) (map[string]any, error) {
@@ -124,6 +190,7 @@ func buildAgentTurnContext(text string, now time.Time, categories []string, cont
 		"current_user_text":        "<untrusted_user_message>" + text + "</untrusted_user_message>",
 		"current_jakarta_datetime": now.In(jakartaLocation()).Format(time.RFC3339),
 		"recent_turns":             contextState.Conversation,
+		"recent_transactions":      contextState.RecentTransactions,
 		"allowed_category_slugs":   categories,
 		"pending_action":           contextState.PendingAction,
 		"pending_batch":            contextState.PendingBatch,
