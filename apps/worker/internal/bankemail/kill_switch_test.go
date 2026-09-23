@@ -62,12 +62,20 @@ func TestCategoryAutoConfirmKillSwitchGatesTheBoundedPath(t *testing.T) {
 		HasConfidence: true,
 	}}}}
 	processor.SetCategoryAutoConfirm(false)
-	if processor.categoryAutoConfirm {
+	if !processor.categoryAutoConfirmOff {
 		t.Fatal("the switch must be off")
 	}
 	policy := PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "AMBIGUOUS_CATEGORY"}
-	gated := applyCategoryAutoConfirmSwitch(policy, processor.categoryAutoConfirm)
+	gated := applyCategoryAutoConfirmSwitch(policy, !processor.categoryAutoConfirmOff)
 	if gated.AutoConfirm {
 		t.Fatalf("a disabled switch must not auto-confirm: %+v", gated)
+	}
+}
+
+// The zero value must keep auto-confirm on, matching document.Processor. A bare
+// &Processor{} silently disabling ledger writes would be the opposite default.
+func TestCategoryAutoConfirmDefaultsOn(t *testing.T) {
+	if (&Processor{}).categoryAutoConfirmOff {
+		t.Fatal("a zero-value Processor must keep auto-confirm on")
 	}
 }

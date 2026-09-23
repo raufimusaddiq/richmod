@@ -103,8 +103,9 @@ services:
       JUDGMENT_TIMEOUT_MS: ${JUDGMENT_TIMEOUT_MS:-}
       LLM_MODEL_FINANCIAL_EMAIL: ${LLM_MODEL_FINANCIAL_EMAIL:-}
       RICHMOD_DOCUMENT_INTERPRETATION: ${RICHMOD_DOCUMENT_INTERPRETATION:-}
-      # Per-source auto-confirm kill-switch (PRD 33). A set value disables category
-      # auto-confirm for bank email without touching the other sources.
+      # Per-source auto-confirm kill-switches (PRD 33). Only an explicit negative
+      # value (0/false/off/no/disabled) disables the source; any other value keeps
+      # it on, so an unset variable never silently changes behavior.
       RICHMOD_AUTOCONFIRM_BANK_CATEGORY: ${RICHMOD_AUTOCONFIRM_BANK_CATEGORY:-}
       RICHMOD_AUTOCONFIRM_RECEIPT: ${RICHMOD_AUTOCONFIRM_RECEIPT:-}
     volumes:

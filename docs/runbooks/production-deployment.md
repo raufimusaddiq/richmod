@@ -231,6 +231,7 @@ an unset or mistyped variable never silently changes behavior.
 | Variable | Source | Effect when disabled |
 | --- | --- | --- |
 | `RICHMOD_AUTOCONFIRM_BANK_CATEGORY` | Bank Email | A merchant expense with a learned or decided category parks in review with the category proposed, instead of confirming |
+| `RICHMOD_AUTOCONFIRM_RECEIPT` | Receipt | A clear new receipt parks in review with its extraction proposed, instead of confirming |
 
 Setting the variable to `0`, `false`, `off`, `no` or `disabled` (any case)
 disables the switch; any other value keeps it on. Disabling is a worker-only

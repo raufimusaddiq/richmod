@@ -24,15 +24,17 @@ type Processor struct {
 	// deterministic structural gate and never silently invents semantic approval
 	// (PRD §20).
 	verifier jeverifier
-	// categoryAutoConfirm is this source's PRD §33 operational kill-switch. When
-	// off, a bounded category decision still runs and still rides on the review
-	// card, but the expense is parked for review instead of writing confirmed
-	// ledger money. It is independent of the receipt and screenshot switches.
-	categoryAutoConfirm bool
+	// categoryAutoConfirmOff is this source's PRD §33 operational kill-switch,
+	// stored inverted so the zero-value Processor keeps the documented default
+	// (auto-confirm on) — the same convention document.Processor uses. When set, a
+	// bounded category decision still runs and still rides on the review card, but
+	// the expense is parked for review instead of writing confirmed ledger money.
+	// It is independent of the receipt and screenshot switches.
+	categoryAutoConfirmOff bool
 }
 
 func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
-	return &Processor{pool: pool, extractor: extractor, categoryAutoConfirm: true}
+	return &Processor{pool: pool, extractor: extractor}
 }
 
 // SetVerifier wires the bounded evidence verifier. Production sets it from the
@@ -40,7 +42,8 @@ func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
 // SetCategoryAutoConfirm is the bank-email category kill-switch (PRD §33).
-func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirm = enabled }
+// Passing false disables auto-confirm for this source.
+func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirmOff = !enabled }
 
 // applyCategoryAutoConfirmSwitch is the PRD §33 gate on this source's
 // *category* auto-confirm. With the switch off, an expense whose category the
@@ -222,10 +225,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// category. The kill-switch governs that category auto-confirm, so it is
 	// applied to the policy result the deterministic rules already produced,
 	// before the bounded classifier gets a chance to decide a category.
-	result = applyCategoryAutoConfirmSwitch(result, p.categoryAutoConfirm)
+	result = applyCategoryAutoConfirmSwitch(result, !p.categoryAutoConfirmOff)
 	// The kill-switch also disables the bounded category path, so the switch
 	// cannot be re-opened by the very decision it exists to gate.
-	if !payload.Shadow && p.categoryAutoConfirm {
+	if !payload.Shadow && !p.categoryAutoConfirmOff {
 		result = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
 	}
 	status := result.Status
