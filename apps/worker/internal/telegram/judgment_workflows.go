@@ -69,6 +69,20 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		allowed := reviewActionsForType(state.ReviewMode)
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
+		// A chat-level (implicit) review binding must not hijack every later
+		// message in the chat. When the classifier decides the text is not a
+		// review answer, drop the binding and fall through to normal handling so a
+		// clearly-new transaction can still be recorded. An explicit reply to the
+		// review message keeps the hard stop: there the user does mean to answer it.
+		if choice == "OTHER_OR_UNCLEAR" && state.WorkflowScope == string(agentWorkflowUniqueReview) {
+			state.ReviewBinding = nil
+			state.ReviewBindingCount = 0
+			state.ReviewMode = ""
+			state.Tools = state.GeneralTools
+			state.TurnContext["active_review"] = nil
+			state.TurnContext["workflow_scope"] = string(agentWorkflowGeneral)
+			return false, nil
+		}
 		if err != nil || !ok || choice == "OTHER_OR_UNCLEAR" {
 			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
 		}
