@@ -31,7 +31,7 @@ type ObservationClassification struct {
 
 // ProviderEmailClassificationPolicyVersion marks the thresholds behind these
 // rulings so a stored decision stays reproducible (PRD §18).
-const ProviderEmailClassificationPolicyVersion = "2026-09-jev2"
+const ProviderEmailClassificationPolicyVersion = "2026-09-jev3"
 
 // jeverifier is the seam onto the bounded judgment plane, expressed in the terms
 // this package needs so provider email never imports Telegram policy.
