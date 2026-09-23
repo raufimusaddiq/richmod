@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -235,7 +236,11 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// the extracted facts; the extractor's self-reported confidence is no longer
 	// allowed to authorize (or to hide) a semantic claim (ADR-038, PRD §20).
 	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
+		missingFact := "amount"
+		if !missing(extraction, "amount_idr") {
+			missingFact = "transaction_at"
+		}
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{missingFact}, "a required canonical fact was absent from the email extraction"))
 	}
 	verification, verified, verifyErr := p.verifyEvidence(ctx, payload.SourceEventID, extraction, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
 	if verifyErr != nil {
@@ -245,10 +250,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
 	}
 	if verified && !verification.supported() {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE")
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", partialDecision(household, payload.SourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", []string{"transaction_semantics"}, "bounded verification could not confirm the email supports the extracted transaction facts"))
 	}
 	if !verified && extraction.Confidence < 0.80 {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
 	}
 	if verified {
 		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
@@ -263,8 +268,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 }
 
 // reviewIncompleteExtraction parks a notification whose facts are structurally
-// incomplete or semantically unsupported. It never mutates the ledger.
-func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, sourceEventID, schemaVersion, reviewType string) error {
+// incomplete or semantically unsupported. It never mutates the ledger. The
+// decision records why the review exists so the Inbox can request only the
+// unresolved fact (PRD §7).
+func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, sourceEventID, schemaVersion, reviewType string, decision reviewdec.Decision) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -273,10 +280,55 @@ func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, s
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, sourceEventID, schemaVersion); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,$3,'OPEN') ON CONFLICT DO NOTHING`, household, sourceEventID, reviewType); err != nil {
+	encoded, encodeErr := decision.JSON()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN',$4::jsonb) ON CONFLICT DO NOTHING`, household, sourceEventID, reviewType, string(encoded)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// partialDecision builds the ReviewDecision for a bank email that could not be
+// auto-confirmed. Known facts are the extraction fields Go actually validated;
+// proposed facts are the policy's own best reading; missing facts are what the
+// user must supply. Canonical IDs are never included.
+func partialDecision(household, sourceEventID string, extraction Extraction, reviewType string, missingFacts []string, whyNotAuto string) reviewdec.Decision {
+	known := map[string]any{}
+	if amount := value(extraction.AmountIDR); amount != "" {
+		known["amount_idr"] = amount
+	}
+	if extraction.Direction != nil {
+		known["direction"] = *extraction.Direction
+	}
+	if extraction.Channel != nil {
+		known["channel"] = *extraction.Channel
+	}
+	if merchant := value(extraction.Merchant); merchant != "" {
+		known["merchant"] = merchant
+	}
+	proposed := map[string]any{}
+	if extraction.Kind != "" {
+		proposed["kind"] = extraction.Kind
+	}
+	return reviewdec.Decision{
+		Version:         reviewdec.Version,
+		Subject:         reviewdec.Subject{Type: "source_event", ID: sourceEventID},
+		SourceEventID:   sourceEventID,
+		ReasonCode:      reviewType,
+		DecisionClass:   reviewdec.ClassEvidenceGap,
+		KnownFacts:      known,
+		ProposedFacts:   proposed,
+		MissingFacts:    missingFacts,
+		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
+		DecisionSource:  reviewdec.SourceGenerativePlusJev,
+		PolicyVersion:   ToolSchemaVersion,
+		Provenance:      map[string]any{"pipeline": "bank-email-generic"},
+		WhyNotAuto:      whyNotAuto,
+		AllowedActions:  []string{"COMPLETE_BANK_FACTS", "IGNORE"},
+		InteractionMode: reviewdec.ModeSingleField,
+	}
 }
 
 // persistEvidenceVerification records the bounded ruling next to the extraction
