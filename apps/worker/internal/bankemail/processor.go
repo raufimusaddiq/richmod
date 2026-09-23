@@ -193,7 +193,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
-	result = p.applyCategoryDecision(ctx, household, extraction, result)
+	if !payload.Shadow {
+		result = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
+	}
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
@@ -368,14 +370,20 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 // result untouched so the category-only review still applies. It is a pure
 // function of the resolver so the confirm-no-review half is testable without a
 // full email fixture.
-func (p *Processor) applyCategoryDecision(ctx context.Context, household string, extraction Extraction, result PolicyResult) PolicyResult {
+func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) PolicyResult {
 	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
 		return result
 	}
-	if categoryID := p.resolveNewMerchantCategory(ctx, household, extraction); categoryID != "" {
-		result.CategoryID, result.AutoConfirm = categoryID, true
-		result.Status, result.ReviewType = "CONFIRMED", ""
+	categoryID, provenance := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
+	if categoryID == "" {
+		return result
 	}
+	result.CategoryID, result.AutoConfirm = categoryID, true
+	result.Status, result.ReviewType = "CONFIRMED", ""
+	// A Jev-chosen category is a category we now know, so the row must not keep
+	// the review-flavoured placeholder as its ledger description (Hermes #133).
+	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
+	result.CategoryProvenance = &provenance
 	return result
 }
 
@@ -518,6 +526,15 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_BANK_EMAIL','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'policy_result',$6::text,'auto_confirm',$7::boolean,'tool_schema_version',$8::text))`, listener.HouseholdID, transactionID, sourceID, listener.ID, proposalID, result.Status, result.AutoConfirm, ToolSchemaVersion); err != nil {
 		return err
+	}
+	if provenance := result.CategoryProvenance; provenance != nil {
+		summary, marshalErr := json.Marshal(map[string]any{"category": provenance.Slug, "category_accepted": provenance.Accepted})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'BANK_EMAIL_CATEGORY',NULLIF($3,''),$4,$5,$6::jsonb,'CONFIRMED')`, listener.HouseholdID, sourceID, provenance.Model, provenance.PolicyVersion, []string{"category"}, string(summary)); err != nil {
+			return err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err

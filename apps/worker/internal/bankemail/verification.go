@@ -82,19 +82,19 @@ const bankCategoryQuestion = "Choose the best active expense category for this p
 // the deterministic Go half of PRD §9.3: the model picks a slug, Go resolves the
 // ID, and an undecided or ambiguous answer returns "" so the caller keeps its
 // category-only review. A provider failure also returns "" rather than guessing.
-func (p *Processor) resolveNewMerchantCategory(ctx context.Context, householdID string, extraction Extraction) string {
+func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventID, householdID string, extraction Extraction) (string, categoryProvenance) {
 	if p.verifier == nil || extraction.Merchant == nil || strings.TrimSpace(*extraction.Merchant) == "" {
-		return ""
+		return "", categoryProvenance{}
 	}
 	categories, err := p.activeExpenseCategories(ctx, householdID)
 	if err != nil || len(categories) == 0 {
-		return ""
+		return "", categoryProvenance{}
 	}
 	slugs := make([]string, 0, len(categories))
 	for _, category := range categories {
 		slugs = append(slugs, category.Slug)
 	}
-	result, err := p.verifier.Evaluate(ctx, householdID+"-category", judgment.Request{
+	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
 		State: map[string]any{
 			"merchant": "<untrusted_merchant>" + strings.TrimSpace(*extraction.Merchant) + "</untrusted_merchant>",
 		},
@@ -103,18 +103,28 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, householdID 
 		},
 	})
 	if err != nil {
-		return ""
+		return "", categoryProvenance{}
 	}
 	answer, ok := result.Answers["category"]
 	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, judgment.CategoryCriteria(slugs), bankCategoryPolicy) {
-		return ""
+		return "", categoryProvenance{}
 	}
 	for _, category := range categories {
 		if category.Slug == answer.Choice {
-			return category.ID
+			return category.ID, categoryProvenance{Model: result.Model, PolicyVersion: BankEmailVerificationPolicyVersion, Slug: answer.Choice, Accepted: true}
 		}
 	}
-	return ""
+	return "", categoryProvenance{}
+}
+
+// categoryProvenance is the bounded answer that authorised a Jev-chosen
+// category. It is persisted next to the mutation so an operator can tell a
+// Jev-picked category from a deterministic merchant rule (ADR-038, PRD 15/16).
+type categoryProvenance struct {
+	Model         string
+	PolicyVersion string
+	Slug          string
+	Accepted      bool
 }
 
 type expenseCategory struct{ ID, Slug string }

@@ -21,8 +21,8 @@ import (
 // canonical ID resolution a Go responsibility. The bounded *verdict* is stubbed:
 // asserting what a decisive or undecided answer must land on is the deterministic
 // half this file owns. The answers themselves are exercised against the real
-// provider by the section 23 semantic canary corpus, which is delivered with the
-// canary PRD stage rather than here.
+// provider by the section 23 semantic canary corpus in canary_corpus_test.go (PR #132),
+// which runs the same corpus against the live gateway when it is configured.
 
 // B1 - learn merchant auto-applies its stored category.
 func TestBankEmailB1LearnedMerchantConfirmsWithoutReview(t *testing.T) {
@@ -82,14 +82,14 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 	}}}
 	// The decisive answer must turn the category review into a confirmation with no
 	// review left behind, not merely resolve an id.
-	decided := processor.applyCategoryDecision(ctx, householdID, outgoingCard("54000", "Warung Baru"), result)
+	decided := processor.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
 	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != foodID {
 		t.Fatalf("a decisive category must confirm with no review: %+v", decided)
 	}
 
 	// A provider failure must leave the review in place rather than guess.
 	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
-	kept := undecided.applyCategoryDecision(ctx, householdID, outgoingCard("54000", "Warung Baru"), result)
+	kept := undecided.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
 	if kept.ReviewType != "AMBIGUOUS_CATEGORY" || kept.Status != "NEEDS_REVIEW" || kept.AutoConfirm {
 		t.Fatalf("a provider failure must keep the category review: %+v", kept)
 	}
