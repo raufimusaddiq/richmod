@@ -19,14 +19,28 @@ type EvidenceVerification struct {
 	ChannelSupported    bool
 	MaterialAmbiguity   bool
 
+	// AmbiguityDecidedNotAmbiguous records that the ambiguity question resolved to
+	// a decided *negative*. It is tracked separately because material_ambiguity is
+	// the one claim where a decided negative is the favourable answer, so
+	// MaterialAmbiguity alone cannot distinguish "ruled not ambiguous" from "the
+	// model could not tell" (PRD 17, 20).
+	AmbiguityDecidedNotAmbiguous bool
+
 	Model         string
 	PolicyVersion string
 }
 
 // supported reports whether every bounded claim was decided in the extractor's
-// favour. Anything undecided or affirmative-ambiguous fails closed.
+// favour. Anything undecided fails closed.
+//
+// The ambiguity claim is inverted relative to the others: a decided *negative*
+// is what clears it. An answer in the undecided middle band means the bounded
+// plane could not tell whether the email was ambiguous about the transaction, and
+// that must hold the event for review rather than open the auto-confirm path
+// (PRD 17). Reading it as "not ambiguous" is fail-open, which is what this
+// previously did.
 func (v EvidenceVerification) supported() bool {
-	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.ChannelSupported && !v.MaterialAmbiguity
+	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.ChannelSupported && v.AmbiguityDecidedNotAmbiguous
 }
 
 // jeverifier is the seam onto the bounded judgment plane. It is defined here, in
@@ -107,7 +121,7 @@ func (p *Processor) verifyEvidence(ctx context.Context, sourceEventID string, ex
 	verification.AmountSupported = noulClaimed(result.Answers, "amount_supported", evidenceVerificationPolicy.Amount)
 	verification.DirectionSupported = noulClaimed(result.Answers, "direction_supported", evidenceVerificationPolicy.Direction)
 	verification.ChannelSupported = noulClaimed(result.Answers, "channel_supported", evidenceVerificationPolicy.Channel)
-	verification.MaterialAmbiguity = noulClaimed(result.Answers, "material_ambiguity", evidenceVerificationPolicy.Ambiguity)
+	verification.MaterialAmbiguity, verification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity", evidenceVerificationPolicy.Ambiguity)
 	return verification, true, nil
 }
 
@@ -120,6 +134,18 @@ func noulClaimed(answers map[string]judgment.Answer, key string, policy judgment
 	}
 	claimed, decided := judgment.AcceptNoul(answer, policy)
 	return claimed && decided
+}
+
+// ambiguityVerdict reads the inverted claim. It returns (isAmbiguous,
+// decidedNotAmbiguous) so a caller can require an affirmative not-ambiguous
+// ruling instead of treating an undecided answer as approval.
+func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) (bool, bool) {
+	answer, ok := answers[key]
+	if !ok {
+		return false, false
+	}
+	ambiguous, decided := judgment.AcceptNoul(answer, policy)
+	return ambiguous, decided && !ambiguous
 }
 
 func pointerValue(value *string) string {
