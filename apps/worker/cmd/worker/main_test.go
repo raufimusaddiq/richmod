@@ -29,3 +29,28 @@ func TestRequireJudgmentModel(t *testing.T) {
 		})
 	}
 }
+
+// envEnabled is a safety control: an unset or mistyped variable must keep the
+// switch on, and only an explicit negative value may disable it (PRD §33).
+func TestEnvEnabledDefaultsOnForUnsetOrUnknownValues(t *testing.T) {
+	cases := map[string]bool{
+		"":           true,
+		"1":          true,
+		"true":       true,
+		"yes":        true,
+		"0":          false,
+		"false":      false,
+		"OFF":        false,
+		"no":         false,
+		"disabled":   false,
+		" disabled ": false,
+	}
+	for value, want := range cases {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("RICHMOD_TEST_SWITCH", value)
+			if got := envEnabled("RICHMOD_TEST_SWITCH"); got != want {
+				t.Fatalf("envEnabled(%q)=%v want %v", value, got, want)
+			}
+		})
+	}
+}
