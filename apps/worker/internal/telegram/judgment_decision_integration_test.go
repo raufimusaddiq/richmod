@@ -118,7 +118,8 @@ func TestJudgmentDecisionProvenanceIsRecordedWithTheMutation(t *testing.T) {
 	decision := TransactionSemanticDecision{
 		RouteAccepted: true, TransactionType: "EXPENSE", TypeAccepted: true,
 		AmountSupported: true, DateSupported: true, CategorySlug: "dining", CategoryAccepted: true,
-		DecisionSource: "JEV", Model: "jev-test", PolicyVersion: judgmentPolicyVersion,
+		AmbiguityDecidedNotAmbiguous: true,
+		DecisionSource:               "JEV", Model: "jev-test", PolicyVersion: judgmentPolicyVersion,
 	}
 	value := validatedExtraction{Type: "EXPENSE", Amount: "50000", TransactionAt: f.state.Now, Merchant: "makan siang", CategorySlug: "dining"}
 	mustAgentTest(t, processor.persistTransaction(ctx, f.sourceID, f.householdID, f.update, value, gateway.Metadata{Model: "extract-test"}, decision))
