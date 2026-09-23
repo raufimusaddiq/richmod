@@ -198,6 +198,55 @@ bodies, document bytes, and credentials are never stored there.
 
 ## Related decisions
 
+### Amendment — implicit workflow bindings and lane selection (2026-09)
+
+The original decision let Go narrow the conversational tool surface from a
+server-bound workflow target *before* asking Jev anything about the current
+message. Two classes of binding must be separated, because they mean different
+things about the user's text:
+
+- **Exact binding** — the user's message is part of the workflow by
+  construction: a pending correction, a pending batch, a pending salary choice,
+  or an explicit Telegram reply to the workflow's own message. Here an
+  unreadable answer means "the reply to this workflow is unclear", so a
+  clarification hard stop is correct.
+- **Implicit binding** — the workflow was inferred from chat state alone: an
+  open review, or an awaiting merchant-learning confirmation. Here the user's
+  message may be an entirely new event, so a bounded answer of "not this
+  workflow" must release the binding and fall through to normal handling.
+
+Keying both classes on a single `!ok || answer == OTHER_OR_UNCLEAR` guard is
+**prohibited**. It is the defect that let one open review swallow every later
+message in a chat (an expense was never recorded; the turn died with 0 model
+phases). The required distinction is:
+
+```text
+classifier error / undecided   -> fail closed (clarification or safe stop)
+decided "not this workflow"    -> release implicit binding, fall through
+                              -> keep hard stop for exact bindings only
+```
+
+#### Risk: implicit bindings select the lane before the route call
+
+Even with the fall-through above, Go still chooses the mutation lane from chat
+state before Jev sees the current message. Implicit bindings therefore remain a
+standing hazard: any chat that accumulates open reviews (a real household had
+six) puts every non-review message at risk, and each new implicit binding adds a
+special case to `tryJudgmentBoundWorkflow`.
+
+The durable shape is **route-first lane selection**: run the existing bounded
+route decision (`judgmentTaskRoute`, whose vocabulary already includes
+`REVIEW_INTERACTION`, `MERCHANT_LEARNING_INTERACTION`, and
+`SALARY_INTERACTION`) and narrow the tool surface only when the chosen route
+names the bound workflow. Under that shape an implicit binding can no longer
+mis-own a turn, because the route call — not chat state — decides whether the
+turn is a workflow reply at all.
+
+Until route-first selection is adopted, every implicit binding MUST follow the
+three-way rule above, MUST carry a test proving a new-event message falls
+through, and MUST NOT be introduced without one. See
+`docs/plans/jev-go-implicit-binding.md` for the staged work.
+
 - ADR-005: Cloud LLM Gateway boundary — amended to include native System One.
 - ADR-024: Native finance tool calls — remains applicable to generative paths
   that still require native tools.

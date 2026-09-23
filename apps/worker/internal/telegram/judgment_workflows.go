@@ -59,11 +59,28 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, err
 	}
 	if state.MerchantLearningBinding != nil {
-		remember, decided, err := p.judgmentNoul(ctx, state, judgmentTaskMerchantLearning, text, "merchant_learning", "Did the user explicitly consent to remember this merchant category rule?")
-		if err != nil || !decided {
+		// A bounded choice is required here, not a Noul: an implicit binding must
+		// be able to say "this message is not an answer to the confirmation", which
+		// a yes/no plus an undecided band cannot express. Without it, an awaiting
+		// merchant confirmation swallows every later message in the chat, the same
+		// defect PR #115 fixed for the implicit review binding.
+		criteria := map[string]any{"REMEMBER": "consent to remember this merchant category rule", "SKIP": "do not remember the rule", "OTHER_OR_UNCLEAR": "not an answer to this confirmation"}
+		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskMerchantLearning, text, "merchant_learning", "Choose the user's bounded response to the pending merchant-category confirmation. Use OTHER_OR_UNCLEAR when the message is not answering this confirmation.", criteria)
+		if err != nil || !ok {
 			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
 		}
-		return true, p.resolveNativeMerchantLearning(ctx, state.SourceEventID, state.HouseholdID, state.Update, map[string]any{"remember": remember})
+		if choice == "OTHER_OR_UNCLEAR" && state.WorkflowScope == string(agentWorkflowMerchantLearning) {
+			state.MerchantLearningBinding = nil
+			state.MerchantLearningCount = 0
+			state.Tools = state.GeneralTools
+			state.TurnContext["merchant_learning"] = nil
+			state.TurnContext["workflow_scope"] = string(agentWorkflowGeneral)
+			return false, nil
+		}
+		if choice == "OTHER_OR_UNCLEAR" {
+			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
+		}
+		return true, p.resolveNativeMerchantLearning(ctx, state.SourceEventID, state.HouseholdID, state.Update, map[string]any{"remember": choice == "REMEMBER"})
 	}
 	if state.ReviewBinding != nil {
 		allowed := reviewActionsForType(state.ReviewMode)
@@ -145,35 +162,6 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task 
 	}
 	p.metrics.recordDecision(ctx, task, judgmentOutcomeAccepted)
 	return answer.Choice, true, nil
-}
-
-// judgmentNoul asks one yes/no question. The bool reports a usable decision;
-// the middle band returns decided=false so callers ask for clarification.
-func (p *Processor) judgmentNoul(ctx context.Context, state *agentState, task judgmentTask, text, key, instructions string) (bool, bool, error) {
-	result, err := p.evaluate(ctx, task, state.SourceEventID, judgment.Request{
-		State: map[string]any{
-			"user_text":    "<untrusted_user_message>" + text + "</untrusted_user_message>",
-			"workflow":     state.TurnContext["workflow_scope"],
-			"server_bound": true,
-		},
-		Questions: map[string]judgment.Question{key: {Type: "noul", Instructions: instructions}},
-	})
-	if err != nil {
-		p.metrics.recordDecision(ctx, task, judgmentOutcomeProviderFailure)
-		return false, false, err
-	}
-	answer, ok := result.Answers[key]
-	if !ok {
-		p.metrics.recordDecision(ctx, task, judgmentOutcomeClarification)
-		return false, false, nil
-	}
-	remember, decided := judgment.AcceptNoul(answer, judgmentPolicy.Consent)
-	if decided {
-		p.metrics.recordDecision(ctx, task, judgmentOutcomeAccepted)
-	} else {
-		p.metrics.recordDecision(ctx, task, judgmentOutcomeClarification)
-	}
-	return remember, decided, nil
 }
 
 // categoriesOrEmpty never fails a transaction turn on a category query error:
