@@ -62,6 +62,7 @@ type item struct {
 	TransferCandidates      []transferReviewCandidate `json:"transferCandidates,omitempty"`
 	ProposedPurpose         string                    `json:"proposedPurpose,omitempty"`
 	ProposedWealthAccountID string                    `json:"proposedWealthAccountId,omitempty"`
+	Decision                json.RawMessage           `json:"decision,omitempty"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +116,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, value := range canonical {
 		sourceType := value.Channel
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: value.ResolvedWealthAccountID, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID})
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: value.ResolvedWealthAccountID, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision})
 	}
 	writeJSON(w, 200, items)
 }

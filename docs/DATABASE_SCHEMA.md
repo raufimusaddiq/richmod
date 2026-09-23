@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00059_llm_call_kind_judgment.sql`.
+forward migration set through `db/migrations/00060_review_decision_contract.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -153,7 +153,7 @@ erDiagram
 | Table | Purpose | Principal relationships / constraints |
 | --- | --- | --- |
 | `transaction_proposal` | Untrusted interpretation awaiting deterministic handling. | Household/source-event scoped; may become a transaction or review item. |
-| `review_item` | Canonical actionable human-review unit. | May reference a transaction, proposal, source event, or document; active uniqueness prevents duplicate open work. |
+| `review_item` | Canonical actionable human-review unit. | May reference a transaction, proposal, source event, or document; active uniqueness prevents duplicate open work. Optional `decision` jsonb holds the PRD §7 ReviewDecision contract (known/proposed/missing/conflicting facts, bounded choices, reason code, decision class, why-not-auto-confirm, interaction mode); nullable so existing reviews stay resolvable. |
 | `review_request` | Telegram delivery/request for review. | Optional `review_item_id`; retains older transaction/proposal review linkage. |
 | `review_request_recipient` | Per-recipient Telegram delivery binding. | `review_request_id → review_request`; stores chat/message IDs. |
 | `review_conversation` | Human review messages and resolution context. | `review_request_id → review_request`. |

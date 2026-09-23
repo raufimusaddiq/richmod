@@ -2,12 +2,14 @@ package bankemail
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // reviewIncompleteExtraction used to hardcode UNKNOWN_BANK_TEMPLATE for every
@@ -44,7 +46,7 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 			if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("bank-reason-%d-%s", time.Now().UnixNano(), testCase.reviewType), []byte(testCase.name)).Scan(&sourceEventID); err != nil {
 				t.Fatal(err)
 			}
-			if err := processor.reviewIncompleteExtraction(ctx, householdID, sourceEventID, ToolSchemaVersion, testCase.reviewType); err != nil {
+			if err := processor.reviewIncompleteExtraction(ctx, householdID, sourceEventID, ToolSchemaVersion, testCase.reviewType, partialDecision(householdID, sourceEventID, Extraction{}, testCase.reviewType, []string{"amount"}, "test")); err != nil {
 				t.Fatal(err)
 			}
 			var reviewType, status string
@@ -56,6 +58,23 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 			}
 			if status != "OPEN" {
 				t.Fatalf("status=%q; want OPEN", status)
+			}
+			// The PRD §7 contract must be stored so the Inbox can explain the review
+			// without re-deriving it. Decision class, reason, and a why-not-auto-confirm
+			// reason are the minimum a client needs.
+			var decision reviewdec.Decision
+			var rawDecision []byte
+			if err := pool.QueryRow(ctx, `SELECT decision FROM review_item WHERE source_event_id=$1`, sourceEventID).Scan(&rawDecision); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(rawDecision, &decision); err != nil {
+				t.Fatal(err)
+			}
+			if decision.ReasonCode != testCase.reviewType || decision.DecisionClass == "" || decision.WhyNotAuto == "" || len(decision.MissingFacts) == 0 {
+				t.Fatalf("stored decision is incomplete: %+v", decision)
+			}
+			if decision.Subject.ID != sourceEventID {
+				t.Fatalf("decision subject=%q; want source event %q", decision.Subject.ID, sourceEventID)
 			}
 		})
 	}
