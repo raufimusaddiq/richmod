@@ -10,6 +10,19 @@ type storedDecision struct {
 	ProposedFacts map[string]any `json:"proposedFacts"`
 	MissingFacts  []string       `json:"missingFacts"`
 	WhyNotAuto    string         `json:"whyNotAutoConfirm"`
+	Provenance    map[string]any `json:"provenance"`
+}
+
+// resolvedEntity answers "what has this review already resolved?" from the one
+// place the producer records it. Reading it from the decision keeps the Inbox
+// field-independent: a producer that resolves a new dimension does not need a new
+// list API column (PRD 12, 37).
+func (s storedDecision) resolvedEntity(key string) string {
+	if s.Provenance == nil {
+		return ""
+	}
+	value, _ := s.Provenance[key].(string)
+	return value
 }
 
 // proposalFacts extracts that subset from a stored ReviewDecision. The Inbox

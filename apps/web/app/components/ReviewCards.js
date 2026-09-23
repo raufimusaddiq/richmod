@@ -63,9 +63,11 @@ function FinancialEmailResolutionCard({ item, accounts, wealthAccounts, disabled
   // it still asks for both entities rather than rendering an unresolvable card.
   const needsAccount = !missing || missing.includes("funding_account") || missing.includes("account");
   const needsWealth = !missing || missing.includes("wealth_account") || missing.includes("wealthAccount");
-  const decision = item.decision || {};
-  const resolvedAccountId = item.resolvedAccountId || decision.resolvedAccountId;
-  const resolvedWealthAccountId = item.resolvedWealthAccountId || decision.resolvedWealthAccountId;
+  // The server surfaces what this review already resolved; read it from the item
+  // root only. A second copy inside `decision` would be a second source of truth
+  // for the same fact (PRD §3.3: never ask again what the system already knows).
+  const resolvedAccountId = item.resolvedAccountId || '';
+  const resolvedWealthAccountId = item.resolvedWealthAccountId || '';
   const knownAccount = needsAccount ? null : accounts.find(account => account.id === resolvedAccountId);
   const knownWealth = needsWealth ? null : wealthAccounts.find(account => account.id === resolvedWealthAccountId);
   // The canonical resolver requires both a funding account and a Wealth Account
@@ -117,4 +119,3 @@ function TransferCard({ item, categories, wealthAccounts, disabled, action }) {
   function assetPurchase(event) { event.preventDefault(); const form = new FormData(event.currentTarget); action(item.id, "classify-transfer", { classification: "ASSET_PURCHASE", wealthAccountId: form.get("wealthAccountId") }); }
   return <article className="review-card transfer-card"><div className="review-top"><span className="review-reason">TRANSFER BELUM DIKENAL</span><strong>{money(item.amount)}</strong></div><h2>{item.counterparty || "Tujuan transfer belum dikenal"}</h2><p>{dateTime(item.transactionAt)} · belum dihitung sebagai pengeluaran</p><ProposalFacts item={item} known={[["amount_idr", money(item.amount)], ["merchant", item.counterparty]]} missing={item.missingFacts || ["transfer_relationship"]}/><p>Pilih jenisnya, atau lengkapi detail bila ini pengeluaran atau pembelian aset.</p><div className="transfer-options"><button disabled={disabled} onClick={() => action(item.id, "classify-transfer", { classification: "OWN_ACCOUNT" })}>Rekening sendiri</button><button disabled={disabled} onClick={() => action(item.id, "classify-transfer", { classification: "HOUSEHOLD_ACCOUNT" })}>Rekening rumah tangga</button><button disabled={disabled} onClick={() => action(item.id, "classify-transfer", { classification: "INVESTMENT_ACCOUNT" })}>Investasi / RDN</button><button className="secondary" disabled={disabled} onClick={() => setEditing(true)}>Ubah detail</button><button className="danger" disabled={disabled} onClick={() => action(item.id, "classify-transfer", { classification: "IGNORE" })}>Abaikan</button></div>{editing && <form onSubmit={assetPurchase}><label>Beli aset<select name="wealthAccountId" required defaultValue=""><option value="" disabled>Pilih Wealth Account</option>{wealthAccounts.filter(account => account.active && account.side === "ASSET").map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><button disabled={disabled}>Beli aset</button></form>}{editing && <form onSubmit={expense}><label>Jika ini pengeluaran<select name="categoryId" required defaultValue=""><option value="" disabled>Pilih kategori</option>{categories.filter(category => category.active).map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><div className="review-actions"><button disabled={disabled}>Catat sebagai pengeluaran</button><Link className="button secondary" href={`/transactions?id=${item.id}`}>Bukti</Link></div></form>}</article>;
 }
-

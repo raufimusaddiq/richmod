@@ -57,6 +57,7 @@ type item struct {
 	CycleEnd                string                    `json:"cycleEnd,omitempty"`
 	WealthObservationID     string                    `json:"wealthObservationId,omitempty"`
 	ResolvedWealthAccountID string                    `json:"resolvedWealthAccountId,omitempty"`
+	ResolvedAccountID       string                    `json:"resolvedAccountId,omitempty"`
 	Institution             string                    `json:"institution,omitempty"`
 	AccountHint             string                    `json:"accountHint,omitempty"`
 	TransferCandidates      []transferReviewCandidate `json:"transferCandidates,omitempty"`
@@ -121,7 +122,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for _, value := range canonical {
 		sourceType := value.Channel
 		stored := proposalFacts(value.Decision)
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: value.ResolvedWealthAccountID, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: stored.MissingFacts, WhyNotAutoConfirm: stored.WhyNotAuto})
+		resolvedWealth := value.ResolvedWealthAccountID
+		if resolvedWealth == "" {
+			resolvedWealth = stored.resolvedEntity("resolvedWealthAccountId")
+		}
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: stored.resolvedEntity("resolvedAccountId"), Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: stored.MissingFacts, WhyNotAutoConfirm: stored.WhyNotAuto})
 	}
 	writeJSON(w, 200, items)
 }

@@ -25,8 +25,13 @@ test("evidence stays behind a secondary disclosure", () => {
 });
 
 test("a known financial entity is never requested again", () => {
-  assert.match(source, /resolvedAccountId/);
-  assert.match(source, /resolvedWealthAccountId/);
+  // The resolved ids come from the item root, which the list API fills from the
+  // stored decision. Reading them from a second path inside `decision` is how the
+  // card once rendered an account select for an already-resolved account and then
+  // posted undefined for it (Hermes review).
+  assert.match(source, /item\.resolvedAccountId/);
+  assert.match(source, /item\.resolvedWealthAccountId/);
+  assert.doesNotMatch(source, /decision\.resolvedAccountId/);
   assert.match(source, /const needsAccount = !missing \|\|/);
   assert.match(source, /const needsWealth = !missing \|\|/);
 });
