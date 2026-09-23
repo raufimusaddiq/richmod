@@ -43,13 +43,16 @@ jobs:
       # (after checkout, so a repo exists) to fail before that gate. Redundant with
       # the ancestry check below for real commits, but explicit about intent.
       - name: Verify release is on main
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
         run: |
           git fetch origin main
-          if [ "${{ inputs.sha }}" != "$(git rev-parse origin/main)" ]; then
-            echo "sha must be the current main commit (got: '${{ inputs.sha }}', main: '$(git rev-parse origin/main)')" >&2
+          main=$(git rev-parse origin/main)
+          if [ "$INPUT_SHA" != "$main" ]; then
+            echo "sha must be the current main commit (got: '$INPUT_SHA', main: '$main')" >&2
             exit 1
           fi
-          git merge-base --is-ancestor "${{ inputs.sha }}" origin/main
+          git merge-base --is-ancestor "$INPUT_SHA" origin/main
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
