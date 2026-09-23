@@ -53,6 +53,12 @@ type Processor struct {
 	// confirming, so this source can be rolled back without touching the bank or
 	// receipt switches.
 	rowAutoConfirmOff bool
+	// receiptAutoConfirmOff is the receipt source's PRD §33 operational
+	// kill-switch, stored inverted so the zero-value Processor keeps the
+	// documented default (auto-confirm on). When set, a clear receipt parks a
+	// review instead of confirming, so this source can be rolled back without
+	// touching the bank or screenshot switches.
+	receiptAutoConfirmOff bool
 }
 
 type Payload struct {
@@ -87,6 +93,9 @@ func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !ena
 
 // SetVerifier wires the bounded judgment plane (PRD §11.2).
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
+// SetReceiptAutoConfirm is the receipt new-transaction kill-switch (PRD §33).
+// Passing false disables auto-confirm for this source.
+func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
 
 func DecodePayload(raw json.RawMessage) (Payload, error) {
 	var payload Payload

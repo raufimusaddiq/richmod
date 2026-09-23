@@ -103,6 +103,7 @@ func run(logger *slog.Logger) error {
 	// PRD §33 operational kill-switch: an operator must be able to park screenshot
 	// rows in review without a deploy. Unset keeps auto-confirm on.
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
+	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
 	if judgmentClient != nil {
 		// Row-level category rulings let a clear screenshot row reach the ledger
 		// without a review; the bounded plane, not generative confidence, is what
@@ -123,6 +124,9 @@ func run(logger *slog.Logger) error {
 	}
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
+	// PRD §33: each auto-confirm source has its own operational kill-switch. The
+	// default is on; an operator disables one source without touching the others.
+	bankProcessor.SetCategoryAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_BANK_CATEGORY"))
 	// Evidence-channel semantic verification: the bounded plane rules on claims Go
 	// already holds, so neither email channel trusts generative self-confidence as
 	// its semantic gate (ADR-038, PRD §20/§21).

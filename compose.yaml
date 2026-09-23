@@ -104,6 +104,11 @@ services:
       LLM_MODEL_FINANCIAL_EMAIL: ${LLM_MODEL_FINANCIAL_EMAIL:-}
       RICHMOD_DOCUMENT_INTERPRETATION: ${RICHMOD_DOCUMENT_INTERPRETATION:-}
       RICHMOD_AUTOCONFIRM_SCREENSHOT: ${RICHMOD_AUTOCONFIRM_SCREENSHOT:-}
+      # Per-source auto-confirm kill-switches (PRD 33). Only an explicit negative
+      # value (0/false/off/no/disabled) disables the source; any other value keeps
+      # it on, so an unset variable never silently changes behavior.
+      RICHMOD_AUTOCONFIRM_BANK_CATEGORY: ${RICHMOD_AUTOCONFIRM_BANK_CATEGORY:-}
+      RICHMOD_AUTOCONFIRM_RECEIPT: ${RICHMOD_AUTOCONFIRM_RECEIPT:-}
     volumes:
       - attachment_data:/var/lib/finance/attachments
     depends_on:
