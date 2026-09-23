@@ -55,7 +55,7 @@ func TestExplicitReviewReplyExposesOnlyBoundReviewMutation(t *testing.T) {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 77}
 	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "")
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowExactReview {
 		t.Fatalf("scope=%s", scope)
@@ -71,7 +71,7 @@ func TestExplicitMerchantReplyExposesOnlyMerchantMutation(t *testing.T) {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 88}
 	tools := AgentFinanceTools([]string{"dining"}, true, true, false, "", true, true, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "review", TransactionID: "tx", TelegramMessageID: 88})
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "review", TransactionID: "tx", TelegramMessageID: 88}, "")
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowExactMerchant {
 		t.Fatalf("scope=%s", scope)
@@ -87,7 +87,7 @@ func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 99}
 	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, nil)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, nil, "")
 	if scope != agentWorkflowExplicitUnbound {
 		t.Fatalf("scope=%s", scope)
 	}
@@ -99,7 +99,7 @@ func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
 func TestPendingCorrectionOutranksOtherImplicitWrites(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"})
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"}, "")
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowPendingAction {
 		t.Fatalf("scope=%s", scope)
@@ -112,7 +112,7 @@ func TestPendingCorrectionOutranksOtherImplicitWrites(t *testing.T) {
 func TestPendingBatchOutranksUniqueReview(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, false, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "")
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowPendingBatch {
 		t.Fatalf("scope=%s", scope)
@@ -125,13 +125,40 @@ func TestPendingBatchOutranksUniqueReview(t *testing.T) {
 func TestUniqueReviewOutranksGeneralWrites(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "REVIEW_INTERACTION")
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowUniqueReview {
 		t.Fatalf("scope=%s", scope)
 	}
 	if len(writes) != 1 || !writes["resolve_review"] {
 		t.Fatalf("writes=%v; want resolve_review only", writes)
+	}
+}
+
+// Route-first lane selection: an implicit binding must not narrow the catalog
+// when the route says the turn is something else. This is the invariant that
+// removes the per-binding fall-through special case.
+func TestImplicitReviewBindingIgnoredWhenRouteIsNotReview(t *testing.T) {
+	var update telegramUpdate
+	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "CREATE_TRANSACTION")
+	if scope != agentWorkflowGeneral {
+		t.Fatalf("scope=%s; a non-review route must keep the general catalog", scope)
+	}
+	if side := sideEffectNames(filtered); !side["record_transaction"] {
+		t.Fatalf("general catalog must be intact, got %v", side)
+	}
+}
+
+func TestImplicitMerchantBindingIgnoredWhenRouteIsNotMerchantLearning(t *testing.T) {
+	var update telegramUpdate
+	tools := AgentFinanceTools([]string{"dining"}, false, false, false, "", false, true, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "r", TransactionID: "t"}, "CREATE_TRANSACTION")
+	if scope != agentWorkflowGeneral {
+		t.Fatalf("scope=%s; a non-merchant route must keep the general catalog", scope)
+	}
+	if side := sideEffectNames(filtered); !side["record_transaction"] {
+		t.Fatalf("general catalog must be intact, got %v", side)
 	}
 }
 

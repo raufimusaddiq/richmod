@@ -60,7 +60,7 @@ var judgmentPeriodCriteria = map[string]string{
 	"CUSTOM_OR_UNCLEAR": "explicit dates or no period stated",
 }
 
-func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state turnAgentContextState) (bool, error) {
+func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state *turnAgentContextState) (bool, error) {
 	if p.judgment == nil {
 		return false, nil
 	}
@@ -84,6 +84,9 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
 	}
 	p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeAccepted)
+	// Record the decided route for the caller: implicit workflow bindings are
+	// narrowed only when the route names their interaction (ADR-038 amendment).
+	state.Route = answer.Choice
 	// Only the aggregate READ routes consume a reporting period. Every other
 	// route must keep working when the period is CUSTOM_OR_UNCLEAR.
 	var period assistantRange
@@ -118,7 +121,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 // from one shared server-state snapshot: route, reporting period, and — when Go
 // already harvested exactly one amount candidate — the transaction sub-bundle.
 // Speculative transaction answers are ignored when the route is unrelated.
-func (p *Processor) initialJudgmentRequest(text string, state turnAgentContextState, candidate simpleTransactionCandidate) judgment.Request {
+func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextState, candidate simpleTransactionCandidate) judgment.Request {
 	statePayload := map[string]any{
 		"user_text":              "<untrusted_user_message>" + text + "</untrusted_user_message>",
 		"allowed_routes":         judgmentRoutes,
@@ -147,7 +150,7 @@ const judgmentUnavailableReason = "JUDGMENT_UNAVAILABLE"
 // degradeWithoutJudgment handles a provider failure on the initial call. READs
 // fall through to the generative agent with a READ-only tool surface; mutation
 // requests never reach a mutation tool, so no hidden LLM authority appears.
-func (p *Processor) degradeWithoutJudgment(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state turnAgentContextState) (bool, error) {
+func (p *Processor) degradeWithoutJudgment(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state *turnAgentContextState) (bool, error) {
 	if !readOnlyFallbackRequest(text) {
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Permintaan ini belum dicatat karena layanan keputusan sedang tidak tersedia. Coba lagi sebentar lagi.")
 	}

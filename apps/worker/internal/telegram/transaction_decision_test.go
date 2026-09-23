@@ -316,7 +316,7 @@ func TestInitialJudgmentRequestBundlesSpeculativeTransaction(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a harvestable candidate")
 	}
-	request := processor.initialJudgmentRequest("catat makan siang 50rb hari ini", turnAgentContextState{Categories: []string{"dining", "transport"}}, candidate)
+	request := processor.initialJudgmentRequest("catat makan siang 50rb hari ini", &turnAgentContextState{Categories: []string{"dining", "transport"}}, candidate)
 	for _, key := range []string{"route", "period", "transaction_type", "amount_support", "date_support", "material_ambiguity", "category"} {
 		if _, exists := request.Questions[key]; !exists {
 			t.Fatalf("initial bundle missing question %q", key)
@@ -333,7 +333,7 @@ func TestInitialJudgmentRequestBundlesSpeculativeTransaction(t *testing.T) {
 
 func TestInitialJudgmentRequestSkipsTransactionQuestionsWithoutCandidate(t *testing.T) {
 	processor := &Processor{}
-	request := processor.initialJudgmentRequest("pengeluaran bulan ini berapa", turnAgentContextState{Categories: []string{"dining"}}, simpleTransactionCandidate{})
+	request := processor.initialJudgmentRequest("pengeluaran bulan ini berapa", &turnAgentContextState{Categories: []string{"dining"}}, simpleTransactionCandidate{})
 	if _, exists := request.Questions["transaction_type"]; exists {
 		t.Fatal("a READ turn must not ship speculative transaction questions")
 	}
@@ -358,7 +358,7 @@ func TestHarvestingIsSuppressedForServerBoundTurns(t *testing.T) {
 		}
 	}
 	processor := &Processor{}
-	request := processor.initialJudgmentRequest("ya", turnAgentContextState{HasPendingBatch: true, HasPendingWorkflow: true, Categories: []string{"dining"}}, simpleTransactionCandidate{})
+	request := processor.initialJudgmentRequest("ya", &turnAgentContextState{HasPendingBatch: true, HasPendingWorkflow: true, Categories: []string{"dining"}}, simpleTransactionCandidate{})
 	if _, exists := request.Questions["transaction_type"]; exists {
 		t.Fatal("pending workflow must not receive speculative transaction questions")
 	}

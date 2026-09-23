@@ -26,6 +26,7 @@ func applyAgentWorkflowToolPolicy(
 	update telegramUpdate,
 	reviewBinding *agentReviewBinding,
 	merchantBinding *agentMerchantLearningBinding,
+	route string,
 ) ([]gateway.ToolDefinition, agentWorkflowScope) {
 	available := func(name string) bool {
 		for _, tool := range tools {
@@ -61,10 +62,13 @@ func applyAgentWorkflowToolPolicy(
 		case available("pending_batch_decision"):
 			allowed["pending_batch_decision"] = true
 			scope = agentWorkflowPendingBatch
-		case reviewBinding != nil:
+		// Implicit bindings are inferred from chat state alone, so they must not
+		// own a turn the route says is something else. Only narrow when the route
+		// names this interaction (ADR-038 amendment: route-first lane selection).
+		case reviewBinding != nil && route == "REVIEW_INTERACTION":
 			allowed["resolve_review"] = true
 			scope = agentWorkflowUniqueReview
-		case merchantBinding != nil:
+		case merchantBinding != nil && route == "MERCHANT_LEARNING_INTERACTION":
 			allowed["resolve_merchant_learning"] = true
 			scope = agentWorkflowMerchantLearning
 		case available("resolve_salary_choice"):

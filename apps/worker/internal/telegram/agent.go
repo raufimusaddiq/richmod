@@ -146,7 +146,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
 	}
-	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, judgmentState); handled || err != nil {
+	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
 		return err
 	}
 
@@ -161,7 +161,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.ReviewMode,
 		p.judgmentPlaneConfigured,
 	)
-	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding)
+	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
@@ -181,16 +181,22 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		Tools:                   tools,
 		RequiredTool:            "",
 		TurnContext:             turnContext,
-		ReviewBinding:           reviewBinding,
-		ReviewBindingCount:      reviewCount,
-		MerchantLearningBinding: merchantBinding,
-		MerchantLearningCount:   merchantCount,
 		HasPendingAction:        contextState.HasPendingAction,
 		HasPendingBatch:         contextState.HasPendingBatch,
 		HasSalaryChoice:         contextState.HasSalaryChoice,
 		ReviewMode:              contextState.ReviewMode,
-		WorkflowScope:           string(workflowScope),
-		GeneralTools:            generalTools,
+	}
+	// An implicit binding is attached only when the route says this turn is that
+	// interaction. Chat state alone never gets to own the turn (ADR-038
+	// amendment). Exact bindings (pending action/batch/salary, explicit reply)
+	// narrow unconditionally and so always keep their binding attached.
+	if workflowScope == agentWorkflowUniqueReview || workflowScope == agentWorkflowExactReview {
+		state.ReviewBinding = reviewBinding
+		state.ReviewBindingCount = reviewCount
+	}
+	if workflowScope == agentWorkflowMerchantLearning || workflowScope == agentWorkflowExactMerchant {
+		state.MerchantLearningBinding = merchantBinding
+		state.MerchantLearningCount = merchantCount
 	}
 	if workflowScope == agentWorkflowPendingBatch {
 		state.RequiredTool = "pending_batch_decision"
