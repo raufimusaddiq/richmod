@@ -29,6 +29,10 @@ func TestAgentTurnContextIncludesRecentTransactions(t *testing.T) {
 	if recent["amount_idr"] != "5000" || recent["status"] != "NEEDS_REVIEW" {
 		t.Fatalf("unexpected recent transaction context: %#v", recent)
 	}
+	// User-controlled ledger text must stay inside the untrusted-data boundary.
+	if desc, _ := recent["description"].(string); desc != "<untrusted_ledger_text>Jajan gorengan</untrusted_ledger_text>" {
+		t.Fatalf("recent description not delimited as untrusted: %#v", recent["description"])
+	}
 	ref, _ := recent["ref"].(string)
 	if ref == "" {
 		t.Fatalf("recent transaction missing model-safe ref: %#v", recent)

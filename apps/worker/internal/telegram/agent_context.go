@@ -118,13 +118,22 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 			"type":           r.Type,
 			"status":         r.Status,
 			"amount_idr":     r.Amount,
-			"merchant":       r.Merchant,
+			// Merchant and description are user-controlled ledger text, so they are
+			// wrapped in the same untrusted-data boundary as the current message to
+			// keep stored free text from reading as agent instructions.
+			"merchant":       untrustedField(r.Merchant),
 			"category_slug":  r.CategorySlug,
-			"description":    r.Description,
+			"description":    untrustedField(r.Description),
 			"transaction_at": r.At.In(jakartaLocation()).Format(time.RFC3339),
 		})
 	}
 	return out, nil
+}
+
+// untrustedField delimits a user-controlled string so the model treats it as
+// data, mirroring the <untrusted_user_message> boundary used for user text.
+func untrustedField(value string) string {
+	return "<untrusted_ledger_text>" + value + "</untrusted_ledger_text>"
 }
 
 func (p *Processor) loadAgentPendingAction(ctx context.Context, householdID string, update telegramUpdate) (map[string]any, error) {
