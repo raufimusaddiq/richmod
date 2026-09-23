@@ -22,6 +22,10 @@ type TransactionSemanticDecision struct {
 	AmountSupported   bool
 	DateSupported     bool
 	MaterialAmbiguity bool
+	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
+	// question, which is the favourable answer. The middle band means the plane
+	// could not tell, and must fail closed rather than read as approval.
+	AmbiguityDecidedNotAmbiguous bool
 
 	DecisionSource string // JEV | DETERMINISTIC_POLICY
 	Model          string
@@ -33,7 +37,15 @@ type TransactionSemanticDecision struct {
 // direction, and no material ambiguity. EXPENSE additionally needs an accepted
 // category because category is user-visible ledger data.
 func (d TransactionSemanticDecision) decisionAllowed() bool {
-	if !d.RouteAccepted || !d.TypeAccepted || !d.AmountSupported || !d.DateSupported || d.MaterialAmbiguity {
+	if !d.RouteAccepted || !d.TypeAccepted || !d.AmountSupported || !d.DateSupported {
+		return false
+	}
+	// The ambiguity question is inverted, so only an affirmative *negative* clears
+	// it. An exact merchant-category match is decided by deterministic policy
+	// without ever asking the plane, and that path is already unambiguous by
+	// construction, so it is exempt rather than forced to answer a question it
+	// never asked (PRD 6).
+	if d.DecisionSource != "DETERMINISTIC_POLICY" && !d.AmbiguityDecidedNotAmbiguous {
 		return false
 	}
 	if d.TransactionType == "INCOME" {
@@ -80,6 +92,18 @@ func (p *Processor) evaluateTransactionSemantics(ctx context.Context, requestID 
 func noulSupported(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) bool {
 	answer, ok := answers[key]
 	return ok && judgmentSupported(answer, policy)
+}
+
+// ambiguityVerdict reads the inverted claim. It returns (isAmbiguous,
+// decidedNotAmbiguous) so a caller can require an affirmative not-ambiguous
+// ruling instead of treating an undecided answer as approval.
+func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) (bool, bool) {
+	answer, ok := answers[key]
+	if !ok {
+		return false, false
+	}
+	ambiguous, decided := judgment.AcceptNoul(answer, policy)
+	return ambiguous, decided && !ambiguous
 }
 
 // resolveTransactionDecision obtains the semantic decision for an extracted
@@ -152,13 +176,14 @@ func (p *Processor) recordJudgmentDecision(ctx context.Context, tx pgx.Tx, house
 		outcome = "CONFIRMED"
 	}
 	summary, err := json.Marshal(map[string]any{
-		"transaction_type":   decision.TransactionType,
-		"type_accepted":      decision.TypeAccepted,
-		"amount_supported":   decision.AmountSupported,
-		"date_supported":     decision.DateSupported,
-		"category":           decision.CategorySlug,
-		"category_accepted":  decision.CategoryAccepted,
-		"material_ambiguity": decision.MaterialAmbiguity,
+		"transaction_type":                decision.TransactionType,
+		"type_accepted":                   decision.TypeAccepted,
+		"amount_supported":                decision.AmountSupported,
+		"date_supported":                  decision.DateSupported,
+		"category":                        decision.CategorySlug,
+		"category_accepted":               decision.CategoryAccepted,
+		"material_ambiguity":              decision.MaterialAmbiguity,
+		"ambiguity_decided_not_ambiguous": decision.AmbiguityDecidedNotAmbiguous,
 	})
 	if err != nil {
 		return err
