@@ -8,9 +8,7 @@ import "context"
 // no new pipeline. Amounts and free text are never selected.
 //
 // Every metric below is derived from canonical state, so the aggregate cannot
-// disagree with the ledger and needs no write-path instrumentation. Typed-field
-// and bounded-choice counts are classified by resolution_action: an action that
-// names a typed value is typing, an accept/merge is a bounded choice.
+// disagree with the ledger and needs no write-path instrumentation.
 //
 // ponytail: unbounded 30-day scans with no new indexes. Add a rollup table when
 // these tables outgrow a cheap aggregate, not before.
@@ -146,21 +144,19 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	// Every metric below is derived from canonical state, so it cannot drift from
 	// the ledger and needs no write-path instrumentation. An explicit user input
 	// is a resolution a human performed: the numerator is an allow-list of the
-	// actions the writers actually emit for a user answer, so a system resolution
-	// (EMAIL_RECEIVED_AT_FALLBACK, RECONCILED_TERMINAL_TRANSACTION,
-	// LEGACY_TRANSACTION_RESOLVED, NO_LONGER_APPLICABLE) or an IGNORE can never
-	// inflate RHICE. Typed fields are the subset whose action names a value the
-	// user entered rather than a bounded choice.
+	// actions the writers actually emit for a user answer. Residual allocation is
+	// review metadata, not an input to a canonical transaction, so it is excluded.
 	if err := h.pool.QueryRow(ctx, `
 		WITH recent_transactions AS (
-		  SELECT id FROM transaction WHERE household_id=$1 AND created_at >= now() - interval '30 days'
+		  SELECT id FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'
 		), review_events AS (
 		  SELECT DISTINCT ri.id,ri.resolution_action
 		  FROM review_item ri
 		  JOIN recent_transactions t ON ri.transaction_id=t.id OR EXISTS (
 		    SELECT 1 FROM transaction_evidence te
 		    WHERE te.transaction_id=t.id AND (
-		      (ri.financial_email_observation_id IS NOT NULL AND te.metadata_json->>'financial_email_observation_id'=ri.financial_email_observation_id::text)
+		      (ri.financial_email_observation_id IS NOT NULL AND EXISTS (SELECT 1 FROM financial_email_observation feo WHERE feo.id=ri.financial_email_observation_id AND feo.transaction_id=t.id))
+		      OR (ri.wealth_observation_id IS NOT NULL AND te.metadata_json->>'observation_id'=ri.wealth_observation_id::text)
 		      OR (ri.financial_email_observation_id IS NULL AND te.source_event_id=COALESCE(
 		        ri.source_event_id,
 		        (SELECT source_event_id FROM transaction_proposal WHERE id=ri.proposal_id),
@@ -174,10 +170,9 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
 		   'TELEGRAM_TRANSFER_CLASSIFIED','TRANSFER_RECONCILED','RECLASSIFIED_ASSET_PURCHASE',
 		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES',
-		   'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER',
-		   'ALLOCATE_RETAINED_BALANCE','LEAVE_UNALLOCATED')),
+		   'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER')),
 		 count(*) FILTER (WHERE resolution_action IN (
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES','ALLOCATE_RETAINED_BALANCE')),
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES')),
 		 (SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
 		 count(*) FILTER (WHERE resolution_action IN (
 		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
@@ -186,7 +181,7 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	}
 	if err := h.pool.QueryRow(ctx, `
 		SELECT count(*) FROM transaction
-		WHERE household_id=$1 AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents); err != nil {
+		WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents); err != nil {
 		return aggregate, err
 	}
 	if aggregate.CanonicalEvents > 0 {
@@ -201,9 +196,10 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days' AND ri.status='RESOLVED'`, householdID).Scan(&aggregate.TimeToResolutionMs); err != nil {
 		return aggregate, err
 	}
-	// Section 22.4 signals no current row can reconstruct: they need a write-side
-	// per-event input tally and a per-turn conversation log. Naming them keeps a
-	// partial RHICE from reading as complete.
+	// Coverage includes per-event bounded choices (the legacy ReviewDecision
+	// rows cannot prove how many distinct controls a human answered), Telegram
+	// turns (one conversation row overwrites prior turns), and corrections after
+	// auto-confirm (no persisted auto-confirm marker).
 	aggregate.Coverage = []string{"bounded_choices_per_event", "review_round_trips", "auto_confirm_correction_rate"}
 	return aggregate, nil
 }

@@ -168,4 +168,94 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.ExplicitInputs != 2 {
 		t.Fatalf("a system resolution must not count as an explicit input: %+v", aggregate)
 	}
+
+	// A Wealth Snapshot confirmation resolves a wealth-observation review. That
+	// review carries no source_event/proposal/document, so the only thing that can
+	// bind it to the transaction is the observation evidence row.
+	wealthTx := seedTx()
+	wealthEventID := seedEvent("TELEGRAM_TEXT", "PROCESSED", "product-wealth")
+	var documentID string
+	var attachmentID string
+	storageRef := fmt.Sprintf("product-wealth-%d.jpg", stamp)
+	if err := pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,decode(md5($2),'hex'),'image/jpeg',1,1,1,$2) RETURNING id`, householdID, storageRef).Scan(&attachmentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION','EXTRACTED') RETURNING id`, householdID, wealthEventID, attachmentID).Scan(&documentID); err != nil {
+		t.Fatal(err)
+	}
+	var observationID string
+	if err := pool.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,institution,account_hint,observed_value_idr) VALUES($1,$2,'Broker','RDN',100000) RETURNING id`, householdID, documentID).Scan(&observationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_IMAGE',jsonb_build_object('reclassified_from','WEALTH_OBSERVATION','observation_id',$3::uuid))`, wealthTx, wealthEventID, observationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','RESOLVED','SNAPSHOT_CREATED',now(),now())`, householdID, observationID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.ExplicitInputs != 2 || aggregate.TypedFields != 1 {
+		t.Fatalf("a wealth-only snapshot does not add a transaction input: %+v", aggregate)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET resolution_action='RECLASSIFIED_ASSET_PURCHASE' WHERE wealth_observation_id=$1`, observationID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.ExplicitInputs != 3 {
+		t.Fatalf("reclassification review must join its canonical transaction through observation evidence: %+v", aggregate)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET resolution_action='SNAPSHOT_CREATED' WHERE wealth_observation_id=$1`, observationID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A salary-cycle review carries no canonical subject other than its case, so a
+	// residual allocation stays review metadata and must never enter the numerator:
+	// allocating retained cash is not an input to a canonical transaction.
+	incomeTx := seedTx()
+	var salarySourceID string
+	if err := pool.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer) VALUES($1,'ACME','acme') RETURNING id`, householdID).Scan(&salarySourceID); err != nil {
+		t.Fatal(err)
+	}
+	var salaryEventID string
+	if err := pool.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,current_date,current_date,1000000,$3,'CONFIRMED',$4) RETURNING id`, salarySourceID, householdID, incomeTx, wealthEventID).Scan(&salaryEventID); err != nil {
+		t.Fatal(err)
+	}
+	var caseID string
+	if err := pool.QueryRow(ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$2,current_date-1,current_date,10,5,2,3) RETURNING id`, householdID, salaryEventID).Scan(&caseID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','RESOLVED','ALLOCATE_RETAINED_BALANCE',now(),now())`, householdID, caseID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.ExplicitInputs != 2 {
+		t.Fatalf("residual allocation is metadata and must not inflate RHICE: %+v", aggregate)
+	}
+	// A transaction that never reached a valid canonical state (voided or parked
+	// for review) must not sit in the RHICE denominator.
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,voided_at) VALUES($1,'EXPENSE','VOIDED',1000,'IDR',now(),'voided',now())`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description) VALUES($1,'EXPENSE','NEEDS_REVIEW',1000,'IDR',now(),'needs review')`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.CanonicalEvents != 5 {
+		t.Fatalf("only confirmed transactions are canonical events: %+v", aggregate)
+	}
+	if aggregate.RHICE != float64(2)/float64(5) {
+		t.Fatalf("voided and needs-review rows must not dilute RHICE: %+v", aggregate)
+	}
 }

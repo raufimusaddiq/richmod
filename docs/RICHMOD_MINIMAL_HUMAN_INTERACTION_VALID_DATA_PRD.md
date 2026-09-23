@@ -1832,7 +1832,7 @@ stage; do not treat this status note as implying completion.
 
 ## Stage 0 — Baseline and Telemetry
 
-**Status (2026-09-24): RHICE and the review-side guardrails are measurable.**
+**Status (2026-09-23): RHICE and review-side guardrails are partially measurable.**
 `GET /api/v1/operations/status` returns a read-only `product` rollup
 (`apps/api/internal/operations/product.go`) derived entirely from canonical
 state, so it cannot drift from the ledger and needs no new pipeline. It reports
@@ -1840,17 +1840,20 @@ source events with their processing states (processed/ignored/needs-review),
 human-touch rate (distinct reviewed events over the whole window cohort, so a
 review on a still-pending event cannot push it above 1), review rate by source,
 review rate by reason, RHICE (`explicitInputs / canonicalEvents`), typed fields,
-open reviews, and accepted-without-edit.
+open reviews, and accepted-without-edit. The RHICE denominator includes only
+confirmed transactions, not pending, needs-review, or voided rows.
 
-Definitions are pinned to the actions the writers actually emit: explicit inputs
-are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
+Definitions are pinned to the actions the writers actually emit for a canonical
+transaction: explicit inputs are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
 `TELEGRAM_TRANSFER_CLASSIFIED`, `TRANSFER_RECONCILED`,
 `RECLASSIFIED_ASSET_PURCHASE`, `COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
 `SET_FINANCIAL_EMAIL_ENTITIES`, `PRIMARY_SALARY`, `ORDINARY_INCOME`,
-`MERGE_EXISTING`, `CONFIRM_NEW_TRANSFER`, `ALLOCATE_RETAINED_BALANCE`,
-`LEAVE_UNALLOCATED`; typed fields are the subset whose
+`MERGE_EXISTING`, and `CONFIRM_NEW_TRANSFER`; typed fields are the subset whose
 action names a value the user entered (`COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
-`SET_FINANCIAL_EMAIL_ENTITIES`, `ALLOCATE_RETAINED_BALANCE`). System
+`SET_FINANCIAL_EMAIL_ENTITIES`). Residual allocations and wealth-only snapshot
+confirmations remain review metadata, not inputs before a ledger transaction.
+Reclassified Wealth observations join through their preserved transaction
+evidence. System
 resolutions (`EMAIL_RECEIVED_AT_FALLBACK`, `RECONCILED_TERMINAL_TRANSACTION`,
 `LEGACY_TRANSACTION_RESOLVED`, `NO_LONGER_APPLICABLE`) and `IGNORE` are neither
 an input nor a typed field, and accepted-without-edit is the resolution actions
@@ -1863,8 +1866,8 @@ It also reports the mean time to resolution (the open-to-resolve interval,
 §22.2/§22.4).
 
 `notYetMeasurable` names the §22.4 signals that no current row can reconstruct —
-bounded choices per event, because it needs a write-side per-event tally, and
-review round trips, because `review_conversation` holds one row per request
+bounded choices per event, because legacy review rows cannot prove how many
+distinct controls a user answered; review round trips, because `review_conversation` holds one row per request
 (`UNIQUE`), so a follow-up turn overwrites the previous state instead of being
 logged. §22.3 auto-confirm correction is not reconstructable either: nothing
 distinguishes a correction to an auto-confirmed event from an ordinary reviewed
