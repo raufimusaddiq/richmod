@@ -497,19 +497,23 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	if transactionStatus == "NEEDS_REVIEW" {
-		// Persist the PRD §7 contract on the review so the Inbox can show only the
-		// unresolved fact. A new merchant with an undecided category is a pure
-		// category gap: amount, time, and direction are already known.
-		if encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON(); encodeErr == nil {
-			if _, err = tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); err != nil {
-				return err
-			}
-		}
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
 				return err
+			}
+		}
+		// Persist the PRD §7 contract on the review the line above just created, so the
+		// Inbox can show only the unresolved fact. A new merchant with an undecided
+		// category is a pure category gap: amount, time, and direction are known. The
+		// decision must be written after the review exists — updating first matched
+		// zero rows and was silently dropped.
+		if encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON(); encodeErr == nil {
+			if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
+				return execErr
+			} else if tag.RowsAffected() != 1 {
+				return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
 			}
 		}
 	}

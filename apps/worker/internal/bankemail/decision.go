@@ -26,13 +26,15 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	}
 
 	decision := reviewdec.Decision{
-		Version:         reviewdec.Version,
-		Subject:         reviewdec.Subject{Type: "transaction", ID: transactionID},
-		SourceEventID:   sourceEventID,
-		ReasonCode:      result.ReviewType,
-		KnownFacts:      known,
-		DecisionSource:  reviewdec.SourceGenerativePlusJev,
-		PolicyVersion:   ToolSchemaVersion,
+		Version:        reviewdec.Version,
+		Subject:        reviewdec.Subject{Type: "transaction", ID: transactionID},
+		SourceEventID:  sourceEventID,
+		ReasonCode:     result.ReviewType,
+		KnownFacts:     known,
+		DecisionSource: reviewdec.SourceGenerativePlusJev,
+		// The thresholds that actually allowed this review live in the category and
+		// verification policies, so version those rather than the tool schema.
+		PolicyVersion:   categoryDecisionPolicyVersion,
 		Provenance:      map[string]any{"pipeline": "bank-email-generic", "household": household},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
 		AllowedActions:  []string{"IGNORE"},

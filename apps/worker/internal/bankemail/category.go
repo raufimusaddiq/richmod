@@ -32,10 +32,7 @@ func (p *Processor) classifyExpenseCategory(ctx context.Context, household, sour
 		// review path handle it.
 		return "", false, err
 	}
-	descriptions := make(map[string]string, len(candidates))
-	for slug, name := range candidates {
-		descriptions[slug] = "Kategori pengeluaran " + name
-	}
+	descriptions := judgment.CategoryCriteria(candidateNames(candidates))
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
 		State: map[string]any{
 			"merchant":    strings.TrimSpace(value(extraction.Merchant)),
@@ -45,14 +42,14 @@ func (p *Processor) classifyExpenseCategory(ctx context.Context, household, sour
 			"categories":  candidateNames(candidates),
 		},
 		Questions: map[string]judgment.Question{
-			"category": {Type: "choice", Instructions: "Which single category best describes this expense? Choose the closest household category; do not invent a new one.", Criteria: judgment.ChoiceCriteria(descriptions)},
+			"category": {Type: "choice", Instructions: "Which single category best describes this expense? Choose the closest household category; answer OTHER_OR_UNCLEAR when none is safe. Do not invent a new one.", Criteria: descriptions},
 		},
 	})
 	if err != nil {
 		return "", false, err
 	}
 	answer, ok := result.Answers["category"]
-	if !ok || !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(descriptions), categoryChoicePolicy) {
+	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, descriptions, categoryChoicePolicy) {
 		return "", false, nil
 	}
 	categoryID, ok := candidates[answer.Choice]
