@@ -40,6 +40,16 @@ func supportedRuling() map[string]judgment.Answer {
 	}
 }
 
+func choice(label string, criteria map[string]any) judgment.Answer {
+	answer := judgment.Answer{Type: "choice", Choice: label, HasConfidence: true, Confidence: 0.99, Distribution: map[string]float64{}}
+	for key := range criteria {
+		answer.Distribution[key] = 0.001
+	}
+	answer.Distribution[label] = 1 - 0.001*float64(len(criteria)-1)
+	answer.Probability = answer.Distribution[label]
+	return answer
+}
+
 func stringPtrFor(value string) *string { return &value }
 
 func testExtraction() Extraction {
@@ -125,5 +135,43 @@ func TestEvidenceVerificationUnconfiguredIsNotApproval(t *testing.T) {
 	processor := &Processor{}
 	if _, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{}); err != nil || verified {
 		t.Fatalf("unconfigured verifier must report unverified, verified=%v err=%v", verified, err)
+	}
+}
+
+// Regression: the ambiguity claim is inverted, so a decided negative is the
+// favourable answer. An undecided middle-band answer to "is this ambiguous?"
+// must NOT be read as "not ambiguous" — that is fail-open, and it is what let a
+// genuinely ambiguous email auto-confirm (Hermes review of the PRD 25 tests).
+func TestEvidenceVerificationUndecidedAmbiguityFailsClosed(t *testing.T) {
+	// 0.10 sits between Low 0.05 and High 0.15: the plane could not tell.
+	answers := supportedRuling()
+	answers["material_ambiguity"] = noul(0.10)
+	processor := &Processor{verifier: &stubVerifier{answers: answers}}
+	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified {
+		t.Fatal("the bundle was answered, so it is verified")
+	}
+	if verification.MaterialAmbiguity {
+		t.Fatalf("an undecided answer is not an affirmative ambiguous ruling: %+v", verification)
+	}
+	if verification.AmbiguityDecidedNotAmbiguous {
+		t.Fatalf("an undecided answer must not be recorded as decided-not-ambiguous: %+v", verification)
+	}
+	if verification.supported() {
+		t.Fatalf("an undecided ambiguity ruling must fail closed, not authorize: %+v", verification)
+	}
+}
+
+// The other half: a decided "not ambiguous" (at or below Low) is what clears it.
+func TestEvidenceVerificationDecidedNotAmbiguousAuthorizes(t *testing.T) {
+	verification, verified, err := (&Processor{verifier: &stubVerifier{answers: supportedRuling()}}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified || !verification.AmbiguityDecidedNotAmbiguous || !verification.supported() {
+		t.Fatalf("a decided not-ambiguous ruling must authorize: %+v", verification)
 	}
 }
