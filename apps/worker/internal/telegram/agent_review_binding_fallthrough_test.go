@@ -2,10 +2,22 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
+
+// undecidedJudgmentEngine returns no usable decision, simulating a classifier
+// that cannot decide (or is unavailable).
+type undecidedJudgmentEngine struct{ err error }
+
+func (e undecidedJudgmentEngine) Evaluate(_ context.Context, _ string, _ judgment.Request) (judgment.Result, error) {
+	if e.err != nil {
+		return judgment.Result{}, e.err
+	}
+	return judgment.Result{Model: "stub-jev", Answers: map[string]judgment.Answer{}}, nil
+}
 
 // nonReviewJudgmentEngine reports that the user text is not a review answer
 // (OTHER_OR_UNCLEAR) while answering everything else affirmatively.
@@ -97,5 +109,41 @@ func TestExplicitReplyReviewBindingStaysBound(t *testing.T) {
 	}
 	if state.ReviewBinding == nil {
 		t.Fatal("an explicit review reply must not drop its binding")
+	}
+}
+
+// An undecided or unavailable classifier must keep the clarification hard stop:
+// there is no evidence the message is a new event, so mutation tools must not be
+// reopened on the strength of an ambiguous result.
+func TestImplicitReviewBindingStaysBoundWhenClassifierUndecided(t *testing.T) {
+	for name, engine := range map[string]judgment.Engine{
+		"undecided": undecidedJudgmentEngine{},
+		"error":     undecidedJudgmentEngine{err: errors.New("engine unavailable")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			f := newAgentIntegrationFixture(t, "review-undecided-"+name)
+			p := NewProcessor(f.pool, nil)
+			p.SetJudgment(engine)
+			state := &agentState{
+				HouseholdID:        f.householdID,
+				SourceEventID:      f.sourceID,
+				Update:             f.update,
+				WorkflowScope:      string(agentWorkflowUniqueReview),
+				GeneralTools:       agentFinanceTools(nil, false, false, true, "UNKNOWN_MERCHANT", false, false, "AWAITING_MERCHANT", true),
+				ReviewBinding:      &agentReviewBinding{Kind: "TRANSACTION", TargetID: "t", ReviewRequestID: "r"},
+				ReviewBindingCount: 1,
+				ReviewMode:         "AWAITING_MERCHANT",
+				TurnContext:        map[string]any{"active_review": map[string]any{"review_mode": "AWAITING_MERCHANT"}},
+			}
+			handled, err := p.tryJudgmentBoundWorkflow(ctx, state, "jajan gorengan 5k")
+			mustAgentTest(t, err)
+			if !handled {
+				t.Fatal("an undecided classifier must keep the clarification hard stop")
+			}
+			if state.ReviewBinding == nil {
+				t.Fatal("the binding must not be dropped on an undecided result")
+			}
+		})
 	}
 }
