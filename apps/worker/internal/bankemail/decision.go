@@ -32,9 +32,9 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		ReasonCode:     result.ReviewType,
 		KnownFacts:     known,
 		DecisionSource: reviewdec.SourceGenerativePlusJev,
-		// The thresholds that actually allowed this review live in the category and
-		// verification policies, so version those rather than the tool schema.
-		PolicyVersion:   categoryDecisionPolicyVersion,
+		// The bounded evidence/category decision that admitted this review is ruled
+		// by the verification policy, so version that rather than the tool schema.
+		PolicyVersion:   BankEmailVerificationPolicyVersion,
 		Provenance:      map[string]any{"pipeline": "bank-email-generic", "household": household},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
 		AllowedActions:  []string{"IGNORE"},
