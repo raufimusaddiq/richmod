@@ -78,7 +78,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.ExplicitInputs != 0 || aggregate.TypedFields != 0 {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
-	if len(aggregate.Coverage) != 1 {
+	if len(aggregate.Coverage) != 2 {
 		t.Fatalf("signals that cannot be reconstructed must stay named: %+v", aggregate.Coverage)
 	}
 
@@ -111,5 +111,17 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	}
 	if aggregate.ExplicitInputs != 2 || aggregate.TypedFields != 1 {
 		t.Fatalf("accept-without-edit is an input but not a typed field: %+v", aggregate)
+	}
+	// A system resolution (no human answered) must not inflate RHICE: the
+	// numerator is an allow-list of explicit user actions, not a deny-list.
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now())`, householdID, telegramEventID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.ExplicitInputs != 2 {
+		t.Fatalf("a system resolution must not count as an explicit input: %+v", aggregate)
 	}
 }
