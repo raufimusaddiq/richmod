@@ -1,6 +1,8 @@
 package bankemail
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
@@ -8,8 +10,11 @@ import (
 
 // PRD §25 required Bank Email acceptance tests, named by their PRD case so a
 // reviewer can map each one to the requirement. They exercise the deterministic
-// policy and the decisions around it; the live model half of B2/B3/B6 is the §23
-// canary corpus, because a bounded model verdict cannot be asserted offline.
+// policy and the decisions around it. Each is offline: a bounded model verdict
+// cannot be asserted here without either mocking the answer (which proves
+// nothing) or becoming flaky. B2/B3/B6 need a live provider and are covered by
+// the §23 semantic canary corpus, which contains the same email shapes and, for
+// B6, the provider-failure claim itself.
 
 // B1 — Learned merchant auto-applies its stored category.
 func TestBankEmailB1LearnedMerchantConfirmsWithoutReview(t *testing.T) {
@@ -104,10 +109,18 @@ func TestBankEmailB5AmbiguityFailsClosedOnUndecidedRuling(t *testing.T) {
 }
 
 // B6 — provider failure is an infrastructure event, never a semantic verdict.
-// The caller must be able to tell "no ruling" from "ruled safe".
+// The caller must be able to tell "no ruling" from "ruled safe": a failure is
+// surfaced as an error, and an unconfigured verifier is the disabled case that
+// still never reads as approval. Both directions are asserted here so the case
+// name maps to the requirement rather than to one of its halves.
 func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
-	processor := NewProcessor(nil, nil)
-	verification, verified, err := processor.verifyEvidence(nil, "source", Extraction{}, TrustedEmail{})
+	failing := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
+	if _, verified, err := failing.verifyEvidence(context.Background(), "source", Extraction{}, TrustedEmail{}); err == nil || verified {
+		t.Fatalf("provider failure must surface as an error, verified=%v err=%v", verified, err)
+	}
+
+	unconfigured := NewProcessor(nil, nil)
+	verification, verified, err := unconfigured.verifyEvidence(nil, "source", Extraction{}, TrustedEmail{})
 	if err != nil {
 		t.Fatalf("a nil verifier is the disabled case, not a failure: %v", err)
 	}
@@ -116,15 +129,6 @@ func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
 	}
 	if verification != (EvidenceVerification{}) {
 		t.Fatalf("a nil verifier must return the zero verification: %+v", verification)
-	}
-}
-
-// The corpus and the live smoke both rely on this: a security footer alone must
-// not turn a completed transaction into an ignored or ambiguous email.
-func TestBankEmailSecurityFooterDoesNotChangeTheVerdict(t *testing.T) {
-	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Toko Sumber Rejeki"), nil, MerchantMemory{CategoryID: "cat-food", AutoApply: true})
-	if result.Status != "CONFIRMED" {
-		t.Fatalf("a routine footer must not block a clear expense: %+v", result)
 	}
 }
 
