@@ -24,6 +24,13 @@ type Processor struct {
 	// deterministic structural gate and never silently invents semantic approval
 	// (PRD §20).
 	verifier jeverifier
+	// categoryAutoConfirmOff is this source's PRD §33 operational kill-switch,
+	// stored inverted so the zero-value Processor keeps the documented default
+	// (auto-confirm on) — the same convention document.Processor uses. When set, a
+	// bounded category decision still runs and still rides on the review card, but
+	// the expense is parked for review instead of writing confirmed ledger money.
+	// It is independent of the receipt and screenshot switches.
+	categoryAutoConfirmOff bool
 }
 
 func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
@@ -33,6 +40,27 @@ func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
 // SetVerifier wires the bounded evidence verifier. Production sets it from the
 // same configured judgment plane the Telegram decision plane uses.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
+
+// SetCategoryAutoConfirm is the bank-email category kill-switch (PRD §33).
+// Passing false disables auto-confirm for this source.
+func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirmOff = !enabled }
+
+// applyCategoryAutoConfirmSwitch is the PRD §33 gate on this source's
+// *category* auto-confirm. With the switch off, an expense whose category the
+// policy would have applied parks as a category-carrying review instead; the
+// decided category still travels on the result so the card can propose it.
+//
+// Only a result that actually carries a category is gated: a known-account
+// transfer also sets AutoConfirm but has no category, so parking it here would
+// open a category picker for a transfer that has no category to pick.
+func applyCategoryAutoConfirmSwitch(result PolicyResult, enabled bool) PolicyResult {
+	if enabled || !result.AutoConfirm || result.CategoryID == "" {
+		return result
+	}
+	result.AutoConfirm = false
+	result.Status, result.ReviewType = "NEEDS_REVIEW", "AMBIGUOUS_CATEGORY"
+	return result
+}
 
 type Payload struct {
 	SourceEventID string  `json:"source_event_id"`
@@ -193,7 +221,14 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
-	if !payload.Shadow {
+	// PRD §33: the deterministic policy auto-confirms a remembered merchant
+	// category. The kill-switch governs that category auto-confirm, so it is
+	// applied to the policy result the deterministic rules already produced,
+	// before the bounded classifier gets a chance to decide a category.
+	result = applyCategoryAutoConfirmSwitch(result, !p.categoryAutoConfirmOff)
+	// The kill-switch also disables the bounded category path, so the switch
+	// cannot be re-opened by the very decision it exists to gate.
+	if !payload.Shadow && !p.categoryAutoConfirmOff {
 		result = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
 	}
 	status := result.Status
