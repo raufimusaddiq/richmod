@@ -1832,6 +1832,18 @@ stage; do not treat this status note as implying completion.
 
 ## Stage 0 — Baseline and Telemetry
 
+**Status (2026-09-23): review-side metrics measurable; RHICE is not yet.**
+`GET /api/v1/operations/status` now returns a read-only `product` rollup
+(`apps/api/internal/operations/product.go`) over existing rows: canonical events,
+confirmed, human-touch rate, review rate by source, review rate by reason. It
+also returns `notYetMeasurable`, naming the §22 signals that current history
+cannot reconstruct (`rhice`, typed fields per event, bounded choices per event,
+review round trips, accepted-without-edit, auto-confirm correction). Those are
+instrumented by the stages that produce them; until then they are absent rather
+than approximated. Stage 0's exit criterion is therefore only half met: RHICE
+will be measurable once Stage 2 lands the ReviewDecision record it is computed
+from. Do not treat the rollup's numbers as a complete RHICE.
+
 Before materially expanding auto-confirmation:
 
 - capture current review rate;
