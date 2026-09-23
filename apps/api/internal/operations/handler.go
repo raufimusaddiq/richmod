@@ -94,6 +94,11 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load judgment telemetry"})
 		return
 	}
+	product, productErr := h.loadProductAggregate(r.Context(), householdID)
+	if productErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load product telemetry"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":        status,
 		"worker":        map[string]any{"healthy": workerHealthy, "lastHeartbeatAt": lastHeartbeat},
@@ -101,6 +106,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		"reviewBacklog": openReviews,
 		"llmGateway":    map[string]any{"configured": h.gatewayConfigured, "mode": "cloud-gateway-only", "protocol": h.protocol},
 		"judgment":      judgment,
+		"product":       product,
 		"checkedAt":     time.Now(),
 	})
 }
