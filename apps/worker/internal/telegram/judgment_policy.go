@@ -18,7 +18,7 @@ var errJudgmentUnavailable = errors.New("judgment plane is not configured")
 // judgmentPolicyVersion identifies the threshold policy set that produced a
 // decision. Reproducibility requires model version + policy version + bounded
 // answers, so every persisted decision carries this (PRD §18).
-const judgmentPolicyVersion = "2026-09-jev2"
+const judgmentPolicyVersion = "2026-09-jev3"
 
 // judgmentTask names one bounded decision task. Telemetry and provenance group
 // by task so review/clarification rates can be computed per decision task

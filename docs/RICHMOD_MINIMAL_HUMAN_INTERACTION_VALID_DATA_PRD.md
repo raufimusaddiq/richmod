@@ -1936,6 +1936,12 @@ clear ordinary bank transactions require zero user input.
 
 ## Stage 4 — Receipt Auto-Confirm
 
+**Status (2026-09-23): implemented.** A clear new receipt (no candidate match,
+resolved category, high confidence, consistent arithmetic) now confirms directly
+instead of opening a review. Duplicate ambiguity still links evidence or opens a
+POSSIBLE_DUPLICATE review, and receipts missing their date or category still ask
+only for the unresolved fact. See ADR-041.
+
 Implement:
 
 - bounded post-extraction semantic decision;
@@ -1968,6 +1974,11 @@ Implement:
 - partial resolution API;
 - missing-entity-only UI.
 
+Status: implemented on `feat/financial-email-partial` (ADR-043). A resolved
+entity persists on the observation and is no longer requested; the review's
+`missingFacts` names only the unresolved dimension, and the API merges persisted
+known facts with the submitted values before validating the complete result.
+
 ## Stage 7 — Proposal-First Review Inbox
 
 Refactor Review Inbox to render from ReviewDecision.
@@ -1984,6 +1995,13 @@ not:
 ~~~text
 full form
 ~~~
+
+Status: implemented on `feat/proposal-first-inbox` (ADR-044). The Inbox renders
+the stored ReviewDecision — proposal, reason, one primary action — and renders a
+required input only for a dimension the decision named in `missingFacts`. Known
+accounts and Wealth Accounts are shown, never re-asked; full editing sits behind
+an explicit edit step and evidence behind a secondary disclosure. Reviews created
+before the decision contract existed keep rendering the full form.
 
 ## Stage 8 — Semantic Canary and Threshold Calibration
 
