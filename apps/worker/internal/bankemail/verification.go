@@ -94,7 +94,7 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, householdID 
 	for _, category := range categories {
 		slugs = append(slugs, category.Slug)
 	}
-	result, err := p.verifier.Evaluate(ctx, "", judgment.Request{
+	result, err := p.verifier.Evaluate(ctx, householdID+"-category", judgment.Request{
 		State: map[string]any{
 			"merchant": "<untrusted_merchant>" + strings.TrimSpace(*extraction.Merchant) + "</untrusted_merchant>",
 		},
@@ -120,7 +120,7 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, householdID 
 type expenseCategory struct{ ID, Slug string }
 
 func (p *Processor) activeExpenseCategories(ctx context.Context, householdID string) ([]expenseCategory, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id,slug FROM category WHERE household_id=$1 AND active ORDER BY slug`, householdID)
+	rows, err := p.pool.Query(ctx, `SELECT id,slug FROM category WHERE household_id=$1 AND active AND parent_id IS NULL ORDER BY slug`, householdID)
 	if err != nil {
 		return nil, err
 	}

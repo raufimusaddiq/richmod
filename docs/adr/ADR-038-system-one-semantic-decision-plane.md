@@ -289,12 +289,14 @@ answer in the undecided middle band returns `(false, false)`, the same
 `false` a decided negative returns. Reading the two as equivalent opened
 auto-confirm on exactly the answers the plane declined to decide.
 
-Every lane that asks the question now records the decided negative separately
-(`AmbiguityDecidedNotAmbiguous`) and requires it before a canonical write:
-`bankemail.EvidenceVerification`, `telegram.TransactionSemanticDecision`,
-and `financialemail.ObservationClassification`. The Telegram exact-category
-deterministic path never asks the plane and is unambiguous by construction, so it
-is the one exempt source (`DecisionSource == "DETERMINISTIC_POLICY"`).
+This landed for `bankemail.EvidenceVerification` first. The two sibling lanes that
+ask the same question, `telegram.TransactionSemanticDecision` and
+`financialemail.ObservationClassification`, carry the same fix in PR #134; until
+that merges they still read the undecided band as approval. When it lands, every
+lane records the decided negative separately (`AmbiguityDecidedNotAmbiguous`) and
+requires it before a canonical write. The Telegram exact-category deterministic
+path never asks the plane and is unambiguous by construction, so it is the one
+exempt source (`DecisionSource == "DETERMINISTIC_POLICY"`).
 
 ### Amendment — new-merchant category is a bounded choice, not a review (2026-09)
 
