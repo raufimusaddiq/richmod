@@ -24,7 +24,7 @@
 > `resolveCategoryWithJudgment`). Deterministic confirmed merchant aliases still
 > short-circuit the bounded call entirely via `exactMerchantCategory`. All
 > thresholds and policy values moved into one versioned registry
-> (`judgment_policy.go`, `judgmentPolicyVersion = 2026-09-jev2`), every bounded
+> (`judgment_policy.go`, `judgmentPolicyVersion = 2026-09-jev3`; the version moved from `jev2` when the inverted-ambiguity acceptance rule changed), every bounded
 > call is attributed to a named `judgmentTask`, and each consumed decision is
 > counted with its product outcome so review/clarification rate per decision
 > task and Jev-vs-generative share are measurable (§17/§18/§25).

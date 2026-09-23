@@ -194,6 +194,33 @@ func TestSelfReportedGenerativeConfidenceForcesJudgment(t *testing.T) {
 	}
 }
 
+// The ambiguity claim is inverted and must not be satisfied by an undecided
+// middle-band answer: only a decided negative opens the auto-confirm path.
+func TestUndecidedAmbiguityDoesNotAuthorizeConfirmation(t *testing.T) {
+	criteria := judgmentTypeCriteria
+	decided := transactionDecisionFromAnswers(judgment.Result{Model: "stub-jev", Answers: map[string]judgment.Answer{
+		"transaction_type":   confidentChoice(criteria, "EXPENSE"),
+		"amount_support":     decidedNoul(0.99),
+		"date_support":       decidedNoul(0.99),
+		"material_ambiguity": decidedNoul(0.02),
+		"category":           confidentChoice(judgment.CategoryCriteria([]string{"dining"}), "dining"),
+	}}, simpleTransactionCandidate{Amount: "50000"}, []string{"dining"})
+	if !decided.decisionAllowed() {
+		t.Fatalf("a decided not-ambiguous ruling must authorize: %+v", decided)
+	}
+
+	undecided := transactionDecisionFromAnswers(judgment.Result{Model: "stub-jev", Answers: map[string]judgment.Answer{
+		"transaction_type":   confidentChoice(criteria, "EXPENSE"),
+		"amount_support":     decidedNoul(0.99),
+		"date_support":       decidedNoul(0.99),
+		"material_ambiguity": decidedNoul(0.10),
+		"category":           confidentChoice(judgment.CategoryCriteria([]string{"dining"}), "dining"),
+	}}, simpleTransactionCandidate{Amount: "50000"}, []string{"dining"})
+	if undecided.decisionAllowed() {
+		t.Fatalf("an undecided ambiguity ruling must fail closed: %+v", undecided)
+	}
+}
+
 // Both channels must reach the same evaluator with the same policy version.
 func TestBothTransactionChannelsShareOneDecisionPolicy(t *testing.T) {
 	categories := []string{"dining", "transport"}

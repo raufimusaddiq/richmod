@@ -51,7 +51,7 @@ type jeverifier interface {
 
 // BankEmailVerificationPolicyVersion marks the thresholds that ruled on these
 // verifications, so a stored decision stays reproducible (PRD §18).
-const BankEmailVerificationPolicyVersion = "2026-09-jev2"
+const BankEmailVerificationPolicyVersion = "2026-09-jev3"
 
 // evidenceVerificationPolicy is the bank-email slice of the shared threshold
 // policy. A Noul here answers "does the email itself support this claim?".

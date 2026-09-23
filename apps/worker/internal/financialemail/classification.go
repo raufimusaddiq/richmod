@@ -20,6 +20,10 @@ type ObservationClassification struct {
 	WealthSupported    bool
 	EvidenceSufficient bool
 	MaterialAmbiguity  bool
+	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
+	// question, which is the favourable answer. The middle band means the plane
+	// could not tell, and must fail closed rather than read as approval.
+	AmbiguityDecidedNotAmbiguous bool
 
 	Model         string
 	PolicyVersion string
@@ -27,7 +31,7 @@ type ObservationClassification struct {
 
 // ProviderEmailClassificationPolicyVersion marks the thresholds behind these
 // rulings so a stored decision stays reproducible (PRD §18).
-const ProviderEmailClassificationPolicyVersion = "2026-09-jev2"
+const ProviderEmailClassificationPolicyVersion = "2026-09-jev3"
 
 // jeverifier is the seam onto the bounded judgment plane, expressed in the terms
 // this package needs so provider email never imports Telegram policy.
@@ -117,20 +121,20 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 	classification.CashSupported = noulSupported(result.Answers, "cash_movement_supported")
 	classification.WealthSupported = noulSupported(result.Answers, "wealth_value_supported")
 	classification.EvidenceSufficient = noulSupported(result.Answers, "evidence_sufficient")
-	classification.MaterialAmbiguity = noulSupported(result.Answers, "material_ambiguity")
+	classification.MaterialAmbiguity, classification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity")
 	return classification, true, nil
 }
 
 // cashAllowed reports whether Go may treat this observation as a real cash
 // movement. Every bounded claim must hold; anything undecided fails closed.
 func (c ObservationClassification) cashAllowed() bool {
-	return c.TypeAccepted && c.ObservationType == "CASH_MOVEMENT" && c.CashSupported && c.EvidenceSufficient && !c.MaterialAmbiguity &&
+	return c.TypeAccepted && c.ObservationType == "CASH_MOVEMENT" && c.CashSupported && c.EvidenceSufficient && c.AmbiguityDecidedNotAmbiguous &&
 		c.MovementAccepted && c.MovementType != ""
 }
 
 // wealthAllowed reports whether Go may treat this observation as a wealth value.
 func (c ObservationClassification) wealthAllowed() bool {
-	return c.TypeAccepted && c.ObservationType == "WEALTH_VALUE" && c.WealthSupported && c.EvidenceSufficient && !c.MaterialAmbiguity
+	return c.TypeAccepted && c.ObservationType == "WEALTH_VALUE" && c.WealthSupported && c.EvidenceSufficient && c.AmbiguityDecidedNotAmbiguous
 }
 
 // nonActionable reports a decided NON_ACTIONABLE ruling, which is a terminal
@@ -148,6 +152,18 @@ func noulSupported(answers map[string]judgment.Answer, key string) bool {
 	}
 	supported, decided := judgment.AcceptNoul(answer, classificationPolicy.Supported)
 	return supported && decided
+}
+
+// ambiguityVerdict reads the inverted claim. It returns (isAmbiguous,
+// decidedNotAmbiguous) so a caller can require an affirmative not-ambiguous
+// ruling instead of treating an undecided answer as approval.
+func ambiguityVerdict(answers map[string]judgment.Answer, key string) (bool, bool) {
+	answer, ok := answers[key]
+	if !ok {
+		return false, false
+	}
+	ambiguous, decided := judgment.AcceptNoul(answer, classificationPolicy.Ambiguity)
+	return ambiguous, decided && !ambiguous
 }
 
 func containsString(values []string, target string) bool {

@@ -1957,6 +1957,11 @@ Implement:
 - partial resolution API;
 - missing-entity-only UI.
 
+Status: implemented on `feat/financial-email-partial` (ADR-043). A resolved
+entity persists on the observation and is no longer requested; the review's
+`missingFacts` names only the unresolved dimension, and the API merges persisted
+known facts with the submitted values before validating the complete result.
+
 ## Stage 7 — Proposal-First Review Inbox
 
 Refactor Review Inbox to render from ReviewDecision.
