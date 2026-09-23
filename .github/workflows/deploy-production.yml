@@ -22,12 +22,23 @@ jobs:
       # "branch or tag ... could not be found". It would also build the wrong
       # immutable tag (sha-<short>). Fail fast with the actual requirement
       # instead of spending a human production approval on it.
+      #
+      # A well-formed but wrong 40-hex SHA (e.g. a typo) also passes the format
+      # check, then dies at checkout with "upload-pack: not our ref". Deploy must
+      # ship main anyway, so compare against main here and fail before the human
+      # production approval is consumed.
       - name: Validate sha input
         env:
           INPUT_SHA: ${{ inputs.sha }}
         run: |
           if ! printf '%s' "$INPUT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "sha must be a full 40-character lowercase hex commit SHA (got: '$INPUT_SHA')" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          main=$(git rev-parse origin/main)
+          if [ "$INPUT_SHA" != "$main" ]; then
+            echo "sha must be the current main commit (got: '$INPUT_SHA', main: '$main')" >&2
             exit 1
           fi
       - uses: actions/checkout@v7
