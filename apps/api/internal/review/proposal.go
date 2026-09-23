@@ -9,6 +9,7 @@ type storedDecision struct {
 	KnownFacts    map[string]any `json:"knownFacts"`
 	ProposedFacts map[string]any `json:"proposedFacts"`
 	MissingFacts  []string       `json:"missingFacts"`
+	WhyNotAuto    string         `json:"whyNotAutoConfirm"`
 }
 
 // proposalFacts extracts that subset from a stored ReviewDecision. The Inbox
@@ -26,15 +27,3 @@ func proposalFacts(decision []byte) storedDecision {
 	}
 	return stored
 }
-
-// missingField reports whether one dimension is genuinely unresolved, so a card
-// renders an input only for what the decision named (PRD 13.4).
-func missingField(missing []string, field string) bool {
-	for _, name := range missing {
-		if name == field {
-			return true
-		}
-	}
-	return false
-}
-

@@ -46,4 +46,3 @@ func TestProposalFactsIgnoresFactsNotNamedAsMissing(t *testing.T) {
 		}
 	}
 }
-

@@ -22,10 +22,10 @@ import (
 // the authority on what is unresolved (PRD 3.3, 13.4). They are asserted here
 // rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
-	MissingFacts  []string        `json:"missingFacts"`
-	ProposedFacts map[string]any  `json:"proposedFacts"`
-	KnownFacts    map[string]any  `json:"knownFacts"`
-	Decision      json.RawMessage `json:"decision"`
+	MissingFacts  []string       `json:"missingFacts"`
+	ProposedFacts map[string]any `json:"proposedFacts"`
+	KnownFacts    map[string]any `json:"knownFacts"`
+	WhyNotAuto    string         `json:"whyNotAutoConfirm"`
 }
 
 func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
@@ -86,6 +86,9 @@ func TestReviewU1ListExposesOnlyTheUnresolvedFact(t *testing.T) {
 	}
 	if items[0].ProposedFacts["categorySlug"] != "rumah" {
 		t.Fatalf("the proposal must reach the client: %v", items[0].ProposedFacts)
+	}
+	if items[0].WhyNotAuto == "" {
+		t.Fatal("why-not-auto-confirm must reach the client so the card can explain itself")
 	}
 }
 
