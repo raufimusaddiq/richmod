@@ -43,6 +43,13 @@ test("the primary accept action never posts a request the server must reject", (
   assert.match(source, /Benar, lanjut isi detail/);
 });
 
+test("legacy items fall back to the API missingFields list", () => {
+  // Legacy transaction-backed reviews carry missingFields, never missingFacts.
+  // Reading only missingFacts made every legacy card demand a merchant, which a
+  // review with reason UNKNOWN_PURPOSE cannot supply (Hermes review).
+  assert.match(source, /const missing = item\.missingFacts \|\| item\.missingFields/);
+});
+
 test("the asset-purchase affordance is reachable without a dead switch", () => {
   // A useState whose setter has no call site silently removed the asset-purchase
   // form from EXPENSE reviews; it must render on the item type alone.
