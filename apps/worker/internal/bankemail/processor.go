@@ -193,6 +193,18 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
+	// A new merchant with no learned category is the PRD §9.1 case: ask the
+	// bounded plane to pick one category from the household's own set. A decisive
+	// answer auto-confirms with zero user input; an undecided one still parks a
+	// review, but the review is category-only because everything else is known.
+	if result.Status == "NEEDS_REVIEW" && result.ReviewType == "AMBIGUOUS_CATEGORY" {
+		if categoryID, decided, categoryErr := p.classifyExpenseCategory(ctx, household, payload.SourceEventID, extraction); categoryErr != nil {
+			return categoryErr
+		} else if decided {
+			result.CategoryID, result.AutoConfirm, result.Description = categoryID, true, "Pengeluaran dengan kategori yang diputuskan oleh bidang terbatas."
+			result.Status, result.ReviewType = "CONFIRMED", ""
+		}
+	}
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
@@ -480,6 +492,14 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	if transactionStatus == "NEEDS_REVIEW" {
+		// Persist the PRD §7 contract on the review so the Inbox can show only the
+		// unresolved fact. A new merchant with an undecided category is a pure
+		// category gap: amount, time, and direction are already known.
+		if encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON(); encodeErr == nil {
+			if _, err = tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); err != nil {
+				return err
+			}
+		}
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)

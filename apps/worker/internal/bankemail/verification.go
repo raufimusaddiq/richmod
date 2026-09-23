@@ -74,15 +74,33 @@ var verificationClaims = []struct {
 // The provider never produces merchant or date strings here; it only rules on
 // claims Go already holds. A provider failure is returned as an error so the
 // caller can take the safe retry/review path instead of trusting confidence.
+//
+// Jev is probabilistic, so a single negative ruling on an otherwise ordinary
+// email is not decisive evidence (a real Jago spend flipped channel_supported
+// about one run in five). PRD §3.7/§10.2 allow a safe retry before parking the
+// event, so an unsupported verdict is re-asked once. Only a second, equally
+// negative ruling sends the email to review; the threshold is never lowered.
 func (p *Processor) verifyEvidence(ctx context.Context, sourceEventID string, extraction Extraction, email TrustedEmail) (EvidenceVerification, bool, error) {
 	if p.verifier == nil {
 		return EvidenceVerification{}, false, nil
 	}
+	verification, verified, err := p.verifyEvidenceOnce(ctx, sourceEventID, extraction, email)
+	if err != nil || !verified || verification.supported() {
+		return verification, verified, err
+	}
+	retry, retried, retryErr := p.verifyEvidenceOnce(ctx, sourceEventID+"-reask", extraction, email)
+	if retryErr != nil {
+		return EvidenceVerification{}, false, retryErr
+	}
+	return retry, retried, nil
+}
+
+func (p *Processor) verifyEvidenceOnce(ctx context.Context, requestID string, extraction Extraction, email TrustedEmail) (EvidenceVerification, bool, error) {
 	questions := make(map[string]judgment.Question, len(verificationClaims))
 	for _, claim := range verificationClaims {
 		questions[claim.Key] = judgment.Question{Type: "noul", Instructions: claim.Instructions}
 	}
-	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-verify", judgment.Request{
+	result, err := p.verifier.Evaluate(ctx, requestID+"-verify", judgment.Request{
 		State: map[string]any{
 			"email_subject": email.Subject,
 			"email_body":    "<untrusted_email_body>" + normalizeVisibleText(email.Body) + "</untrusted_email_body>",

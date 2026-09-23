@@ -127,3 +127,54 @@ func TestEvidenceVerificationUnconfiguredIsNotApproval(t *testing.T) {
 		t.Fatalf("unconfigured verifier must report unverified, verified=%v err=%v", verified, err)
 	}
 }
+
+// Jev is probabilistic: a real Jago spend flipped channel_supported roughly one
+// run in five on an identical body, and a single negative ruling was enough to
+// park an ordinary transaction. PRD §3.7/§10.2 allow a safe retry before review,
+// so an unsupported verdict is re-asked once. A second negative ruling still
+// fails closed; only the retry exists, the threshold is never lowered.
+func TestEvidenceVerificationReAsksOnceBeforeFailingClosed(t *testing.T) {
+	unsupported := supportedRuling()
+	unsupported["channel_supported"] = noul(0.30)
+	verifier := &stubVerifier{answers: unsupported}
+	processor := &Processor{verifier: verifier}
+	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 2 {
+		t.Fatalf("an unsupported ruling must be re-asked exactly once, calls=%d", verifier.calls)
+	}
+	if !verified || verification.supported() {
+		t.Fatalf("two negative rulings must still fail closed: %+v", verification)
+	}
+}
+
+// A single flaky negative that recovers on the retry must not create a review.
+func TestEvidenceVerificationRetryRecoversFlakyNegative(t *testing.T) {
+	flaky := &flakyVerifier{}
+	processor := &Processor{verifier: flaky}
+	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flaky.calls != 2 {
+		t.Fatalf("expected one re-ask, calls=%d", flaky.calls)
+	}
+	if !verified || !verification.supported() {
+		t.Fatalf("a recovered ruling must be usable: %+v", verification)
+	}
+}
+
+// flakyVerifier rejects the first bundle and supports the second, modelling the
+// observed run-to-run instability instead of a genuine provider outage.
+type flakyVerifier struct{ calls int }
+
+func (f *flakyVerifier) Evaluate(_ context.Context, _ string, _ judgment.Request) (judgment.Result, error) {
+	f.calls++
+	answers := supportedRuling()
+	if f.calls == 1 {
+		answers["channel_supported"] = noul(0.30)
+	}
+	return judgment.Result{Model: "flaky", Answers: answers}, nil
+}

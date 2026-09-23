@@ -1884,6 +1884,13 @@ every new review can explain exactly why user input is required
 
 ## Stage 3 — Bank Email Zero-Touch Expansion
 
+**Status (2026-09-23): implemented.** A new-merchant expense now asks the bounded
+plane to pick one category from the household's active set; a decisive,
+well-separated answer auto-confirms with zero user input, and an undecided one
+opens a category-only review. An unsupported evidence-verification verdict is
+re-asked once before review (safe retry, PRD §3.7/§10.2) rather than being fatal
+on a single probabilistic ruling. Thresholds are unchanged. See ADR-040.
+
 Implement:
 
 - Jev category classification for new merchants;
