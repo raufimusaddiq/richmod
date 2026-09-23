@@ -17,15 +17,20 @@ import "context"
 // ponytail: unbounded 30-day scans with no new indexes. Add a rollup table when
 // these tables outgrow a cheap aggregate, not before.
 type productAggregate struct {
-	WindowDays     int            `json:"windowDays"`
-	Events         int            `json:"canonicalEvents"`
-	Confirmed      int            `json:"confirmed"`
-	ReviewedEvents int            `json:"reviewedEvents"`
-	HumanTouchRate float64        `json:"humanTouchRate"`
-	BySource       map[string]int `json:"canonicalEventsBySource"`
-	ReviewBySource map[string]int `json:"reviewRateBySource"`
-	ReviewByReason map[string]int `json:"reviewRateByReason"`
-	Coverage       []string       `json:"notYetMeasurable"`
+	WindowDays int `json:"windowDays"`
+	// SourceEvents is raw ingestion. CanonicalEvents is the subset that reached
+	// a terminal canonical state (PROCESSED or IGNORED); an event still in
+	// NEEDS_REVIEW is not yet a canonical financial event, so using all source
+	// events would overstate the human-touch denominator.
+	SourceEvents    int            `json:"sourceEvents"`
+	CanonicalEvents int            `json:"canonicalEvents"`
+	Confirmed       int            `json:"confirmed"`
+	ReviewedEvents  int            `json:"reviewedEvents"`
+	HumanTouchRate  float64        `json:"humanTouchRate"`
+	BySource        map[string]int `json:"sourceEventsBySource"`
+	ReviewBySource  map[string]int `json:"reviewRateBySource"`
+	ReviewByReason  map[string]int `json:"reviewRateByReason"`
+	Coverage        []string       `json:"notYetMeasurable"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
@@ -34,9 +39,9 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	// Canonical financial events: source events that reached a terminal state in
 	// the window. PROCESSED/Ignored are terminal; NEEDS_REVIEW still needs input.
 	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*), count(*) FILTER (WHERE processing_status='PROCESSED')
+		SELECT count(*), count(*) FILTER (WHERE processing_status IN ('PROCESSED','IGNORED')), count(*) FILTER (WHERE processing_status='PROCESSED')
 		FROM source_event
-		WHERE household_id=$1 AND received_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.Events, &aggregate.Confirmed); err != nil {
+		WHERE household_id=$1 AND received_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.SourceEvents, &aggregate.CanonicalEvents, &aggregate.Confirmed); err != nil {
 		return aggregate, err
 	}
 
@@ -61,11 +66,13 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		return aggregate, err
 	}
 
-	// Review rate by source: reviews attributed to their originating source type.
+	// Review rate by source, and human-touch rate over distinct reviewed events.
 	// A review with no source event (legacy/proposal-scoped) is grouped as
-	// "unattributed" instead of being dropped, so the total stays honest.
+	// "unattributed" instead of dropped, so the total stays honest. One event can
+	// carry several review_item rows, so the rate divides distinct reviewed events
+	// by canonical events, never review rows by events.
 	reviewRows, err := h.pool.Query(ctx, `
-		SELECT COALESCE(se.source_type,'unattributed') AS source_type, count(*)
+		SELECT COALESCE(se.source_type,'unattributed') AS source_type, count(*), count(DISTINCT ri.source_event_id)
 		FROM review_item ri
 		LEFT JOIN source_event se ON se.id=ri.source_event_id
 		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
@@ -76,12 +83,12 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	defer reviewRows.Close()
 	for reviewRows.Next() {
 		var sourceType string
-		var count int
-		if err := reviewRows.Scan(&sourceType, &count); err != nil {
+		var count, distinctEvents int
+		if err := reviewRows.Scan(&sourceType, &count, &distinctEvents); err != nil {
 			return aggregate, err
 		}
 		aggregate.ReviewBySource[sourceType] = count
-		aggregate.ReviewedEvents += count
+		aggregate.ReviewedEvents += distinctEvents
 	}
 	if err := reviewRows.Err(); err != nil {
 		return aggregate, err
@@ -108,8 +115,8 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		return aggregate, err
 	}
 
-	if aggregate.Events > 0 {
-		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.Events)
+	if aggregate.CanonicalEvents > 0 {
+		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.CanonicalEvents)
 	}
 	aggregate.Coverage = []string{
 		"rhice",
