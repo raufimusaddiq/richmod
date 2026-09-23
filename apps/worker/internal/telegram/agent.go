@@ -150,7 +150,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		return err
 	}
 
-	tools := agentFinanceTools(
+	generalTools := agentFinanceTools(
 		categories,
 		contextState.HasPendingAction,
 		contextState.HasPendingBatch,
@@ -161,7 +161,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.ReviewMode,
 		p.judgmentPlaneConfigured,
 	)
-	tools, workflowScope := applyAgentWorkflowToolPolicy(tools, update, reviewBinding, merchantBinding)
+	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
@@ -189,6 +189,8 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasPendingBatch:         contextState.HasPendingBatch,
 		HasSalaryChoice:         contextState.HasSalaryChoice,
 		ReviewMode:              contextState.ReviewMode,
+		WorkflowScope:           string(workflowScope),
+		GeneralTools:            generalTools,
 	}
 	if workflowScope == agentWorkflowPendingBatch {
 		state.RequiredTool = "pending_batch_decision"
