@@ -517,11 +517,20 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'CONFLICTING_EVIDENCE','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
 	return err
 }
+
 // resolutionReview opens the PRD §12 partial-resolution review: it records which
 // of the two entities the evidence already resolved and which one is still
 // missing, so the Inbox asks only for the unresolved dimension (§13.4, §20.1).
+// resolutionReview parks a Financial Email whose entities Go could not fully
+// resolve. The resolved entity is persisted on the observation so the Inbox and
+// the resolver agree on what is already known; only the unresolved dimension is
+// recorded as missing (PRD 12, 7).
 func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string) error {
-	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
+	// The columns are the single source of truth for "already known": the list API
+	// reads resolvedAccountId from them and the resolver requires the other id on
+	// submit, so a decision that named a known entity without writing it here would
+	// render a card the server then rejects.
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW',resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,updated_at=now() WHERE id=$1`, id, account, wealth); err != nil {
 		return err
 	}
 	missing := make([]string, 0, 2)
@@ -531,8 +540,12 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 	if wealth == "" {
 		missing = append(missing, "wealth_account")
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id); err != nil {
-		return err
+	known := map[string]any{}
+	if account != "" {
+		known["funding_account"] = account
+	}
+	if wealth != "" {
+		known["wealth_account"] = wealth
 	}
 	decision, encodeErr := reviewdec.Decision{
 		Version:         reviewdec.Version,
@@ -540,9 +553,8 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 		SourceEventID:   source,
 		ReasonCode:      "FINANCIAL_EMAIL_RESOLUTION",
 		DecisionClass:   reviewdec.ClassEvidenceGap,
-		KnownFacts:      map[string]any{"resolvedAccountId": account, "resolvedWealthAccountId": wealth},
+		KnownFacts:      known,
 		MissingFacts:    missing,
-		ProposedFacts:   map[string]any{"accountId": account, "wealthAccountId": wealth},
 		DecisionSource:  reviewdec.SourceGenerativePlusJev,
 		PolicyVersion:   ProviderEmailClassificationPolicyVersion,
 		Provenance:      map[string]any{"pipeline": "financial-provider-email"},
@@ -554,7 +566,9 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 	if encodeErr != nil {
 		return encodeErr
 	}
-	_, err := tx.Exec(ctx, `UPDATE review_item SET decision=$3::jsonb,updated_at=now() WHERE household_id=$1 AND financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN')`, household, id, string(decision))
+	// Insert the review with the decision already attached: writing it in a second
+	// statement that runs first would match zero rows and drop the contract.
+	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id, string(decision))
 	return err
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {

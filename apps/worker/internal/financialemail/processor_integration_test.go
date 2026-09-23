@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type integrationGateway struct {
@@ -557,4 +558,69 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 		t.Fatal(err)
 	}
 	return source
+}
+
+// The worker is the only writer of a partial resolution, and the Inbox list API
+// reads what is already known from the observation columns. So the column the
+// decision calls known must actually be written, or the card the Inbox renders
+// (asking only for the other entity) is rejected by the resolver on submit.
+func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	var household, account, wealth string
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("resolution-%d", stamp)).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank Jago','BANK','FULL_LEDGER') RETURNING id`, household).Scan(&account); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Bibit Growth','ASSET','MUTUAL_FUND','INVESTMENT') RETURNING id`, household).Scan(&wealth); err != nil {
+		t.Fatal(err)
+	}
+	var source, observation string
+	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("res-%d", stamp), []byte(fmt.Sprintf("res-%d", stamp))).Scan(&source); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}'::jsonb,'REVIEW') RETURNING id`, household, source).Scan(&observation); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	// The evidence settled the bank account but not the provider Wealth Account.
+	if err = (&Processor{pool: pool}).resolutionReview(ctx, tx, household, source, observation, account, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var resolvedAccount *string
+	if err = pool.QueryRow(ctx, `SELECT resolved_account_id::text FROM financial_email_observation WHERE id=$1`, observation).Scan(&resolvedAccount); err != nil {
+		t.Fatal(err)
+	}
+	if resolvedAccount == nil || *resolvedAccount != account {
+		t.Fatalf("the resolved funding account must be persisted for the Inbox: %v", resolvedAccount)
+	}
+	var raw []byte
+	if err = pool.QueryRow(ctx, `SELECT decision FROM review_item WHERE financial_email_observation_id=$1`, observation).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var decision reviewdec.Decision
+	if err = json.Unmarshal(raw, &decision); err != nil {
+		t.Fatal(err)
+	}
+	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "wealth_account" {
+		t.Fatalf("only the unresolved entity may be requested: %v", decision.MissingFacts)
+	}
 }
