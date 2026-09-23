@@ -321,10 +321,13 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 		if err := rows.Scan(&candidate.ID, &candidate.Merchant, &hours); err != nil {
 			return nil, err
 		}
+		// Every same-amount, same-direction transaction inside the window is kept,
+		// including the ones that score low because the merchant text differs
+		// (Hermes review on PR #127). Dropping them here hid a plausible duplicate
+		// from the caller's "no candidate matched" guard, which is exactly the
+		// ambiguity the review path exists to resolve (PRD §17).
 		candidate.Score = documentMatchScore(hours, sameMerchant(candidate.Merchant, merchant))
-		if candidate.Score >= 0.70 {
-			result = append(result, candidate)
-		}
+		result = append(result, candidate)
 	}
 	return result, rows.Err()
 }

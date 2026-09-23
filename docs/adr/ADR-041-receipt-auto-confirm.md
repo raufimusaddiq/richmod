@@ -34,6 +34,10 @@ the unresolved fact.
 
 Duplicate safety is preserved by construction — the auto-confirm branch is only
 reachable when no candidate matched, so it cannot race an existing transaction.
+To make that guarantee real, the match query keeps every same-amount, same-
+direction transaction inside the window, including low-scoring ones whose
+merchant text differs; a filtered-out weak match must still force the duplicate
+review instead of disappearing from the gate (Hermes review on PR #127).
 
 ## Consequences
 
