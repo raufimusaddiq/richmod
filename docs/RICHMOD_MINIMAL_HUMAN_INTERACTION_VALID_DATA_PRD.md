@@ -1919,6 +1919,12 @@ clear ordinary bank transactions require zero user input.
 
 ## Stage 4 — Receipt Auto-Confirm
 
+**Status (2026-09-23): implemented.** A clear new receipt (no candidate match,
+resolved category, high confidence, consistent arithmetic) now confirms directly
+instead of opening a review. Duplicate ambiguity still links evidence or opens a
+POSSIBLE_DUPLICATE review, and receipts missing their date or category still ask
+only for the unresolved fact. See ADR-041.
+
 Implement:
 
 - bounded post-extraction semantic decision;
