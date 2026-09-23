@@ -42,9 +42,14 @@ type productAggregate struct {
 	RHICE           float64 `json:"rhice"`
 	TypedFields     int     `json:"typedFields"`
 	// Reviews still open is the friction the proposal-first card targets.
-	OpenReviews            int `json:"openReviews"`
-	AcceptedWithoutEdit    int `json:"reviewAcceptedWithoutEdit"`
-	AutoConfirmCorrections int `json:"autoConfirmCorrections"`
+	OpenReviews int `json:"openReviews"`
+	// AcceptedWithoutEdit counts resolutions that only accepted a proposal:
+	// CONFIRM_REVIEW (web) and its Telegram equivalents. MERGE_EXISTING is a
+	// choice between candidates, not an accepted proposal, so it is excluded.
+	AcceptedWithoutEdit int `json:"reviewAcceptedWithoutEdit"`
+	// Coverage names the section 22 signals that current canonical history cannot
+	// reconstruct. Naming them here keeps a partial RHICE from reading as complete.
+	Coverage []string `json:"notYetMeasurable"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
@@ -135,17 +140,21 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
 	}
 
-	// PRD sections 22.1-22.3 derived from state that already exists. Each resolved
-	// review_item row is one explicit input; a resolution whose action names a
-	// typed value (not a bounded accept/merge/ignore) also counts toward typed
-	// fields, the expensive half section 2.3 measures. A canonical event is one
-	// transaction, so RHICE is explicit inputs over transactions.
+	// Every metric below is derived from canonical state, so it cannot drift from
+	// the ledger and needs no write-path instrumentation. Typed fields are the
+	// resolutions whose action names a value the user supplied; an IGNORE resolves
+	// a review without producing a canonical event, so it counts as neither an
+	// input nor a typed field.
 	if err := h.pool.QueryRow(ctx, `
 		SELECT
-		 count(*) FILTER (WHERE ri.status='RESOLVED'),
-		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN ('COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES')),
+		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action <> 'IGNORE'),
+		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN (
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES','SET_WEALTH_ACCOUNT',
+		   'ALLOCATE_RETAINED_BALANCE','RECORD_ASSET_PURCHASE','SET_MERCHANT','SET_CATEGORY',
+		   'RECLASSIFIED_ASSET_PURCHASE','CLASSIFY_TRANSFER','TRANSFER_RECONCILED')),
 		 count(*) FILTER (WHERE ri.status='OPEN'),
-		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN ('CONFIRM_PROPOSAL','MERGE_EXISTING','ACCEPT_PROPOSAL'))
+		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN (
+		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
 		FROM review_item ri
 		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
 		return aggregate, err
@@ -155,16 +164,12 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		WHERE household_id=$1 AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents); err != nil {
 		return aggregate, err
 	}
-	// Section 22.3 guardrail: a resolution value naming a field the ledger already
-	// held is a material correction after auto-confirm.
-	if err := h.pool.QueryRow(ctx, `
-		SELECT count(*) FROM review_item ri
-		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
-		 AND ri.resolution_values ?| array['amount_idr','transaction_at','category_id','transaction_type']`, householdID).Scan(&aggregate.AutoConfirmCorrections); err != nil {
-		return aggregate, err
-	}
 	if aggregate.CanonicalEvents > 0 {
 		aggregate.RHICE = float64(aggregate.ExplicitInputs) / float64(aggregate.CanonicalEvents)
 	}
+	// Section 22.4 signals no current row can reconstruct: they need a write-side
+	// per-event input tally and a round-trip counter. Naming them keeps a partial
+	// RHICE from reading as complete.
+	aggregate.Coverage = []string{"bounded_choices_per_event", "review_round_trips"}
 	return aggregate, nil
 }

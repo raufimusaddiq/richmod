@@ -65,6 +65,23 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 		t.Fatalf("open reviews must be counted as outstanding friction: %+v", aggregate)
 	}
 
+	// An IGNORE resolves a review without producing a canonical event, so it must
+	// not count as an explicit input: the metric would otherwise credit the system
+	// for friction that produced nothing (PRD 22.1).
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE' WHERE household_id=$1 AND review_type='UNKNOWN_MERCHANT'`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.ExplicitInputs != 0 || aggregate.TypedFields != 0 {
+		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
+	}
+	if len(aggregate.Coverage) != 2 {
+		t.Fatalf("signals that cannot be reconstructed must stay named: %+v", aggregate.Coverage)
+	}
+
 	// A resolved typed-field resolution is one explicit input and one typed field;
 	// with no transaction in the window the denominator stays zero, so RHICE is
 	// reported as zero rather than a division artifact.
@@ -81,7 +98,18 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.CanonicalEvents != 0 || aggregate.RHICE != 0 {
 		t.Fatalf("RHICE must stay zero without a canonical event to divide by: %+v", aggregate)
 	}
-	if aggregate.AutoConfirmCorrections != 1 {
-		t.Fatalf("a resolution naming a material field is the section 22.3 guardrail: %+v", aggregate)
+	// An accepted proposal is an explicit input that carried no typed value.
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'POSSIBLE_DUPLICATE','RESOLVED','CONFIRM_REVIEW',now(),now())`, householdID, telegramEventID); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.AcceptedWithoutEdit != 1 {
+		t.Fatalf("an accepted proposal is reviewable-without-edit: %+v", aggregate)
+	}
+	if aggregate.ExplicitInputs != 2 || aggregate.TypedFields != 1 {
+		t.Fatalf("accept-without-edit is an input but not a typed field: %+v", aggregate)
 	}
 }
