@@ -1912,6 +1912,12 @@ clear ordinary bank transactions require zero user input.
 
 ## Stage 4 — Receipt Auto-Confirm
 
+**Status (2026-09-23): implemented.** A clear new receipt (no candidate match,
+resolved category, high confidence, consistent arithmetic) now confirms directly
+instead of opening a review. Duplicate ambiguity still links evidence or opens a
+POSSIBLE_DUPLICATE review, and receipts missing their date or category still ask
+only for the unresolved fact. See ADR-041.
+
 Implement:
 
 - bounded post-extraction semantic decision;
@@ -1943,6 +1949,11 @@ Implement:
 - partial entity-resolution contract;
 - partial resolution API;
 - missing-entity-only UI.
+
+Status: implemented on `feat/financial-email-partial` (ADR-043). A resolved
+entity persists on the observation and is no longer requested; the review's
+`missingFacts` names only the unresolved dimension, and the API merges persisted
+known facts with the submitted values before validating the complete result.
 
 ## Stage 7 — Proposal-First Review Inbox
 
