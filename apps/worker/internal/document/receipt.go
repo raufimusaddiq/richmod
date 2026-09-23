@@ -250,9 +250,11 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
 	// A clear new receipt must not become a review merely because no existing
 	// transaction matched (PRD §10, example D). With no candidate ambiguity, a
-	// category resolved, and the arithmetic consistent, the facts are complete
-	// enough to confirm without asking the user to re-enter anything.
-	if len(candidates) == 0 && categoryID != nil && value.Confidence >= 0.90 && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
+	// category resolved, a printed date, and consistent arithmetic, the facts are
+	// complete enough to confirm without asking the user to re-enter anything.
+	// A receipt with no printed date is not confirmed here: upload time is not the
+	// receipt's transaction time (PRD §18.4).
+	if len(candidates) == 0 && categoryID != nil && value.Confidence >= 0.90 && validation.DateKnown && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
 		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID)
 	}
 	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0)

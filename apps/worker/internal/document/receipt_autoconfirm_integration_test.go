@@ -117,3 +117,24 @@ func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
 		t.Fatalf("an undecided category must open one review, got %d", reviews)
 	}
 }
+
+// Hermes review on PR #127, PRD §18.4: upload time is not the receipt's
+// transaction time, so a receipt without a printed date keeps asking for it
+// instead of confirming against the moment it arrived.
+func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt dateless")
+	ctx := context.Background()
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), ArithmeticAvailable: true, ArithmeticOK: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := fixture.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" {
+		t.Fatalf("a receipt with no printed date must not auto-confirm, status=%s", status)
+	}
+}

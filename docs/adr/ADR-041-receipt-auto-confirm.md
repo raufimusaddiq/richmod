@@ -21,6 +21,7 @@ following hold:
 - no candidate transaction matched at all (so there is no duplicate ambiguity to
   resolve);
 - a household category was resolved for it;
+- the receipt itself printed a transaction date (`DateKnown`);
 - extraction confidence is at least 0.90;
 - arithmetic is either unavailable or consistent.
 
@@ -40,4 +41,7 @@ reachable when no candidate matched, so it cannot race an existing transaction.
   exit criterion, R1).
 - Duplicate ambiguity remains guarded (R2, R3).
 - Reviews that remain still request only the unresolved facts (R4, R5).
+- A receipt with no printed date is never confirmed against its upload time, so
+  a fallback timestamp cannot masquerade as the receipt's own transaction time
+  (PRD §18.4); such a receipt still asks only for the date.
 - No new table, service, or dependency.
