@@ -115,6 +115,28 @@ func TestMovementTypeRequiredForCash(t *testing.T) {
 	}
 }
 
+// material_ambiguity is an inverted claim, so a decided *negative* is what
+// clears it. An answer in the undecided middle band means the bounded plane
+// could not tell, and reading that as approval is the fail-open hole this
+// package shared with bank email (PRD 17).
+func TestUndecidedAmbiguityFailsClosed(t *testing.T) {
+	for _, probability := range []float64{0.02, 0.10} {
+		answers := cashRuling("CONTRIBUTION")
+		answers["material_ambiguity"] = noul(probability)
+		processor := &Processor{verifier: &stubVerifier{answers: answers}}
+		classification, _, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if probability < classificationPolicy.Ambiguity.Low && !classification.cashAllowed() {
+			t.Fatalf("a decided not-ambiguous ruling must authorize: %+v", classification)
+		}
+		if probability >= classificationPolicy.Ambiguity.Low && classification.cashAllowed() {
+			t.Fatalf("undecided ambiguity (noul=%.2f) must fail closed: %+v", probability, classification)
+		}
+	}
+}
+
 func TestInsufficientEvidenceFailsClosed(t *testing.T) {
 	answers := cashRuling("WITHDRAWAL")
 	answers["evidence_sufficient"] = noul(0.02)

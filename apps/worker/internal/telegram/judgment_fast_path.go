@@ -258,7 +258,7 @@ func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTran
 	decision.RouteAccepted = true
 	decision.AmountSupported = noulSupported(result.Answers, "amount_support", judgmentPolicy.AmountSupport)
 	decision.DateSupported = noulSupported(result.Answers, "date_support", judgmentPolicy.DateSupport)
-	decision.MaterialAmbiguity = noulSupported(result.Answers, "material_ambiguity", judgmentPolicy.Ambiguity)
+	decision.MaterialAmbiguity, decision.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity", judgmentPolicy.Ambiguity)
 	if decision.TransactionType == "EXPENSE" && len(categories) > 0 {
 		if categoryAnswer, exists := result.Answers["category"]; exists && categoryAnswer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(categoryAnswer, judgment.CategoryCriteria(categories), judgmentPolicy.Category) && contains(categories, categoryAnswer.Choice) {
 			decision.CategorySlug, decision.CategoryAccepted = categoryAnswer.Choice, true
