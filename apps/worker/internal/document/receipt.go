@@ -248,7 +248,61 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 		return p.linkReceipt(ctx, documentID, householdID, sourceID, strong[0], value, model, validation)
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
+	// A clear new receipt must not become a review merely because no existing
+	// transaction matched (PRD §10, example D). With no candidate ambiguity, a
+	// category resolved, a printed date, and consistent arithmetic, the facts are
+	// complete enough to confirm without asking the user to re-enter anything.
+	// A receipt with no printed date is not confirmed here: upload time is not the
+	// receipt's transaction time (PRD §18.4).
+	if len(candidates) == 0 && categoryID != nil && value.Confidence >= 0.90 && validation.DateKnown && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
+		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID)
+	}
 	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0)
+}
+
+// confirmReceipt writes a CONFIRMED expense for a clear new receipt. It mirrors
+// createReceiptReview's persistence but commits the canonical transaction, since
+// there is nothing left for a human to decide (PRD §10, §34). Duplicate safety is
+// handled by the caller: this path is only taken when no candidate matched.
+func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string) error {
+	output, _ := json.Marshal(value)
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var merchantID *string
+	if normalized := strings.TrimSpace(value.Merchant); normalized != "" {
+		var id string
+		if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, normalized).Scan(&id); err != nil {
+			return err
+		}
+		merchantID = &id
+	}
+	var proposalID string
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'receipt','EXPENSE',$3,'IDR',$4,NULLIF($5,''),$6,'Pengeluaran dari struk',$7,'ACCEPTED',jsonb_build_object('document_id',$8::uuid,'arithmetic_ok',$9::boolean,'date_known',$10::boolean,'auto_confirm',true)) RETURNING id`, householdID, sourceID, value.Total, validation.TransactionAt, value.Merchant, categoryID, value.Confidence, documentID, validation.ArithmeticOK, validation.DateKnown).Scan(&proposalID); err != nil {
+		return err
+	}
+	var transactionID string
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',$2,'IDR',$3,$4,$5,'Pengeluaran dari struk',$6,$7,now()) RETURNING id`, householdID, value.Total, validation.TransactionAt, merchantID, categoryID, value.Confidence, value.CategoryConfidence).Scan(&transactionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'RECEIPT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, documentID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','AUTO_CONFIRM_RECEIPT','transaction',$2,jsonb_build_object('document_id',$3::uuid,'arithmetic_ok',$4::boolean))`, householdID, transactionID, documentID, validation.ArithmeticOK); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (p *Processor) findMatches(ctx context.Context, householdID, transactionType, amount string, transactionAt time.Time, merchant string, dateKnown bool) ([]matchCandidate, error) {
@@ -267,10 +321,13 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 		if err := rows.Scan(&candidate.ID, &candidate.Merchant, &hours); err != nil {
 			return nil, err
 		}
+		// Every same-amount, same-direction transaction inside the window is kept,
+		// including the ones that score low because the merchant text differs
+		// (Hermes review on PR #127). Dropping them here hid a plausible duplicate
+		// from the caller's "no candidate matched" guard, which is exactly the
+		// ambiguity the review path exists to resolve (PRD §17).
 		candidate.Score = documentMatchScore(hours, sameMerchant(candidate.Merchant, merchant))
-		if candidate.Score >= 0.70 {
-			result = append(result, candidate)
-		}
+		result = append(result, candidate)
 	}
 	return result, rows.Err()
 }
