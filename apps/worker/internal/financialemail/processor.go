@@ -358,7 +358,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	}
 	if defaultWealthConfigured && configured == "" {
 		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
-		plan.missingEntities = []string{"wealth_account"}
+		plan.missingEntities = resolutionGaps(plan.account, plan.wealth)
 		return plan, nil
 	}
 	if plan.wealth == "" && configured != "" {
@@ -369,7 +369,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			}
 			if hinted.Status == financialentity.Ambiguous || (hinted.Status == financialentity.Resolved && hinted.ID != configured) {
 				plan.review = "FINANCIAL_EMAIL_RESOLUTION"
-				plan.missingEntities = []string{"wealth_account"}
+				plan.missingEntities = resolutionGaps(plan.account, plan.wealth)
 				return plan, nil
 			}
 		}
@@ -383,12 +383,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	}
 	if plan.account == "" || plan.wealth == "" {
 		plan.review = "FINANCIAL_EMAIL_RESOLUTION"
-		if plan.account == "" {
-			plan.missingEntities = append(plan.missingEntities, "funding_account")
-		}
-		if plan.wealth == "" {
-			plan.missingEntities = append(plan.missingEntities, "wealth_account")
-		}
+		plan.missingEntities = resolutionGaps(plan.account, plan.wealth)
 		return plan, nil
 	}
 	var role string
@@ -537,13 +532,7 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 		return err
 	}
 	if missingEntities == nil {
-		missingEntities = make([]string, 0, 2)
-		if account == "" {
-			missingEntities = append(missingEntities, "funding_account")
-		}
-		if wealth == "" {
-			missingEntities = append(missingEntities, "wealth_account")
-		}
+		missingEntities = resolutionGaps(account, wealth)
 	}
 	known := map[string]any{}
 	if account != "" {
