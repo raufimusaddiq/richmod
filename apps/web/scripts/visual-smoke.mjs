@@ -144,6 +144,11 @@ async function run() {
           await page.locator("#main-content").waitFor();
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
           assert.equal(overflow, false, `${name} ${path} has horizontal overflow`);
+          const smallText = await page.evaluate(() => [...document.querySelectorAll("body *")]
+            .filter(element => element.children.length === 0 && (element.textContent || "").trim().length > 1)
+            .map(element => ({ text: element.textContent.trim().slice(0, 30), size: Number.parseFloat(getComputedStyle(element).fontSize) }))
+            .filter(entry => entry.size < 11));
+          assert.deepEqual(smallText, [], `${name} ${path} renders text below 11px ${JSON.stringify(smallText)}`);
           const slug = path === "/" ? "overview" : path.slice(1);
           await page.screenshot({ path: new URL(`${name}-${slug}.png`, output).pathname, fullPage: true });
           if (path === "/transactions") {
@@ -168,6 +173,10 @@ async function run() {
             assert.equal(link.background, "rgba(0, 0, 0, 0)", `${name} admin ID has button background`);
             assert.equal(link.minHeight, "0px", `${name} admin ID has button minimum height`);
             await page.screenshot({ path: new URL(`${name}-admin-jobs.png`, output).pathname, fullPage: true });
+            assert.equal(await page.locator("aside[role='dialog']").count(), 1, `${name} admin job drawer is a modal dialog`);
+            await page.keyboard.press("Escape");
+            await page.waitForFunction(() => !document.querySelector("aside[role='dialog']"));
+            assert.equal(await page.locator("aside[role='dialog']").count(), 0, `${name} admin drawer closes on Escape`);
           }
         }
         await page.goto(`${baseURL}/analytics`, { waitUntil: "networkidle" });
@@ -183,6 +192,7 @@ async function run() {
         await page.goto(`${baseURL}/transactions`, { waitUntil: "networkidle" });
         await page.locator(".transaction-row").first().click();
         await page.getByRole("button", { name: "Tutup detail" }).waitFor();
+        assert.equal(await page.locator("aside[role='dialog'][aria-label='Detail transaksi']").count(), 1, `${name} transaction drawer is a modal dialog`);
         await page.screenshot({ path: new URL(`${name}-transaction-drawer.png`, output).pathname, fullPage: true });
         await page.getByRole("button", { name: "Tutup detail" }).click();
         await page.getByRole("button", { name: /Tambah transaksi|Catat transaksi|Transaksi manual/i }).click();

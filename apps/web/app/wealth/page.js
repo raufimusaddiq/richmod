@@ -67,6 +67,10 @@ export default function WealthPage() {
     } catch { setError("Data kekayaan belum dapat dimuat. Coba lagi."); } finally { setLoading(false); }
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
+  useEffect(() => {
+    const snapshotId = new URLSearchParams(window.location.search).get("snapshotId");
+    if (user && snapshotId) openSnapshot(snapshotId);
+  }, [user]);
 
   async function saveSnapshot(event) {
     event.preventDefault(); setWorking(true);
@@ -102,7 +106,7 @@ export default function WealthPage() {
     setWorking(false);
   }
 
-  if (user === null) return <main className="loading">Memuat…</main>;
+  if (user === null) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   if (!user) return null;
 
   const latest = data.latest || data.snapshots?.[0];
@@ -164,7 +168,7 @@ export default function WealthPage() {
 
         {data.cycleRecaps.length > 0 && <section className="surface wealth-records"><div className="section-title"><div><span className="eyebrow">SIKLUS TABUNGAN</span><h2>Rekap siklus tertutup</h2></div></div><div className="wealth-cycle-history">{data.cycleRecaps.map(cycle => <article className="wealth-cycle-row" key={`${cycle.cycleStart}-${cycle.cycleEnd}`}><header><div><span>{shortDate(cycle.cycleStart)} – {shortDate(cycle.cycleEnd)}</span><small className={`wealth-review-status status-${String(cycle.residualReviewStatus || "").toLowerCase()}`}>{reviewStatusLabel[cycle.residualReviewStatus] || cycle.residualReviewStatus}</small></div><strong>Surplus {money(cycle.cashflowSurplus)}</strong></header><dl><div><dt>Dialokasikan</dt><dd>{money(cycle.savingsAllocated)}</dd></div><div><dt>Belum dialokasikan</dt><dd>{money(cycle.rawResidual)}</dd></div><div><dt>Tujuan tabungan</dt><dd>{(cycle.savingsByDestination || []).map(item => `${item.name} ${money(item.amountIdr)}`).join(" · ") || "Belum ada"}</dd></div></dl></article>)}</div></section>}
 
-        <section className="surface wealth-records"><div className="section-title"><div><span className="eyebrow">RIWAYAT</span><h2>Catatan posisi tersimpan</h2></div><span className="header-meta">{data.snapshots.length} catatan</span></div><div className="wealth-history">{data.snapshots.map(item => <button key={item.id} className="wealth-history-row" onClick={() => openSnapshot(item.id)}><span>{dateTime(item.observedAt)}</span><strong>{money(item.netWorthIdr || "0")}</strong><small>Buka rincian akun</small></button>)}{!data.snapshots.length && <p className="empty compact">Belum ada catatan kekayaan.</p>}</div></section>
+        <section className="surface wealth-records"><div className="section-title"><div><span className="eyebrow">RIWAYAT</span><h2>Catatan posisi tersimpan</h2></div><span className="header-meta">{data.snapshots.length} catatan</span></div><div className="wealth-history">{data.snapshots.map(item => <button key={item.id} className="wealth-history-row" aria-label={`Buka rincian posisi ${dateTime(item.observedAt)} · ${money(item.netWorthIdr || "0")}`} onClick={() => openSnapshot(item.id)}><span>{dateTime(item.observedAt)}</span><strong>{money(item.netWorthIdr || "0")}</strong><small>Buka rincian akun</small></button>)}{!data.snapshots.length && <p className="empty compact">Belum ada catatan kekayaan.</p>}</div></section>
       </>}
     </div>
 

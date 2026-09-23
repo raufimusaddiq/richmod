@@ -36,7 +36,7 @@ export default function SettingsPage() {
   async function copyEmailIngress() { try { await navigator.clipboard.writeText(data.emailIngress.address); } catch { setError("Alamat email tidak dapat disalin. Salin manual dari teks di atas."); } }
   const patch = (key, path, body) => request(key, `/api/v1/${path}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   function rename(item, kind) { const name = window.prompt(`Nama ${kind} baru`, item.name); if (name?.trim() && name.trim() !== item.name) patch(item.id, `${kind === "rekening" ? "accounts" : "categories"}/${item.id}`, { name: name.trim() }); }
-  if (!user) return <main className="loading">Memuat…</main>;
+  if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return <AppShell user={user} eyebrow="PENGATURAN" title="Pengaturan keluarga" actions={<span className="header-meta">{owner ? "Akses pemilik" : "Hanya baca"}</span>}>
     {error && <p className="notice error">{error}</p>}
     <nav className="settings-index" aria-label="Bagian pengaturan">{[["rekening-manual", "Rekening"], ["akun-wealth", "Wealth"], ["sumber-slip-gaji-utama", "Gaji"], ["tujuan-transfer-yang-dikenal", "Transfer"], ["notifikasi-bank", "Email bank"], ["provider-finansial", "Provider"], ["kategori-keluarga", "Kategori"], ["aturan-kategori-otomatis", "Merchant"], ["email-telegram-dan-gateway", "Integrasi"], ["status-pemrosesan", "Sistem"]].map(([href, label]) => <a key={href} href={`#${href}`}>{label}</a>)}</nav>
