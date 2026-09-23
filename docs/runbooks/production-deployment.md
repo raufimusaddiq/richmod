@@ -221,6 +221,29 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f com
 Retry only after identifying the cause. A stale `RUNNING` job is reclaimed by
 the worker after five minutes; normal retries use bounded exponential delay.
 
+## Auto-confirm kill-switches
+
+The PRD §33 rollout-safety switches let an operator stop one source from writing
+canonical ledger money without a person, without touching any other source.
+Every switch defaults to enabled; only an explicit negative value disables it, so
+an unset or mistyped variable never silently changes behavior.
+
+| Variable | Source | Effect when disabled |
+| --- | --- | --- |
+| `RICHMOD_AUTOCONFIRM_BANK_CATEGORY` | Bank Email | A merchant expense with a learned or decided category parks in review with the category proposed, instead of confirming |
+
+Setting the variable to `0`, `false`, `off`, `no` or `disabled` (any case)
+disables the switch; any other value keeps it on. Disabling is a worker-only
+change, so restart the worker after editing `finance.env`:
+
+```text
+docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml up -d worker
+```
+
+Disabling a source does not lose data: the evidence is still processed, the
+proposal is still written, and the card still carries the proposed category, so
+re-enabling the switch later needs no backfill.
+
 ## Encrypted backups
 
 Backups use restic and contain a verified custom-format PostgreSQL dump plus the

@@ -24,15 +24,36 @@ type Processor struct {
 	// deterministic structural gate and never silently invents semantic approval
 	// (PRD §20).
 	verifier jeverifier
+	// categoryAutoConfirm is this source's PRD §33 operational kill-switch. When
+	// off, a bounded category decision still runs and still rides on the review
+	// card, but the expense is parked for review instead of writing confirmed
+	// ledger money. It is independent of the receipt and screenshot switches.
+	categoryAutoConfirm bool
 }
 
 func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
-	return &Processor{pool: pool, extractor: extractor}
+	return &Processor{pool: pool, extractor: extractor, categoryAutoConfirm: true}
 }
 
 // SetVerifier wires the bounded evidence verifier. Production sets it from the
 // same configured judgment plane the Telegram decision plane uses.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
+
+// SetCategoryAutoConfirm is the bank-email category kill-switch (PRD §33).
+func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirm = enabled }
+
+// applyCategoryAutoConfirmSwitch is the PRD §33 gate on this source's
+// auto-confirm. With the switch off, a policy that would have written confirmed
+// ledger money parks a category-carrying review instead; the decided category
+// still travels on the result so the card can propose it.
+func applyCategoryAutoConfirmSwitch(result PolicyResult, enabled bool) PolicyResult {
+	if enabled || !result.AutoConfirm {
+		return result
+	}
+	result.AutoConfirm = false
+	result.Status, result.ReviewType = "NEEDS_REVIEW", "AMBIGUOUS_CATEGORY"
+	return result
+}
 
 type Payload struct {
 	SourceEventID string  `json:"source_event_id"`
@@ -193,6 +214,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
+	// PRD §33: the deterministic policy also auto-confirms a remembered merchant
+	// category. The kill-switch governs every auto-confirm this source can do, so
+	// turn it off before the bounded classifier below repopulates the flag.
+	result = applyCategoryAutoConfirmSwitch(result, p.categoryAutoConfirm)
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"

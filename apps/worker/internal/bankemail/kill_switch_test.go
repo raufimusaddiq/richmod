@@ -1,0 +1,40 @@
+package bankemail
+
+import "testing"
+
+// PRD §33: the bank-email category auto-confirm path has an independent
+// kill-switch. When off, a remembered merchant category must not confirm ledger
+// money; it parks a category-carrying review instead.
+func TestCategoryAutoConfirmKillSwitchParksRememberedMerchant(t *testing.T) {
+	channel, direction, merchant := "DEBIT_CARD", "OUTGOING", "Toko Contoh"
+	extraction := Extraction{
+		Kind: "TRANSACTION", AmountIDR: ptr("54000"), TransactionAt: timePtr(),
+		Channel: &channel, Direction: &direction, Merchant: &merchant,
+	}
+	policy := EvaluateBankEmail(Listener{TrackingPolicy: "SPENDING_ONLY"}, extraction, nil, MerchantMemory{CategoryID: "cat-food", AutoApply: true})
+	if !policy.AutoConfirm || policy.Status != "CONFIRMED" {
+		t.Fatalf("default policy should auto-confirm a remembered merchant: %+v", policy)
+	}
+
+	kept := applyCategoryAutoConfirmSwitch(policy, true)
+	if !kept.AutoConfirm || kept.Status != "CONFIRMED" {
+		t.Fatalf("enabled switch must not change the policy result: %+v", kept)
+	}
+
+	off := applyCategoryAutoConfirmSwitch(policy, false)
+	if off.AutoConfirm || off.Status != "NEEDS_REVIEW" || off.ReviewType != "AMBIGUOUS_CATEGORY" {
+		t.Fatalf("disabled switch must park a review: %+v", off)
+	}
+	if off.CategoryID != "cat-food" {
+		t.Fatalf("the decided category must still ride on the review: %+v", off)
+	}
+}
+
+// A review that was never auto-confirmable is untouched by the switch.
+func TestCategoryAutoConfirmKillSwitchLeavesReviewsAlone(t *testing.T) {
+	review := PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "UNKNOWN_MERCHANT"}
+	if got := applyCategoryAutoConfirmSwitch(review, false); got != review {
+		t.Fatalf("switch altered an already-parked review: %+v", got)
+	}
+}
+

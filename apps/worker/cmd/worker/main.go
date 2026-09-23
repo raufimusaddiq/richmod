@@ -114,6 +114,9 @@ func run(logger *slog.Logger) error {
 	}
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
+	// PRD §33: each auto-confirm source has its own operational kill-switch. The
+	// default is on; an operator disables one source without touching the others.
+	bankProcessor.SetCategoryAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_BANK_CATEGORY"))
 	// Evidence-channel semantic verification: the bounded plane rules on claims Go
 	// already holds, so neither email channel trusts generative self-confidence as
 	// its semantic gate (ADR-038, PRD §20/§21).
@@ -186,6 +189,18 @@ func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxp
 	_, err := pool.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',se.household_id,'end_salary_event_id',se.id),5 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.status='CONFIRMED' AND ss.active AND ss.is_primary AND EXISTS(SELECT 1 FROM salary_event prior JOIN salary_source ps ON ps.id=prior.salary_source_id WHERE prior.household_id=se.household_id AND prior.status='CONFIRMED' AND ps.active AND ps.is_primary AND prior.pay_date<se.pay_date) AND NOT EXISTS(SELECT 1 FROM cycle_residual_case c WHERE c.household_id=se.household_id AND c.end_salary_event_id=se.id) AND NOT EXISTS(SELECT 1 FROM job j WHERE j.type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND j.status IN('PENDING','RUNNING') AND j.payload_json->>'end_salary_event_id'=se.id::text) ORDER BY se.pay_date DESC LIMIT $1`, limit)
 	if err != nil && ctx.Err() == nil {
 		logger.Warn("residual catch-up failed", "error", err)
+	}
+}
+
+// envEnabled reads a kill-switch. Any value other than an explicit negative
+// keeps the switch enabled, so an unset or mistyped variable never silently
+// changes auto-confirm behavior (PRD §33).
+func envEnabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "0", "false", "off", "no", "disabled":
+		return false
+	default:
+		return true
 	}
 }
 
