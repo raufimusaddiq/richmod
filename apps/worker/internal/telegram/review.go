@@ -1317,7 +1317,18 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	// PRD 7/37: every Telegram review carries the same ReviewDecision contract
 	// the Inbox renders, written at the one place all reviews are created, so a
 	// Telegram review and a web review ask for exactly the same unresolved fact.
-	if encoded, encodeErr := telegramReviewDecision(ctx, tx, transactionID, reviewType).JSON(); encodeErr == nil {
+	// A free-text reason has no bounded action vocabulary and gets no decision at
+	// all, rather than a half-built contract that names the wrong unresolved fact.
+	decision, decisionErr := telegramReviewDecision(ctx, tx, transactionID, reviewType)
+	if decisionErr != nil {
+		if !errors.Is(decisionErr, errNoBoundedActions) {
+			return decisionErr
+		}
+	} else {
+		encoded, encodeErr := decision.JSON()
+		if encodeErr != nil {
+			return encodeErr
+		}
 		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE id=$1`, itemID, string(encoded)); err != nil {
 			return err
 		}
