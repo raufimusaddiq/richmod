@@ -171,3 +171,26 @@ func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
 		t.Fatalf("a receipt with no printed date must not auto-confirm, status=%s", status)
 	}
 }
+
+// PRD §33: the receipt auto-confirm must be independently disable-able, so a
+// bad rollout can roll back this source without touching bank or screenshot
+// auto-confirm. With the switch off, the same clear receipt parks a review.
+func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt kill switch")
+	ctx := context.Background()
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	processor := &Processor{pool: fixture.pool}
+	processor.SetReceiptAutoConfirm(false)
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := fixture.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" {
+		t.Fatalf("the receipt switch off must park a review, status=%s", status)
+	}
+}

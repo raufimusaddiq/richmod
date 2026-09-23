@@ -44,6 +44,12 @@ type Processor struct {
 	// Interpretation selects the ADR-037 rollout stage. Empty keeps the
 	// legacy classify-then-extract path so existing deployments are unchanged.
 	Interpretation InterpretationMode
+	// receiptAutoConfirmOff is the receipt source's PRD §33 operational
+	// kill-switch, stored inverted so the zero-value Processor keeps the
+	// documented default (auto-confirm on). When set, a clear receipt parks a
+	// review instead of confirming, so this source can be rolled back without
+	// touching the bank or screenshot switches.
+	receiptAutoConfirmOff bool
 }
 
 type Payload struct {
@@ -71,6 +77,10 @@ func (p *Processor) EvictTerminalCaches(ctx context.Context) error {
 func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Store) *Processor {
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
+
+// SetReceiptAutoConfirm is the receipt new-transaction kill-switch (PRD §33).
+// Passing false disables auto-confirm for this source.
+func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
 
 func DecodePayload(raw json.RawMessage) (Payload, error) {
 	var payload Payload
