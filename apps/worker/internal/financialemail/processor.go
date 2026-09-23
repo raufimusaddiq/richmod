@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type Gateway interface {
@@ -488,7 +489,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	}
 	switch plan.review {
 	case "FINANCIAL_EMAIL_RESOLUTION":
-		return p.resolutionReview(ctx, tx, household, source, id)
+		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth)
 	case "CONFLICTING_EVIDENCE":
 		return p.conflictingReferenceReview(ctx, tx, household, source, id)
 	case "TRANSFER_RECONCILIATION":
@@ -516,11 +517,44 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'CONFLICTING_EVIDENCE','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
 	return err
 }
-func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id string) error {
+// resolutionReview opens the PRD §12 partial-resolution review: it records which
+// of the two entities the evidence already resolved and which one is still
+// missing, so the Inbox asks only for the unresolved dimension (§13.4, §20.1).
+func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id)
+	missing := make([]string, 0, 2)
+	if account == "" {
+		missing = append(missing, "funding_account")
+	}
+	if wealth == "" {
+		missing = append(missing, "wealth_account")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id); err != nil {
+		return err
+	}
+	decision, encodeErr := reviewdec.Decision{
+		Version:         reviewdec.Version,
+		Subject:         reviewdec.Subject{Type: "financial_email_observation", ID: id},
+		SourceEventID:   source,
+		ReasonCode:      "FINANCIAL_EMAIL_RESOLUTION",
+		DecisionClass:   reviewdec.ClassEvidenceGap,
+		KnownFacts:      map[string]any{"resolvedAccountId": account, "resolvedWealthAccountId": wealth},
+		MissingFacts:    missing,
+		ProposedFacts:   map[string]any{"accountId": account, "wealthAccountId": wealth},
+		DecisionSource:  reviewdec.SourceGenerativePlusJev,
+		PolicyVersion:   ProviderEmailClassificationPolicyVersion,
+		Provenance:      map[string]any{"pipeline": "financial-provider-email"},
+		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: source}},
+		AllowedActions:  []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
+		WhyNotAuto:      "an entity the evidence identifies only in prose must be bound by the household",
+		InteractionMode: reviewdec.ModeSingleField,
+	}.JSON()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	_, err := tx.Exec(ctx, `UPDATE review_item SET decision=$3::jsonb,updated_at=now() WHERE household_id=$1 AND financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN')`, household, id, string(decision))
 	return err
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {
