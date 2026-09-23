@@ -163,7 +163,7 @@ test("email ingress controls stay grouped inside the integration card", () => {
   const styles = text("app/globals.css");
   assert.match(settings, /className="integration-actions"/);
   assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
-  assert.match(styles, /\.integration-grid small \{ margin-top: 3px; color: var\(--muted\); font-size: 10px; \}/);
+  assert.match(styles, /\.integration-grid small \{ margin-top: 3px; color: var\(--muted\); font-size: 11px; \}/);
 });
 
 test("web and Telegram share the same review object endpoint", () => {

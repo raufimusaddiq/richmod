@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useState } from "react";
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 
@@ -64,7 +64,7 @@ export default function AdminPage() {
       });
   }, []);
   const select = (key) => router.replace(`/admin?tab=${key}`);
-  if (!me) return <main className="loading">Memuat…</main>;
+  if (!me) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return (
     <AppShell
       user={me}
@@ -100,6 +100,17 @@ function AdminTab({ tab, setError }) {
   if (tab === "users") return <Users setError={setError} />;
   return <Audit setError={setError} />;
 }
+function useDrawerA11y(close) {
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.focus();
+    const onKeyDown = (event) => { if (event.key === "Escape") close(); };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [close]);
+  return ref;
+}
+
 function useLoad(url, setError) {
   const [data, setData] = useState(null);
   const load = useCallback(
@@ -315,8 +326,11 @@ function Jobs({ setError }) {
 }
 function JobDetail({ id, close, setError }) {
   const [data] = useLoad(`/api/v1/admin/jobs/${id}`, setError);
+  const drawer = useDrawerA11y(close);
   return (
     <aside
+      ref={drawer}
+      tabIndex={-1}
       className="admin-drawer"
       role="dialog"
       aria-modal="true"
@@ -614,8 +628,11 @@ function Households({ setError }) {
 }
 function HouseholdDetail({ id, close, setError }) {
   const [data] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
+  const drawer = useDrawerA11y(close);
   return (
     <aside
+      ref={drawer}
+      tabIndex={-1}
       className="admin-drawer"
       role="dialog"
       aria-modal="true"

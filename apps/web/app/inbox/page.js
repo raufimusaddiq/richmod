@@ -31,15 +31,26 @@ export default function InboxPage() {
   }, []);
   useEffect(() => { setView(currentView()); const sync = () => setView(currentView()); window.addEventListener("popstate", sync); return () => window.removeEventListener("popstate", sync); }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
+  const closeToast = useCallback(() => setToast(""), []);
+
   function selectView(next) { setView(next); window.history.pushState({}, "", `/inbox?view=${next}`); }
+  function tabKeys(event) {
+    const order = ["transactions", "actions"];
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const next = order[(order.indexOf(view) + step + order.length) % order.length];
+    selectView(next);
+    event.currentTarget.parentElement?.querySelector(`[data-view="${next}"]`)?.focus();
+  }
   async function reviewAction(id, name, body) { setWorking(id); setError(""); const canonical = name === "resolve"; const response = await fetch(canonical ? `/api/v1/reviews/${id}/resolve` : `/api/v1/reviews/${id}/${name}`, { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined }); if (!response.ok) { const result = await response.json().catch(() => ({})); setError(result.error || "Tinjauan belum dapat diperbarui."); } else { const result = response.status === 204 ? null : await response.json().catch(() => null); if (result?.route === "CANONICAL_TRANSACTION_FLOW") { window.location.assign("/transactions"); return; } if (result?.route === "WEALTH_SNAPSHOT") { window.location.assign(`/wealth?observationId=${result.wealthObservationId}`); return; } await load(); setToast("Tinjauan diperbarui dan buku keuangan tetap tersinkron."); } setWorking(""); }
   async function resolveAction(id) { setWorking(id); const response = await fetch(`/api/v1/integration-actions/${id}/resolve`, { method: "POST" }); if (response.ok) { setActions(items => items.filter(item => item.id !== id)); setToast("Tindakan ditandai selesai."); } else setError("Tindakan belum dapat ditandai selesai."); setWorking(""); }
-  if (!user) return <main className="loading">Memuat…</main>;
+  if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   const count = view === "actions" ? actions.length : reviews.length;
   return <AppShell user={user} eyebrow="TINJAUAN" title={`${count} item menunggu`} actions={<span className="header-meta">Transaksi dan tindakan tetap diproses terpisah</span>}>
-    <div className="inbox-tabs" role="tablist" aria-label="Jenis tinjauan"><button role="tab" aria-selected={view === "transactions"} className={view === "transactions" ? "active" : ""} onClick={() => selectView("transactions")}>Transaksi <b>{reviews.length}</b></button><button role="tab" aria-selected={view === "actions"} className={view === "actions" ? "active" : ""} onClick={() => selectView("actions")}>Tindakan <b>{actions.length}</b></button></div>
+    <div className="inbox-tabs" role="tablist" aria-label="Jenis tinjauan"><button role="tab" data-view="transactions" tabIndex={view === "transactions" ? 0 : -1} aria-selected={view === "transactions"} className={view === "transactions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("transactions")}>Transaksi <b>{reviews.length}</b></button><button role="tab" data-view="actions" tabIndex={view === "actions" ? 0 : -1} aria-selected={view === "actions"} className={view === "actions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("actions")}>Tindakan <b>{actions.length}</b></button></div>
     <ErrorNotice message={error} retry={load}/>
     {loading ? <Skeleton cards={2}/> : view === "transactions" ? <ReviewCards items={reviews} categories={categories} accounts={accounts} wealthAccounts={wealthAccounts} working={working} action={reviewAction}/> : <section className="action-list">{actions.map(item => <article key={item.id} className="surface action-card"><div><span className="eyebrow">{item.integrationType === "EMAIL_FORWARDING" ? "EMAIL" : item.integrationType}</span><h2>{item.title}</h2><p>{item.description}</p><small>Diterima {new Date(item.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</small>{item.actionCode && <p className="action-code">Kode konfirmasi: <code>{item.actionCode}</code></p>}</div>{owner ? <div className="action-buttons">{item.actionUrl && <a className="button" href={item.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={working === item.id} onClick={() => resolveAction(item.id)}>Tandai selesai</button></div> : <small>Pemilik household perlu menyelesaikan tindakan ini.</small>}</article>)}{!actions.length && <div className="empty-state"><span>✓</span><h2>Tidak ada tindakan tertunda</h2><p>Richmod akan menampilkan kebutuhan setup integrasi di sini.</p></div>}</section>}
-    <Toast message={toast} onClose={() => setToast("")}/>
+    <Toast message={toast} onClose={closeToast}/>
   </AppShell>;
 }

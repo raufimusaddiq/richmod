@@ -47,7 +47,7 @@ export default function HouseholdPage() {
     if (!response.ok) { setError("Anggota belum dapat dinonaktifkan."); return; } await load();
   }
 
-  if (!me) return <main className="loading">Memuat…</main>;
+  if (!me) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return <AppShell user={me} eyebrow="KELUARGA" title={household?.name || "Rumah Tangga"} actions={<span className="header-meta">{members.filter(member => member.active).length} anggota aktif</span>}>
     <p className="page-intro">Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p>
     {error && <p className="notice error">{error}</p>}

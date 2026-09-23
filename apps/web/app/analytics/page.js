@@ -76,7 +76,7 @@ export default function AnalyticsPage() {
   useEffect(() => () => insightAbort.current?.abort(), []);
   function select(value) { setRange(value); }
   function custom(event) { event.preventDefault(); const form = new FormData(event.currentTarget); load(`period=custom&from=${form.get("from")}&to=${form.get("to")}`); }
-  if (!user) return <main className="loading">Memuat…</main>;
+  if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
 
   const cycleMetrics = deriveCycleSpendingMetrics(dailyCycle);
   const totalIncome = data.cashflow.reduce((sum, item) => sum + Number(item.income || 0), 0);
