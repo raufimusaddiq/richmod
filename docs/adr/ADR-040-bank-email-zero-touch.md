@@ -32,10 +32,11 @@ auto-confirms with zero user input. An undecided answer still parks a review, bu
 it is category-only: amount, time, direction, and channel are known facts and are
 not requested again.
 
-**Bounded verification retry.** An unsupported verification verdict is re-asked
-once. Only a second, equally negative ruling sends the email to review. This is
-safe retry (PRD §3.7/§10.2), not threshold lowering: the acceptance policy and
-every claim threshold are unchanged.
+**Bounded verification retry.** A provider failure (timeout, gateway failure,
+rate limit, malformed response) is retried once. A semantic negative is a verdict,
+not a failure, and immediately sends the email to review. Retrying a negative
+would let either of two draws approve and raise the effective acceptance rate,
+so it is not the safe retry allowed by PRD §3.7.
 
 The bounded candidate set is server-owned — category slugs the household already
 has — and Go maps the approved slug back to the canonical category ID. Jev never

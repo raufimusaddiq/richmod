@@ -2,6 +2,18 @@ package bankemail
 
 import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 
+// reviewPolicyVersion names the policy that actually decided each review type,
+// so the stored contract stays reproducible (PRD §18).
+func reviewPolicyVersion(reviewType string) string {
+	switch reviewType {
+	case "TRANSFER_CLASSIFICATION", "UNKNOWN_PURPOSE":
+		// Decided by the deterministic policy pipeline, not the bounded plane.
+		return ToolSchemaVersion
+	default:
+		return BankEmailVerificationPolicyVersion
+	}
+}
+
 // transactionReviewDecision builds the PRD §7 contract for a bank expense that
 // parked a review. Which facts are missing is derived from the review reason, so
 // the Inbox asks only what is genuinely unresolved: a new merchant with an
@@ -32,9 +44,10 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		ReasonCode:     result.ReviewType,
 		KnownFacts:     known,
 		DecisionSource: reviewdec.SourceGenerativePlusJev,
-		// The bounded evidence/category decision that admitted this review is ruled
-		// by the verification policy, so version that rather than the tool schema.
-		PolicyVersion:   BankEmailVerificationPolicyVersion,
+		// The version names the policy that actually decided this review type: the
+		// bounded verification/category plane for evidence gaps, the deterministic
+		// account-match policy for transfer classification (PRD §18).
+		PolicyVersion:   reviewPolicyVersion(result.ReviewType),
 		Provenance:      map[string]any{"pipeline": "bank-email-generic", "household": household},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
 		AllowedActions:  []string{"IGNORE"},

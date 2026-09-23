@@ -1902,9 +1902,10 @@ every new review can explain exactly why user input is required
 **Status (2026-09-23): implemented.** A new-merchant expense now asks the bounded
 plane to pick one category from the household's active set; a decisive,
 well-separated answer auto-confirms with zero user input, and an undecided one
-opens a category-only review. An unsupported evidence-verification verdict is
-re-asked once before review (safe retry, PRD §3.7/§10.2) rather than being fatal
-on a single probabilistic ruling. Thresholds are unchanged. See ADR-040.
+opens a category-only review. Provider failures (timeout, gateway failure, rate
+limit, malformed response) retry once; a semantic negative immediately opens a
+review, because it is a verdict rather than a safe-retry condition. Thresholds
+are unchanged. See ADR-040.
 
 Implement:
 

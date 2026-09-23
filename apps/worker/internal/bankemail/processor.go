@@ -527,12 +527,14 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 			// undecided category is a pure category gap: amount, time, and direction
 			// are known. The decision must be written after the review exists —
 			// updating first matched zero rows and was silently dropped.
-			if encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON(); encodeErr == nil {
-				if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
-					return execErr
-				} else if tag.RowsAffected() != 1 {
-					return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
-				}
+			encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON()
+			if encodeErr != nil {
+				return encodeErr
+			}
+			if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
+				return execErr
+			} else if tag.RowsAffected() != 1 {
+				return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
 			}
 		}
 	}
