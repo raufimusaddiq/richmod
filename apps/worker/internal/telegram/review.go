@@ -1305,10 +1305,22 @@ func (p *Processor) continueRememberMerchant(ctx context.Context, sourceEventID,
 }
 
 func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string) error {
-	var reviewID string
-	err := tx.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id) SELECT household_id,id,$2,'PENDING_SEND',created_by_user_id FROM transaction WHERE id=$1 RETURNING id,household_id,transaction_id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT item.id,item.household_id,item.transaction_id,$2,$3,'PENDING_SEND' FROM item RETURNING id`, transactionID, reviewType, chatID).Scan(&reviewID)
+	// reviewID is the review_request id (the handle every later enqueue uses);
+	// itemID is the review_item row the ReviewDecision contract lives on. They are
+	// different rows, so the decision write must target itemID or it silently
+	// updates nothing.
+	var reviewID, itemID string
+	err := tx.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id) SELECT household_id,id,$2,'PENDING_SEND',created_by_user_id FROM transaction WHERE id=$1 RETURNING id,household_id,transaction_id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT item.id,item.household_id,item.transaction_id,$2,$3,'PENDING_SEND' FROM item RETURNING id,(SELECT id FROM item)`, transactionID, reviewType, chatID).Scan(&reviewID, &itemID)
 	if err != nil {
 		return err
+	}
+	// PRD 7/37: every Telegram review carries the same ReviewDecision contract
+	// the Inbox renders, written at the one place all reviews are created, so a
+	// Telegram review and a web review ask for exactly the same unresolved fact.
+	if encoded, encodeErr := telegramReviewDecision(ctx, tx, transactionID, reviewType).JSON(); encodeErr == nil {
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE id=$1`, itemID, string(encoded)); err != nil {
+			return err
+		}
 	}
 	state, reviewMessage, markupMode := reviewInitialState(reviewType, message)
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
