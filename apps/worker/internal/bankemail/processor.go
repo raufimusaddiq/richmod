@@ -43,11 +43,15 @@ func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirm = enabled }
 
 // applyCategoryAutoConfirmSwitch is the PRD §33 gate on this source's
-// auto-confirm. With the switch off, a policy that would have written confirmed
-// ledger money parks a category-carrying review instead; the decided category
-// still travels on the result so the card can propose it.
+// *category* auto-confirm. With the switch off, an expense whose category the
+// policy would have applied parks as a category-carrying review instead; the
+// decided category still travels on the result so the card can propose it.
+//
+// Only a result that actually carries a category is gated: a known-account
+// transfer also sets AutoConfirm but has no category, so parking it here would
+// open a category picker for a transfer that has no category to pick.
 func applyCategoryAutoConfirmSwitch(result PolicyResult, enabled bool) PolicyResult {
-	if enabled || !result.AutoConfirm {
+	if enabled || !result.AutoConfirm || result.CategoryID == "" {
 		return result
 	}
 	result.AutoConfirm = false
@@ -214,9 +218,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
-	// PRD §33: the deterministic policy also auto-confirms a remembered merchant
-	// category. The kill-switch governs every auto-confirm this source can do, so
-	// turn it off before the bounded classifier below repopulates the flag.
+	// PRD §33: the deterministic policy auto-confirms a remembered merchant
+	// category. The kill-switch governs that category auto-confirm, so it is
+	// applied to the policy result the deterministic rules already produced.
 	result = applyCategoryAutoConfirmSwitch(result, p.categoryAutoConfirm)
 	status := result.Status
 	if status == "" {

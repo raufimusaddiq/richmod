@@ -243,6 +243,7 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f com
 Disabling a source does not lose data: the evidence is still processed, the
 proposal is still written, and the card still carries the proposed category, so
 re-enabling the switch later needs no backfill.
+
 ## Semantic canary corpus
 
 PR #120 showed that prompt-text regression tests do not protect against semantic

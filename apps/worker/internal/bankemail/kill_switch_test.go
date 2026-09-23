@@ -30,6 +30,16 @@ func TestCategoryAutoConfirmKillSwitchParksRememberedMerchant(t *testing.T) {
 	}
 }
 
+// A known-account transfer auto-confirms too, but it has no category. Gating it
+// would park a transfer as a category review with an empty picker.
+func TestCategoryAutoConfirmKillSwitchLeavesTransfersAlone(t *testing.T) {
+	transfer := PolicyResult{Type: "TRANSFER", Status: "CONFIRMED", AutoConfirm: true, Description: "Transfer antar rekening yang dikenal."}
+	kept := applyCategoryAutoConfirmSwitch(transfer, false)
+	if !kept.AutoConfirm || kept.Status != "CONFIRMED" {
+		t.Fatalf("a categoriless transfer must not be parked as a category review: %+v", kept)
+	}
+}
+
 // A review that was never auto-confirmable is untouched by the switch.
 func TestCategoryAutoConfirmKillSwitchLeavesReviewsAlone(t *testing.T) {
 	review := PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "UNKNOWN_MERCHANT"}
@@ -37,4 +47,3 @@ func TestCategoryAutoConfirmKillSwitchLeavesReviewsAlone(t *testing.T) {
 		t.Fatalf("switch altered an already-parked review: %+v", got)
 	}
 }
-
