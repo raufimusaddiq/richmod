@@ -69,6 +69,73 @@ var evidenceVerificationPolicy = struct {
 	Ambiguity: judgment.NoulPolicy{High: 0.15, Low: 0.05},
 }
 
+// bankCategoryPolicy is the bounded-choice strictness for the new-merchant
+// category question. It mirrors the Telegram category policy so a category is
+// only auto-applied when the same plane would have accepted it there (PRD §9.3).
+var bankCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
+
+const bankCategoryQuestion = "Choose the best active expense category for this purchase. Use OTHER_OR_UNCLEAR only when no category is safe."
+
+// resolveNewMerchantCategory asks the bounded plane to choose among the server's
+// active categories for a new merchant, then returns the canonical category ID
+// only when the answer is decisive and the chosen slug is one Go offered. It is
+// the deterministic Go half of PRD §9.3: the model picks a slug, Go resolves the
+// ID, and an undecided or ambiguous answer returns "" so the caller keeps its
+// category-only review. A provider failure also returns "" rather than guessing.
+func (p *Processor) resolveNewMerchantCategory(ctx context.Context, householdID string, extraction Extraction) string {
+	if p.verifier == nil || extraction.Merchant == nil || strings.TrimSpace(*extraction.Merchant) == "" {
+		return ""
+	}
+	categories, err := p.activeExpenseCategories(ctx, householdID)
+	if err != nil || len(categories) == 0 {
+		return ""
+	}
+	slugs := make([]string, 0, len(categories))
+	for _, category := range categories {
+		slugs = append(slugs, category.Slug)
+	}
+	result, err := p.verifier.Evaluate(ctx, "", judgment.Request{
+		State: map[string]any{
+			"merchant": "<untrusted_merchant>" + strings.TrimSpace(*extraction.Merchant) + "</untrusted_merchant>",
+		},
+		Questions: map[string]judgment.Question{
+			"category": {Type: "choice", Instructions: bankCategoryQuestion, Criteria: judgment.CategoryCriteria(slugs)},
+		},
+	})
+	if err != nil {
+		return ""
+	}
+	answer, ok := result.Answers["category"]
+	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, judgment.CategoryCriteria(slugs), bankCategoryPolicy) {
+		return ""
+	}
+	for _, category := range categories {
+		if category.Slug == answer.Choice {
+			return category.ID
+		}
+	}
+	return ""
+}
+
+type expenseCategory struct{ ID, Slug string }
+
+func (p *Processor) activeExpenseCategories(ctx context.Context, householdID string) ([]expenseCategory, error) {
+	rows, err := p.pool.Query(ctx, `SELECT id,slug FROM category WHERE household_id=$1 AND active ORDER BY slug`, householdID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []expenseCategory
+	for rows.Next() {
+		var category expenseCategory
+		if err := rows.Scan(&category.ID, &category.Slug); err != nil {
+			return nil, err
+		}
+		out = append(out, category)
+	}
+	return out, rows.Err()
+}
+
 // verificationClaims is the bounded question set. Each claim is about facts the
 // deterministic bank policy will act on, and each is answered from the same
 // minimized state snapshot (PRD §20).

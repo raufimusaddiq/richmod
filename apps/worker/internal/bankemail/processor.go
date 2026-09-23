@@ -193,6 +193,17 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
+	// A new merchant with a decisive bounded category ruling must confirm without
+	// a review: the category question is answered by the same plane that rules on
+	// the rest of the event, and Go resolves the canonical ID (PRD §9.3). An
+	// undecided ruling leaves the policy result untouched, so the category-only
+	// review below still applies.
+	if result.ReviewType == "AMBIGUOUS_CATEGORY" {
+		if categoryID := p.resolveNewMerchantCategory(ctx, household, extraction); categoryID != "" {
+			result.CategoryID, result.AutoConfirm = categoryID, true
+			result.Status, result.ReviewType = "CONFIRMED", ""
+		}
+	}
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
@@ -346,8 +357,12 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 		"direction_supported":  verification.DirectionSupported,
 		"channel_supported":    verification.ChannelSupported,
 		"material_ambiguity":   verification.MaterialAmbiguity,
-		"supported":            verification.supported(),
-		"policy_version":       verification.PolicyVersion,
+		// Without this an operator reading the row cannot tell "ruled not ambiguous"
+		// from "the plane could not tell", which is the distinction that decides
+		// whether the event may auto-confirm.
+		"ambiguity_decided_not_ambiguous": verification.AmbiguityDecidedNotAmbiguous,
+		"supported":                       verification.supported(),
+		"policy_version":                  verification.PolicyVersion,
 	})
 	if err != nil {
 		return err

@@ -3,19 +3,26 @@ package bankemail
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 // PRD section 25 required Bank Email acceptance tests, named by their PRD case so
 // a reviewer can map each one to the requirement.
 //
-// Every case here is offline and deterministic. The half of B2/B3 that depends on
-// a bounded model verdict cannot be asserted offline without mocking the answer,
-// which proves nothing, so those paths are exercised against the real provider by
-// the section 23 semantic canary corpus instead. B2 and B3 below cover the
-// deterministic decision each of those outcomes must land on once the model has
-// spoken: a decisive category confirms, an undecided one parks a category-only
-// review.
+// Every case here is offline and deterministic except B2, which touches the real
+// category table through TEST_DATABASE_URL because the PRD (9.3) makes the
+// canonical ID resolution a Go responsibility. The bounded *verdict* is stubbed:
+// asserting what a decisive or undecided answer must land on is the deterministic
+// half this file owns. The answers themselves are exercised against the real
+// provider by the section 23 semantic canary corpus, which is delivered with the
+// canary PRD stage rather than here.
 
 // B1 - learn merchant auto-applies its stored category.
 func TestBankEmailB1LearnedMerchantConfirmsWithoutReview(t *testing.T) {
@@ -42,18 +49,45 @@ func TestBankEmailB1LearnedMerchantCreatesNoReviewWork(t *testing.T) {
 // case: the processor writes these fields onto the policy result when the
 // classifier returns a decisive answer.
 func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	var householdID string
+	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("B2 %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	var foodID string
+	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman') RETURNING id", householdID).Scan(&foodID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The policy itself still starts the unknown merchant as a category review;
+	// that is unchanged and is what B3 pins.
 	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Warung Baru"), nil)
 	if result.Status != "NEEDS_REVIEW" || result.ReviewType != "AMBIGUOUS_CATEGORY" {
 		t.Fatalf("an unknown merchant starts as a category review: %+v", result)
 	}
-	// What the processor does with a decisive bounded answer.
-	result.CategoryID, result.AutoConfirm = "cat-food", true
-	result.Status, result.ReviewType = "CONFIRMED", ""
-	if result.Status != "CONFIRMED" || !result.AutoConfirm || result.ReviewType != "" {
-		t.Fatalf("a decisive category must confirm with no review: %+v", result)
+
+	// A decisive bounded answer resolves the canonical slug to its ID.
+	processor := &Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{
+		"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"})),
+	}}}
+	if got := processor.resolveNewMerchantCategory(ctx, householdID, outgoingCard("54000", "Warung Baru")); got != foodID {
+		t.Fatalf("a decisive category must resolve to its canonical id: got %q want %q", got, foodID)
 	}
-	if result.CategoryID != "cat-food" {
-		t.Fatalf("the decided category must be persisted: %+v", result)
+
+	// A provider failure must leave the review in place rather than guess.
+	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
+	if got := undecided.resolveNewMerchantCategory(ctx, householdID, outgoingCard("54000", "Warung Baru")); got != "" {
+		t.Fatalf("a provider failure must not resolve a category: %q", got)
 	}
 }
 
@@ -68,19 +102,17 @@ func TestBankEmailB3UndecidedCategoryAsksOnlyForCategory(t *testing.T) {
 	if result.AutoConfirm {
 		t.Fatalf("an undecided category must never auto-confirm: %+v", result)
 	}
-	decision := partialDecision("household", "source", outgoingCard("54000", "Warung Baru"), "AMBIGUOUS_CATEGORY", []string{"category"}, "the bounded plane could not decide a category")
-	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "category" {
-		t.Fatalf("the review must name only the category as missing: %v", decision.MissingFacts)
+	// The undecided path is a transaction-backed category review: the message the
+	// user sees states the amount and time as context and asks only for a category
+	// (PRD 9.6). Asserting the rendered message is what proves the amount and date
+	// are not re-requested; asserting a hand-built decision's missingFacts would
+	// only echo the input.
+	message := bankReviewMessage(result.ReviewType, "54000", time.Date(2026, 9, 23, 13, 45, 0, 0, time.UTC), "Warung Baru")
+	if !strings.Contains(message, "Rp54.000") || !strings.Contains(message, "WIB") {
+		t.Fatalf("the review must already show the known amount and time: %q", message)
 	}
-	for _, known := range []string{"amount_idr", "transaction_at"} {
-		for _, missing := range decision.MissingFacts {
-			if missing == known {
-				t.Fatalf("%s is already known and must not be re-requested", known)
-			}
-		}
-	}
-	if decision.KnownFacts["amount_idr"] != "54000" {
-		t.Fatalf("the known amount must travel with the review: %v", decision.KnownFacts)
+	if strings.Contains(strings.ToLower(message), "nominal baru") || strings.Contains(strings.ToLower(message), "isi waktu") {
+		t.Fatalf("the review must not ask for amount or time again: %q", message)
 	}
 }
 

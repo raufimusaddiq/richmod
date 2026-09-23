@@ -40,6 +40,16 @@ func supportedRuling() map[string]judgment.Answer {
 	}
 }
 
+func choice(label string, criteria map[string]any) judgment.Answer {
+	answer := judgment.Answer{Type: "choice", Choice: label, HasConfidence: true, Confidence: 0.99, Distribution: map[string]float64{}}
+	for key := range criteria {
+		answer.Distribution[key] = 0.001
+	}
+	answer.Distribution[label] = 1 - 0.001*float64(len(criteria)-1)
+	answer.Probability = answer.Distribution[label]
+	return answer
+}
+
 func stringPtrFor(value string) *string { return &value }
 
 func testExtraction() Extraction {
