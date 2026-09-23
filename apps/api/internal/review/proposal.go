@@ -2,27 +2,33 @@ package review
 
 import "encoding/json"
 
-// proposalFacts extracts the server-owned proposal and the exact unresolved
-// dimensions from a stored ReviewDecision (PRD §13.1, §13.4). The Inbox renders
-// the proposal and asks only for what this returns, so a card can never demand a
-// fact the review already holds (PRD §3.3). A missing or unreadable decision
-// yields an empty proposal rather than a guessed one.
-func proposalFacts(decision []byte) (map[string]any, []string) {
+// storedDecision is the server-owned subset of a ReviewDecision the Inbox needs:
+// what the review already knows, what Richmod proposes, and the exact dimensions
+// still unresolved (PRD 13.1, 13.4).
+type storedDecision struct {
+	KnownFacts    map[string]any `json:"knownFacts"`
+	ProposedFacts map[string]any `json:"proposedFacts"`
+	MissingFacts  []string       `json:"missingFacts"`
+}
+
+// proposalFacts extracts that subset from a stored ReviewDecision. The Inbox
+// renders the known facts read-only and asks only for what this reports as
+// missing, so a card can never demand a fact the review already holds
+// (PRD 3.3, 13.4). A missing or unreadable decision yields the zero value rather
+// than a guessed one: the card then falls back to the full form.
+func proposalFacts(decision []byte) storedDecision {
+	var stored storedDecision
 	if len(decision) == 0 {
-		return nil, nil
-	}
-	var stored struct {
-		ProposedFacts map[string]any `json:"proposedFacts"`
-		MissingFacts  []string       `json:"missingFacts"`
+		return stored
 	}
 	if err := json.Unmarshal(decision, &stored); err != nil {
-		return nil, nil
+		return storedDecision{}
 	}
-	return stored.ProposedFacts, stored.MissingFacts
+	return stored
 }
 
 // missingField reports whether one dimension is genuinely unresolved, so a card
-// renders an input only for what the decision named (PRD §13.4).
+// renders an input only for what the decision named (PRD 13.4).
 func missingField(missing []string, field string) bool {
 	for _, name := range missing {
 		if name == field {
@@ -31,3 +37,4 @@ func missingField(missing []string, field string) bool {
 	}
 	return false
 }
+

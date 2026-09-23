@@ -9,25 +9,28 @@ import (
 // list of genuinely unresolved facts regardless of which pipeline created it.
 func TestProposalFactsFromDecisionCarriesClassAndMissingFacts(t *testing.T) {
 	decision := []byte(`{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","knownFacts":{"amount_idr":"54000"},"proposedFacts":{"categorySlug":"food-and-drink"},"missingFacts":["category"],"whyNotAutoConfirm":"thin margin","allowedActions":["IGNORE"],"interactionMode":"BOUNDED_CHOICE"}`)
-	proposal, missing := proposalFacts(decision)
-	if proposal["categorySlug"] != "food-and-drink" {
-		t.Fatalf("the proposed fact must drive the card: %+v", proposal)
+	stored := proposalFacts(decision)
+	if stored.ProposedFacts["categorySlug"] != "food-and-drink" {
+		t.Fatalf("the proposed fact must drive the card: %+v", stored.ProposedFacts)
 	}
-	if len(missing) != 1 || missing[0] != "category" {
-		t.Fatalf("only the unresolved dimension may be requested: %+v", missing)
+	if stored.KnownFacts["amount_idr"] != "54000" {
+		t.Fatalf("a known fact must reach the card so it is not re-asked: %+v", stored.KnownFacts)
+	}
+	if len(stored.MissingFacts) != 1 || stored.MissingFacts[0] != "category" {
+		t.Fatalf("only the unresolved dimension may be requested: %+v", stored.MissingFacts)
 	}
 }
 
 // A review stored before the decision contract existed has no proposal. It must
 // keep working rather than rendering an empty card.
 func TestProposalFactsWithoutDecisionReturnsNoMissingFacts(t *testing.T) {
-	proposal, missing := proposalFacts(nil)
-	if len(proposal) != 0 || len(missing) != 0 {
-		t.Fatalf("a decision-less review must not invent a proposal: %+v %+v", proposal, missing)
+	stored := proposalFacts(nil)
+	if len(stored.ProposedFacts) != 0 || len(stored.MissingFacts) != 0 || len(stored.KnownFacts) != 0 {
+		t.Fatalf("a decision-less review must not invent a proposal: %+v", stored)
 	}
-	proposal, missing = proposalFacts([]byte("not json"))
-	if len(proposal) != 0 || len(missing) != 0 {
-		t.Fatalf("an unreadable decision must not invent a proposal: %+v %+v", proposal, missing)
+	stored = proposalFacts([]byte("not json"))
+	if len(stored.ProposedFacts) != 0 || len(stored.MissingFacts) != 0 || len(stored.KnownFacts) != 0 {
+		t.Fatalf("an unreadable decision must not invent a proposal: %+v", stored)
 	}
 }
 
@@ -36,7 +39,7 @@ func TestProposalFactsWithoutDecisionReturnsNoMissingFacts(t *testing.T) {
 // name (PRD §13.4).
 func TestProposalFactsIgnoresFactsNotNamedAsMissing(t *testing.T) {
 	decision := []byte(`{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","decisionClass":"EVIDENCE_GAP","knownFacts":{},"missingFacts":["wealth_account"],"provenance":{},"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"],"interactionMode":"SINGLE_FIELD"}`)
-	_, missing := proposalFacts(decision)
+	missing := proposalFacts(decision).MissingFacts
 	for _, field := range missing {
 		if field == "amount" || field == "merchant" || field == "transactionAt" {
 			t.Fatalf("amount, merchant, and time are never re-requested: %v", missing)
