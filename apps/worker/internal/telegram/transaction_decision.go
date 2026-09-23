@@ -132,6 +132,10 @@ type turnAgentContextState struct {
 	HasPendingWorkflow  bool
 	ActiveReviewCount   int
 	ExactReply          bool
+	// Route is the decided Jev route for this turn, filled by the fast path and
+	// read back by ProcessAgent so implicit workflow bindings are narrowed only
+	// when the route names that interaction (ADR-038 amendment).
+	Route string
 }
 
 func (s turnAgentContextState) harvestable() bool {

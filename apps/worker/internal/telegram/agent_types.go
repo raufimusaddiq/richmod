@@ -63,14 +63,6 @@ type agentState struct {
 	HasPendingBatch  bool
 	HasSalaryChoice  bool
 	ReviewMode       string
-	// WorkflowScope is the server-owned target precedence chosen for this turn
-	// (see applyAgentWorkflowToolPolicy). It lets a bound-workflow handler tell an
-	// explicit user reply to a workflow apart from an implicit chat-level binding.
-	WorkflowScope string
-	// GeneralTools is the unfiltered side-effect catalog, retained so an implicit
-	// binding that turns out not to match the message can fall through to normal
-	// handling instead of swallowing the turn.
-	GeneralTools []gateway.ToolDefinition
 
 	// Native continuation state for the immediately preceding READ phase. The
 	// gateway consumes these as provider-native tool outputs on the next model

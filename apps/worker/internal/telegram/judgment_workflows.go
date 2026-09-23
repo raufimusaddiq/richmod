@@ -59,23 +59,10 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, err
 	}
 	if state.MerchantLearningBinding != nil {
-		// A bounded choice is required here, not a Noul: an implicit binding must
-		// be able to say "this message is not an answer to the confirmation", which
-		// a yes/no plus an undecided band cannot express. Without it, an awaiting
-		// merchant confirmation swallows every later message in the chat, the same
-		// defect PR #115 fixed for the implicit review binding.
 		criteria := map[string]any{"REMEMBER": "consent to remember this merchant category rule", "SKIP": "do not remember the rule", "OTHER_OR_UNCLEAR": "not an answer to this confirmation"}
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskMerchantLearning, text, "merchant_learning", "Choose the user's bounded response to the pending merchant-category confirmation. Use OTHER_OR_UNCLEAR when the message is not answering this confirmation.", criteria)
 		if err != nil || !ok {
 			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
-		}
-		if choice == "OTHER_OR_UNCLEAR" && state.WorkflowScope == string(agentWorkflowMerchantLearning) {
-			state.MerchantLearningBinding = nil
-			state.MerchantLearningCount = 0
-			state.Tools = state.GeneralTools
-			state.TurnContext["merchant_learning"] = nil
-			state.TurnContext["workflow_scope"] = string(agentWorkflowGeneral)
-			return false, nil
 		}
 		if choice == "OTHER_OR_UNCLEAR" {
 			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
@@ -88,21 +75,6 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok {
 			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
-		}
-		// A chat-level (implicit) review binding must not hijack every later
-		// message in the chat. Only a *decided* "this is not a review answer"
-		// falls through: an error or an undecided classifier result above keeps the
-		// clarification hard stop, because there is no evidence the message is a
-		// new event. An explicit reply to the review message also keeps the hard
-		// stop: there the user does mean to answer the review.
-		if choice == "OTHER_OR_UNCLEAR" && state.WorkflowScope == string(agentWorkflowUniqueReview) {
-			state.ReviewBinding = nil
-			state.ReviewBindingCount = 0
-			state.ReviewMode = ""
-			state.Tools = state.GeneralTools
-			state.TurnContext["active_review"] = nil
-			state.TurnContext["workflow_scope"] = string(agentWorkflowGeneral)
-			return false, nil
 		}
 		if choice == "OTHER_OR_UNCLEAR" {
 			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
