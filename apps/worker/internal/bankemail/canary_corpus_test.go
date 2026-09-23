@@ -72,8 +72,11 @@ var canaryCases = []canaryCase{
 			"Berlaku sampai 30 September 2026. Syarat dan ketentuan berlaku.\n" +
 			"Pakai kode: HEMAT50.",
 		shape: func(t *testing.T, got Extraction) {
-			if got.Kind == "TRANSACTION" && got.AmountIDR != nil {
-				t.Fatalf("promo email was read as a transaction with an amount: %+v", got)
+			// A promo is not a transaction at all. A nil-amount "transaction" is
+			// also wrong: it would park a review for an email that is not a
+			// financial event, which is the review-by-default the PRD removes.
+			if got.Kind == "TRANSACTION" {
+				t.Fatalf("promo email was read as a transaction: %+v", got)
 			}
 		},
 	},
@@ -83,7 +86,9 @@ var canaryCases = []canaryCase{
 			"Transaksi terbesar: Rp 750.000\nSaldo akhir bulan: Rp 12.400.000\n" +
 			"Ini bukan bukti transaksi tunggal.",
 		shape: func(t *testing.T, got Extraction) {
-			if got.Kind == "TRANSACTION" && got.AmountIDR != nil {
+			// A statement summarising many transactions is not itself one, whether
+			// or not the model managed to name an amount for it.
+			if got.Kind == "TRANSACTION" {
 				t.Fatalf("monthly statement was read as a single transaction: %+v", got)
 			}
 		},
@@ -95,7 +100,13 @@ var canaryCases = []canaryCase{
 		shape: func(t *testing.T, got Extraction) {
 			// Either amount is defensible from the text; what must not happen is an
 			// invented figure that appears nowhere in the email.
-			if got.Kind == "TRANSACTION" && got.AmountIDR != nil && *got.AmountIDR != "250000" && *got.AmountIDR != "265000" {
+			if got.Kind != "TRANSACTION" {
+				t.Fatalf("a completed payment notice must read as a transaction: %+v", got)
+			}
+			if got.AmountIDR == nil {
+				t.Fatalf("the email names two amounts; none was extracted: %+v", got)
+			}
+			if *got.AmountIDR != "250000" && *got.AmountIDR != "265000" {
 				t.Fatalf("invented an amount outside the email: %+v", got)
 			}
 		},
@@ -117,11 +128,21 @@ var canaryCases = []canaryCase{
 	{
 		name: "wrong-direction-incoming-credit",
 		body: "Dana Masuk\nNominal: Rp 1.500.000\nPengirim: Budi Santoso\nWaktu: 28-08-2026 08:30:00\n" +
+			"Referensi: 2026082808301234\n" +
 			"Saldo kamu bertambah.",
 		shape: func(t *testing.T, got Extraction) {
 			// PRD §9 SPENDING_ONLY: incoming money on a spending account is not
-			// household income, whatever the model reports as direction.
-			if got.Kind == "TRANSACTION" && got.Direction != nil && *got.Direction == "INCOMING" {
+			// household income, whatever the model reports as direction. The guard
+			// must not depend on the model getting the direction right: drifting to
+			// OUTGOING here is exactly the regression this case exists to catch, so
+			// assert on the policy verdict alone.
+			//
+			// The email carries a timestamp and a reference on purpose. Without them
+			// the deterministic gate would park the event for missing facts and the
+			// case would pass for the wrong reason, hiding whether the direction was
+			// actually honoured. This states the whole fact set so the only thing
+			// left to decide is that an incoming credit is ignored.
+			if got.Kind == "TRANSACTION" {
 				if verdict := bankPolicyVerdict(got); verdict.Type != "IGNORE" {
 					t.Fatalf("incoming credit reached the ledger as %s: %+v", verdict.Type, got)
 				}
