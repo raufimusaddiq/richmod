@@ -599,7 +599,7 @@ func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	// The evidence settled the bank account but not the provider Wealth Account.
-	if err = (&Processor{pool: pool}).resolutionReview(ctx, tx, household, source, observation, account, ""); err != nil {
+	if err = (&Processor{pool: pool}).resolutionReview(ctx, tx, household, source, observation, account, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {

@@ -170,7 +170,8 @@ test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/inbox/page.js"), /\/api\/v1\/reviews/);
   assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
   assert.match(text("app/components/ReviewCards.js"), /transactions\?id=/);
-  assert.match(text("app/components/ReviewCards.js"), /missingFields\?\.includes\("merchant"\)/);
+	assert.match(text("app/components/ReviewCards.js"), /const missing = MissingInputs\(item\)/);
+	assert.match(text("app/components/ReviewCards.js"), /missing\.merchant && <label>Merchant/);
   assert.match(text("app/components/ReviewCards.js"), /name="merchantName" required/);
 });
 
