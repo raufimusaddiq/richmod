@@ -243,6 +243,46 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f com
 Disabling a source does not lose data: the evidence is still processed, the
 proposal is still written, and the card still carries the proposed category, so
 re-enabling the switch later needs no backfill.
+## Semantic canary corpus
+
+PR #120 showed that prompt-text regression tests do not protect against semantic
+provider drift: the prompt can be byte-identical while the model behind the alias
+starts reading the same notification email differently. The PRD §23 canary corpus
+in `apps/worker/internal/bankemail/canary_corpus_test.go` exercises the live
+provider on the email shapes that matter and asserts the bounded outcome.
+
+It is not part of CI. Run it:
+
+- manually before trusting a new gateway or model alias;
+- in staging after a provider change;
+- before a production promotion that touches bank-email semantics;
+- periodically, where operationally practical.
+
+```bash
+docker run --rm --network idx_default -v "$PWD:/src" \
+  -v richmod-gomod:/go/pkg/mod -w /src/apps/worker \
+  --env-file /opt/family-finance/finance.env \
+  -e RICHMOD_SEMANTIC_CANARY=1 \
+  golang:1.27.0 go test ./internal/bankemail/ -run SemanticCanary -v -timeout 900s
+```
+
+It reads `LLM_MODEL_BANK_EXTRACT` (falling back to `LLM_MODEL_TELEGRAM_EXTRACT`)
+and uses the same LiteRouter URL/key as the worker. Point the gateway base URL at
+LiteRouter's internal address (`http://9router:20128/v1`) so the check does not
+route back through the public edge.
+
+Cases covered: a completed transaction carrying a security footer; a
+support-phone-only footer; a transaction-history link; a promo/cashback email; a
+monthly statement; two plausible amounts; an internal investment move; and an
+incoming credit. The last two assert the deterministic `SPENDING_ONLY` verdict on
+top of the extraction, so the model and the Go decision boundary are checked
+together.
+
+A failure names the case and prints the observed facts. Treat it as a
+pre-promotion signal: if a real transaction email stops being read as a
+transaction, do not ship the promotion until the cause is understood. Assertions
+stay on bounded facts (kind, direction, presence of a known amount) so ordinary
+wording drift does not fail the check while a real semantic regression does.
 
 ## Encrypted backups
 
