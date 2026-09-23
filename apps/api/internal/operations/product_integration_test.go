@@ -65,6 +65,16 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 		t.Fatalf("open reviews must be counted as outstanding friction: %+v", aggregate)
 	}
 
+	// A transaction in the window is the RHICE denominator cohort. Each review
+	// below is bound to one so the numerator and denominator share a cohort.
+	seedTx := func() string {
+		var txID string
+		if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR',now(),'product aggregate',now()) RETURNING id`, householdID).Scan(&txID); err != nil {
+			t.Fatal(err)
+		}
+		return txID
+	}
+
 	// An IGNORE resolves a review without producing a canonical event, so it must
 	// not count as an explicit input: the metric would otherwise credit the system
 	// for friction that produced nothing (PRD 22.1).
@@ -78,28 +88,49 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.ExplicitInputs != 0 || aggregate.TypedFields != 0 {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
-	if len(aggregate.Coverage) != 2 {
-		t.Fatalf("signals that cannot be reconstructed must stay named: %+v", aggregate.Coverage)
+	if len(aggregate.Coverage) != 3 {
+		t.Fatalf("every signal that cannot be reconstructed must stay named: %+v", aggregate.Coverage)
 	}
 
-	// A resolved typed-field resolution is one explicit input and one typed field;
-	// with no transaction in the window the denominator stays zero, so RHICE is
-	// reported as zero rather than a division artifact.
-	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr','54000','transaction_at',now()) WHERE household_id=$1 AND review_type='AMBIGUOUS_CATEGORY'`, householdID); err != nil {
+	// A resolved typed-field resolution bound to an in-window transaction is one
+	// explicit input, one typed field, and one canonical event.
+	bankTx := seedTx()
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET transaction_id=$2,status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr','54000','transaction_at',now()) WHERE household_id=$1 AND review_type='AMBIGUOUS_CATEGORY'`, householdID, bankTx); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aggregate.ExplicitInputs != 1 || aggregate.TypedFields != 1 {
-		t.Fatalf("a typed resolution must count as one explicit input and one typed field: %+v", aggregate)
+	if aggregate.ExplicitInputs != 1 || aggregate.TypedFields != 1 || aggregate.CanonicalEvents != 1 {
+		t.Fatalf("a typed resolution bound to an event is one input, one typed field, one event: %+v", aggregate)
 	}
-	if aggregate.CanonicalEvents != 0 || aggregate.RHICE != 0 {
-		t.Fatalf("RHICE must stay zero without a canonical event to divide by: %+v", aggregate)
+	if aggregate.RHICE != 1 {
+		t.Fatalf("one explicit input over one canonical event is RHICE 1: %+v", aggregate)
 	}
+	// A resolution bound to an event outside the window must not sit in the
+	// numerator while its event sits outside the denominator.
+	var oldTx string
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,confirmed_at,created_at) VALUES($1,'EXPENSE','CONFIRMED',1000,'IDR',now()-interval '60 days','old',now()-interval '60 days',now()-interval '60 days') RETURNING id`, householdID).Scan(&oldTx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,transaction_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','RESOLVED','COMPLETE_BANK_FACTS',now(),now())`, householdID, telegramEventID, oldTx); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.CanonicalEvents != 1 {
+		t.Fatalf("an out-of-window event must not enter the denominator: %+v", aggregate)
+	}
+	if aggregate.ExplicitInputs != 1 {
+		t.Fatalf("an out-of-window resolution must not enter the numerator: %+v", aggregate)
+	}
+
 	// An accepted proposal is an explicit input that carried no typed value.
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'POSSIBLE_DUPLICATE','RESOLVED','CONFIRM_REVIEW',now(),now())`, householdID, telegramEventID); err != nil {
+	tgTx := seedTx()
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,transaction_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,$3,'POSSIBLE_DUPLICATE','RESOLVED','CONFIRM_REVIEW',now(),now())`, householdID, telegramEventID, tgTx); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -114,7 +145,8 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	}
 	// A system resolution (no human answered) must not inflate RHICE: the
 	// numerator is an allow-list of explicit user actions, not a deny-list.
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now())`, householdID, telegramEventID); err != nil {
+	sysTx := seedTx()
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,transaction_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now())`, householdID, telegramEventID, sysTx); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)

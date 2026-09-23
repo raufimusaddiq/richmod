@@ -51,10 +51,7 @@ type productAggregate struct {
 	// reconstruct. Naming them here keeps a partial RHICE from reading as complete.
 	Coverage []string `json:"notYetMeasurable"`
 	// TimeToResolutionMs is the mean wall-clock time from review open to resolve
-	// for the resolutions in the window. A true round-trip count cannot be
-	// reconstructed: review_conversation holds one row per request (UNIQUE), so a
-	// follow-up turn is overwritten, not recorded — it is named in Coverage.
-	ReviewRoundTrips   int   `json:"reviewRoundTrips"`
+	// for the reviews in the window, read from review_item so every review counts.
 	TimeToResolutionMs int64 `json:"timeToResolutionMs"`
 }
 
@@ -148,27 +145,39 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 
 	// Every metric below is derived from canonical state, so it cannot drift from
 	// the ledger and needs no write-path instrumentation. An explicit user input
-	// is an acceptance or a typed value the user supplied; the numerator is an
-	// allow-list of those actions, so a system resolution written with some other
-	// action (EMAIL_RECEIVED_AT_FALLBACK, RECONCILED_TERMINAL_TRANSACTION,
-	// LEGACY_TRANSACTION_RESOLVED, NO_LONGER_APPLICABLE) cannot inflate RHICE. An
-	// IGNORE resolves a review without a canonical event, so it is neither.
+	// is a resolution a human performed: the numerator is an allow-list of the
+	// actions the writers actually emit for a user answer, so a system resolution
+	// (EMAIL_RECEIVED_AT_FALLBACK, RECONCILED_TERMINAL_TRANSACTION,
+	// LEGACY_TRANSACTION_RESOLVED, NO_LONGER_APPLICABLE) or an IGNORE can never
+	// inflate RHICE. Typed fields are the subset whose action names a value the
+	// user entered rather than a bounded choice.
 	if err := h.pool.QueryRow(ctx, `
 		SELECT
 		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN (
-		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES','SET_WEALTH_ACCOUNT',
-		   'ALLOCATE_RETAINED_BALANCE','RECORD_ASSET_PURCHASE','SET_MERCHANT','SET_CATEGORY',
-		   'RECLASSIFIED_ASSET_PURCHASE','CLASSIFY_TRANSFER','TRANSFER_RECONCILED')),
-		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN (
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES','SET_WEALTH_ACCOUNT',
-		   'ALLOCATE_RETAINED_BALANCE','RECORD_ASSET_PURCHASE','SET_MERCHANT','SET_CATEGORY',
-		   'RECLASSIFIED_ASSET_PURCHASE','CLASSIFY_TRANSFER','TRANSFER_RECONCILED')),
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES','ALLOCATE_RETAINED_BALANCE')
+		   AND ri.transaction_id IN (SELECT id FROM transaction WHERE created_at >= now() - interval '30 days')),
 		 count(*) FILTER (WHERE ri.status='OPEN'),
 		 count(*) FILTER (WHERE ri.status='RESOLVED' AND ri.resolution_action IN (
 		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
 		FROM review_item ri
-		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
+		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
+		return aggregate, err
+	}
+	// RHICE must be inputs per event over one cohort: scope the numerator to
+	// resolutions bound to a canonical event created in the same window, so a
+	// review resolved against an older event cannot land in the numerator while
+	// its event sits outside the denominator.
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*) FROM review_item ri
+		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days'
+		  AND ri.status='RESOLVED'
+		  AND ri.resolution_action IN (
+		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
+		   'TELEGRAM_TRANSFER_CLASSIFIED','TRANSFER_RECONCILED','RECLASSIFIED_ASSET_PURCHASE',
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES',
+		   'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER',
+		   'ALLOCATE_RETAINED_BALANCE','LEAVE_UNALLOCATED','TRANSACTION_MISSING')
+		  AND ri.transaction_id IN (SELECT id FROM transaction WHERE created_at >= now() - interval '30 days')`, householdID).Scan(&aggregate.ExplicitInputs); err != nil {
 		return aggregate, err
 	}
 	if err := h.pool.QueryRow(ctx, `
@@ -179,18 +188,18 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	if aggregate.CanonicalEvents > 0 {
 		aggregate.RHICE = float64(aggregate.ExplicitInputs) / float64(aggregate.CanonicalEvents)
 	}
-	// Section 22.2: the open-to-resolve interval is the time to canonical state,
-	// derived from the review_request row; no new write is needed. A round-trip
-	// count is not reconstructable from this schema (see Coverage), so it stays 0.
+	// Section 22.2: the open-to-resolve interval is the time to canonical state.
+	// It is read from review_item, not review_request, so every review type is
+	// covered, not only the transaction-bound Telegram requests.
 	if err := h.pool.QueryRow(ctx, `
-		SELECT COALESCE(avg(EXTRACT(EPOCH FROM (rr.resolved_at - rr.created_at)) * 1000)::bigint, 0)
-		FROM review_request rr
-		WHERE rr.household_id=$1 AND rr.created_at >= now() - interval '30 days' AND rr.status='RESOLVED'`, householdID).Scan(&aggregate.TimeToResolutionMs); err != nil {
+		SELECT COALESCE(avg(EXTRACT(EPOCH FROM (ri.resolved_at - ri.created_at)) * 1000)::bigint, 0)
+		FROM review_item ri
+		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days' AND ri.status='RESOLVED'`, householdID).Scan(&aggregate.TimeToResolutionMs); err != nil {
 		return aggregate, err
 	}
 	// Section 22.4 signals no current row can reconstruct: they need a write-side
 	// per-event input tally and a per-turn conversation log. Naming them keeps a
 	// partial RHICE from reading as complete.
-	aggregate.Coverage = []string{"bounded_choices_per_event", "review_round_trips"}
+	aggregate.Coverage = []string{"bounded_choices_per_event", "review_round_trips", "auto_confirm_correction_rate"}
 	return aggregate, nil
 }

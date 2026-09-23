@@ -1842,15 +1842,22 @@ review on a still-pending event cannot push it above 1), review rate by source,
 review rate by reason, RHICE (`explicitInputs / canonicalEvents`), typed fields,
 open reviews, and accepted-without-edit.
 
-Definitions are pinned to the actions that are actually written: typed fields are
-the resolutions whose action names a value the user supplied
-(`COMPLETE_BANK_FACTS`, `SET_PAY_DATE`, `SET_FINANCIAL_EMAIL_ENTITIES`,
-`SET_WEALTH_ACCOUNT`, `ALLOCATE_RETAINED_BALANCE`, `RECORD_ASSET_PURCHASE`,
-`SET_MERCHANT`, `SET_CATEGORY`, `RECLASSIFIED_ASSET_PURCHASE`,
-`CLASSIFY_TRANSFER`, `TRANSFER_RECONCILED`), an `IGNORE` is neither an input nor
-a typed field, and accepted-without-edit is the resolution actions that only
-accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
-`TELEGRAM_MERCHANT_DECISION`).
+Definitions are pinned to the actions the writers actually emit: explicit inputs
+are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
+`TELEGRAM_TRANSFER_CLASSIFIED`, `TRANSFER_RECONCILED`,
+`RECLASSIFIED_ASSET_PURCHASE`, `COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
+`SET_FINANCIAL_EMAIL_ENTITIES`, `PRIMARY_SALARY`, `ORDINARY_INCOME`,
+`MERGE_EXISTING`, `CONFIRM_NEW_TRANSFER`, `ALLOCATE_RETAINED_BALANCE`,
+`LEAVE_UNALLOCATED`, `TRANSACTION_MISSING`; typed fields are the subset whose
+action names a value the user entered (`COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
+`SET_FINANCIAL_EMAIL_ENTITIES`, `ALLOCATE_RETAINED_BALANCE`). System
+resolutions (`EMAIL_RECEIVED_AT_FALLBACK`, `RECONCILED_TERMINAL_TRANSACTION`,
+`LEGACY_TRANSACTION_RESOLVED`, `NO_LONGER_APPLICABLE`) and `IGNORE` are neither
+an input nor a typed field, and accepted-without-edit is the resolution actions
+that only accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
+`TELEGRAM_MERCHANT_DECISION`). Explicit inputs are counted only on resolutions
+bound to a canonical event created in the same window, so the RHICE numerator
+and denominator share one cohort.
 
 It also reports the mean time to resolution (the open-to-resolve interval,
 §22.2/§22.4).
