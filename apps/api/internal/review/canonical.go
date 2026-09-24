@@ -452,9 +452,26 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			if parseErr != nil {
 				err = errInvalid
 			} else {
-				_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET transaction_at=$2::date,updated_at=now() WHERE id=$1`, *proposal, date)
+				choice := strings.ToUpper(strings.TrimSpace(v.Choice))
+				if choice == "" {
+					// If a primary salary source already exists, classification is
+					// not an unresolved field in this review: the new dated payslip
+					// is ordinary income by default. A first salary source still
+					// requires the explicit household policy choice.
+					var hasPrimary bool
+					if queryErr := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, household).Scan(&hasPrimary); queryErr != nil {
+						err = queryErr
+					} else if hasPrimary {
+						choice = "ORDINARY_INCOME"
+					} else {
+						err = errInvalid
+					}
+				}
 				if err == nil {
-					err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, strings.ToUpper(v.Choice))
+					_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET transaction_at=$2::date,updated_at=now() WHERE id=$1`, *proposal, date)
+				}
+				if err == nil {
+					err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, choice)
 				}
 			}
 		}
