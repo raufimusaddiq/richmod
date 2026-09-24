@@ -95,7 +95,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 			return result, true, err
 		}
 	}
-	decision, acceptedWithoutSecondJev := generativeValidatedTransactionDecision(value, categoryID != nil, exactCategory, state.JudgmentRoute)
+	decision, acceptedWithoutSecondJev := generativeValidatedTransactionDecision(state.Update.Message.Text, value, categoryID != nil, exactCategory, state.JudgmentRoute)
 	if !acceptedWithoutSecondJev {
 		var decisionErr error
 		decision, decisionErr = p.resolveTransactionDecision(ctx, state.SourceEventID, state.HouseholdID, state.Update.Message.Text, value, allowedCategories, exactCategory)
