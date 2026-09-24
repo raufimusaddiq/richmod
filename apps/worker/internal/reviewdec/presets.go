@@ -62,6 +62,18 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"SET_PAY_DATE", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the pay date is not present in the evidence"
+	case "MISSING_TRANSACTION_DATE":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"transaction_at"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the transaction date is not present in the evidence; ingestion time must not be treated as transaction time"
+	case "TRANSACTION_FACTS_MISSING":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"category", "transaction_at"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeMinimalFields
+		base.WhyNotAuto = "more than one canonical transaction fact is absent; ask only for those residual fields"
 	case "TRANSFER_CLASSIFICATION":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"transfer_relationship"}
