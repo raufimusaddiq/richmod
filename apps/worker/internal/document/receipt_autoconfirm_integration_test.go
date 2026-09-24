@@ -248,6 +248,14 @@ func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
 	if status != "NEEDS_REVIEW" {
 		t.Fatalf("a receipt with no printed date must not auto-confirm, status=%s", status)
 	}
+	var reason, missing string
+	var knownTime *string
+	if err := fixture.pool.QueryRow(ctx, `SELECT review_type,decision->'missingFacts'->>0,decision->'knownFacts'->>'transaction_at' FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reason, &missing, &knownTime); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "MISSING_TRANSACTION_DATE" || missing != "transaction_at" || knownTime != nil {
+		t.Fatalf("date-only receipt review must ask only for the observed transaction time, reason=%q missing=%q known_time=%v", reason, missing, knownTime)
+	}
 }
 
 // PRD §33: the receipt auto-confirm must be independently disable-able, so a
