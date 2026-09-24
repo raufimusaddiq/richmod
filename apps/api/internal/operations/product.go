@@ -151,16 +151,16 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
 	}
 
-	// Every metric below is derived from canonical state, so it cannot drift from
-	// the ledger and needs no write-path instrumentation. An explicit user input
-	// is a resolution a human performed: the numerator is an allow-list of the
-	// actions the writers actually emit for a user answer. Residual allocation is
-	// review metadata, not an input to a canonical transaction, so it is excluded.
+	// RHICE counts actual human work, not review rows. One accept button is one
+	// input; a minimal form with date + category is two. resolution_values keeps
+	// only the fields submitted on that resolution, so count its non-null values
+	// and floor every user action at one. This prevents "one resolved review = one
+	// input" from hiding multi-field friction.
 	if err := h.pool.QueryRow(ctx, `
 		WITH recent_transactions AS (
 		  SELECT id FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'
 		), review_events AS (
-		  SELECT DISTINCT ri.id,ri.resolution_action
+		  SELECT DISTINCT ri.id,ri.resolution_action,COALESCE(ri.resolution_values,'{}'::jsonb) AS resolution_values
 		  FROM review_item ri
 		  JOIN recent_transactions t ON ri.transaction_id=t.id OR EXISTS (
 		    SELECT 1 FROM transaction_evidence te
@@ -174,19 +174,24 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		    )
 		  )
 		  WHERE ri.household_id=$1 AND ri.status='RESOLVED' AND ri.resolved_at >= now() - interval '30 days'
+		), user_events AS (
+		  SELECT *,
+		    (SELECT count(*) FROM jsonb_each(resolution_values) e WHERE e.value <> 'null'::jsonb) AS supplied_fields
+		  FROM review_events
+		  WHERE resolution_action IN (
+		    'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
+		    'TELEGRAM_TRANSFER_CLASSIFIED','TRANSFER_RECONCILED','RECLASSIFIED_ASSET_PURCHASE',
+		    'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES',
+		    'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER')
 		)
 		SELECT
-		 count(*) FILTER (WHERE resolution_action IN (
-		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
-		   'TELEGRAM_TRANSFER_CLASSIFIED','TRANSFER_RECONCILED','RECLASSIFIED_ASSET_PURCHASE',
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES',
-		   'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER')),
-		 count(*) FILTER (WHERE resolution_action IN (
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES')),
+		 COALESCE(sum(GREATEST(1,supplied_fields)),0),
+		 COALESCE(sum(supplied_fields) FILTER (WHERE resolution_action IN (
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES')),0),
 		 (SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
 		 count(*) FILTER (WHERE resolution_action IN (
 		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
-		FROM review_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
+		FROM user_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
 		return aggregate, err
 	}
 	if err := h.pool.QueryRow(ctx, `
