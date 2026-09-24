@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for implementation — 2026-09-20.
+Accepted for implementation — 2026-09-20. Amended by ADR-045 on 2026-09-24.
 
 ## Context
 
@@ -72,8 +72,12 @@ produce, such as unknown merchant strings, free-form descriptions, arbitrary
 document fields, vision extraction, multi-step conversational retrieval, and
 user-facing prose.
 
-After generative extraction, any remaining bounded semantic choice SHOULD return
-to Jev rather than rely on generative self-reported confidence.
+After generative extraction, only a **remaining unresolved** bounded semantic
+choice SHOULD return to Jev. A constrained generative fact that already passes
+its source-specific deterministic acceptance contract MUST NOT be re-decided by
+Jev merely to obtain model consensus. Post-generative Jev remains appropriate
+for residual bounded uncertainty or for an independently distinct evidence-
+support predicate. See ADR-045.
 
 ## Gateway boundary
 
@@ -133,13 +137,18 @@ clarification.
 
 ## Confidence policy
 
-Generative `confidence` and `category_confidence` are non-authoritative on
-Jev-enabled workflows and should be removed from decision logic as those paths
-migrate.
+Generative `confidence` and `category_confidence` are never sufficient by
+themselves to authorize canonical mutation.
 
-Richmod owns all probability thresholds, margins, policy versions, and review
-rules. Model probability is a signal consumed by Go policy, never a canonical
-truth value.
+A generative result may still complete a workflow without a second Jev call when
+the generative capability was genuinely required and the result passes the
+source-specific deterministic acceptance contract defined by ADR-045. If a
+bounded semantic fact remains unresolved, Jev owns that residual decision before
+human review.
+
+Richmod owns all probability thresholds, margins, policy versions, source
+acceptance contracts, and review rules. Model probability is a signal consumed
+by Go policy, never a canonical truth value.
 
 ## Failure behavior
 
@@ -157,6 +166,24 @@ Allowed outcomes are:
   unbounded capability.
 
 Deterministic flows remain usable when model inference is unavailable.
+
+## Amendment — single semantic owner and residual rescue (2026-09-24)
+
+ADR-045 clarifies that the hierarchy above is capability priority, not a
+mandatory serial chain. A clear bounded task should use Jev and skip generative
+inference. A task that genuinely requires generative extraction may complete
+after deterministic validation without replaying the same accepted semantic
+fact through Jev.
+
+A second model pass is justified only when it:
+
+- resolves a still-unresolved bounded fact;
+- tests an independent evidence-support claim;
+- provides a capability the earlier pass did not provide.
+
+Routine `LLM -> Jev` reclassification of an already-accepted fact is
+prohibited. Combined provenance must identify the distinct fact/stage Jev
+actually contributed.
 
 ## Consequences
 
