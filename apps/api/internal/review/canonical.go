@@ -215,6 +215,15 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "the unresolved Wealth Account is required"})
 			return
 		}
+		// Preserve exactly what the user supplied for product telemetry before
+		// server-known entities are merged back into canonical state.
+		supplied := map[string]any{}
+		if values.AccountID != "" {
+			supplied["account"] = values.AccountID
+		}
+		if values.WealthAccountID != "" {
+			supplied["wealth_account"] = values.WealthAccountID
+		}
 		accountID, wealthAccountID := values.AccountID, values.WealthAccountID
 		if accountID == "" {
 			accountID = knownAccount
@@ -237,7 +246,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		values.AccountID, values.WealthAccountID = accountID, wealthAccountID
-		merged, _ := json.Marshal(values)
+		suppliedJSON, _ := json.Marshal(supplied)
 		if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status='PENDING',updated_at=now() WHERE id=$1`, observationID, values.AccountID, values.WealthAccountID); err == nil {
 			err = learnEntityAliasIfNew(r.Context(), tx, household, "ACCOUNT", values.AccountID, fundingHint, knownAccount)
 		}
@@ -245,7 +254,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			err = learnEntityAliasIfNew(r.Context(), tx, household, "WEALTH_ACCOUNT", values.WealthAccountID, providerHint, knownWealth)
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, string(merged))
+			_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, string(suppliedJSON))
 		}
 		if err == nil {
 			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
