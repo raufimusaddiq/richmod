@@ -64,7 +64,7 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		decision.MissingFacts = []string{"category"}
 		decision.InteractionMode = reviewdec.ModeSingleField
 		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
-		decision.WhyNotAuto = "the email did not name a merchant, so no stored category could be applied"
+		decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}

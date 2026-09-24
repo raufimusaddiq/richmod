@@ -22,6 +22,7 @@ import (
 // the authority on what is unresolved (PRD 3.3, 13.4). They are asserted here
 // rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
+	ID             string         `json:"id"`
 	MissingFacts   []string       `json:"missingFacts"`
 	ProposedFacts  map[string]any `json:"proposedFacts"`
 	KnownFacts     map[string]any `json:"knownFacts"`
@@ -91,6 +92,45 @@ func TestReviewU1ListExposesOnlyTheUnresolvedFact(t *testing.T) {
 	if items[0].WhyNotAuto == "" {
 		t.Fatal("why-not-auto-confirm must reach the client so the card can explain itself")
 	}
+}
+
+func TestReviewListUsesStoredDecisionForBankTransactionReview(t *testing.T) {
+	pool, household, user := reviewUIFixture(t)
+	ctx := context.Background()
+	stamp := time.Now().UnixNano()
+	var source, transaction, review string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("bank-contract-%d", stamp), []byte(fmt.Sprintf("bank-contract-%d", stamp))).Scan(&source); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,'IDR',now()) RETURNING id`, household).Scan(&transaction); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'BANK_EMAIL')`, transaction, source); err != nil {
+		t.Fatal(err)
+	}
+	decision, _ := json.Marshal(map[string]any{
+		"version": 1, "reasonCode": "UNKNOWN_MERCHANT", "decisionClass": "EVIDENCE_GAP",
+		"knownFacts": map[string]any{"amount_idr": "54000"}, "missingFacts": []string{"category"},
+		"whyNotAutoConfirm": "no supported category ruling", "allowedActions": []string{"CONFIRM_REVIEW", "IGNORE"},
+		"interactionMode": "SINGLE_FIELD",
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'UNKNOWN_MERCHANT','OPEN',$4) RETURNING id`, household, transaction, source, decision).Scan(&review); err != nil {
+		t.Fatal(err)
+	}
+
+	items := listCanonicalReviews(t, pool, household, user)
+	for _, item := range items {
+		if item.ID == transaction {
+			if len(item.MissingFacts) != 1 || item.MissingFacts[0] != "category" {
+				t.Fatalf("Inbox missingFacts=%v; want stored category-only decision", item.MissingFacts)
+			}
+			if item.WhyNotAuto != "no supported category ruling" {
+				t.Fatalf("Inbox whyNotAutoConfirm=%q; want stored decision", item.WhyNotAuto)
+			}
+			return
+		}
+	}
+	t.Fatalf("transaction-backed review %s not returned by Inbox API", review)
 }
 
 // U4 - known facts are carried as known and never listed as missing. The client
