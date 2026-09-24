@@ -1305,12 +1305,14 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	if err != nil {
 		return err
 	}
-	encoded, err := decision.JSON()
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE id=$1`, itemID, string(encoded)); err != nil {
-		return err
+	if decision.ReasonCode != "" {
+		encoded, err := decision.JSON()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE id=$1`, itemID, string(encoded)); err != nil {
+			return err
+		}
 	}
 	state, reviewMessage, markupMode := reviewInitialState(reviewType, message)
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
