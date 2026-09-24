@@ -55,6 +55,17 @@ test("transaction-date residual opens one native date field and submits it", () 
   assert.match(source, /!missing\.transactionAt/);
 });
 
+test("bank fact completion submits an RFC3339 instant, not a date-only value", () => {
+  // Two different server contracts share the same field name. The residual
+  // date field posts a date-only string to the strict `parseReviewDate`. The
+  // COMPLETE_BANK_FACTS form resolves through canonical.go, which queues a
+  // COMPLETE_BANK_REVIEW job that requires an RFC3339 instant with an explicit
+  // timezone (parseStrictBankRFC3339). Posting a bare `datetime-local` value
+  // there would fail validation, so the card must convert it to an ISO instant.
+  assert.match(source, /type="datetime-local"/);
+  assert.match(source, /transactionAt: raw \? new Date\(raw\)\.toISOString\(\) : null/);
+});
+
 test("legacy items fall back to the API missingFields list", () => {
   // Legacy transaction-backed reviews carry missingFields, never missingFacts.
   // Reading only missingFacts made every legacy card demand a merchant, which a
