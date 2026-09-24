@@ -84,6 +84,7 @@ func TestHarvestSimpleTransaction(t *testing.T) {
 		text, amount, date, explicit, merchant string
 	}{
 		{text: "catat makan siang 50rb hari ini", amount: "50000", date: "TODAY", merchant: "makan siang"},
+		{text: "jajan gorengan 5k", amount: "5000", date: "TODAY", merchant: "jajan gorengan"},
 		{text: "beli reksa dana 3 juta kemarin", amount: "3000000", date: "YESTERDAY", merchant: "beli reksa dana"},
 		{text: "gaji 8.000.000 tanggal 2026-09-21", amount: "8000000", date: "EXPLICIT", explicit: "2026-09-21", merchant: "gaji tanggal"},
 	}

@@ -267,7 +267,9 @@ func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTran
 	return decision
 }
 
-var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta)?(?:\s|$)`)
+// "k" is the Indonesian/English shorthand for ribu (thousand) and is spelled
+// without punctuation in the PRD's canonical example ("jajan gorengan 5k").
+var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta|k)?(?:\s|$)`)
 var simpleDatePattern = regexp.MustCompile(`\b(20[0-9]{2}-[0-9]{2}-[0-9]{2})\b`)
 
 func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
@@ -284,7 +286,7 @@ func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 		return simpleTransactionCandidate{}, false
 	}
 	switch strings.ToLower(matches[0][2]) {
-	case "rb", "ribu":
+	case "rb", "ribu", "k":
 		value.Mul(value, big.NewInt(1000))
 	case "jt", "juta":
 		value.Mul(value, big.NewInt(1000000))
