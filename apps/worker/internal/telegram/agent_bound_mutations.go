@@ -90,6 +90,23 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 	transactionAt, _ := args["transaction_at"].(string)
 	wealthHint, _ := args["wealth_account_hint"].(string)
 
+	needsTransactionAt := review.reviewType == "MISSING_TRANSACTION_DATE" || review.reviewType == "TRANSACTION_FACTS_MISSING"
+	needsCategory := review.reviewType == "AMBIGUOUS_CATEGORY" || review.reviewType == "TRANSACTION_FACTS_MISSING"
+	if needsTransactionAt && !validReviewTimestamp(transactionAt) {
+		result.Status = "MISSING_TRANSACTION_TIME"
+		result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"transaction_at"}}
+		return result, true, nil
+	}
+	if needsTransactionAt {
+		parsed, _ := time.Parse(time.RFC3339, transactionAt)
+		if _, err := p.pool.Exec(ctx, `UPDATE transaction SET transaction_at=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, review.transactionID, parsed, state.HouseholdID); err != nil {
+			return result, true, err
+		}
+		if _, err := p.pool.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, parsed); err != nil {
+			return result, true, err
+		}
+	}
+
 	switch action {
 	case "PRIMARY_SALARY", "ORDINARY_INCOME":
 		choice := "PRIMARY"
@@ -158,6 +175,11 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 			result.Status = "INVALID_CATEGORY"
 			return result, true, nil
 		}
+	}
+	if needsCategory && categoryID == "" {
+		result.Status = "MISSING_CATEGORY"
+		result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"category_slug"}}
+		return result, true, nil
 	}
 	return p.agentConfirmTransactionReview(ctx, state, call, *review, categoryID, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
 }
