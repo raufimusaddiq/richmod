@@ -735,6 +735,20 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	amountIDR, _ := args["amount_idr"].(string)
 	transactionAt, _ := args["transaction_at"].(string)
 	c := choices[0]
+	needsTransactionAt := c.reviewType == "MISSING_TRANSACTION_DATE" || c.reviewType == "TRANSACTION_FACTS_MISSING"
+	needsCategory := c.reviewType == "AMBIGUOUS_CATEGORY" || c.reviewType == "TRANSACTION_FACTS_MISSING"
+	if needsTransactionAt && !validReviewTimestamp(transactionAt) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Tanggal/waktu transaksi yang tercantum pada bukti masih diperlukan.")
+	}
+	if needsTransactionAt {
+		parsed, _ := time.Parse(time.RFC3339, transactionAt)
+		if _, err := p.pool.Exec(ctx, `UPDATE transaction SET transaction_at=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, c.tx, parsed, householdID); err != nil {
+			return err
+		}
+		if _, err := p.pool.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, c.tx, parsed); err != nil {
+			return err
+		}
+	}
 	if action == "SET_PAY_DATE" && !validReviewDate(payDate) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Tanggal pembayaran wajib diisi dengan format YYYY-MM-DD.")
 	}
@@ -797,6 +811,9 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori pengeluaran terlebih dahulu.")
 		}
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
+	}
+	if needsCategory && categoryID == "" {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori pengeluaran terlebih dahulu.")
 	}
 	return p.resolveReview(ctx, sourceEventID, householdID, c.id, c.tx, categoryID, update, reviewExtraction{Description: clean(description, 500), Note: clean(merchant, 1000), PayDate: payDate, Confidence: 1})
 }
