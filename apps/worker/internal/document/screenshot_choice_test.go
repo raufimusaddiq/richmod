@@ -46,7 +46,7 @@ func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
 	// PRD §37: every screenshot reason code must store the one contract that
 	// reason resolves to, or the Inbox hides an action the API still accepts.
 	for _, reason := range []string{"POSSIBLE_DUPLICATE", "AMBIGUOUS_CATEGORY"} {
-		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{})
+		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{Type: "EXPENSE", DateKnown: true})
 		want, ok := reviewdec.Preset(reason, "transaction", "transaction")
 		if !ok {
 			t.Fatalf("missing shared preset for %s", reason)
@@ -54,6 +54,27 @@ func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
 		if got.ReasonCode != reason || got.DecisionClass != want.DecisionClass || got.InteractionMode != want.InteractionMode || !reflect.DeepEqual(got.MissingFacts, want.MissingFacts) || !reflect.DeepEqual(got.AllowedActions, want.AllowedActions) {
 			t.Fatalf("screenshot %s must use the shared contract: got=%+v want=%+v", reason, got, want)
 		}
+	}
+}
+
+func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
+	for _, test := range []struct {
+		name, reason string
+		row          validatedScreenshotRow
+		want         []string
+	}{
+		{"date only", "MISSING_TRANSACTION_DATE", validatedScreenshotRow{Type: "EXPENSE", CategoryID: ptr("food"), CategoryDecided: true, Value: screenshotRow{CategorySlug: ptr("food")}}, []string{"transaction_at"}},
+		{"category and date", "TRANSACTION_FACTS_MISSING", validatedScreenshotRow{Type: "EXPENSE"}, []string{"category", "transaction_at"}},
+		{"category conflict and date", "AMBIGUOUS_CATEGORY", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryConflict: true}, []string{"category"}},
+		{"category conflict and missing date", "TRANSACTION_FACTS_MISSING", validatedScreenshotRow{Type: "EXPENSE", CategoryConflict: true}, []string{"category", "transaction_at"}},
+		{"duplicate takes priority", "POSSIBLE_DUPLICATE", validatedScreenshotRow{Type: "EXPENSE"}, []string{"duplicate_relationship"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := screenshotRowDecision("h", "s", "t", test.reason, 0, test.row)
+			if !reflect.DeepEqual(got.MissingFacts, test.want) {
+				t.Fatalf("missing facts=%v; want %v", got.MissingFacts, test.want)
+			}
+		})
 	}
 }
 

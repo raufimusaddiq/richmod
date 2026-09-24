@@ -79,6 +79,18 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		}
 		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		base.InteractionMode = ModeSingleField
+	case "MISSING_TRANSACTION_DATE":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"transaction_at"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the source evidence carries no transaction date, so the received time is provenance, not a fact"
+	case "TRANSACTION_FACTS_MISSING":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"category", "transaction_at"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "both the category and the transaction date are absent from the source evidence"
 	case "UNKNOWN_PURPOSE":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"transaction_semantics"}

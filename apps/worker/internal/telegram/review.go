@@ -31,6 +31,64 @@ type reviewExtraction struct {
 
 var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
 
+// errReviewResidualFacts records that Telegram declined to confirm because the
+// stored residual contract was still open. The caller already replied, so this
+// is a control signal, not a user-facing failure.
+var errReviewResidualFacts = errors.New("review still has unresolved required facts")
+
+func residualConfirmationBlockers(decision []byte, dateSupplied, categorySupplied, merchantSupplied bool) []string {
+	var stored struct {
+		MissingFacts []string `json:"missingFacts"`
+	}
+	if len(decision) > 0 {
+		_ = json.Unmarshal(decision, &stored)
+	}
+	var blocked []string
+	for _, fact := range stored.MissingFacts {
+		switch fact {
+		case "transaction_at":
+			if !dateSupplied {
+				blocked = append(blocked, fact)
+			}
+		case "category":
+			if !categorySupplied {
+				blocked = append(blocked, fact)
+			}
+		case "merchant":
+			if !merchantSupplied {
+				blocked = append(blocked, fact)
+			}
+		}
+	}
+	return blocked
+}
+
+func reviewNeedsFactsMessage(facts []string) string {
+	labels := []string{}
+	for _, fact := range facts {
+		switch fact {
+		case "transaction_at":
+			labels = append(labels, "tanggal transaksi")
+		case "category":
+			labels = append(labels, "kategori")
+		case "merchant":
+			labels = append(labels, "merchant")
+		}
+	}
+	return "Tinjauan ini masih menunggu " + strings.Join(labels, " dan ") + ". Balas dengan nilai itu untuk menyelesaikan."
+}
+
+func parseSuppliedReviewDate(value string) (*time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(value), jakartaLocation())
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
 func parseReviewPayDate(text string) string {
 	m := reviewPayDatePattern.FindStringSubmatch(text)
 	if len(m) != 4 {
@@ -1180,6 +1238,21 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction, userID string, offerMerchantLearning bool) error {
 	var err error
 	var merchantID *string
+	// IR-02: a legacy card or a client that omits a field must not confirm while
+	// the stored ReviewDecision still reports a canonical-required residual fact.
+	// The date check uses the parsed pay date only; a fallback timestamp never
+	// satisfies it.
+	var storedDecision []byte
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(decision,'{}'::jsonb) FROM review_item WHERE id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN') FOR UPDATE`, reviewID, householdID).Scan(&storedDecision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	payDate, payDateErr := parseSuppliedReviewDate(value.PayDate)
+	if payDateErr != nil {
+		return payDateErr
+	}
+	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", value.Note != ""); len(blocked) > 0 {
+		return enqueueReply(ctx, tx, update, reviewNeedsFactsMessage(blocked))
+	}
 	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' RETURNING merchant_id`, transactionID, categoryID, value.Description, value.Note).Scan(&merchantID); err != nil {
 		return fmt.Errorf("confirm reviewed transaction: %w", err)
 	}

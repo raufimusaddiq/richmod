@@ -243,6 +243,22 @@ type confirmInput struct {
 	Note             *string `json:"note"`
 	MerchantName     *string `json:"merchantName"`
 	RememberMerchant bool    `json:"rememberMerchant"`
+	TransactionAt    *string `json:"transactionAt"`
+}
+
+func parseReviewDate(value *string) (*time.Time, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil, nil
+	}
+	location, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(*value), location)
+	if err != nil || parsed.Format("2006-01-02") != strings.TrimSpace(*value) {
+		return nil, errors.New("invalid transaction date")
+	}
+	return &parsed, nil
 }
 
 func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
@@ -255,6 +271,11 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid review confirmation"})
 		return
 	}
+	suppliedAt, err := parseReviewDate(input.TransactionAt)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid transaction date"})
+		return
+	}
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
@@ -262,6 +283,11 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	id := r.PathValue("id")
+	var storedDecisionJSON []byte
+	if err := tx.QueryRow(r.Context(), `SELECT COALESCE(decision,'{}'::jsonb) FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN') FOR UPDATE`, household, id).Scan(&storedDecisionJSON); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
+		return
+	}
 	var kind string
 	var currentCategory, merchantID *string
 	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&kind, &currentCategory, &merchantID); errors.Is(err, pgx.ErrNoRows) {
@@ -284,6 +310,10 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 		return
 	}
+	if blocked := confirmationBlockers(storedDecisionJSON, suppliedAt != nil, input.CategoryID != nil, strings.TrimSpace(clean(input.MerchantName, 160)) != ""); len(blocked) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": blocked})
+		return
+	}
 	if kind == "UNCLASSIFIED" {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "use transfer classification for this review"})
 		return
@@ -301,9 +331,15 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "merchant is required to remember a category"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,merchant_id=COALESCE($5::uuid,merchant_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000), merchantID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,merchant_id=COALESCE($5::uuid,merchant_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($6,transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000), merchantID, suppliedAt); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
+	}
+	if suppliedAt != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET transaction_at=$2,metadata_json=metadata_json||'{"date_known":true,"date_source":"USER"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, suppliedAt); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to save transaction date"})
+			return
+		}
 	}
 	if merchantName != "" {
 		if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, merchantName); err != nil {

@@ -42,3 +42,29 @@ func proposalFacts(decision []byte) storedDecision {
 	}
 	return stored
 }
+
+// confirmationBlockers is the IR-02 canonical guard: a confirm may only proceed
+// once every residual fact the stored ReviewDecision reported is supplied this
+// turn. It runs inside the confirm transaction, so a legacy client or an old
+// review card cannot skip a required date/category merely by omitting it.
+func confirmationBlockers(decision []byte, dateSupplied, categorySupplied, merchantSupplied bool) []string {
+	stored := proposalFacts(decision)
+	var blocked []string
+	for _, fact := range stored.MissingFacts {
+		switch fact {
+		case "transaction_at":
+			if !dateSupplied {
+				blocked = append(blocked, fact)
+			}
+		case "category":
+			if !categorySupplied {
+				blocked = append(blocked, fact)
+			}
+		case "merchant":
+			if !merchantSupplied {
+				blocked = append(blocked, fact)
+			}
+		}
+	}
+	return blocked
+}
