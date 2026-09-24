@@ -21,9 +21,15 @@ func TestPresetsHaveCompleteKnownContracts(t *testing.T) {
 	}
 }
 
-func TestPossibleDuplicatePresetDoesNotAdvertiseTransferActions(t *testing.T) {
+func TestPossibleDuplicatePresetOffersOnlyReceiptReviewChoices(t *testing.T) {
 	decision, ok := Preset("POSSIBLE_DUPLICATE", "transaction", "subject")
-	if !ok || len(decision.AllowedActions) != 1 || decision.AllowedActions[0] != "IGNORE" {
-		t.Fatalf("receipt duplicate preset must not expose transfer actions: %+v, ok=%t", decision, ok)
+	want := []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
+	if !ok || len(decision.AllowedActions) != len(want) {
+		t.Fatalf("unexpected duplicate choices: %+v, ok=%t", decision, ok)
+	}
+	for i, action := range want {
+		if decision.AllowedActions[i] != action {
+			t.Fatalf("duplicate choices=%v, want %v", decision.AllowedActions, want)
+		}
 	}
 }

@@ -51,7 +51,8 @@ directly.
 - Reviews that do exist carry the PRD §7 contract with `missing_facts:
   ["category"]`, so the Inbox cannot ask for facts Richmod already knows.
 - Telegram category callbacks honor that stored contract even when merchant is
-  NULL. Duplicate reviews retain bounded merge, confirm-new, and ignore actions.
+  NULL. Receipt duplicate reviews expose candidate merge, confirm-as-new, and
+  ignore choices; transfer-only actions remain unavailable there.
 - Rare flaky negatives cost one extra bounded call instead of a review.
 - Provider-specific behaviour is unchanged and still absent: classification is
   generic over the household category set.

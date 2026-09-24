@@ -81,9 +81,9 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 	case "POSSIBLE_DUPLICATE":
 		base.DecisionClass = ClassDuplicateAmbiguity
 		base.MissingFacts = []string{"duplicate_relationship"}
-		base.AllowedActions = []string{"IGNORE"}
+		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
-		base.WhyNotAuto = "a plausible duplicate exists; this receipt review supports ignore only"
+		base.WhyNotAuto = "a plausible duplicate exists; choose the matching event, confirm as new, or ignore"
 	default:
 		return Decision{}, false
 	}

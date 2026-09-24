@@ -28,6 +28,9 @@ type reviewUIItem struct {
 	KnownFacts     map[string]any `json:"knownFacts"`
 	WhyNotAuto     string         `json:"whyNotAutoConfirm"`
 	AllowedActions []string       `json:"allowedActions"`
+	Candidates     []struct {
+		ID string `json:"id"`
+	} `json:"candidates"`
 }
 
 func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
@@ -208,6 +211,36 @@ func TestReviewU5WebResolutionWritesCanonicalTerminalState(t *testing.T) {
 	}
 }
 
+func TestReviewR3ReceiptDuplicateExposesBoundedCandidateChoices(t *testing.T) {
+	pool, household, user := reviewUIFixture(t)
+	ctx := context.Background()
+	var accountID, existingID, transactionID string
+	if err := pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Review R3','BANK','FULL_LEDGER') RETURNING id`, household).Scan(&accountID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,$2,'EXPENSE','CONFIRMED',57500,now()-interval '30 minutes','Existing',now()) RETURNING id`, household, accountID).Scan(&existingID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,description) VALUES($1,$2,'EXPENSE','NEEDS_REVIEW',57500,now(),'Receipt') RETURNING id`, household, accountID).Scan(&transactionID); err != nil {
+		t.Fatal(err)
+	}
+	decision, _ := json.Marshal(map[string]any{"version": 1, "reasonCode": "POSSIBLE_DUPLICATE", "allowedActions": []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}})
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3)`, household, transactionID, decision); err != nil {
+		t.Fatal(err)
+	}
+	items := listTransactionReviews(t, pool, household, user)
+	for _, item := range items {
+		if item.ID != transactionID {
+			continue
+		}
+		if len(item.Candidates) != 1 || item.Candidates[0].ID != existingID || len(item.AllowedActions) != 3 || item.AllowedActions[0] != "MERGE_EXISTING" || item.AllowedActions[1] != "CONFIRM_REVIEW" || item.AllowedActions[2] != "IGNORE" {
+			t.Fatalf("duplicate candidate contract mismatch: %+v", item)
+		}
+		return
+	}
+	t.Fatalf("open duplicate transaction %s missing", transactionID)
+}
+
 // listCanonicalReviews calls the real list handler and decodes the payload a
 // client actually receives, so the assertions run against production shape.
 func listCanonicalReviews(t *testing.T, pool *pgxpool.Pool, household, user string) []reviewUIItem {
@@ -222,6 +255,22 @@ func listCanonicalReviews(t *testing.T, pool *pgxpool.Pool, household, user stri
 	var items []reviewUIItem
 	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
 		t.Fatalf("list payload did not decode: %v", err)
+	}
+	return items
+}
+
+func listTransactionReviews(t *testing.T, pool *pgxpool.Pool, household, user string) []reviewUIItem {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	w := httptest.NewRecorder()
+	NewHandler(pool).List(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	var items []reviewUIItem
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatal(err)
 	}
 	return items
 }

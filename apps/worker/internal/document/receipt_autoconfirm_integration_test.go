@@ -52,8 +52,8 @@ func TestReceiptWithWeakSameAmountCandidateStaysInReview(t *testing.T) {
 	if err := fixture.pool.QueryRow(ctx, `SELECT decision->'knownFacts'->>'amount_idr',decision->'knownFacts'->>'transaction_at',decision->'knownFacts'->>'type',decision->'allowedActions'->>0 FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&amount, &transactionAt, &transactionType, &action); err != nil {
 		t.Fatal(err)
 	}
-	if amount != "57500" || transactionAt != receiptTime().Format(time.RFC3339) || transactionType != "EXPENSE" || action != "IGNORE" {
-		t.Fatalf("receipt duplicate decision lost known facts or advertised unsupported action: amount=%q time=%q type=%q action=%q", amount, transactionAt, transactionType, action)
+	if amount != "57500" || transactionAt != receiptTime().Format(time.RFC3339) || transactionType != "EXPENSE" || action != "MERGE_EXISTING" {
+		t.Fatalf("receipt duplicate decision lost known facts or bounded candidate action: amount=%q time=%q type=%q action=%q", amount, transactionAt, transactionType, action)
 	}
 }
 
