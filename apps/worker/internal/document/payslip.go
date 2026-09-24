@@ -452,12 +452,14 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 
 func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType string, hasPrimary bool) reviewdec.Decision {
 	decision.Provenance["hasPrimarySalary"] = hasPrimary
-	if reviewType == "MISSING_PAY_DATE" && !hasPrimary {
-		decision.MissingFacts = append(decision.MissingFacts, "salary_classification")
+	if reviewType == "MISSING_PAY_DATE" {
 		decision.AllowedActions = []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
-		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
-		decision.InteractionMode = reviewdec.ModePolicyChoice
-		decision.WhyNotAuto = "pay date is absent and the first salary source requires household classification"
+		if !hasPrimary {
+			decision.MissingFacts = append(decision.MissingFacts, "salary_classification")
+			decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
+			decision.InteractionMode = reviewdec.ModePolicyChoice
+			decision.WhyNotAuto = "pay date is absent and the first salary source requires household classification"
+		}
 	}
 	return decision
 }

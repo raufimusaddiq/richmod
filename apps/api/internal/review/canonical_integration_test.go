@@ -194,7 +194,10 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 	// stay intact and this income must not silently become primary.
 	var existingSource string
 	must(pool.QueryRow(ctx, "INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Employer','employer',true) RETURNING id", household, user).Scan(&existingSource))
-	dateOnly := seed("date-only", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "IGNORE"}})
+	dateOnly := seed("date-only", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}})
+	if res := resolve(dateOnly, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-25\",\"choice\":\"ORDINARY_INCOME\"}}"); res.Code != http.StatusBadRequest {
+		t.Fatalf("known primary rejects salary reclassification: %d %s", res.Code, res.Body.String())
+	}
 	if res := resolve(dateOnly, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-25\"}}"); res.Code != http.StatusNoContent {
 		t.Fatalf("date-only resolve status=%d body=%s", res.Code, res.Body.String())
 	}
@@ -222,6 +225,10 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 	// exactly one canonical salary event.
 	_, err = pool.Exec(ctx, `UPDATE salary_source SET is_primary=false WHERE household_id=$1 AND active`, household)
 	must(err)
+	restricted := seed("restricted", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "IGNORE"}})
+	if res := resolve(restricted, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-26\",\"choice\":\"PRIMARY_SALARY\"}}"); res.Code != http.StatusBadRequest {
+		t.Fatalf("policy choice absent from stored allowedActions must be rejected: %d %s", res.Code, res.Body.String())
+	}
 	dual := seed("dual", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "HUMAN_POLICY_CHOICE", "interactionMode": "POLICY_CHOICE", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at", "salary_classification"}, "decisionProvenance": map[string]any{"hasPrimarySalary": false}, "allowedActions": []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}})
 	listed := listCanonicalReviews(t, pool, household, user)
 	for _, item := range listed {

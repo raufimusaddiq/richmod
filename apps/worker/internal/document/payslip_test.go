@@ -49,6 +49,9 @@ func TestPayslipReviewSeparatesDateAndSalaryPolicy(t *testing.T) {
 	if !reflect.DeepEqual(dateOnly.MissingFacts, []string{"transaction_at"}) {
 		t.Fatalf("primary-known payslip missing facts=%v", dateOnly.MissingFacts)
 	}
+	if !reflect.DeepEqual(dateOnly.AllowedActions, []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}) {
+		t.Fatalf("date-only payslip resolution domain=%v", dateOnly.AllowedActions)
+	}
 
 	firstSalary, _ := reviewdec.Preset("PAYSLIP_CONFIRMATION", "proposal", "id")
 	firstSalary = configurePayslipReviewDecision(firstSalary, "PAYSLIP_CONFIRMATION", false)

@@ -130,8 +130,9 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var kind, status string
+	var decisionJSON []byte
 	var proposal, source, document, transaction, residualCase, wealthObservation, financialObservation *string
-	err = tx.QueryRow(r.Context(), `SELECT review_type,status,proposal_id,source_event_id,document_id,transaction_id,cycle_residual_case_id,wealth_observation_id,financial_email_observation_id FROM review_item WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&kind, &status, &proposal, &source, &document, &transaction, &residualCase, &wealthObservation, &financialObservation)
+	err = tx.QueryRow(r.Context(), `SELECT review_type,status,proposal_id,source_event_id,document_id,transaction_id,cycle_residual_case_id,wealth_observation_id,financial_email_observation_id,decision FROM review_item WHERE id=$1 AND household_id=$2 FOR UPDATE`, r.PathValue("id"), household).Scan(&kind, &status, &proposal, &source, &document, &transaction, &residualCase, &wealthObservation, &financialObservation, &decisionJSON)
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
@@ -146,6 +147,11 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if status != "OPEN" && status != "PENDING_SEND" {
 		writeJSON(w, 409, map[string]string{"error": "review is already resolved"})
+		return
+	}
+	storedActions := proposalFacts(decisionJSON).AllowedActions
+	if kind == "MISSING_PAY_DATE" && !containsString(storedActions, in.Action) {
+		writeJSON(w, 400, map[string]string{"error": "action is not allowed by this review"})
 		return
 	}
 	enqueueSalaryResidual := in.Action == "PRIMARY_SALARY"
@@ -466,9 +472,15 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 				var hasPrimary bool
 				if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, household).Scan(&hasPrimary); err == nil {
 					choice := strings.ToUpper(strings.TrimSpace(v.Choice))
+					if !containsString(storedActions, "SET_PAY_DATE") {
+						err = errInvalid
+					}
 					if choice == "" && hasPrimary {
 						choice = "HOUSEHOLD_POLICY"
 					} else if choice == "" || (hasPrimary && choice != "") || (!hasPrimary && choice != "PRIMARY_SALARY" && choice != "ORDINARY_INCOME") {
+						err = errInvalid
+					}
+					if (choice == "PRIMARY_SALARY" || choice == "ORDINARY_INCOME") && !containsString(storedActions, choice) {
 						err = errInvalid
 					}
 					if err == nil {

@@ -272,7 +272,8 @@ one payslip extraction call and no Jev verifier route.
 Canonical correctness guard: live household salary state is read while listing
 and again under the resolution transaction; the API list reconciles missing
 policy dimensions/actions for reviews whose household policy changed while open.
-Posted choices are checked against current state. Date remains strict
+The locked ReviewDecision action set gates actions and salary choices; current
+household state also rejects redundant reclassification. Date remains strict
 `YYYY-MM-DD`; Go alone confirms transaction/evidence/salary state. Date-only
 resolution adds/updates a non-primary salary source, never changes the existing
 primary. No model decides salary designation.
