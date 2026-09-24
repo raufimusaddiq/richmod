@@ -557,6 +557,19 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
 				return err
 			}
+			// Persist the PRD §7 contract on the review that line above just created,
+			// so the Inbox can show only the unresolved facts. The decision must be
+			// written after the review exists —
+			// updating first matched zero rows and was silently dropped.
+			encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON()
+			if encodeErr != nil {
+				return encodeErr
+			}
+			if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
+				return execErr
+			} else if tag.RowsAffected() == 0 {
+				return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
+			}
 		}
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_BANK_EMAIL','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'policy_result',$6::text,'auto_confirm',$7::boolean,'tool_schema_version',$8::text))`, listener.HouseholdID, transactionID, sourceID, listener.ID, proposalID, result.Status, result.AutoConfirm, ToolSchemaVersion); err != nil {

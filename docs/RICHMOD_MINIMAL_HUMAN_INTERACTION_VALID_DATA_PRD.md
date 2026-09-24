@@ -846,13 +846,12 @@ Rp53.000 · Debit Card
 
 Merchant tidak tersedia pada bukti.
 
-Kategori kemungkinan:
-Makanan & Minuman
+Kategori: [dropdown]
 
-[Benar] [Pilih kategori lain]
+[Simpan] [Abaikan]
 ~~~
 
-Do not request amount/date again.
+Do not request merchant, amount, or date again. Merchant may remain NULL.
 
 If category is decisive, no review is required.
 
@@ -1925,6 +1924,14 @@ every new review can explain exactly why user input is required
 ~~~
 
 ## Stage 3 — Bank Email Zero-Touch Expansion
+
+**Status (2026-09-23): implemented.** A new-merchant expense now asks the bounded
+plane to pick one category from the household's active set; a decisive,
+well-separated answer auto-confirms with zero user input, and an undecided one
+opens a category-only review. Provider failures (timeout, gateway failure, rate
+limit, malformed response) retry once; a semantic negative immediately opens a
+review, because it is a verdict rather than a safe-retry condition. Thresholds
+are unchanged. See ADR-040.
 
 Implement:
 

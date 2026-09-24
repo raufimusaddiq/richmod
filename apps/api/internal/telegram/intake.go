@@ -181,7 +181,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 
 func validCallbackAction(value string) bool {
 	switch value {
-	case "review:expense", "review:own", "review:household", "review:confirm", "review:change", "review:remember", "review:once":
+	case "review:expense", "review:asset", "review:own", "review:household", "review:confirm", "review:change", "review:remember", "review:once":
 		return true
 	}
 	for _, action := range []string{"edit", "merchant", "description", "category", "ignore"} {

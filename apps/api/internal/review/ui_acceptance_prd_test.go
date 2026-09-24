@@ -22,10 +22,15 @@ import (
 // the authority on what is unresolved (PRD 3.3, 13.4). They are asserted here
 // rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
-	MissingFacts  []string       `json:"missingFacts"`
-	ProposedFacts map[string]any `json:"proposedFacts"`
-	KnownFacts    map[string]any `json:"knownFacts"`
-	WhyNotAuto    string         `json:"whyNotAutoConfirm"`
+	ID             string         `json:"id"`
+	MissingFacts   []string       `json:"missingFacts"`
+	ProposedFacts  map[string]any `json:"proposedFacts"`
+	KnownFacts     map[string]any `json:"knownFacts"`
+	WhyNotAuto     string         `json:"whyNotAutoConfirm"`
+	AllowedActions []string       `json:"allowedActions"`
+	Candidates     []struct {
+		ID string `json:"id"`
+	} `json:"candidates"`
 }
 
 func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
@@ -92,6 +97,45 @@ func TestReviewU1ListExposesOnlyTheUnresolvedFact(t *testing.T) {
 	}
 }
 
+func TestReviewListUsesStoredDecisionForBankTransactionReview(t *testing.T) {
+	pool, household, user := reviewUIFixture(t)
+	ctx := context.Background()
+	stamp := time.Now().UnixNano()
+	var source, transaction, review string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("bank-contract-%d", stamp), []byte(fmt.Sprintf("bank-contract-%d", stamp))).Scan(&source); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,'IDR',now()) RETURNING id`, household).Scan(&transaction); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'BANK_EMAIL')`, transaction, source); err != nil {
+		t.Fatal(err)
+	}
+	decision, _ := json.Marshal(map[string]any{
+		"version": 1, "reasonCode": "UNKNOWN_MERCHANT", "decisionClass": "EVIDENCE_GAP",
+		"knownFacts": map[string]any{"amount_idr": "54000"}, "missingFacts": []string{"category"},
+		"whyNotAutoConfirm": "no supported category ruling", "allowedActions": []string{"CONFIRM_REVIEW", "IGNORE"},
+		"interactionMode": "SINGLE_FIELD",
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'UNKNOWN_MERCHANT','OPEN',$4) RETURNING id`, household, transaction, source, decision).Scan(&review); err != nil {
+		t.Fatal(err)
+	}
+
+	items := listCanonicalReviews(t, pool, household, user)
+	for _, item := range items {
+		if item.ID == transaction {
+			if len(item.MissingFacts) != 1 || item.MissingFacts[0] != "category" {
+				t.Fatalf("Inbox missingFacts=%v; want stored category-only decision", item.MissingFacts)
+			}
+			if item.WhyNotAuto != "no supported category ruling" {
+				t.Fatalf("Inbox whyNotAutoConfirm=%q; want stored decision", item.WhyNotAuto)
+			}
+			return
+		}
+	}
+	t.Fatalf("transaction-backed review %s not returned by Inbox API", review)
+}
+
 // U4 - known facts are carried as known and never listed as missing. The client
 // renders them read-only; the server guarantees it never asks for them.
 func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
@@ -109,6 +153,7 @@ func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
 		t.Fatalf("the stored known facts must reach the client: %v", item.KnownFacts)
 	}
 }
+
 
 // U5 - a review resolved through the canonical route reaches the same terminal
 // state Telegram writes, because both call this one server-owned handler. This
@@ -139,6 +184,36 @@ func TestReviewU5WebResolutionWritesCanonicalTerminalState(t *testing.T) {
 	}
 }
 
+func TestReviewR3ReceiptDuplicateExposesBoundedCandidateChoices(t *testing.T) {
+	pool, household, user := reviewUIFixture(t)
+	ctx := context.Background()
+	var accountID, existingID, transactionID string
+	if err := pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Review R3','BANK','FULL_LEDGER') RETURNING id`, household).Scan(&accountID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,$2,'EXPENSE','CONFIRMED',57500,now()-interval '30 minutes','Existing',now()) RETURNING id`, household, accountID).Scan(&existingID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,description) VALUES($1,$2,'EXPENSE','NEEDS_REVIEW',57500,now(),'Receipt') RETURNING id`, household, accountID).Scan(&transactionID); err != nil {
+		t.Fatal(err)
+	}
+	decision, _ := json.Marshal(map[string]any{"version": 1, "reasonCode": "POSSIBLE_DUPLICATE", "allowedActions": []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}})
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3)`, household, transactionID, decision); err != nil {
+		t.Fatal(err)
+	}
+	items := listTransactionReviews(t, pool, household, user)
+	for _, item := range items {
+		if item.ID != transactionID {
+			continue
+		}
+		if len(item.Candidates) != 1 || item.Candidates[0].ID != existingID || len(item.AllowedActions) != 3 || item.AllowedActions[0] != "MERGE_EXISTING" || item.AllowedActions[1] != "CONFIRM_REVIEW" || item.AllowedActions[2] != "IGNORE" {
+			t.Fatalf("duplicate candidate contract mismatch: %+v", item)
+		}
+		return
+	}
+	t.Fatalf("open duplicate transaction %s missing", transactionID)
+}
+
 // listCanonicalReviews calls the real list handler and decodes the payload a
 // client actually receives, so the assertions run against production shape.
 func listCanonicalReviews(t *testing.T, pool *pgxpool.Pool, household, user string) []reviewUIItem {
@@ -153,6 +228,22 @@ func listCanonicalReviews(t *testing.T, pool *pgxpool.Pool, household, user stri
 	var items []reviewUIItem
 	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
 		t.Fatalf("list payload did not decode: %v", err)
+	}
+	return items
+}
+
+func listTransactionReviews(t *testing.T, pool *pgxpool.Pool, household, user string) []reviewUIItem {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	w := httptest.NewRecorder()
+	NewHandler(pool).List(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	var items []reviewUIItem
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatal(err)
 	}
 	return items
 }

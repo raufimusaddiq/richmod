@@ -44,6 +44,12 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"COMPLETE_BANK_FACTS", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the document type could not be classified with enough confidence"
+	case "UNKNOWN_BANK_TEMPLATE":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"transaction_semantics"}
+		base.AllowedActions = []string{"COMPLETE_BANK_FACTS", "IGNORE"}
+		base.InteractionMode = ModeBoundedChoice
+		base.WhyNotAuto = "the bank evidence could not be mapped to a supported transaction type"
 	case "PAYSLIP_CONFIRMATION":
 		base.DecisionClass = ClassHumanPolicyChoice
 		base.MissingFacts = []string{"salary_classification"}
@@ -62,12 +68,41 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"CLASSIFY_TRANSFER", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
 		base.WhyNotAuto = "the transfer relationship is ambiguous, so the household must classify it"
+	case "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"category"}
+		if reason == "UNKNOWN_MERCHANT" {
+			base.KnownFacts["merchant"] = nil
+			base.WhyNotAuto = "merchant is not present in the evidence; category still requires a human decision"
+		} else {
+			base.WhyNotAuto = "the category is not supported strongly enough to confirm"
+		}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+	case "UNKNOWN_PURPOSE":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"transaction_semantics"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the transaction purpose is not supported strongly enough to classify"
+	case "MANUAL_CORRECTION":
+		base.DecisionClass = ClassCorrectionConfirmation
+		base.MissingFacts = []string{"correction_details"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the extracted payroll transaction needs a human correction or confirmation"
 	case "CONFLICTING_EVIDENCE":
 		base.DecisionClass = ClassDuplicateAmbiguity
 		base.MissingFacts = []string{"duplicate_relationship"}
 		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
 		base.InteractionMode = ModeConflictResolution
 		base.WhyNotAuto = "two sources disagree about the same provider reference, so Go refuses to guess"
+	case "POSSIBLE_DUPLICATE":
+		base.DecisionClass = ClassDuplicateAmbiguity
+		base.MissingFacts = []string{"duplicate_relationship"}
+		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeBoundedChoice
+		base.WhyNotAuto = "a plausible duplicate exists; choose the matching event, confirm as new, or ignore"
 	default:
 		return Decision{}, false
 	}
