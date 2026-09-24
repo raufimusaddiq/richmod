@@ -414,12 +414,14 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	defer tx.Rollback(ctx)
 	var reviewID, transactionID, reviewType, requestStatus, transactionStatus, merchantID string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
+	var missingFactsJSON *string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,''),ri.decision->'missingFacts'
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		LEFT JOIN review_item ri ON ri.id=r.review_item_id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
 		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID, &missingFactsJSON)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
 			return err
@@ -454,7 +456,7 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	if err = tx.QueryRow(ctx, `SELECT c.id FROM category c WHERE c.id=$1 AND c.household_id=$2 AND c.active`, categoryID, householdID).Scan(&validCategory); err != nil {
 		return tx.Commit(ctx)
 	}
-	if merchantID == "" {
+	if merchantID == "" && (missingFactsJSON == nil || reviewRequiresFact(missingFactsJSON, "merchant")) {
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return err
 		}

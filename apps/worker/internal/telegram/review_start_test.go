@@ -44,4 +44,11 @@ func TestReviewRequiresFactPreservesLegacyAndCategoryOnlyContract(t *testing.T) 
 	}
 }
 
+func TestCategorySelectionAllowsMissingMerchantWhenContractIsCategoryOnly(t *testing.T) {
+	categoryOnly := reviewFactPtr(`["category"]`)
+	if reviewRequiresFact(categoryOnly, "merchant") || !reviewRequiresFact(categoryOnly, "category") {
+		t.Fatal("category-only review must not block category selection on a missing merchant")
+	}
+}
+
 func reviewFactPtr(value string) *string { return &value }

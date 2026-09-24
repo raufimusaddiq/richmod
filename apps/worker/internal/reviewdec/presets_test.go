@@ -20,3 +20,10 @@ func TestPresetsHaveCompleteKnownContracts(t *testing.T) {
 		t.Fatal("unknown reasons must not produce a persistable zero decision")
 	}
 }
+
+func TestPossibleDuplicateOffersBoundedRelationshipChoices(t *testing.T) {
+	decision, ok := Preset("POSSIBLE_DUPLICATE", "transaction", "subject")
+	if !ok || len(decision.AllowedActions) != 3 || decision.AllowedActions[0] != "MERGE_EXISTING" || decision.AllowedActions[1] != "CONFIRM_NEW_TRANSFER" || decision.AllowedActions[2] != "IGNORE" {
+		t.Fatalf("unexpected duplicate contract: %+v, ok=%t", decision, ok)
+	}
+}
