@@ -63,6 +63,10 @@ type agentState struct {
 	HasPendingBatch  bool
 	HasSalaryChoice  bool
 	ReviewMode       string
+	// JudgmentRoute is the route already decided by the first, cheap bounded
+	// pass. A generative fallback may use it as mutation context so a clear LLM
+	// extraction does not pay for a second Jev approval call.
+	JudgmentRoute    string
 
 	// Native continuation state for the immediately preceding READ phase. The
 	// gateway consumes these as provider-native tool outputs on the next model
