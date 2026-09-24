@@ -558,9 +558,8 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 				return err
 			}
 			// Persist the PRD §7 contract on the review that line above just created,
-			// so the Inbox can show only the unresolved fact. A new merchant with an
-			// undecided category is a pure category gap: amount, time, and direction
-			// are known. The decision must be written after the review exists —
+			// so the Inbox can show only the unresolved facts. The decision must be
+			// written after the review exists —
 			// updating first matched zero rows and was silently dropped.
 			encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON()
 			if encodeErr != nil {
@@ -568,7 +567,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 			}
 			if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
 				return execErr
-			} else if tag.RowsAffected() != 1 {
+			} else if tag.RowsAffected() == 0 {
 				return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
 			}
 		}

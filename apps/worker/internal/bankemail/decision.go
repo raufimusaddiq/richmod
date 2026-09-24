@@ -6,7 +6,7 @@ import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 // so the stored contract stays reproducible (PRD §18).
 func reviewPolicyVersion(reviewType string) string {
 	switch reviewType {
-	case "TRANSFER_CLASSIFICATION", "UNKNOWN_PURPOSE":
+	case "TRANSFER_CLASSIFICATION", "UNKNOWN_PURPOSE", "UNKNOWN_MERCHANT":
 		// Decided by the deterministic policy pipeline, not the bounded plane.
 		return ToolSchemaVersion
 	default:
@@ -62,7 +62,8 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	case "UNKNOWN_MERCHANT":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
 		decision.MissingFacts = []string{"category"}
-		decision.InteractionMode = reviewdec.ModeBoundedChoice
+		decision.InteractionMode = reviewdec.ModeSingleField
+		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		decision.WhyNotAuto = "the email did not name a merchant, so no stored category could be applied"
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice

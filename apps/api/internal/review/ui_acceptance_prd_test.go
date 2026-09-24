@@ -22,10 +22,11 @@ import (
 // the authority on what is unresolved (PRD 3.3, 13.4). They are asserted here
 // rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
-	MissingFacts  []string       `json:"missingFacts"`
-	ProposedFacts map[string]any `json:"proposedFacts"`
-	KnownFacts    map[string]any `json:"knownFacts"`
-	WhyNotAuto    string         `json:"whyNotAutoConfirm"`
+	MissingFacts   []string       `json:"missingFacts"`
+	ProposedFacts  map[string]any `json:"proposedFacts"`
+	KnownFacts     map[string]any `json:"knownFacts"`
+	WhyNotAuto     string         `json:"whyNotAutoConfirm"`
+	AllowedActions []string       `json:"allowedActions"`
 }
 
 func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
@@ -107,6 +108,34 @@ func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
 	}
 	if _, known := item.KnownFacts["merchant"]; !known {
 		t.Fatalf("the stored known facts must reach the client: %v", item.KnownFacts)
+	}
+}
+
+func TestTransactionBackedReviewExposesStoredDecision(t *testing.T) {
+	pool, household, user := reviewUIFixture(t)
+	ctx := context.Background()
+	var sourceID, txID string
+	stamp := time.Now().UnixNano()
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),decode(md5($2),'hex'),'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("transaction-review-%d", stamp)).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,'IDR',now(),'Bank card purchase') RETURNING id`, household).Scan(&txID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'BANK_EMAIL')`, txID, sourceID); err != nil {
+		t.Fatal(err)
+	}
+	decision, _ := json.Marshal(map[string]any{
+		"version": 1, "reasonCode": "AMBIGUOUS_CATEGORY", "decisionClass": "EVIDENCE_GAP",
+		"knownFacts": map[string]any{"amount_idr": "54000"}, "missingFacts": []string{"category"},
+		"whyNotAutoConfirm": "category not decisive", "allowedActions": []string{"CONFIRM_REVIEW", "IGNORE"},
+	})
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','OPEN',$4)`, household, txID, sourceID, decision); err != nil {
+		t.Fatal(err)
+	}
+	items := listCanonicalReviews(t, pool, household, user)
+	if len(items) != 1 || len(items[0].MissingFacts) != 1 || items[0].MissingFacts[0] != "category" || items[0].KnownFacts["amount_idr"] != "54000" || items[0].WhyNotAuto == "" {
+		t.Fatalf("transaction-backed Inbox must expose its persisted decision: %+v", items)
 	}
 }
 

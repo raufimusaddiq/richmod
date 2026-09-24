@@ -77,7 +77,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
-		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status
+		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,
+		       ri.decision
 		FROM transaction t
 		LEFT JOIN category c ON c.id=t.category_id
 		LEFT JOIN merchant m ON m.id=t.merchant_id
@@ -87,6 +88,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		) evidence ON true
 		LEFT JOIN source_event s ON s.id=evidence.source_event_id
 		LEFT JOIN transaction_proposal p ON p.id=NULLIF(evidence.metadata_json->>'proposal_id','')::uuid
+		LEFT JOIN LATERAL (SELECT decision FROM review_item WHERE transaction_id=t.id AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at DESC LIMIT 1) ri ON true
 		WHERE t.household_id=$1 AND t.status='NEEDS_REVIEW'
 		ORDER BY t.transaction_at DESC,t.id DESC LIMIT 100`, household)
 	if err != nil {
@@ -97,7 +99,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	items := make([]item, 0)
 	for rows.Next() {
 		var value item
-		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence, &value.ProposalStatus); err != nil {
+		if err := rows.Scan(&value.ID, &value.Type, &value.Amount, &value.Currency, &value.TransactionAt, &value.Description, &value.Note, &value.CategoryID, &value.AccountID, &value.CategoryName, &value.MerchantName, &value.Counterparty, &value.SourceType, &value.Confidence, &value.ProposalStatus, &value.Decision); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 			return
 		}
@@ -107,7 +109,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		value.Reason = reviewReason(value)
-		value.MissingFields = reviewMissingFields(value)
+		stored := proposalFacts(value.Decision)
+		value.KnownFacts, value.ProposedFacts, value.MissingFacts, value.WhyNotAutoConfirm = stored.KnownFacts, stored.ProposedFacts, stored.MissingFacts, stored.WhyNotAuto
+		value.MissingFields = stored.MissingFacts
+		value.AllowedActions = stored.AllowedActions
+		if len(value.MissingFields) == 0 {
+			value.MissingFields = reviewMissingFields(value)
+		}
 		items = append(items, value)
 	}
 	if err := rows.Err(); err != nil {
@@ -204,9 +212,6 @@ func reviewReason(value item) string {
 
 func reviewMissingFields(value item) []string {
 	var fields []string
-	if value.SourceType != nil && *value.SourceType == "BANK_EMAIL" && value.Type == "EXPENSE" && value.MerchantName == nil {
-		fields = append(fields, "merchant")
-	}
 	if value.Type == "EXPENSE" && value.CategoryID == nil {
 		fields = append(fields, "category")
 	}
@@ -240,8 +245,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var kind string
 	var currentCategory, merchantID *string
-	var sourceType string
-	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id,COALESCE(s.source_type,'') FROM transaction t LEFT JOIN LATERAL (SELECT te.source_event_id FROM transaction_evidence te WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1) evidence ON true LEFT JOIN source_event s ON s.id=evidence.source_event_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE OF t`, id, household).Scan(&kind, &currentCategory, &merchantID, &sourceType); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&kind, &currentCategory, &merchantID); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
 	} else if err != nil {
@@ -266,10 +270,6 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	merchantName := clean(input.MerchantName, 160)
-	if kind == "EXPENSE" && sourceType == "BANK_EMAIL" && merchantID == nil && merchantName == "" {
-		writeJSON(w, 400, map[string]string{"error": "merchant is required for this bank review"})
-		return
-	}
 	if merchantName != "" {
 		var id string
 		if err := tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, household, merchantName).Scan(&id); err != nil {

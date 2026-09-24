@@ -1,6 +1,36 @@
 package bankemail
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+// A missing merchant must not become a required text field (PRD §9.4/§9.5):
+// what the review actually asks for is a category, and the known facts stay
+// read-only so the user is never asked to re-enter amount, time, or direction.
+func TestUnknownMerchantDecisionAsksForCategoryOnly(t *testing.T) {
+	amount, direction, channel := "54000", "OUTGOING", "DEBIT_CARD"
+	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
+	if len(d.MissingFacts) != 1 || d.MissingFacts[0] != "category" {
+		t.Fatalf("an undecided category is the missing fact, got %v", d.MissingFacts)
+	}
+	if d.PolicyVersion != ToolSchemaVersion {
+		t.Fatalf("deterministic merchant policy version=%q", d.PolicyVersion)
+	}
+	if d.InteractionMode != "SINGLE_FIELD" || len(d.AllowedActions) != 2 {
+		t.Fatalf("category gap needs a field plus honest actions: %+v", d)
+	}
+	for _, fact := range []string{"amount_idr", "transaction_at", "direction", "channel"} {
+		if d.KnownFacts[fact] == nil {
+			t.Fatalf("known fact %s must travel with the review: %+v", fact, d.KnownFacts)
+		}
+		for _, missing := range d.MissingFacts {
+			if missing == fact {
+				t.Fatalf("known fact %s must never be requested again", fact)
+			}
+		}
+	}
+}
 
 // The missing-facts list must name every absent required fact, not just the
 // first: an email with neither amount nor time must ask for both, so the Inbox

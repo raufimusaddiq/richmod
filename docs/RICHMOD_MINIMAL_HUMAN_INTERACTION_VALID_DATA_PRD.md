@@ -846,13 +846,12 @@ Rp53.000 · Debit Card
 
 Merchant tidak tersedia pada bukti.
 
-Kategori kemungkinan:
-Makanan & Minuman
+Kategori: [dropdown]
 
-[Benar] [Pilih kategori lain]
+[Simpan] [Abaikan]
 ~~~
 
-Do not request amount/date again.
+Do not request merchant, amount, or date again. Merchant may remain NULL.
 
 If category is decisive, no review is required.
 

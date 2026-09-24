@@ -23,11 +23,11 @@ func TestReconciliationScore(t *testing.T) {
 	}
 }
 
-func TestReviewMissingFieldsRequiresBankMerchantAndExpenseCategory(t *testing.T) {
+func TestReviewMissingFieldsDoesNotRequireMerchant(t *testing.T) {
 	source := "BANK_EMAIL"
 	typeValue := item{Type: "EXPENSE", SourceType: &source}
 	got := reviewMissingFields(typeValue)
-	if len(got) != 2 || got[0] != "merchant" || got[1] != "category" {
+	if len(got) != 1 || got[0] != "category" {
 		t.Fatalf("missing fields = %#v", got)
 	}
 }

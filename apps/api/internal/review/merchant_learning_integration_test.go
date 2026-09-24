@@ -74,7 +74,7 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 	}
 }
 
-func TestBankReviewRequiresMerchantBeforeConfirmation(t *testing.T) {
+func TestBankReviewCanConfirmWithoutInventingMerchant(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -111,28 +111,16 @@ func TestBankReviewRequiresMerchantBeforeConfirmation(t *testing.T) {
 		return response
 	}
 
-	missing := confirm(fmt.Sprintf(`{"categoryId":%q}`, categoryID))
-	if missing.Code != http.StatusBadRequest || !bytes.Contains(missing.Body.Bytes(), []byte("merchant is required")) {
-		t.Fatalf("missing merchant status=%d body=%s", missing.Code, missing.Body.String())
+	accepted := confirm(fmt.Sprintf(`{"categoryId":%q}`, categoryID))
+	if accepted.Code != http.StatusNoContent {
+		t.Fatalf("accepted status=%d body=%s", accepted.Code, accepted.Body.String())
 	}
 	var status string
 	var merchantID *string
 	if err := pool.QueryRow(ctx, `SELECT status,merchant_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&status, &merchantID); err != nil {
 		t.Fatal(err)
 	}
-	if status != "NEEDS_REVIEW" || merchantID != nil {
-		t.Fatalf("failed confirmation mutated transaction status=%s merchant=%v", status, merchantID)
-	}
-
-	accepted := confirm(fmt.Sprintf(`{"categoryId":%q,"merchantName":"Warung Gorengan"}`, categoryID))
-	if accepted.Code != http.StatusNoContent {
-		t.Fatalf("accepted status=%d body=%s", accepted.Code, accepted.Body.String())
-	}
-	var merchantName string
-	if err := pool.QueryRow(ctx, `SELECT t.status,m.normalized_name FROM transaction t JOIN merchant m ON m.id=t.merchant_id WHERE t.id=$1`, transactionID).Scan(&status, &merchantName); err != nil {
-		t.Fatal(err)
-	}
-	if status != "CONFIRMED" || merchantName != "Warung Gorengan" {
-		t.Fatalf("confirmed status=%s merchant=%q", status, merchantName)
+	if status != "CONFIRMED" || merchantID != nil {
+		t.Fatalf("confirmed status=%s merchant=%v; absent merchant stays NULL", status, merchantID)
 	}
 }
