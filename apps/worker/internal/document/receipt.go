@@ -500,7 +500,10 @@ func (p *Processor) persistInvalidDocumentExtraction(ctx context.Context, docume
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
-	decision, _ := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
+	decision, ok := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
+	}
 	decision.WhyNotAuto = "the receipt extraction failed validation"
 	encoded, encodeErr := decision.JSON()
 	if encodeErr != nil {

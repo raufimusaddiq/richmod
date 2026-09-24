@@ -66,7 +66,10 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 	}
 	// PRD §7: the review carries the canonical contract, so the Inbox renders the
 	// policy choice and the residual amount without re-deriving them.
-	decision, _ := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", caseID)
+	decision, ok := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", caseID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for CYCLE_RESIDUAL_ALLOCATION")
+	}
 	decision.KnownFacts["residual_idr"] = residual
 	encoded, encodeErr := decision.JSON()
 	if encodeErr != nil {

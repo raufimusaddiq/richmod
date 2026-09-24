@@ -112,5 +112,8 @@ func (d Decision) JSON() ([]byte, error) {
 	if d.AllowedActions == nil {
 		d.AllowedActions = []string{}
 	}
+	if d.Provenance == nil {
+		d.Provenance = map[string]any{}
+	}
 	return json.Marshal(d)
 }

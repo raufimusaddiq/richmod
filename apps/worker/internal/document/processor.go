@@ -265,7 +265,10 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10) ON CONFLICT(document_id) DO UPDATE SET updated_at=now() RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate).Scan(&observationID); err != nil {
 			return err
 		}
-		decision, _ := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
+		decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
+		if !ok {
+			return fmt.Errorf("no review decision preset for WEALTH_OBSERVATION_CONFIRMATION")
+		}
 		decision.KnownFacts["observed_value_idr"] = observation.ObservedValueIDR
 		if observation.Institution != "" {
 			decision.KnownFacts["institution"] = strings.TrimSpace(observation.Institution)
@@ -414,7 +417,10 @@ func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID); err != nil {
 		return err
 	}
-	classification, _ := reviewdec.Preset("DOCUMENT_CLASSIFICATION", "document", documentID)
+	classification, ok := reviewdec.Preset("DOCUMENT_CLASSIFICATION", "document", documentID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for DOCUMENT_CLASSIFICATION")
+	}
 	classification.WhyNotAuto = "document classification failed: " + truncate(cause)
 	classificationJSON, encodeErr := classification.JSON()
 	if encodeErr != nil {

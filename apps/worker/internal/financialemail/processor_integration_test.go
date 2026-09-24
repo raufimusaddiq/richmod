@@ -299,6 +299,19 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, h).Scan(&transactions); err != nil {
 		t.Fatal(err)
 	}
+	var decision []byte
+	if err := pool.QueryRow(ctx, `SELECT decision FROM review_item WHERE financial_email_observation_id=(SELECT id FROM financial_email_observation WHERE source_event_id=$1 AND ordinal=1) AND review_type='WEALTH_OBSERVATION_CONFIRMATION'`, source).Scan(&decision); err != nil {
+		t.Fatal(err)
+	}
+	var contract struct {
+		KnownFacts map[string]any `json:"knownFacts"`
+	}
+	if err := json.Unmarshal(decision, &contract); err != nil {
+		t.Fatal(err)
+	}
+	if contract.KnownFacts["wealth_account"] != wealth {
+		t.Fatalf("decision wealth_account=%v, want configured Wealth Account %s", contract.KnownFacts["wealth_account"], wealth)
+	}
 	if wealthChildren != 1 || wealthReviews != 1 || transactions != 1 {
 		t.Fatalf("wealth children=%d reviews=%d transactions=%d", wealthChildren, wealthReviews, transactions)
 	}

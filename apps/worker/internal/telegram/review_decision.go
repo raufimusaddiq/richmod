@@ -12,13 +12,16 @@ import (
 // with its canonical ReviewDecision contract (PRD 7, 37), so the Inbox can
 // always explain why the household's input is required. Idempotent on an open
 // review; a reason with no preset is a programming error, not a silent skip.
-func insertSourceEventReviewDecision(ctx context.Context, tx pgx.Tx, household, source, reason string, known map[string]any) error {
+func insertSourceEventReviewDecision(ctx context.Context, tx pgx.Tx, household, source, reason string, known, provenance map[string]any) error {
 	decision, ok := reviewdec.Preset(reason, "source_event", source)
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reason)
 	}
 	for key, value := range known {
 		decision.KnownFacts[key] = value
+	}
+	for key, value := range provenance {
+		decision.Provenance[key] = value
 	}
 	encoded, err := decision.JSON()
 	if err != nil {

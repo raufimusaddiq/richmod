@@ -257,7 +257,10 @@ func (p *Processor) persistInvalidPayslip(ctx context.Context, documentID, house
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
-	decision, _ := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
+	decision, ok := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
+	}
 	decision.WhyNotAuto = "the payslip extraction failed validation: " + truncate(cause)
 	encoded, encodeErr := decision.JSON()
 	if encodeErr != nil {
@@ -330,7 +333,10 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return err
 	}
 	if reviewWithoutTransaction {
-		decision, _ := reviewdec.Preset(reviewType, "proposal", proposalID)
+		decision, ok := reviewdec.Preset(reviewType, "proposal", proposalID)
+		if !ok {
+			return fmt.Errorf("no review decision preset for %s", reviewType)
+		}
 		decision.KnownFacts["amount_idr"] = value.NetPay
 		if value.Employer != "" {
 			decision.KnownFacts["merchant"] = value.Employer

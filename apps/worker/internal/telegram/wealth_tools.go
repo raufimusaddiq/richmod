@@ -112,22 +112,26 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	for _, candidate := range candidates {
 		candidateIDs = append(candidateIDs, candidate.id)
 	}
+	if len(candidates) > 10 {
+		tx.Rollback(ctx)
+		return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "TOO_MANY_CANDIDATES", "Terlalu banyak kandidat transfer. Sebutkan waktu atau tujuan yang lebih spesifik.")
+	}
 	if len(candidates) > 1 {
 		tx.Rollback(ctx)
-		return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "Ada lebih dari satu transfer yang cocok. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
+		return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "MULTIPLE_CANDIDATES", "Ada lebih dari satu transfer yang cocok. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
 	}
 	id := ""
 	if len(candidates) == 1 {
 		candidate := candidates[0]
 		if localTime == "" || candidate.kind != "TRANSFER" || candidate.status != "CONFIRMED" || candidate.existingPurpose != purpose || candidate.existingWealth != wealthID {
 			tx.Rollback(ctx)
-			return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "Ada transaksi yang mungkin sama, tetapi bukti belum cukup untuk digabung. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
+			return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "POSSIBLE_MATCH", "Ada transaksi yang mungkin sama, tetapi bukti belum cukup untuk digabung. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
 		}
 		candidateMinute := at.UTC()
 		var exact bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE id=$1 AND transaction_at >= $2 AND transaction_at < $2 + interval '1 minute')`, candidate.id, candidateMinute).Scan(&exact); err != nil || !exact {
 			tx.Rollback(ctx)
-			return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "Waktu transfer tidak cocok dengan bukti yang ada. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
+			return p.finishTransferReview(ctx, sourceID, householdID, update, intent, candidateIDs, "TIME_MISMATCH", "Waktu transfer tidak cocok dengan bukti yang ada. Pilih transaksi yang tepat atau konfirmasi sebagai transaksi baru.")
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),updated_at=now() WHERE id=$1`, candidate.id, purpose, wealthID, strings.TrimSpace(desc)); err != nil {
 			return err
@@ -156,7 +160,7 @@ type transferReconciliationIntent struct {
 	at                                                time.Time
 }
 
-func (p *Processor) finishTransferReview(ctx context.Context, sourceID, householdID string, update telegramUpdate, intent transferReconciliationIntent, candidateIDs []string, message string) error {
+func (p *Processor) finishTransferReview(ctx context.Context, sourceID, householdID string, update telegramUpdate, intent transferReconciliationIntent, candidateIDs []string, blockingReason, message string) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -168,7 +172,7 @@ func (p *Processor) finishTransferReview(ctx context.Context, sourceID, househol
 	if _, err = tx.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),$7,NULLIF($8,'')::uuid,$9::uuid[]) ON CONFLICT(source_event_id) WHERE financial_email_observation_id IS NULL DO UPDATE SET candidate_transaction_ids=EXCLUDED.candidate_transaction_ids,updated_at=now(),status='OPEN',resolved_at=NULL,resolved_by_user_id=NULL`, householdID, sourceID, intent.accountID, intent.amount, intent.at, intent.description, intent.purpose, intent.wealthID, candidateIDs); err != nil {
 		return err
 	}
-	if err = insertSourceEventReviewDecision(ctx, tx, householdID, sourceID, "TRANSFER_CLASSIFICATION", map[string]any{"amount_idr": intent.amount}); err != nil {
+	if err = insertSourceEventReviewDecision(ctx, tx, householdID, sourceID, "TRANSFER_CLASSIFICATION", map[string]any{"amount_idr": intent.amount}, map[string]any{"blocking_reason": blockingReason, "candidate_count": len(candidateIDs)}); err != nil {
 		return err
 	}
 	if err = enqueueReply(ctx, tx, update, message); err != nil {
