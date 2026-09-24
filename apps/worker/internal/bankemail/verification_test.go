@@ -82,6 +82,15 @@ func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 	}
 }
 
+func TestMerchantlessCategoryRescueNeedsSupportingText(t *testing.T) {
+	verifier := &stubVerifier{}
+	processor := &Processor{verifier: verifier}
+	category, _ := processor.resolveNewMerchantCategory(context.Background(), "evt", "household", Extraction{AmountIDR: stringPtrFor("25000")})
+	if category != "" || verifier.calls != 0 {
+		t.Fatalf("amount alone cannot support a category ruling: category=%q calls=%d", category, verifier.calls)
+	}
+}
+
 func TestEvidenceVerificationRejectsUnsupportedClaim(t *testing.T) {
 	answers := supportedRuling()
 	answers["channel_supported"] = noul(0.30)

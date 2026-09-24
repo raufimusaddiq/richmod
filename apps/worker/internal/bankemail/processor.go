@@ -406,7 +406,7 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 // function of the resolver so the confirm-no-review half is testable without a
 // full email fixture.
 func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) PolicyResult {
-	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" && result.ReviewType != "UNKNOWN_MERCHANT" {
 		return result
 	}
 	categoryID, provenance := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)

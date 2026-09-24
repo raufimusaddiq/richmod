@@ -83,7 +83,8 @@ const bankCategoryQuestion = "Choose the best active expense category for this p
 // ID, and an undecided or ambiguous answer returns "" so the caller keeps its
 // category-only review. A provider failure also returns "" rather than guessing.
 func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventID, householdID string, extraction Extraction) (string, categoryProvenance) {
-	if p.verifier == nil || extraction.Merchant == nil || strings.TrimSpace(*extraction.Merchant) == "" {
+	merchant, description, counterparty := strings.TrimSpace(value(extraction.Merchant)), strings.TrimSpace(value(extraction.Description)), strings.TrimSpace(value(extraction.Counterparty))
+	if p.verifier == nil || (merchant == "" && description == "" && counterparty == "") {
 		return "", categoryProvenance{}
 	}
 	categories, err := p.activeExpenseCategories(ctx, householdID)
@@ -94,10 +95,18 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 	for _, category := range categories {
 		slugs = append(slugs, category.Slug)
 	}
+	state := map[string]any{"amount_idr": value(extraction.AmountIDR)}
+	if merchant != "" {
+		state["merchant"] = "<untrusted_merchant>" + merchant + "</untrusted_merchant>"
+	}
+	if description != "" {
+		state["description"] = "<untrusted_description>" + description + "</untrusted_description>"
+	}
+	if counterparty != "" {
+		state["counterparty"] = "<untrusted_counterparty>" + counterparty + "</untrusted_counterparty>"
+	}
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
-		State: map[string]any{
-			"merchant": "<untrusted_merchant>" + strings.TrimSpace(*extraction.Merchant) + "</untrusted_merchant>",
-		},
+		State: state,
 		Questions: map[string]judgment.Question{
 			"category": {Type: "choice", Instructions: bankCategoryQuestion, Criteria: judgment.CategoryCriteria(slugs)},
 		},

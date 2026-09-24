@@ -244,3 +244,33 @@ I pass (only questioned rows appear in provenance); J pass; K pass (`git diff
 disposable PostgreSQL 17, with Go capped at 1 CPU/1 GiB and PostgreSQL at 0.5
 CPU/512 MiB.
 Known follow-up: IR-09 consumes bounded-call provenance.
+
+## IR-07 — Bank Email merchant-less category resolution
+
+Task: IR-07
+Baseline main SHA: `ce756647c7c073d5f79f4ea383f099ff4f519827`
+Files changed: bank-email category routing/resolver and focused tests.
+User interactions before: a valid merchant-less expense entered `UNKNOWN_MERCHANT`
+and skipped the bounded category decision.
+User interactions after: when description or counterparty evidence exists, the
+existing Jev category decision may resolve the expense with merchant still NULL;
+provider failure, ambiguity, or absent category evidence remains reviewable.
+Jev calls before/after: zero for merchant-less expenses; one category attempt
+when useful supporting text exists.
+Generative calls before/after: unchanged; generic extraction remains the only
+generative call.
+Canonical correctness guard: evidence text is marked untrusted; categories and
+IDs remain household-scoped; Go alone writes canonical state; merchant is never
+fabricated; the category auto-confirm kill switch still gates the path.
+Residual uncertainty after: undecided merchant-less category remains the
+existing `UNKNOWN_MERCHANT` review; no description/counterparty means no Jev call.
+Tests added/updated: decisive merchant-less category, NULL merchant, provider
+failure, and amount-only no-call coverage.
+Migration/schema changes: none.
+Drift checklist: A pass (review removed only when bounded evidence decided it);
+B pass (one category attempt, no replay); C pass (Go resolves IDs and writes);
+D pass (no threshold relaxed, kill switch preserved); E pass (no merchant
+fabricated); F pass; G pass (provider failure and absent evidence keep review);
+H pass; I pass (bounded call carries policy version); J pass (canonical IDs and
+NULL merchant asserted); K pass (`git diff --check`).
+Known follow-up: IR-09 consumes bounded-call provenance.
