@@ -1873,24 +1873,27 @@ bounded choices, and the auto-confirm correction rate/field/source breakdown.
 The RHICE denominator includes only confirmed transactions, not pending,
 needs-review, or voided rows.
 
-Definitions are pinned to the actions the writers actually emit for a canonical
-transaction: explicit inputs are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
-`TELEGRAM_TRANSFER_CLASSIFIED`, `TRANSFER_RECONCILED`,
-`RECLASSIFIED_ASSET_PURCHASE`, `COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
-`SET_FINANCIAL_EMAIL_ENTITIES`, `PRIMARY_SALARY`, `ORDINARY_INCOME`,
-`MERGE_EXISTING`, and `CONFIRM_NEW_TRANSFER`; typed fields are the subset whose
-action names a value the user entered (`COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
-`SET_FINANCIAL_EMAIL_ENTITIES`). Residual allocations and wealth-only snapshot
-confirmations remain review metadata, not inputs before a ledger transaction.
-Reclassified Wealth observations join through their preserved transaction
-evidence. System
-resolutions (`EMAIL_RECEIVED_AT_FALLBACK`, `RECONCILED_TERMINAL_TRANSACTION`,
-`LEGACY_TRANSACTION_RESOLVED`, `NO_LONGER_APPLICABLE`) and `IGNORE` are neither
-an input nor a typed field, and accepted-without-edit is the resolution actions
-that only accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
-`TELEGRAM_MERCHANT_DECISION`). RHICE counts only recent resolutions linked to a
-recent canonical transaction through its review binding or preserved evidence,
-so the numerator and denominator share the same canonical-event cohort.
+The action-name approximation above is superseded by the 2026-09-24 intelligence-
+routing PRD for RHICE numerator semantics. RHICE counts actual human controls or
+fields supplied on the resolution turn, not merely the number/name of resolved
+review rows.
+
+Examples:
+
+~~~text
+accept proposal                     1 input
+category dropdown                   1 input
+amount + date in one form           2 inputs
+server-known account merged back    0 inputs
+~~~
+
+Resolution telemetry must therefore preserve which allow-listed field names the
+user actually supplied, while excluding values loaded from server-known state.
+Residual allocations and wealth-only snapshot confirmations remain review
+metadata unless they are inputs required to create a canonical transaction.
+System resolutions and IGNORE remain outside the canonical-event RHICE numerator.
+RHICE still counts only resolutions linked to the same recent canonical-event
+cohort as its denominator.
 
 Review turns are recorded as privacy-bounded events: only action names and an
 allow-listed set of changed field names are retained, never values or user text.
