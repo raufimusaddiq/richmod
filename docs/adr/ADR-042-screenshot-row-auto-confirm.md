@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for implementation — 2026-09-23. Implements PRD §11 (Stage 5).
+Accepted for implementation — 2026-09-23. Implements PRD §11 (Stage 5). Amended by ADR-045 on 2026-09-24.
 
 ## Context
 
@@ -15,14 +15,19 @@ minimal-interaction contract (PRD §11.4).
 
 ## Decision
 
-For every unmatched row, one batched bounded request rules on the row's category
-using the household's own category slugs as the possibility space (PRD §11.3).
+After the image's single generative extraction, Go validates every unmatched
+row and partitions it by residual uncertainty. A row whose constrained category
+already passes the screenshot source-acceptance contract does not enter Jev.
+Only rows whose bounded category remains unresolved are included in one batched
+bounded request using the household's own category slugs as the possibility
+space (PRD §11.3, as amended by ADR-045).
+
 A row auto-confirms only when all hold (PRD §17, §11.2):
 
 - it matched no existing transaction;
 - it is an OUT/expense row;
-- the bounded plane reached a decisive, well-separated category;
-- the image and the bounded plane did not name different categories;
+- a valid category is available from the accepted constrained vision result or from a decisive residual bounded rescue;
+- no unresolved category conflict remains between source interpretation and any residual bounded rescue;
 - the screenshot printed a transaction date;
 - extraction confidence is at least 0.90.
 
@@ -43,6 +48,24 @@ instead of one chat message per row.
 
 A nil bounded plane disables auto-confirm entirely, so intake still works when
 the gateway is unavailable.
+
+## Amendment — selective residual batch (2026-09-24)
+
+The bounded batch is a rescue queue, not a second-pass queue.
+
+Example:
+
+~~~text
+20 extracted rows
+17 categories accepted by source policy
+3 categories unresolved
+
+Jev questions = 3
+not 20
+~~~
+
+Already-clear rows must not claim Jev provenance. Mixed batches may therefore
+contain direct generative rows and Jev-rescued rows in one document.
 
 ## Consequences
 
