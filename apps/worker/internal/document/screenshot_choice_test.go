@@ -190,3 +190,19 @@ func TestScreenshotDecisionReportsJevOnlyWhenItRan(t *testing.T) {
 		t.Fatalf("Jev-rescued row must retain combined provenance: %+v", rescued)
 	}
 }
+
+
+func TestScreenshotConflictPlusMissingDateKeepsBothResidualFacts(t *testing.T) {
+	category := "cat-food"
+	row := unmatchedOutRow("54000")
+	row.DateKnown = false
+	row.CategoryID, row.CategoryDecided = &category, true
+	row.CategoryConflict = true
+	if got := screenshotReviewType(row); got != "TRANSACTION_FACTS_MISSING" {
+		t.Fatalf("category conflict plus absent date must keep both unresolved, got %s", got)
+	}
+	decision := screenshotRowDecision("household", "event", "transaction", "TRANSACTION_FACTS_MISSING", 0, row)
+	if !reflect.DeepEqual(decision.MissingFacts, []string{"category", "transaction_at"}) || decision.DecisionClass != reviewdec.ClassEvidenceConflict {
+		t.Fatalf("combined conflict review lost residual facts: %+v", decision)
+	}
+}
