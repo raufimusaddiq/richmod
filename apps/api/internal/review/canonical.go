@@ -85,6 +85,9 @@ func canonicalActions(kind string) []string {
 		return []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
 	}
 	if kind == "MISSING_PAY_DATE" {
+		// The salary-classification choice is added by the item mapper only when
+		// the stored decision records that no primary salary exists; legacy
+		// reviews without that provenance stay date-only (PRD §7.6, E1/E2).
 		return []string{"SET_PAY_DATE", "IGNORE"}
 	}
 	if kind == "CYCLE_RESIDUAL_ALLOCATION" {
@@ -146,6 +149,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 409, map[string]string{"error": "review is already resolved"})
 		return
 	}
+	enqueueSalaryResidual := in.Action == "PRIMARY_SALARY"
 	if kind == "WEALTH_OBSERVATION_CONFIRMATION" && wealthObservation != nil {
 		if in.Action == "PREPARE_SNAPSHOT" {
 			if err = tx.Commit(r.Context()); err != nil {
@@ -448,6 +452,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
 		err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, in.Action)
 	} else if kind == "MISSING_PAY_DATE" && in.Action == "SET_PAY_DATE" {
+		var storedActions []string
 		var v struct {
 			PayDate string `json:"payDate"`
 			Choice  string `json:"choice"`
@@ -456,13 +461,40 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			err = errInvalid
 		}
 		if err == nil {
+			var storedDecision []byte
+			err = tx.QueryRow(r.Context(), `SELECT decision FROM review_item WHERE id=$1 AND household_id=$2`, r.PathValue("id"), household).Scan(&storedDecision)
+			if err == nil {
+				storedActions = proposalFacts(storedDecision).AllowedActions
+			}
+		}
+		if err == nil {
 			date, parseErr := time.Parse("2006-01-02", v.PayDate)
 			if parseErr != nil {
 				err = errInvalid
 			} else {
-				_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET transaction_at=$2::date,updated_at=now() WHERE id=$1`, *proposal, date)
-				if err == nil {
-					err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, strings.ToUpper(v.Choice))
+				var hasPrimary bool
+				if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, household).Scan(&hasPrimary); err == nil {
+					choice := strings.ToUpper(strings.TrimSpace(v.Choice))
+					if choice == "" && hasPrimary {
+						choice = "HOUSEHOLD_POLICY"
+					} else if choice == "" || (hasPrimary && choice != "") || (!hasPrimary && choice != "PRIMARY_SALARY" && choice != "ORDINARY_INCOME") {
+						err = errInvalid
+					}
+					if choice == "HOUSEHOLD_POLICY" && !containsString(storedActions, "SET_PAY_DATE") {
+						err = errInvalid
+					} else if (choice == "PRIMARY_SALARY" || choice == "ORDINARY_INCOME") && !containsString(storedActions, choice) {
+						err = errInvalid
+					}
+					if err == nil {
+						_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET transaction_at=$2::date,updated_at=now() WHERE id=$1`, *proposal, date)
+					}
+					if err == nil {
+						err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, choice)
+						enqueueSalaryResidual = choice == "PRIMARY_SALARY" || choice == "HOUSEHOLD_POLICY"
+					}
+					if err == nil && choice == "HOUSEHOLD_POLICY" {
+						in.Values = json.RawMessage(`{"payDate":"` + v.PayDate + `"}`)
+					}
 				}
 			}
 		}
@@ -487,7 +519,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	// Salary state is already committed. Queue failure is deliberately best-effort;
 	// worker catch-up repairs a lost enqueue without rolling salary back.
-	if in.Action == "PRIMARY_SALARY" && source != nil {
+	if enqueueSalaryResidual && source != nil {
 		var salaryEventID string
 		if err := h.pool.QueryRow(r.Context(), `SELECT id FROM salary_event WHERE household_id=$1 AND source_event_id=$2 AND status='CONFIRMED' ORDER BY created_at DESC LIMIT 1`, household, *source).Scan(&salaryEventID); err == nil {
 			_, _ = h.pool.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5)`, household, salaryEventID)
@@ -604,8 +636,18 @@ var errInvalid = &reviewResolutionError{}
 type reviewResolutionError struct{}
 
 func (*reviewResolutionError) Error() string { return "invalid resolution" }
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, proposal, source, document, choice string) error {
-	if choice != "PRIMARY_SALARY" && choice != "ORDINARY_INCOME" {
+	if choice != "PRIMARY_SALARY" && choice != "ORDINARY_INCOME" && choice != "HOUSEHOLD_POLICY" {
 		return errInvalid
 	}
 	var amount, employer, period string
@@ -634,16 +676,22 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, pr
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(employer), " "))
 	var salarySource string
-	if err := tx.QueryRow(r.Context(), `SELECT id FROM salary_source WHERE household_id=$1 AND normalized_employer=$2 AND active FOR UPDATE`, household, normalized).Scan(&salarySource); err != nil {
-		if err := tx.QueryRow(r.Context(), `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4,true) RETURNING id`, household, user, employer, normalized).Scan(&salarySource); err != nil {
+	if choice == "HOUSEHOLD_POLICY" {
+		if err := tx.QueryRow(r.Context(), `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4,false) ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, household, user, employer, normalized).Scan(&salarySource); err != nil {
 			return err
 		}
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2`, household, salarySource); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=true,updated_at=now() WHERE id=$1`, salarySource); err != nil {
-		return err
+	} else {
+		if err := tx.QueryRow(r.Context(), `SELECT id FROM salary_source WHERE household_id=$1 AND normalized_employer=$2 AND active FOR UPDATE`, household, normalized).Scan(&salarySource); err != nil {
+			if err := tx.QueryRow(r.Context(), `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4,true) RETURNING id`, household, user, employer, normalized).Scan(&salarySource); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2`, household, salarySource); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=true,updated_at=now() WHERE id=$1`, salarySource); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(r.Context(), `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySource, household, period+"-01", at, amount, transaction, source); err != nil {
 		return err

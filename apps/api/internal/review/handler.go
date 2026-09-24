@@ -68,6 +68,7 @@ type item struct {
 	ProposedFacts           map[string]any            `json:"proposedFacts,omitempty"`
 	MissingFacts            []string                  `json:"missingFacts,omitempty"`
 	WhyNotAutoConfirm       string                    `json:"whyNotAutoConfirm,omitempty"`
+	HasPrimarySalary        bool                      `json:"hasPrimarySalary,omitempty"`
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +152,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		// reviews written before those columns existed (PRD 12, 13.4).
 		resolvedWealth := firstNonEmpty(value.ResolvedWealthAccountID, stored.resolvedEntity("resolvedWealthAccountId"))
 		resolvedAccount := firstNonEmpty(value.ResolvedAccountID, stored.resolvedEntity("resolvedAccountId"))
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: stored.MissingFacts, WhyNotAutoConfirm: stored.WhyNotAuto})
+		hasPrimarySalary, _ := stored.Provenance["hasPrimarySalary"].(bool)
+		if value.ReviewType == "MISSING_PAY_DATE" {
+			if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, household).Scan(&hasPrimarySalary); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to read salary policy"})
+				return
+			}
+			if !hasPrimarySalary {
+				value.AllowedActions = []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
+			} else {
+				value.AllowedActions = []string{"SET_PAY_DATE", "IGNORE"}
+			}
+		}
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: stored.MissingFacts, WhyNotAutoConfirm: stored.WhyNotAuto, HasPrimarySalary: hasPrimarySalary})
 	}
 	writeJSON(w, 200, items)
 }

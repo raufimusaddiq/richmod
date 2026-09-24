@@ -245,6 +245,60 @@ disposable PostgreSQL 17, with Go capped at 1 CPU/1 GiB and PostgreSQL at 0.5
 CPU/512 MiB.
 Known follow-up: IR-09 consumes bounded-call provenance.
 
+## IR-08 — Payslip residual policy separation
+
+Task: IR-08
+Baseline main SHA: `6d47f63fe51a4484e0353084daca13dd3742b66e`
+Files changed: payslip ReviewDecision construction, canonical review listing and
+resolution, review UI, RHICE date-field normalization migration 64, schema
+reference, and focused tests.
+User interactions before: the missing-date card always asked for salary
+classification, including when a primary salary already existed; the server
+also required a policy choice on every missing-date resolution.
+User interactions after: established primary salary + missing date asks for the
+date only and preserves the existing primary policy; first salary + clear date
+asks only `PRIMARY_SALARY` vs `ORDINARY_INCOME`; first salary + missing date
+shows both date and policy inputs. RHICE counts the supplied date plus the
+policy choice as two inputs in the combined case.
+Jev calls before: 0 on clear payslip extraction; 0 on missing-date and salary
+policy review.
+Jev calls after: unchanged, 0 in all three cases; salary designation remains
+human-owned, not model-inferred.
+Generative calls before: one vision extraction on a valid payslip; the existing
+single constrained repair call remains conditional on extraction validation
+issues.
+Generative calls after: unchanged; no model replay added. Unit assertion pins
+one payslip extraction call and no Jev verifier route.
+Canonical correctness guard: live household salary state is read while listing
+and again under the resolution transaction; allowed policy actions are checked
+against the stored ReviewDecision and current state. Date remains strict
+`YYYY-MM-DD`; Go alone confirms transaction/evidence/salary state. Date-only
+resolution adds/updates a non-primary salary source, never changes the existing
+primary. No model decides salary designation.
+Residual uncertainty after: only `transaction_at` when primary salary policy
+already exists; only `salary_classification` when date is clear and no primary
+exists; both when both are unresolved.
+Tests added/updated: three ReviewDecision shapes; API listing assertion for E1;
+database-backed E1 confirms date and existing primary unchanged, and E2 rejects
+date-only resolution, accepts explicit policy, confirms canonical salary event,
+and asserts RHICE counts 1 typed date + 1 bounded choice. Payslip model-call
+count/no-Jev check; Web conditional-selector test. API review and worker
+document tests plus vet pass on disposable PostgreSQL 17 with Go capped at 1 CPU
+/ 1 GiB; Web focused test passes.
+Drift checklist: A pass (removes known redundant selector; E2 retains exactly
+two genuine inputs); B pass (generative vision remains required, no Jev replay);
+C pass (vision owns extraction, user owns policy, Go owns canonical state); D
+pass (existing schema/date/arithmetic/household validation unchanged); E pass
+(missing date remains missing until user supplies it); F pass (exact residuals,
+stored action validation, API resolution guard); G pass (no inference fallback
+or unsafe model retry); H Payslip pass (E1 date-only; no existing primary means
+policy remains explicit); I pass (migration maps `payDate` to RHICE
+`transaction_at`, combined choice counted once); J pass (canonical state,
+RHICE count, one vision/zero Jev asserted); K pass (migration 64 is telemetry
+only; no unrelated source/UI scope; schema reference updated; `git diff --check`).
+Known follow-up: IR-09 consumes phase telemetry; no IR-08 production deployment
+until the sprint release/approval flow.
+
 ## IR-07 — Bank Email merchant-less category resolution
 
 Task: IR-07

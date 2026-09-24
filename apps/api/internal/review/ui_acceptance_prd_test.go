@@ -22,15 +22,54 @@ import (
 // the authority on what is unresolved (PRD 3.3, 13.4). They are asserted here
 // rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
-	ID             string         `json:"id"`
-	MissingFacts   []string       `json:"missingFacts"`
-	ProposedFacts  map[string]any `json:"proposedFacts"`
-	KnownFacts     map[string]any `json:"knownFacts"`
-	WhyNotAuto     string         `json:"whyNotAutoConfirm"`
-	AllowedActions []string       `json:"allowedActions"`
-	Candidates     []struct {
+	ID               string         `json:"id"`
+	MissingFacts     []string       `json:"missingFacts"`
+	ProposedFacts    map[string]any `json:"proposedFacts"`
+	KnownFacts       map[string]any `json:"knownFacts"`
+	WhyNotAuto       string         `json:"whyNotAutoConfirm"`
+	AllowedActions   []string       `json:"allowedActions"`
+	HasPrimarySalary bool           `json:"hasPrimarySalary"`
+	Candidates       []struct {
 		ID string `json:"id"`
 	} `json:"candidates"`
+}
+
+func TestPayslipMissingDateListsOnlyCurrentResidualAndPolicy(t *testing.T) {
+	pool, household, user := reviewUIFixture(t)
+	ctx := context.Background()
+	var source, attachment, proposal, documentID, reviewID string
+	stamp := time.Now().UnixNano()
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("payslip-%d", stamp), []byte(fmt.Sprintf("payslip-%d", stamp))).Scan(&source); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, household, []byte(fmt.Sprintf("payslip-%d", stamp)), fmt.Sprintf("%s/payslip.png", household)).Scan(&attachment); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'PAYSLIP','NEEDS_REVIEW') RETURNING id`, household, source, attachment).Scan(&documentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',1000000,'IDR',now(),'Payroll',.99,'NEEDS_REVIEW','{}') RETURNING id`, household, source).Scan(&proposal); err != nil {
+		t.Fatal(err)
+	}
+	decision := map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "IGNORE"}}
+	raw, _ := json.Marshal(decision)
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,'MISSING_PAY_DATE','OPEN',$5) RETURNING id`, household, proposal, source, documentID, raw).Scan(&reviewID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Employer','employer',true)`, household, user); err != nil {
+		t.Fatal(err)
+	}
+	items := listCanonicalReviews(t, pool, household, user)
+	var found *reviewUIItem
+	for i := range items {
+		if items[i].ID == reviewID {
+			found = &items[i]
+			break
+		}
+	}
+	if found == nil || len(found.MissingFacts) != 1 || found.MissingFacts[0] != "transaction_at" || !found.HasPrimarySalary || len(found.AllowedActions) != 2 {
+		t.Fatalf("date-only payslip review contract: %+v", found)
+	}
 }
 
 func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
@@ -153,7 +192,6 @@ func TestReviewU4KnownFactsAreNotMissingFacts(t *testing.T) {
 		t.Fatalf("the stored known facts must reach the client: %v", item.KnownFacts)
 	}
 }
-
 
 // U5 - a review resolved through the canonical route reaches the same terminal
 // state Telegram writes, because both call this one server-owned handler. This

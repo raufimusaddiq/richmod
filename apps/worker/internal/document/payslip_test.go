@@ -1,6 +1,13 @@
 package document
 
-import "testing"
+import (
+	"os"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+)
 
 func TestValidatePayslipIDRArithmetic(t *testing.T) {
 	date := "2026-08-25"
@@ -33,5 +40,40 @@ func TestPayrollDeductionsDoNotBecomeTransactions(t *testing.T) {
 	properties := schema["properties"].(map[string]any)
 	if _, ok := properties["deductions"]; !ok {
 		t.Fatal("deductions metadata missing")
+	}
+}
+
+func TestPayslipReviewSeparatesDateAndSalaryPolicy(t *testing.T) {
+	dateOnly, _ := reviewdec.Preset("MISSING_PAY_DATE", "proposal", "id")
+	dateOnly = configurePayslipReviewDecision(dateOnly, "MISSING_PAY_DATE", true)
+	if !reflect.DeepEqual(dateOnly.MissingFacts, []string{"transaction_at"}) {
+		t.Fatalf("primary-known payslip missing facts=%v", dateOnly.MissingFacts)
+	}
+
+	firstSalary, _ := reviewdec.Preset("PAYSLIP_CONFIRMATION", "proposal", "id")
+	firstSalary = configurePayslipReviewDecision(firstSalary, "PAYSLIP_CONFIRMATION", false)
+	if !reflect.DeepEqual(firstSalary.MissingFacts, []string{"salary_classification"}) {
+		t.Fatalf("clear-date first salary missing facts=%v", firstSalary.MissingFacts)
+	}
+
+	firstSalaryAndDate, _ := reviewdec.Preset("MISSING_PAY_DATE", "proposal", "id")
+	firstSalaryAndDate = configurePayslipReviewDecision(firstSalaryAndDate, "MISSING_PAY_DATE", false)
+	if !reflect.DeepEqual(firstSalaryAndDate.MissingFacts, []string{"transaction_at", "salary_classification"}) {
+		t.Fatalf("first salary and date missing facts=%v", firstSalaryAndDate.MissingFacts)
+	}
+}
+
+func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
+	// Payslip processing calls the required vision extraction, followed only by
+	// deterministic validation and policy review; it has no Jev verifier path.
+	content, err := os.ReadFile("payslip.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(content), "p.gateway.NativeToolCall(ctx, documentID, payslipPrompt") != 1 {
+		t.Fatal("payslip must make exactly one generative extraction call")
+	}
+	if strings.Contains(string(content), "p.verifier") {
+		t.Fatal("payslip must not replay the extraction through Jev")
 	}
 }

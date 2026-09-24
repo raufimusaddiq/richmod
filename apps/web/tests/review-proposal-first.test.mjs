@@ -55,6 +55,12 @@ test("transaction-date residual opens one native date field and submits it", () 
   assert.match(source, /!missing\.transactionAt/);
 });
 
+test("payslip salary choice appears only when API leaves policy unresolved", () => {
+  assert.match(source, /const salaryChoice = item.allowedActions?.includes("PRIMARY_SALARY") || item.allowedActions?.includes("ORDINARY_INCOME")/);
+  assert.match(source, /{salaryChoice && <label>Catat sebagai<select/);
+  assert.match(source, /salaryChoice \? \{ choice: form\.get\("choice"\) \} : \{\}/);
+});
+
 test("bank fact completion submits an RFC3339 instant, not a date-only value", () => {
   // Two different server contracts share the same field name. The residual
   // date field posts a date-only string to the strict `parseReviewDate`. The

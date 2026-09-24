@@ -344,6 +344,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		if value.Period != "" {
 			decision.KnownFacts["payroll_period"] = value.Period
 		}
+		decision = configurePayslipReviewDecision(decision, reviewType, hasPrimary)
 		encoded, encodeErr := decision.JSON()
 		if encodeErr != nil {
 			return encodeErr
@@ -447,6 +448,18 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		}
 	}
 	return nil
+}
+
+func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType string, hasPrimary bool) reviewdec.Decision {
+	decision.Provenance["hasPrimarySalary"] = hasPrimary
+	if reviewType == "MISSING_PAY_DATE" && !hasPrimary {
+		decision.MissingFacts = append(decision.MissingFacts, "salary_classification")
+		decision.AllowedActions = []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
+		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
+		decision.InteractionMode = reviewdec.ModePolicyChoice
+		decision.WhyNotAuto = "pay date is absent and the first salary source requires household classification"
+	}
+	return decision
 }
 
 func payslipSchema() map[string]any {
