@@ -126,10 +126,10 @@ ADR-025 is the governing bank-email ADR.
 Current relevant migrations:
 
 ```text
-00026_bank_email_v4.sql
-00027_merge_bank_listener_accounts.sql
-00028_job_lane_lifecycle.sql
-00029_review_llm_cycle_contracts.sql
+db/migrations/00026_bank_email_v4.sql
+db/migrations/00027_merge_bank_listener_accounts.sql
+db/migrations/00028_job_lane_lifecycle.sql
+db/migrations/00029_review_llm_cycle_contracts.sql
 ```
 
 `00028` adds:
