@@ -95,7 +95,7 @@ disposable PostgreSQL 17 (1 CPU / 1 GiB).
 
 ## IR-03 — RHICE measurement correctness
 
-Task: IR-03 (implementation in progress)
+Task: IR-03 (complete)
 Baseline main SHA: `b79bd7b1248884d55bb5dd1c23a720b68dd9b056`
 Files changed: `apps/api/internal/operations/product.go`,
 `apps/api/internal/review/canonical.go`,
@@ -117,9 +117,12 @@ acceptance as one bounded choice, empty confirmation/IGNORE/non-cohort turns as
 zero, and canonical-cohort RHICE; financial-email resolution asserts only the
 user-supplied entity is credited. Ran migration 61 + `go test` for
 `apps/api/internal/operations/...` and `apps/api/internal/review/...` against a
-disposable PostgreSQL 17 (1 CPU / 1 GiB) — pass.
+disposable PostgreSQL 17 (1 CPU / 1 GiB) — pass. Migration 62 and the new
+review-type/provenance tests also pass; full worker tests and affected API tests
+pass locally. PR CI passed API/worker tests and vet, frontend, container build,
+CodeQL, secrets, and Hermes review at `ec0f3af`.
 Drift checklist: A pass; B pass; C pass; D pass; E pass; F pass; G pass; H
 unchanged; I pass (user-supplied fields/bounded choices counted, server-merged
 values excluded); J pass for the bounded DB set; K pass (`git diff --check`).
-Known follow-up: full repository-wide CI still owns the final gate; worker
-packages and frontend were not rerun in this batch.
+Known follow-up: IR-09 must consume these measured turns for call-efficiency
+analysis; no IR-03-specific correctness or telemetry gap remains.
