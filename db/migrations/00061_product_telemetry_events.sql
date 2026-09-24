@@ -49,7 +49,7 @@ BEGIN
         SELECT source_type INTO source_kind FROM source_event WHERE id=NEW.source_event_id;
         INSERT INTO product_telemetry_event(household_id,source_event_id,transaction_id,review_item_id,event_type,source_type,action,decision_policy_version,decision_source,changed_fields,bounded_choices)
         VALUES(item.household_id,NEW.source_event_id,NEW.transaction_id,item.id,'REVIEW_TURN',source_kind,
-          COALESCE(NEW.metadata_json->>'detail_action',reply_field,'TELEGRAM_REPLY'),
+          COALESCE(NEW.metadata_json->>'detail_action',reply_field,NEW.metadata_json->>'classification','TELEGRAM_REPLY'),
           item.decision->>'decisionPolicyVersion',item.decision->>'decisionSource',
           CASE WHEN reply_field IN ('merchant','description','category','transaction_at','note','purpose','wealth_account') THEN ARRAY[reply_field] ELSE '{}'::text[] END,
           CASE WHEN NEW.metadata_json ? 'classification'

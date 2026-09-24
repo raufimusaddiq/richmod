@@ -1870,6 +1870,12 @@ allow-listed set of changed field names are retained, never values or user text.
 Auto-confirm corrections are captured atomically with the canonical update.
 The correction rate uses the same 30-day auto-confirmed transaction cohort as
 its denominator, and correction events retain source/policy/decision provenance.
+Every terminal Telegram review action (plain confirm, plain reject, transfer
+classification, merchant decision, bounded callback) records one bounded-choice
+turn: the reply evidence carries an explicit `classification` marker so a
+confirm/reject is never silently counted as zero, and the resolution trigger
+skips only when that same turn was already recorded, which keeps a delayed or
+out-of-order reply from double-counting one interaction.
 `notYetMeasurable` keeps pre-migration history visible; it clears only after a
 household has a full 30-day telemetry window. Older turns are not backfilled or
 guessed.
