@@ -68,15 +68,22 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
 		base.InteractionMode = ModeConflictResolution
 		base.WhyNotAuto = "two sources disagree about the same provider reference, so Go refuses to guess"
+	case "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"category"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the category is not supported strongly enough to confirm"
+		if reason == "UNKNOWN_MERCHANT" {
+			base.KnownFacts["merchant"] = nil
+			base.WhyNotAuto = "merchant is absent; category still requires a human decision"
+		}
 	case "POSSIBLE_DUPLICATE":
-		// A candidate transaction may be the same event. The household either
-		// merges into a chosen candidate or records a separate transaction; Go
-		// never guesses which (PRD §27 S3, §37 safety).
 		base.DecisionClass = ClassDuplicateAmbiguity
 		base.MissingFacts = []string{"duplicate_relationship"}
-		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
-		base.InteractionMode = ModeConflictResolution
-		base.WhyNotAuto = "a plausibly matching transaction already exists, so the household must choose"
+		base.AllowedActions = []string{"IGNORE"}
+		base.InteractionMode = ModeBoundedChoice
+		base.WhyNotAuto = "a plausible duplicate exists; this review supports ignore only"
 	default:
 		return Decision{}, false
 	}

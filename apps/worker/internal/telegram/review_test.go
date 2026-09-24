@@ -30,19 +30,18 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	}
 }
 
-func TestReviewDetailMarkupHidesCategoryUntilMerchantKnown(t *testing.T) {
-	for _, test := range []struct {
-		merchantKnown bool
-		wantCategory  bool
-	}{{false, false}, {true, true}} {
+func TestReviewDetailMarkupAllowsCategoryWithoutMerchant(t *testing.T) {
+	// PRD §9.4: merchant is optional enrichment, so the category the ledger
+	// actually requires must stay selectable whether or not a merchant is known.
+	for _, merchantKnown := range []bool{false, true} {
 		found := false
-		for _, row := range reviewDetailMarkup(test.merchantKnown).InlineKeyboard {
+		for _, row := range reviewDetailMarkup(merchantKnown).InlineKeyboard {
 			for _, button := range row {
 				found = found || button.CallbackData == "review:category"
 			}
 		}
-		if found != test.wantCategory {
-			t.Fatalf("merchantKnown=%t categoryButton=%t", test.merchantKnown, found)
+		if !found {
+			t.Fatalf("merchantKnown=%t must still allow category selection", merchantKnown)
 		}
 	}
 }

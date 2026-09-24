@@ -102,17 +102,19 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			MessageID int64 `json:"message_id"`
 		}{MessageID: messageID}
 	}
-	var reviewID, transactionID, reviewState, transactionType, requestStatus, transactionStatus string
+	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
+	var missingFactsJSON *string
 	var expired bool
 	err := p.pool.QueryRow(ctx, `
-		SELECT r.id,r.transaction_id,c.state,t.type,r.status,t.status,r.expires_at<=now()
+		SELECT r.id,r.transaction_id,c.state,r.review_type,t.type,r.status,t.status,r.expires_at<=now(),ri.decision->'missingFacts'
 		FROM review_request r
 		JOIN review_conversation c ON c.review_request_id=r.id
 		JOIN transaction t ON t.id=r.transaction_id
+		LEFT JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`,
 		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).
-		Scan(&reviewID, &transactionID, &reviewState, &transactionType, &requestStatus, &transactionStatus, &expired)
+		Scan(&reviewID, &transactionID, &reviewState, &reviewType, &transactionType, &requestStatus, &transactionStatus, &expired, &missingFactsJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -128,6 +130,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
+	}
+	if reviewType == "UNKNOWN_MERCHANT" && missingFactsJSON != nil && !reviewRequiresFact(missingFactsJSON, "merchant") {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini.")
 	}
 	if reviewState == "AWAITING_MERCHANT" {
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
@@ -233,12 +238,14 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	}
 	defer tx.Rollback(ctx)
 	var reviewID, transactionID, reviewType, requestStatus, transactionStatus, merchantID string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
+	var missingFactsJSON *string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,''),ri.decision->'missingFacts'
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		LEFT JOIN review_item ri ON ri.id=r.review_item_id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
 		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID, &missingFactsJSON)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
 			return true, err
@@ -267,7 +274,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	case "review:description":
 		message = "Balas pesan ini dengan keterangan transaksi."
 	case "review:category":
-		if merchantID == "" {
+		if merchantID == "" && (missingFactsJSON == nil || reviewRequiresFact(missingFactsJSON, "merchant")) {
 			message = "Merchant wajib diisi sebelum memilih kategori. Balas pesan ini dengan nama merchant."
 			state = "AWAITING_MERCHANT"
 			break
@@ -316,11 +323,9 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 }
 
-func reviewDetailMarkup(merchantKnown bool) *InlineKeyboardMarkup {
+func reviewDetailMarkup(_ bool) *InlineKeyboardMarkup {
 	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
-	if merchantKnown {
-		keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
-	}
+	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
 }
 
@@ -1098,6 +1103,22 @@ func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, descrip
 	return "", "", false
 }
 
+func reviewRequiresFact(raw *string, fact string) bool {
+	if raw == nil || strings.TrimSpace(*raw) == "null" {
+		return true // legacy/malformed reviews keep the previous required-field behavior
+	}
+	var facts []string
+	if err := json.Unmarshal([]byte(*raw), &facts); err != nil {
+		return true
+	}
+	for _, value := range facts {
+		if value == fact {
+			return true
+		}
+	}
+	return false
+}
+
 func validReviewDate(value string) bool {
 	_, err := time.Parse("2006-01-02", strings.TrimSpace(value))
 	return err == nil
@@ -1357,12 +1378,11 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 }
 
 // reviewInitialState keeps the first question aligned with the policy result.
-// A missing merchant must collect that fact before category selection; it is
-// not safe to present category selection as the first required action.
+// Merchant is optional enrichment; category is the required financial fact.
 func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Perlu detail merchant", message, "Balas pesan ini dengan nama merchant untuk transaksi tersebut."), "reply"
+		return "AWAITING_CATEGORY", message, "category"
 	case "UNKNOWN_PURPOSE":
 		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Perlu detail transaksi", message, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "reply"
 	default:

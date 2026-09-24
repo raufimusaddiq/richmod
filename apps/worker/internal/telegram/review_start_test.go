@@ -2,7 +2,7 @@ package telegram
 
 import "testing"
 
-func TestReviewInitialStateCollectsMissingFactsBeforeCategory(t *testing.T) {
+func TestReviewInitialStateAsksForOnlyRequiredFact(t *testing.T) {
 	tests := []struct {
 		name        string
 		reviewType  string
@@ -11,7 +11,7 @@ func TestReviewInitialStateCollectsMissingFactsBeforeCategory(t *testing.T) {
 		context     string
 		wantMode    string
 	}{
-		{"missing merchant", "UNKNOWN_MERCHANT", "AWAITING_MERCHANT", "🟡 Perlu detail merchant\n\nNominal: Rp18.502\nWaktu: 02/09/2026 09:24 WIB\n\nBalas pesan ini dengan nama merchant untuk transaksi tersebut.", "Nominal: Rp18.502\nWaktu: 02/09/2026 09:24 WIB", "reply"},
+		{"unknown merchant", "UNKNOWN_MERCHANT", "AWAITING_CATEGORY", "Nominal: Rp18.502\nWaktu: 02/09/2026 09:24 WIB", "Nominal: Rp18.502\nWaktu: 02/09/2026 09:24 WIB", "category"},
 		{"missing purpose", "UNKNOWN_PURPOSE", "AWAITING_DETAIL", "🟡 Perlu detail transaksi\n\nNominal: Rp18.502\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", "Nominal: Rp18.502", "reply"},
 		{"missing category", "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", "keep context", "keep context", "category"},
 	}
@@ -31,3 +31,17 @@ func TestRequiredFieldReplyMarkupOnlyOffersIgnore(t *testing.T) {
 		t.Fatalf("markup=%#v", markup)
 	}
 }
+
+func TestReviewRequiresFactPreservesLegacyAndCategoryOnlyContract(t *testing.T) {
+	for _, raw := range []*string{nil, reviewFactPtr("null"), reviewFactPtr("invalid")} {
+		if !reviewRequiresFact(raw, "merchant") {
+			t.Fatalf("missing/malformed contract must require legacy merchant fact: %v", raw)
+		}
+	}
+	facts := reviewFactPtr(`["category"]`)
+	if reviewRequiresFact(facts, "merchant") || !reviewRequiresFact(facts, "category") {
+		t.Fatal("category-only contract should not require merchant, and must require category")
+	}
+}
+
+func reviewFactPtr(value string) *string { return &value }
