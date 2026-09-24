@@ -68,6 +68,18 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the category is not supported strongly enough to confirm"
+	case "UNKNOWN_PURPOSE":
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"transaction_semantics"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the transaction purpose is not supported strongly enough to classify"
+	case "MANUAL_CORRECTION":
+		base.DecisionClass = ClassCorrectionConfirmation
+		base.MissingFacts = []string{"correction_details"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the extracted payroll transaction needs a human correction or confirmation"
 	case "POSSIBLE_DUPLICATE":
 		base.DecisionClass = ClassDuplicateAmbiguity
 		base.MissingFacts = []string{"duplicate_relationship"}
