@@ -156,9 +156,12 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		KnownFacts:      known,
 		Provenance:      map[string]any{"pipeline": "transaction-screenshot", "document_row": index},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
-		DecisionSource:  reviewdec.SourceGenerativePlusJev,
+		DecisionSource:  reviewdec.SourceGenerativeExtraction,
 		PolicyVersion:   ScreenshotRowCategoryPolicyVersion,
 		InteractionMode: reviewdec.ModeBoundedChoice,
+	}
+	if row.CategoryDecisionSource == reviewdec.SourceJev {
+		decision.DecisionSource = reviewdec.SourceGenerativePlusJev
 	}
 	// PRD §37: one reason code resolves to exactly one contract, so a screenshot
 	// row stores the same decision the bank-email and Telegram paths store. Jev is
