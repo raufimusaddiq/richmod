@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
@@ -513,5 +514,34 @@ func TestTransferPurposeProviderFailureIsInfrastructure(t *testing.T) {
 	processor := &Processor{judgment: engine}
 	if _, _, ok, err := processor.resolveTransferPurpose(context.Background(), "src", "d", "1000", "Jago", "RDN", stringPtr("wealth-1")); err == nil || ok {
 		t.Fatalf("provider failure must surface as an error, got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestGenerativeFallbackDoesNotPaySecondJevWhenDecisive(t *testing.T) {
+	value := validatedExtraction{
+		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
+		CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()),
+		Confidence: .95, CategoryConfidence: .95,
+	}
+	decision, ok := generativeValidatedTransactionDecision(value, true, false, "CREATE_TRANSACTION")
+	if !ok || !decision.decisionAllowed() {
+		t.Fatalf("decisive constrained generative result should be accepted after the first Jev route: ok=%v decision=%+v", ok, decision)
+	}
+	if decision.DecisionSource != "GENERATIVE_VALIDATED" {
+		t.Fatalf("unexpected decision source: %+v", decision)
+	}
+}
+
+func TestGenerativeFallbackUsesJevRescueOnlyForResidualUncertainty(t *testing.T) {
+	value := validatedExtraction{
+		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
+		CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()),
+		Confidence: .95, CategoryConfidence: .55,
+	}
+	if decision, ok := generativeValidatedTransactionDecision(value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
+		t.Fatalf("low category confidence must leave residual uncertainty for the Jev rescue lane: ok=%v decision=%+v", ok, decision)
+	}
+	if _, ok := generativeValidatedTransactionDecision(value, true, false, "READ_SPENDING"); ok {
+		t.Fatal("a generative mutation may not override a non-mutation first-pass route")
 	}
 }
