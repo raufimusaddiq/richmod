@@ -156,3 +156,37 @@ func TestScreenshotSummaryReportsBatchOutcome(t *testing.T) {
 		t.Fatalf("a fully recorded batch asks for nothing: %q", clean)
 	}
 }
+
+func TestResolveRowCategoriesSkipsDecisiveVisionCategory(t *testing.T) {
+	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor("groceries", 0.95)}}
+	category := "cat-food"
+	row := unmatchedOutRow("54000")
+	row.CategoryID = &category
+	row.CategoryDecided = true
+	row.CategoryDecisionSource = reviewdec.SourceGenerativeExtraction
+
+	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", []validatedScreenshotRow{row}, rowCategoryOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 0 || len(decided) != 0 || provenance.Questions != 0 {
+		t.Fatalf("a decisive constrained vision category must not pay a second Jev call: calls=%d decided=%v provenance=%+v", verifier.calls, decided, provenance)
+	}
+}
+
+func TestScreenshotDecisionReportsJevOnlyWhenItRan(t *testing.T) {
+	row := unmatchedOutRow("54000")
+	row.DateKnown = false
+	category := "cat-food"
+	row.CategoryID, row.CategoryDecided = &category, true
+	row.CategoryDecisionSource = reviewdec.SourceGenerativeExtraction
+	generative := screenshotRowDecision("household", "event", "transaction", "MISSING_TRANSACTION_DATE", 0, row)
+	if generative.DecisionSource != reviewdec.SourceGenerativeExtraction {
+		t.Fatalf("vision-only row must not claim Jev provenance: %+v", generative)
+	}
+	row.CategoryDecisionSource = reviewdec.SourceJev
+	rescued := screenshotRowDecision("household", "event", "transaction", "MISSING_TRANSACTION_DATE", 0, row)
+	if rescued.DecisionSource != reviewdec.SourceGenerativePlusJev {
+		t.Fatalf("Jev-rescued row must retain combined provenance: %+v", rescued)
+	}
+}
