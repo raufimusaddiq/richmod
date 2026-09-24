@@ -899,6 +899,8 @@ type validatedExtraction struct {
 	CategoryConfidence float64
 	Ambiguous          bool
 	ResponseMessage    string
+	DateReference      string
+	ExplicitDate       string
 	TimePrecision      string
 	TimePeriod         string
 }
@@ -932,7 +934,7 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 	if err != nil {
 		return validatedExtraction{}, err
 	}
-	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
+	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, DateReference: dateReference, ExplicitDate: explicitDate, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
 }
 
 func (p *Processor) finishPendingAction(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
@@ -1026,6 +1028,8 @@ func validateExtraction(value extraction, now time.Time) (validatedExtraction, e
 		CategoryConfidence: value.CategoryConfidence,
 		Ambiguous:          value.Ambiguous,
 		ResponseMessage:    clean(value.ResponseMessage, 500),
+		DateReference:      valueOrEmpty(value.DateReference),
+		ExplicitDate:       valueOrEmpty(value.ExplicitDate),
 		TimePrecision:      resolved.Precision,
 		TimePeriod:         resolved.Period,
 	}
@@ -1042,6 +1046,13 @@ func validateExtraction(value extraction, now time.Time) (validatedExtraction, e
 		result.Note = clean(*value.Note, 1000)
 	}
 	return result, nil
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func resolveTime(now time.Time, dateReference, explicitDate, localTime *string) (time.Time, error) {
