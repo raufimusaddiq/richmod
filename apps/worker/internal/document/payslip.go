@@ -337,6 +337,15 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		if !ok {
 			return fmt.Errorf("no review decision preset for %s", reviewType)
 		}
+		if reviewType == "MISSING_PAY_DATE" && !hasPrimary {
+			// Two independent residual facts remain: the source omitted its date
+			// and this household has not yet chosen a primary salary source. Keep
+			// both explicit so the UI does not invent a classification field when
+			// the household already has a primary salary.
+			decision.MissingFacts = []string{"transaction_at", "salary_classification"}
+			decision.InteractionMode = reviewdec.ModeMinimalFields
+			decision.WhyNotAuto = "the pay date is absent and the first salary source still requires a household policy choice"
+		}
 		decision.KnownFacts["amount_idr"] = value.NetPay
 		if value.Employer != "" {
 			decision.KnownFacts["merchant"] = value.Employer
