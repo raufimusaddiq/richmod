@@ -532,6 +532,17 @@ func TestGenerativeFallbackDoesNotPaySecondJevWhenDecisive(t *testing.T) {
 	}
 }
 
+func TestGenerativeFallbackRejectsSelfDeclaredAmbiguity(t *testing.T) {
+	value := validatedExtraction{
+		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
+		CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()),
+		Confidence: .99, CategoryConfidence: .99, Ambiguous: true,
+	}
+	if decision, ok := generativeValidatedTransactionDecision(value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
+		t.Fatalf("an explicitly ambiguous native result must enter the rescue/review lane: ok=%v decision=%+v", ok, decision)
+	}
+}
+
 func TestGenerativeFallbackUsesJevRescueOnlyForResidualUncertainty(t *testing.T) {
 	value := validatedExtraction{
 		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
