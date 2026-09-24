@@ -1824,12 +1824,12 @@ This initiative MUST NOT:
 
 # 32. Implementation Stages
 
-**Implementation status (2026-09-24):** PR #121 is the normative product
-contract. Stage 0 telemetry is implemented on the current feature branch;
-Stages 1–3 remain gated on their current branches/reviews, Stages 4–7 are
-implemented on their recorded feature branches, and Stage 8 still requires a
-production evidence review before any threshold calibration. This status is
-not a claim that the full Definition of Done has passed.
+**Implementation status (2026-09-24):** PR #121 is merged and remains the
+normative product contract. Stages 1, 2, and 4–7 are implemented on current
+`main`; Stage 3 is under review in PR #126. Stage 0 telemetry is implemented
+on the current feature branch. Stage 8's canary is runnable, but threshold
+calibration still requires sufficient production evidence. This is not a claim
+that the full Definition of Done has passed.
 
 ## Stage 0 — Baseline and Telemetry
 
@@ -1888,6 +1888,12 @@ RHICE and guardrail metrics are measurable.
 
 ## Stage 1 — Telegram Orchestration Correctness
 
+**Status (2026-09-24): implemented on main.** Server-owned route lanes are
+exhaustive, valid non-fast routes fall through to the conversational agent,
+exact replies bind before route arbitration, and implicit bindings are
+route-gated. See `judgment_route_lane_test.go` and
+`agent_route_first_lane_test.go`.
+
 Implement:
 
 - exhaustive Jev route dispatch;
@@ -1905,6 +1911,11 @@ Exit criteria:
 This is P0 and should ship before broad auto-confirm expansion.
 
 ## Stage 2 — ReviewDecision Foundation
+
+**Status (2026-09-24): implemented on main.** The shared ReviewDecision
+contract is persisted, exposed by the API, and populated from reason presets
+with known/proposed/missing/conflicting facts, allowed actions, decision class,
+and provenance. See ADR-039 and PR #136.
 
 Introduce:
 
@@ -1924,6 +1935,11 @@ every new review can explain exactly why user input is required
 ~~~
 
 ## Stage 3 — Bank Email Zero-Touch Expansion
+
+**Status (2026-09-24): under review in PR #126.** Main's stable
+`SPENDING_ONLY` path remains unchanged; the PR adds category-only review for
+uncertainty, Jev category choices for new merchants, and one bounded retry for
+unsupported evidence verdicts. Merge remains gated on Hermes review.
 
 Implement:
 
@@ -2011,6 +2027,12 @@ an explicit edit step and evidence behind a secondary disclosure. Reviews create
 before the decision contract existed keep rendering the full form.
 
 ## Stage 8 — Semantic Canary and Threshold Calibration
+
+**Status (2026-09-24): corpus implemented; calibration pending production evidence.**
+The optional Jev corpus is documented in the production deployment runbook and
+must remain a manually triggered smoke check, not a flaky unit-test gate. Do not
+lower thresholds until the review and auto-confirm correction metrics have a
+representative production window.
 
 After behavior ships:
 
