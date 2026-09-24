@@ -44,7 +44,7 @@ BEGIN
         SELECT ri.* INTO item
         FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id
         WHERE rr.id=request_id AND rr.household_id=(SELECT household_id FROM transaction WHERE id=NEW.transaction_id);
-        IF NOT FOUND OR item.status='RESOLVED' THEN RETURN NEW; END IF;
+        IF NOT FOUND THEN RETURN NEW; END IF;
         reply_field := NEW.metadata_json->>'field';
         SELECT source_type INTO source_kind FROM source_event WHERE id=NEW.source_event_id;
         INSERT INTO product_telemetry_event(household_id,source_event_id,transaction_id,review_item_id,event_type,source_type,action,decision_policy_version,decision_source,changed_fields,bounded_choices)
@@ -53,6 +53,7 @@ BEGIN
           item.decision->>'decisionPolicyVersion',item.decision->>'decisionSource',
           CASE WHEN reply_field IN ('merchant','description','category','transaction_at','note','purpose','wealth_account') THEN ARRAY[reply_field] ELSE '{}'::text[] END,
           CASE WHEN NEW.metadata_json ? 'classification'
+                 OR reply_field='category'
                  OR NEW.metadata_json->>'detail_action' IN ('review:ignore','review:remember','review:once')
                THEN 1 ELSE 0 END);
         RETURN NEW;
@@ -60,6 +61,13 @@ BEGIN
 
     IF OLD.status NOT IN ('OPEN','PENDING_SEND') OR NEW.status <> 'RESOLVED' OR NEW.resolution_action IS NULL
        OR NEW.resolution_action IN ('EMAIL_RECEIVED_AT_FALLBACK','RECONCILED_TERMINAL_TRANSACTION','LEGACY_TRANSACTION_RESOLVED') THEN
+        RETURN NEW;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM transaction_evidence te
+        JOIN review_request rr ON rr.id::text=te.metadata_json->>'review_request_id'
+        WHERE rr.review_item_id=NEW.id AND te.evidence_type='TELEGRAM_REVIEW_REPLY'
+    ) THEN
         RETURN NEW;
     END IF;
     -- Telegram reply evidence is the per-turn record. The resolution row is the
@@ -84,8 +92,7 @@ BEGIN
       NEW.decision->>'decisionPolicyVersion',NEW.decision->>'decisionSource',
       ARRAY(SELECT field FROM jsonb_object_keys(COALESCE(NEW.resolution_values,'{}'::jsonb)) AS keys(field)
         WHERE field IN ('merchant','category','description','note','transaction_at','purpose','wealth_account')),
-      CASE WHEN NEW.decision->>'interactionMode' IN ('BOUNDED_CHOICE','CONFLICT_RESOLUTION','POLICY_CHOICE')
-           AND NOT COALESCE(reply_bounded,false) THEN 1 ELSE 0 END);
+      CASE WHEN NEW.decision->>'interactionMode' IN ('BOUNDED_CHOICE','CONFLICT_RESOLUTION','POLICY_CHOICE') THEN 1 ELSE 0 END);
     RETURN NEW;
 END;
 $$;

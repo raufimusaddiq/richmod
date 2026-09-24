@@ -41,8 +41,8 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// One saved Telegram detail, its final resolution, and a web resolution with
-	// no reply evidence exercise both turn-capture paths.
+	// A saved Telegram detail is one turn while the review is still open; the
+	// web review below exercises the resolution-fallback path.
 	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field','description'))`, txID, eventID, requestID); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,27 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values=jsonb_build_object('category_id',gen_random_uuid()) WHERE id=$1`, webReviewID); err != nil {
 		t.Fatal(err)
 	}
+	// This web-style review has no bound Telegram reply, so resolution itself is
+	// the single recorded turn.
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values=jsonb_build_object('category_id',gen_random_uuid()) WHERE id=$1`, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	// A delayed callback can persist its bound reply after the canonical review
+	// has resolved; it is still one review turn and must not be dropped.
+	var lateEventID, lateTxID, lateReviewID, lateRequestID string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),decode(md5($2),'hex'),'PROCESSED') RETURNING id`, householdID, fmt.Sprintf("telemetry-late-%d", stamp)).Scan(&lateEventID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7000,'IDR',now(),now()) RETURNING id`, householdID).Scan(&lateTxID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,resolution_action,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),'CONFIRM_REVIEW',jsonb_build_object('interactionMode','BOUNDED_CHOICE')) RETURNING id`, householdID, lateTxID).Scan(&lateReviewID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status,resolved_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY',$4,'RESOLVED',now()) RETURNING id`, lateReviewID, householdID, lateTxID, stamp).Scan(&lateRequestID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification','CATEGORY_SELECTED'))`, lateTxID, lateEventID, lateRequestID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,9 +92,9 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if turns != 3 {
-		t.Fatalf("expected a Telegram detail, Telegram resolution, and web resolution turn, got %d", turns)
+		t.Fatalf("expected Telegram detail, web resolution, and late Telegram reply turns, got %d", turns)
 	}
-	// Telegram resolution and web resolution are bounded choices; detail entry is not.
+	// Telegram category and web resolution are bounded choices; detail entry is not.
 	if bounded != 2 {
 		t.Fatalf("bounded-choice turns must be counted per turn, got %d", bounded)
 	}
@@ -98,8 +118,8 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if aggregate.ReviewRoundTrips != 3 || aggregate.BoundedChoices != 2 {
 		t.Fatalf("aggregate must expose review turns and bounded choices: %+v", aggregate)
 	}
-	if aggregate.BoundedChoicesPerEvent != 1 {
-		t.Fatalf("bounded choices per confirmed event must use the canonical cohort: %+v", aggregate)
+	if want := 2.0 / 3.0; aggregate.BoundedChoicesPerEvent != want {
+		t.Fatalf("bounded choices per confirmed event must use the canonical cohort: got %v want %v", aggregate.BoundedChoicesPerEvent, want)
 	}
 	if aggregate.AutoConfirmEvents != 1 || aggregate.AutoConfirmCorrections != 1 || aggregate.AutoConfirmCorrectionRate != 1 {
 		t.Fatalf("aggregate must expose the auto-confirm correction rate: %+v", aggregate)
