@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -48,8 +49,9 @@ type validatedScreenshotRow struct {
 	// It can come directly from a high-confidence vision extraction or from the
 	// Jev rescue lane. Clear vision rows must not pay a redundant second model
 	// call merely to repeat the same category decision.
-	CategoryDecided  bool
-	CategoryConflict bool
+	CategoryDecided        bool
+	CategoryDecisionSource string
+	CategoryConflict       bool
 	Candidates       []matchCandidate
 	Matched          *matchCandidate
 }
@@ -173,6 +175,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		}
 		id := categoryID
 		rows[index].CategoryID, rows[index].CategoryDecided = &id, true
+		rows[index].CategoryDecisionSource = reviewdec.SourceJev
 	}
 	return p.persistScreenshot(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, provenance, rows)
 }
@@ -230,7 +233,11 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 				categoryDecided = true
 			}
 		}
-		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, CategoryDecided: categoryDecided})
+		source := ""
+		if categoryDecided {
+			source = reviewdec.SourceGenerativeExtraction
+		}
+		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, CategoryDecided: categoryDecided, CategoryDecisionSource: source})
 	}
 	return result, nil
 }
@@ -258,133 +265,3 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			var proposalID string
 			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),NULLIF($8,''),$9,'MERGED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'matched_transaction_id',$12::uuid,'match_score',$13::numeric)) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.Value.Description, row.Value.Confidence, documentID, index, row.Matched.ID, row.Matched.Score).Scan(&proposalID); err != nil {
 				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric)) ON CONFLICT DO NOTHING`, row.Matched.ID, sourceID, row.Value.Confidence, proposalID, documentID, index, row.Matched.Score); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_SCREENSHOT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'match_score',$5::numeric))`, householdID, row.Matched.ID, documentID, index, row.Matched.Score); err != nil {
-				return err
-			}
-			linked++
-			continue
-		}
-		if !p.rowAutoConfirmOff && row.autoConfirmable() {
-			if err := confirmScreenshotRow(ctx, tx, householdID, sourceID, documentID, proposalKey, index, row, provenance); err != nil {
-				return err
-			}
-			recorded++
-			continue
-		}
-		needsReview = true
-		pending++
-		var merchantID *string
-		if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
-			var id string
-			if err := tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, merchant).Scan(&id); err != nil {
-				return err
-			}
-			merchantID = &id
-		}
-		var proposalID string
-		if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),$8,NULLIF($9,''),$10,'NEEDS_REVIEW',jsonb_build_object('document_id',$11::uuid,'row_index',$12::integer,'direction',$13::text,'date_known',$14::boolean)) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown).Scan(&proposalID); err != nil {
-			return err
-		}
-		var transactionID string
-		if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence) VALUES($1,$2,'NEEDS_REVIEW',$3,'IDR',$4,$5,$6,NULLIF($7,''),$8,$9) RETURNING id`, householdID, row.Type, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.Value.CategoryConfidence).Scan(&transactionID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_SCREENSHOT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text))`, householdID, transactionID, documentID, index, row.Value.Direction); err != nil {
-			return err
-		}
-		if hasChat {
-			reviewType := screenshotReviewType(row)
-			message := workerTelegram.ReviewQuestion(row.Value.Amount, row.Value.Merchant)
-			if row.Type == "INCOME" {
-				message = "🟡 Dana masuk perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(row.Value.Amount) + " dari " + row.Value.Merchant + "\n\nKonfirmasi sebagai penghasilan, atau tolak jika ini transfer milik sendiri."
-			} else if reviewType == "MISSING_TRANSACTION_DATE" || reviewType == "TRANSACTION_FACTS_MISSING" {
-				message = "🟡 Tanggal transaksi belum terlihat\n\nRp" + workerTelegram.FormatIDR(row.Value.Amount) + " · " + row.Value.Merchant + "\n\nIsi hanya tanggal/waktu yang tercantum pada bukti."
-			}
-			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message); err != nil {
-				return err
-			}
-			// PRD §7/§13: store the decision contract so the Inbox can ask only
-			// about the dimension that is genuinely unresolved.
-			if encoded, encodeErr := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row).JSON(); encodeErr == nil {
-				if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, householdID, string(encoded), transactionID); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	// PRD §11.4: one batch summary, so a many-row screenshot never floods the
-	// chat with one message per row.
-	if hasChat {
-		if err := enqueueScreenshotSummary(ctx, tx, chatID, screenshotSummary(len(rows), recorded, linked, pending)); err != nil {
-			return err
-		}
-	}
-	documentStatus, sourceStatus := "EXTRACTED", "PROCESSED"
-	if needsReview {
-		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'TRANSACTION_SCREENSHOT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
-		return err
-	}
-	if provenance.Questions > 0 {
-		// ADR-038/PRD §21: every Jev-influenced canonical mutation keeps its
-		// bounded decision provenance, not just its audit entry.
-		summary, _ := json.Marshal(map[string]any{"questioned_rows": provenance.Questions, "decided_rows": provenance.Decided, "recorded_rows": recorded})
-		outcome := "REVIEW"
-		if recorded > 0 {
-			outcome = "AUTO_CONFIRM"
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'SCREENSHOT_ROW_CATEGORY',NULLIF($3,''),$4,$5,$6::jsonb,$7)`, householdID, sourceID, provenance.Model, provenance.PolicyVersion, provenance.QuestionKeys, string(summary), outcome); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(ctx, `UPDATE document SET status=$2,updated_at=now() WHERE id=$1`, documentID, documentStatus); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceID, sourceStatus); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean,'auto_confirmed_rows',$7::integer,'linked_rows',$8::integer,'review_rows',$9::integer,'category_policy_version',$10::text))`, householdID, sourceID, documentID, documentType, len(rows), needsReview, recorded, linked, pending, provenance.PolicyVersion); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func screenshotReviewType(row validatedScreenshotRow) string {
-	if row.Type == "INCOME" {
-		return "TRANSFER_CLASSIFICATION"
-	}
-	if len(row.Candidates) > 0 {
-		return "POSSIBLE_DUPLICATE"
-	}
-	categoryKnown := row.CategoryID != nil
-	if !row.DateKnown && !categoryKnown {
-		return "TRANSACTION_FACTS_MISSING"
-	}
-	if !row.DateKnown {
-		return "MISSING_TRANSACTION_DATE"
-	}
-	return "AMBIGUOUS_CATEGORY"
-}
-
-func screenshotSchema(slugs []string) map[string]any {
-	categoryValues := make([]any, 0, len(slugs)+1)
-	categoryValues = append(categoryValues, nil)
-	for _, slug := range slugs {
-		categoryValues = append(categoryValues, slug)
-	}
-	nullableText := map[string]any{"type": []string{"string", "null"}}
-	row := map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
-		"direction": map[string]any{"type": "string", "enum": []string{"OUT", "IN"}}, "amount": map[string]any{"type": "string", "pattern": "^[0-9]+$"}, "currency": map[string]any{"type": "string", "enum": []string{"IDR"}}, "transaction_at": nullableText,
-		"merchant": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}, "category_slug": map[string]any{"type": []string{"string", "null"}, "enum": categoryValues},
-		"category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-	}, "required": []string{"direction", "amount", "currency", "transaction_at", "merchant", "description", "category_slug", "category_confidence", "confidence"}}
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"account_hint": map[string]any{"type": "string"}, "transactions": map[string]any{"type": "array", "minItems": 0, "maxItems": 50, "items": row}, "payment_status": map[string]any{"type": []string{"string", "null"}, "enum": []any{"PAID", "UNPAID", "UNKNOWN", nil}}, "due_date": map[string]any{"type": []string{"string", "null"}, "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, "required": []string{"account_hint", "transactions", "payment_status", "due_date", "confidence"}}
-}
