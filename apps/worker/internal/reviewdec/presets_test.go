@@ -5,9 +5,11 @@ import "testing"
 func TestPresetsHaveCompleteKnownContracts(t *testing.T) {
 	for _, reason := range []string{
 		"CYCLE_RESIDUAL_ALLOCATION", "WEALTH_OBSERVATION_CONFIRMATION",
-		"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION",
+		"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION", "UNKNOWN_BANK_TEMPLATE",
 		"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE", "TRANSFER_CLASSIFICATION",
 		"CONFLICTING_EVIDENCE",
+		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE", "MANUAL_CORRECTION",
+		"POSSIBLE_DUPLICATE",
 	} {
 		decision, ok := Preset(reason, "test", "subject")
 		if !ok || decision.ReasonCode != reason || decision.DecisionClass == "" || decision.InteractionMode == "" || decision.WhyNotAuto == "" || len(decision.AllowedActions) == 0 {

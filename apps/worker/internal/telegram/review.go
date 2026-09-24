@@ -102,17 +102,20 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			MessageID int64 `json:"message_id"`
 		}{MessageID: messageID}
 	}
-	var reviewID, transactionID, reviewState, transactionType, requestStatus, transactionStatus string
+	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
+	var missingFactsJSON *string
 	var expired bool
 	err := p.pool.QueryRow(ctx, `
-		SELECT r.id,r.transaction_id,c.state,t.type,r.status,t.status,r.expires_at<=now()
+		SELECT r.id,r.transaction_id,c.state,r.review_type,t.type,r.status,t.status,r.expires_at<=now(),
+		       ri.decision->'missingFacts'
 		FROM review_request r
 		JOIN review_conversation c ON c.review_request_id=r.id
 		JOIN transaction t ON t.id=r.transaction_id
+		LEFT JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`,
 		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).
-		Scan(&reviewID, &transactionID, &reviewState, &transactionType, &requestStatus, &transactionStatus, &expired)
+		Scan(&reviewID, &transactionID, &reviewState, &reviewType, &transactionType, &requestStatus, &transactionStatus, &expired, &missingFactsJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -128,6 +131,12 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
+	}
+	if reviewType == "UNKNOWN_MERCHANT" && missingFactsJSON != nil && !reviewRequiresFact(missingFactsJSON, "merchant") {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini.")
+	}
+	if reviewType == "POSSIBLE_DUPLICATE" {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Transaksi ini mungkin duplikat. Buka Review Inbox untuk memilih gabung atau catat baru; belum ada transaksi yang diubah.")
 	}
 	if reviewState == "AWAITING_MERCHANT" {
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
@@ -218,6 +227,25 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, extracted)
 }
 
+func reviewRequiresFact(raw *string, fact string) bool {
+	if raw == nil {
+		return true // legacy review without a stored contract keeps its previous behavior
+	}
+	if strings.TrimSpace(*raw) == "null" {
+		return true
+	}
+	var facts []string
+	if err := json.Unmarshal([]byte(*raw), &facts); err != nil {
+		return true
+	}
+	for _, value := range facts {
+		if value == fact {
+			return true
+		}
+	}
+	return false
+}
+
 // processReviewDetailCallback is the deterministic callback lane for review
 // editing. These callbacks never enter the conversational LLM pipeline.
 func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
@@ -260,18 +288,13 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	switch data {
 	case "review:edit":
 		message = "Pilih detail yang ingin diubah:"
-		markup = reviewDetailMarkup(merchantID != "")
+		markup = reviewDetailMarkup()
 	case "review:merchant":
 		message = "Balas pesan ini dengan nama merchant."
 		state = "AWAITING_MERCHANT"
 	case "review:description":
 		message = "Balas pesan ini dengan keterangan transaksi."
 	case "review:category":
-		if merchantID == "" {
-			message = "Merchant wajib diisi sebelum memilih kategori. Balas pesan ini dengan nama merchant."
-			state = "AWAITING_MERCHANT"
-			break
-		}
 		message = "Pilih kategori pengeluaran (halaman 1):"
 		state = "AWAITING_CATEGORY"
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
@@ -316,11 +339,9 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 }
 
-func reviewDetailMarkup(merchantKnown bool) *InlineKeyboardMarkup {
+func reviewDetailMarkup() *InlineKeyboardMarkup {
 	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
-	if merchantKnown {
-		keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
-	}
+	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
 }
 
@@ -424,6 +445,15 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	if err != nil {
 		return err
 	}
+	if reviewType == "POSSIBLE_DUPLICATE" {
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return err
+		}
+		if err = enqueueReply(ctx, tx, update, "Pilih gabung atau catat baru di Review Inbox. Belum ada transaksi yang diubah."); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
 	if strings.HasPrefix(data, "review:catpage:") {
 		page, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:catpage:"))
 		if parseErr != nil || page < 0 || page > 1000 {
@@ -447,18 +477,6 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	var validCategory string
 	if err = tx.QueryRow(ctx, `SELECT c.id FROM category c WHERE c.id=$1 AND c.household_id=$2 AND c.active`, categoryID, householdID).Scan(&validCategory); err != nil {
-		return tx.Commit(ctx)
-	}
-	if merchantID == "" {
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT',last_message_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-			return err
-		}
-		if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Nama merchant belum tersedia. Balas pesan ini dengan nama merchant.", &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}); err != nil {
-			return err
-		}
 		return tx.Commit(ctx)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -1089,7 +1107,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 }
 
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {
-	if reviewType == "UNKNOWN_MERCHANT" && strings.TrimSpace(merchantID) == "" || state == "AWAITING_MERCHANT" {
+	if state == "AWAITING_MERCHANT" {
 		return "merchant", clean(strings.TrimSpace(merchant), 500), true
 	}
 	if reviewType == "UNKNOWN_PURPOSE" || state == "AWAITING_DETAIL" {
@@ -1305,10 +1323,30 @@ func (p *Processor) continueRememberMerchant(ctx context.Context, sourceEventID,
 }
 
 func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string) error {
-	var reviewID string
-	err := tx.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id) SELECT household_id,id,$2,'PENDING_SEND',created_by_user_id FROM transaction WHERE id=$1 RETURNING id,household_id,transaction_id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT item.id,item.household_id,item.transaction_id,$2,$3,'PENDING_SEND' FROM item RETURNING id`, transactionID, reviewType, chatID).Scan(&reviewID)
+	// reviewID is the review_request id (the handle every later enqueue uses);
+	// itemID is the review_item row the ReviewDecision contract lives on. They are
+	// different rows, so the decision write must target itemID or it silently
+	// updates nothing.
+	var reviewID, itemID string
+	err := tx.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id) SELECT household_id,id,$2,'PENDING_SEND',created_by_user_id FROM transaction WHERE id=$1 RETURNING id,household_id,transaction_id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT item.id,item.household_id,item.transaction_id,$2,$3,'PENDING_SEND' FROM item RETURNING id,(SELECT id FROM item)`, transactionID, reviewType, chatID).Scan(&reviewID, &itemID)
 	if err != nil {
 		return err
+	}
+	// PRD 7/37: every Telegram review carries the same ReviewDecision contract
+	// the Inbox renders, written at the one place all reviews are created, so a
+	// Telegram review and a web review ask for exactly the same unresolved fact.
+	decision, err := telegramReviewDecision(ctx, tx, transactionID, reviewType)
+	if err != nil {
+		return err
+	}
+	if decision.ReasonCode != "" {
+		encoded, err := decision.JSON()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE id=$1`, itemID, string(encoded)); err != nil {
+			return err
+		}
 	}
 	state, reviewMessage, markupMode := reviewInitialState(reviewType, message)
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
@@ -1356,15 +1394,16 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	return nil
 }
 
-// reviewInitialState keeps the first question aligned with the policy result.
-// A missing merchant must collect that fact before category selection; it is
-// not safe to present category selection as the first required action.
+// reviewInitialState asks for the unresolved category; merchant is optional
+// enrichment and must never block confirmation.
 func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Perlu detail merchant", message, "Balas pesan ini dengan nama merchant untuk transaksi tersebut."), "reply"
+		return "AWAITING_CATEGORY", message, "category"
 	case "UNKNOWN_PURPOSE":
 		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Perlu detail transaksi", message, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "reply"
+	case "POSSIBLE_DUPLICATE":
+		return "AWAITING_DETAIL", "Transaksi ini mungkin duplikat. Selesaikan melalui Review Inbox untuk memilih gabung atau catat baru.", "reply"
 	default:
 		return "AWAITING_CATEGORY", message, "category"
 	}

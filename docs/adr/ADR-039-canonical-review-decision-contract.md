@@ -38,9 +38,13 @@ Bounded choices and canonical IDs stay server-side. The model never sees or pick
 a canonical identifier, and the contract grants no mutation authority — Go still
 validates every resolution against current state.
 
-Stage 2 deliberately does **not** change confirmation policy. Reviews that exist
-today still exist; they simply now carry their own explanation. Behavior changes
-arrive in Stages 3–7.
+Stage 2 by itself does **not** change confirmation policy. Stage 3 deliberately
+permits an unknown-merchant bank expense to be confirmed with a selected category
+and a NULL merchant: merchant is optional enrichment, while category is the
+required financial classification. Telegram follows the stored decision and
+routes category-only reviews to the Review Inbox; older reviews that still name
+merchant as missing continue to accept a bound merchant reply. Other behavior
+changes arrive in Stages 4–7.
 
 ## Consequences
 

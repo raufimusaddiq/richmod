@@ -2,10 +2,12 @@ package document
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type stubRowVerifier struct {
@@ -38,6 +40,21 @@ func rowAnswerFor(choice string, top float64) judgment.Answer {
 
 func unmatchedOutRow(amount string) validatedScreenshotRow {
 	return validatedScreenshotRow{Value: screenshotRow{Direction: "OUT", Amount: amount, Currency: "IDR", Merchant: "Warung", Confidence: .95}, Type: "EXPENSE", DateKnown: true}
+}
+
+func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
+	// PRD §37: every screenshot reason code must store the one contract that
+	// reason resolves to, or the Inbox hides an action the API still accepts.
+	for _, reason := range []string{"POSSIBLE_DUPLICATE", "AMBIGUOUS_CATEGORY"} {
+		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{})
+		want, ok := reviewdec.Preset(reason, "transaction", "transaction")
+		if !ok {
+			t.Fatalf("missing shared preset for %s", reason)
+		}
+		if got.ReasonCode != reason || got.DecisionClass != want.DecisionClass || got.InteractionMode != want.InteractionMode || !reflect.DeepEqual(got.MissingFacts, want.MissingFacts) || !reflect.DeepEqual(got.AllowedActions, want.AllowedActions) {
+			t.Fatalf("screenshot %s must use the shared contract: got=%+v want=%+v", reason, got, want)
+		}
+	}
 }
 
 // PRD §11.3: every unmatched row of one image shares a single bounded request.

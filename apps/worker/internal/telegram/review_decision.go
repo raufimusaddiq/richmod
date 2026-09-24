@@ -3,15 +3,40 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
-// insertSourceEventReviewDecision opens a source-event-scoped review together
-// with its canonical ReviewDecision contract (PRD 7, 37), so the Inbox can
-// always explain why the household's input is required. Idempotent on an open
-// review; a reason with no preset is a programming error, not a silent skip.
+func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, reviewType string) (reviewdec.Decision, error) {
+	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
+	if !ok {
+		return reviewdec.Decision{}, fmt.Errorf("no review decision preset for %s", reviewType)
+	}
+	var amount, sourceEventID string
+	var transactionAt time.Time
+	var transactionType string
+	if err := tx.QueryRow(ctx, "SELECT COALESCE(t.amount::text,''),t.transaction_at,COALESCE(e.source_event_id::text,''),t.type FROM transaction t LEFT JOIN LATERAL (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=t.id ORDER BY created_at LIMIT 1) e ON true WHERE t.id=$1::uuid", transactionID).
+		Scan(&amount, &transactionAt, &sourceEventID, &transactionType); err != nil {
+		return reviewdec.Decision{}, err
+	}
+	if amount != "" {
+		decision.KnownFacts["amount_idr"] = amount
+	}
+	if !transactionAt.IsZero() {
+		decision.KnownFacts["transaction_at"] = transactionAt.Format(time.RFC3339)
+	}
+	if transactionType != "" {
+		decision.KnownFacts["type"] = transactionType
+	}
+	decision.SourceEventID = sourceEventID
+	return decision, nil
+}
+
+// insertSourceEventReviewDecision writes the shared PRD §7 contract with the
+// source-event review. Unknown reasons fail closed instead of storing a zero
+// decision.
 func insertSourceEventReviewDecision(ctx context.Context, tx pgx.Tx, household, source, reason string, known, provenance map[string]any) error {
 	decision, ok := reviewdec.Preset(reason, "source_event", source)
 	if !ok {
@@ -27,6 +52,6 @@ func insertSourceEventReviewDecision(ctx context.Context, tx pgx.Tx, household, 
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) SELECT $1,$2,$3,'OPEN',$4::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE source_event_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, source, reason, string(encoded))
+	_, err = tx.Exec(ctx, "INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) SELECT $1,$2,$3,'OPEN',$4::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE source_event_id=$2 AND status IN ('PENDING_SEND','OPEN'))", household, source, reason, string(encoded))
 	return err
 }

@@ -11,8 +11,9 @@ func TestReviewInitialStateCollectsMissingFactsBeforeCategory(t *testing.T) {
 		context     string
 		wantMode    string
 	}{
-		{"missing merchant", "UNKNOWN_MERCHANT", "AWAITING_MERCHANT", "🟡 Perlu detail merchant\n\nNominal: Rp18.502\nWaktu: 02/09/2026 09:24 WIB\n\nBalas pesan ini dengan nama merchant untuk transaksi tersebut.", "Nominal: Rp18.502\nWaktu: 02/09/2026 09:24 WIB", "reply"},
+		{"missing merchant", "UNKNOWN_MERCHANT", "AWAITING_CATEGORY", "keep context", "keep context", "category"},
 		{"missing purpose", "UNKNOWN_PURPOSE", "AWAITING_DETAIL", "🟡 Perlu detail transaksi\n\nNominal: Rp18.502\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", "Nominal: Rp18.502", "reply"},
+		{"possible duplicate", "POSSIBLE_DUPLICATE", "AWAITING_DETAIL", "Transaksi ini mungkin duplikat. Selesaikan melalui Review Inbox untuk memilih gabung atau catat baru.", "candidate exists", "reply"},
 		{"missing category", "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", "keep context", "keep context", "category"},
 	}
 	for _, tt := range tests {

@@ -30,22 +30,30 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	}
 }
 
-func TestReviewDetailMarkupHidesCategoryUntilMerchantKnown(t *testing.T) {
-	for _, test := range []struct {
-		merchantKnown bool
-		wantCategory  bool
-	}{{false, false}, {true, true}} {
-		found := false
-		for _, row := range reviewDetailMarkup(test.merchantKnown).InlineKeyboard {
-			for _, button := range row {
-				found = found || button.CallbackData == "review:category"
-			}
-		}
-		if found != test.wantCategory {
-			t.Fatalf("merchantKnown=%t categoryButton=%t", test.merchantKnown, found)
+func TestReviewDetailMarkupAllowsCategoryWithoutMerchant(t *testing.T) {
+	found := false
+	for _, row := range reviewDetailMarkup().InlineKeyboard {
+		for _, button := range row {
+			found = found || button.CallbackData == "review:category"
 		}
 	}
+	if !found {
+		t.Fatal("category must remain available when merchant is unknown")
+	}
 }
+
+func TestReviewRequiresFactFailsClosedForMissingOrInvalidContract(t *testing.T) {
+	for _, raw := range []*string{nil, ptr("null"), ptr("not-json"), ptr("{}")} {
+		if !reviewRequiresFact(raw, "merchant") {
+			t.Fatalf("reviewRequiresFact(%v) = false; malformed or absent contracts must preserve legacy requirement", raw)
+		}
+	}
+	if reviewRequiresFact(ptr(`["category"]`), "merchant") {
+		t.Fatal("category-only decision unexpectedly requires merchant")
+	}
+}
+
+func ptr(value string) *string { return &value }
 
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	processor := &Processor{gateway: reviewTestGateway{}}

@@ -48,6 +48,41 @@ func TestReceiptWithWeakSameAmountCandidateStaysInReview(t *testing.T) {
 	if reviewType != "POSSIBLE_DUPLICATE" {
 		t.Fatalf("the review must say why: got %s", reviewType)
 	}
+	var missingFacts []string
+	var allowedActions []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT ARRAY(SELECT jsonb_array_elements_text(decision->'missingFacts')),ARRAY(SELECT jsonb_array_elements_text(decision->'allowedActions')) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&missingFacts, &allowedActions); err != nil {
+		t.Fatal(err)
+	}
+	if len(missingFacts) != 1 || missingFacts[0] != "duplicate_relationship" || len(allowedActions) != 1 || allowedActions[0] != "IGNORE" {
+		t.Fatalf("receipt duplicate review must expose only actions it can resolve: missing=%v actions=%v", missingFacts, allowedActions)
+	}
+}
+
+func TestReceiptReviewPersistsDecisionWithoutTelegramRecipient(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt review without Telegram")
+	ctx := context.Background()
+	if _, err := fixture.pool.Exec(ctx, `DELETE FROM telegram_identity WHERE household_id=$1`, fixture.householdID); err != nil {
+		t.Fatal(err)
+	}
+	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var reason, amount, transactionAt, transactionType string
+	if err := fixture.pool.QueryRow(ctx, `SELECT review_type,decision->'knownFacts'->>'amount_idr',decision->'knownFacts'->>'transaction_at',decision->'knownFacts'->>'type' FROM review_item WHERE household_id=$1 AND status='OPEN'`, fixture.householdID).Scan(&reason, &amount, &transactionAt, &transactionType); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "AMBIGUOUS_CATEGORY" || amount != "25000" || transactionType != "EXPENSE" || transactionAt != receiptTime().Format(time.RFC3339) {
+		t.Fatalf("receipt ReviewDecision incomplete without Telegram: reason=%q amount=%q time=%q type=%q", reason, amount, transactionAt, transactionType)
+	}
+	var requests int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM review_request r JOIN transaction t ON t.id=r.transaction_id WHERE t.household_id=$1`, fixture.householdID).Scan(&requests); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 0 {
+		t.Fatalf("no Telegram recipient should create no Telegram review request, got %d", requests)
+	}
 }
 
 func seedReceiptFixture(t *testing.T, label string) receiptFixture {

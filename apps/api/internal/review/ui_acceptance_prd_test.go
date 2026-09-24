@@ -22,10 +22,11 @@ import (
 // the authority on what is unresolved (PRD 3.3, 13.4). They are asserted here
 // rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
-	MissingFacts  []string       `json:"missingFacts"`
-	ProposedFacts map[string]any `json:"proposedFacts"`
-	KnownFacts    map[string]any `json:"knownFacts"`
-	WhyNotAuto    string         `json:"whyNotAutoConfirm"`
+	MissingFacts   []string       `json:"missingFacts"`
+	AllowedActions []string       `json:"allowedActions"`
+	ProposedFacts  map[string]any `json:"proposedFacts"`
+	KnownFacts     map[string]any `json:"knownFacts"`
+	WhyNotAuto     string         `json:"whyNotAutoConfirm"`
 }
 
 func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
