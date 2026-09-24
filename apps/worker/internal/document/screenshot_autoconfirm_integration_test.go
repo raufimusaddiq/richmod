@@ -255,3 +255,22 @@ func assertScreenshotReviewDecisions(t *testing.T, fixture screenshotFixture, wa
 		t.Fatalf("known amount must not be asked again: %+v", found["AMBIGUOUS_CATEGORY"].KnownFacts)
 	}
 }
+
+func TestScreenshotDateOnlyGapAsksOnlyForTransactionTime(t *testing.T) {
+	fixture := seedScreenshotFixture(t, "Screenshot dateless row")
+	categoryID := fixture.categoryID
+	row := screenshotDataRow("EXPENSE", "54000", "Indomaret")
+	row.DateKnown = false
+	row.CategoryID, row.CategoryDecided = &categoryID, true
+	row.CategoryDecisionSource = "GENERATIVE_EXTRACTION"
+	fixture.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+
+	var reviewType, missing string
+	var knownTime *string
+	if err := fixture.pool.QueryRow(context.Background(), `SELECT review_type,decision->'missingFacts'->>0,decision->'knownFacts'->>'transaction_at' FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reviewType, &missing, &knownTime); err != nil {
+		t.Fatal(err)
+	}
+	if reviewType != "MISSING_TRANSACTION_DATE" || missing != "transaction_at" || knownTime != nil {
+		t.Fatalf("date-only screenshot gap must ask only for time: review=%q missing=%q known=%v", reviewType, missing, knownTime)
+	}
+}
