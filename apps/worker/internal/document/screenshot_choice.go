@@ -146,6 +146,10 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
 		known["merchant"] = merchant
 	}
+	categoryKnown := row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict
+	if categoryKnown {
+		known["category"] = row.Value.CategorySlug
+	}
 	decision := reviewdec.Decision{
 		Version:         reviewdec.Version,
 		Subject:         reviewdec.Subject{Type: "transaction", ID: transactionID},
@@ -172,13 +176,51 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		decision.DecisionClass, decision.InteractionMode = reviewdec.ClassHumanPolicyChoice, reviewdec.ModePolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}
 		decision.WhyNotAuto = "evidence cannot separate income from an own-account or household transfer on a screenshot row"
+	case "POSSIBLE_DUPLICATE":
+		// Duplicate resolution is the blocker; do not disguise it as ordinary
+		// missing category/date review.
 	default:
 		if row.CategoryConflict {
 			decision.DecisionClass, decision.InteractionMode = reviewdec.ClassEvidenceConflict, reviewdec.ModeConflictResolution
 			decision.WhyNotAuto = "the image and the bounded plane named different categories"
 		}
+		decision.MissingFacts = screenshotMissingFacts(categoryKnown, row.DateKnown)
+		if row.CategoryConflict && row.DateKnown {
+			decision.MissingFacts = []string{"category"}
+		}
 	}
 	return decision
+}
+
+func screenshotMissingFacts(categoryKnown, dateKnown bool) []string {
+	missing := make([]string, 0, 2)
+	if !categoryKnown {
+		missing = append(missing, "category")
+	}
+	if !dateKnown {
+		missing = append(missing, "transaction_at")
+	}
+	return missing
+}
+
+func screenshotReviewReason(row validatedScreenshotRow, possibleDuplicate bool) string {
+	if possibleDuplicate {
+		return "POSSIBLE_DUPLICATE"
+	}
+	if row.Type == "INCOME" {
+		return "TRANSFER_CLASSIFICATION"
+	}
+	categoryKnown := row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict
+	switch {
+	case !categoryKnown && !row.DateKnown:
+		return "TRANSACTION_FACTS_MISSING"
+	case !categoryKnown:
+		return "AMBIGUOUS_CATEGORY"
+	case !row.DateKnown:
+		return "MISSING_TRANSACTION_DATE"
+	default:
+		return "AMBIGUOUS_CATEGORY"
+	}
 }
 
 // screenshotSummary is the PRD §11.4 batch summary.

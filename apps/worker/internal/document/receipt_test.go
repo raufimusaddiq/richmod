@@ -1,9 +1,41 @@
 package document
 
 import (
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
+
+func TestReceiptReviewDecisionNamesResidualFactsWithoutPromotingFallbackDate(t *testing.T) {
+	for _, test := range []struct {
+		category, date bool
+		wantReason     string
+		wantMissing    []string
+	}{
+		{true, false, "MISSING_TRANSACTION_DATE", []string{"transaction_at"}},
+		{false, false, "TRANSACTION_FACTS_MISSING", []string{"category", "transaction_at"}},
+		{false, true, "AMBIGUOUS_CATEGORY", []string{"category"}},
+	} {
+		reason := receiptReviewReason(false, test.category, test.date)
+		decision, ok := reviewdec.Preset(reason, "transaction", "t")
+		if !ok || reason != test.wantReason || !reflect.DeepEqual(decision.MissingFacts, test.wantMissing) {
+			t.Fatalf("reason=%s decision=%+v; want %s %v", reason, decision, test.wantReason, test.wantMissing)
+		}
+		known := receiptKnownFacts(receiptExtraction{Total: "25000"}, receiptValidation{TransactionAt: time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC), DateKnown: test.date})
+		_, hasDate := known["transaction_at"]
+		if hasDate != test.date {
+			t.Fatalf("observed transaction date present=%t; date known=%t", hasDate, test.date)
+		}
+		if !test.date && known["transaction_time_source"] != "RECEIVED_AT_FALLBACK" {
+			t.Fatalf("fallback provenance missing: %v", known)
+		}
+	}
+	if receiptReviewReason(true, true, true) != "POSSIBLE_DUPLICATE" {
+		t.Fatal("duplicate ambiguity must take precedence")
+	}
+}
 
 func TestValidateReceiptArithmeticAndJakartaTime(t *testing.T) {
 	received := time.Date(2026, 8, 25, 18, 0, 0, 0, jakarta())

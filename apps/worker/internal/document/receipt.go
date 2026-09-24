@@ -391,6 +391,35 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	return tx.Commit(ctx)
 }
 
+func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown bool) string {
+	if possibleDuplicate {
+		return "POSSIBLE_DUPLICATE"
+	}
+	switch {
+	case !categoryKnown && !dateKnown:
+		return "TRANSACTION_FACTS_MISSING"
+	case !categoryKnown:
+		return "AMBIGUOUS_CATEGORY"
+	case !dateKnown:
+		return "MISSING_TRANSACTION_DATE"
+	default:
+		return "AMBIGUOUS_CATEGORY"
+	}
+}
+
+func receiptKnownFacts(value receiptExtraction, validation receiptValidation) map[string]any {
+	known := map[string]any{"amount_idr": value.Total, "type": "EXPENSE"}
+	if merchant := strings.TrimSpace(value.Merchant); merchant != "" {
+		known["merchant"] = merchant
+	}
+	if validation.DateKnown {
+		known["transaction_at"] = validation.TransactionAt.Format(time.RFC3339)
+	} else {
+		known["transaction_time_source"] = "RECEIVED_AT_FALLBACK"
+	}
+	return known
+}
+
 func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID *string, possibleDuplicate bool) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
@@ -429,12 +458,11 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_RECEIPT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'possible_duplicate',$4::boolean))`, householdID, transactionID, documentID, possibleDuplicate); err != nil {
 		return err
 	}
+	// PRD 7/ADR-045: the stored reason names the exact residual dimension(s). A
+	// fallback received time is provenance, never an observed transaction date.
+	reviewType := receiptReviewReason(possibleDuplicate, categoryID != nil, validation.DateKnown)
 	var chatID int64
 	if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err == nil {
-		reviewType := "AMBIGUOUS_CATEGORY"
-		if possibleDuplicate {
-			reviewType = "POSSIBLE_DUPLICATE"
-		}
 		if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, workerTelegram.ReviewQuestion(value.Total, value.Merchant)); err != nil {
 			return err
 		}
@@ -443,20 +471,13 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	}
 	// PRD 7: persist the contract even without a Telegram recipient; the Inbox
 	// must not depend on notification configuration.
-	reviewType := "AMBIGUOUS_CATEGORY"
-	if possibleDuplicate {
-		reviewType = "POSSIBLE_DUPLICATE"
-	}
 	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reviewType)
 	}
-	decision.KnownFacts["amount_idr"] = value.Total
-	if strings.TrimSpace(value.Merchant) != "" {
-		decision.KnownFacts["merchant"] = value.Merchant
-	}
-	decision.KnownFacts["type"] = "EXPENSE"
-	decision.KnownFacts["transaction_at"] = validation.TransactionAt.Format(time.RFC3339)
+	// PRD 18.3: a fallback time keeps its provenance instead of pretending the
+	// receipt printed it.
+	decision.KnownFacts = receiptKnownFacts(value, validation)
 	decision.SourceEventID = sourceID
 	decision.EvidenceRefs = []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceID}}
 	encoded, encodeErr := decision.JSON()

@@ -62,6 +62,22 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"SET_PAY_DATE", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the pay date is not present in the evidence"
+	case "MISSING_TRANSACTION_DATE":
+		// PRD §10: a source fact that is genuinely absent. The internal
+		// received-at fallback is provenance, not a known transaction time.
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"transaction_at"}
+		base.AllowedActions = []string{"SET_PAY_DATE", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the source did not print or state the transaction date"
+	case "TRANSACTION_FACTS_MISSING":
+		// Compound residual: category plus date. One reason code must not hide
+		// either dimension, so the contract names both explicitly.
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"category", "transaction_at"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "SET_PAY_DATE", "IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the source did not support a category or a transaction date"
 	case "TRANSFER_CLASSIFICATION":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"transfer_relationship"}

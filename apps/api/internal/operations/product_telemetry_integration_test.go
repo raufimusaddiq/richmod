@@ -130,4 +130,11 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if aggregate.AutoConfirmCorrectionSource["TELEGRAM_TEXT"] != 1 {
 		t.Fatalf("correction source breakdown missing: %+v", aggregate.AutoConfirmCorrectionSource)
 	}
+	// IR-03: one detail field, one bounded web choice, one Telegram classification.
+	if aggregate.CanonicalEvents != 3 {
+		t.Fatalf("canonical cohort must be the confirmed in-window transactions: %+v", aggregate)
+	}
+	if aggregate.ExplicitInputs != 3 || aggregate.RHICE != 1 {
+		t.Fatalf("RHICE must count only canonical-cohort review turns: %+v", aggregate)
+	}
 }

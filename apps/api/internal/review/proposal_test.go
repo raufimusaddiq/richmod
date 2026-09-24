@@ -1,6 +1,7 @@
 package review
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -18,6 +19,19 @@ func TestProposalFactsFromDecisionCarriesClassAndMissingFacts(t *testing.T) {
 	}
 	if len(stored.MissingFacts) != 1 || stored.MissingFacts[0] != "category" {
 		t.Fatalf("only the unresolved dimension may be requested: %+v", stored.MissingFacts)
+	}
+}
+
+func TestConfirmationBlockersPreserveOnlyUnresolvedResiduals(t *testing.T) {
+	decision := []byte(`{"missingFacts":["category","transaction_at"]}`)
+	if got := confirmationBlockers(decision, false, false, false); !reflect.DeepEqual(got, []string{"category", "transaction_at"}) {
+		t.Fatalf("blockers=%v", got)
+	}
+	if got := confirmationBlockers(decision, true, false, false); !reflect.DeepEqual(got, []string{"category"}) {
+		t.Fatalf("blockers=%v; date should be resolved", got)
+	}
+	if got := confirmationBlockers(decision, true, true, false); len(got) != 0 {
+		t.Fatalf("all residuals supplied, blockers=%v", got)
 	}
 }
 

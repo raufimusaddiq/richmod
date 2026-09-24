@@ -32,11 +32,12 @@ type productAggregate struct {
 	ReviewBySource map[string]int `json:"reviewRateBySource"`
 	ReviewByReason map[string]int `json:"reviewRateByReason"`
 
-	// RHICE is the PRD 2.2 north-star metric: explicit user inputs required before
+	// RHICE is the PRD 2.2 north-star metric: explicit human inputs required before
 	// each canonical financial event reached a valid canonical state, divided by
-	// the number of canonical financial events. A resolution row is one explicit
-	// input (a button, a dropdown, or a typed value); a canonical event is one
-	// transaction. Derived, not written, so it cannot drift from the ledger.
+	// the number of canonical financial events. The numerator is the recorded
+	// review turns, so a form that submits several fields counts each supplied
+	// field rather than one action name; a canonical event is one transaction.
+	// Derived, not written, so it cannot drift from the ledger.
 	CanonicalEvents int     `json:"canonicalEvents"`
 	ExplicitInputs  int     `json:"explicitInputs"`
 	RHICE           float64 `json:"rhice"`
@@ -151,18 +152,25 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
 	}
 
-	// Every metric below is derived from canonical state, so it cannot drift from
-	// the ledger and needs no write-path instrumentation. An explicit user input
-	// is a resolution a human performed: the numerator is an allow-list of the
-	// actions the writers actually emit for a user answer. Residual allocation is
-	// review metadata, not an input to a canonical transaction, so it is excluded.
+	// Every metric below is derived from canonical state plus the append-only
+	// review-turn telemetry the writers already emit, so it cannot drift from the
+	// ledger. PRD IR-03: RHICE counts each supplied field or bounded choice; turns
+	// may contain multiple fields. Values merged from known server state are not
+	// counted. Residual allocation is review metadata, not a canonical transaction
+	// input, so it is excluded.
 	if err := h.pool.QueryRow(ctx, `
 		WITH recent_transactions AS (
 		  SELECT id FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'
+		), stale_transactions AS (
+		  SELECT DISTINCT transaction_id FROM review_item
+		  WHERE household_id=$1 AND transaction_id IS NOT NULL AND status='RESOLVED'
+		    AND resolved_at < now() - interval '30 days'
 		), review_events AS (
 		  SELECT DISTINCT ri.id,ri.resolution_action
 		  FROM review_item ri
-		  JOIN recent_transactions t ON ri.transaction_id=t.id OR EXISTS (
+	  JOIN recent_transactions t ON ri.transaction_id=t.id
+	    OR (ri.resolution_action='MERGE_REVIEW' AND ri.resolution_values->>'transaction_id'=t.id::text)
+	    OR EXISTS (
 		    SELECT 1 FROM transaction_evidence te
 		    WHERE te.transaction_id=t.id AND (
 		      (ri.financial_email_observation_id IS NOT NULL AND EXISTS (SELECT 1 FROM financial_email_observation feo WHERE feo.id=ri.financial_email_observation_id AND feo.transaction_id=t.id))
@@ -174,15 +182,18 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		    )
 		  )
 		  WHERE ri.household_id=$1 AND ri.status='RESOLVED' AND ri.resolved_at >= now() - interval '30 days'
+		    AND (ri.transaction_id IS NULL OR ri.transaction_id NOT IN (SELECT transaction_id FROM stale_transactions))
+		), human_turns AS (
+		  SELECT COALESCE(sum(cardinality(e.changed_fields)+e.bounded_choices),0) AS inputs,
+		         COALESCE(sum(cardinality(e.changed_fields)),0) AS typed_fields
+		  FROM product_telemetry_event e
+		  JOIN review_events re ON re.id=e.review_item_id
+		  WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN' AND e.occurred_at >= now() - interval '30 days'
+		    AND e.action NOT IN ('IGNORE','EMAIL_RECEIVED_AT_FALLBACK','RECONCILED_TERMINAL_TRANSACTION','LEGACY_TRANSACTION_RESOLVED','NO_LONGER_APPLICABLE')
 		)
 		SELECT
-		 count(*) FILTER (WHERE resolution_action IN (
-		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
-		   'TELEGRAM_TRANSFER_CLASSIFIED','TRANSFER_RECONCILED','RECLASSIFIED_ASSET_PURCHASE',
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES',
-		   'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER')),
-		 count(*) FILTER (WHERE resolution_action IN (
-		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES')),
+		 (SELECT inputs FROM human_turns),
+		 (SELECT typed_fields FROM human_turns),
 		 (SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
 		 count(*) FILTER (WHERE resolution_action IN (
 		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))

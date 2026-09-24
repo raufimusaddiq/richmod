@@ -297,13 +297,11 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			return err
 		}
 		if hasChat {
-			reviewType := "AMBIGUOUS_CATEGORY"
+			reviewType := screenshotReviewReason(row, len(row.Candidates) > 0)
 			message := workerTelegram.ReviewQuestion(row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
 				reviewType = "TRANSFER_CLASSIFICATION"
 				message = "🟡 Dana masuk perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(row.Value.Amount) + " dari " + row.Value.Merchant + "\n\nKonfirmasi sebagai penghasilan, atau tolak jika ini transfer milik sendiri."
-			} else if len(row.Candidates) > 0 {
-				reviewType = "POSSIBLE_DUPLICATE"
 			}
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message); err != nil {
 				return err

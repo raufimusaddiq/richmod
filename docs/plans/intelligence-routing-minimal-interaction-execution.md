@@ -293,7 +293,7 @@ Known account merged by server 0 inputs
 
 ## Required implementation
 
-Resolution telemetry must distinguish:
+Review-turn telemetry must distinguish:
 
 - values the user supplied this turn;
 - values loaded/merged from known server state.
@@ -305,7 +305,7 @@ not need to enter product telemetry.
 
 ## Required tests
 
-- amount + date = 2 explicit inputs;
+- amount + date = 1 turn that counts 2 typed inputs;
 - one proposal acceptance = 1 input, 0 typed fields;
 - one unresolved financial-email entity = 1 input even when server merges the
   other known entity;

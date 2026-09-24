@@ -31,6 +31,63 @@ type reviewExtraction struct {
 
 var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
 
+// errReviewResidualFacts records that Telegram declined to confirm because the
+// stored residual contract was still open. The caller already replied, so this
+// is a control signal, not a user-facing failure.
+func residualConfirmationBlockers(decision []byte, dateSupplied, categorySupplied, merchantSupplied bool) []string {
+	var stored struct {
+		MissingFacts []string `json:"missingFacts"`
+	}
+	if len(decision) > 0 {
+		_ = json.Unmarshal(decision, &stored)
+	}
+	var blocked []string
+	for _, fact := range stored.MissingFacts {
+		switch fact {
+		case "transaction_at":
+			if !dateSupplied {
+				blocked = append(blocked, fact)
+			}
+		case "category":
+			if !categorySupplied {
+				blocked = append(blocked, fact)
+			}
+		case "merchant":
+			if !merchantSupplied {
+				blocked = append(blocked, fact)
+			}
+		}
+	}
+	return blocked
+}
+
+func reviewNeedsFactsMessage(facts []string) string {
+	labels := []string{}
+	for _, fact := range facts {
+		switch fact {
+		case "transaction_at":
+			labels = append(labels, "tanggal transaksi")
+		case "category":
+			labels = append(labels, "kategori")
+		case "merchant":
+			labels = append(labels, "merchant")
+		}
+	}
+	return "Tinjauan ini masih menunggu " + strings.Join(labels, " dan ") + ". Balas dengan nilai itu untuk menyelesaikan."
+}
+
+func parseSuppliedReviewDate(value string) (*string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(value), jakartaLocation())
+	if err != nil {
+		return nil, err
+	}
+	canonical := parsed.Format("2006-01-02")
+	return &canonical, nil
+}
+
 func parseReviewPayDate(text string) string {
 	m := reviewPayDatePattern.FindStringSubmatch(text)
 	if len(m) != 4 {
@@ -699,10 +756,10 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 			return err
 		}
 	}
-	query := `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
+	query := `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0),COALESCE(ri.decision,'{}'::jsonb) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id LEFT JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
 	params := []any{householdID, update.Message.Chat.ID}
 	if update.Message.ReplyToMessage != nil {
-		query = `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
+		query = `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0),COALESCE(ri.decision,'{}'::jsonb) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id LEFT JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
 		params = append(params, update.Message.ReplyToMessage.MessageID)
 	}
 	rows, err := p.pool.Query(ctx, query, params...)
@@ -713,11 +770,12 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	type candidate struct {
 		id, tx, typ, reviewType, state, merchantID string
 		messageID                                  int64
+		decision                                   []byte
 	}
 	var choices []candidate
 	for rows.Next() {
 		var v candidate
-		if err := rows.Scan(&v.id, &v.tx, &v.typ, &v.reviewType, &v.state, &v.merchantID, &v.messageID); err != nil {
+		if err := rows.Scan(&v.id, &v.tx, &v.typ, &v.reviewType, &v.state, &v.merchantID, &v.messageID, &v.decision); err != nil {
 			return err
 		}
 		choices = append(choices, v)
@@ -735,6 +793,12 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	amountIDR, _ := args["amount_idr"].(string)
 	transactionAt, _ := args["transaction_at"].(string)
 	c := choices[0]
+	// IR-02: the reply lane must satisfy the stored residual contract before it
+	// confirms. A generic reply that leaves a required fact unsupplied asks for
+	// that exact fact instead of confirming a transaction with a placeholder.
+	if blocked := residualConfirmationBlockers(c.decision, validReviewDate(payDate), categorySlug != "", strings.TrimSpace(merchant) != ""); len(blocked) > 0 {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, reviewNeedsFactsMessage(blocked))
+	}
 	if action == "SET_PAY_DATE" && !validReviewDate(payDate) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Tanggal pembayaran wajib diisi dengan format YYYY-MM-DD.")
 	}
@@ -1180,8 +1244,28 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction, userID string, offerMerchantLearning bool) error {
 	var err error
 	var merchantID *string
-	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' RETURNING merchant_id`, transactionID, categoryID, value.Description, value.Note).Scan(&merchantID); err != nil {
+	// IR-02: a legacy card or a client that omits a field must not confirm while
+	// the stored ReviewDecision still reports a canonical-required residual fact.
+	// The date check uses the parsed pay date only; a fallback timestamp never
+	// satisfies it.
+	var storedDecision []byte
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb) FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id WHERE rr.id=$1 AND ri.household_id=$2 AND ri.status IN ('PENDING_SEND','OPEN') FOR UPDATE OF ri`, reviewID, householdID).Scan(&storedDecision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	payDate, payDateErr := parseSuppliedReviewDate(value.PayDate)
+	if payDateErr != nil {
+		return payDateErr
+	}
+	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", false); len(blocked) > 0 {
+		return enqueueReply(ctx, tx, update, reviewNeedsFactsMessage(blocked))
+	}
+	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($5::date::timestamp AT TIME ZONE 'Asia/Jakarta',transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' RETURNING merchant_id`, transactionID, categoryID, value.Description, value.Note, payDate).Scan(&merchantID); err != nil {
 		return fmt.Errorf("confirm reviewed transaction: %w", err)
+	}
+	if payDate != nil {
+		if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamp AT TIME ZONE 'Asia/Jakarta',metadata_json=metadata_json||'{"date_known":true,"date_source":"USER"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, *payDate); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=COALESCE(NULLIF($2,'')::uuid,category_candidate_id),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, categoryID); err != nil {
 		return err

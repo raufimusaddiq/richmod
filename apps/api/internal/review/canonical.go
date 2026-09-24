@@ -190,12 +190,20 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var values struct {
-			AccountID       string `json:"accountId"`
-			WealthAccountID string `json:"wealthAccountId"`
+			AccountID       string   `json:"accountId"`
+			WealthAccountID string   `json:"wealthAccountId"`
+			HumanSupplied   []string `json:"human_supplied_fields,omitempty"`
 		}
 		if json.Unmarshal(in.Values, &values) != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid financial entity values"})
 			return
+		}
+		values.HumanSupplied = nil // Client-supplied telemetry claims are never trusted.
+		if values.AccountID != "" {
+			values.HumanSupplied = append(values.HumanSupplied, "account")
+		}
+		if values.WealthAccountID != "" {
+			values.HumanSupplied = append(values.HumanSupplied, "wealth_account")
 		}
 		var observationID, fundingHint, providerHint, knownAccount, knownWealth string
 		if err = tx.QueryRow(r.Context(), `SELECT id::text,COALESCE(facts_json->>'funding_account_hint',''),COALESCE(facts_json->>'provider_account_hint',''),COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1 AND household_id=$2 AND status='REVIEW' FOR UPDATE`, *financialObservation, household).Scan(&observationID, &fundingHint, &providerHint, &knownAccount, &knownWealth); err != nil {

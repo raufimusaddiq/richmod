@@ -1,6 +1,8 @@
 # Intelligence Routing Drift Guard Checklist
 
 Use this checklist before marking any /goals task or implementation PR complete.
+Record per-task results in `docs/plans/intelligence-routing-task-status.md`;
+the ledger does not waive any gate below.
 
 Source contract:
 
