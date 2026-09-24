@@ -303,3 +303,58 @@ func validateCreate(v createArgs) error {
 
 func validateTypedArgs(value any) error {
 	switch v := value.(type) {
+	case *createArgs:
+		return validateCreate(*v)
+	case *batchArgs:
+		if len(v.Items) < 1 || len(v.Items) > 10 {
+			return fmt.Errorf("batch size")
+		}
+		for _, item := range v.Items {
+			if err := validateCreate(item); err != nil {
+				return err
+			}
+		}
+	case *periodArgs:
+		if !validPeriod(v.Period) {
+			return fmt.Errorf("period")
+		}
+	case *transferArgs:
+		n, ok := new(big.Int).SetString(v.Amount, 10)
+		// Purpose is deliberately absent: it is a bounded semantic Choice owned by
+		// the judgment plane, not an argument the generative model gets to assert
+		// (PRD §13). A missing destination hint is fine here because INTERNAL_TRANSFER
+		// legitimately has none; the purpose resolver rules on which case applies.
+		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
+			return fmt.Errorf("transfer")
+		}
+	case *searchArgs:
+		if !validPeriod(v.Period) || strings.TrimSpace(v.SearchText) == "" {
+			return fmt.Errorf("search")
+		}
+	case *clarifyArgs:
+		if strings.TrimSpace(v.Topic) == "" {
+			return fmt.Errorf("clarification")
+		}
+	case *outOfScopeArgs:
+		if strings.TrimSpace(v.Reason) == "" {
+			return fmt.Errorf("reason")
+		}
+	case *correctionArgs:
+		if (v.TargetRef == nil && strings.TrimSpace(pointerValue(v.SearchText)) == "") || !validPeriod(v.Period) || (v.CategorySlug == nil && v.Description == nil && v.DateReference == nil) {
+			return fmt.Errorf("correction")
+		}
+	case *resolveReviewArgs:
+		if !slices.Contains(reviewActions(), v.Action) {
+			return fmt.Errorf("review action")
+		}
+	case *salaryChoiceArgs:
+		if v.Choice != "PRIMARY" && v.Choice != "ORDINARY" && v.Choice != "IGNORE" {
+			return fmt.Errorf("salary choice")
+		}
+	}
+	return nil
+}
+
+func validPeriod(value string) bool {
+	return map[string]bool{"TODAY": true, "THIS_WEEK": true, "LAST_WEEK": true, "THIS_MONTH": true, "LAST_MONTH": true, "CURRENT_CYCLE": true, "PREVIOUS_CYCLE": true, "CUSTOM": true}[value]
+}
