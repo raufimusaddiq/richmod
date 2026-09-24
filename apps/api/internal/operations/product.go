@@ -7,12 +7,8 @@ import "context"
 // is read-only and stores nothing, so it cannot drift from the ledger and needs
 // no new pipeline. Amounts and free text are never selected.
 //
-// Coverage gap, stated honestly rather than faked: explicit user input counts
-// (typed fields, bounded choices, round trips) and per-field auto-confirm
-// corrections are not reconstructable from current history. This rollup exposes
-// a "pending" list naming the signals that will be populated when their stage
-// instruments them (PRD §22.1/§22.2/§22.3). Do not present a partial number as
-// complete RHICE.
+// Every metric below is derived from canonical state, so the aggregate cannot
+// disagree with the ledger and needs no write-path instrumentation.
 //
 // ponytail: unbounded 30-day scans with no new indexes. Add a rollup table when
 // these tables outgrow a cheap aggregate, not before.
@@ -33,7 +29,28 @@ type productAggregate struct {
 	BySource       map[string]int `json:"sourceEventsBySource"`
 	ReviewBySource map[string]int `json:"reviewRateBySource"`
 	ReviewByReason map[string]int `json:"reviewRateByReason"`
-	Coverage       []string       `json:"notYetMeasurable"`
+
+	// RHICE is the PRD 2.2 north-star metric: explicit user inputs required before
+	// each canonical financial event reached a valid canonical state, divided by
+	// the number of canonical financial events. A resolution row is one explicit
+	// input (a button, a dropdown, or a typed value); a canonical event is one
+	// transaction. Derived, not written, so it cannot drift from the ledger.
+	CanonicalEvents int     `json:"canonicalEvents"`
+	ExplicitInputs  int     `json:"explicitInputs"`
+	RHICE           float64 `json:"rhice"`
+	TypedFields     int     `json:"typedFields"`
+	// Reviews still open is the friction the proposal-first card targets.
+	OpenReviews int `json:"openReviews"`
+	// AcceptedWithoutEdit counts resolutions that only accepted a proposal:
+	// CONFIRM_REVIEW (web) and its Telegram equivalents. MERGE_EXISTING is a
+	// choice between candidates, not an accepted proposal, so it is excluded.
+	AcceptedWithoutEdit int `json:"reviewAcceptedWithoutEdit"`
+	// Coverage names the section 22 signals that current canonical history cannot
+	// reconstruct. Naming them here keeps a partial RHICE from reading as complete.
+	Coverage []string `json:"notYetMeasurable"`
+	// TimeToResolutionMs is the mean wall-clock time from review open to resolve
+	// for the reviews in the window, read from review_item so every review counts.
+	TimeToResolutionMs int64 `json:"timeToResolutionMs"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
@@ -123,13 +140,66 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	if aggregate.SourceEvents > 0 {
 		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
 	}
-	aggregate.Coverage = []string{
-		"rhice",
-		"typed_fields_per_event",
-		"bounded_choices_per_event",
-		"review_round_trips",
-		"review_accepted_without_edit",
-		"auto_confirm_correction_rate",
+
+	// Every metric below is derived from canonical state, so it cannot drift from
+	// the ledger and needs no write-path instrumentation. An explicit user input
+	// is a resolution a human performed: the numerator is an allow-list of the
+	// actions the writers actually emit for a user answer. Residual allocation is
+	// review metadata, not an input to a canonical transaction, so it is excluded.
+	if err := h.pool.QueryRow(ctx, `
+		WITH recent_transactions AS (
+		  SELECT id FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'
+		), review_events AS (
+		  SELECT DISTINCT ri.id,ri.resolution_action
+		  FROM review_item ri
+		  JOIN recent_transactions t ON ri.transaction_id=t.id OR EXISTS (
+		    SELECT 1 FROM transaction_evidence te
+		    WHERE te.transaction_id=t.id AND (
+		      (ri.financial_email_observation_id IS NOT NULL AND EXISTS (SELECT 1 FROM financial_email_observation feo WHERE feo.id=ri.financial_email_observation_id AND feo.transaction_id=t.id))
+		      OR (ri.wealth_observation_id IS NOT NULL AND te.metadata_json->>'observation_id'=ri.wealth_observation_id::text)
+		      OR (ri.financial_email_observation_id IS NULL AND te.source_event_id=COALESCE(
+		        ri.source_event_id,
+		        (SELECT source_event_id FROM transaction_proposal WHERE id=ri.proposal_id),
+		        (SELECT source_event_id FROM document WHERE id=ri.document_id)))
+		    )
+		  )
+		  WHERE ri.household_id=$1 AND ri.status='RESOLVED' AND ri.resolved_at >= now() - interval '30 days'
+		)
+		SELECT
+		 count(*) FILTER (WHERE resolution_action IN (
+		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION',
+		   'TELEGRAM_TRANSFER_CLASSIFIED','TRANSFER_RECONCILED','RECLASSIFIED_ASSET_PURCHASE',
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES',
+		   'PRIMARY_SALARY','ORDINARY_INCOME','MERGE_EXISTING','CONFIRM_NEW_TRANSFER')),
+		 count(*) FILTER (WHERE resolution_action IN (
+		   'COMPLETE_BANK_FACTS','SET_PAY_DATE','SET_FINANCIAL_EMAIL_ENTITIES')),
+		 (SELECT count(*) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')),
+		 count(*) FILTER (WHERE resolution_action IN (
+		   'CONFIRM_REVIEW','TELEGRAM_CONFIRMED','TELEGRAM_MERCHANT_DECISION'))
+		FROM review_events`, householdID).Scan(&aggregate.ExplicitInputs, &aggregate.TypedFields, &aggregate.OpenReviews, &aggregate.AcceptedWithoutEdit); err != nil {
+		return aggregate, err
 	}
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*) FROM transaction
+		WHERE household_id=$1 AND status='CONFIRMED' AND created_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.CanonicalEvents); err != nil {
+		return aggregate, err
+	}
+	if aggregate.CanonicalEvents > 0 {
+		aggregate.RHICE = float64(aggregate.ExplicitInputs) / float64(aggregate.CanonicalEvents)
+	}
+	// Section 22.2: the open-to-resolve interval is the time to canonical state.
+	// It is read from review_item, not review_request, so every review type is
+	// covered, not only the transaction-bound Telegram requests.
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COALESCE(avg(EXTRACT(EPOCH FROM (ri.resolved_at - ri.created_at)) * 1000)::bigint, 0)
+		FROM review_item ri
+		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days' AND ri.status='RESOLVED'`, householdID).Scan(&aggregate.TimeToResolutionMs); err != nil {
+		return aggregate, err
+	}
+	// Coverage includes per-event bounded choices (the legacy ReviewDecision
+	// rows cannot prove how many distinct controls a human answered), Telegram
+	// turns (one conversation row overwrites prior turns), and corrections after
+	// auto-confirm (no persisted auto-confirm marker).
+	aggregate.Coverage = []string{"bounded_choices_per_event", "review_round_trips", "auto_confirm_correction_rate"}
 	return aggregate, nil
 }
