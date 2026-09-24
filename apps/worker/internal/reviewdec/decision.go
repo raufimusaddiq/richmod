@@ -30,6 +30,10 @@ const (
 	ModeOneTapConfirmation = "ONE_TAP_CONFIRMATION"
 	ModeBoundedChoice      = "BOUNDED_CHOICE"
 	ModeSingleField        = "SINGLE_FIELD"
+	// ModeMinimalFields is reserved for the rare case where evidence is missing
+	// more than one irreducible field. It is not a generic form mode: producers
+	// must enumerate every missing fact and the UI may render only those fields.
+	ModeMinimalFields      = "MINIMAL_FIELDS"
 	ModeConflictResolution = "CONFLICT_RESOLUTION"
 	ModePolicyChoice       = "POLICY_CHOICE"
 )
