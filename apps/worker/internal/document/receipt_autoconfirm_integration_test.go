@@ -84,6 +84,50 @@ func TestReceiptReviewPersistsDecisionWithoutTelegramRecipient(t *testing.T) {
 	}
 }
 
+func TestReceiptResidualReviewTypesSatisfyDatabaseConstraints(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		categoryKnown bool
+		dateKnown     bool
+		wantType      string
+		wantFacts     []string
+	}{
+		{name: "category only", categoryKnown: false, dateKnown: true, wantType: "AMBIGUOUS_CATEGORY", wantFacts: []string{"category"}},
+		{name: "category and date", categoryKnown: false, dateKnown: false, wantType: "TRANSACTION_FACTS_MISSING", wantFacts: []string{"category", "transaction_at"}},
+		{name: "date only", categoryKnown: true, dateKnown: false, wantType: "MISSING_TRANSACTION_DATE", wantFacts: []string{"transaction_at"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := seedReceiptFixture(t, "Receipt residual type "+test.name)
+			ctx := context.Background()
+			value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
+			validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: test.dateKnown}
+			categories := []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}
+			if test.categoryKnown {
+				slug := fixture.categorySlug
+				value.CategorySlug, value.CategoryConfidence = &slug, 0.95
+			}
+			if err := (&Processor{pool: fixture.pool, receiptAutoConfirmOff: true}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, categories); err != nil {
+				t.Fatal(err)
+			}
+			var reviewType string
+			var missingFacts []string
+			if err := fixture.pool.QueryRow(ctx, `SELECT review_type,ARRAY(SELECT jsonb_array_elements_text(decision->'missingFacts')) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reviewType, &missingFacts); err != nil {
+				t.Fatal(err)
+			}
+			if reviewType != test.wantType || fmt.Sprint(missingFacts) != fmt.Sprint(test.wantFacts) {
+				t.Fatalf("review type/facts=%s/%v, want %s/%v", reviewType, missingFacts, test.wantType, test.wantFacts)
+			}
+			var knownDate, timeSource string
+			if err := fixture.pool.QueryRow(ctx, `SELECT COALESCE(decision->'knownFacts'->>'transaction_at',''),COALESCE(decision->'knownFacts'->>'transaction_time_source','') FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&knownDate, &timeSource); err != nil {
+				t.Fatal(err)
+			}
+			if test.dateKnown && knownDate == "" || !test.dateKnown && (knownDate != "" || timeSource != "RECEIVED_AT_FALLBACK") {
+				t.Fatalf("known date/source=%q/%q; fallback time must remain provenance", knownDate, timeSource)
+			}
+		})
+	}
+}
+
 func seedReceiptFixture(t *testing.T, label string) receiptFixture {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
