@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for implementation — 2026-09-23. Implements PRD §9 (Stage 3).
+Accepted for implementation — 2026-09-23. Implements PRD §9 (Stage 3). Amended by ADR-045 on 2026-09-24.
 
 ## Context
 
@@ -42,6 +42,28 @@ The bounded candidate set is server-owned — category slugs the household alrea
 has — and Go maps the approved slug back to the canonical category ID. Jev never
 chooses a hidden database identifier, and nothing here mutates the ledger
 directly.
+
+## Amendment — merchant absence does not preempt category intelligence (2026-09-24)
+
+Merchant is optional enrichment, so an otherwise valid merchant-like expense
+with merchant = NULL must still receive the bounded category opportunity before
+human review. The bounded question may use the remaining evidence/state without
+fabricating a merchant.
+
+Required behavior:
+
+~~~text
+valid amount/date/direction/channel
+merchant = NULL
+category unresolved
+-> bounded category decision
+-> decisive: CONFIRMED with merchant NULL
+-> undecided/failure: category-only review
+~~~
+
+This amendment does not remove independent bank evidence verification. Evidence
+support and category choice are distinct semantic questions and may both be
+required when they protect different correctness properties.
 
 ## Consequences
 
