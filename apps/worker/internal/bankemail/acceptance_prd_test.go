@@ -120,8 +120,9 @@ func TestBankEmailB3UndecidedCategoryAsksOnlyForCategory(t *testing.T) {
 	}
 }
 
-// B4 - merchant absent but every other fact valid. The expense must still be
-// classified; a missing merchant is a missing fact, not an invalid transaction.
+// B4 - merchant absent but every other fact valid. Merchant is optional
+// canonical data: deterministic policy may mark the pre-rescue state, but the
+// bounded category rescue still gets a chance before a human is asked.
 func TestBankEmailB4MissingMerchantDoesNotBecomeUnknownPurpose(t *testing.T) {
 	channel, direction := "QR", "OUTGOING"
 	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction}
@@ -131,6 +132,45 @@ func TestBankEmailB4MissingMerchantDoesNotBecomeUnknownPurpose(t *testing.T) {
 	}
 	if result.ReviewType != "UNKNOWN_MERCHANT" {
 		t.Fatalf("missing merchant must be its own dimension: %+v", result)
+	}
+}
+
+func TestBankEmailB4MissingMerchantCanAutoConfirmAfterCategoryRescue(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var householdID, foodID string
+	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("B4 merchantless %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman') RETURNING id", householdID).Scan(&foodID); err != nil {
+		t.Fatal(err)
+	}
+
+	channel, direction := "QR", "OUTGOING"
+	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction}
+	initial := EvaluateBankEmail(spendingListener(), extraction, nil)
+	processor := &Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{
+		"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"})),
+	}}}
+	decided := processor.applyCategoryDecision(ctx, "se-b4", householdID, extraction, initial)
+	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != foodID {
+		t.Fatalf("merchantless expense with a decisive category must require no human input: %+v", decided)
+	}
+	if extraction.Merchant != nil {
+		t.Fatal("category rescue must not fabricate a merchant")
+	}
+
+	undecided := (&Processor{pool: pool}).applyCategoryDecision(ctx, "se-b4", householdID, extraction, initial)
+	if undecided.ReviewType != "AMBIGUOUS_CATEGORY" || undecided.Status != "NEEDS_REVIEW" {
+		t.Fatalf("without a category decision, only category may remain unresolved: %+v", undecided)
 	}
 }
 
