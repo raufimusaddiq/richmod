@@ -15,6 +15,23 @@
 **Currency:** IDR  
 **Timezone:** Asia/Jakarta  
 
+> **2026-09-24 intelligence-routing amendment**
+>
+> The north star, RHICE contract, ReviewDecision contract, and minimal-human-
+> interaction requirements in this document remain authoritative. Model-call
+> ordering is amended by:
+>
+> - `docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md`
+> - `docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md`
+> - `docs/adr/ADR-045-single-intelligence-pass-routing.md`
+>
+> Where older text in this document can be read as mandatory
+> `generative -> Jev` replay, the new documents prevail. Jev remains first for
+> bounded questions whose facts already exist, but after required generative
+> extraction it is used only for residual bounded uncertainty or an independent
+> evidence-verification claim. Clear accepted generative facts are not re-decided
+> merely to obtain model consensus.
+
 Related architecture and implementation references:
 
 - docs/adr/ADR-038-system-one-semantic-decision-plane.md
@@ -228,23 +245,28 @@ No AI model directly mutates financial state.
 
 ## 3.2 Human Interaction Is the Final Fallback
 
-Before asking the user, Richmod MUST attempt applicable resolution in this order:
+Before asking the user, Richmod MUST use the minimum sufficient path:
 
 ~~~text
 source evidence
     ↓
 deterministic exact rules / stored memory
     ↓
-Jev bounded semantic decision
+Jev first when the remaining question is already bounded and facts exist
     ↓
-generative extraction/reasoning when arbitrary values are required
+generative extraction/reasoning only when arbitrary capability is required
     ↓
 deterministic validation
+    ↓
+Jev only for residual bounded uncertainty or independent evidence verification
     ↓
 human input for remaining uncertainty only
 ~~~
 
-The user is not an extraction engine.
+This is a decision tree, not a requirement to execute every intelligence stage.
+A clear Jev result skips generative inference. A clear source-policy-accepted
+generative result skips redundant Jev replay. The user is not an extraction
+engine, and model consensus is not a product objective.
 
 ---
 
@@ -309,11 +331,18 @@ Richmod MUST NOT require the user to invent a merchant when source evidence does
 
 ## 3.6 Model Self-Confidence Is Not Canonical Authority
 
-Generative fields such as confidence and category_confidence may remain observability signals.
+Generative fields such as confidence and category_confidence may remain policy
+signals, but confidence alone MUST NOT authorize canonical mutation.
 
-They MUST NOT become the sole mutation authority on a Jev-enabled workflow.
+When a generative capability was genuinely required, a complete constrained
+result may proceed after the source-specific deterministic acceptance contract
+passes. Jev MUST NOT repeat a semantic fact that is already policy-accepted only
+because the output domain is bounded.
 
-When an output domain is bounded, semantic choice should return to Jev and then to deterministic Go validation.
+If a bounded fact remains unresolved after generative extraction, Jev should
+resolve that residual fact before the user is asked. Independent evidence
+verification remains allowed when it tests a materially different claim against
+source evidence.
 
 ---
 
@@ -1844,24 +1873,27 @@ bounded choices, and the auto-confirm correction rate/field/source breakdown.
 The RHICE denominator includes only confirmed transactions, not pending,
 needs-review, or voided rows.
 
-Definitions are pinned to the actions the writers actually emit for a canonical
-transaction: explicit inputs are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
-`TELEGRAM_TRANSFER_CLASSIFIED`, `TRANSFER_RECONCILED`,
-`RECLASSIFIED_ASSET_PURCHASE`, `COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
-`SET_FINANCIAL_EMAIL_ENTITIES`, `PRIMARY_SALARY`, `ORDINARY_INCOME`,
-`MERGE_EXISTING`, and `CONFIRM_NEW_TRANSFER`; typed fields are the subset whose
-action names a value the user entered (`COMPLETE_BANK_FACTS`, `SET_PAY_DATE`,
-`SET_FINANCIAL_EMAIL_ENTITIES`). Residual allocations and wealth-only snapshot
-confirmations remain review metadata, not inputs before a ledger transaction.
-Reclassified Wealth observations join through their preserved transaction
-evidence. System
-resolutions (`EMAIL_RECEIVED_AT_FALLBACK`, `RECONCILED_TERMINAL_TRANSACTION`,
-`LEGACY_TRANSACTION_RESOLVED`, `NO_LONGER_APPLICABLE`) and `IGNORE` are neither
-an input nor a typed field, and accepted-without-edit is the resolution actions
-that only accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
-`TELEGRAM_MERCHANT_DECISION`). RHICE counts only recent resolutions linked to a
-recent canonical transaction through its review binding or preserved evidence,
-so the numerator and denominator share the same canonical-event cohort.
+The action-name approximation above is superseded by the 2026-09-24 intelligence-
+routing PRD for RHICE numerator semantics. RHICE counts actual human controls or
+fields supplied on the resolution turn, not merely the number/name of resolved
+review rows.
+
+Examples:
+
+~~~text
+accept proposal                     1 input
+category dropdown                   1 input
+amount + date in one form           2 inputs
+server-known account merged back    0 inputs
+~~~
+
+Resolution telemetry must therefore preserve which allow-listed field names the
+user actually supplied, while excluding values loaded from server-known state.
+Residual allocations and wealth-only snapshot confirmations remain review
+metadata unless they are inputs required to create a canonical transaction.
+System resolutions and IGNORE remain outside the canonical-event RHICE numerator.
+RHICE still counts only resolutions linked to the same recent canonical-event
+cohort as its denominator.
 
 Review turns are recorded as privacy-bounded events: only action names and an
 allow-listed set of changed field names are retained, never values or user text.
@@ -1973,7 +2005,10 @@ only for the unresolved fact. See ADR-041.
 
 Implement:
 
-- bounded post-extraction semantic decision;
+- source-specific deterministic validation after vision extraction;
+- direct confirmation for a clear constrained receipt without mandatory Jev
+  replay;
+- Jev rescue only for a residual bounded category decision;
 - new transaction auto-confirm;
 - exact residual review generation;
 - duplicate safety.
@@ -1991,10 +2026,12 @@ Implement:
 - batch processing summary;
 - row-specific minimal review.
 
-**Status: implemented in merged PR #128 (ADR-042).** One batched bounded
-category ruling per image; a row auto-confirms only with a decisive category, a
-printed date, no source conflict, and high extraction confidence. Unresolved
-rows store the PRD §7 decision and the document sends one batch summary.
+**Status: implemented in merged PR #128 (ADR-042), then amended by
+ADR-045.** The image still uses one generative extraction pass, but already-clear
+rows must not be re-judged. Only rows whose bounded category remains unresolved
+enter one batched Jev rescue. A row auto-confirms only when its source acceptance
+contract passes; unresolved rows store the PRD §7 decision and the document
+sends one batch summary.
 
 Exit criterion:
 
@@ -2334,7 +2371,10 @@ Do not ask Bank Jago again.
 ## Safety
 
 - [ ] threshold lowering is not the primary review-reduction mechanism;
-- [ ] no generative fallback becomes bounded semantic authority;
+- [ ] a failed Jev-owned bounded decision never silently delegates the same
+      bounded mutation question to generative authority;
+- [ ] a clear required generative result is not sent through redundant Jev
+      replay;
 - [ ] no ambiguous duplicate auto-merge;
 - [ ] no fabricated merchant;
 - [ ] no silent human-policy decisions.

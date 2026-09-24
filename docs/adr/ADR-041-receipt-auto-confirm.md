@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for implementation — 2026-09-23. Implements PRD §10 (Stage 4).
+Accepted for implementation — 2026-09-23. Implements PRD §10 (Stage 4). Amended by ADR-045 on 2026-09-24.
 
 ## Context
 
@@ -38,6 +38,32 @@ To make that guarantee real, the match query keeps every same-amount, same-
 direction transaction inside the window, including low-scoring ones whose
 merchant text differs; a filtered-out weak match must still force the duplicate
 review instead of disappearing from the gate (Hermes review on PR #127).
+
+## Amendment — no mandatory Jev replay after clear vision extraction (2026-09-24)
+
+ADR-045 makes the receipt path single-pass on the clear happy path.
+
+A constrained receipt category produced by required vision extraction may be
+consumed directly when the complete receipt source-acceptance contract passes.
+Extraction confidence is not sufficient by itself; Go must still validate the
+required typed fields, printed/acceptable date, amount, arithmetic where
+available, category membership, duplicate safety, and absence of material
+conflict.
+
+Jev is added only when a bounded fact remains unresolved. The primary new rescue
+case is category:
+
+~~~text
+vision extraction
+-> category unresolved
+-> one bounded category Jev rescue
+-> decisive: continue with zero human input
+-> undecided/failure: category-only review
+~~~
+
+A receipt whose category is already accepted must not receive a Jev category
+call merely to confirm the same label. A receipt with genuinely missing date
+must ask for the date rather than spend model calls guessing it.
 
 ## Consequences
 
