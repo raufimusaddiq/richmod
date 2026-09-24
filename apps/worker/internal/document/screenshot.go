@@ -44,9 +44,10 @@ type validatedScreenshotRow struct {
 	TransactionAt time.Time
 	DateKnown     bool
 	CategoryID    *string
-	// CategoryDecided marks a decisive bounded-plane ruling on the row's
-	// category, which is what authorises an auto-confirm; CategoryConflict marks
-	// two independent semantic sources disagreeing about it (PRD §11.2, §17).
+	// CategoryDecided means one constrained category is ready for canonical use.
+	// It can come directly from a high-confidence vision extraction or from the
+	// Jev rescue lane. Clear vision rows must not pay a redundant second model
+	// call merely to repeat the same category decision.
 	CategoryDecided  bool
 	CategoryConflict bool
 	Candidates       []matchCandidate
@@ -221,13 +222,15 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 			transactionType = "INCOME"
 		}
 		var categoryID *string
+		categoryDecided := false
 		if row.Direction == "OUT" && row.CategorySlug != nil && row.CategoryConfidence >= .90 {
 			if id, ok := categoryIDs[*row.CategorySlug]; ok {
 				value := id
 				categoryID = &value
+				categoryDecided = true
 			}
 		}
-		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID})
+		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, CategoryDecided: categoryDecided})
 	}
 	return result, nil
 }
@@ -297,13 +300,12 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			return err
 		}
 		if hasChat {
-			reviewType := "AMBIGUOUS_CATEGORY"
+			reviewType := screenshotReviewType(row)
 			message := workerTelegram.ReviewQuestion(row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
-				reviewType = "TRANSFER_CLASSIFICATION"
 				message = "🟡 Dana masuk perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(row.Value.Amount) + " dari " + row.Value.Merchant + "\n\nKonfirmasi sebagai penghasilan, atau tolak jika ini transfer milik sendiri."
-			} else if len(row.Candidates) > 0 {
-				reviewType = "POSSIBLE_DUPLICATE"
+			} else if reviewType == "MISSING_TRANSACTION_DATE" || reviewType == "TRANSACTION_FACTS_MISSING" {
+				message = "🟡 Tanggal transaksi belum terlihat\n\nRp" + workerTelegram.FormatIDR(row.Value.Amount) + " · " + row.Value.Merchant + "\n\nIsi hanya tanggal/waktu yang tercantum pada bukti."
 			}
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message); err != nil {
 				return err
@@ -353,6 +355,23 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func screenshotReviewType(row validatedScreenshotRow) string {
+	if row.Type == "INCOME" {
+		return "TRANSFER_CLASSIFICATION"
+	}
+	if len(row.Candidates) > 0 {
+		return "POSSIBLE_DUPLICATE"
+	}
+	categoryKnown := row.CategoryID != nil
+	if !row.DateKnown && !categoryKnown {
+		return "TRANSACTION_FACTS_MISSING"
+	}
+	if !row.DateKnown {
+		return "MISSING_TRANSACTION_DATE"
+	}
+	return "AMBIGUOUS_CATEGORY"
 }
 
 func screenshotSchema(slugs []string) map[string]any {
