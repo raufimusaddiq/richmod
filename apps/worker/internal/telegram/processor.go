@@ -417,7 +417,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum valid. Pastikan jenis, nominal, dan tanggal/waktu bila disebutkan.")
 		}
 		if value.Type == "EXPENSE" {
-			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value); offered {
+			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value, true); offered {
 				return true, err
 			}
 		}
@@ -553,7 +553,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		}
 		value := validatedExtraction{Type: typ, Amount: amount, Merchant: merchant, TransactionAt: at.In(jakartaLocation()), Confidence: 1, CategoryConfidence: 1, ResponseMessage: "Tercatat."}
 		if typ == "EXPENSE" {
-			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value); offered {
+			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value, true); offered {
 				return true, err
 			}
 		}
@@ -633,7 +633,7 @@ func stringPtr(v any) *string {
 	return &s
 }
 
-func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, value validatedExtraction) (bool, error) {
+func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, value validatedExtraction, enqueueMessage bool) (bool, error) {
 	if value.Merchant == "" {
 		return false, nil
 	}
@@ -658,7 +658,10 @@ func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, u
 		return true, err
 	}
 	message := fmt.Sprintf("Saya menemukan %s · Rp%s. Ubah tanggalnya ke %s? Balas yes/ya untuk konfirmasi atau no/tidak untuk membatalkan.", label, FormatIDR(value.Amount), value.TransactionAt.In(jakartaLocation()).Format("02 Jan 2006 15:04"))
-	if err = enqueueReply(ctx, tx, update, message); err != nil {
+	if enqueueMessage {
+		err = enqueueReply(ctx, tx, update, message)
+	}
+	if err != nil {
 		return true, err
 	}
 	return true, tx.Commit(ctx)
@@ -891,6 +894,7 @@ type validatedExtraction struct {
 	Type               string
 	Amount             string
 	TransactionAt      time.Time
+	DateProvenance     string
 	Merchant           string
 	CategorySlug       string
 	Description        string
@@ -917,6 +921,7 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 	description, _ := args["description"].(string)
 	note, _ := args["note"].(string)
 	dateReference, _ := args["date_reference"].(string)
+	ambiguous, _ := args["ambiguous"].(bool)
 	explicitDate, _ := args["explicit_date"].(string)
 	localTime, _ := args["local_time"].(string)
 	confidence, _ := args["confidence"].(float64)
@@ -932,7 +937,16 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 	if err != nil {
 		return validatedExtraction{}, err
 	}
-	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
+	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, DateProvenance: dateProvenance(dateReference), Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, Ambiguous: ambiguous, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
+}
+
+func dateProvenance(reference string) string {
+	switch reference {
+	case "TODAY", "YESTERDAY", "EXPLICIT":
+		return "USER_STATED"
+	default:
+		return "MISSING"
+	}
 }
 
 func (p *Processor) finishPendingAction(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {

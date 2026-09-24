@@ -70,11 +70,16 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 			// lanes it now owns (route, transfer purpose, category, review action).
 			avoided = len(trace.tasks)
 		case trace.consumed():
-			lane = judgmentLaneJevThenGenerative
+			if len(trace.residualDimensions) > 0 {
+				lane = judgmentLaneResidualJev
+			} else {
+				lane = judgmentLaneJevThenGenerative
+			}
 		}
 		p.recordTurnTelemetry(context.WithoutCancel(ctx), householdID, sourceEventID, judgmentTurnObservation{
 			Lane:                   lane,
 			DecisionTasks:          trace.tasks,
+			ResidualDimensions:     trace.residualDimensions,
 			Model:                  trace.model,
 			NativeToolCallsAvoided: avoided,
 		})
@@ -180,6 +185,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		Categories:       categories,
 		Tools:            tools,
 		RequiredTool:     "",
+		Route:            judgmentState.Route,
 		TurnContext:      turnContext,
 		HasPendingAction: contextState.HasPendingAction,
 		HasPendingBatch:  contextState.HasPendingBatch,
@@ -492,6 +498,8 @@ func agentMutationFallback(result agentToolResult) string {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
 			return "Transaksi sudah tercatat."
+		case "POSSIBLE_EXISTING_TRANSACTION":
+			return "Saya menemukan transaksi serupa. Ingin mengubah transaksi yang sudah ada?"
 		case "TRANSFER_RECORDED":
 			if amount != "" {
 				return "Transfer Rp" + FormatIDR(amount) + " sudah tercatat."

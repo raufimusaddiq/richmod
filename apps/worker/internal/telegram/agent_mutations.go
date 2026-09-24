@@ -41,9 +41,22 @@ func (p *Processor) executeAgentSideEffect(ctx context.Context, state *agentStat
 
 func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any, metadata gateway.Metadata) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
+	if state.Route != "CREATE_TRANSACTION" && state.Route != "NEEDS_GENERATIVE_AGENT" {
+		return result, true, fmt.Errorf("record_transaction is not authorized for route %q", state.Route)
+	}
 	value, err := nativeValidatedExtraction(args, state.Now)
 	if err != nil {
 		return result, true, fmt.Errorf("invalid transaction proposal: %w", err)
+	}
+	if value.Type == "EXPENSE" {
+		if offered, err := p.offerExistingEdit(ctx, state.HouseholdID, state.Update, state.SourceEventID, value, false); offered {
+			if err != nil {
+				return result, true, err
+			}
+			result.Status = "EDIT_CONFIRMATION_REQUIRED"
+			result.Mutation = map[string]any{"action": "POSSIBLE_EXISTING_TRANSACTION"}
+			return result, false, nil
+		}
 	}
 
 	// Creating a new transaction must never silently turn into a correction of a
@@ -85,9 +98,25 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 			return result, true, err
 		}
 	}
-	decision, decisionErr := p.resolveTransactionDecision(ctx, state.SourceEventID, state.HouseholdID, state.Update.Message.Text, value, allowedCategories, exactCategory)
+	decision, decisionErr := p.semanticDecisionForRecord(ctx, state, value, allowedCategories, exactCategory)
 	if decisionErr != nil {
 		return result, true, decisionErr
+	}
+	if decision.CategoryAccepted {
+		value.CategorySlug = decision.CategorySlug
+		var id string
+		if err = tx.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, state.HouseholdID, decision.CategorySlug).Scan(&id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				result.Status = "INVALID_CATEGORY"
+				result.Facts = map[string]any{"category_slug": decision.CategorySlug}
+				return result, true, nil
+			}
+			return result, true, fmt.Errorf("resolve decided category: %w", err)
+		}
+		categoryID = &id
+	}
+	if !decision.DateSupported {
+		state.ResidualDimensions = appendIfMissing(state.ResidualDimensions, "transaction_at")
 	}
 	autoConfirm := decision.decisionAllowed() && (value.Type == "INCOME" || categoryID != nil)
 	proposalStatus, transactionStatus := "NEEDS_REVIEW", "NEEDS_REVIEW"
@@ -102,6 +131,9 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		"category_confidence": value.CategoryConfidence,
 		"time_precision":      value.TimePrecision,
 		"time_period":         value.TimePeriod,
+		"decision_source":     decision.DecisionSource,
+		"policy_version":      decision.PolicyVersion,
+		"residual_dimensions": state.ResidualDimensions,
 		"agent_sprint":        1,
 	})
 	var proposalID string
@@ -140,7 +172,11 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	}
 	if !autoConfirm {
 		reviewType := "AMBIGUOUS_CATEGORY"
-		if value.Merchant == "" {
+		if contains(state.ResidualDimensions, "transaction_at") && contains(state.ResidualDimensions, "category") {
+			reviewType = "TRANSACTION_FACTS_MISSING"
+		} else if contains(state.ResidualDimensions, "transaction_at") {
+			reviewType = "MISSING_TRANSACTION_DATE"
+		} else if value.Merchant == "" {
 			reviewType = "UNKNOWN_MERCHANT"
 		}
 		if err = EnqueueReviewRequest(ctx, tx, transactionID, reviewType, state.Update.Message.Chat.ID, state.Update.Message.MessageID, ReviewQuestion(value.Amount, value.Merchant)); err != nil {
@@ -168,7 +204,9 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	if !autoConfirm {
 		result.Review = map[string]any{"required": true, "reason": "TRANSACTION_NEEDS_REVIEW"}
 	}
-	return result, true, nil
+	// The result is fully deterministic and already contains the committed facts.
+	// Do not spend a second generative turn to paraphrase it (IR-04 call budget).
+	return result, false, nil
 }
 
 func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any) (agentToolResult, bool, error) {

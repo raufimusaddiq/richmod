@@ -3,7 +3,9 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,11 +22,67 @@ func (prdAgentGateway) NativeToolCall(context.Context, string, string, any, []ga
 func (prdAgentGateway) AgentTurn(_ context.Context, _ string, request gateway.AgentRequest) (gateway.AgentResponse, error) {
 	for _, tool := range request.Tools {
 		if tool.Name == "record_transaction" {
-			args := json.RawMessage(`{"type":"EXPENSE","amount_idr":"5000","merchant":"Gorengan","category_slug":"food-drink","description":"jajan gorengan","note":null,"date_reference":"TODAY","explicit_date":null,"local_time":null,"confidence":0.99,"category_confidence":0.99}`)
+			args := json.RawMessage(`{"type":"EXPENSE","amount_idr":"5000","merchant":"Gorengan","category_slug":"food-drink","description":"jajan gorengan","note":null,"date_reference":"TODAY","explicit_date":null,"local_time":null,"ambiguous":false,"confidence":0.99,"category_confidence":0.99}`)
 			return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "prd-expense", Name: "record_transaction", Arguments: args}}}, nil
 		}
 	}
 	return gateway.AgentResponse{Text: "Recorded."}, nil
+}
+
+type ir04AgentGateway struct {
+	calls     int
+	category  string
+	dateRef   string
+	localTime string
+	amount    string
+	merchant  string
+}
+
+func (g *ir04AgentGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	return gateway.ToolCall{}, gateway.Metadata{}, errors.New("complex path must use the conversational agent")
+}
+
+func (g *ir04AgentGateway) AgentTurn(_ context.Context, _ string, request gateway.AgentRequest) (gateway.AgentResponse, error) {
+	g.calls++
+	for _, tool := range request.Tools {
+		if tool.Name != "record_transaction" {
+			continue
+		}
+		args := map[string]any{
+			"type": "EXPENSE", "amount_idr": g.amount, "merchant": g.merchant,
+			"category_slug": g.category, "description": g.merchant, "note": nil,
+			"date_reference": g.dateRef, "explicit_date": nil, "local_time": g.localTime,
+			"ambiguous": false, "confidence": 0.91, "category_confidence": 0.91,
+		}
+		encoded, _ := json.Marshal(args)
+		return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "ir04-record", Name: "record_transaction", Arguments: encoded}}}, nil
+	}
+	return gateway.AgentResponse{}, errors.New("record_transaction was not exposed")
+}
+
+type ir04Judgment struct {
+	calls        int
+	questionSets []map[string]judgment.Question
+	route        string
+}
+
+func (e *ir04Judgment) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
+	e.calls++
+	e.questionSets = append(e.questionSets, request.Questions)
+	answers := map[string]judgment.Answer{}
+	if question, ok := request.Questions["route"]; ok {
+		criteria, _ := question.Criteria.(map[string]any)
+		route := e.route
+		if route == "" {
+			route = "NEEDS_GENERATIVE_AGENT"
+		}
+		answers["route"] = confidentChoice(criteria, route)
+	}
+	if question, ok := request.Questions["category"]; ok {
+		criteria, _ := question.Criteria.(map[string]any)
+		answers["category"] = confidentChoice(criteria, "food-drink")
+	}
+	return judgment.Result{Model: "ir04-test-jev", Answers: answers}, nil
 }
 
 type prdReviewGateway struct{ calls int }
@@ -66,6 +124,49 @@ func (simpleExpenseJudgment) Evaluate(_ context.Context, _ string, request judgm
 		}
 	}
 	return judgment.Result{Model: "test-jev", Answers: answers}, nil
+}
+
+// prdFailingJudgment simulates a provider failure on the initial route call.
+type prdFailingJudgment struct{}
+
+func (prdFailingJudgment) Evaluate(context.Context, string, judgment.Request) (judgment.Result, error) {
+	return judgment.Result{}, errors.New("judgment plane unavailable")
+}
+
+// PRD §8.3: when the initial Jev route call fails, a mutation request must fail
+// closed. No mutation tool may be exposed to the generative agent, so no ledger
+// row and no hidden model authority appear.
+func TestIR04JudgmentRouteFailureExposesNoMutationAuthority(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "ir04-route-failure")
+	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','food-drink')`, f.householdID)
+	mustAgentTest(t, err)
+	f.update.Message.MessageID = 79
+	f.update.Message.Text = "makan siang 25rb hari ini"
+	payload, err := json.Marshal(f.update)
+	mustAgentTest(t, err)
+	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
+	mustAgentTest(t, err)
+
+	agent := &ir04AgentGateway{amount: "25000", merchant: "Warung", category: "food-drink", dateRef: "TODAY", localTime: "12:30"}
+	p := NewProcessor(f.pool, agent)
+	p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
+	p.SetJudgment(prdFailingJudgment{})
+	if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if agent.calls != 0 {
+		t.Fatalf("a failed Jev route must not fall through to the generative agent for a mutation, calls=%d", agent.calls)
+	}
+	var transactions int
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&transactions))
+	if transactions != 0 {
+		t.Fatalf("a failed Jev route must not write the ledger, transactions=%d", transactions)
+	}
 }
 
 type prdRouteJudgment struct{ route string }
@@ -152,6 +253,98 @@ func TestPRDTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing
 	}
 }
 
+func runIR04ComplexTransaction(t *testing.T, categorySlug string, wantJevCalls int, wantLane string, wantResidual []string) {
+	t.Helper()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "ir04-single-pass")
+	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food & Drink','food-drink')`, f.householdID)
+	mustAgentTest(t, err)
+	f.update.Message.MessageID = 77
+	f.update.Message.Text = "I paid twenty five thousand for lunch today"
+	payload, err := json.Marshal(f.update)
+	mustAgentTest(t, err)
+	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
+	mustAgentTest(t, err)
+
+	jev := &ir04Judgment{route: "NEEDS_GENERATIVE_AGENT"}
+	agent := &ir04AgentGateway{amount: "25000", merchant: "Warung", category: categorySlug, dateRef: "TODAY", localTime: "12:30"}
+	p := NewProcessor(f.pool, agent)
+	p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
+	p.SetJudgment(jev)
+	p.SetTurnTelemetry(true)
+	if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if jev.calls != wantJevCalls || agent.calls != 1 {
+		t.Fatalf("IR-04 call budget: Jev=%d (want %d), generative=%d (want 1)", jev.calls, wantJevCalls, agent.calls)
+	}
+	if wantJevCalls == 2 {
+		if len(jev.questionSets[1]) != 1 {
+			t.Fatalf("residual Jev must get one question, got %v", jev.questionSets[1])
+		}
+		if _, ok := jev.questionSets[1]["category"]; !ok {
+			t.Fatalf("residual Jev must ask category only, got %v", jev.questionSets[1])
+		}
+	}
+	var status, gotCategory, lane string
+	var residual []string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status,c.slug FROM transaction t LEFT JOIN category c ON c.id=t.category_id JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1`, f.sourceID).Scan(&status, &gotCategory))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT lane,residual_dimensions FROM judgment_turn_telemetry WHERE source_event_id=$1`, f.sourceID).Scan(&lane, &residual))
+	if status != "CONFIRMED" || gotCategory != "food-drink" {
+		t.Fatalf("canonical transaction: status=%s category=%s", status, gotCategory)
+	}
+	if lane != wantLane || strings.Join(residual, ",") != strings.Join(wantResidual, ",") {
+		t.Fatalf("turn telemetry: lane=%s residual=%v; want %s/%v", lane, residual, wantLane, wantResidual)
+	}
+}
+
+func TestIR04ComplexClearExtractionSkipsSemanticReplay(t *testing.T) {
+	runIR04ComplexTransaction(t, "food-drink", 1, string(judgmentLaneJevThenGenerative), nil)
+}
+
+func TestIR04CategoryResidualUsesOneCategoryOnlyRescue(t *testing.T) {
+	runIR04ComplexTransaction(t, "", 2, string(judgmentLaneResidualJev), []string{"category"})
+}
+
+// PRD §8.1: a simple harvestable transaction is fully decided inside the one
+// initial Jev route+bundle call. Any generative turn here is a call-budget bug.
+func TestIR04SimpleHarvestableTransactionUsesNoGenerativeCall(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "ir04-simple-harvest")
+	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','food-drink')`, f.householdID)
+	mustAgentTest(t, err)
+	f.update.Message.MessageID = 78
+	f.update.Message.Text = "jajan gorengan 5k hari ini"
+	payload, err := json.Marshal(f.update)
+	mustAgentTest(t, err)
+	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
+	mustAgentTest(t, err)
+
+	agent := &ir04AgentGateway{}
+	p := NewProcessor(f.pool, agent)
+	p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
+	p.SetJudgment(simpleExpenseJudgment{})
+	if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if agent.calls != 0 {
+		t.Fatalf("harvestable transaction must not run the generative agent, calls=%d", agent.calls)
+	}
+	var status string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1 AND t.amount=5000`, f.sourceID).Scan(&status))
+	if status != "CONFIRMED" {
+		t.Fatalf("harvestable transaction status=%s, want CONFIRMED", status)
+	}
+}
+
 // PRD §24 T2: a real open review must survive a new expense in the same chat.
 func TestPRDTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -174,12 +367,12 @@ func TestPRDTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	if err := processor.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
-	var confirmed, needsReview, reviewStatus, reviewRequestStatus int
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND amount=5000),count(*) FILTER(WHERE id=$2 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, f.householdID, oldTransaction).Scan(&confirmed, &needsReview))
+	var confirmed, newExpenseNeedsReview, oldExpenseNeedsReview, reviewStatus, reviewRequestStatus int
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND amount=5000),count(*) FILTER(WHERE type='EXPENSE' AND status='NEEDS_REVIEW' AND amount=5000),count(*) FILTER(WHERE id=$2 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, f.householdID, oldTransaction).Scan(&confirmed, &newExpenseNeedsReview, &oldExpenseNeedsReview))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item i JOIN review_request r ON r.review_item_id=i.id WHERE r.id=$1 AND i.status='OPEN'`, reviewID).Scan(&reviewStatus))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_request WHERE id=$1 AND status='OPEN'`, reviewID).Scan(&reviewRequestStatus))
-	if confirmed != 1 || needsReview != 1 || reviewStatus != 1 || reviewRequestStatus != 1 {
-		t.Fatalf("confirmed_new=%d existing_needs_review=%d review_item_open=%d request_open=%d", confirmed, needsReview, reviewStatus, reviewRequestStatus)
+	if confirmed != 0 || newExpenseNeedsReview != 1 || oldExpenseNeedsReview != 1 || reviewStatus != 1 || reviewRequestStatus != 1 {
+		t.Fatalf("confirmed_new=%d new_expense_needs_review=%d existing_needs_review=%d review_item_open=%d request_open=%d", confirmed, newExpenseNeedsReview, oldExpenseNeedsReview, reviewStatus, reviewRequestStatus)
 	}
 }
 

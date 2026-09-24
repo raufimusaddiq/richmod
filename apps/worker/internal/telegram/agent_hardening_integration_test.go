@@ -19,7 +19,8 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 	mustAgentTest(t, err)
 
 	p := NewProcessor(f.pool, nil)
-	p.SetJudgment(clearPurchaseJudgmentEngine{t: t})
+	f.state.Route = "NEEDS_GENERATIVE_AGENT"
+	f.state.Update.Message.Text = "Gacoan 83000 hari ini"
 	result, synthesize, err := p.agentRecordTransaction(ctx, f.state, gateway.ToolCall{CallID: "new-gacoan", Name: "record_transaction"}, map[string]any{
 		"type":                "EXPENSE",
 		"amount_idr":          "83000",
@@ -30,18 +31,19 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 		"date_reference":      "TODAY",
 		"explicit_date":       nil,
 		"local_time":          "12:30",
+		"ambiguous":           false,
 		"confidence":          1.0,
 		"category_confidence": 1.0,
 	}, gateway.Metadata{Model: "test-model"})
 	mustAgentTest(t, err)
-	if !synthesize || result.Status != "CONFIRMED" || result.Mutation["action"] != "TRANSACTION_RECORDED" {
+	if synthesize || result.Status != "EDIT_CONFIRMATION_REQUIRED" || result.Mutation["action"] != "POSSIBLE_EXISTING_TRANSACTION" {
 		t.Fatalf("unexpected record result: synthesize=%v result=%#v", synthesize, result)
 	}
 	var transactions, pendingCorrections int
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND type='EXPENSE' AND amount=83000 AND lower(COALESCE(counterparty_name,''))='gacoan'`, f.householdID).Scan(&transactions))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING'`, f.householdID, f.chatID, f.chatID).Scan(&pendingCorrections))
-	if transactions != 2 || pendingCorrections != 0 {
-		t.Fatalf("similar expense was treated as correction: transactions=%d pending=%d", transactions, pendingCorrections)
+	if transactions != 1 || pendingCorrections != 1 {
+		t.Fatalf("possible duplicate bypassed explicit correction choice: transactions=%d pending=%d", transactions, pendingCorrections)
 	}
 }
 

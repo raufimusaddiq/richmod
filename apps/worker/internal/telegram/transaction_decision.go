@@ -3,7 +3,9 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"math/big"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
@@ -27,7 +29,12 @@ type TransactionSemanticDecision struct {
 	// could not tell, and must fail closed rather than read as approval.
 	AmbiguityDecidedNotAmbiguous bool
 
-	DecisionSource string // JEV | DETERMINISTIC_POLICY
+	// ResidualCategory records the one named dimension a bounded rescue still had
+	// to decide after a generative extraction. It is what lets telemetry tell a
+	// valid residual rescue apart from a redundant re-decide (PRD §14.3).
+	ResidualCategory bool
+
+	DecisionSource string // JEV | DETERMINISTIC_POLICY | GENERATIVE_EXTRACTION | GENERATIVE_PLUS_JEV
 	Model          string
 	PolicyVersion  string
 }
@@ -89,6 +96,151 @@ func (p *Processor) evaluateTransactionSemantics(ctx context.Context, requestID 
 	return transactionDecisionFromAnswers(result, simpleTransactionCandidate{}, categories), nil
 }
 
+// resolveResidualTransactionDecision asks the bounded plane only for the
+// dimensions the caller names as unresolved, using the generative extraction as
+// the shared state snapshot. It exists so a complete extraction can skip the
+// full semantic replay while still letting Jev rescue a genuinely open fact
+// (ADR-045 "Residual bounded rescue"); the question set is exactly the residual
+// set, never the whole transaction bundle again.
+func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requestID, userText string, value validatedExtraction, categories []string, jevDimensions []string, missing []string) (TransactionSemanticDecision, error) {
+	questions := map[string]judgment.Question{}
+	for _, dimension := range jevDimensions {
+		switch dimension {
+		case "transaction_at":
+			// Date is not a bounded semantic choice. Go must ask the user,
+			// never ask the model to guess when the transaction happened.
+			return TransactionSemanticDecision{}, nil
+		case "category":
+			if len(categories) > 0 {
+				questions["category"] = judgment.Question{Type: "choice", Instructions: "Choose the best active expense category for this purchased item. Use OTHER_OR_UNCLEAR only when no category is safe.", Criteria: judgment.CategoryCriteria(categories)}
+			}
+		}
+	}
+	if len(questions) == 0 {
+		return TransactionSemanticDecision{}, nil
+	}
+	state := map[string]any{
+		"user_text":              "<untrusted_user_message>" + userText + "</untrusted_user_message>",
+		"amount_candidates":      []string{value.Amount},
+		"merchant":               value.Merchant,
+		"description":            value.Description,
+		"transaction_type_hint":  value.Type,
+		"allowed_category_slugs": categories,
+		"residual_dimensions":    jevDimensions,
+	}
+	result, err := p.evaluate(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: questions})
+	if err != nil {
+		return TransactionSemanticDecision{}, err
+	}
+	decision := transactionDecisionFromAnswers(result, simpleTransactionCandidate{}, categories)
+	if len(jevDimensions) == 1 && jevDimensions[0] == "category" {
+		if answer, exists := result.Answers["category"]; exists && answer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(answer, judgment.CategoryCriteria(categories), judgmentPolicy.Category) && contains(categories, answer.Choice) {
+			decision.CategorySlug, decision.CategoryAccepted = answer.Choice, true
+		}
+		// Amount/date/type were already accepted deterministically; the only thing
+		// Jev was asked to own is the category.
+		decision.RouteAccepted = true
+		decision.TransactionType = value.Type
+		decision.TypeAccepted = true
+		decision.AmountSupported = true
+		decision.DateSupported = !contains(missing, "transaction_at")
+		decision.AmbiguityDecidedNotAmbiguous = true
+		decision.ResidualCategory = true
+		if decision.CategoryAccepted {
+			decision.DecisionSource = "GENERATIVE_PLUS_JEV"
+		} else {
+			decision.DecisionSource = "GENERATIVE_EXTRACTION"
+		}
+	}
+	return decision, nil
+}
+
+// semanticDecisionForRecord is the post-generation routing for one Telegram
+// record_transaction call. It accepts a complete extraction directly, and spends
+// a Jev call only on dimensions that remain genuinely unresolved, so a clear
+// generative result never pays a full second semantic pass (PRD §7.2, ADR-045).
+//
+// It deliberately does NOT go through resolveTransactionDecision: that function
+// sends the whole bundle (direction, amount/date support, ambiguity, category),
+// which is the redundant replay. Residual-first routing is the contract here.
+// Batch confirmation stays on resolveTransactionDecision because that path is an
+// explicit human confirmation, not an autonomous extraction.
+func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
+	if direct, ok := directAcceptanceDecision(value, categories, state.Now, state.Update.Message.Text); ok {
+		if exactCategory {
+			direct.DecisionSource = "DETERMINISTIC_POLICY"
+		}
+		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeAccepted)
+		return direct, nil
+	}
+	if p.judgment == nil {
+		state.ResidualDimensions = unresolvedTransactionDimensions(value.Type, strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug))
+		if !userTextSupportsDate(state.Update.Message.Text, value.TransactionAt, state.Now) {
+			state.ResidualDimensions = appendIfMissing(state.ResidualDimensions, "transaction_at")
+		}
+		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeJudgmentUnavailable)
+		return TransactionSemanticDecision{DecisionSource: "JUDGMENT_UNAVAILABLE", PolicyVersion: judgmentPolicy.Version}, nil
+	}
+	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)
+	dateSupported := userTextSupportsDate(state.Update.Message.Text, value.TransactionAt, state.Now)
+	missing := unresolvedTransactionDimensions(value.Type, categoryKnown)
+	if !dateSupported {
+		missing = append([]string{"transaction_at"}, missing...)
+	}
+	if value.Ambiguous {
+		// The extractor declared unresolved ambiguity without naming a safe
+		// bounded dimension. Preserve the facts for minimal review; do not ask Jev
+		// to guess which fact the extractor meant.
+		return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
+	}
+	if len(missing) == 0 && value.Type == "EXPENSE" && strings.TrimSpace(value.CategorySlug) != "" {
+		// A generative category that is not in Go's active household candidate set
+		// is invalid, not a new semantic question for the model to grade.
+		return TransactionSemanticDecision{}, nil
+	}
+	if len(missing) == 0 {
+		return TransactionSemanticDecision{}, nil
+	}
+	if state != nil {
+		state.ResidualDimensions = missing
+	}
+	jevDimensions := unresolvedTransactionDimensions(value.Type, categoryKnown)
+	if !dateSupported {
+		// Date provenance is a user fact, not an eligible semantic rescue.
+		// Preserve the residual for review without sending a category judgment
+		// that could accidentally imply the whole transaction is accepted.
+		return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
+	}
+	if len(jevDimensions) > 0 {
+		if trace := turnTraceFrom(ctx); trace != nil {
+			trace.recordResidual(jevDimensions)
+		}
+		decision, err := p.resolveResidualTransactionDecision(ctx, state.SourceEventID, state.Update.Message.Text, value, categories, jevDimensions, missing)
+		if decision.CategoryAccepted {
+			state.ResidualDimensions = removeString(missing, "category")
+		}
+		return decision, err
+	}
+	return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
+}
+
+func appendIfMissing(values []string, target string) []string {
+	if contains(values, target) {
+		return values
+	}
+	return append(values, target)
+}
+
+func removeString(values []string, target string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != target {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
 func noulSupported(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) bool {
 	answer, ok := answers[key]
 	return ok && judgmentSupported(answer, policy)
@@ -142,6 +294,95 @@ func (p *Processor) resolveTransactionDecision(ctx context.Context, sourceEventI
 		"allowed_category_slugs": categories,
 	}
 	return p.evaluateTransactionSemantics(ctx, sourceEventID, state, categories)
+}
+
+// directAcceptanceDecision is the source acceptance contract for one extracted
+// transaction. It replaces "Jev: did you mean what you already said?" with the
+// checks the ADR requires before a generative result may continue (ADR-045
+// "Deterministic validation"). It returns false when any dimension is genuinely
+// unresolved, which is exactly when the bounded evaluator still earns its call.
+func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time, userText string) (TransactionSemanticDecision, bool) {
+	// Schema/type and amount format are re-asserted here rather than trusted,
+	// because this function is the gate that skips the model.
+	if value.Type != "INCOME" && value.Type != "EXPENSE" {
+		return TransactionSemanticDecision{}, false
+	}
+	amount, ok := new(big.Int).SetString(value.Amount, 10)
+	if !ok || amount.Sign() <= 0 || amount.String() != value.Amount {
+		return TransactionSemanticDecision{}, false
+	}
+	// Date provenance must be explicit. OBSERVED_AT_PROCESSING means the caller
+	// fell back to processing time, which is not an observed transaction time and
+	// must never be canonicalized as one (PRD §9).
+	if !acceptableDateProvenance(value.DateProvenance) || value.TransactionAt.IsZero() || now.IsZero() || !userTextSupportsDate(userText, value.TransactionAt, now) {
+		return TransactionSemanticDecision{}, false
+	}
+	// Confidence is intentionally not a canonical gate. It cannot authorize an
+	// event by itself, and a low/high self-score does not justify asking Jev to
+	// repeat a complete, schema-valid extraction (ADR-045 §Deterministic validation).
+	if value.Ambiguous {
+		return TransactionSemanticDecision{}, false
+	}
+	// Category: an accepted active household slug is required for EXPENSE. An
+	// absent or inactive slug is a genuine residual, not a reason to guess.
+	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)
+	residual := unresolvedTransactionDimensions(value.Type, categoryKnown)
+	if len(residual) == 0 {
+		return TransactionSemanticDecision{
+			RouteAccepted: true, TransactionType: value.Type, TypeAccepted: true,
+			AmountSupported: true, DateSupported: true,
+			CategorySlug: value.CategorySlug, CategoryAccepted: value.Type == "INCOME" || categoryKnown,
+			AmbiguityDecidedNotAmbiguous: true, DecisionSource: "GENERATIVE_EXTRACTION",
+			PolicyVersion: judgmentPolicy.Version,
+		}, true
+	}
+	return TransactionSemanticDecision{}, false
+}
+
+// unresolvedTransactionDimensions names exactly the residual facts that still
+// block canonical confirmation. It is the single place that decides what the
+// bounded evaluator is allowed to be asked, so a resolved dimension can never be
+// re-sent as if it were open (ADR-045 "Residual bounded rescue").
+func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {
+	if typ == "EXPENSE" && !categoryKnown {
+		return []string{"category"}
+	}
+	return nil
+}
+
+// acceptableDateProvenance reports whether the resolved date came from source
+// evidence or an explicit user statement, rather than the processing fallback.
+func acceptableDateProvenance(provenance string) bool {
+	return provenance == "USER_STATED"
+}
+
+// userTextSupportsDate ties the model's constrained date reference back to the
+// source event. TODAY/YESTERDAY and explicit ISO dates are accepted only when
+// the user actually supplied that date signal; the model cannot manufacture a
+// missing date to pass the canonical gate.
+func userTextSupportsDate(userText string, at, now time.Time) bool {
+	if strings.TrimSpace(userText) == "" || at.IsZero() {
+		return false
+	}
+	text := strings.ToLower(userText)
+	localDate := at.In(jakartaLocation()).Format("2006-01-02")
+	if explicit := simpleDatePattern.FindString(text); explicit != "" {
+		return explicit == localDate
+	}
+	if strings.Contains(text, "kemarin") || strings.Contains(text, "yesterday") {
+		return at.In(jakartaLocation()).Format("2006-01-02") == now.In(jakartaLocation()).AddDate(0, 0, -1).Format("2006-01-02")
+	}
+	if strings.Contains(text, "hari ini") || strings.Contains(text, "today") {
+		return at.In(jakartaLocation()).Format("2006-01-02") == now.In(jakartaLocation()).Format("2006-01-02")
+	}
+	// Older relative dates are only accepted when the user explicitly used a
+	// supported phrase; missing date evidence remains missing.
+	for phrase, offset := range map[string]int{"dua hari lalu": -2, "2 hari lalu": -2, "three days ago": -3, "3 hari lalu": -3, "seminggu lalu": -7, "last week": -7} {
+		if strings.Contains(text, phrase) {
+			return at.In(jakartaLocation()).Format("2006-01-02") == now.In(jakartaLocation()).AddDate(0, 0, offset).Format("2006-01-02")
+		}
+	}
+	return false
 }
 
 // turnAgentContextState is the loaded server state shared by the initial

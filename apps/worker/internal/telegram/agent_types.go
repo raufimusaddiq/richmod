@@ -54,6 +54,7 @@ type agentState struct {
 	Categories       []string
 	Tools            []gateway.ToolDefinition
 	RequiredTool     string
+	Route            string
 	TurnContext      map[string]any
 	History          []agentToolResult
 	ModelPhases      int
@@ -63,6 +64,11 @@ type agentState struct {
 	HasPendingBatch  bool
 	HasSalaryChoice  bool
 	ReviewMode       string
+	// ResidualDimensions names the bounded facts Go sent to Jev after a
+	// generative extraction, so provenance records what the rescue actually owned
+	// instead of claiming the model re-decided a complete transaction (ADR-045
+	// telemetry). Empty means a direct acceptance with no bounded rescue.
+	ResidualDimensions []string
 
 	// Native continuation state for the immediately preceding READ phase. The
 	// gateway consumes these as provider-native tool outputs on the next model
