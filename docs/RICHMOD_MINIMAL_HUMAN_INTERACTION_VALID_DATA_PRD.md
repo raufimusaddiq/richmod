@@ -1991,7 +1991,7 @@ Implement:
 - batch processing summary;
 - row-specific minimal review.
 
-Status: implemented on `feat/screenshot-rows` (ADR-042). One batched bounded
+**Status: implemented in merged PR #128 (ADR-042).** One batched bounded
 category ruling per image; a row auto-confirms only with a decisive category, a
 printed date, no source conflict, and high extraction confidence. Unresolved
 rows store the PRD §7 decision and the document sends one batch summary.
@@ -2008,10 +2008,10 @@ Implement:
 - partial resolution API;
 - missing-entity-only UI.
 
-Status: implemented on `feat/financial-email-partial` (ADR-043). A resolved
-entity persists on the observation and is no longer requested; the review's
-`missingFacts` names only the unresolved dimension, and the API merges persisted
-known facts with the submitted values before validating the complete result.
+**Status: implemented in merged PR #129 (ADR-043).** A resolved entity persists
+on the observation and is no longer requested; the review's `missingFacts` names
+only the unresolved dimension, and the API merges persisted known facts with the
+submitted values before validating the complete result.
 
 ## Stage 7 — Proposal-First Review Inbox
 
@@ -2030,7 +2030,7 @@ not:
 full form
 ~~~
 
-Status: implemented on `feat/proposal-first-inbox` (ADR-044). The Inbox renders
+**Status: implemented in merged PR #130 (ADR-044).** The Inbox renders
 the stored ReviewDecision — proposal, reason, one primary action — and renders a
 required input only for a dimension the decision named in `missingFacts`. Known
 accounts and Wealth Accounts are shown, never re-asked; full editing sits behind
