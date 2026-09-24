@@ -32,6 +32,16 @@ func TestUnknownMerchantDecisionAsksForCategoryOnly(t *testing.T) {
 	}
 }
 
+func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
+	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "AMBIGUOUS_CATEGORY"}, "t")
+	if d.InteractionMode != "SINGLE_FIELD" || len(d.AllowedActions) != 2 || d.AllowedActions[0] != "CONFIRM_REVIEW" || d.AllowedActions[1] != "IGNORE" {
+		t.Fatalf("category dropdown contract=%+v", d)
+	}
+	if d.DecisionSource != "GENERATIVE_PLUS_JEV" {
+		t.Fatalf("category decision source=%q", d.DecisionSource)
+	}
+}
+
 // The missing-facts list must name every absent required fact, not just the
 // first: an email with neither amount nor time must ask for both, so the Inbox
 // does not silently leave one unresolved (PRD §7.3).

@@ -43,7 +43,7 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		SourceEventID:  sourceEventID,
 		ReasonCode:     result.ReviewType,
 		KnownFacts:     known,
-		DecisionSource: reviewdec.SourceGenerativePlusJev,
+		DecisionSource: reviewdec.SourceDeterministic,
 		// The version names the policy that actually decided this review type: the
 		// bounded verification/category plane for evidence gaps, the deterministic
 		// account-match policy for transfer classification (PRD §18).
@@ -57,12 +57,13 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	case "AMBIGUOUS_CATEGORY":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
 		decision.MissingFacts = []string{"category"}
-		decision.InteractionMode = reviewdec.ModeBoundedChoice
+		decision.DecisionSource = reviewdec.SourceGenerativePlusJev
+		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		decision.InteractionMode = reviewdec.ModeSingleField
 		decision.WhyNotAuto = "the bounded category decision did not reach a confident, well-separated choice"
 	case "UNKNOWN_MERCHANT":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
 		decision.MissingFacts = []string{"category"}
-		decision.InteractionMode = reviewdec.ModeSingleField
 		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
 	case "TRANSFER_CLASSIFICATION":
