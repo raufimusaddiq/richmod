@@ -521,11 +521,12 @@ func TestGenerativeFallbackDoesNotPaySecondJevWhenDecisive(t *testing.T) {
 	value := validatedExtraction{
 		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
 		CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()),
+		DateReference: "TODAY", TimePrecision: "OBSERVED_AT_PROCESSING",
 		Confidence: .95, CategoryConfidence: .95,
 	}
-	decision, ok := generativeValidatedTransactionDecision(value, true, false, "CREATE_TRANSACTION")
+	decision, ok := generativeValidatedTransactionDecision("bayar warung 50k", value, true, false, "CREATE_TRANSACTION")
 	if !ok || !decision.decisionAllowed() {
-		t.Fatalf("decisive constrained generative result should be accepted after the first Jev route: ok=%v decision=%+v", ok, decision)
+		t.Fatalf("decisive constrained and Go-grounded generative result should skip a second Jev call: ok=%v decision=%+v", ok, decision)
 	}
 	if decision.DecisionSource != "GENERATIVE_VALIDATED" {
 		t.Fatalf("unexpected decision source: %+v", decision)
@@ -536,9 +537,10 @@ func TestGenerativeFallbackRejectsSelfDeclaredAmbiguity(t *testing.T) {
 	value := validatedExtraction{
 		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
 		CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()),
+		DateReference: "TODAY", TimePrecision: "OBSERVED_AT_PROCESSING",
 		Confidence: .99, CategoryConfidence: .99, Ambiguous: true,
 	}
-	if decision, ok := generativeValidatedTransactionDecision(value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
+	if decision, ok := generativeValidatedTransactionDecision("bayar warung 50k", value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
 		t.Fatalf("an explicitly ambiguous native result must enter the rescue/review lane: ok=%v decision=%+v", ok, decision)
 	}
 }
@@ -547,12 +549,29 @@ func TestGenerativeFallbackUsesJevRescueOnlyForResidualUncertainty(t *testing.T)
 	value := validatedExtraction{
 		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
 		CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()),
+		DateReference: "TODAY", TimePrecision: "OBSERVED_AT_PROCESSING",
 		Confidence: .95, CategoryConfidence: .55,
 	}
-	if decision, ok := generativeValidatedTransactionDecision(value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
+	if decision, ok := generativeValidatedTransactionDecision("bayar warung 50k", value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
 		t.Fatalf("low category confidence must leave residual uncertainty for the Jev rescue lane: ok=%v decision=%+v", ok, decision)
 	}
-	if _, ok := generativeValidatedTransactionDecision(value, true, false, "READ_SPENDING"); ok {
+	if _, ok := generativeValidatedTransactionDecision("bayar warung 50k", value, true, false, "READ_SPENDING"); ok {
 		t.Fatal("a generative mutation may not override a non-mutation first-pass route")
+	}
+}
+
+func TestGenerativeFallbackRequiresGoGroundedAmountAndDate(t *testing.T) {
+	value := validatedExtraction{
+		Type: "EXPENSE", Amount: "50000", Merchant: "Warung",
+		CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()),
+		DateReference: "TODAY", TimePrecision: "OBSERVED_AT_PROCESSING",
+		Confidence: .99, CategoryConfidence: .99,
+	}
+	if decision, ok := generativeValidatedTransactionDecision("bayar warung lima puluh ribu", value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
+		t.Fatalf("an amount known only through generative extraction still needs bounded support: ok=%v decision=%+v", ok, decision)
+	}
+	value.TimePrecision = "EXACT"
+	if decision, ok := generativeValidatedTransactionDecision("bayar warung 50k jam 12:00", value, true, false, "CREATE_TRANSACTION"); ok || decision.decisionAllowed() {
+		t.Fatalf("an exact clock value the cheap parser cannot ground still needs bounded support: ok=%v decision=%+v", ok, decision)
 	}
 }
