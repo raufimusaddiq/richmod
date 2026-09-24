@@ -48,6 +48,13 @@ test("the primary accept action never posts a request the server must reject", (
   assert.match(source, /Benar, lanjut isi detail/);
 });
 
+test("transaction-date residual opens one native date field and submits it", () => {
+  assert.match(source, /transactionAt: missing\.includes\("transaction_at"\)/);
+  assert.match(source, /missing\.transactionAt && <label>Tanggal transaksi<input name="transactionAt" type="date" required\/>/);
+  assert.match(source, /transactionAt: form\.get\("transactionAt"\) \|\| null/);
+  assert.match(source, /!missing\.transactionAt/);
+});
+
 test("legacy items fall back to the API missingFields list", () => {
   // Legacy transaction-backed reviews carry missingFields, never missingFacts.
   // Reading only missingFacts made every legacy card demand a merchant, which a

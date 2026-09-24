@@ -19,6 +19,36 @@ func TestParseReviewPayDate(t *testing.T) {
 	}
 }
 
+// IR-02: Telegram must request exactly the stored residual fact and must not
+// treat an internal received-at timestamp as the supplied transaction date.
+func TestResidualConfirmationBlockersRequestOnlyMissingFacts(t *testing.T) {
+	decision := []byte(`{"missingFacts":["category","transaction_at"]}`)
+	if got := residualConfirmationBlockers(decision, false, false, false); len(got) != 2 || got[0] != "category" || got[1] != "transaction_at" {
+		t.Fatalf("blockers=%v", got)
+	}
+	if got := residualConfirmationBlockers(decision, true, false, false); len(got) != 1 || got[0] != "category" {
+		t.Fatalf("blockers=%v; a supplied date resolves only that fact", got)
+	}
+	if got := residualConfirmationBlockers(decision, true, true, false); len(got) != 0 {
+		t.Fatalf("all supplied facts, blockers=%v", got)
+	}
+	if got := residualConfirmationBlockers([]byte(`{}`), false, false, false); len(got) != 0 {
+		t.Fatalf("a contract-less legacy review keeps its previous behavior, blockers=%v", got)
+	}
+}
+
+func TestParseSuppliedReviewDateRejectsUnobservedFormats(t *testing.T) {
+	if parsed, err := parseSuppliedReviewDate("2026-09-24"); err != nil || parsed == nil || *parsed != "2026-09-24" {
+		t.Fatalf("valid date rejected: %v %v", parsed, err)
+	}
+	if parsed, err := parseSuppliedReviewDate(""); err != nil || parsed != nil {
+		t.Fatalf("empty date is not a supplied fact: %v %v", parsed, err)
+	}
+	if _, err := parseSuppliedReviewDate("24/09/2026"); err == nil {
+		t.Fatal("non-canonical date must not satisfy the residual contract")
+	}
+}
+
 func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	var update telegramUpdate
 	err := json.Unmarshal([]byte(`{"message":{"message_id":22,"text":"belanja rumah tangga","reply_to_message":{"message_id":17},"from":{"id":719809965},"chat":{"id":719809965}}}`), &update)
