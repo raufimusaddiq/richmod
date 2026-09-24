@@ -1889,6 +1889,14 @@ RHICE and guardrail metrics are measurable.
 
 ## Stage 1 — Telegram Orchestration Correctness
 
+**Status (2026-09-24): implemented; §24 T1–T6 acceptance coverage is now
+present.** `TestPRDTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields`
+drives `ProcessAgent` through Jev routing and canonical persistence. T2/T3 use
+the existing DB-backed open-review and exact-reply regressions. T4–T6 assert the
+fast-path dispatcher falls through and preserves the transfer, search, and
+correction tools. The exact PRD example `jajan gorengan 5k` is now harvested as
+IDR 5,000.
+
 Implement:
 
 - exhaustive Jev route dispatch;
