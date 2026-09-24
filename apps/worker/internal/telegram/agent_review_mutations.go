@@ -167,7 +167,20 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	}
 	if rememberedCategoryID != "" {
 		if err = p.agentConfirmReviewTx(ctx, tx, state, review, rememberedCategoryID, reviewExtraction{Confidence: 1}, userID); err != nil {
-			return result, true, err
+			var residual errReviewResidualFactsRequired
+			if !errors.As(err, &residual) {
+				return result, true, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
+				return result, true, err
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return result, true, err
+			}
+			result.Status = "NEEDS_REVIEW"
+			result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED", "field": field, "value": value}
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": residual.facts}
+			return result, true, nil
 		}
 		if err = tx.Commit(ctx); err != nil {
 			return result, true, err
@@ -200,6 +213,12 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 		return result, true, err
 	}
 	if err = p.agentConfirmReviewTx(ctx, tx, state, review, categoryID, value, userID); err != nil {
+		var residual errReviewResidualFactsRequired
+		if errors.As(err, &residual) {
+			result.Status = "RESIDUAL_FACTS_REQUIRED"
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": residual.facts}
+			return result, true, nil
+		}
 		return result, true, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -218,8 +237,28 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 
 func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *agentState, review agentTransactionReview, categoryID string, value reviewExtraction, userID string) error {
 	var merchantID *string
-	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND household_id=$5 AND status='NEEDS_REVIEW' RETURNING merchant_id`, review.transactionID, categoryID, value.Description, value.Note, state.HouseholdID).Scan(&merchantID); err != nil {
+	// IR-02: the conversational lane can reach the same canonical confirm as the
+	// generic reply lane, so the stored residual contract is enforced here too.
+	// The agent's native action handlers already refused undated or uncategorized
+	// input, so only an explicitly supplied date satisfies the residual date.
+	var storedDecision []byte
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb) FROM review_item ri WHERE ri.id=(SELECT review_item_id FROM review_request WHERE id=$1 AND household_id=$2) FOR UPDATE OF ri`, review.reviewID, state.HouseholdID).Scan(&storedDecision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	payDate, err := parseSuppliedReviewDate(value.PayDate)
+	if err != nil {
+		return err
+	}
+	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", value.Note != ""); len(blocked) > 0 {
+		return errReviewResidualFactsRequired{facts: blocked}
+	}
+	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($6::date::timestamp AT TIME ZONE 'Asia/Jakarta',transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND household_id=$5 AND status='NEEDS_REVIEW' RETURNING merchant_id`, review.transactionID, categoryID, value.Description, value.Note, state.HouseholdID, payDate).Scan(&merchantID); err != nil {
 		return fmt.Errorf("confirm reviewed transaction: %w", err)
+	}
+	if payDate != nil {
+		if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamp AT TIME ZONE 'Asia/Jakarta',metadata_json=metadata_json||'{"date_known":true,"date_source":"USER"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, *payDate); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=COALESCE(NULLIF($2,'')::uuid,category_candidate_id),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, categoryID); err != nil {
 		return err
@@ -276,6 +315,10 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	}
 	return nil
 }
+
+type errReviewResidualFactsRequired struct{ facts []string }
+
+func (e errReviewResidualFactsRequired) Error() string { return strings.Join(e.facts, ",") }
 
 func (p *Processor) agentResolveTransferClassification(ctx context.Context, state *agentState, call gateway.ToolCall, review agentTransactionReview, newType, newStatus, classification, wealthHint, categoryID string) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}

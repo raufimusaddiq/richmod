@@ -173,18 +173,18 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		turnContext["merchant_learning"] = map[string]any{"merchant": merchantBinding.Merchant, "category": merchantBinding.Category}
 	}
 	state := &agentState{
-		SourceEventID:           sourceEventID,
-		HouseholdID:             householdID,
-		Update:                  update,
-		Now:                     now,
-		Categories:              categories,
-		Tools:                   tools,
-		RequiredTool:            "",
-		TurnContext:             turnContext,
-		HasPendingAction:        contextState.HasPendingAction,
-		HasPendingBatch:         contextState.HasPendingBatch,
-		HasSalaryChoice:         contextState.HasSalaryChoice,
-		ReviewMode:              contextState.ReviewMode,
+		SourceEventID:    sourceEventID,
+		HouseholdID:      householdID,
+		Update:           update,
+		Now:              now,
+		Categories:       categories,
+		Tools:            tools,
+		RequiredTool:     "",
+		TurnContext:      turnContext,
+		HasPendingAction: contextState.HasPendingAction,
+		HasPendingBatch:  contextState.HasPendingBatch,
+		HasSalaryChoice:  contextState.HasSalaryChoice,
+		ReviewMode:       contextState.ReviewMode,
 	}
 	// An implicit binding is attached only when the route says this turn is that
 	// interaction. Chat state alone never gets to own the turn (ADR-038
@@ -468,6 +468,12 @@ func (p *Processor) finishAgentFailure(ctx context.Context, state *agentState, m
 }
 
 func agentMutationFallback(result agentToolResult) string {
+	if result.Status == "RESIDUAL_FACTS_REQUIRED" {
+		if missing, ok := result.Review["missing_fields"].([]string); ok {
+			return reviewNeedsFactsMessage(missing)
+		}
+		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid."
+	}
 	if result.Status == "DEFERRED" {
 		return "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau sebutkan item yang ingin diubah."
 	}
@@ -531,7 +537,14 @@ func agentMutationFallback(result agentToolResult) string {
 			return "Review sudah diselesaikan dan data keuangan diperbarui."
 		case "REVIEW_IGNORED":
 			return "Review sudah diselesaikan tanpa mencatatnya sebagai transaksi aktif."
-		case "REVIEW_DETAIL_SAVED", "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
+		case "REVIEW_DETAIL_SAVED":
+			if result.Status == "NEEDS_REVIEW" {
+				if missing, ok := result.Review["missing_fields"].([]string); ok {
+					return reviewNeedsFactsMessage(missing)
+				}
+			}
+			return "Detail review sudah diperbarui."
+		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
 			return "Detail review sudah diperbarui."
 		case "WEALTH_ACCOUNT_SET":
 			return "Wealth Account untuk observasi tersebut sudah diperbarui."

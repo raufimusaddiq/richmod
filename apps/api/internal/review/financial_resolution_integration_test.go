@@ -88,7 +88,7 @@ func (f financialResolutionFixture) resolve(t *testing.T, body string) *httptest
 func TestFinancialResolutionAcceptsOnlyTheUnresolvedEntity(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
 	ctx := context.Background()
-	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"wealthAccountId":"`+fixture.wealthAccount+`"}}`); w.Code != http.StatusNoContent {
+	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"wealthAccountId":"`+fixture.wealthAccount+`","human_supplied_fields":["account"]}}`); w.Code != http.StatusNoContent {
 		t.Fatalf("partial resolution must be accepted: %d %s", w.Code, w.Body.String())
 	}
 	var account, wealth, status string
@@ -105,6 +105,13 @@ func TestFinancialResolutionAcceptsOnlyTheUnresolvedEntity(t *testing.T) {
 	}
 	if reviewStatus != "RESOLVED" || resolutionAction != "SET_FINANCIAL_EMAIL_ENTITIES" {
 		t.Fatalf("review must resolve: status=%s action=%s", reviewStatus, resolutionAction)
+	}
+	var changedFields []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT changed_fields FROM product_telemetry_event WHERE review_item_id=$1 AND event_type='REVIEW_TURN'`, fixture.review).Scan(&changedFields); err != nil {
+		t.Fatal(err)
+	}
+	if len(changedFields) != 1 || changedFields[0] != "wealth_account" {
+		t.Fatalf("telemetry must count only the user-supplied entity, not the merged known account: %v", changedFields)
 	}
 	var jobs int
 	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='PROCESS_FINANCIAL_EMAIL' AND payload_json->>'source_event_id'=(SELECT source_event_id::text FROM financial_email_observation WHERE id=$1)`, fixture.observation).Scan(&jobs); err != nil {

@@ -84,3 +84,42 @@ otherwise changed; I unchanged; J pass; K pass.
 Known follow-up: run database-backed canonical/legacy confirm integration tests
 with `TEST_DATABASE_URL`; extend guard to other canonical confirm actions only
 if their decision contract identifies required residuals.
+
+IR-02 follow-up: the conversational Telegram agent confirmation path now uses
+the same stored residual guard; blocked confirms return the exact missing facts
+instead of a generic turn failure. A supplied date is strict `YYYY-MM-DD` and
+is persisted to the transaction and proposal. If merchant learning attempts an
+auto-confirm while another residual remains, the saved detail is committed and
+the review stays open. Database-backed Telegram package tests pass against
+disposable PostgreSQL 17 (1 CPU / 1 GiB).
+
+## IR-03 — RHICE measurement correctness
+
+Task: IR-03 (implementation in progress)
+Baseline main SHA: `b79bd7b1248884d55bb5dd1c23a720b68dd9b056`
+Files changed: `apps/api/internal/operations/product.go`,
+`apps/api/internal/review/canonical.go`,
+`db/migrations/00061_product_telemetry_events.sql`, related tests.
+User interactions before: one typed-field action could count as one regardless
+of supplied fields; financial-email server-merged IDs could look user-entered;
+telemetry without a canonical review cohort could enter RHICE.
+User interactions after: each supplied field or bounded choice counts once;
+typed fields use bounded normalized names, with financial-email fields marked
+before server merge; only canonical-cohort review turns count. `MERGE_REVIEW` remains a human choice;
+`IGNORE` and system resolutions do not count.
+Jev calls before/after: unchanged.
+Generative calls before/after: unchanged.
+Canonical correctness guard: telemetry only; no financial state transition or
+inference behavior changed.
+Residual uncertainty after: unchanged.
+Tests added/updated: aggregate fixtures assert amount + date as two typed inputs,
+acceptance as one bounded choice, empty confirmation/IGNORE/non-cohort turns as
+zero, and canonical-cohort RHICE; financial-email resolution asserts only the
+user-supplied entity is credited. Ran migration 61 + `go test` for
+`apps/api/internal/operations/...` and `apps/api/internal/review/...` against a
+disposable PostgreSQL 17 (1 CPU / 1 GiB) — pass.
+Drift checklist: A pass; B pass; C pass; D pass; E pass; F pass; G pass; H
+unchanged; I pass (user-supplied fields/bounded choices counted, server-merged
+values excluded); J pass for the bounded DB set; K pass (`git diff --check`).
+Known follow-up: full repository-wide CI still owns the final gate; worker
+packages and frontend were not rerun in this batch.

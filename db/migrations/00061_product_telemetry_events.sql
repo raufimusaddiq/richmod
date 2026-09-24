@@ -90,9 +90,16 @@ BEGIN
     INSERT INTO product_telemetry_event(household_id,source_event_id,transaction_id,review_item_id,event_type,source_type,action,decision_policy_version,decision_source,changed_fields,bounded_choices)
     VALUES(NEW.household_id,reply_source,NEW.transaction_id,NEW.id,'REVIEW_TURN',source_kind,NEW.resolution_action,
       NEW.decision->>'decisionPolicyVersion',NEW.decision->>'decisionSource',
-      ARRAY(SELECT field FROM jsonb_object_keys(COALESCE(NEW.resolution_values,'{}'::jsonb)) AS keys(field)
-        WHERE field IN ('merchant','category','description','note','transaction_at','purpose','wealth_account')),
-      CASE WHEN NEW.decision->>'interactionMode' IN ('BOUNDED_CHOICE','CONFLICT_RESOLUTION','POLICY_CHOICE') THEN 1 ELSE 0 END);
+	  CASE WHEN NEW.resolution_action='SET_FINANCIAL_EMAIL_ENTITIES' THEN
+	    ARRAY(SELECT DISTINCT field FROM jsonb_array_elements_text(COALESCE(NEW.resolution_values->'human_supplied_fields','[]'::jsonb)) AS supplied(field)
+	      WHERE field IN ('account','wealth_account'))
+	  ELSE ARRAY(SELECT DISTINCT normalized.field FROM jsonb_object_keys(COALESCE(NEW.resolution_values,'{}'::jsonb)) AS keys(field)
+	    CROSS JOIN LATERAL (VALUES (CASE field
+	      WHEN 'amount_idr' THEN 'amount' WHEN 'amountIdr' THEN 'amount'
+	      WHEN 'transactionAt' THEN 'transaction_at' ELSE field END)) normalized(field)
+	    WHERE normalized.field IN ('merchant','category','description','note','transaction_at','purpose','wealth_account','account','amount','type','status')) END,
+	  CASE WHEN NEW.resolution_action='MERGE_REVIEW'
+	         OR NEW.decision->>'interactionMode' IN ('BOUNDED_CHOICE','CONFLICT_RESOLUTION','POLICY_CHOICE') THEN 1 ELSE 0 END);
     RETURN NEW;
 END;
 $$;
