@@ -61,7 +61,10 @@ var judgmentPeriodCriteria = map[string]string{
 }
 
 func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state *turnAgentContextState) (bool, error) {
-	if p.judgment == nil {
+	// Explicit replies are already bound to server-owned workflow state by
+	// ProcessAgent. Generic route classification must not discard that target
+	// before the bound agent lane interprets the reply (PRD §8.3).
+	if p.judgment == nil || state.ExactReply {
 		return false, nil
 	}
 	// Harvest generic candidates before the call so a common transaction can be
@@ -267,7 +270,12 @@ func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTran
 	return decision
 }
 
-var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta)?(?:\s|$)`)
+// "k" is the Indonesian/English shorthand for ribu (thousand) and is spelled
+// without punctuation in the PRD's canonical example ("jajan gorengan 5k").
+// The suffix list is followed by a hard word boundary. Without it, a glued unit
+// such as "5kg" or "5jt-an" matched the optional suffix and harvested a
+// currency amount from a quantity (PRD §24 T1: only real amounts are harvested).
+var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta|k)?\b(?:\s|$)`)
 var simpleDatePattern = regexp.MustCompile(`\b(20[0-9]{2}-[0-9]{2}-[0-9]{2})\b`)
 
 func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
@@ -284,7 +292,7 @@ func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 		return simpleTransactionCandidate{}, false
 	}
 	switch strings.ToLower(matches[0][2]) {
-	case "rb", "ribu":
+	case "rb", "ribu", "k":
 		value.Mul(value, big.NewInt(1000))
 	case "jt", "juta":
 		value.Mul(value, big.NewInt(1000000))

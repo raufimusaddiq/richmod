@@ -58,7 +58,18 @@ func seedFinancialResolution(t *testing.T, resolved bool) financialResolutionFix
 		resolvedAccount = fixture.account
 	}
 	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status,resolved_account_id) VALUES($1,$2,0,'CASH_MOVEMENT',jsonb_build_object('kind','CASH_MOVEMENT','movement_type','CONTRIBUTION','amount_idr','3000000','funding_account_hint','Bank Jago','provider_account_hint','Bibit Growth'),'REVIEW',$3) RETURNING id`, household, source, resolvedAccount).Scan(&fixture.observation))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, household, fixture.observation).Scan(&fixture.review))
+	missingFact := "account"
+	knownFacts := map[string]any{"wealth_account": "Bibit Growth"}
+	if resolved {
+		missingFact = "wealth_account"
+		knownFacts = map[string]any{"account": "Bank Jago"}
+	}
+	decision, _ := json.Marshal(map[string]any{
+		"version": 1, "reasonCode": "FINANCIAL_EMAIL_RESOLUTION", "decisionClass": "EVIDENCE_GAP",
+		"knownFacts": knownFacts, "missingFacts": []string{missingFact},
+		"allowedActions": []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}, "interactionMode": "SINGLE_FIELD",
+	})
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3) RETURNING id`, household, fixture.observation, decision).Scan(&fixture.review))
 	return fixture
 }
 
@@ -143,6 +154,62 @@ func TestFinancialResolutionRejectsEmptyValues(t *testing.T) {
 
 // The list must expose the already resolved entity, so the Inbox can render a
 // partial card and ask only for what is missing (PRD §12, §13.4).
+// PRD §28 F1/F2: the review must name exactly the one unresolved entity, never
+// both. F1 has the funding account resolved; F2 the Wealth Account.
+func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		resolved    bool
+		missingFact string
+	}{
+		{"F1 wealth unresolved", true, "wealth_account"},
+		{"F2 source unresolved", false, "account"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := seedFinancialResolution(t, test.resolved)
+			if !test.resolved {
+				// F2: the evidence resolved the provider Wealth Account but not the
+				// funding account, and the stored decision names only the gap.
+				if _, err := fixture.pool.Exec(context.Background(), `UPDATE financial_email_observation SET resolved_wealth_account_id=$2 WHERE id=$1`, fixture.observation, fixture.wealthAccount); err != nil {
+					t.Fatal(err)
+				}
+				decision, _ := json.Marshal(map[string]any{
+					"version": 1, "reasonCode": "FINANCIAL_EMAIL_RESOLUTION", "decisionClass": "EVIDENCE_GAP",
+					"knownFacts": map[string]any{"wealth_account": "Bibit Growth"}, "missingFacts": []string{"account"},
+					"allowedActions": []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}, "interactionMode": "SINGLE_FIELD",
+				})
+				if _, err := fixture.pool.Exec(context.Background(), `UPDATE review_item SET decision=$2::jsonb WHERE id=$1`, fixture.review, decision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
+			req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: fixture.user, Memberships: []auth.Membership{{HouseholdID: fixture.household, Role: "OWNER"}}}))
+			res := httptest.NewRecorder()
+			NewHandler(fixture.pool).List(res, req)
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+			}
+			var items []struct {
+				ReviewType   string   `json:"reviewType"`
+				MissingFacts []string `json:"missingFacts"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &items); err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range items {
+				if item.ReviewType != "FINANCIAL_EMAIL_RESOLUTION" {
+					continue
+				}
+				if len(item.MissingFacts) != 1 || item.MissingFacts[0] != test.missingFact {
+					t.Fatalf("review must ask only for %s, got %v", test.missingFact, item.MissingFacts)
+				}
+				return
+			}
+			t.Fatal("the open financial resolution review must appear in the list")
+		})
+	}
+}
+
 func TestFinancialResolutionListItemExposesPartialState(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
