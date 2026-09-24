@@ -8,7 +8,32 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
+
+type receiptCategoryVerifier struct {
+	calls   int
+	answer  judgment.Answer
+	request judgment.Request
+}
+
+func (v *receiptCategoryVerifier) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
+	v.calls++
+	v.request = request
+	return judgment.Result{Model: "stub-jev", Answers: map[string]judgment.Answer{"category": v.answer}}, nil
+}
+
+func receiptCategoryAnswer(choice string, top float64) judgment.Answer {
+	distribution := map[string]float64{}
+	for _, key := range []string{"food-and-drink", "groceries", "OTHER_OR_UNCLEAR"} {
+		if key == choice {
+			distribution[key] = top
+		} else {
+			distribution[key] = (1 - top) / 2
+		}
+	}
+	return judgment.Answer{Type: "choice", Choice: choice, Distribution: distribution, Confidence: 0.9, HasConfidence: true}
+}
 
 type receiptFixture struct {
 	pool                     *pgxpool.Pool
@@ -270,6 +295,139 @@ func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
 	}
 	if reviews != 1 {
 		t.Fatalf("an undecided category must open one review, got %d", reviews)
+	}
+}
+
+// IR-05 R-category-rescue: with a printed date, no duplicate candidate, and the
+// category as the only bounded residual, exactly one Jev category rescue makes a
+// decisive receipt confirm directly. Vision stays the only generative call.
+func TestReceiptCategoryRescueConfirmsOnDecisiveAnswer(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt category rescue")
+	ctx := context.Background()
+	var foodCategoryID string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food & Drink','food-and-drink') RETURNING id`, fixture.householdID).Scan(&foodCategoryID); err != nil {
+		t.Fatal(err)
+	}
+	verifier := &receiptCategoryVerifier{answer: receiptCategoryAnswer(fixture.categorySlug, 0.95)}
+	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	processor := &Processor{pool: fixture.pool, verifier: verifier}
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: foodCategoryID, Slug: "food-and-drink"}}); err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 1 {
+		t.Fatalf("one residual category must cost one bounded request, got %d", verifier.calls)
+	}
+	if len(verifier.request.Questions) != 1 {
+		t.Fatalf("rescue must ask exactly the category question, got %v", verifier.request.Questions)
+	}
+	var status, categoryID string
+	var reviews int
+	if err := fixture.pool.QueryRow(ctx, `SELECT status,COALESCE(category_id::text,''),(SELECT count(*) FROM review_item WHERE household_id=$1) FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&status, &categoryID, &reviews); err != nil {
+		t.Fatal(err)
+	}
+	if status != "CONFIRMED" || categoryID != fixture.categoryID || reviews != 0 {
+		t.Fatalf("decisive rescue must confirm: status=%s category=%s reviews=%d", status, categoryID, reviews)
+	}
+	var rescued bool
+	if err := fixture.pool.QueryRow(ctx, `SELECT (metadata_json->>'category_rescued')::boolean FROM transaction_proposal WHERE household_id=$1`, fixture.householdID).Scan(&rescued); err != nil {
+		t.Fatal(err)
+	}
+	if !rescued {
+		t.Fatal("the confirmed proposal must record that a bounded rescue supplied the category")
+	}
+	var decisions int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE source_event_id=$1 AND task='RECEIPT_CATEGORY' AND outcome='AUTO_CONFIRM'`, fixture.sourceID).Scan(&decisions); err != nil {
+		t.Fatal(err)
+	}
+	if decisions != 1 {
+		t.Fatalf("one bounded provenance row required, got %d", decisions)
+	}
+}
+
+// IR-05 R-category-undecided: an undecided or failure answer must not confirm
+// and must keep a category-only review, never a guessed category.
+func TestReceiptCategoryUndecidedStaysInCategoryReview(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt category undecided")
+	ctx := context.Background()
+	var foodCategoryID string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food & Drink','food-and-drink') RETURNING id`, fixture.householdID).Scan(&foodCategoryID); err != nil {
+		t.Fatal(err)
+	}
+	verifier := &receiptCategoryVerifier{answer: receiptCategoryAnswer("OTHER_OR_UNCLEAR", 0.40)}
+	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	processor := &Processor{pool: fixture.pool, verifier: verifier}
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: foodCategoryID, Slug: "food-and-drink"}}); err != nil {
+		t.Fatal(err)
+	}
+	var status, reviewType, categoryID string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,COALESCE(t.category_id::text,''),r.review_type FROM transaction t JOIN review_item r ON r.transaction_id=t.id WHERE t.household_id=$1`, fixture.householdID).Scan(&status, &categoryID, &reviewType); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || reviewType != "AMBIGUOUS_CATEGORY" || categoryID != "" {
+		t.Fatalf("undecided rescue must keep a category-only review: status=%s review=%s category=%s", status, reviewType, categoryID)
+	}
+	var decisions int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE source_event_id=$1 AND task='RECEIPT_CATEGORY' AND outcome='REVIEW'`, fixture.sourceID).Scan(&decisions); err != nil {
+		t.Fatal(err)
+	}
+	if decisions != 1 {
+		t.Fatalf("undecided rescue provenance row count=%d", decisions)
+	}
+}
+
+func TestReceiptCategoryProviderFailureKeepsReview(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt category provider failure")
+	ctx := context.Background()
+	verifier := &stubReceiptFailureVerifier{}
+	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	processor := &Processor{pool: fixture.pool, verifier: verifier}
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: "second-category", Slug: "food-and-drink"}}); err != nil {
+		t.Fatal(err)
+	}
+	var status, outcome string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,d.outcome FROM transaction t JOIN judgment_decision d ON d.source_event_id=$1 AND d.task='RECEIPT_CATEGORY' WHERE t.household_id=$2`, fixture.sourceID, fixture.householdID).Scan(&status, &outcome); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || outcome != "PROVIDER_FAILURE" {
+		t.Fatalf("provider failure must preserve review: status=%s outcome=%s", status, outcome)
+	}
+}
+
+type stubReceiptFailureVerifier struct{}
+
+func (*stubReceiptFailureVerifier) Evaluate(context.Context, string, judgment.Request) (judgment.Result, error) {
+	return judgment.Result{}, fmt.Errorf("test judgment provider failure")
+}
+
+// IR-05 R-date-missing: a date that is genuinely absent must never be rescued by
+// Jev. The rescue must not even run, and the review names only the date.
+func TestReceiptMissingDateIsNeverRescued(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt dateless rescue")
+	ctx := context.Background()
+	var foodCategoryID string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food & Drink','food-and-drink') RETURNING id`, fixture.householdID).Scan(&foodCategoryID); err != nil {
+		t.Fatal(err)
+	}
+	verifier := &receiptCategoryVerifier{answer: receiptCategoryAnswer(fixture.categorySlug, 0.95)}
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime()}
+	processor := &Processor{pool: fixture.pool, verifier: verifier}
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: foodCategoryID, Slug: "food-and-drink"}}); err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 0 {
+		t.Fatalf("a missing date must not trigger a category rescue, calls=%d", verifier.calls)
+	}
+	var status, reviewType string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,r.review_type FROM transaction t JOIN review_item r ON r.transaction_id=t.id WHERE t.household_id=$1`, fixture.householdID).Scan(&status, &reviewType); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || reviewType != "MISSING_TRANSACTION_DATE" {
+		t.Fatalf("missing date review: status=%s review=%s", status, reviewType)
 	}
 }
 

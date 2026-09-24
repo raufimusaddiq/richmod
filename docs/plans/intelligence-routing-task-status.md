@@ -171,3 +171,43 @@ asserted); K pass (`git diff --check`, migration scope only).
 Known follow-up: IR-09 consumes the new residual lane for call-efficiency
 analysis. The legacy deterministic `Process` path remains for callbacks; regular
 text jobs enter through `ProcessAgent`.
+
+## IR-05 — Receipt residual bounded rescue
+
+Task: IR-05
+Baseline main SHA: `d4ea586edfbd35a567f74d66cf1411a071bc1b7d`
+Files changed: `apps/worker/internal/document/receipt.go`,
+`apps/worker/internal/document/receipt_choice.go`, receipt integration tests.
+User interactions before: a receipt whose only unresolved fact was the category
+always opened a category review, even when a bounded ruling could safely decide
+it.
+User interactions after: a decisive category rescue confirms directly; an
+undecided, provider-failed, dateless, or duplicate-ambiguous receipt keeps its
+minimal review with only the residual fact asked.
+Jev calls before: clear category = 0; category residual = 0 (review instead).
+Jev calls after: clear category = 0; category residual = exactly one category
+rescue, and only when the category is the sole bounded residual.
+Generative calls before/after: unchanged; vision extraction stays the only
+generative call.
+Canonical correctness guard: rescue runs only with a printed date, no duplicate
+candidate, and at least two allowed categories, and commits only on a decisive
+well-separated answer. Missing date is never a rescue input and upload time is
+never the transaction date. Provider failure is recorded as `PROVIDER_FAILURE`,
+never approval.
+Residual uncertainty after: undecided category remains in review; absent date
+remains user-resolved; duplicate ambiguity remains duplicate review.
+Tests added/updated: R-clear unchanged; R-category-rescue confirms with one Jev
+call and `category_rescued` provenance; R-category-undecided keeps a category-only
+review; R-date-missing sends no Jev call and asks only the date; provider failure
+keeps review; R-duplicate unchanged. Full document package and `go vet` pass
+against disposable PostgreSQL 17 with capped resources.
+Drift checklist: A pass (review removed only when it was avoidable); B pass (one
+bounded rescue, no replay, no per-row calls); C pass (Go owns validation, IDs,
+and the canonical write); D pass (no confidence-only gate; date, duplicate,
+category, and authorization guards retained); E pass (missing date never
+guessed); F pass (review facts remain canonical and now persisted as bounded
+provenance); G pass (provider failure fails closed); H receipt pass; I pass
+(bounded call recorded with policy version and outcome); J pass (canonical state
+and Jev call counts asserted); K pass (no schema change, `git diff --check`).
+Known follow-up: IR-09 consumes the new bounded-call provenance; IR-06 addresses
+the screenshot row batch.

@@ -249,6 +249,18 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 		return p.linkReceipt(ctx, documentID, householdID, sourceID, strong[0], value, model, validation)
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
+	categoryDecision := receiptCategoryProvenance{}
+	if categoryID == nil && len(candidates) == 0 && validation.DateKnown {
+		// The category is the only bounded residual left. One Jev rescue can turn
+		// a category-only review into a confirmed expense; undecided or failure
+		// keeps the review. A missing date is never rescued here.
+		if id, provenance := p.receiptCategoryRescue(ctx, sourceID, value, categories); provenance.Decided {
+			categoryID = &id
+			categoryDecision = provenance
+		} else {
+			categoryDecision = provenance
+		}
+	}
 	// A clear new receipt must not become a review merely because no existing
 	// transaction matched (PRD §10, example D). With no candidate ambiguity, a
 	// category resolved, a printed date, and consistent arithmetic, the facts are
@@ -256,16 +268,16 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	// A receipt with no printed date is not confirmed here: upload time is not the
 	// receipt's transaction time (PRD §18.4).
 	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && value.Confidence >= 0.90 && validation.DateKnown && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
-		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID)
+		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, categoryDecision)
 	}
-	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0)
+	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0, categoryDecision)
 }
 
 // confirmReceipt writes a CONFIRMED expense for a clear new receipt. It mirrors
 // createReceiptReview's persistence but commits the canonical transaction, since
 // there is nothing left for a human to decide (PRD §10, §34). Duplicate safety is
 // handled by the caller: this path is only taken when no candidate matched.
-func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string) error {
+func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string, categoryDecision receiptCategoryProvenance) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -281,7 +293,7 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 		merchantID = &id
 	}
 	var proposalID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'receipt','EXPENSE',$3,'IDR',$4,NULLIF($5,''),$6,'Pengeluaran dari struk',$7,'ACCEPTED',jsonb_build_object('document_id',$8::uuid,'arithmetic_ok',$9::boolean,'date_known',$10::boolean,'auto_confirm',true)) RETURNING id`, householdID, sourceID, value.Total, validation.TransactionAt, value.Merchant, categoryID, value.Confidence, documentID, validation.ArithmeticOK, validation.DateKnown).Scan(&proposalID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'receipt','EXPENSE',$3,'IDR',$4,NULLIF($5,''),$6,'Pengeluaran dari struk',$7,'ACCEPTED',jsonb_build_object('document_id',$8::uuid,'arithmetic_ok',$9::boolean,'date_known',$10::boolean,'category_rescued',$11::boolean,'category_policy_version',$12::text)) RETURNING id`, householdID, sourceID, value.Total, validation.TransactionAt, value.Merchant, categoryID, value.Confidence, documentID, validation.ArithmeticOK, validation.DateKnown, categoryDecision.Decided, ReceiptCategoryPolicyVersion).Scan(&proposalID); err != nil {
 		return err
 	}
 	var transactionID string
@@ -292,6 +304,9 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
+		return err
+	}
+	if err := recordReceiptCategoryDecision(ctx, tx, householdID, sourceID, categoryDecision, "AUTO_CONFIRM"); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, documentID); err != nil {
@@ -420,7 +435,7 @@ func receiptKnownFacts(value receiptExtraction, validation receiptValidation) ma
 	return known
 }
 
-func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID *string, possibleDuplicate bool) error {
+func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID *string, possibleDuplicate bool, categoryDecision receiptCategoryProvenance) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -447,6 +462,13 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
+		return err
+	}
+	decisionOutcome := "REVIEW"
+	if categoryDecision.ProviderFailed {
+		decisionOutcome = "PROVIDER_FAILURE"
+	}
+	if err := recordReceiptCategoryDecision(ctx, tx, householdID, sourceID, categoryDecision, decisionOutcome); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
