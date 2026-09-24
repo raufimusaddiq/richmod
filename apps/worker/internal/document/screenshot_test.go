@@ -18,8 +18,28 @@ func TestValidateScreenshotKeepsRowsIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].Type != "EXPENSE" || rows[1].Type != "INCOME" || rows[0].CategoryID == nil || rows[1].CategoryID != nil {
+	if len(rows) != 2 || rows[0].Type != "EXPENSE" || rows[1].Type != "INCOME" || rows[0].CategoryID == nil || !rows[0].CategoryDecided || rows[1].CategoryID != nil || rows[1].CategoryDecided {
 		t.Fatalf("unexpected rows: %+v", rows)
+	}
+}
+
+func TestUnacceptedVisionCategoriesRemainResidual(t *testing.T) {
+	date := "2026-08-25T10:00:00+07:00"
+	for _, test := range []struct {
+		name       string
+		confidence float64
+		slug       *string
+	}{
+		{name: "low confidence", confidence: .89, slug: ptr("food-dining")},
+		{name: "unknown category", confidence: .99, slug: ptr("not-household-category")},
+		{name: "missing category", confidence: .99},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: "1000", Currency: "IDR", TransactionAt: &date, CategorySlug: test.slug, CategoryConfidence: test.confidence, Confidence: .95}}}, time.Now().In(jakarta()), []categoryOption{{ID: "food-id", Slug: "food-dining"}}, "")
+			if err != nil || len(rows) != 1 || rows[0].CategoryDecided {
+				t.Fatalf("category must remain residual: rows=%+v err=%v", rows, err)
+			}
+		})
 	}
 }
 

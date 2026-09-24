@@ -132,7 +132,7 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	clear.CategoryID, clear.CategoryDecided = &categoryID, true
 	incoming := screenshotDataRow("INCOME", "100000", "Teman")
 	undecided := screenshotDataRow("EXPENSE", "25000", "Warung Bu Tini")
-	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 2, Decided: 1, QuestionKeys: []string{"row_001", "row_002"}}
+	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 1, Decided: 0, QuestionKeys: []string{"row_002"}}
 	fixture.persist(t, provenance, []validatedScreenshotRow{clear, incoming, undecided})
 
 	var confirmed, needsReview int
@@ -159,11 +159,11 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	assertScreenshotSummary(t, fixture, "3 transaksi ditemukan.", "1 berhasil dicatat", "2 butuh keputusan")
 	assertScreenshotReviewDecisions(t, fixture, 2)
 	var judgements int
-	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1 AND task='SCREENSHOT_ROW_CATEGORY' AND outcome='AUTO_CONFIRM'`, fixture.householdID).Scan(&judgements); err != nil {
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1 AND task='SCREENSHOT_ROW_CATEGORY' AND outcome='REVIEW'`, fixture.householdID).Scan(&judgements); err != nil {
 		t.Fatal(err)
 	}
 	if judgements != 1 {
-		t.Fatalf("the bounded ruling that authorised the write must keep its provenance, got %d rows", judgements)
+		t.Fatalf("a clear row must not make an undecided Jev batch look confirmed, got %d review decisions", judgements)
 	}
 }
 
@@ -175,7 +175,7 @@ func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
 	for index := range rows {
 		rows[index].CategoryID, rows[index].CategoryDecided = &categoryID, true
 	}
-	fixture.persist(t, rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 2, Decided: 2, QuestionKeys: []string{"row_000", "row_001"}}, rows)
+	fixture.persist(t, rowChoiceProvenance{PolicyVersion: ScreenshotRowCategoryPolicyVersion}, rows)
 
 	var confirmed, reviews int
 	if err := fixture.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'),(SELECT count(*) FROM review_item WHERE household_id=$1)`, fixture.householdID).Scan(&confirmed, &reviews); err != nil {
@@ -199,6 +199,44 @@ func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
 	if strings.Contains(summary, "butuh keputusan") {
 		t.Fatalf("no question may be asked for a clear batch: %q", summary)
 	}
+}
+
+func TestScreenshotMixedResidualBatchConfirmsOnlyDecisiveRows(t *testing.T) {
+	fixture := seedScreenshotFixture(t, "Screenshot mixed residual batch")
+	rows := make([]validatedScreenshotRow, 20)
+	for i := range rows {
+		rows[i] = screenshotDataRow("EXPENSE", "25000", fmt.Sprintf("Merchant %d", i))
+		if i < 17 {
+			rows[i].CategoryID, rows[i].CategoryDecided = &fixture.categoryID, true
+		}
+	}
+	rows[17].CategoryID, rows[17].CategoryDecided = &fixture.categoryID, true
+	rows[18].CategoryID, rows[18].CategoryDecided = &fixture.secondCategoryID, true
+	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 3, Decided: 2, QuestionKeys: []string{"row_017", "row_018", "row_019"}}
+	fixture.persist(t, provenance, rows)
+
+	var confirmed, reviews int
+	if err := fixture.pool.QueryRow(context.Background(), `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &reviews); err != nil {
+		t.Fatal(err)
+	}
+	if confirmed != 19 || reviews != 1 {
+		t.Fatalf("17 clear + 2 rescued rows must confirm, one undecided stays in review: confirmed=%d reviews=%d", confirmed, reviews)
+	}
+	var decisionSource string
+	if err := fixture.pool.QueryRow(context.Background(), `SELECT decision->>'decisionSource' FROM review_item WHERE household_id=$1`, fixture.householdID).Scan(&decisionSource); err != nil {
+		t.Fatal(err)
+	}
+	if decisionSource != "GENERATIVE_PLUS_JEV" {
+		t.Fatalf("only the questioned residual row should carry Jev provenance, got %q", decisionSource)
+	}
+	var questioned []string
+	if err := fixture.pool.QueryRow(context.Background(), `SELECT question_keys FROM judgment_decision WHERE household_id=$1 AND task='SCREENSHOT_ROW_CATEGORY'`, fixture.householdID).Scan(&questioned); err != nil {
+		t.Fatal(err)
+	}
+	if len(questioned) != 3 || questioned[0] != "row_017" || questioned[1] != "row_018" || questioned[2] != "row_019" {
+		t.Fatalf("clear rows must not appear in Jev provenance: %v", questioned)
+	}
+	assertScreenshotSummary(t, fixture, "20 transaksi ditemukan.", "19 berhasil dicatat", "1 butuh keputusan")
 }
 
 type decisionFacts struct {

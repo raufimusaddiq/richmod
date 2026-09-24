@@ -67,7 +67,7 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID stri
 	state := map[string]any{}
 	questions := map[string]judgment.Question{}
 	for index, row := range rows {
-		if row.Matched != nil || row.Type != "EXPENSE" {
+		if row.Matched != nil || row.Type != "EXPENSE" || (row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict) {
 			continue
 		}
 		key := rowQuestionKey(index)
@@ -134,7 +134,7 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 // screenshotRowDecision builds the PRD §7 contract for one unresolved row, so the
 // Inbox asks only the dimension that is genuinely missing instead of reshowing
 // amount, direction, and time that Go already holds.
-func screenshotRowDecision(household, sourceEventID, transactionID, reviewType string, index int, row validatedScreenshotRow) reviewdec.Decision {
+func screenshotRowDecision(household, sourceEventID, transactionID, reviewType string, index int, row validatedScreenshotRow, jevAsked bool) reviewdec.Decision {
 	known := map[string]any{"amount_idr": row.Value.Amount, "direction": row.Value.Direction}
 	if row.DateKnown {
 		known["transaction_at"] = row.TransactionAt.Format(time.RFC3339)
@@ -158,9 +158,12 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		KnownFacts:      known,
 		Provenance:      map[string]any{"pipeline": "transaction-screenshot", "document_row": index},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
-		DecisionSource:  reviewdec.SourceGenerativePlusJev,
+		DecisionSource:  reviewdec.SourceGenerativeExtraction,
 		PolicyVersion:   ScreenshotRowCategoryPolicyVersion,
 		InteractionMode: reviewdec.ModeBoundedChoice,
+	}
+	if jevAsked {
+		decision.DecisionSource = reviewdec.SourceGenerativePlusJev
 	}
 	// PRD §37: one reason code resolves to exactly one contract, so a screenshot
 	// row stores the same decision the bank-email and Telegram paths store.
