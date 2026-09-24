@@ -1,5 +1,9 @@
 # BDR-001: Minimum Human Interaction with Single-Pass Intelligence
 
+## Record type
+
+Business Decision Record.
+
 ## Status
 
 Accepted product decision — 2026-09-24.
