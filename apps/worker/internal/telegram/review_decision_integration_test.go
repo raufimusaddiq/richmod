@@ -112,8 +112,8 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if decision.ReasonCode != "POSSIBLE_DUPLICATE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "duplicate_relationship" || decision.InteractionMode != "BOUNDED_CHOICE" {
 		t.Fatalf("duplicate review contract is incomplete: %+v", decision)
 	}
-	// PRD §26 R3: candidate merge, confirm-as-new, or ignore. This reason code
-	// never advertises transfer-specific CONFIRM_NEW_TRANSFER.
+	// Transaction-backed duplicate confirmation is Inbox-only; Telegram exposes
+	// only actions its review workflow can safely complete.
 	wantActions := []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
 	if len(decision.AllowedActions) != len(wantActions) {
 		t.Fatalf("duplicate review actions=%v", decision.AllowedActions)
