@@ -249,12 +249,21 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 		return p.linkReceipt(ctx, documentID, householdID, sourceID, strong[0], value, model, validation)
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
+	// Single-intelligence-pass rule: when the vision model already returned one
+	// constrained, high-confidence category, do not ask Jev to re-decide it.
+	// Jev is only a rescue lane for the residual category uncertainty that would
+	// otherwise require human input.
+	if categoryID == nil && len(candidates) == 0 {
+		if rescued, rescueErr := p.resolveReceiptCategory(ctx, sourceID, value, categories); rescueErr != nil {
+			return rescueErr
+		} else if rescued != "" {
+			categoryID = &rescued
+		}
+	}
 	// A clear new receipt must not become a review merely because no existing
-	// transaction matched (PRD §10, example D). With no candidate ambiguity, a
-	// category resolved, a printed date, and consistent arithmetic, the facts are
-	// complete enough to confirm without asking the user to re-enter anything.
-	// A receipt with no printed date is not confirmed here: upload time is not the
-	// receipt's transaction time (PRD §18.4).
+	// transaction matched (PRD §10, example D). A receipt with no printed date is
+	// never confirmed here: upload time is provenance/fallback only, not the
+	// transaction time the ledger is allowed to claim.
 	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && value.Confidence >= 0.90 && validation.DateKnown && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
 		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID)
 	}
@@ -431,10 +440,7 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	}
 	var chatID int64
 	if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err == nil {
-		reviewType := "AMBIGUOUS_CATEGORY"
-		if possibleDuplicate {
-			reviewType = "POSSIBLE_DUPLICATE"
-		}
+		reviewType := receiptReviewType(validation.DateKnown, categoryID != nil, possibleDuplicate)
 		if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, workerTelegram.ReviewQuestion(value.Total, value.Merchant)); err != nil {
 			return err
 		}
@@ -443,10 +449,7 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	}
 	// PRD 7: persist the contract even without a Telegram recipient; the Inbox
 	// must not depend on notification configuration.
-	reviewType := "AMBIGUOUS_CATEGORY"
-	if possibleDuplicate {
-		reviewType = "POSSIBLE_DUPLICATE"
-	}
+	reviewType := receiptReviewType(validation.DateKnown, categoryID != nil, possibleDuplicate)
 	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reviewType)
@@ -456,7 +459,11 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 		decision.KnownFacts["merchant"] = value.Merchant
 	}
 	decision.KnownFacts["type"] = "EXPENSE"
-	decision.KnownFacts["transaction_at"] = validation.TransactionAt.Format(time.RFC3339)
+	if validation.DateKnown {
+		decision.KnownFacts["transaction_at"] = validation.TransactionAt.Format(time.RFC3339)
+	} else {
+		decision.Provenance["transaction_time_source"] = "RECEIVED_AT_FALLBACK"
+	}
 	decision.SourceEventID = sourceID
 	decision.EvidenceRefs = []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceID}}
 	encoded, encodeErr := decision.JSON()
@@ -470,6 +477,19 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func receiptReviewType(dateKnown, categoryKnown, possibleDuplicate bool) string {
+	if possibleDuplicate {
+		return "POSSIBLE_DUPLICATE"
+	}
+	if !dateKnown && !categoryKnown {
+		return "TRANSACTION_FACTS_MISSING"
+	}
+	if !dateKnown {
+		return "MISSING_TRANSACTION_DATE"
+	}
+	return "AMBIGUOUS_CATEGORY"
 }
 
 func (p *Processor) receiptCategory(ctx context.Context, householdID string, value receiptExtraction, categories []categoryOption) *string {
