@@ -32,8 +32,10 @@ A row auto-confirms only when all hold (PRD §17, §11.2):
 - extraction confidence is at least 0.90.
 
 The confirmed path writes an accepted proposal, a `CONFIRMED` expense, its
-evidence row, and an `AUTO_CONFIRM_SCREENSHOT_ROW` audit entry. Rows of one image
-share one `judgment_decision` provenance row; one row keeps its own audit entry.
+evidence row, and an `AUTO_CONFIRM_SCREENSHOT_ROW` audit entry. Rows resolved by
+the residual Jev batch may share one bounded-decision provenance record; rows
+that never entered Jev retain generative/deterministic provenance and MUST NOT
+claim Jev participation. One row keeps its own audit entry.
 
 Rows that stay unresolved keep the review path and store the PRD §7
 ReviewDecision so the Inbox asks only about the dimension that is genuinely
@@ -46,8 +48,10 @@ The document also enqueues one batch summary in the spirit of PRD §11.4
 ("`N transaksi ditemukan`", recorded, linked, and how many still need a decision)
 instead of one chat message per row.
 
-A nil bounded plane disables auto-confirm entirely, so intake still works when
-the gateway is unavailable.
+A nil/unavailable bounded plane disables only residual bounded rescue. Rows
+whose source-acceptance contract already passes may still follow their direct
+canonical path; rows that actually require bounded rescue remain reviewable and
+must not be guessed.
 
 ## Amendment — selective residual batch (2026-09-24)
 
