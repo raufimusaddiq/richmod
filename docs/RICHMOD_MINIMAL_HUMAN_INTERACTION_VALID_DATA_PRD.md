@@ -1824,15 +1824,16 @@ This initiative MUST NOT:
 
 # 32. Implementation Stages
 
-**Implementation status (2026-09-23):** PR #121 merged as the normative product
-contract. Existing main already contains substantial Telegram route-first and
-exact-binding behavior from PRs #117/#120, but Stage 0 RHICE/guardrail telemetry
-and the remaining stages below are not yet complete. Track implementation by
-stage; do not treat this status note as implying completion.
+**Implementation status (2026-09-24):** PR #121 is the normative product
+contract. Stage 0 telemetry is implemented on the current feature branch;
+Stages 1–3 remain gated on their current branches/reviews, Stages 4–7 are
+implemented on their recorded feature branches, and Stage 8 still requires a
+production evidence review before any threshold calibration. This status is
+not a claim that the full Definition of Done has passed.
 
 ## Stage 0 — Baseline and Telemetry
 
-**Status (2026-09-23): RHICE and review-side guardrails are partially measurable.**
+**Status (2026-09-24): implementation complete; production baseline capture pending.**
 `GET /api/v1/operations/status` returns a read-only `product` rollup
 (`apps/api/internal/operations/product.go`) derived entirely from canonical
 state, so it cannot drift from the ledger and needs no new pipeline. It reports
@@ -1840,8 +1841,10 @@ source events with their processing states (processed/ignored/needs-review),
 human-touch rate (distinct reviewed events over the whole window cohort, so a
 review on a still-pending event cannot push it above 1), review rate by source,
 review rate by reason, RHICE (`explicitInputs / canonicalEvents`), typed fields,
-open reviews, and accepted-without-edit. The RHICE denominator includes only
-confirmed transactions, not pending, needs-review, or voided rows.
+open reviews, accepted-without-edit, resolution time, Telegram review turns,
+bounded choices, and the auto-confirm correction rate/field/source breakdown.
+The RHICE denominator includes only confirmed transactions, not pending,
+needs-review, or voided rows.
 
 Definitions are pinned to the actions the writers actually emit for a canonical
 transaction: explicit inputs are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
@@ -1862,24 +1865,20 @@ that only accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
 recent canonical transaction through its review binding or preserved evidence,
 so the numerator and denominator share the same canonical-event cohort.
 
-It also reports the mean time to resolution (the open-to-resolve interval,
-§22.2/§22.4).
-
-`notYetMeasurable` names the §22.4 signals that no current row can reconstruct —
-bounded choices per event, because legacy review rows cannot prove how many
-distinct controls a user answered; review round trips, because `review_conversation` holds one row per request
-(`UNIQUE`), so a follow-up turn overwrites the previous state instead of being
-logged. §22.3 auto-confirm correction is not reconstructable either: nothing
-distinguishes a correction to an auto-confirmed event from an ordinary reviewed
-correction, so it is deliberately not reported rather than approximated from
-unrelated rows.
+Review turns are recorded as privacy-bounded events: only action names and an
+allow-listed set of changed field names are retained, never values or user text.
+Auto-confirm corrections are captured atomically with the canonical update.
+The correction rate uses the same 30-day auto-confirmed transaction cohort as
+its denominator, and correction events retain source/policy/decision provenance.
+`notYetMeasurable` keeps pre-migration history visible; it clears only after a
+household has a full 30-day telemetry window. Older turns are not backfilled or
+guessed.
 
 Before materially expanding auto-confirmation:
 
-- capture current review rate;
-- capture review source distribution;
-- capture review reason distribution;
-- add missing RHICE/product telemetry.
+- capture the current review rate, source, and reason distribution before
+  enabling broader auto-confirmation;
+- wait for the first complete telemetry window before interpreting trend data.
 
 Exit criterion:
 

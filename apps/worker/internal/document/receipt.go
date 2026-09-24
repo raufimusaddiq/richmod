@@ -285,7 +285,7 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 		return err
 	}
 	var transactionID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',$2,'IDR',$3,$4,$5,'Pengeluaran dari struk',$6,$7,now()) RETURNING id`, householdID, value.Total, validation.TransactionAt, merchantID, categoryID, value.Confidence, value.CategoryConfidence).Scan(&transactionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',$2,'IDR',$3,$4,$5,'Pengeluaran dari struk',$6,$7,now(),now()) RETURNING id`, householdID, value.Total, validation.TransactionAt, merchantID, categoryID, value.Confidence, value.CategoryConfidence).Scan(&transactionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'RECEIPT','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
