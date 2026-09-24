@@ -344,7 +344,14 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to resolve Telegram review"})
 		return
 	}
-	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "CONFIRM_REVIEW"); err != nil {
+	resolutionValues := map[string]any{}
+	if needsCategory && input.CategoryID != nil {
+		resolutionValues["category"] = *input.CategoryID
+	}
+	if needsTransactionAt && input.TransactionAt != nil {
+		resolutionValues["transaction_at"] = input.TransactionAt.Format(time.RFC3339)
+	}
+	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "CONFIRM_REVIEW", resolutionValues); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
 		return
 	}
@@ -535,7 +542,7 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
 		return
 	}
-	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "REJECT_REVIEW"); err != nil {
+	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "REJECT_REVIEW", nil); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
 		return
 	}
@@ -644,7 +651,7 @@ func (h *Handler) Merge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
 		return
 	}
-	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, r.PathValue("id"), "MERGE_REVIEW"); err != nil {
+	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, r.PathValue("id"), "MERGE_REVIEW", nil); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
 		return
 	}
@@ -701,11 +708,18 @@ func audit(ctx context.Context, tx pgx.Tx, household, user, action, entity strin
 	return err
 }
 
-func resolveTransactionReviewItem(ctx context.Context, tx pgx.Tx, household, user, transactionID, action string) error {
-	_, err := tx.Exec(ctx, `UPDATE review_item
+func resolveTransactionReviewItem(ctx context.Context, tx pgx.Tx, household, user, transactionID, action string, supplied map[string]any) error {
+	if supplied == nil {
+		supplied = map[string]any{}
+	}
+	raw, err := json.Marshal(supplied)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE review_item
 		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action=$4,
-		    resolution_values=jsonb_build_object('transaction_id',$2::uuid),updated_at=now()
-		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')`, household, transactionID, user, action)
+		    resolution_values=$5::jsonb,updated_at=now()
+		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')`, household, transactionID, user, action, string(raw))
 	return err
 }
 
@@ -719,7 +733,7 @@ func finalizeTransferReviewLifecycle(ctx context.Context, tx pgx.Tx, household, 
 	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')`, transactionID); err != nil {
 		return err
 	}
-	if err := resolveTransactionReviewItem(ctx, tx, household, user, transactionID, action); err != nil {
+	if err := resolveTransactionReviewItem(ctx, tx, household, user, transactionID, action, nil); err != nil {
 		return err
 	}
 	_, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN(SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, transactionID)
