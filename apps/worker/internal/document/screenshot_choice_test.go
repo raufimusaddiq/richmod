@@ -2,10 +2,12 @@ package document
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type stubRowVerifier struct {
@@ -38,6 +40,14 @@ func rowAnswerFor(choice string, top float64) judgment.Answer {
 
 func unmatchedOutRow(amount string) validatedScreenshotRow {
 	return validatedScreenshotRow{Value: screenshotRow{Direction: "OUT", Amount: amount, Currency: "IDR", Merchant: "Warung", Confidence: .95}, Type: "EXPENSE", DateKnown: true}
+}
+
+func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
+	got := screenshotRowDecision("household", "event", "transaction", "POSSIBLE_DUPLICATE", 0, validatedScreenshotRow{})
+	want, _ := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", "transaction")
+	if got.DecisionClass != want.DecisionClass || got.InteractionMode != want.InteractionMode || !reflect.DeepEqual(got.MissingFacts, want.MissingFacts) || !reflect.DeepEqual(got.AllowedActions, want.AllowedActions) {
+		t.Fatalf("screenshot duplicate must use the shared contract: got=%+v want=%+v", got, want)
+	}
 }
 
 // PRD §11.3: every unmatched row of one image shares a single bounded request.

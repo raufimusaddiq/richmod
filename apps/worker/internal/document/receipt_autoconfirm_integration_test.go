@@ -48,6 +48,14 @@ func TestReceiptWithWeakSameAmountCandidateStaysInReview(t *testing.T) {
 	if reviewType != "POSSIBLE_DUPLICATE" {
 		t.Fatalf("the review must say why: got %s", reviewType)
 	}
+	var missingFacts []string
+	var allowedActions []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT ARRAY(SELECT jsonb_array_elements_text(decision->'missingFacts')),ARRAY(SELECT jsonb_array_elements_text(decision->'allowedActions')) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&missingFacts, &allowedActions); err != nil {
+		t.Fatal(err)
+	}
+	if len(missingFacts) != 1 || missingFacts[0] != "duplicate_relationship" || len(allowedActions) != 1 || allowedActions[0] != "IGNORE" {
+		t.Fatalf("receipt duplicate review must expose only actions it can resolve: missing=%v actions=%v", missingFacts, allowedActions)
+	}
 }
 
 func seedReceiptFixture(t *testing.T, label string) receiptFixture {

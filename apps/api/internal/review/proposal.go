@@ -6,6 +6,7 @@ import "encoding/json"
 // what the review already knows, what Richmod proposes, and the exact dimensions
 // still unresolved (PRD 13.1, 13.4).
 type storedDecision struct {
+	ReasonCode     string         `json:"reasonCode"`
 	KnownFacts     map[string]any `json:"knownFacts"`
 	ProposedFacts  map[string]any `json:"proposedFacts"`
 	MissingFacts   []string       `json:"missingFacts"`

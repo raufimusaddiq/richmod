@@ -441,6 +441,27 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
+	// PRD 7: persist the decision even when no Telegram recipient exists; the
+	// Review Inbox must not depend on notification configuration.
+	reviewType := "AMBIGUOUS_CATEGORY"
+	if possibleDuplicate {
+		reviewType = "POSSIBLE_DUPLICATE"
+	}
+	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for %s", reviewType)
+	}
+	decision.KnownFacts["amount_idr"] = value.Total
+	if strings.TrimSpace(value.Merchant) != "" {
+		decision.KnownFacts["merchant"] = value.Merchant
+	}
+	encoded, encodeErr := decision.JSON()
+	if encodeErr != nil {
+		return encodeErr
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, householdID, string(encoded), transactionID); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 

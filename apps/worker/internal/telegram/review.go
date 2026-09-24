@@ -103,16 +103,19 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		}{MessageID: messageID}
 	}
 	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
+	var missingFactsJSON *string
 	var expired bool
 	err := p.pool.QueryRow(ctx, `
-		SELECT r.id,r.transaction_id,c.state,r.review_type,t.type,r.status,t.status,r.expires_at<=now()
+		SELECT r.id,r.transaction_id,c.state,r.review_type,t.type,r.status,t.status,r.expires_at<=now(),
+		       ri.decision->'missingFacts'
 		FROM review_request r
 		JOIN review_conversation c ON c.review_request_id=r.id
 		JOIN transaction t ON t.id=r.transaction_id
+		LEFT JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`,
 		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).
-		Scan(&reviewID, &transactionID, &reviewState, &reviewType, &transactionType, &requestStatus, &transactionStatus, &expired)
+		Scan(&reviewID, &transactionID, &reviewState, &reviewType, &transactionType, &requestStatus, &transactionStatus, &expired, &missingFactsJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -128,6 +131,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
+	}
+	if reviewType == "UNKNOWN_MERCHANT" && missingFactsJSON != nil && !reviewRequiresFact(missingFactsJSON, "merchant") {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini.")
 	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Transaksi ini mungkin duplikat. Buka Review Inbox untuk memilih gabung atau catat baru; belum ada transaksi yang diubah.")
@@ -219,6 +225,25 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			"Kategorinya belum cukup jelas. Balas pesan ini dengan kategori atau tujuan, misalnya: belanja rumah tangga.")
 	}
 	return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, extracted)
+}
+
+func reviewRequiresFact(raw *string, fact string) bool {
+	if raw == nil {
+		return true // legacy review without a stored contract keeps its previous behavior
+	}
+	if strings.TrimSpace(*raw) == "null" {
+		return true
+	}
+	var facts []string
+	if err := json.Unmarshal([]byte(*raw), &facts); err != nil {
+		return true
+	}
+	for _, value := range facts {
+		if value == fact {
+			return true
+		}
+	}
+	return false
 }
 
 // processReviewDetailCallback is the deterministic callback lane for review
@@ -419,6 +444,15 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	if err != nil {
 		return err
+	}
+	if reviewType == "POSSIBLE_DUPLICATE" {
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return err
+		}
+		if err = enqueueReply(ctx, tx, update, "Pilih gabung atau catat baru di Review Inbox. Belum ada transaksi yang diubah."); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
 	}
 	if strings.HasPrefix(data, "review:catpage:") {
 		page, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:catpage:"))

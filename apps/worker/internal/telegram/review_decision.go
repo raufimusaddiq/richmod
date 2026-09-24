@@ -12,7 +12,7 @@ import (
 func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, reviewType string) (reviewdec.Decision, error) {
 	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
 	if !ok {
-		return reviewdec.Decision{}, nil
+		return reviewdec.Decision{}, fmt.Errorf("no review decision preset for %s", reviewType)
 	}
 	var amount, sourceEventID string
 	var transactionAt time.Time

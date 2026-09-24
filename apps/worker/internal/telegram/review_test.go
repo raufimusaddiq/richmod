@@ -42,6 +42,19 @@ func TestReviewDetailMarkupAllowsCategoryWithoutMerchant(t *testing.T) {
 	}
 }
 
+func TestReviewRequiresFactFailsClosedForMissingOrInvalidContract(t *testing.T) {
+	for _, raw := range []*string{nil, ptr("null"), ptr("not-json"), ptr("{}")} {
+		if !reviewRequiresFact(raw, "merchant") {
+			t.Fatalf("reviewRequiresFact(%v) = false; malformed or absent contracts must preserve legacy requirement", raw)
+		}
+	}
+	if reviewRequiresFact(ptr(`["category"]`), "merchant") {
+		t.Fatal("category-only decision unexpectedly requires merchant")
+	}
+}
+
+func ptr(value string) *string { return &value }
+
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	processor := &Processor{gateway: reviewTestGateway{}}
 	result, err := processor.extractReview(context.Background(), "source-1", "buat belanja rumah tangga", []categoryChoice{

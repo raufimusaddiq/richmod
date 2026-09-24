@@ -109,13 +109,13 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if err = json.Unmarshal([]byte(raw), &decision); err != nil {
 		t.Fatalf("duplicate decision must be valid JSON: %v (%s)", err, raw)
 	}
-	if decision.ReasonCode != "POSSIBLE_DUPLICATE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "duplicate_relationship" || decision.InteractionMode != "CONFLICT_RESOLUTION" {
+	if decision.ReasonCode != "POSSIBLE_DUPLICATE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "duplicate_relationship" || decision.InteractionMode != "BOUNDED_CHOICE" {
 		t.Fatalf("duplicate review contract is incomplete: %+v", decision)
 	}
-	// A possible duplicate really is a candidate choice: the Inbox offers merge or
-	// new-transaction, and Telegram replies with no mutation. The stored contract
-	// names the candidate actions the Inbox resolver accepts.
-	if len(decision.AllowedActions) != 3 || decision.AllowedActions[0] != "MERGE_EXISTING" || decision.AllowedActions[1] != "CONFIRM_NEW_TRANSFER" || decision.AllowedActions[2] != "IGNORE" {
+	// PRD 37: a receipt/screenshot duplicate carries no transfer reconciliation
+	// ids, so the Inbox resolver can only ignore it. The contract must not
+	// advertise merge/new actions the API rejects for this review type.
+	if len(decision.AllowedActions) != 1 || decision.AllowedActions[0] != "IGNORE" {
 		t.Fatalf("duplicate review actions=%v", decision.AllowedActions)
 	}
 }

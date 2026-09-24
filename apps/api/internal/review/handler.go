@@ -116,9 +116,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		// review asks (PRD 13.4, 37): a Telegram card and the Inbox read the same
 		// contract instead of deriving the unresolved fact independently. Rows
 		// written before the contract existed keep the derived fallback.
-		value.Reason = reviewReason(value)
-		if stored := proposalFacts(value.Decision); len(stored.MissingFacts) > 0 {
-			value.ReviewType = value.Reason
+		stored := proposalFacts(value.Decision)
+		if stored.ReasonCode != "" {
+			value.Reason = stored.ReasonCode
+		} else {
+			value.Reason = reviewReason(value)
+		}
+		if stored.ReasonCode != "" {
+			value.ReviewType = stored.ReasonCode
 			value.AllowedActions = stored.AllowedActions
 			value.KnownFacts = stored.KnownFacts
 			value.ProposedFacts = stored.ProposedFacts
@@ -285,10 +290,6 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	merchantName := clean(input.MerchantName, 160)
-	if kind == "EXPENSE" && sourceType == "BANK_EMAIL" && merchantID == nil && merchantName == "" {
-		writeJSON(w, 400, map[string]string{"error": "merchant is required for this bank review"})
-		return
-	}
 	if merchantName != "" {
 		var id string
 		if err := tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, household, merchantName).Scan(&id); err != nil {

@@ -1,14 +1,18 @@
 package review
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
 // PRD §37: Telegram and the Inbox must read one decision contract. A transaction
@@ -73,5 +77,26 @@ func TestTransactionBackedReviewExposesStoredDecision(t *testing.T) {
 	}
 	if items[0].WhyNotAuto == "" {
 		t.Fatal("why-not-auto-confirm must reach the client")
+	}
+
+	var categoryID string
+	if err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, household).Scan(&categoryID); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/confirm", bytes.NewBufferString(fmt.Sprintf(`{"categoryId":%q}`, categoryID)))
+	req.SetPathValue("id", transactionID)
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	response := httptest.NewRecorder()
+	NewHandler(pool).Confirm(response, req)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("category-only confirmation must not require an invented merchant: %d %s", response.Code, response.Body.String())
+	}
+	var status string
+	var merchant *string
+	if err = pool.QueryRow(ctx, `SELECT status,merchant_id::text FROM transaction WHERE id=$1`, transactionID).Scan(&status, &merchant); err != nil {
+		t.Fatal(err)
+	}
+	if status != "CONFIRMED" || merchant != nil {
+		t.Fatalf("transaction should confirm with NULL merchant, status=%s merchant=%v", status, merchant)
 	}
 }

@@ -159,13 +159,23 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		AllowedActions:  []string{"IGNORE"},
 		InteractionMode: reviewdec.ModeBoundedChoice,
 	}
+	if reviewType == "POSSIBLE_DUPLICATE" {
+		decision, _ = reviewdec.Preset(reviewType, "transaction", transactionID)
+		decision.SourceEventID = sourceEventID
+		decision.KnownFacts = known
+		decision.Provenance = map[string]any{"pipeline": "transaction-screenshot", "document_row": index}
+		decision.EvidenceRefs = []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}}
+		decision.DecisionSource = reviewdec.SourceGenerativePlusJev
+		decision.PolicyVersion = ScreenshotRowCategoryPolicyVersion
+		return decision
+	}
 	switch reviewType {
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass, decision.InteractionMode = reviewdec.ClassHumanPolicyChoice, reviewdec.ModePolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}
 		decision.WhyNotAuto = "evidence cannot separate income from an own-account or household transfer on a screenshot row"
 	case "POSSIBLE_DUPLICATE":
-		decision.DecisionClass, decision.InteractionMode = reviewdec.ClassDuplicateAmbiguity, reviewdec.ModeBoundedChoice
+		decision.DecisionClass, decision.InteractionMode = reviewdec.ClassDuplicateAmbiguity, reviewdec.ModeConflictResolution
 		decision.MissingFacts = []string{"duplicate_relationship"}
 		decision.WhyNotAuto = "a plausible existing transaction already matches this row amount and time"
 	default:
