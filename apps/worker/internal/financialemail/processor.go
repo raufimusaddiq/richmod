@@ -236,8 +236,7 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
-		return err
+		return p.wealthObservationReview(ctx, tx, household, id, observationID, wealth, hint, *v.ValueIDR)
 	case "CASH_MOVEMENT":
 		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v)
 	default:
@@ -249,8 +248,7 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id)
-	return err
+	return insertReviewDecision(ctx, tx, household, id, "TRANSFER_CLASSIFICATION")
 }
 func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) (string, error) {
 	if strings.TrimSpace(id) == "" {
@@ -299,7 +297,29 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') ON CONFLICT DO NOTHING`, household, observationID, id)
+	return p.wealthObservationReview(ctx, tx, household, id, observationID, "", hint, *v.ValueIDR)
+}
+
+// wealthObservationReview parks a Financial Email wealth value as a review that
+// carries the PRD §7 contract, so the Inbox offers the snapshot flow and the
+// observed value without re-asking for it.
+func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, household, financialObservationID, wealthObservationID, resolvedWealthID, hint, valueIDR string) error {
+	decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "financial_email_observation", financialObservationID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for WEALTH_OBSERVATION_CONFIRMATION")
+	}
+	decision.KnownFacts["observed_value_idr"] = valueIDR
+	if hint != "" {
+		decision.KnownFacts["account_hint"] = hint
+	}
+	if resolvedWealthID != "" {
+		decision.KnownFacts["wealth_account"] = resolvedWealthID
+	}
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$4::jsonb) ON CONFLICT DO NOTHING`, household, wealthObservationID, financialObservationID, string(encoded))
 	return err
 }
 
@@ -518,8 +538,7 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, observation); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'CONFLICTING_EVIDENCE','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
-	return err
+	return insertReviewDecision(ctx, tx, household, observation, "CONFLICTING_EVIDENCE")
 }
 
 // resolutionReview parks a Financial Email whose entities Go could not fully
@@ -570,7 +589,22 @@ func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, s
 	if _, err := tx.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,financial_email_observation_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,$5,$6,'Financial provider email',$7,NULLIF($8,'')::uuid,$9::uuid[]) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET candidate_transaction_ids=EXCLUDED.candidate_transaction_ids,status='OPEN',updated_at=now()`, household, source, observation, account, amount, at, purpose, wealth, candidates); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) SELECT $1,$2,'TRANSFER_CLASSIFICATION','OPEN' WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation)
+	return insertReviewDecision(ctx, tx, household, observation, "TRANSFER_CLASSIFICATION")
+}
+
+// insertReviewDecision writes an observation-scoped review together with its
+// canonical ReviewDecision contract (PRD 7, 37), so the Inbox can always
+// explain why the household's input is required. Idempotent on an open review.
+func insertReviewDecision(ctx context.Context, tx pgx.Tx, household, observation, reason string) error {
+	decision, ok := reviewdec.Preset(reason, "financial_email_observation", observation)
+	if !ok {
+		return fmt.Errorf("no review decision preset for %s", reason)
+	}
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) SELECT $1,$2,$3,'OPEN',$4::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation, reason, string(encoded))
 	return err
 }
 func value(v *string) string {
