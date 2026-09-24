@@ -228,23 +228,31 @@ No AI model directly mutates financial state.
 
 ## 3.2 Human Interaction Is the Final Fallback
 
-Before asking the user, Richmod MUST attempt applicable resolution in this order:
+Before asking the user, Richmod MUST attempt the cheapest applicable resolution
+without repeating equivalent intelligence work:
 
 ~~~text
 source evidence
     ↓
 deterministic exact rules / stored memory
     ↓
-Jev bounded semantic decision
+Jev first when the question is already bounded and the required facts exist
     ↓
-generative extraction/reasoning when arbitrary values are required
+generative extraction/reasoning only when arbitrary values / vision are required
     ↓
 deterministic validation
+    ↓
+Jev rescue only for residual bounded uncertainty that would otherwise reach a human
     ↓
 human input for remaining uncertainty only
 ~~~
 
-The user is not an extraction engine.
+This is a decision tree, not a requirement to execute every box. A clear
+Jev-owned turn should not call a generative model. A clear constrained
+generative extraction should not call Jev again merely to repeat the same
+classification.
+
+The user is not an extraction engine, and model calls are not a product goal.
 
 ---
 
@@ -309,13 +317,64 @@ Richmod MUST NOT require the user to invent a merchant when source evidence does
 
 ## 3.6 Model Self-Confidence Is Not Canonical Authority
 
-Generative fields such as confidence and category_confidence may remain observability signals.
+Generative fields such as confidence and category_confidence may remain policy
+signals, but confidence alone MUST NOT authorize canonical mutation.
 
-They MUST NOT become the sole mutation authority on a Jev-enabled workflow.
+A generative result may complete a mutation without a second Jev call when:
 
-When an output domain is bounded, semantic choice should return to Jev and then to deterministic Go validation.
+- the generative capability was actually needed;
+- the native output is constrained by Go-owned schema/enums;
+- required facts are complete;
+- deterministic arithmetic/date/duplicate/authorization/evidence checks pass;
+- no conflicting fact or human-policy choice remains;
+- an earlier Jev route, when present, permits the mutation lane.
+
+If the bounded fact remains unresolved after generative extraction, Jev may
+rescue that residual uncertainty before a human is asked.
+
+The anti-pattern is:
+
+~~~text
+LLM already returns a decisive constrained result
+→ Jev repeats the same classification
+→ Go
+~~~
+
+That adds latency without reducing RHICE or adding independent evidence.
 
 ---
+
+## 3.6.1 Single Intelligence Pass on the Happy Path
+
+For latency-sensitive interactive flows, Richmod SHOULD use at most one semantic
+model pass on the clear happy path.
+
+Telegram:
+
+~~~text
+Jev route/bounded decision
+├─ enough → Go → done
+└─ generative required
+   → native-tool extraction/reasoning
+   ├─ decisive + deterministically valid → Go → done
+   └─ residual bounded uncertainty → Jev rescue → Go/review
+~~~
+
+Vision documents:
+
+~~~text
+vision LLM extraction
+├─ decisive constrained facts → deterministic validation → Go
+└─ residual bounded fact → Jev rescue → Go/review
+~~~
+
+Asynchronous evidence verification may still run after extraction when it tests
+an independent claim against the original evidence. It is not considered a
+duplicate pass when it answers a different correctness question.
+
+Any future implementation that introduces routine `LLM → Jev` on a clear happy
+path MUST include evidence that the second call catches a distinct risk and is
+worth the latency/cost.
 
 ## 3.7 Provider Failure Is Not Semantic Uncertainty
 
@@ -898,14 +957,13 @@ if exact strong existing match:
     stop
 
 otherwise:
-    bounded semantic decision
-        transaction validity
-        amount support
-        date support
-        category
-        material ambiguity
+    consume constrained extracted facts
     ↓
 Go canonical validation
+        amount/date/arithmetic/duplicate/evidence
+    ↓
+if a bounded category remains unresolved:
+    Jev category rescue
     ↓
 safe
     ├─ yes → create CONFIRMED transaction
@@ -929,7 +987,12 @@ Deterministic arithmetic validation remains authoritative where applicable.
 
 ## 10.4 Generative Confidence Is Not Sole Gate
 
-A confidence >= threshold check MUST NOT independently authorize canonical mutation on Jev-enabled workflows.
+A confidence >= threshold check MUST NOT independently authorize canonical
+mutation. For a clear receipt, confidence is only one signal alongside
+constrained schema, deterministic amount/date/arithmetic validation, duplicate
+safety, and a valid category. If the extracted category is already decisive
+inside the server-owned category enum, Jev MUST NOT repeat it. If category
+remains unresolved, Jev gets one bounded rescue attempt before human review.
 
 ## 10.5 Receipt Review Examples
 
@@ -1973,9 +2036,10 @@ only for the unresolved fact. See ADR-041.
 
 Implement:
 
-- bounded post-extraction semantic decision;
+- single-pass vision extraction with deterministic receipt validation;
+- Jev rescue only for residual bounded category uncertainty;
 - new transaction auto-confirm;
-- exact residual review generation;
+- exact residual review generation, including date-only review;
 - duplicate safety.
 
 Exit criterion:
@@ -1991,10 +2055,13 @@ Implement:
 - batch processing summary;
 - row-specific minimal review.
 
-**Status: implemented in merged PR #128 (ADR-042).** One batched bounded
-category ruling per image; a row auto-confirms only with a decisive category, a
-printed date, no source conflict, and high extraction confidence. Unresolved
-rows store the PRD §7 decision and the document sends one batch summary.
+**Status: implemented in merged PR #128 (ADR-042), with a follow-up drift
+correction required by the single-pass rule.** A decisive vision category is
+consumed directly; only unresolved OUT rows enter one batched Jev category
+rescue. A row auto-confirms only with a valid category, printed date, no source
+conflict, deterministic duplicate safety, and source-policy confidence.
+Unresolved rows store the PRD §7 decision and the document sends one batch
+summary.
 
 Exit criterion:
 
@@ -2278,6 +2345,9 @@ Do not ask Bank Jago again.
 - [ ] valid Jev routes are exhaustively dispatched;
 - [ ] exact bindings outrank generic route classification;
 - [ ] implicit bindings remain route-gated;
+- [ ] Jev runs first when the task is already bounded and facts are available;
+- [ ] a decisive constrained generative fallback does not receive a redundant second Jev call;
+- [ ] post-generative Jev is limited to residual rescue or an independently justified evidence-verification question;
 - [ ] Go remains canonical authority.
 
 ## Review Contract
@@ -2334,7 +2404,7 @@ Do not ask Bank Jago again.
 ## Safety
 
 - [ ] threshold lowering is not the primary review-reduction mechanism;
-- [ ] no generative fallback becomes bounded semantic authority;
+- [ ] a failed Jev-owned bounded decision is never silently replaced by a generative answer to the same question;
 - [ ] no ambiguous duplicate auto-merge;
 - [ ] no fabricated merchant;
 - [ ] no silent human-policy decisions.
