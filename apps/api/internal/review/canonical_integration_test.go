@@ -147,6 +147,135 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 	}
 }
 
+func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seed := func(suffix string, decision map[string]any) (review string) {
+		var source, attachment, documentID, proposal string
+		period := "2026-08"
+		if suffix == "dual" {
+			period = "2026-09"
+		}
+		must(pool.QueryRow(ctx, "INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id", household, fmt.Sprintf("payslip-%s-%d", suffix, stamp), []byte(fmt.Sprintf("payslip-%s-%d", suffix, stamp))).Scan(&source))
+		must(pool.QueryRow(ctx, "INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id", household, []byte(fmt.Sprintf("payslip-%s-%d", suffix, stamp)), fmt.Sprintf("%s/payslip-%s.png", household, suffix)).Scan(&attachment))
+		must(pool.QueryRow(ctx, "INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'PAYSLIP','NEEDS_REVIEW') RETURNING id", household, source, attachment).Scan(&documentID))
+		must(pool.QueryRow(ctx, "INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,counterparty_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',1000000,'IDR',now(),'Employer','Penghasilan dari slip gaji',.99,'NEEDS_REVIEW',jsonb_build_object('period',$3::text)) RETURNING id", household, source, period).Scan(&proposal))
+		raw, _ := json.Marshal(decision)
+		must(pool.QueryRow(ctx, "INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,'MISSING_PAY_DATE','OPEN',$5) RETURNING id", household, proposal, source, documentID, raw).Scan(&review))
+		return review
+	}
+	resolve := func(review, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
+		req.SetPathValue("id", review)
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		res := httptest.NewRecorder()
+		NewHandler(pool).Resolve(res, req)
+		return res
+	}
+
+	// E1: a primary salary already exists, so the only residual is the date. The
+	// client posts a date with no salary classification; the existing policy must
+	// stay intact and this income must not silently become primary.
+	var existingSource string
+	must(pool.QueryRow(ctx, "INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Employer','employer',true) RETURNING id", household, user).Scan(&existingSource))
+	dateOnly := seed("date-only", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}})
+	if res := resolve(dateOnly, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-25\",\"choice\":\"ORDINARY_INCOME\"}}"); res.Code != http.StatusBadRequest {
+		t.Fatalf("known primary rejects salary reclassification: %d %s", res.Code, res.Body.String())
+	}
+	if res := resolve(dateOnly, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-25\"}}"); res.Code != http.StatusNoContent {
+		t.Fatalf("date-only resolve status=%d body=%s", res.Code, res.Body.String())
+	}
+	var primaryCount int
+	var existingStillPrimary bool
+	must(pool.QueryRow(ctx, "SELECT count(*) FILTER (WHERE is_primary) FROM salary_source WHERE household_id=$1 AND active", household).Scan(&primaryCount))
+	must(pool.QueryRow(ctx, "SELECT is_primary FROM salary_source WHERE id=$1", existingSource).Scan(&existingStillPrimary))
+	if primaryCount != 1 || !existingStillPrimary {
+		t.Fatalf("date-only resolution changed salary policy: primary=%d existing=%t", primaryCount, existingStillPrimary)
+	}
+	var changedFields []string
+	var boundedChoices int
+	must(pool.QueryRow(ctx, `SELECT changed_fields,bounded_choices FROM product_telemetry_event WHERE review_item_id=$1 AND event_type='REVIEW_TURN'`, dateOnly).Scan(&changedFields, &boundedChoices))
+	if !containsString(changedFields, "transaction_at") || boundedChoices != 0 {
+		t.Fatalf("date-only RHICE fields=%v choices=%d", changedFields, boundedChoices)
+	}
+	var confirmedAt time.Time
+	must(pool.QueryRow(ctx, "SELECT t.transaction_at FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=(SELECT source_event_id FROM review_item WHERE id=$1)", dateOnly).Scan(&confirmedAt))
+	if confirmedAt.Format("2006-01-02") != "2026-08-25" {
+		t.Fatalf("date-only resolution ignored the supplied date: %s", confirmedAt)
+	}
+
+	// E2: the first salary source with a missing date is two dimensions at once.
+	// A date alone must be rejected, and the explicit policy choice must record
+	// exactly one canonical salary event.
+	_, err = pool.Exec(ctx, `UPDATE salary_source SET is_primary=false WHERE household_id=$1 AND active`, household)
+	must(err)
+	restricted := seed("restricted", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "EVIDENCE_GAP", "interactionMode": "SINGLE_FIELD", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at"}, "decisionProvenance": map[string]any{"hasPrimarySalary": true}, "allowedActions": []string{"SET_PAY_DATE", "IGNORE"}})
+	if res := resolve(restricted, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-26\",\"choice\":\"PRIMARY_SALARY\"}}"); res.Code != http.StatusBadRequest {
+		t.Fatalf("policy choice absent from stored allowedActions must be rejected: %d %s", res.Code, res.Body.String())
+	}
+	dual := seed("dual", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "HUMAN_POLICY_CHOICE", "interactionMode": "POLICY_CHOICE", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at", "salary_classification"}, "decisionProvenance": map[string]any{"hasPrimarySalary": false}, "allowedActions": []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}})
+	listed := listCanonicalReviews(t, pool, household, user)
+	for _, item := range listed {
+		if item.ID == dual {
+			if len(item.MissingFacts) != 2 || !containsString(item.MissingFacts, "transaction_at") || !containsString(item.MissingFacts, "salary_classification") || !containsString(item.AllowedActions, "PRIMARY_SALARY") {
+				t.Fatalf("first-salary dual review contract: %+v", item)
+			}
+			goto dualListed
+		}
+	}
+	t.Fatal("first-salary review missing from list")
+dualListed:
+	if res := resolve(dual, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-26\"}}"); res.Code != http.StatusBadRequest {
+		t.Fatalf("dual resolve without a policy choice must be rejected: %d %s", res.Code, res.Body.String())
+	}
+	if res := resolve(dual, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-26\",\"choice\":\"PRIMARY_SALARY\"}}"); res.Code != http.StatusNoContent {
+		t.Fatalf("dual resolve status=%d body=%s", res.Code, res.Body.String())
+	}
+	var salaryEvents int
+	must(pool.QueryRow(ctx, "SELECT count(*) FROM salary_event WHERE household_id=$1 AND status='CONFIRMED'", household).Scan(&salaryEvents))
+	if salaryEvents != 2 {
+		t.Fatalf("each salary decision must record one salary event: %d", salaryEvents)
+	}
+	must(pool.QueryRow(ctx, `SELECT changed_fields,bounded_choices FROM product_telemetry_event WHERE review_item_id=$1 AND event_type='REVIEW_TURN'`, dual).Scan(&changedFields, &boundedChoices))
+	if !containsString(changedFields, "transaction_at") || boundedChoices != 1 {
+		t.Fatalf("combined RHICE fields=%v choices=%d", changedFields, boundedChoices)
+	}
+
+	// Clear-date first source asks for policy only and contributes one bounded
+	// choice, with no typed fields.
+	var clearSource, clearAttachment, clearDocument, clearProposal, clearReview string
+	must(pool.QueryRow(ctx, "INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id", household, fmt.Sprintf("payslip-clear-%d", stamp), []byte(fmt.Sprintf("payslip-clear-%d", stamp))).Scan(&clearSource))
+	must(pool.QueryRow(ctx, "INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id", household, []byte(fmt.Sprintf("payslip-clear-%d", stamp)), fmt.Sprintf("%s/payslip-clear.png", household)).Scan(&clearAttachment))
+	must(pool.QueryRow(ctx, "INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'PAYSLIP','NEEDS_REVIEW') RETURNING id", household, clearSource, clearAttachment).Scan(&clearDocument))
+	must(pool.QueryRow(ctx, "INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,counterparty_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',1000000,'IDR','2026-09-27','Employer','Penghasilan dari slip gaji',.99,'NEEDS_REVIEW',jsonb_build_object('period','2026-10')) RETURNING id", household, clearSource).Scan(&clearProposal))
+	clearDecision := map[string]any{"version": 1, "reasonCode": "PAYSLIP_CONFIRMATION", "decisionClass": "HUMAN_POLICY_CHOICE", "interactionMode": "POLICY_CHOICE", "knownFacts": map[string]any{}, "missingFacts": []string{"salary_classification"}, "decisionProvenance": map[string]any{"hasPrimarySalary": false}, "allowedActions": []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}}
+	clearRaw, _ := json.Marshal(clearDecision)
+	must(pool.QueryRow(ctx, "INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,'PAYSLIP_CONFIRMATION','OPEN',$5) RETURNING id", household, clearProposal, clearSource, clearDocument, clearRaw).Scan(&clearReview))
+	if res := resolve(clearReview, "{\"action\":\"PRIMARY_SALARY\"}"); res.Code != http.StatusNoContent {
+		t.Fatalf("clear-date policy resolve status=%d body=%s", res.Code, res.Body.String())
+	}
+	must(pool.QueryRow(ctx, "SELECT changed_fields,bounded_choices FROM product_telemetry_event WHERE review_item_id=$1 AND event_type='REVIEW_TURN'", clearReview).Scan(&changedFields, &boundedChoices))
+	if len(changedFields) != 0 || boundedChoices != 1 {
+		t.Fatalf("clear-date RHICE fields=%v choices=%d", changedFields, boundedChoices)
+	}
+}
+
 func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

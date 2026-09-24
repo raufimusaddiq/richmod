@@ -11,8 +11,8 @@ type storedDecision struct {
 	ProposedFacts  map[string]any `json:"proposedFacts"`
 	MissingFacts   []string       `json:"missingFacts"`
 	WhyNotAuto     string         `json:"whyNotAutoConfirm"`
-	Provenance     map[string]any `json:"provenance"`
 	AllowedActions []string       `json:"allowedActions"`
+	Provenance     map[string]any `json:"decisionProvenance"`
 }
 
 // resolvedEntity answers "what has this review already resolved?" from the one
