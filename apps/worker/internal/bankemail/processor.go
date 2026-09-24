@@ -406,17 +406,25 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 // function of the resolver so the confirm-no-review half is testable without a
 // full email fixture.
 func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) PolicyResult {
-	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" && result.ReviewType != "UNKNOWN_MERCHANT" {
 		return result
 	}
 	categoryID, provenance := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
 	if categoryID == "" {
+		// Merchant is optional canonical data. If it was absent from evidence, the
+		// unresolved dimension is still the category, not "please invent a merchant".
+		if result.ReviewType == "UNKNOWN_MERCHANT" {
+			result.ReviewType = "AMBIGUOUS_CATEGORY"
+			result.Description = "Pengeluaran menunggu kategori."
+		}
 		return result
 	}
+	result.Type = "EXPENSE"
 	result.CategoryID, result.AutoConfirm = categoryID, true
 	result.Status, result.ReviewType = "CONFIRMED", ""
 	// A Jev-chosen category is a category we now know, so the row must not keep
-	// the review-flavoured placeholder as its ledger description (Hermes #133).
+	// the review-flavoured placeholder as its ledger description. Merchant may
+	// remain NULL when the email did not contain one.
 	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
 	result.CategoryProvenance = &provenance
 	return result
