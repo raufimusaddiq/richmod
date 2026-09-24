@@ -17,6 +17,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
@@ -94,6 +95,7 @@ func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !ena
 
 // SetVerifier wires the bounded judgment plane (PRD §11.2).
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
+
 // SetReceiptAutoConfirm is the receipt new-transaction kill-switch (PRD §33).
 // Passing false disables auto-confirm for this source.
 func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
@@ -112,6 +114,9 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if err := p.pool.QueryRow(ctx, `SELECT d.household_id,d.source_event_id,d.status,s.received_at FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID).Scan(&householdID, &sourceID, &status, &receivedAt); err != nil {
 		return fmt.Errorf("load document: %w", err)
 	}
+	ctx = gateway.WithSourceEvent(ctx, sourceID)
+	ctx = judgment.WithSourceEvent(ctx, sourceID)
+	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	if status == "CLASSIFIED" || status == "EXTRACTED" || status == "NEEDS_REVIEW" {
 		return nil
 	}

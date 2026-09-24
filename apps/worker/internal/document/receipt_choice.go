@@ -53,6 +53,7 @@ func (p *Processor) receiptCategoryRescue(ctx context.Context, sourceEventID str
 			state["line_items"] = "<untrusted_receipt_items>" + strings.Join(names, "; ") + "</untrusted_receipt_items>"
 		}
 	}
+	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ReceiptCategoryPolicyVersion)
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-receipt-category", judgment.Request{State: state, Questions: map[string]judgment.Question{
 		"category": {Type: "choice", Instructions: "Which single household category best describes this receipt expense? Answer with the closest supplied category slug, or OTHER_OR_UNCLEAR when no category is safe.", Criteria: criteria},
 	}})

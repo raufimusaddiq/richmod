@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
@@ -117,6 +118,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		_, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='financial-email-disabled',parser_version='1' WHERE id=$1`, payload.SourceEventID)
 		return err
 	}
+	ctx = gateway.WithSourceEvent(ctx, payload.SourceEventID)
+	ctx = judgment.WithSourceEvent(ctx, payload.SourceEventID)
+	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	out, err := p.stagedOutput(ctx, payload.SourceEventID)
 	model := extractionModel
 	if err != nil {

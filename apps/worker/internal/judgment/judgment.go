@@ -155,6 +155,47 @@ type Request struct {
 	Questions map[string]Question `json:"questions"`
 }
 
+// AnsweredDimensions narrows the per-question keys of a bounded result to the
+// semantic facts the model actually returned. It is a fact about the request
+// shape, never a policy acceptance decision, so phase telemetry can report what
+// the model answered without claiming Go accepted it. Sorted for stable labels.
+func AnsweredDimensions(questions map[string]Question, answers map[string]Answer) []string {
+	keys := make([]string, 0, len(answers))
+	for key := range answers {
+		if _, ok := questions[key]; ok {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+type phaseContextKey struct{}
+type sourceEventContextKey struct{}
+
+type PhaseMetadata struct {
+	Purpose       string
+	PolicyVersion string
+}
+
+func WithPhaseMetadata(ctx context.Context, purpose, policyVersion string) context.Context {
+	return context.WithValue(ctx, phaseContextKey{}, PhaseMetadata{Purpose: purpose, PolicyVersion: policyVersion})
+}
+
+func PhaseMetadataFromContext(ctx context.Context) PhaseMetadata {
+	metadata, _ := ctx.Value(phaseContextKey{}).(PhaseMetadata)
+	return metadata
+}
+
+func WithSourceEvent(ctx context.Context, sourceEventID string) context.Context {
+	return context.WithValue(ctx, sourceEventContextKey{}, sourceEventID)
+}
+
+func SourceEventFromContext(ctx context.Context) string {
+	sourceEventID, _ := ctx.Value(sourceEventContextKey{}).(string)
+	return sourceEventID
+}
+
 type Answer struct {
 	Type          string
 	Choice        string

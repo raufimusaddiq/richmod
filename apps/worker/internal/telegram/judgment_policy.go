@@ -173,13 +173,14 @@ func JudgmentMetricsFor(record func(context.Context, gateway.CallMetric)) judgme
 	return judgmentMetrics{
 		Record: func(ctx context.Context, metric judgmentCallMetric) {
 			record(metricCtx(ctx), gateway.CallMetric{
-				Task:       string(metric.Task),
-				Protocol:   "systemone",
-				Model:      metric.Model,
-				Status:     metric.Status,
-				ErrorClass: metric.ErrorClass,
-				DurationMs: metric.DurationMs,
-				CallKind:   metric.CallKind,
+				Task:          string(metric.Task),
+				Protocol:      "systemone",
+				Model:         metric.Model,
+				Status:        metric.Status,
+				ErrorClass:    metric.ErrorClass,
+				DurationMs:    metric.DurationMs,
+				CallKind:      metric.CallKind,
+				SourceEventID: TurnSourceEventID(ctx),
 			})
 		},
 		Decision: func(ctx context.Context, task judgmentTask, outcome judgmentOutcome) {
@@ -203,6 +204,19 @@ func JudgmentMetricsFor(record func(context.Context, gateway.CallMetric)) judgme
 	}
 }
 
+func phasePurpose(task string) string {
+	switch task {
+	case "ROUTE":
+		return "ROUTE"
+	case "TRANSACTION_SEMANTICS":
+		return "TRANSACTION_BOUNDED"
+	case "REVIEW_ACTION":
+		return "RESIDUAL_REVIEW_ACTION"
+	default:
+		return "OTHER_BOUNDED"
+	}
+}
+
 // metricCtx preserves the turn's household attribution without letting a
 // cancelled turn drop the metric write.
 func metricCtx(ctx context.Context) context.Context {
@@ -216,6 +230,13 @@ func metricCtx(ctx context.Context) context.Context {
 // through this wrapper so latency, status, and error class are recorded per
 // decision task without touching prompt or answer content (PRD §17).
 func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID string, request judgment.Request) (judgment.Result, error) {
+	purpose := phasePurpose(string(task))
+	if task == judgmentTaskTransaction && len(request.Questions) == 1 {
+		if _, ok := request.Questions["category"]; ok {
+			purpose = "RESIDUAL_CATEGORY"
+		}
+	}
+	ctx = judgment.WithPhaseMetadata(ctx, purpose, judgmentPolicyVersion)
 	started := time.Now()
 	if p.judgment == nil {
 		// Unconfigured judgment plane. Callers own the fail-closed policy; this

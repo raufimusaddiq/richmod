@@ -17,11 +17,16 @@ import (
 const maxResponseBytes = 2 << 20
 
 type Metric struct {
-	Model         string
-	Status        string
-	ErrorClass    string
-	DurationMs    int64
-	QuestionCount int
+	SourceEventID      string
+	Purpose            string
+	PolicyVersion      string
+	Dimensions         []string
+	AnsweredDimensions []string
+	Model              string
+	Status             string
+	ErrorClass         string
+	DurationMs         int64
+	QuestionCount      int
 }
 
 type Recorder func(context.Context, Metric)
@@ -31,7 +36,6 @@ type Client struct {
 	apiKey  string
 	model   string
 	http    *http.Client
-	record  Recorder
 }
 
 func New(baseURL, apiKey, model string, timeout time.Duration) *Client {
@@ -46,23 +50,7 @@ func New(baseURL, apiKey, model string, timeout time.Duration) *Client {
 	}
 }
 
-func (c *Client) WithRecorder(record Recorder) *Client {
-	clone := *c
-	clone.record = record
-	return &clone
-}
-
 func (c *Client) Evaluate(ctx context.Context, requestID string, input judgment.Request) (result judgment.Result, err error) {
-	started := time.Now()
-	defer func() {
-		if c.record != nil {
-			status, class := "SUCCEEDED", ""
-			if err != nil {
-				status, class = "FAILED", classify(err)
-			}
-			c.record(ctx, Metric{Model: result.Model, Status: status, ErrorClass: class, DurationMs: time.Since(started).Milliseconds(), QuestionCount: len(input.Questions)})
-		}
-	}()
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
 		return result, fmt.Errorf("System One gateway is not configured")
 	}
