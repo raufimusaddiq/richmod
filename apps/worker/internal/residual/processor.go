@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type Payload struct {
@@ -62,8 +64,19 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 			return err
 		}
 	}
+	// PRD §7: the review carries the canonical contract, so the Inbox renders the
+	// policy choice and the residual amount without re-deriving them.
+	decision, ok := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", caseID)
+	if !ok {
+		return fmt.Errorf("no review decision preset for CYCLE_RESIDUAL_ALLOCATION")
+	}
+	decision.KnownFacts["residual_idr"] = residual
+	encoded, encodeErr := decision.JSON()
+	if encodeErr != nil {
+		return encodeErr
+	}
 	var reviewID string
-	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,review_type,status,cycle_residual_case_id) VALUES($1,'CYCLE_RESIDUAL_ALLOCATION','PENDING_SEND',$2) ON CONFLICT DO NOTHING RETURNING id`, v.HouseholdID, caseID).Scan(&reviewID)
+	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,review_type,status,cycle_residual_case_id,decision) VALUES($1,'CYCLE_RESIDUAL_ALLOCATION','PENDING_SEND',$2,$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, v.HouseholdID, caseID, string(encoded)).Scan(&reviewID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return tx.Commit(ctx)
