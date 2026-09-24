@@ -105,6 +105,7 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 	if counterparty != "" {
 		state["counterparty"] = "<untrusted_counterparty>" + counterparty + "</untrusted_counterparty>"
 	}
+	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", BankEmailVerificationPolicyVersion)
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
 		State: state,
 		Questions: map[string]judgment.Question{
@@ -200,6 +201,7 @@ func (p *Processor) verifyEvidenceOnce(ctx context.Context, requestID string, ex
 	for _, claim := range verificationClaims {
 		questions[claim.Key] = judgment.Question{Type: "noul", Instructions: claim.Instructions}
 	}
+	ctx = judgment.WithPhaseMetadata(ctx, "EVIDENCE_SUPPORT", BankEmailVerificationPolicyVersion)
 	result, err := p.verifier.Evaluate(ctx, requestID+"-verify", judgment.Request{
 		State: map[string]any{
 			"email_subject": email.Subject,

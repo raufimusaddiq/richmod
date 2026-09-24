@@ -13,7 +13,8 @@ type turnTrace struct {
 	// householdID lets the bounded-call recorder attribute llm_call rows to a
 	// household, which is what makes the per-household value aggregate possible.
 	// The gateway recorder is process-wide and sees no turn state otherwise.
-	householdID string
+	householdID   string
+	sourceEventID string
 }
 
 type turnTraceKey struct{}
@@ -37,6 +38,16 @@ func turnTraceFrom(ctx context.Context) *turnTrace {
 func TurnHouseholdID(ctx context.Context) string {
 	if trace := turnTraceFrom(ctx); trace != nil {
 		return trace.householdID
+	}
+	return ""
+}
+
+// TurnSourceEventID exposes the source event of the current turn so the
+// process-wide metric recorder can correlate a phase without reading any model
+// content.
+func TurnSourceEventID(ctx context.Context) string {
+	if trace := turnTraceFrom(ctx); trace != nil {
+		return trace.sourceEventID
 	}
 	return ""
 }

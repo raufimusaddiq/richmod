@@ -31,6 +31,7 @@ func (p *Processor) reconcileSemantically(ctx context.Context, requestID, amount
 	if p.verifier == nil {
 		return sameEventAnswer{}, nil
 	}
+	ctx = judgment.WithPhaseMetadata(ctx, "OTHER_BOUNDED", ReconciliationPolicyVersion)
 	result, err := p.verifier.Evaluate(ctx, requestID, judgment.Request{
 		State: map[string]any{
 			"provider_amount_idr":  amount,

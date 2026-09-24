@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
@@ -188,6 +189,9 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	if err != nil {
 		return fmt.Errorf("load bank email event: %w", err)
 	}
+	ctx = gateway.WithSourceEvent(ctx, payload.SourceEventID)
+	ctx = judgment.WithSourceEvent(ctx, payload.SourceEventID)
+	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	var accountID string
 	_ = p.pool.QueryRow(ctx, `SELECT COALESCE(account_id::text,'') FROM bank_email_listener WHERE id=$1`, listenerID).Scan(&accountID)
 	listener := Listener{ID: listenerID, HouseholdID: household, BankName: bank, SenderAddress: sender, AccountID: accountID, TrackingPolicy: "SPENDING_ONLY", Active: true}
