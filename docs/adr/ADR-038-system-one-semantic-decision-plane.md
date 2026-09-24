@@ -72,8 +72,37 @@ produce, such as unknown merchant strings, free-form descriptions, arbitrary
 document fields, vision extraction, multi-step conversational retrieval, and
 user-facing prose.
 
-After generative extraction, any remaining bounded semantic choice SHOULD return
-to Jev rather than rely on generative self-reported confidence.
+After generative extraction, Jev is a **residual semantic rescue**, not a
+mandatory second opinion. If the generative call was genuinely required for an
+arbitrary value or vision input and it returns a constrained, structurally valid,
+complete result that passes source-specific deterministic checks, Go MAY accept
+that result without replaying the same semantic choice through Jev.
+
+The prohibited pattern is a routine double-intelligence happy path:
+
+```text
+generative LLM
+-> Jev repeats the same already-decisive classification
+-> Go
+```
+
+It pays latency and cost without reducing user work or adding independent
+evidence. The required ordering is:
+
+```text
+deterministic exact state
+-> Jev first when the task is already bounded and facts are available
+-> generative only when arbitrary extraction/reasoning is still required
+-> deterministic validation
+-> Jev only for residual bounded uncertainty that would otherwise reach a human
+-> human only for irreducible uncertainty
+```
+
+An asynchronous evidence-verification question is a separate risk control and
+may run after extraction when it tests an independent claim against source
+evidence (for example whether a bank email actually supports the extracted
+amount/direction). It must not be confused with asking Jev to restate the
+generative model's own classification.
 
 ## Gateway boundary
 
@@ -133,13 +162,25 @@ clarification.
 
 ## Confidence policy
 
-Generative `confidence` and `category_confidence` are non-authoritative on
-Jev-enabled workflows and should be removed from decision logic as those paths
-migrate.
+Generative `confidence` and `category_confidence` are never sufficient by
+themselves to authorize canonical mutation. They may participate in a
+source-specific deterministic acceptance policy when all of the following hold:
 
-Richmod owns all probability thresholds, margins, policy versions, and review
-rules. Model probability is a signal consumed by Go policy, never a canonical
-truth value.
+- the generative capability was actually required (for example vision or
+  arbitrary native-tool extraction);
+- the output schema is constrained by Go-owned enums/types;
+- required facts pass deterministic structural, arithmetic, date, duplicate,
+  authorization, and household-scope checks;
+- no evidence conflict or unresolved human-policy choice remains;
+- the first Jev route, when present, permits that mutation lane.
+
+If any residual bounded semantic uncertainty remains, Jev may resolve that
+uncertainty before the user is asked. Jev MUST NOT be called only to repeat a
+classification that the constrained generative result and deterministic policy
+have already accepted.
+
+Richmod owns all thresholds, margins, policy versions, and review rules. Model
+probability is a signal consumed by Go policy, never a canonical truth value.
 
 ## Failure behavior
 
@@ -197,6 +238,31 @@ bodies, document bytes, and credentials are never stored there.
 - PostgreSQL and Go remain the financial authority.
 
 ## Related decisions
+
+### Amendment — single intelligence pass and residual rescue (2026-09-24)
+
+The product objective is minimum human interaction at valid canonical quality,
+not maximum use of either model family. A workflow MUST NOT add Jev merely
+because a generative model ran, and MUST NOT add a generative call merely because
+Jev ran.
+
+For interactive Telegram, the bounded route call is the first semantic pass.
+When that pass can finish the task, no generative call is allowed. When it
+explicitly routes into the conversational/native-tool lane, a constrained and
+deterministically valid native result may complete the mutation directly. A
+second Jev transaction-semantics call is a rescue only when the native result
+leaves a bounded fact below policy.
+
+For vision documents, pixels require generative extraction first. A decisive
+category selected from the server-owned category enum is consumed directly after
+deterministic evidence/date/arithmetic/duplicate checks. Jev receives only rows
+or receipts whose category is still unresolved. This keeps "16 clear rows, 1
+uncertain row" to one vision call plus judgment only for the uncertain row,
+rather than re-judging all 17.
+
+Any implementation that changes this ordering must include a regression test
+showing it does not introduce a routine `LLM -> Jev` double call on the clear
+happy path.
 
 ### Amendment — implicit workflow bindings and lane selection (2026-09)
 
