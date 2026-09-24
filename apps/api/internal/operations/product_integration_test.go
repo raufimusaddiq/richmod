@@ -98,8 +98,9 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 		t.Fatalf("unmeasurable section 22 signals must stay named: %+v", aggregate.Coverage)
 	}
 
-	// A resolved typed-field resolution bound to an in-window transaction is one
-	// explicit input, one typed field, and one canonical event.
+	// A resolved form bound to an in-window transaction counts the actual fields
+	// the user supplied. Amount + transaction time are two explicit inputs and
+	// two typed fields for one canonical event.
 	bankTx := seedTx()
 	attachEvent(bankTx, bankEventID)
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr','54000','transaction_at',now()) WHERE household_id=$1 AND source_event_id=$2 AND review_type='AMBIGUOUS_CATEGORY'`, householdID, bankEventID); err != nil {
@@ -109,11 +110,11 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aggregate.ExplicitInputs != 1 || aggregate.TypedFields != 1 || aggregate.CanonicalEvents != 1 {
-		t.Fatalf("a typed resolution bound to an event is one input, one typed field, one event: %+v", aggregate)
+	if aggregate.ExplicitInputs != 2 || aggregate.TypedFields != 2 || aggregate.CanonicalEvents != 1 {
+		t.Fatalf("amount plus time are two real human inputs for one event: %+v", aggregate)
 	}
-	if aggregate.RHICE != 1 {
-		t.Fatalf("one explicit input over one canonical event is RHICE 1: %+v", aggregate)
+	if aggregate.RHICE != 2 {
+		t.Fatalf("two explicit inputs over one canonical event is RHICE 2: %+v", aggregate)
 	}
 	// A resolution bound to an event outside the window must not sit in the
 	// numerator while its event sits outside the denominator.
@@ -133,7 +134,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.CanonicalEvents != 1 {
 		t.Fatalf("an out-of-window event must not enter the denominator: %+v", aggregate)
 	}
-	if aggregate.ExplicitInputs != 1 {
+	if aggregate.ExplicitInputs != 2 {
 		t.Fatalf("an out-of-window resolution must not enter the numerator: %+v", aggregate)
 	}
 
@@ -151,8 +152,8 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.AcceptedWithoutEdit != 1 {
 		t.Fatalf("an accepted proposal is reviewable-without-edit: %+v", aggregate)
 	}
-	if aggregate.ExplicitInputs != 2 || aggregate.TypedFields != 1 {
-		t.Fatalf("accept-without-edit is an input but not a typed field: %+v", aggregate)
+	if aggregate.ExplicitInputs != 3 || aggregate.TypedFields != 2 {
+		t.Fatalf("accept-without-edit adds one input but no typed field: %+v", aggregate)
 	}
 	// A system resolution (no human answered) must not inflate RHICE: the
 	// numerator is an allow-list of explicit user actions, not a deny-list.
@@ -166,7 +167,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aggregate.ExplicitInputs != 2 {
+	if aggregate.ExplicitInputs != 3 {
 		t.Fatalf("a system resolution must not count as an explicit input: %+v", aggregate)
 	}
 
@@ -198,7 +199,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aggregate.ExplicitInputs != 2 || aggregate.TypedFields != 1 {
+	if aggregate.ExplicitInputs != 3 || aggregate.TypedFields != 2 {
 		t.Fatalf("a wealth-only snapshot does not add a transaction input: %+v", aggregate)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET resolution_action='RECLASSIFIED_ASSET_PURCHASE' WHERE wealth_observation_id=$1`, observationID); err != nil {
@@ -208,7 +209,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aggregate.ExplicitInputs != 3 {
+	if aggregate.ExplicitInputs != 4 {
 		t.Fatalf("reclassification review must join its canonical transaction through observation evidence: %+v", aggregate)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET resolution_action='SNAPSHOT_CREATED' WHERE wealth_observation_id=$1`, observationID); err != nil {
@@ -238,7 +239,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if aggregate.ExplicitInputs != 2 {
+	if aggregate.ExplicitInputs != 3 {
 		t.Fatalf("residual allocation is metadata and must not inflate RHICE: %+v", aggregate)
 	}
 	// A transaction that never reached a valid canonical state (voided or parked
@@ -256,7 +257,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.CanonicalEvents != 5 {
 		t.Fatalf("only confirmed transactions are canonical events: %+v", aggregate)
 	}
-	if aggregate.RHICE != float64(2)/float64(5) {
+	if aggregate.RHICE != float64(3)/float64(5) {
 		t.Fatalf("voided and needs-review rows must not dilute RHICE: %+v", aggregate)
 	}
 }
