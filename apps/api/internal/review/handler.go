@@ -238,11 +238,12 @@ func reviewMissingFields(value item) []string {
 }
 
 type confirmInput struct {
-	CategoryID       *string `json:"categoryId"`
-	Description      *string `json:"description"`
-	Note             *string `json:"note"`
-	MerchantName     *string `json:"merchantName"`
-	RememberMerchant bool    `json:"rememberMerchant"`
+	CategoryID       *string    `json:"categoryId"`
+	Description      *string    `json:"description"`
+	Note             *string    `json:"note"`
+	MerchantName     *string    `json:"merchantName"`
+	TransactionAt    *time.Time `json:"transactionAt"`
+	RememberMerchant bool       `json:"rememberMerchant"`
 }
 
 func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +272,18 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
+	var decisionRaw []byte
+	_ = tx.QueryRow(r.Context(), `SELECT decision FROM review_item WHERE household_id=$1 AND transaction_id=$2 AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at DESC LIMIT 1`, household, id).Scan(&decisionRaw)
+	stored := proposalFacts(decisionRaw)
+	needsCategory, needsTransactionAt := false, false
+	for _, field := range stored.MissingFacts {
+		switch field {
+		case "category":
+			needsCategory = true
+		case "transaction_at":
+			needsTransactionAt = true
+		}
+	}
 	categoryID := currentCategory
 	if input.CategoryID != nil {
 		var valid string
@@ -282,6 +295,14 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	if kind == "EXPENSE" && categoryID == nil {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
+		return
+	}
+	if needsCategory && categoryID == nil {
+		writeJSON(w, 400, map[string]string{"error": "the unresolved category is required"})
+		return
+	}
+	if needsTransactionAt && input.TransactionAt == nil {
+		writeJSON(w, 400, map[string]string{"error": "the unresolved transaction time is required"})
 		return
 	}
 	if kind == "UNCLASSIFIED" {
@@ -301,7 +322,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "merchant is required to remember a category"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,merchant_id=COALESCE($5::uuid,merchant_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000), merchantID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,merchant_id=COALESCE($5::uuid,merchant_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($6::timestamptz,transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000), merchantID, input.TransactionAt); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
@@ -311,7 +332,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, categoryID); err != nil {
+	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,transaction_at=COALESCE($3::timestamptz,transaction_at),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, categoryID, input.TransactionAt); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
