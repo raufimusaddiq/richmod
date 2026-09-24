@@ -43,10 +43,17 @@ func unmatchedOutRow(amount string) validatedScreenshotRow {
 }
 
 func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
-	got := screenshotRowDecision("household", "event", "transaction", "POSSIBLE_DUPLICATE", 0, validatedScreenshotRow{})
-	want, _ := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", "transaction")
-	if got.DecisionClass != want.DecisionClass || got.InteractionMode != want.InteractionMode || !reflect.DeepEqual(got.MissingFacts, want.MissingFacts) || !reflect.DeepEqual(got.AllowedActions, want.AllowedActions) {
-		t.Fatalf("screenshot duplicate must use the shared contract: got=%+v want=%+v", got, want)
+	// PRD §37: every screenshot reason code must store the one contract that
+	// reason resolves to, or the Inbox hides an action the API still accepts.
+	for _, reason := range []string{"POSSIBLE_DUPLICATE", "AMBIGUOUS_CATEGORY"} {
+		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{})
+		want, ok := reviewdec.Preset(reason, "transaction", "transaction")
+		if !ok {
+			t.Fatalf("missing shared preset for %s", reason)
+		}
+		if got.ReasonCode != reason || got.DecisionClass != want.DecisionClass || got.InteractionMode != want.InteractionMode || !reflect.DeepEqual(got.MissingFacts, want.MissingFacts) || !reflect.DeepEqual(got.AllowedActions, want.AllowedActions) {
+			t.Fatalf("screenshot %s must use the shared contract: got=%+v want=%+v", reason, got, want)
+		}
 	}
 }
 

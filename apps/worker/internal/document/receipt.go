@@ -441,8 +441,8 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	// PRD 7: persist the decision even when no Telegram recipient exists; the
-	// Review Inbox must not depend on notification configuration.
+	// PRD 7: persist the contract even without a Telegram recipient; the Inbox
+	// must not depend on notification configuration.
 	reviewType := "AMBIGUOUS_CATEGORY"
 	if possibleDuplicate {
 		reviewType = "POSSIBLE_DUPLICATE"
@@ -455,11 +455,18 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if strings.TrimSpace(value.Merchant) != "" {
 		decision.KnownFacts["merchant"] = value.Merchant
 	}
+	decision.KnownFacts["type"] = "EXPENSE"
+	decision.KnownFacts["transaction_at"] = validation.TransactionAt.Format(time.RFC3339)
+	decision.SourceEventID = sourceID
+	decision.EvidenceRefs = []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceID}}
 	encoded, encodeErr := decision.JSON()
 	if encodeErr != nil {
 		return encodeErr
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, householdID, string(encoded), transactionID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision)
+		SELECT $1,$2,$3,'OPEN',$4::jsonb
+		ON CONFLICT (transaction_id) WHERE transaction_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN')
+		DO UPDATE SET review_type=EXCLUDED.review_type,decision=EXCLUDED.decision,updated_at=now()`, householdID, transactionID, reviewType, string(encoded)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

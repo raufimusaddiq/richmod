@@ -264,8 +264,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var kind string
 	var currentCategory, merchantID *string
-	var sourceType string
-	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id,COALESCE(s.source_type,'') FROM transaction t LEFT JOIN LATERAL (SELECT te.source_event_id FROM transaction_evidence te WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1) evidence ON true LEFT JOIN source_event s ON s.id=evidence.source_event_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE OF t`, id, household).Scan(&kind, &currentCategory, &merchantID, &sourceType); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&kind, &currentCategory, &merchantID); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
 	} else if err != nil {
