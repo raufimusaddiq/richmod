@@ -67,7 +67,9 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID stri
 	state := map[string]any{}
 	questions := map[string]judgment.Question{}
 	for index, row := range rows {
-		if row.Matched != nil || row.Type != "EXPENSE" {
+		// Vision already had the first chance to choose from this exact bounded
+		// category set. Only unresolved rows enter the Jev rescue lane.
+		if row.Matched != nil || row.Type != "EXPENSE" || row.CategoryDecided || row.CategoryID != nil {
 			continue
 		}
 		key := rowQuestionKey(index)
@@ -159,7 +161,9 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		InteractionMode: reviewdec.ModeBoundedChoice,
 	}
 	// PRD §37: one reason code resolves to exactly one contract, so a screenshot
-	// row stores the same decision the bank-email and Telegram paths store.
+	// row stores the same decision the bank-email and Telegram paths store. Jev is
+	// a rescue for unresolved categories, never a mandatory second opinion after
+	// a decisive vision result.
 	if shared, ok := reviewdec.Preset(reviewType, "transaction", transactionID); ok {
 		decision.DecisionClass = shared.DecisionClass
 		decision.MissingFacts = shared.MissingFacts
