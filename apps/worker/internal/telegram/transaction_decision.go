@@ -106,6 +106,50 @@ func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy jud
 	return ambiguous, decided && !ambiguous
 }
 
+// generativeValidatedTransactionDecision applies the single-intelligence-pass
+// rule for latency-sensitive Telegram turns. Jev already chose the route before
+// the conversational model ran. If the native tool output is structurally valid,
+// high-confidence, and complete enough for the requested mutation, Go can accept
+// it directly instead of paying for a second Jev call that merely repeats the
+// model's work. Jev remains the rescue lane for low-confidence/partial output.
+func generativeValidatedTransactionDecision(value validatedExtraction, categoryPresent, exactCategory bool, route string) (TransactionSemanticDecision, bool) {
+	if route != "CREATE_TRANSACTION" && route != "NEEDS_GENERATIVE_AGENT" {
+		return TransactionSemanticDecision{}, false
+	}
+	if value.Confidence < 0.90 {
+		return TransactionSemanticDecision{}, false
+	}
+	decision := TransactionSemanticDecision{
+		RouteAccepted:                 true,
+		TransactionType:               value.Type,
+		TypeAccepted:                  value.Type == "INCOME" || value.Type == "EXPENSE",
+		AmountSupported:               value.Amount != "",
+		DateSupported:                 !value.TransactionAt.IsZero(),
+		MaterialAmbiguity:             false,
+		AmbiguityDecidedNotAmbiguous:  true,
+		DecisionSource:                "GENERATIVE_VALIDATED",
+		PolicyVersion:                 judgmentPolicy.Version,
+	}
+	if !decision.TypeAccepted || !decision.AmountSupported || !decision.DateSupported {
+		return TransactionSemanticDecision{}, false
+	}
+	if value.Type == "INCOME" {
+		return decision, true
+	}
+	if !categoryPresent || strings.TrimSpace(value.CategorySlug) == "" {
+		return TransactionSemanticDecision{}, false
+	}
+	if !exactCategory && value.CategoryConfidence < 0.90 {
+		return TransactionSemanticDecision{}, false
+	}
+	decision.CategoryAccepted = true
+	decision.CategorySlug = value.CategorySlug
+	if exactCategory {
+		decision.DecisionSource = "DETERMINISTIC_POLICY_PLUS_GENERATIVE"
+	}
+	return decision, true
+}
+
 // resolveTransactionDecision obtains the semantic decision for an extracted
 // transaction. An exact category match from deterministic merchant rules and an
 // already-narrowed fact-free proposal skip Jev; everything else must be ruled
