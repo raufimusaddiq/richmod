@@ -74,9 +74,15 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok {
+			if exactReviewNeedsFreeform(state) {
+				return false, nil
+			}
 			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
 		}
 		if choice == "OTHER_OR_UNCLEAR" {
+			if exactReviewNeedsFreeform(state) {
+				return false, nil
+			}
 			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
 		}
 		if !boundedReviewAction(choice) {
@@ -89,6 +95,12 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, p.finishAgentText(ctx, state, agentMutationFallback(result))
 	}
 	return false, nil
+}
+
+func exactReviewNeedsFreeform(state *agentState) bool {
+	return state != nil && state.ReviewBinding != nil && state.ReviewBinding.Kind == "TRANSACTION" &&
+		state.Update.Message.ReplyToMessage != nil && state.Update.Message.ReplyToMessage.MessageID != 0 &&
+		state.ReviewBinding.ConversationState == "AWAITING_CATEGORY"
 }
 
 func boundedReviewAction(action string) bool {
