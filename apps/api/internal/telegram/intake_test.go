@@ -119,7 +119,7 @@ func TestWebhookCapturesOnlyAllowlistedPrivateCallback(t *testing.T) {
 func TestEveryWorkerReviewCallbackPassesIngressValidation(t *testing.T) {
 	valid := []string{
 		"review:expense", "review:own", "review:household", "review:confirm", "review:change",
-		"review:remember", "review:once", "review:edit", "review:merchant", "review:description",
+		"review:remember", "review:once", "review:edit", "review:merchant", "review:description", "review:asset",
 		"review:category", "review:ignore", "review:cat:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
 		"review:catpage:0", "review:catpage:12",
 	}

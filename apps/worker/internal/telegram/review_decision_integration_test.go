@@ -82,12 +82,35 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if decision.InteractionMode == "" || len(decision.AllowedActions) == 0 {
 		t.Fatalf("the decision must name an interaction mode and allowed actions: %+v", decision)
 	}
-	// The allowed actions must be ones a resolver actually accepts; inventing an
-	// action name produces a review no client can resolve.
-	for _, action := range decision.AllowedActions {
-		if !telegramActionKnown(decision.ReasonCode, action) {
-			t.Fatalf("action %q is not resolvable for reason %q", action, decision.ReasonCode)
-		}
+	if len(decision.AllowedActions) != 2 || decision.AllowedActions[0] != "review:category" || decision.AllowedActions[1] != "review:ignore" {
+		t.Fatalf("category review actions=%v; want Telegram category/ignore callbacks", decision.AllowedActions)
+	}
+
+	var duplicateTransactionID string
+	if err = pool.QueryRow(ctx, "INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,now()) RETURNING id", householdID).Scan(&duplicateTransactionID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = EnqueueReviewRequest(ctx, tx, duplicateTransactionID, "POSSIBLE_DUPLICATE", stamp, 0, "possible duplicate"); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, "SELECT decision::text FROM review_item WHERE transaction_id=$1", duplicateTransactionID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal([]byte(raw), &decision); err != nil {
+		t.Fatalf("duplicate decision must be valid JSON: %v (%s)", err, raw)
+	}
+	if decision.ReasonCode != "POSSIBLE_DUPLICATE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "duplicate_relationship" || decision.InteractionMode != "CONFLICT_RESOLUTION" {
+		t.Fatalf("duplicate review contract is incomplete: %+v", decision)
+	}
+	if len(decision.AllowedActions) != 2 || decision.AllowedActions[0] != "review:category" || decision.AllowedActions[1] != "review:ignore" {
+		t.Fatalf("duplicate review actions=%v", decision.AllowedActions)
 	}
 }
 

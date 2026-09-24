@@ -30,20 +30,15 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 	}
 }
 
-func TestReviewDetailMarkupHidesCategoryUntilMerchantKnown(t *testing.T) {
-	for _, test := range []struct {
-		merchantKnown bool
-		wantCategory  bool
-	}{{false, false}, {true, true}} {
-		found := false
-		for _, row := range reviewDetailMarkup(test.merchantKnown).InlineKeyboard {
-			for _, button := range row {
-				found = found || button.CallbackData == "review:category"
-			}
+func TestReviewDetailMarkupAllowsCategoryWithoutMerchant(t *testing.T) {
+	found := false
+	for _, row := range reviewDetailMarkup().InlineKeyboard {
+		for _, button := range row {
+			found = found || button.CallbackData == "review:category"
 		}
-		if found != test.wantCategory {
-			t.Fatalf("merchantKnown=%t categoryButton=%t", test.merchantKnown, found)
-		}
+	}
+	if !found {
+		t.Fatal("category must remain available when merchant is unknown")
 	}
 }
 

@@ -102,17 +102,17 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			MessageID int64 `json:"message_id"`
 		}{MessageID: messageID}
 	}
-	var reviewID, transactionID, reviewState, transactionType, requestStatus, transactionStatus string
+	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
 	var expired bool
 	err := p.pool.QueryRow(ctx, `
-		SELECT r.id,r.transaction_id,c.state,t.type,r.status,t.status,r.expires_at<=now()
+		SELECT r.id,r.transaction_id,c.state,r.review_type,t.type,r.status,t.status,r.expires_at<=now()
 		FROM review_request r
 		JOIN review_conversation c ON c.review_request_id=r.id
 		JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`,
 		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).
-		Scan(&reviewID, &transactionID, &reviewState, &transactionType, &requestStatus, &transactionStatus, &expired)
+		Scan(&reviewID, &transactionID, &reviewState, &reviewType, &transactionType, &requestStatus, &transactionStatus, &expired)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -128,6 +128,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
+	}
+	if reviewType == "POSSIBLE_DUPLICATE" {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Transaksi ini mungkin duplikat. Buka Review Inbox untuk memilih gabung atau catat baru; belum ada transaksi yang diubah.")
 	}
 	if reviewState == "AWAITING_MERCHANT" {
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
@@ -260,18 +263,13 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	switch data {
 	case "review:edit":
 		message = "Pilih detail yang ingin diubah:"
-		markup = reviewDetailMarkup(merchantID != "")
+		markup = reviewDetailMarkup()
 	case "review:merchant":
 		message = "Balas pesan ini dengan nama merchant."
 		state = "AWAITING_MERCHANT"
 	case "review:description":
 		message = "Balas pesan ini dengan keterangan transaksi."
 	case "review:category":
-		if merchantID == "" {
-			message = "Merchant wajib diisi sebelum memilih kategori. Balas pesan ini dengan nama merchant."
-			state = "AWAITING_MERCHANT"
-			break
-		}
 		message = "Pilih kategori pengeluaran (halaman 1):"
 		state = "AWAITING_CATEGORY"
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
@@ -316,11 +314,9 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 }
 
-func reviewDetailMarkup(merchantKnown bool) *InlineKeyboardMarkup {
+func reviewDetailMarkup() *InlineKeyboardMarkup {
 	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
-	if merchantKnown {
-		keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
-	}
+	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
 }
 
@@ -447,18 +443,6 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	var validCategory string
 	if err = tx.QueryRow(ctx, `SELECT c.id FROM category c WHERE c.id=$1 AND c.household_id=$2 AND c.active`, categoryID, householdID).Scan(&validCategory); err != nil {
-		return tx.Commit(ctx)
-	}
-	if merchantID == "" {
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT',last_message_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-			return err
-		}
-		if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Nama merchant belum tersedia. Balas pesan ini dengan nama merchant.", &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}); err != nil {
-			return err
-		}
 		return tx.Commit(ctx)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -1089,7 +1073,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 }
 
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {
-	if reviewType == "UNKNOWN_MERCHANT" && strings.TrimSpace(merchantID) == "" || state == "AWAITING_MERCHANT" {
+	if state == "AWAITING_MERCHANT" {
 		return "merchant", clean(strings.TrimSpace(merchant), 500), true
 	}
 	if reviewType == "UNKNOWN_PURPOSE" || state == "AWAITING_DETAIL" {
@@ -1379,15 +1363,16 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	return nil
 }
 
-// reviewInitialState keeps the first question aligned with the policy result.
-// A missing merchant must collect that fact before category selection; it is
-// not safe to present category selection as the first required action.
+// reviewInitialState asks for the unresolved category; merchant is optional
+// enrichment and must never block confirmation.
 func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Perlu detail merchant", message, "Balas pesan ini dengan nama merchant untuk transaksi tersebut."), "reply"
+		return "AWAITING_CATEGORY", message, "category"
 	case "UNKNOWN_PURPOSE":
 		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Perlu detail transaksi", message, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "reply"
+	case "POSSIBLE_DUPLICATE":
+		return "AWAITING_DETAIL", "Transaksi ini mungkin duplikat. Selesaikan melalui Review Inbox untuk memilih gabung atau catat baru.", "reply"
 	default:
 		return "AWAITING_CATEGORY", message, "category"
 	}

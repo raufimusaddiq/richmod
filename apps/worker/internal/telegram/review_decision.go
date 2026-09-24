@@ -34,7 +34,7 @@ func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, revie
 		KnownFacts:      map[string]any{},
 		MissingFacts:    []string{},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "transaction", ID: transactionID}},
-		DecisionSource:  reviewdec.SourceDeterministicPlusJev,
+		DecisionSource:  reviewdec.SourceDeterministic,
 		PolicyVersion:   judgmentPolicyVersion,
 		WhyNotAuto:      reviewWhyNotAuto(reviewType),
 		InteractionMode: reviewInteractionMode(reviewType),
@@ -52,9 +52,10 @@ func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, revie
 	}
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		decision.MissingFacts = []string{"merchant"}
+		decision.MissingFacts = []string{"category"}
 	case "AMBIGUOUS_CATEGORY":
 		decision.MissingFacts = []string{"category"}
+		decision.DecisionSource = reviewdec.SourceDeterministicPlusJev
 	case "TRANSFER_CLASSIFICATION":
 		decision.MissingFacts = []string{"transfer_relationship"}
 	case "POSSIBLE_DUPLICATE":
@@ -69,9 +70,12 @@ func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, revie
 // name here produces a review no client can resolve.
 func telegramReviewActions(reviewType string) []string {
 	switch reviewType {
-	case "UNKNOWN_MERCHANT":
-		return []string{"review:edit", "review:ignore"}
-	case "AMBIGUOUS_CATEGORY":
+	case "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
+		return []string{"review:category", "review:ignore"}
+	case "POSSIBLE_DUPLICATE":
+		// A possible duplicate is resolved from the Telegram card by giving it a
+		// category or ignoring it; there is no merge/new-transfer callback in this
+		// lane, so the contract carries tokens the ingress actually accepts.
 		return []string{"review:category", "review:ignore"}
 	case "TRANSFER_CLASSIFICATION":
 		return []string{"review:expense", "review:asset", "review:own", "review:household"}
@@ -91,17 +95,6 @@ func telegramReviewActions(reviewType string) []string {
 		// The question is free text; there is no bounded action to offer.
 		return nil
 	}
-}
-
-// telegramActionKnown reports whether an action belongs to the vocabulary of its
-// review reason. A test uses it to keep the contract free of invented actions.
-func telegramActionKnown(reviewType, action string) bool {
-	for _, candidate := range telegramReviewActions(reviewType) {
-		if candidate == action {
-			return true
-		}
-	}
-	return false
 }
 
 func reviewDecisionClass(reviewType string) string {
@@ -130,7 +123,7 @@ func reviewInteractionMode(reviewType string) string {
 func reviewWhyNotAuto(reviewType string) string {
 	switch reviewType {
 	case "UNKNOWN_MERCHANT":
-		return "the evidence did not name a merchant and one may not be invented"
+		return "no supported merchant category was available; choose the transaction category without inventing a merchant"
 	case "AMBIGUOUS_CATEGORY":
 		return "no category was decided for this merchant yet"
 	case "TRANSFER_CLASSIFICATION", "UNKNOWN_PURPOSE":
