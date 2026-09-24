@@ -126,3 +126,48 @@ unchanged; I pass (user-supplied fields/bounded choices counted, server-merged
 values excluded); J pass for the bounded DB set; K pass (`git diff --check`).
 Known follow-up: IR-09 must consume these measured turns for call-efficiency
 analysis; no IR-03-specific correctness or telemetry gap remains.
+
+## IR-04 — Telegram single-pass routing
+
+Task: IR-04
+Baseline main SHA: `e411dc56ccee68e0a405145d63fb542c14faaa43`
+Files changed: Telegram conversational transaction routing, transaction tool
+schema, turn telemetry, migration 63, schema reference, and focused tests.
+User interactions before: complete extracted transactions could receive a
+redundant Jev replay and then a generative synthesis; missing date remained a
+review blocker.
+User interactions after: complete valid transactions commit with deterministic
+result text; missing date or explicit ambiguity stays in Review; similar
+transactions keep the explicit edit-confirmation prompt.
+Jev calls before: simple harvestable = 1; complex clear = route + full semantic
+replay (2); category residual = route + full semantic replay (2).
+Jev calls after: simple harvestable = 1; complex clear = route only (1);
+category residual = route + category-only rescue (2).
+Generative calls before: simple harvestable = 0; complex clear/residual = 1.
+Generative calls after: unchanged; route failure exposes no mutation authority.
+Canonical correctness guard: deterministic acceptance rechecks type, positive
+integer IDR amount, user-supported date provenance, allowed active household
+category, ambiguity flag, server-owned mutation route, household identity, and
+similar-transaction conflict. Missing dates and unscoped ambiguity cannot
+direct-confirm.
+Residual uncertainty after: `transaction_at` remains user-resolved; category
+alone may receive one Jev rescue; ambiguous extraction remains in Review.
+Tests added/updated: direct acceptance/no replay; category-only rescue; missing
+date and explicit ambiguity fail closed; mutation-route authorization; complex
+and simple call budgets; Jev route outage; existing edit prompt; open-review
+precedence. Full Telegram package and `go vet` pass against disposable
+PostgreSQL 17; migration 63 up/down/up passes in capped containers (1 CPU / 1 GiB
+Go, 0.5 CPU / 512 MiB PostgreSQL).
+Drift checklist: A pass (no unnecessary user prompt; correction guard retained);
+B pass (complete extraction skips full replay; only category residual rescued);
+C pass (Go owns validation and IDs; generation and Jev own distinct facts);
+D pass (confidence is not an acceptance gate; route, schema, amount, date,
+category, household, ambiguity, and duplicate guards retained); E pass (missing
+date is not guessed); F unchanged (review facts remain canonical); G pass (route
+failure and residual uncertainty fail closed); H Telegram pass (simple, clear,
+residual, binding, open-review cases); I pass (phase lane and residual dimension
+recorded without raw facts); J pass (canonical state and model call budgets
+asserted); K pass (`git diff --check`, migration scope only).
+Known follow-up: IR-09 consumes the new residual lane for call-efficiency
+analysis. The legacy deterministic `Process` path remains for callbacks; regular
+text jobs enter through `ProcessAgent`.

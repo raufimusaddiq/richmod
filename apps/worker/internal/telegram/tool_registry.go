@@ -28,7 +28,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		}
 		category["enum"] = values
 	}
-	entry := objectSchema(map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount_idr": stringType, "merchant": nullString, "category_slug": category, "description": nullString, "note": nullString, "date_reference": dateRef, "explicit_date": nullString, "local_time": localTime, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, []string{"type", "amount_idr", "merchant", "category_slug", "description", "note", "date_reference", "explicit_date", "local_time", "confidence", "category_confidence"})
+	entry := objectSchema(map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount_idr": stringType, "merchant": nullString, "category_slug": category, "description": nullString, "note": nullString, "date_reference": dateRef, "explicit_date": nullString, "local_time": localTime, "ambiguous": map[string]any{"type": "boolean"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, []string{"type", "amount_idr", "merchant", "category_slug", "description", "note", "date_reference", "explicit_date", "local_time", "ambiguous", "confidence", "category_confidence"})
 	periodProps := map[string]any{"period": period, "from_date": nullString, "to_date": nullString}
 	tools := []gateway.ToolDefinition{
 		{Name: "record_transaction", Description: "Record one observed household IDR income or expense intent. For a clearly named purchased item or service, select the best matching allowed category. Preserve explicit past dates; use PAGI, SIANG, SORE, or MALAM for a named time of day. Go validates and persists.", Parameters: entry},
@@ -210,6 +210,7 @@ type createArgs struct {
 	DateReference      string  `json:"date_reference"`
 	ExplicitDate       *string `json:"explicit_date"`
 	LocalTime          *string `json:"local_time"`
+	Ambiguous          bool    `json:"ambiguous"`
 	Confidence         float64 `json:"confidence"`
 	CategoryConfidence float64 `json:"category_confidence"`
 }

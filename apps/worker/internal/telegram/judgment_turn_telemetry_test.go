@@ -77,6 +77,8 @@ func TestTurnTelemetryRecordsLaneAndAvoidedCalls(t *testing.T) {
 	f := newAgentIntegrationFixture(t, "turn-telemetry")
 	p := NewProcessor(f.pool, nil)
 	p.SetTurnTelemetry(true)
+	t.Cleanup(f.pool.Close)
+	defer p.pool.Close()
 
 	trace := &turnTrace{}
 	trace.record(judgmentTaskRoute, "jev-1")

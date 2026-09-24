@@ -7,8 +7,9 @@ import "context"
 // the Processor, because one Processor serves concurrent Telegram turns
 // (WORKER_CHAT_CONCURRENCY) and shared mutable state would race between them.
 type turnTrace struct {
-	tasks []string
-	model string
+	tasks              []string
+	model              string
+	residualDimensions []string
 	// householdID lets the bounded-call recorder attribute llm_call rows to a
 	// household, which is what makes the per-household value aggregate possible.
 	// The gateway recorder is process-wide and sees no turn state otherwise.
@@ -55,6 +56,13 @@ func (t *turnTrace) record(task judgmentTask, model string) {
 	}
 }
 
+func (t *turnTrace) recordResidual(dimensions []string) {
+	if t == nil || len(dimensions) == 0 {
+		return
+	}
+	t.residualDimensions = append([]string(nil), dimensions...)
+}
+
 func (t turnTrace) consumed() bool { return len(t.tasks) > 0 }
 
 // judgmentTurnLane classifies how a Telegram turn was resolved, which is what
@@ -66,6 +74,7 @@ type judgmentTurnLane string
 const (
 	judgmentLaneJevOnly           judgmentTurnLane = "JEV_ONLY"
 	judgmentLaneJevThenGenerative judgmentTurnLane = "JEV_THEN_GENERATIVE"
+	judgmentLaneResidualJev       judgmentTurnLane = "JEV_THEN_GENERATIVE_THEN_RESIDUAL_JEV"
 	judgmentLaneGenerativeOnly    judgmentTurnLane = "GENERATIVE_ONLY"
 )
 
@@ -76,6 +85,7 @@ const (
 type judgmentTurnObservation struct {
 	Lane                   judgmentTurnLane
 	DecisionTasks          []string
+	ResidualDimensions     []string
 	Model                  string
 	NativeToolCallsAvoided int
 }
@@ -88,8 +98,14 @@ func (p *Processor) recordTurnTelemetry(ctx context.Context, householdID, source
 	if !p.turnTelemetryEnabled || p.pool == nil {
 		return
 	}
+	if observation.DecisionTasks == nil {
+		observation.DecisionTasks = []string{}
+	}
+	if observation.ResidualDimensions == nil {
+		observation.ResidualDimensions = []string{}
+	}
 	if observation.NativeToolCallsAvoided < 0 {
 		observation.NativeToolCallsAvoided = 0
 	}
-	_, _ = p.pool.Exec(ctx, `INSERT INTO judgment_turn_telemetry(household_id,source_event_id,lane,decision_tasks,policy_version,model,native_tool_calls_avoided) VALUES(NULLIF($1,'')::uuid,NULLIF($2,'')::uuid,$3,$4,$5,NULLIF($6,''),$7)`, householdID, sourceEventID, string(observation.Lane), observation.DecisionTasks, judgmentPolicyVersion, observation.Model, observation.NativeToolCallsAvoided)
+	_, _ = p.pool.Exec(ctx, `INSERT INTO judgment_turn_telemetry(household_id,source_event_id,lane,decision_tasks,residual_dimensions,policy_version,model,native_tool_calls_avoided) VALUES(NULLIF($1,'')::uuid,NULLIF($2,'')::uuid,$3,$4,$5,$6,NULLIF($7,''),$8)`, householdID, sourceEventID, string(observation.Lane), observation.DecisionTasks, observation.ResidualDimensions, judgmentPolicyVersion, observation.Model, observation.NativeToolCallsAvoided)
 }

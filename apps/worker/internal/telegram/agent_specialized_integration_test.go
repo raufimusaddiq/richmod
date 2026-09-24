@@ -49,7 +49,7 @@ func newAgentIntegrationFixture(t *testing.T, label string) agentIntegrationFixt
 	update.Message.MessageID = 1
 	return agentIntegrationFixture{
 		pool: pool, householdID: householdID, userID: userID, sourceID: sourceID, chatID: chatID, update: update,
-		state: &agentState{SourceEventID: sourceID, HouseholdID: householdID, Update: update, Now: time.Now().In(jakartaLocation()), ModelPhases: 1},
+		state: &agentState{SourceEventID: sourceID, HouseholdID: householdID, Update: update, Now: time.Now().In(jakartaLocation()), ModelPhases: 1, Route: "NEEDS_GENERATIVE_AGENT"},
 	}
 }
 

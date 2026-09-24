@@ -25,42 +25,19 @@ func (clearPurchaseGateway) NativeToolCall(context.Context, string, string, any,
 	return gateway.ToolCall{Name: "record_transaction", Arguments: json.RawMessage(`{"type":"EXPENSE","amount_idr":"9000","merchant":"Indomaret","category_slug":"makanan-minuman","description":"Beli es krim","note":null,"date_reference":"TODAY","explicit_date":null,"local_time":null,"confidence":0.98,"category_confidence":0.88}`)}, gateway.Metadata{Model: "test"}, nil
 }
 
-// clearPurchaseJudgmentEngine is a grounded stub for the bounded evaluator: a
-// clear purchase with a deterministic category must be affirmatively supported
-// so the transaction can confirm. It fails the test if Go skips the judgment
-// call entirely, and is intentionally not a test of provider behavior.
+// The legacy deterministic Process path still uses the full bundle. IR-04
+// applies to the conversational ProcessAgent path only.
 type clearPurchaseJudgmentEngine struct{ t *testing.T }
 
 func (e clearPurchaseJudgmentEngine) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
 	answers := map[string]judgment.Answer{
-		"amount_support":     decidedNoul(0.99),
-		"date_support":       decidedNoul(0.99),
+		"amount_support": decidedNoul(0.99), "date_support": decidedNoul(0.99),
 		"material_ambiguity": decidedNoul(0.02),
+		"transaction_type":   confidentChoice(judgmentTypeCriteria, "EXPENSE"),
 	}
-	// Confirm the direction the server already hardened, so the fixture does not
-	// accidentally override a deterministic hint.
-	typeHint := "EXPENSE"
-	if state, ok := request.State.(map[string]any); ok {
-		if hint, ok := state["transaction_type_hint"].(string); ok && hint != "" {
-			typeHint = hint
-		}
-	}
-	answers["transaction_type"] = confidentChoice(judgmentTypeCriteria, typeHint)
 	if category, ok := request.Questions["category"]; ok {
-		criteria, valid := category.Criteria.(map[string]any)
-		if !valid {
-			e.t.Fatalf("expected category criteria, got %T", category.Criteria)
-		}
-		// Pick whichever real slug the server offered instead of hardcoding one
-		// household's category naming.
-		choice := "dining"
-		if criteria["dining"] == nil {
-			choice = "makanan-minuman"
-		}
-		if criteria[choice] == nil {
-			e.t.Fatalf("fixture category slug missing from server criteria: %v", criteria)
-		}
-		answers["category"] = confidentChoice(criteria, choice)
+		criteria, _ := category.Criteria.(map[string]any)
+		answers["category"] = confidentChoice(criteria, "makanan-minuman")
 	}
 	return judgment.Result{Model: "jev-clear-purchase", Answers: answers}, nil
 }

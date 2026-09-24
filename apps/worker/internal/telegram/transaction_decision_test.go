@@ -28,7 +28,10 @@ func (s *stubJudgmentEngine) Evaluate(_ context.Context, _ string, request judgm
 	if s.err != nil {
 		return judgment.Result{}, s.err
 	}
-	answers := s.answers
+	answers := map[string]judgment.Answer{}
+	for key, value := range s.answers {
+		answers[key] = value
+	}
 	if question, exists := request.Questions["category"]; exists {
 		criteria, ok := question.Criteria.(map[string]any)
 		if !ok {
@@ -37,10 +40,6 @@ func (s *stubJudgmentEngine) Evaluate(_ context.Context, _ string, request judgm
 		choice := s.categoryChoice
 		if choice == "" {
 			choice = "OTHER_OR_UNCLEAR"
-		}
-		answers = map[string]judgment.Answer{}
-		for key, value := range s.answers {
-			answers[key] = value
 		}
 		answers["category"] = confidentChoice(criteria, choice)
 	}

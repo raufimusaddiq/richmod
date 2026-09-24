@@ -13,17 +13,15 @@ import (
 func recordAgentTransactionForRefTest(t *testing.T, ctx context.Context, f agentIntegrationFixture, sourceID string, update telegramUpdate, amount, merchant string) agentToolResult {
 	t.Helper()
 	p := NewProcessor(f.pool, nil)
-	// The conversational record_transaction tool consumes the shared semantic
-	// decision, so the fixture supplies a bounded engine instead of relying on
-	// generative self-confidence.
-	p.SetJudgment(clearPurchaseJudgmentEngine{t: t})
 	state := &agentState{
 		SourceEventID: sourceID,
 		HouseholdID:   f.householdID,
 		Update:        update,
 		Now:           time.Now().In(jakartaLocation()),
 		ModelPhases:   1,
+		Route:         "NEEDS_GENERATIVE_AGENT",
 	}
+	state.Update.Message.Text = merchant + " " + amount + " hari ini"
 	result, synthesize, err := p.agentRecordTransaction(ctx, state, gateway.ToolCall{CallID: "record-" + amount, Name: "record_transaction"}, map[string]any{
 		"type":                "EXPENSE",
 		"amount_idr":          amount,
@@ -34,11 +32,12 @@ func recordAgentTransactionForRefTest(t *testing.T, ctx context.Context, f agent
 		"date_reference":      "TODAY",
 		"explicit_date":       nil,
 		"local_time":          "12:30",
+		"ambiguous":           false,
 		"confidence":          1.0,
 		"category_confidence": 1.0,
 	}, gateway.Metadata{Model: "test-model"})
 	mustAgentTest(t, err)
-	if !synthesize || result.Status != "CONFIRMED" {
+	if synthesize || result.Status != "CONFIRMED" {
 		t.Fatalf("record transaction synthesize=%v result=%+v", synthesize, result)
 	}
 	if len(result.References) != 1 {
