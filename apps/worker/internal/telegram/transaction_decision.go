@@ -116,7 +116,7 @@ func generativeValidatedTransactionDecision(value validatedExtraction, categoryP
 	if route != "CREATE_TRANSACTION" && route != "NEEDS_GENERATIVE_AGENT" {
 		return TransactionSemanticDecision{}, false
 	}
-	if value.Confidence < 0.90 {
+	if value.Confidence < 0.90 || value.Ambiguous {
 		return TransactionSemanticDecision{}, false
 	}
 	decision := TransactionSemanticDecision{
