@@ -68,6 +68,15 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
 		base.InteractionMode = ModeConflictResolution
 		base.WhyNotAuto = "two sources disagree about the same provider reference, so Go refuses to guess"
+	case "POSSIBLE_DUPLICATE":
+		// A candidate transaction may be the same event. The household either
+		// merges into a chosen candidate or records a separate transaction; Go
+		// never guesses which (PRD §27 S3, §37 safety).
+		base.DecisionClass = ClassDuplicateAmbiguity
+		base.MissingFacts = []string{"duplicate_relationship"}
+		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
+		base.InteractionMode = ModeConflictResolution
+		base.WhyNotAuto = "a plausibly matching transaction already exists, so the household must choose"
 	default:
 		return Decision{}, false
 	}

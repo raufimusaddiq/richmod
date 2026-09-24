@@ -7,7 +7,7 @@ func TestPresetsHaveCompleteKnownContracts(t *testing.T) {
 		"CYCLE_RESIDUAL_ALLOCATION", "WEALTH_OBSERVATION_CONFIRMATION",
 		"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION",
 		"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE", "TRANSFER_CLASSIFICATION",
-		"CONFLICTING_EVIDENCE",
+		"CONFLICTING_EVIDENCE", "POSSIBLE_DUPLICATE",
 	} {
 		decision, ok := Preset(reason, "test", "subject")
 		if !ok || decision.ReasonCode != reason || decision.DecisionClass == "" || decision.InteractionMode == "" || decision.WhyNotAuto == "" || len(decision.AllowedActions) == 0 {
