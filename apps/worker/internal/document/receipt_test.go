@@ -1,8 +1,11 @@
 package document
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 func TestValidateReceiptArithmeticAndJakartaTime(t *testing.T) {
@@ -54,5 +57,17 @@ func TestReceiptPromptInjectionRemainsMerchantData(t *testing.T) {
 	}
 	if value.Currency != "IDR" || value.Total != "1000" {
 		t.Fatal("merchant text changed deterministic financial fields")
+	}
+}
+
+func TestReceiptCategoryUsesJevOnlyAsResidualRescue(t *testing.T) {
+	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"category": rowAnswerFor("food-and-drink", .95)}}
+	value := receiptExtraction{Merchant: "Warung Baru", Total: "25000", Currency: "IDR", Confidence: .95}
+	got, err := (&Processor{verifier: verifier}).resolveReceiptCategory(context.Background(), "evt", value, rowCategoryOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 1 || got != "cat-food" {
+		t.Fatalf("residual category should get one bounded rescue call: calls=%d category=%q", verifier.calls, got)
 	}
 }
