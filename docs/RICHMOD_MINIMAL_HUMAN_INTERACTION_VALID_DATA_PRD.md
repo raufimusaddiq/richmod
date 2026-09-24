@@ -1824,11 +1824,10 @@ This initiative MUST NOT:
 # 32. Implementation Stages
 
 **Implementation status (2026-09-24):** PR #121 is merged and remains the
-normative product contract. Stages 1, 2, and 4–7 are implemented on current
-`main`; Stage 3 is under review in PR #126. Stage 0 telemetry is implemented
-on the current feature branch. Stage 8's canary is runnable, but threshold
-calibration still requires sufficient production evidence. This is not a claim
-that the full Definition of Done has passed.
+normative product contract. Stages 0–7 are implemented on current `main`
+through PR #140. Stage 0 production baseline capture and Stage 8 canary
+evaluation/threshold calibration remain pending sufficient post-release
+evidence; thresholds must not be tuned before that evidence exists.
 
 ## Stage 0 — Baseline and Telemetry
 
