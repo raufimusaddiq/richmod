@@ -112,11 +112,28 @@ func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy jud
 // high-confidence, and complete enough for the requested mutation, Go can accept
 // it directly instead of paying for a second Jev call that merely repeats the
 // model's work. Jev remains the rescue lane for low-confidence/partial output.
-func generativeValidatedTransactionDecision(value validatedExtraction, categoryPresent, exactCategory bool, route string) (TransactionSemanticDecision, bool) {
+func generativeValidatedTransactionDecision(userText string, value validatedExtraction, categoryPresent, exactCategory bool, route string) (TransactionSemanticDecision, bool) {
 	if route != "CREATE_TRANSACTION" && route != "NEEDS_GENERATIVE_AGENT" {
 		return TransactionSemanticDecision{}, false
 	}
 	if value.Confidence < 0.90 || value.Ambiguous {
+		return TransactionSemanticDecision{}, false
+	}
+	// Do not equate the model's confidence with evidence support. The direct
+	// post-LLM path is allowed only when Go can independently re-harvest the same
+	// amount/date from the original user text. Arbitrary values that only the LLM
+	// could recover remain residual uncertainty and go through the bounded rescue.
+	grounded, ok := harvestSimpleTransaction(userText)
+	if !ok || grounded.Amount != value.Amount || grounded.DateRef != value.DateReference {
+		return TransactionSemanticDecision{}, false
+	}
+	if grounded.DateRef == "EXPLICIT" && grounded.ExplicitDate != value.ExplicitDate {
+		return TransactionSemanticDecision{}, false
+	}
+	// Exact/approximate clock values are not harvested by the cheap parser, so
+	// they require the residual support lane rather than being trusted from model
+	// confidence. OBSERVED_AT_PROCESSING is the deterministic default clock.
+	if value.TimePrecision != "" && value.TimePrecision != "OBSERVED_AT_PROCESSING" {
 		return TransactionSemanticDecision{}, false
 	}
 	decision := TransactionSemanticDecision{
