@@ -73,6 +73,9 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if decision.ReasonCode != "AMBIGUOUS_CATEGORY" {
 		t.Fatalf("reason code=%q", decision.ReasonCode)
 	}
+	if decision.InteractionMode != "SINGLE_FIELD" {
+		t.Fatalf("category is a single missing field, mode=%q", decision.InteractionMode)
+	}
 	if decision.KnownFacts["amount_idr"] != "54000" {
 		t.Fatalf("the known amount must travel with the review: %v", decision.KnownFacts)
 	}
@@ -82,8 +85,8 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if decision.InteractionMode == "" || len(decision.AllowedActions) == 0 {
 		t.Fatalf("the decision must name an interaction mode and allowed actions: %+v", decision)
 	}
-	if len(decision.AllowedActions) != 2 || decision.AllowedActions[0] != "review:category" || decision.AllowedActions[1] != "review:ignore" {
-		t.Fatalf("category review actions=%v; want Telegram category/ignore callbacks", decision.AllowedActions)
+	if len(decision.AllowedActions) != 2 || decision.AllowedActions[0] != "CONFIRM_REVIEW" || decision.AllowedActions[1] != "IGNORE" {
+		t.Fatalf("category review actions=%v; want the shared accept/ignore contract", decision.AllowedActions)
 	}
 
 	var duplicateTransactionID string
@@ -109,14 +112,17 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if decision.ReasonCode != "POSSIBLE_DUPLICATE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "duplicate_relationship" || decision.InteractionMode != "CONFLICT_RESOLUTION" {
 		t.Fatalf("duplicate review contract is incomplete: %+v", decision)
 	}
-	if len(decision.AllowedActions) != 2 || decision.AllowedActions[0] != "review:category" || decision.AllowedActions[1] != "review:ignore" {
+	// A possible duplicate really is a candidate choice: the Inbox offers merge or
+	// new-transaction, and Telegram replies with no mutation. The stored contract
+	// names the candidate actions the Inbox resolver accepts.
+	if len(decision.AllowedActions) != 3 || decision.AllowedActions[0] != "MERGE_EXISTING" || decision.AllowedActions[1] != "CONFIRM_NEW_TRANSFER" || decision.AllowedActions[2] != "IGNORE" {
 		t.Fatalf("duplicate review actions=%v", decision.AllowedActions)
 	}
 }
 
-// A reason whose question is free text has no bounded actions, so no decision may
-// be stored for it. Storing one would assert the wrong unresolved fact.
-func TestTelegramReviewWithoutBoundedActionsStoresNoDecision(t *testing.T) {
+// Free-text clarification is still a single unresolved fact, not an excuse to
+// omit the ReviewDecision contract.
+func TestTelegramReviewStoresSingleFieldDecision(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -153,7 +159,19 @@ func TestTelegramReviewWithoutBoundedActionsStoresNoDecision(t *testing.T) {
 	if err = pool.QueryRow(ctx, "SELECT COALESCE(decision::text,'') FROM review_item WHERE transaction_id=$1", transactionID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw != "" {
-		t.Fatalf("a free-text review must not store a bounded contract: %s", raw)
+	var decision struct {
+		ReasonCode      string   `json:"reasonCode"`
+		MissingFacts    []string `json:"missingFacts"`
+		InteractionMode string   `json:"interactionMode"`
+		AllowedActions  []string `json:"allowedActions"`
+	}
+	if err = json.Unmarshal([]byte(raw), &decision); err != nil {
+		t.Fatalf("single-field review must store valid decision JSON: %v (%s)", err, raw)
+	}
+	if decision.ReasonCode != "UNKNOWN_PURPOSE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "transaction_semantics" || decision.InteractionMode != "SINGLE_FIELD" {
+		t.Fatalf("single-field decision=%+v", decision)
+	}
+	if len(decision.AllowedActions) != 2 || decision.AllowedActions[0] != "CONFIRM_REVIEW" || decision.AllowedActions[1] != "IGNORE" {
+		t.Fatalf("single-field actions=%v", decision.AllowedActions)
 	}
 }

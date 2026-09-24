@@ -17,7 +17,7 @@ func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, revie
 	var amount, sourceEventID string
 	var transactionAt time.Time
 	var transactionType string
-	if err := tx.QueryRow(ctx, "SELECT COALESCE(amount::text,''),transaction_at,COALESCE(source_event_id::text,''),type FROM transaction WHERE id=$1::uuid", transactionID).
+	if err := tx.QueryRow(ctx, "SELECT COALESCE(t.amount::text,''),t.transaction_at,COALESCE(e.source_event_id::text,''),t.type FROM transaction t LEFT JOIN LATERAL (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=t.id ORDER BY created_at LIMIT 1) e ON true WHERE t.id=$1::uuid", transactionID).
 		Scan(&amount, &transactionAt, &sourceEventID, &transactionType); err != nil {
 		return reviewdec.Decision{}, err
 	}
