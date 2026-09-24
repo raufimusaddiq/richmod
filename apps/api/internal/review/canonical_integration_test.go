@@ -223,6 +223,17 @@ func TestResolvePayslipMissingDateSeparatesEvidenceFromPolicy(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE salary_source SET is_primary=false WHERE household_id=$1 AND active`, household)
 	must(err)
 	dual := seed("dual", map[string]any{"version": 1, "reasonCode": "MISSING_PAY_DATE", "decisionClass": "HUMAN_POLICY_CHOICE", "interactionMode": "POLICY_CHOICE", "knownFacts": map[string]any{}, "missingFacts": []string{"transaction_at", "salary_classification"}, "decisionProvenance": map[string]any{"hasPrimarySalary": false}, "allowedActions": []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}})
+	listed := listCanonicalReviews(t, pool, household, user)
+	for _, item := range listed {
+		if item.ID == dual {
+			if len(item.MissingFacts) != 2 || !containsString(item.MissingFacts, "transaction_at") || !containsString(item.MissingFacts, "salary_classification") || !containsString(item.AllowedActions, "PRIMARY_SALARY") {
+				t.Fatalf("first-salary dual review contract: %+v", item)
+			}
+			goto dualListed
+		}
+	}
+	t.Fatal("first-salary review missing from list")
+dualListed:
 	if res := resolve(dual, "{\"action\":\"SET_PAY_DATE\",\"values\":{\"payDate\":\"2026-08-26\"}}"); res.Code != http.StatusBadRequest {
 		t.Fatalf("dual resolve without a policy choice must be rejected: %d %s", res.Code, res.Body.String())
 	}

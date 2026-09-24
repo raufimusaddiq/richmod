@@ -270,8 +270,9 @@ issues.
 Generative calls after: unchanged; no model replay added. Unit assertion pins
 one payslip extraction call and no Jev verifier route.
 Canonical correctness guard: live household salary state is read while listing
-and again under the resolution transaction; allowed policy actions are checked
-against the stored ReviewDecision and current state. Date remains strict
+and again under the resolution transaction; the API list reconciles missing
+policy dimensions/actions for reviews whose household policy changed while open.
+Posted choices are checked against current state. Date remains strict
 `YYYY-MM-DD`; Go alone confirms transaction/evidence/salary state. Date-only
 resolution adds/updates a non-primary salary source, never changes the existing
 primary. No model decides salary designation.

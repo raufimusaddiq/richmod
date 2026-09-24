@@ -85,9 +85,8 @@ func canonicalActions(kind string) []string {
 		return []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
 	}
 	if kind == "MISSING_PAY_DATE" {
-		// The salary-classification choice is added by the item mapper only when
-		// the stored decision records that no primary salary exists; legacy
-		// reviews without that provenance stay date-only (PRD §7.6, E1/E2).
+		// The item mapper adds salary choices only when current household policy
+		// leaves classification unresolved (PRD §7.6, E1/E2).
 		return []string{"SET_PAY_DATE", "IGNORE"}
 	}
 	if kind == "CYCLE_RESIDUAL_ALLOCATION" {
@@ -452,20 +451,12 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
 		err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, in.Action)
 	} else if kind == "MISSING_PAY_DATE" && in.Action == "SET_PAY_DATE" {
-		var storedActions []string
 		var v struct {
 			PayDate string `json:"payDate"`
 			Choice  string `json:"choice"`
 		}
 		if json.Unmarshal(in.Values, &v) != nil {
 			err = errInvalid
-		}
-		if err == nil {
-			var storedDecision []byte
-			err = tx.QueryRow(r.Context(), `SELECT decision FROM review_item WHERE id=$1 AND household_id=$2`, r.PathValue("id"), household).Scan(&storedDecision)
-			if err == nil {
-				storedActions = proposalFacts(storedDecision).AllowedActions
-			}
 		}
 		if err == nil {
 			date, parseErr := time.Parse("2006-01-02", v.PayDate)
@@ -478,11 +469,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 					if choice == "" && hasPrimary {
 						choice = "HOUSEHOLD_POLICY"
 					} else if choice == "" || (hasPrimary && choice != "") || (!hasPrimary && choice != "PRIMARY_SALARY" && choice != "ORDINARY_INCOME") {
-						err = errInvalid
-					}
-					if choice == "HOUSEHOLD_POLICY" && !containsString(storedActions, "SET_PAY_DATE") {
-						err = errInvalid
-					} else if (choice == "PRIMARY_SALARY" || choice == "ORDINARY_INCOME") && !containsString(storedActions, choice) {
 						err = errInvalid
 					}
 					if err == nil {

@@ -153,6 +153,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		resolvedWealth := firstNonEmpty(value.ResolvedWealthAccountID, stored.resolvedEntity("resolvedWealthAccountId"))
 		resolvedAccount := firstNonEmpty(value.ResolvedAccountID, stored.resolvedEntity("resolvedAccountId"))
 		hasPrimarySalary, _ := stored.Provenance["hasPrimarySalary"].(bool)
+		missingFacts := append([]string(nil), stored.MissingFacts...)
+		whyNotAuto := stored.WhyNotAuto
 		if value.ReviewType == "MISSING_PAY_DATE" {
 			if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, household).Scan(&hasPrimarySalary); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "unable to read salary policy"})
@@ -160,11 +162,40 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			}
 			if !hasPrimarySalary {
 				value.AllowedActions = []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
+				if !containsString(missingFacts, "salary_classification") {
+					missingFacts = append(missingFacts, "salary_classification")
+				}
+				whyNotAuto = "pay date and first-salary classification remain unresolved"
 			} else {
 				value.AllowedActions = []string{"SET_PAY_DATE", "IGNORE"}
+				filtered := missingFacts[:0]
+				for _, fact := range missingFacts {
+					if fact != "salary_classification" {
+						filtered = append(filtered, fact)
+					}
+				}
+				missingFacts = filtered
+				whyNotAuto = "the pay date is not present in the evidence"
+			}
+			if len(value.Decision) > 0 {
+				var decision map[string]any
+				if json.Unmarshal(value.Decision, &decision) == nil && decision != nil {
+					decision["missingFacts"] = missingFacts
+					decision["allowedActions"] = value.AllowedActions
+					decision["decisionClass"] = "EVIDENCE_GAP"
+					decision["interactionMode"] = "SINGLE_FIELD"
+					decision["whyNotAutoConfirm"] = whyNotAuto
+					if !hasPrimarySalary {
+						decision["decisionClass"] = "HUMAN_POLICY_CHOICE"
+						decision["interactionMode"] = "POLICY_CHOICE"
+					}
+					if encoded, err := json.Marshal(decision); err == nil {
+						value.Decision = encoded
+					}
+				}
 			}
 		}
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: stored.MissingFacts, WhyNotAutoConfirm: stored.WhyNotAuto, HasPrimarySalary: hasPrimarySalary})
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: missingFacts, WhyNotAutoConfirm: whyNotAuto, HasPrimarySalary: hasPrimarySalary})
 	}
 	writeJSON(w, 200, items)
 }
