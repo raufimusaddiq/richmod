@@ -371,7 +371,7 @@ func screenshotReviewType(row validatedScreenshotRow) string {
 	if len(row.Candidates) > 0 {
 		return "POSSIBLE_DUPLICATE"
 	}
-	categoryKnown := row.CategoryID != nil
+	categoryKnown := row.CategoryID != nil && !row.CategoryConflict
 	if !row.DateKnown && !categoryKnown {
 		return "TRANSACTION_FACTS_MISSING"
 	}
