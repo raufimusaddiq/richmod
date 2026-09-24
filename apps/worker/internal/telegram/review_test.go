@@ -31,20 +31,29 @@ func TestTelegramReplyMetadataBindsExactMessage(t *testing.T) {
 }
 
 func TestReviewDetailMarkupAllowsCategoryWithoutMerchant(t *testing.T) {
-	// PRD §9.4: merchant is optional enrichment, so the category the ledger
-	// actually requires must stay selectable whether or not a merchant is known.
-	for _, merchantKnown := range []bool{false, true} {
-		found := false
-		for _, row := range reviewDetailMarkup(merchantKnown).InlineKeyboard {
-			for _, button := range row {
-				found = found || button.CallbackData == "review:category"
-			}
-		}
-		if !found {
-			t.Fatalf("merchantKnown=%t must still allow category selection", merchantKnown)
+	found := false
+	for _, row := range reviewDetailMarkup().InlineKeyboard {
+		for _, button := range row {
+			found = found || button.CallbackData == "review:category"
 		}
 	}
+	if !found {
+		t.Fatal("category must remain available when merchant is unknown")
+	}
 }
+
+func TestReviewRequiresFactFailsClosedForMissingOrInvalidContract(t *testing.T) {
+	for _, raw := range []*string{nil, ptr("null"), ptr("not-json"), ptr("{}")} {
+		if !reviewRequiresFact(raw, "merchant") {
+			t.Fatalf("reviewRequiresFact(%v) = false; malformed or absent contracts must preserve legacy requirement", raw)
+		}
+	}
+	if reviewRequiresFact(ptr(`["category"]`), "merchant") {
+		t.Fatal("category-only decision unexpectedly requires merchant")
+	}
+}
+
+func ptr(value string) *string { return &value }
 
 func TestReviewCategoryUsesDeterministicAllowedMatch(t *testing.T) {
 	processor := &Processor{gateway: reviewTestGateway{}}

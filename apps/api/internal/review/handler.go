@@ -78,8 +78,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
 		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,
-		       ri.decision
+		       COALESCE(ri.decision,'null'::jsonb)
 		FROM transaction t
+		LEFT JOIN LATERAL (
+			SELECT ri.decision FROM review_item ri
+			WHERE ri.transaction_id=t.id AND ri.status IN ('OPEN','PENDING_SEND')
+			ORDER BY ri.created_at DESC LIMIT 1
+		) ri ON true
 		LEFT JOIN category c ON c.id=t.category_id
 		LEFT JOIN merchant m ON m.id=t.merchant_id
 		LEFT JOIN LATERAL (
@@ -88,7 +93,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		) evidence ON true
 		LEFT JOIN source_event s ON s.id=evidence.source_event_id
 		LEFT JOIN transaction_proposal p ON p.id=NULLIF(evidence.metadata_json->>'proposal_id','')::uuid
-		LEFT JOIN LATERAL (SELECT decision FROM review_item WHERE transaction_id=t.id AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at DESC LIMIT 1) ri ON true
 		WHERE t.household_id=$1 AND t.status='NEEDS_REVIEW'
 		ORDER BY t.transaction_at DESC,t.id DESC LIMIT 100`, household)
 	if err != nil {
@@ -108,13 +112,25 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"error": "unable to generate reconciliation candidates"})
 			return
 		}
-		value.Reason = reviewReason(value)
+		// The persisted ReviewDecision is the single source of truth for what a
+		// review asks (PRD 13.4, 37): a Telegram card and the Inbox read the same
+		// contract instead of deriving the unresolved fact independently. Rows
+		// written before the contract existed keep the derived fallback.
 		stored := proposalFacts(value.Decision)
-		value.KnownFacts, value.ProposedFacts, value.MissingFacts, value.WhyNotAutoConfirm = stored.KnownFacts, stored.ProposedFacts, stored.MissingFacts, stored.WhyNotAuto
-		value.MissingFields = stored.MissingFacts
-		value.AllowedActions = stored.AllowedActions
-		if len(value.MissingFields) == 0 {
-			value.MissingFields = reviewMissingFields(value)
+		if stored.ReasonCode != "" {
+			value.Reason = stored.ReasonCode
+		} else {
+			value.Reason = reviewReason(value)
+		}
+		if stored.ReasonCode != "" {
+			value.ReviewType = stored.ReasonCode
+			value.AllowedActions = stored.AllowedActions
+			value.KnownFacts = stored.KnownFacts
+			value.ProposedFacts = stored.ProposedFacts
+			value.MissingFacts = stored.MissingFacts
+			value.WhyNotAutoConfirm = stored.WhyNotAuto
+		} else {
+			value.MissingFacts = reviewMissingFields(value)
 		}
 		items = append(items, value)
 	}
@@ -212,6 +228,9 @@ func reviewReason(value item) string {
 
 func reviewMissingFields(value item) []string {
 	var fields []string
+	if value.SourceType != nil && *value.SourceType == "BANK_EMAIL" && value.Type == "EXPENSE" && value.MerchantName == nil {
+		fields = append(fields, "merchant")
+	}
 	if value.Type == "EXPENSE" && value.CategoryID == nil {
 		fields = append(fields, "category")
 	}

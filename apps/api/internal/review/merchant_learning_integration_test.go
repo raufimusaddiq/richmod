@@ -74,7 +74,7 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 	}
 }
 
-func TestBankReviewCanConfirmWithoutInventingMerchant(t *testing.T) {
+func TestBankReviewAllowsCategoryOnlyConfirmation(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -113,7 +113,7 @@ func TestBankReviewCanConfirmWithoutInventingMerchant(t *testing.T) {
 
 	accepted := confirm(fmt.Sprintf(`{"categoryId":%q}`, categoryID))
 	if accepted.Code != http.StatusNoContent {
-		t.Fatalf("accepted status=%d body=%s", accepted.Code, accepted.Body.String())
+		t.Fatalf("category-only confirmation status=%d body=%s", accepted.Code, accepted.Body.String())
 	}
 	var status string
 	var merchantID *string
@@ -121,6 +121,6 @@ func TestBankReviewCanConfirmWithoutInventingMerchant(t *testing.T) {
 		t.Fatal(err)
 	}
 	if status != "CONFIRMED" || merchantID != nil {
-		t.Fatalf("confirmed status=%s merchant=%v; absent merchant stays NULL", status, merchantID)
+		t.Fatalf("category-only review should confirm without inventing a merchant: status=%s merchant=%v", status, merchantID)
 	}
 }

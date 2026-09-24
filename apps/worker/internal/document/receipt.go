@@ -441,8 +441,8 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	// PRD 7/37: persist the contract even without a Telegram recipient, so the
-	// Inbox asks only for what is unresolved instead of re-deriving the reason.
+	// PRD 7: persist the contract even without a Telegram recipient; the Inbox
+	// must not depend on notification configuration.
 	reviewType := "AMBIGUOUS_CATEGORY"
 	if possibleDuplicate {
 		reviewType = "POSSIBLE_DUPLICATE"
@@ -451,13 +451,13 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reviewType)
 	}
-	decision.SourceEventID = sourceID
 	decision.KnownFacts["amount_idr"] = value.Total
+	if strings.TrimSpace(value.Merchant) != "" {
+		decision.KnownFacts["merchant"] = value.Merchant
+	}
 	decision.KnownFacts["type"] = "EXPENSE"
 	decision.KnownFacts["transaction_at"] = validation.TransactionAt.Format(time.RFC3339)
-	if merchant := strings.TrimSpace(value.Merchant); merchant != "" {
-		decision.KnownFacts["merchant"] = merchant
-	}
+	decision.SourceEventID = sourceID
 	decision.EvidenceRefs = []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceID}}
 	encoded, encodeErr := decision.JSON()
 	if encodeErr != nil {
