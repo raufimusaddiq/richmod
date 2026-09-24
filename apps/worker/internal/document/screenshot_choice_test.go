@@ -46,7 +46,7 @@ func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
 	// PRD §37: every screenshot reason code must store the one contract that
 	// reason resolves to, or the Inbox hides an action the API still accepts.
 	for _, reason := range []string{"POSSIBLE_DUPLICATE", "AMBIGUOUS_CATEGORY"} {
-		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{Type: "EXPENSE", DateKnown: true})
+		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{Type: "EXPENSE", DateKnown: true}, false)
 		want, ok := reviewdec.Preset(reason, "transaction", "transaction")
 		if !ok {
 			t.Fatalf("missing shared preset for %s", reason)
@@ -70,7 +70,7 @@ func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
 		{"duplicate takes priority", "POSSIBLE_DUPLICATE", validatedScreenshotRow{Type: "EXPENSE"}, []string{"duplicate_relationship"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := screenshotRowDecision("h", "s", "t", test.reason, 0, test.row)
+			got := screenshotRowDecision("h", "s", "t", test.reason, 0, test.row, false)
 			if !reflect.DeepEqual(got.MissingFacts, test.want) {
 				t.Fatalf("missing facts=%v; want %v", got.MissingFacts, test.want)
 			}
@@ -80,8 +80,14 @@ func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
 
 // PRD §11.3: every unmatched row of one image shares a single bounded request.
 func TestResolveRowCategoriesBatchesOneRequestPerImage(t *testing.T) {
-	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor("food-and-drink", 0.9), "row_002": {Type: "choice", Choice: "", Confidence: 0, HasConfidence: false}}}
-	rows := []validatedScreenshotRow{unmatchedOutRow("54000"), unmatchedOutRow("25000"), {Value: screenshotRow{Direction: "IN", Amount: "100000", Currency: "IDR", Confidence: .95}, Type: "INCOME", DateKnown: true}}
+	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_017": rowAnswerFor("food-and-drink", 0.9), "row_018": rowAnswerFor("groceries", 0.9), "row_019": {Type: "choice", Choice: "", Confidence: 0, HasConfidence: false}}}
+	rows := make([]validatedScreenshotRow, 20)
+	for i := range rows {
+		rows[i] = unmatchedOutRow("25000")
+		if i < 17 {
+			rows[i].CategoryID, rows[i].CategoryDecided = ptr("cat-food"), true
+		}
+	}
 	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", rows, rowCategoryOptions)
 	if err != nil {
 		t.Fatal(err)
@@ -89,17 +95,29 @@ func TestResolveRowCategoriesBatchesOneRequestPerImage(t *testing.T) {
 	if verifier.calls != 1 {
 		t.Fatalf("rows of one image must share one bounded request, got %d calls", verifier.calls)
 	}
-	if len(verifier.request.Questions) != 2 {
-		t.Fatalf("only unmatched OUT rows are questioned, got %d", len(verifier.request.Questions))
+	if len(verifier.request.Questions) != 3 {
+		t.Fatalf("only the 3 unresolved OUT rows are questioned, got %d", len(verifier.request.Questions))
 	}
-	if decided[0] != "cat-food" {
-		t.Fatalf("a decisive answer must map back to the canonical category, got %q", decided[0])
+	if len(decided) != 2 || decided[17] != "cat-food" || decided[18] != "cat-groceries" {
+		t.Fatalf("two decisive residuals must map to canonical categories: %v", decided)
 	}
-	if _, ok := decided[2]; ok {
-		t.Fatal("an incoming row has no bounded category decision")
+	for i := 0; i < 17; i++ {
+		if _, ok := decided[i]; ok {
+			t.Fatalf("clear row %d was re-judged", i)
+		}
 	}
-	if provenance.Decided != 1 || provenance.Questions != 2 || provenance.Model != "stub-jev" {
-		t.Fatalf("unexpected provenance %+v", provenance)
+	if provenance.Decided != 2 || provenance.Questions != 3 || provenance.Model != "stub-jev" {
+		t.Fatalf("unexpected selective batch provenance %+v", provenance)
+	}
+}
+
+func TestClearScreenshotRowsNeverEnterBatch(t *testing.T) {
+	verifier := &stubRowVerifier{}
+	clear := unmatchedOutRow("1000")
+	clear.CategoryID, clear.CategoryDecided = ptr("cat-food"), true
+	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", []validatedScreenshotRow{clear}, rowCategoryOptions)
+	if err != nil || verifier.calls != 0 || len(decided) != 0 || provenance.Questions != 0 {
+		t.Fatalf("clear row must skip Jev: calls=%d decisions=%v provenance=%+v err=%v", verifier.calls, decided, provenance, err)
 	}
 }
 

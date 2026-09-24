@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,9 +45,9 @@ type validatedScreenshotRow struct {
 	TransactionAt time.Time
 	DateKnown     bool
 	CategoryID    *string
-	// CategoryDecided marks a decisive bounded-plane ruling on the row's
-	// category, which is what authorises an auto-confirm; CategoryConflict marks
-	// two independent semantic sources disagreeing about it (PRD §11.2, §17).
+	// CategoryDecided marks a policy-accepted source category or bounded ruling,
+	// which can authorise auto-confirm; CategoryConflict marks disagreement
+	// between independent semantic sources (PRD §11.2, §17).
 	CategoryDecided  bool
 	CategoryConflict bool
 	Candidates       []matchCandidate
@@ -221,13 +222,15 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 			transactionType = "INCOME"
 		}
 		var categoryID *string
+		categoryDecided := false
 		if row.Direction == "OUT" && row.CategorySlug != nil && row.CategoryConfidence >= .90 {
 			if id, ok := categoryIDs[*row.CategorySlug]; ok {
 				value := id
 				categoryID = &value
+				categoryDecided = true
 			}
 		}
-		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID})
+		result = append(result, validatedScreenshotRow{Value: row, Type: transactionType, TransactionAt: transactionAt, DateKnown: dateKnown, CategoryID: categoryID, CategoryDecided: categoryDecided})
 	}
 	return result, nil
 }
@@ -248,7 +251,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		hasChat = false
 	}
 	needsReview := false
-	recorded, linked, pending := 0, 0, 0
+	recorded, jevRecorded, linked, pending := 0, 0, 0, 0
 	for index, row := range rows {
 		proposalKey := fmt.Sprintf("row-%03d", index+1)
 		if row.Matched != nil {
@@ -270,6 +273,9 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 				return err
 			}
 			recorded++
+			if slices.Contains(provenance.QuestionKeys, rowQuestionKey(index)) {
+				jevRecorded++
+			}
 			continue
 		}
 		needsReview = true
@@ -308,7 +314,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			}
 			// PRD §7/§13: store the decision contract so the Inbox can ask only
 			// about the dimension that is genuinely unresolved.
-			if encoded, encodeErr := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row).JSON(); encodeErr == nil {
+			if encoded, encodeErr := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row, slices.Contains(provenance.QuestionKeys, rowQuestionKey(index))).JSON(); encodeErr == nil {
 				if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, householdID, string(encoded), transactionID); err != nil {
 					return err
 				}
@@ -332,9 +338,9 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	if provenance.Questions > 0 {
 		// ADR-038/PRD §21: every Jev-influenced canonical mutation keeps its
 		// bounded decision provenance, not just its audit entry.
-		summary, _ := json.Marshal(map[string]any{"questioned_rows": provenance.Questions, "decided_rows": provenance.Decided, "recorded_rows": recorded})
+		summary, _ := json.Marshal(map[string]any{"questioned_rows": provenance.Questions, "decided_rows": provenance.Decided, "jev_confirmed_rows": jevRecorded})
 		outcome := "REVIEW"
-		if recorded > 0 {
+		if jevRecorded > 0 {
 			outcome = "AUTO_CONFIRM"
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,answer_summary_json,outcome) VALUES($1,$2,'SCREENSHOT_ROW_CATEGORY',NULLIF($3,''),$4,$5,$6::jsonb,$7)`, householdID, sourceID, provenance.Model, provenance.PolicyVersion, provenance.QuestionKeys, string(summary), outcome); err != nil {

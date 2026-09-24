@@ -211,3 +211,36 @@ provenance); G pass (provider failure fails closed); H receipt pass; I pass
 and Jev call counts asserted); K pass (no schema change, `git diff --check`).
 Known follow-up: IR-09 consumes the new bounded-call provenance; IR-06 addresses
 the screenshot row batch.
+
+## IR-06 — Screenshot selective bounded batch
+
+Task: IR-06
+Baseline main SHA: `87b01e05e29474a47d8dc278b37c68c09bbf87db`
+Files changed: screenshot validation, selective category rescue, and focused
+unit/database integration tests.
+User interactions before: accepted vision categories were incorrectly left
+unresolved, so they entered the Jev batch with genuinely uncertain rows.
+User interactions after: only unmatched expense rows without a policy-accepted
+vision category enter the single batch; decisive residuals confirm, unresolved
+rows review. Clear rows retain extraction-only provenance.
+Jev calls before/after: one per screenshot when at least one unresolved expense
+category exists; zero when all rows are clear. Jev questions are residual row
+count only.
+Generative calls before/after: one vision extraction; unchanged.
+Canonical correctness guard: household category allowlist, source confidence
+threshold, duplicate/reconciliation matching, date and extraction confidence,
+category conflict and auto-confirm kill switch remain enforced.
+Residual uncertainty after: only missing/uncertain category, date, transfer
+classification, or duplicate relationship.
+Tests added/updated: 20 rows with 17 clear and 3 residual assert 3 questions,
+2 decisive rows and 1 review; database integration asserts 19 canonical rows,
+one residual review, summary counts and question provenance excludes clear rows.
+Migration/schema changes: none.
+Drift checklist: A pass; B pass (clear rows skip Jev); C pass (Go maps slugs to
+household IDs); D pass (no thresholds relaxed); E pass (no missing date guessed);
+F pass; G pass (undecided/provider failure does not confirm); H screenshot pass;
+I pass (only questioned rows appear in provenance); J pass; K pass (`git diff
+--check`). Full document package and `go vet ./internal/document` pass against
+disposable PostgreSQL 17, with Go capped at 1 CPU/1 GiB and PostgreSQL at 0.5
+CPU/512 MiB.
+Known follow-up: IR-09 consumes bounded-call provenance.
