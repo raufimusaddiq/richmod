@@ -204,6 +204,88 @@ func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 	}
 }
 
+func TestTelegramCategoryCallbackDoesNotReopenCategoryOnlyReview(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	stamp := time.Now().UnixNano()
+	chatID := stamp
+	var householdID, userID, categoryID, transactionID, reviewID, itemID, sourceID string
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Category-only callback %d", stamp)).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("category-only-%d@example.test", stamp)).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, householdID).Scan(&categoryID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',9000,now()) RETURNING id`, householdID).Scan(&transactionID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_MERCHANT", chatID, 0, "Pilih kategori"); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT id FROM review_item WHERE transaction_id=$1`, transactionID).Scan(&itemID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["category"]'::jsonb) WHERE id=$1`, itemID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=17 WHERE review_request_id=$1`, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE review_request SET status='OPEN' WHERE id=$1`, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	callback := telegramUpdate{}
+	callback.Message.MessageID = 18
+	callback.Message.Chat.ID = chatID
+	callback.Message.From.ID = chatID
+	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("category-only-callback-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = NewProcessor(pool, boundReviewGateway{}).processReviewCategoryCallback(ctx, sourceID, householdID, callback, "review:cat:"+categoryID); err != nil {
+		t.Fatal(err)
+	}
+	var sourceStatus, transactionStatus, reviewStatus string
+	if err = pool.QueryRow(ctx, `SELECT s.processing_status,t.status,r.status FROM source_event s JOIN transaction t ON t.id=$2 JOIN review_request r ON r.id=$3 WHERE s.id=$1`, sourceID, transactionID, reviewID).Scan(&sourceStatus, &transactionStatus, &reviewStatus); err != nil {
+		t.Fatal(err)
+	}
+	if sourceStatus != "PROCESSED" || transactionStatus != "NEEDS_REVIEW" || reviewStatus != "OPEN" {
+		t.Fatalf("category-only callback must leave Inbox resolution to the user: source=%q transaction=%q review=%q", sourceStatus, transactionStatus, reviewStatus)
+	}
+}
+
 func TestClearPurchaseWithValidCategoryDoesNotCreateReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

@@ -48,13 +48,12 @@ func TestReceiptWithWeakSameAmountCandidateStaysInReview(t *testing.T) {
 	if reviewType != "POSSIBLE_DUPLICATE" {
 		t.Fatalf("the review must say why: got %s", reviewType)
 	}
-	var missingFacts []string
-	var allowedActions []string
-	if err := fixture.pool.QueryRow(ctx, `SELECT ARRAY(SELECT jsonb_array_elements_text(decision->'missingFacts')),ARRAY(SELECT jsonb_array_elements_text(decision->'allowedActions')) FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&missingFacts, &allowedActions); err != nil {
+	var amount, transactionAt, transactionType, action string
+	if err := fixture.pool.QueryRow(ctx, `SELECT decision->'knownFacts'->>'amount_idr',decision->'knownFacts'->>'transaction_at',decision->'knownFacts'->>'type',decision->'allowedActions'->>0 FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&amount, &transactionAt, &transactionType, &action); err != nil {
 		t.Fatal(err)
 	}
-	if len(missingFacts) != 1 || missingFacts[0] != "duplicate_relationship" || len(allowedActions) != 1 || allowedActions[0] != "IGNORE" {
-		t.Fatalf("receipt duplicate review must expose only actions it can resolve: missing=%v actions=%v", missingFacts, allowedActions)
+	if amount != "57500" || transactionAt != receiptTime().Format(time.RFC3339) || transactionType != "EXPENSE" || action != "MERGE_EXISTING" {
+		t.Fatalf("receipt duplicate decision lost known facts or bounded candidate action: amount=%q time=%q type=%q action=%q", amount, transactionAt, transactionType, action)
 	}
 }
 
@@ -130,6 +129,50 @@ func seedReceiptFixture(t *testing.T, label string) receiptFixture {
 
 func receiptTime() time.Time {
 	return time.Date(2026, 9, 23, 13, 45, 0, 0, time.FixedZone("WIB", 7*3600))
+}
+
+// PRD §26 R2: when exactly one existing transaction is a strong match, the
+// receipt links to it as evidence instead of creating a second ledger row. The
+// second upload gets its own source event/document, because reprocessing one
+// document is already guarded by the persisted document status.
+func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt strong match")
+	ctx := context.Background()
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
+	category := []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}
+	processor := &Processor{pool: fixture.pool}
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, category); err != nil {
+		t.Fatal(err)
+	}
+	// Same receipt evidence arrives again as a new document: the transaction the
+	// first upload wrote is the single strong match, so the second upload links to
+	// it rather than adding a ledger row for the same real event.
+	stamp := time.Now().UnixNano()
+	var secondSource, attachmentID, secondDocument string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING') RETURNING id`, fixture.householdID, fmt.Sprintf("receipt-repeat-%d", stamp), []byte(fmt.Sprintf("receipt-repeat-%d", stamp))).Scan(&secondSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/jpeg',3,1,1,$3) RETURNING id`, fixture.householdID, []byte(fmt.Sprintf("receipt-repeat-hash-%d", stamp)), fmt.Sprintf("test/receipt-repeat-%d.jpg", stamp)).Scan(&attachmentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status,document_type) VALUES($1,$2,$3,'RECEIVED','RECEIPT') RETURNING id`, fixture.householdID, secondSource, attachmentID).Scan(&secondDocument); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, secondDocument, fixture.householdID, secondSource, value, "test-model", validation, category); err != nil {
+		t.Fatal(err)
+	}
+	var transactions, evidence int
+	if err := fixture.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1),(SELECT count(*) FROM transaction_evidence e JOIN transaction t ON t.id=e.transaction_id WHERE t.household_id=$1 AND e.evidence_type='RECEIPT_IMAGE')`, fixture.householdID).Scan(&transactions, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if transactions != 1 {
+		t.Fatalf("a strong match must not create a second transaction, got %d", transactions)
+	}
+	if evidence != 2 {
+		t.Fatalf("both receipts must link as evidence on the matched transaction, got %d", evidence)
+	}
 }
 
 // R1: a clear new receipt with valid arithmetic, a known date, and a resolved

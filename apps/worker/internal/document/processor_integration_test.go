@@ -27,7 +27,7 @@ func TestTerminalTelegramDocumentFailureCreatesReviewAndReply(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Document failure %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING',117) RETURNING id`, householdID, fmt.Sprintf("telegram:document-failure:%d", stamp), []byte(fmt.Sprintf("document-failure-%d", stamp))).Scan(&sourceID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING',$4) RETURNING id`, householdID, fmt.Sprintf("telegram:document-failure:%d", stamp), []byte(fmt.Sprintf("document-failure-%d", stamp)), stamp).Scan(&sourceID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,'{"message":{"chat":{"id":719809965}}}')`, sourceID); err != nil {
@@ -50,7 +50,7 @@ func TestTerminalTelegramDocumentFailureCreatesReviewAndReply(t *testing.T) {
 
 	var documentStatus, sourceStatus string
 	var reviews, replies, audits int
-	if err = pool.QueryRow(ctx, `SELECT d.status,s.processing_status,(SELECT count(*) FROM review_item WHERE document_id=d.id AND status='OPEN'),(SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'reply_to_message_id'='117'),(SELECT count(*) FROM audit_log WHERE entity_id=s.id AND action='DOCUMENT_CLASSIFICATION_FAILED') FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID).Scan(&documentStatus, &sourceStatus, &reviews, &replies, &audits); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT d.status,s.processing_status,(SELECT count(*) FROM review_item WHERE document_id=d.id AND status='OPEN'),(SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'reply_to_message_id'=$2),(SELECT count(*) FROM audit_log WHERE entity_id=s.id AND action='DOCUMENT_CLASSIFICATION_FAILED') FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID, fmt.Sprint(stamp)).Scan(&documentStatus, &sourceStatus, &reviews, &replies, &audits); err != nil {
 		t.Fatal(err)
 	}
 	if documentStatus != "NEEDS_REVIEW" || sourceStatus != "NEEDS_REVIEW" || reviews != 1 || replies != 1 || audits != 1 {

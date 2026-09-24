@@ -84,6 +84,7 @@ func TestHarvestSimpleTransaction(t *testing.T) {
 		text, amount, date, explicit, merchant string
 	}{
 		{text: "catat makan siang 50rb hari ini", amount: "50000", date: "TODAY", merchant: "makan siang"},
+		{text: "jajan gorengan 5k", amount: "5000", date: "TODAY", merchant: "jajan gorengan"},
 		{text: "beli reksa dana 3 juta kemarin", amount: "3000000", date: "YESTERDAY", merchant: "beli reksa dana"},
 		{text: "gaji 8.000.000 tanggal 2026-09-21", amount: "8000000", date: "EXPLICIT", explicit: "2026-09-21", merchant: "gaji tanggal"},
 	}
@@ -95,5 +96,10 @@ func TestHarvestSimpleTransaction(t *testing.T) {
 	}
 	if _, ok := harvestSimpleTransaction("makan 50rb dan parkir 5rb"); ok {
 		t.Fatal("multiple amounts must use generative extraction")
+	}
+	// The k shorthand is a currency suffix only when it stands alone. A unit
+	// glued to the number (5kg) is a quantity, not Rp5.000 (PRD §24 T1).
+	if got, ok := harvestSimpleTransaction("beras 5kg"); ok {
+		t.Fatalf("a glued unit must not harvest a currency amount: %#v", got)
 	}
 }

@@ -136,7 +136,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini.")
 	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Transaksi ini mungkin duplikat. Buka Review Inbox untuk memilih gabung atau catat baru; belum ada transaksi yang diubah.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Transaksi ini mungkin duplikat. Buka Review Inbox untuk memilih gabung atau abaikan; belum ada transaksi yang diubah.")
 	}
 	if reviewState == "AWAITING_MERCHANT" {
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
@@ -429,13 +429,15 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var reviewID, transactionID, reviewType, requestStatus, transactionStatus, merchantID string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,COALESCE(t.merchant_id::text,'')
+	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
+	var missingFactsJSON *string
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,ri.decision->'missingFacts'
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
+		JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
 		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &missingFactsJSON)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
 			return err
@@ -445,11 +447,20 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	if err != nil {
 		return err
 	}
+	if reviewType == "UNKNOWN_MERCHANT" && missingFactsJSON != nil && !reviewRequiresFact(missingFactsJSON, "merchant") {
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return err
+		}
+		if err = enqueueReply(ctx, tx, update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini."); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return err
 		}
-		if err = enqueueReply(ctx, tx, update, "Pilih gabung atau catat baru di Review Inbox. Belum ada transaksi yang diubah."); err != nil {
+		if err = enqueueReply(ctx, tx, update, "Pilih gabung atau abaikan di Review Inbox. Belum ada transaksi yang diubah."); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -634,7 +645,7 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification','REJECT')) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REJECT_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'reason','own_transfer_or_not_income'))`, householdID, userID, transactionID, reviewID); err != nil {
@@ -1224,7 +1235,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES ($2,$1,'TELEGRAM_REVIEW_REPLY',$3,jsonb_build_object('review_request_id',$4::uuid)) ON CONFLICT DO NOTHING`, sourceEventID, transactionID, value.Confidence, reviewID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES ($2,$1,'TELEGRAM_REVIEW_REPLY',$3,jsonb_build_object('review_request_id',$4::uuid,'classification','CONFIRM')) ON CONFLICT DO NOTHING`, sourceEventID, transactionID, value.Confidence, reviewID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES ($1,'TELEGRAM',$2,'RESOLVE_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'category_id',NULLIF($5,'')::uuid))`, householdID, userID, transactionID, reviewID, categoryID); err != nil {
@@ -1403,7 +1414,7 @@ func reviewInitialState(reviewType, message string) (state, reviewMessage, marku
 	case "UNKNOWN_PURPOSE":
 		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Perlu detail transaksi", message, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "reply"
 	case "POSSIBLE_DUPLICATE":
-		return "AWAITING_DETAIL", "Transaksi ini mungkin duplikat. Selesaikan melalui Review Inbox untuk memilih gabung atau catat baru.", "reply"
+		return "AWAITING_DETAIL", "Transaksi ini mungkin duplikat. Selesaikan melalui Review Inbox untuk memilih gabung atau abaikan.", "reply"
 	default:
 		return "AWAITING_CATEGORY", message, "category"
 	}

@@ -91,18 +91,18 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the extracted payroll transaction needs a human correction or confirmation"
-	case "POSSIBLE_DUPLICATE":
-		base.DecisionClass = ClassDuplicateAmbiguity
-		base.MissingFacts = []string{"duplicate_relationship"}
-		base.AllowedActions = []string{"IGNORE"}
-		base.InteractionMode = ModeBoundedChoice
-		base.WhyNotAuto = "a plausibly matching transaction already exists, so the household must choose"
 	case "CONFLICTING_EVIDENCE":
 		base.DecisionClass = ClassDuplicateAmbiguity
 		base.MissingFacts = []string{"duplicate_relationship"}
 		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
 		base.InteractionMode = ModeConflictResolution
 		base.WhyNotAuto = "two sources disagree about the same provider reference, so Go refuses to guess"
+	case "POSSIBLE_DUPLICATE":
+		base.DecisionClass = ClassDuplicateAmbiguity
+		base.MissingFacts = []string{"duplicate_relationship"}
+		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeBoundedChoice
+		base.WhyNotAuto = "a plausible duplicate exists; choose the matching event, confirm as new, or ignore"
 	default:
 		return Decision{}, false
 	}

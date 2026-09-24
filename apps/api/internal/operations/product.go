@@ -1,6 +1,8 @@
 package operations
 
-import "context"
+import (
+	"context"
+)
 
 // productAggregate is the PRD §22 product scoreboard computed from canonical
 // state that already exists: source events, transactions, and review items. It
@@ -50,11 +52,19 @@ type productAggregate struct {
 	Coverage []string `json:"notYetMeasurable"`
 	// TimeToResolutionMs is the mean wall-clock time from review open to resolve
 	// for the reviews in the window, read from review_item so every review counts.
-	TimeToResolutionMs int64 `json:"timeToResolutionMs"`
+	TimeToResolutionMs          int64          `json:"timeToResolutionMs"`
+	ReviewRoundTrips            int            `json:"reviewRoundTrips"`
+	BoundedChoices              int            `json:"boundedChoices"`
+	BoundedChoicesPerEvent      float64        `json:"boundedChoicesPerEvent"`
+	AutoConfirmCorrections      int            `json:"autoConfirmCorrections"`
+	AutoConfirmEvents           int            `json:"autoConfirmEvents"`
+	AutoConfirmCorrectionRate   float64        `json:"autoConfirmCorrectionRate"`
+	AutoConfirmCorrectionFields map[string]int `json:"autoConfirmCorrectionFields"`
+	AutoConfirmCorrectionSource map[string]int `json:"autoConfirmCorrectionBySource"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
-	aggregate := productAggregate{WindowDays: 30, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}}
+	aggregate := productAggregate{WindowDays: 30, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}, AutoConfirmCorrectionFields: map[string]int{}, AutoConfirmCorrectionSource: map[string]int{}}
 
 	// Source-event processing states in the window, plus the distinct reviewed
 	// events counted over the exact same cohort so the human-touch ratio is
@@ -196,10 +206,68 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		WHERE ri.household_id=$1 AND ri.created_at >= now() - interval '30 days' AND ri.status='RESOLVED'`, householdID).Scan(&aggregate.TimeToResolutionMs); err != nil {
 		return aggregate, err
 	}
-	// Coverage includes per-event bounded choices (the legacy ReviewDecision
-	// rows cannot prove how many distinct controls a human answered), Telegram
-	// turns (one conversation row overwrites prior turns), and corrections after
-	// auto-confirm (no persisted auto-confirm marker).
-	aggregate.Coverage = []string{"bounded_choices_per_event", "review_round_trips", "auto_confirm_correction_rate"}
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE event_type='REVIEW_TURN'),COALESCE(sum(bounded_choices) FILTER (WHERE event_type='REVIEW_TURN'),0)
+		FROM product_telemetry_event WHERE household_id=$1 AND occurred_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.ReviewRoundTrips, &aggregate.BoundedChoices); err != nil {
+		return aggregate, err
+	}
+	if aggregate.CanonicalEvents > 0 {
+		if err := h.pool.QueryRow(ctx, `
+			SELECT COALESCE(sum(e.bounded_choices),0)
+			FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
+			WHERE e.household_id=$1 AND e.event_type='REVIEW_TURN'
+			  AND t.status='CONFIRMED' AND t.created_at >= now()-interval '30 days'`, householdID).Scan(&aggregate.BoundedChoicesPerEvent); err != nil {
+			return aggregate, err
+		}
+		aggregate.BoundedChoicesPerEvent /= float64(aggregate.CanonicalEvents)
+	}
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(DISTINCT e.transaction_id)
+		FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id
+		WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.AutoConfirmCorrections); err != nil {
+		return aggregate, err
+	}
+	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND auto_confirmed_at >= now() - interval '30 days'`, householdID).Scan(&aggregate.AutoConfirmEvents); err != nil {
+		return aggregate, err
+	}
+	if aggregate.AutoConfirmEvents > 0 {
+		aggregate.AutoConfirmCorrectionRate = float64(aggregate.AutoConfirmCorrections) / float64(aggregate.AutoConfirmEvents)
+	}
+	for _, query := range []struct {
+		sql string
+		dst map[string]int
+	}{
+		{`SELECT field,count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id CROSS JOIN LATERAL unnest(e.changed_fields) AS changed(field) WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY field`, aggregate.AutoConfirmCorrectionFields},
+		{`SELECT COALESCE(e.source_type,'unknown'),count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY 1`, aggregate.AutoConfirmCorrectionSource},
+	} {
+		rows, err := h.pool.Query(ctx, query.sql, householdID)
+		if err != nil {
+			return aggregate, err
+		}
+		for rows.Next() {
+			var key string
+			var count int
+			if err := rows.Scan(&key, &count); err != nil {
+				rows.Close()
+				return aggregate, err
+			}
+			query.dst[key] = count
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return aggregate, err
+		}
+		rows.Close()
+	}
+	// Pre-migration history cannot be reconstructed. Keep that gap visible for
+	// the first 30 days after telemetry starts recording real turns/corrections.
+	var telemetryHistoryComplete bool
+	if err := h.pool.QueryRow(ctx, `SELECT COALESCE(min(occurred_at),now()) <= now()-interval '30 days' FROM product_telemetry_event WHERE household_id=$1`, householdID).Scan(&telemetryHistoryComplete); err != nil {
+		return aggregate, err
+	}
+	aggregate.Coverage = []string{}
+	if !telemetryHistoryComplete {
+		aggregate.Coverage = append(aggregate.Coverage, "pre_migration_telemetry_history")
+	}
 	return aggregate, nil
 }

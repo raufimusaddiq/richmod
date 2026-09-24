@@ -121,7 +121,7 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 		return err
 	}
 	var transactionID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',$2,'IDR',$3,$4,$5,NULLIF($6,''),$7,$8,now()) RETURNING id`, householdID, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.Value.Confidence).Scan(&transactionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',$2,'IDR',$3,$4,$5,NULLIF($6,''),$7,$8,now(),now()) RETURNING id`, householdID, row.Value.Amount, row.TransactionAt, merchantID, row.CategoryID, row.Value.Description, row.Value.Confidence, row.Value.Confidence).Scan(&transactionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer))`, transactionID, sourceID, row.Value.Confidence, proposalID, documentID, index); err != nil {

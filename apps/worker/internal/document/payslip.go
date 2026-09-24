@@ -363,7 +363,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return tx.Commit(ctx)
 	}
 	var transactionID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,source_confidence,classification_confidence,confirmed_at) VALUES($1,'INCOME',$2,$3,'IDR',$4,'Penghasilan dari slip gaji',NULLIF($5,''),$6,$6,CASE WHEN $2='CONFIRMED' THEN now() END) RETURNING id`, householdID, status, value.NetPay, transactionAt, value.Employer, value.Confidence).Scan(&transactionID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,'INCOME',$2,$3,'IDR',$4,'Penghasilan dari slip gaji',NULLIF($5,''),$6,$6,CASE WHEN $2='CONFIRMED' THEN now() END,CASE WHEN $2='CONFIRMED' AND $7 THEN now() END) RETURNING id`, householdID, status, value.NetPay, transactionAt, value.Employer, value.Confidence, autoConfirm && !reviewWithoutTransaction).Scan(&transactionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {

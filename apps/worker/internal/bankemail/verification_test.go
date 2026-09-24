@@ -138,6 +138,54 @@ func TestEvidenceVerificationUnconfiguredIsNotApproval(t *testing.T) {
 	}
 }
 
+// A semantic negative is a verdict, not a provider failure. Never re-ask it:
+// doing so would let either draw approve the event and raise the effective bar.
+func TestEvidenceVerificationDoesNotRetryNegativeRuling(t *testing.T) {
+	unsupported := supportedRuling()
+	unsupported["channel_supported"] = noul(0.30)
+	verifier := &stubVerifier{answers: unsupported}
+	processor := &Processor{verifier: verifier}
+	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 1 {
+		t.Fatalf("a negative ruling must not be retried, calls=%d", verifier.calls)
+	}
+	if !verified || verification.supported() {
+		t.Fatalf("negative ruling must fail closed: %+v", verification)
+	}
+}
+
+// A provider error may be retried once; the successful response is usable.
+func TestEvidenceVerificationRetriesProviderFailureOnce(t *testing.T) {
+	flaky := &flakyVerifier{}
+	processor := &Processor{verifier: flaky}
+	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flaky.calls != 2 {
+		t.Fatalf("expected one retry after provider failure, calls=%d", flaky.calls)
+	}
+	if !verified || !verification.supported() {
+		t.Fatalf("a recovered ruling must be usable: %+v", verification)
+	}
+}
+
+// flakyVerifier fails the first call and supports the second, modelling a
+// transient provider failure (the only condition eligible for a safe retry).
+type flakyVerifier struct{ calls int }
+
+func (f *flakyVerifier) Evaluate(_ context.Context, _ string, _ judgment.Request) (judgment.Result, error) {
+	f.calls++
+	if f.calls == 1 {
+		return judgment.Result{}, errors.New("temporary gateway failure")
+	}
+	answers := supportedRuling()
+	return judgment.Result{Model: "flaky", Answers: answers}, nil
+}
+
 // Regression: the ambiguity claim is inverted, so a decided negative is the
 // favourable answer. An undecided middle-band answer to "is this ambiguous?"
 // must NOT be read as "not ambiguous" — that is fail-open, and it is what let a

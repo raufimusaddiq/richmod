@@ -532,7 +532,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	var transactionID string
-	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at) VALUES($1,NULLIF($2,'')::uuid,$3,$4,$5,'IDR',$6,NULLIF($7,'')::uuid,NULLIF($8,'')::uuid,NULLIF($9,''),NULLIF($10,''),NULLIF($11,''),$12,$13,CASE WHEN $4='CONFIRMED' THEN now() END) RETURNING id`, listener.HouseholdID, listener.AccountID, transactionType, transactionStatus, amount, *at, merchantID, categoryID, description, counterparty, reference, extraction.Confidence, extraction.Confidence).Scan(&transactionID)
+	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,NULLIF($2,'')::uuid,$3,$4,$5,'IDR',$6,NULLIF($7,'')::uuid,NULLIF($8,'')::uuid,NULLIF($9,''),NULLIF($10,''),NULLIF($11,''),$12,$13,CASE WHEN $4='CONFIRMED' THEN now() END,CASE WHEN $14 THEN now() END) RETURNING id`, listener.HouseholdID, listener.AccountID, transactionType, transactionStatus, amount, *at, merchantID, categoryID, description, counterparty, reference, extraction.Confidence, extraction.Confidence, result.AutoConfirm).Scan(&transactionID)
 	if err != nil {
 		return err
 	}
@@ -556,6 +556,19 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
 				return err
+			}
+			// Persist the PRD §7 contract on the review that line above just created,
+			// so the Inbox can show only the unresolved facts. The decision must be
+			// written after the review exists —
+			// updating first matched zero rows and was silently dropped.
+			encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON()
+			if encodeErr != nil {
+				return encodeErr
+			}
+			if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
+				return execErr
+			} else if tag.RowsAffected() == 0 {
+				return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
 			}
 		}
 	}

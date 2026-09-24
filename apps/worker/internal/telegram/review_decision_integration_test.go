@@ -112,11 +112,16 @@ func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {
 	if decision.ReasonCode != "POSSIBLE_DUPLICATE" || len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "duplicate_relationship" || decision.InteractionMode != "BOUNDED_CHOICE" {
 		t.Fatalf("duplicate review contract is incomplete: %+v", decision)
 	}
-	// PRD 37: a receipt/screenshot duplicate carries no transfer reconciliation
-	// ids, so the Inbox resolver can only ignore it. The contract must not
-	// advertise merge/new actions the API rejects for this review type.
-	if len(decision.AllowedActions) != 1 || decision.AllowedActions[0] != "IGNORE" {
+	// Transaction-backed duplicate confirmation is Inbox-only; Telegram exposes
+	// only actions its review workflow can safely complete.
+	wantActions := []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
+	if len(decision.AllowedActions) != len(wantActions) {
 		t.Fatalf("duplicate review actions=%v", decision.AllowedActions)
+	}
+	for i, action := range wantActions {
+		if decision.AllowedActions[i] != action {
+			t.Fatalf("duplicate review actions=%v, want=%v", decision.AllowedActions, wantActions)
+		}
 	}
 }
 
