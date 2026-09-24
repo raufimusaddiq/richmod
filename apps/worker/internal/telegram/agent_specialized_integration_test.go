@@ -83,10 +83,10 @@ func TestAgentRecordTransferReturnsStructuredResultWithoutCannedReply(t *testing
 	if !synthesize || result.Status != "CONFIRMED" || result.Mutation["action"] != "TRANSFER_RECORDED" {
 		t.Fatalf("unexpected transfer result: synthesize=%v result=%+v", synthesize, result)
 	}
-	var count int
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND type='TRANSFER' AND status='CONFIRMED' AND amount=83000`, f.householdID).Scan(&count))
-	if count != 1 {
-		t.Fatalf("confirmed transfer count=%d, want 1", count)
+	var count, autoConfirmed int
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE auto_confirmed_at IS NOT NULL) FROM transaction WHERE household_id=$1 AND type='TRANSFER' AND status='CONFIRMED' AND amount=83000`, f.householdID).Scan(&count, &autoConfirmed))
+	if count != 1 || autoConfirmed != 1 {
+		t.Fatalf("confirmed transfer count=%d auto-confirmed=%d, want 1 each", count, autoConfirmed)
 	}
 	assertNoDirectTelegramReplyJob(t, ctx, f)
 }

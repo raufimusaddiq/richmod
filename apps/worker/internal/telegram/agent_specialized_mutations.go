@@ -194,7 +194,7 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 		}
 		transactionID = candidate.id
 	} else {
-		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,counterparty_name,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),NULL,$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`, state.HouseholdID, accountID, amount, at, clean(description, 500), userID, purpose, wealthID).Scan(&transactionID); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,counterparty_name,created_by_user_id,purpose,related_wealth_account_id,confirmed_at,auto_confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),NULL,$6,$7,NULLIF($8,'')::uuid,now(),now()) RETURNING id`, state.HouseholdID, accountID, amount, at, clean(description, 500), userID, purpose, wealthID).Scan(&transactionID); err != nil {
 			return result, true, err
 		}
 	}

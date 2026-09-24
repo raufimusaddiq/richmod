@@ -1823,15 +1823,16 @@ This initiative MUST NOT:
 
 # 32. Implementation Stages
 
-**Implementation status (2026-09-23):** PR #121 merged as the normative product
-contract. Existing main already contains substantial Telegram route-first and
-exact-binding behavior from PRs #117/#120, but Stage 0 RHICE/guardrail telemetry
-and the remaining stages below are not yet complete. Track implementation by
-stage; do not treat this status note as implying completion.
+**Implementation status (2026-09-24):** PR #121 is merged and remains the
+normative product contract. Stages 1, 2, and 4–7 are implemented on current
+`main`; Stage 3 is under review in PR #126. Stage 0 telemetry is implemented
+on the current feature branch. Stage 8's canary is runnable, but threshold
+calibration still requires sufficient production evidence. This is not a claim
+that the full Definition of Done has passed.
 
 ## Stage 0 — Baseline and Telemetry
 
-**Status (2026-09-23): RHICE and review-side guardrails are partially measurable.**
+**Status (2026-09-24): implementation complete; production baseline capture pending.**
 `GET /api/v1/operations/status` returns a read-only `product` rollup
 (`apps/api/internal/operations/product.go`) derived entirely from canonical
 state, so it cannot drift from the ledger and needs no new pipeline. It reports
@@ -1839,8 +1840,10 @@ source events with their processing states (processed/ignored/needs-review),
 human-touch rate (distinct reviewed events over the whole window cohort, so a
 review on a still-pending event cannot push it above 1), review rate by source,
 review rate by reason, RHICE (`explicitInputs / canonicalEvents`), typed fields,
-open reviews, and accepted-without-edit. The RHICE denominator includes only
-confirmed transactions, not pending, needs-review, or voided rows.
+open reviews, accepted-without-edit, resolution time, Telegram review turns,
+bounded choices, and the auto-confirm correction rate/field/source breakdown.
+The RHICE denominator includes only confirmed transactions, not pending,
+needs-review, or voided rows.
 
 Definitions are pinned to the actions the writers actually emit for a canonical
 transaction: explicit inputs are `CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`, `TELEGRAM_MERCHANT_DECISION`,
@@ -1861,24 +1864,26 @@ that only accept a proposal (`CONFIRM_REVIEW`, `TELEGRAM_CONFIRMED`,
 recent canonical transaction through its review binding or preserved evidence,
 so the numerator and denominator share the same canonical-event cohort.
 
-It also reports the mean time to resolution (the open-to-resolve interval,
-§22.2/§22.4).
-
-`notYetMeasurable` names the §22.4 signals that no current row can reconstruct —
-bounded choices per event, because legacy review rows cannot prove how many
-distinct controls a user answered; review round trips, because `review_conversation` holds one row per request
-(`UNIQUE`), so a follow-up turn overwrites the previous state instead of being
-logged. §22.3 auto-confirm correction is not reconstructable either: nothing
-distinguishes a correction to an auto-confirmed event from an ordinary reviewed
-correction, so it is deliberately not reported rather than approximated from
-unrelated rows.
+Review turns are recorded as privacy-bounded events: only action names and an
+allow-listed set of changed field names are retained, never values or user text.
+Auto-confirm corrections are captured atomically with the canonical update.
+The correction rate uses the same 30-day auto-confirmed transaction cohort as
+its denominator, and correction events retain source/policy/decision provenance.
+Every terminal Telegram review action (plain confirm, plain reject, transfer
+classification, merchant decision, bounded callback) records one bounded-choice
+turn: the reply evidence carries an explicit `classification` marker so a
+confirm/reject is never silently counted as zero, and the resolution trigger
+skips only when that same turn was already recorded, which keeps a delayed or
+out-of-order reply from double-counting one interaction.
+`notYetMeasurable` keeps pre-migration history visible; it clears only after a
+household has a full 30-day telemetry window. Older turns are not backfilled or
+guessed.
 
 Before materially expanding auto-confirmation:
 
-- capture current review rate;
-- capture review source distribution;
-- capture review reason distribution;
-- add missing RHICE/product telemetry.
+- capture the current review rate, source, and reason distribution before
+  enabling broader auto-confirmation;
+- wait for the first complete telemetry window before interpreting trend data.
 
 Exit criterion:
 
@@ -1888,13 +1893,15 @@ RHICE and guardrail metrics are measurable.
 
 ## Stage 1 — Telegram Orchestration Correctness
 
-**Status (2026-09-24): implemented; §24 T1–T6 acceptance coverage is now
-present.** T1–T3 use PostgreSQL-backed `ProcessAgent` integration tests: T2 proves
-an unrelated open review remains open, and T3 proves an exact category reply
-wins even when generic Jev routing would say unclear. T4–T6 assert the fast-path
-dispatcher falls through and preserves the transfer, search, and correction
-tools. The exact PRD example `jajan gorengan 5k` is harvested as IDR 5,000; a
-glued quantity such as `5kg` is not treated as currency.
+**Status (2026-09-24): implemented on main; §24 T1–T6 acceptance coverage is
+present.** Server-owned route lanes are exhaustive, valid non-fast routes fall
+through to the conversational agent, exact replies bind before route arbitration,
+and implicit bindings are route-gated. PostgreSQL-backed `ProcessAgent` tests
+prove unrelated open reviews remain open and exact category replies beat an
+unclear Jev route; dispatcher tests preserve transfer, search, and correction
+tools. `jajan gorengan 5k` is harvested as IDR 5,000 while glued units such as
+`5kg` are rejected. See `judgment_route_lane_test.go`,
+`agent_route_first_lane_test.go`, and the §24 T1–T6 integration tests.
 
 Implement:
 
@@ -1913,6 +1920,11 @@ Exit criteria:
 This is P0 and should ship before broad auto-confirm expansion.
 
 ## Stage 2 — ReviewDecision Foundation
+
+**Status (2026-09-24): implemented on main.** The shared ReviewDecision
+contract is persisted, exposed by the API, and populated from reason presets
+with known/proposed/missing/conflicting facts, allowed actions, decision class,
+and provenance. See ADR-039 and PR #136.
 
 Introduce:
 
@@ -1933,13 +1945,13 @@ every new review can explain exactly why user input is required
 
 ## Stage 3 — Bank Email Zero-Touch Expansion
 
-**Status (2026-09-23): implemented.** A new-merchant expense now asks the bounded
-plane to pick one category from the household's active set; a decisive,
-well-separated answer auto-confirms with zero user input, and an undecided one
-opens a category-only review. Provider failures (timeout, gateway failure, rate
-limit, malformed response) retry once; a semantic negative immediately opens a
-review, because it is a verdict rather than a safe-retry condition. Thresholds
-are unchanged. See ADR-040.
+**Status (2026-09-24): implemented in PR #126 and integrated.** The stable
+`SPENDING_ONLY` path remains unchanged. New-merchant expenses use Jev to choose
+from the household's active categories; decisive, well-separated choices
+auto-confirm, while uncertainty creates a category-only review. Unsupported
+evidence verdicts retry once; semantic negatives go directly to review.
+Thresholds are unchanged. See ADR-040 and the receipt-duplicate merge lifecycle
+integration test.
 
 Implement:
 
@@ -2027,6 +2039,12 @@ an explicit edit step and evidence behind a secondary disclosure. Reviews create
 before the decision contract existed keep rendering the full form.
 
 ## Stage 8 — Semantic Canary and Threshold Calibration
+
+**Status (2026-09-24): corpus implemented; calibration pending production evidence.**
+The optional Jev corpus is documented in the production deployment runbook and
+must remain a manually triggered smoke check, not a flaky unit-test gate. Do not
+lower thresholds until the review and auto-confirm correction metrics have a
+representative production window.
 
 After behavior ships:
 

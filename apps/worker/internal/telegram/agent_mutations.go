@@ -113,9 +113,9 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	}
 	var transactionID string
 	if err = tx.QueryRow(ctx, `
-		INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,note,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at)
-		VALUES($1,$2,$3,$4,'IDR',$5,$6,NULLIF($7,''),NULLIF($8,''),NULLIF($9,''),$10,$11,$12,CASE WHEN $3='CONFIRMED' THEN now() END)
-		RETURNING id`, state.HouseholdID, value.Type, transactionStatus, value.Amount, value.TransactionAt, categoryID, value.Description, value.Note, value.Merchant, value.Confidence, value.CategoryConfidence, userID).Scan(&transactionID); err != nil {
+		INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,note,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at,auto_confirmed_at)
+		VALUES($1,$2,$3,$4,'IDR',$5,$6,NULLIF($7,''),NULLIF($8,''),NULLIF($9,''),$10,$11,$12,CASE WHEN $3='CONFIRMED' THEN now() END,CASE WHEN $13 THEN now() END)
+		RETURNING id`, state.HouseholdID, value.Type, transactionStatus, value.Amount, value.TransactionAt, categoryID, value.Description, value.Note, value.Merchant, value.Confidence, value.CategoryConfidence, userID, autoConfirm).Scan(&transactionID); err != nil {
 		return result, true, fmt.Errorf("create reviewed transaction: %w", err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TELEGRAM_TEXT',$3,jsonb_build_object('proposal_id',$4::uuid))`, transactionID, state.SourceEventID, value.Confidence, proposalID); err != nil {
