@@ -592,22 +592,8 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
-	purpose, wealthID := "GENERAL", ""
-	if newType == "TRANSFER" {
-		purpose = "INTERNAL_TRANSFER"
-	}
-	if classification == "INVESTMENT_ACCOUNT" {
-		var count int
-		if err = tx.QueryRow(ctx, `SELECT count(DISTINCT ka.wealth_account_id),COALESCE(min(ka.wealth_account_id::text),'') FROM transaction t JOIN known_account ka ON ka.household_id=t.household_id AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower(COALESCE(t.counterparty_name,'')) LIKE '%'||lower(ka.match_hint) JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=t.household_id AND wa.active WHERE t.id=$1 AND t.household_id=$2`, transactionID, householdID).Scan(&count, &wealthID); err != nil {
-			return err
-		}
-		if count != 1 {
-			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tujuan investasi belum dapat dipetakan ke satu Wealth Account. Lengkapi tautan Known Account di Pengaturan atau selesaikan lewat Review Inbox.")
-		}
-		newType, newStatus, purpose = "TRANSFER", "CONFIRMED", "INVESTMENT_CONTRIBUTION"
-	}
+	wealthHint := strings.TrimSpace(update.Message.Text)
 	if classification == "ASSET_PURCHASE" {
-		wealthHint := strings.TrimSpace(update.Message.Text)
 		if wealthHint == "" {
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Sebutkan Wealth Account tujuan, misalnya: beli emas.")
 		}
@@ -615,33 +601,29 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 		if resolveErr != nil {
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
 		}
-		var compatible bool
-		if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible('ASSET_PURCHASE',$1,$2)`, id, householdID).Scan(&compatible); err != nil || !compatible {
+		wealthHint = id
+	}
+	if classification == "INVESTMENT_ACCOUNT" {
+		wealthHint = ""
+	}
+	// ADR-046: the transfer mutation, candidate resolution, proposal/source-event
+	// refresh, and review completion are one shared operation.
+	transfer, err := reviewdomain.ClassifyTransferReview(ctx, tx, reviewdomain.TransferCommand{
+		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
+		Action: "TELEGRAM_TRANSFER_CLASSIFIED", Classification: classification,
+		CategoryID: categoryID, WealthAccountID: wealthHint,
+	})
+	if err != nil {
+		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tujuan investasi belum dapat dipetakan ke satu Wealth Account. Lengkapi tautan Known Account di Pengaturan atau selesaikan lewat Review Inbox.")
+		}
+		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account tujuan bukan aset yang kompatibel.")
 		}
-		wealthID, purpose = id, "ASSET_PURCHASE"
-	}
-	proposalStatus, sourceStatus := "ACCEPTED", "PROCESSED"
-	if newStatus == "VOIDED" {
-		proposalStatus, sourceStatus = "REJECTED", "IGNORED"
-	}
-	result, err := tx.Exec(ctx, `UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=NULLIF($4,'')::uuid,status=$5,category_id=NULLIF($6,'')::uuid,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' AND (type='UNCLASSIFIED' OR (type='EXPENSE' AND $7='ASSET_PURCHASE'))`, transactionID, newType, purpose, wealthID, newStatus, categoryID, classification)
-	if err != nil {
 		return err
 	}
-	if result.RowsAffected() != 1 {
-		return fmt.Errorf("review transaction no longer eligible")
-	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, newType, proposalStatus, categoryID, classification, purpose, wealthID); err != nil {
-		return err
-	}
-	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_TRANSFER_CLASSIFIED"); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID, sourceStatus); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
@@ -650,7 +632,7 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification',$4::text)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID, classification); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'purpose',$7::text,'related_wealth_account_id',NULLIF($8,'')::text,'status',$9::text))`, householdID, userID, transactionID, reviewID, classification, newType, purpose, wealthID, newStatus); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'purpose',$7::text,'related_wealth_account_id',NULLIF($8,'')::text,'status',$9::text))`, householdID, userID, transactionID, reviewID, classification, transfer.Type, transfer.Purpose, transfer.WealthAccountID, transfer.Status); err != nil {
 		return err
 	}
 	if err = enqueueReply(ctx, tx, update, message); err != nil {

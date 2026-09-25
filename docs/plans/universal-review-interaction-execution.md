@@ -28,7 +28,14 @@ completion run once for both Web and Telegram. Web cancels every open projection
 for the transaction; Telegram cancels the same way while pinning the exact
 bound item.
 
-Still open in UIR-01: transfer, duplicate, payslip/date,
+The fifth slice moves transfer classification into
+apps/reviewdomain.ClassifyTransferReview. Web, the bound Telegram adapter, and
+the Telegram agent adapter now share category/Wealth validation, transaction and
+proposal mutation, source-event refresh, and canonical review completion.
+Telegram retains only interaction binding, reply evidence, and surface-specific
+messaging; Web retains optional remembered-account creation and its audit.
+
+Still open in UIR-01: duplicate, payslip/date,
 financial-email, Wealth, and cycle families. Each family keeps its
 residual/document/salary side effects until that whole operation is migrated
 with Web/Telegram parity tests. Non-transaction Telegram transition paths

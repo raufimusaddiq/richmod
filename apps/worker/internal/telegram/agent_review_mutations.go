@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -314,7 +315,7 @@ type errReviewResidualFactsRequired struct{ facts []string }
 
 func (e errReviewResidualFactsRequired) Error() string { return strings.Join(e.facts, ",") }
 
-func (p *Processor) agentResolveTransferClassification(ctx context.Context, state *agentState, call gateway.ToolCall, review agentTransactionReview, newType, newStatus, classification, wealthHint, categoryID string) (agentToolResult, bool, error) {
+func (p *Processor) agentResolveTransferClassification(ctx context.Context, state *agentState, call gateway.ToolCall, review agentTransactionReview, classification, wealthHint, categoryID string) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -325,59 +326,43 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
 	}
-	purpose, wealthID := "GENERAL", ""
-	if newType == "TRANSFER" {
-		purpose = "INTERNAL_TRANSFER"
-	}
-	if classification == "INVESTMENT_ACCOUNT" {
-		var count int
-		if err = tx.QueryRow(ctx, `SELECT count(DISTINCT ka.wealth_account_id),COALESCE(min(ka.wealth_account_id::text),'') FROM transaction t JOIN known_account ka ON ka.household_id=t.household_id AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower(COALESCE(t.counterparty_name,'')) LIKE '%'||lower(ka.match_hint) JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=t.household_id AND wa.active WHERE t.id=$1 AND t.household_id=$2`, review.transactionID, state.HouseholdID).Scan(&count, &wealthID); err != nil {
-			return result, true, err
-		}
-		if count != 1 {
-			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
-			result.Review = map[string]any{"required": true, "review_type": review.reviewType}
-			return result, true, nil
-		}
-		newType, newStatus, purpose = "TRANSFER", "CONFIRMED", "INVESTMENT_CONTRIBUTION"
-	}
+	wealthID := wealthHint
 	if classification == "ASSET_PURCHASE" {
 		id, e := resolveUniqueWealthHint(ctx, tx, state.HouseholdID, wealthHint)
 		if e != nil {
 			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType}
 			return result, true, nil
 		}
-		var compatible bool
-		if e = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible('ASSET_PURCHASE',$1,$2)`, id, state.HouseholdID).Scan(&compatible); e != nil {
-			return result, true, e
+		wealthID = id
+	}
+	if classification == "INVESTMENT_ACCOUNT" {
+		wealthID = ""
+	}
+	// ADR-046: one shared classification operation for Web and Telegram; the
+	// adapter keeps only its reply/evidence/telemetry side effects.
+	transfer, err := reviewdomain.ClassifyTransferReview(ctx, tx, reviewdomain.TransferCommand{
+		HouseholdID: state.HouseholdID, ActorUserID: userID, TransactionID: review.transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, review.reviewID), RequestID: review.reviewID,
+		Action: "TELEGRAM_TRANSFER_CLASSIFIED", Classification: classification,
+		CategoryID: categoryID, WealthAccountID: wealthID,
+	})
+	if err != nil {
+		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) || errors.Is(err, reviewdomain.ErrWealthAccountRequired) {
+			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType}
+			return result, true, nil
 		}
-		if !compatible {
+		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
 			result.Status = "INCOMPATIBLE_WEALTH_ACCOUNT"
 			return result, true, nil
 		}
-		wealthID, purpose = id, "ASSET_PURCHASE"
-	}
-	proposalStatus, sourceStatus := "ACCEPTED", "PROCESSED"
-	if newStatus == "VOIDED" {
-		proposalStatus, sourceStatus = "REJECTED", "IGNORED"
-	}
-	updated, err := tx.Exec(ctx, `UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=NULLIF($4,'')::uuid,status=$5,category_id=NULLIF($6,'')::uuid,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND household_id=$8 AND status='NEEDS_REVIEW' AND (type='UNCLASSIFIED' OR (type='EXPENSE' AND $7='ASSET_PURCHASE'))`, review.transactionID, newType, purpose, wealthID, newStatus, categoryID, classification, state.HouseholdID)
-	if err != nil {
-		return result, true, err
-	}
-	if updated.RowsAffected() != 1 {
-		return result, true, fmt.Errorf("review transaction no longer eligible")
-	}
-	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, review.transactionID, newType, proposalStatus, categoryID, classification, purpose, wealthID); err != nil {
-		return result, true, err
-	}
-	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_TRANSFER_CLASSIFIED"); err != nil {
+		if errors.Is(err, reviewdomain.ErrTransferNotFound) {
+			return result, true, fmt.Errorf("review transaction no longer eligible")
+		}
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
-		return result, true, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, review.transactionID, sourceStatus); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
@@ -386,14 +371,14 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification',$4::text)) ON CONFLICT DO NOTHING`, review.transactionID, state.SourceEventID, review.reviewID, classification); err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'purpose',$7::text,'related_wealth_account_id',NULLIF($8,'')::text,'status',$9::text,'agent_sprint',1))`, state.HouseholdID, userID, review.transactionID, review.reviewID, classification, newType, purpose, wealthID, newStatus); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'purpose',$7::text,'related_wealth_account_id',NULLIF($8,'')::text,'status',$9::text,'agent_sprint',1))`, state.HouseholdID, userID, review.transactionID, review.reviewID, classification, transfer.Type, transfer.Purpose, transfer.WealthAccountID, transfer.Status); err != nil {
 		return result, true, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, true, err
 	}
 	result.Status = "RESOLVED"
-	result.Mutation = map[string]any{"action": "REVIEW_TRANSFER_CLASSIFIED", "classification": classification, "transaction_type": newType, "status": newStatus, "purpose": purpose}
+	result.Mutation = map[string]any{"action": "REVIEW_TRANSFER_CLASSIFIED", "classification": classification, "transaction_type": transfer.Type, "status": transfer.Status, "purpose": transfer.Purpose}
 	return result, true, nil
 }
 
