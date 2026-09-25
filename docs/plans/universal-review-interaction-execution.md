@@ -77,9 +77,29 @@ already-resolved-entity rules are channel-neutral and ready for the UIR-07
 Telegram surface (which has no financial-email handler today). That closes the
 UIR-01 operation families.
 
-The remaining channel gaps are rendering and subject-parity work: UIR-03
-renderer, UIR-04 transaction residual parity, UIR-06 payslip/source/document
-parity, and UIR-07 financial-email/Wealth/cycle Telegram surfaces. UIR-08
+The eleventh slice starts UIR-03: a ReviewDecision-driven Telegram renderer
+(apps/worker/internal/telegram/review_render.go). EnqueueReviewRequest now
+renders the stored decision instead of branching on review_type, so the
+unresolved fact selects the prompt and the allowed actions select the markup:
+a category-only decision gets the bounded chooser, a date/policy/correction
+decision gets a bound reply, and a duplicate decision gets the duplicate
+intents. A decision-less review fails closed to a bound detail prompt instead
+of the old default category chooser. A contract test enumerates every
+producible review type and fails if a review can render as a category chooser
+without a category-only decision.
+
+The renderer also routes the unresolved dimension to the resolver that can store it: a 
+date-only decision now renders an `AWAITING_DATE` bound reply (migration 
+00068) that writes `transaction_at` on the transaction and proposal and completes the 
+review when no category is left. Before this, every `AWAITING_DETAIL` reply was saved as a 
+description, so a date-review could never store its date. A DB-backed integration 
+test covers the full bound-reply path. Transfer reviews also now render the 
+transfer chooser instead of falling through to the generic keyboard.
+
+The remaining channel gaps are subject-parity work: the rest of UIR-03
+action parity, UIR-04 transaction residual parity, UIR-06
+payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle
+Telegram surfaces. UIR-08
 through UIR-10 cover synchronization, telemetry, and the regression matrix.
 
 ## Source contracts
