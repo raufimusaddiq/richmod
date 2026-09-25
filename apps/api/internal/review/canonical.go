@@ -176,18 +176,19 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 400, map[string]string{"error": "wealth account is required"})
 				return
 			}
-			var valid bool
-			if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM wealth_account WHERE id=$1 AND household_id=$2 AND active)`, values.WealthAccountID, household).Scan(&valid); err != nil || !valid {
-				writeJSON(w, 400, map[string]string{"error": "invalid household wealth account"})
-				return
-			}
 			var hint string
 			if err = tx.QueryRow(r.Context(), `SELECT account_hint FROM wealth_observation WHERE id=$1`, *wealthObservation).Scan(&hint); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "unable to set wealth account"})
 				return
 			}
-			if _, err = tx.Exec(r.Context(), `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, *wealthObservation, values.WealthAccountID, household); err == nil && normalizeEntityAlias(hint) != "" {
-				_, err = tx.Exec(r.Context(), `INSERT INTO financial_entity_alias(household_id,entity_type,wealth_account_id,alias,normalized_alias,source) VALUES($1,'WEALTH_ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET wealth_account_id=EXCLUDED.wealth_account_id,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now()`, household, values.WealthAccountID, strings.TrimSpace(hint), normalizeEntityAlias(hint))
+			// ADR-046: the observation mutation and review-learned alias live in the
+			// shared operation; Web keeps only its HTTP mapping.
+			if err = reviewdomain.ResolveWealthObservation(r.Context(), tx, reviewdomain.WealthObservationCommand{
+				HouseholdID: household, ObservationID: *wealthObservation,
+				WealthAccountID: values.WealthAccountID, Alias: normalizeEntityAlias(hint),
+			}); errors.Is(err, reviewdomain.ErrWealthAccountInvalid) {
+				writeJSON(w, 400, map[string]string{"error": "invalid household wealth account"})
+				return
 			}
 			if err != nil || tx.Commit(r.Context()) != nil {
 				writeJSON(w, 500, map[string]string{"error": "unable to set wealth account"})
@@ -420,11 +421,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if wealthObservation != nil {
-			if _, err = tx.Exec(r.Context(), `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2`, *wealthObservation, household); err != nil {
+			if err = reviewdomain.DismissWealthObservation(r.Context(), tx, reviewdomain.WealthObservationCommand{HouseholdID: household, ObservationID: *wealthObservation, IgnoreFinancialEmail: true}); err != nil && !errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 				writeJSON(w, 500, map[string]string{"error": "unable to dismiss wealth observation"})
-				return
-			}
-			if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=(SELECT financial_email_observation_id FROM wealth_observation WHERE id=$1)`, *wealthObservation); err != nil {
 				return
 			}
 		}

@@ -61,10 +61,18 @@ no-longer-applicable closure, allocation validation, allocation insert, and
 review completion. Each surface keeps only its own transport, wording, and
 audit action naming.
 
-Still open in UIR-01: financial-email and Wealth families. Each
-family keeps its own subject-specific side effects until that whole operation
-is migrated with Web/Telegram parity tests. Non-transaction Telegram
-transition paths remain specialized for UIR-06/07.
+The ninth slice moves Wealth observation resolution into
+apps/reviewdomain (ResolveWealthObservation, DismissWealthObservation,
+ValidateWealthAccount, ReclassifyWealthEvidence). The Review Inbox and every
+Telegram wealth lane now share the account validation, review-learned alias
+write, observation dismissal, and evidence reclassification. The alias write
+now refuses to overwrite a USER-authored alias, which the previous Web-only
+path allowed.
+
+Still open in UIR-01: the financial-email family. It keeps its own
+subject-specific side effects until that whole operation is migrated with
+Web/Telegram parity tests. Non-transaction Telegram transition paths remain
+specialized for UIR-06/07.
 
 ## Source contracts
 
