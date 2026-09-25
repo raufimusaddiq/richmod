@@ -46,6 +46,9 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 		if mode == "" {
 			t.Fatalf("%s produced no markup mode", reviewType)
 		}
+		if contains(decision.MissingFacts, "transfer_relationship") && mode != "transfer" {
+			t.Fatalf("%s transfer decision rendered as %q, want the transfer chooser", reviewType, mode)
+		}
 		if mode == "category" && !isCategoryOnly(decision) {
 			t.Fatalf("%s rendered as a category chooser without a category-only decision", reviewType)
 		}

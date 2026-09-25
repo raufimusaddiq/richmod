@@ -20,7 +20,7 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 	}{
 		{
 			name: "category only is a bounded chooser", reviewType: "UNKNOWN_MERCHANT",
-			decision:  reviewdec.Decision{MissingFacts: []string{"category"}, AllowedActions: []string{"CONFIRM_REVIEW", "IGNORE"}, InteractionMode: reviewdec.ModeBoundedChoice},
+			decision:  reviewdec.Decision{DecisionClass: reviewdec.ClassEvidenceGap, MissingFacts: []string{"category"}, AllowedActions: []string{"CONFIRM_REVIEW", "IGNORE"}, InteractionMode: reviewdec.ModeBoundedChoice},
 			wantState: "AWAITING_CATEGORY", wantMessage: "keep context", context: "keep context", wantMode: "category",
 		},
 		{
@@ -37,6 +37,11 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 			name: "unknown purpose is a bound reply", reviewType: "UNKNOWN_PURPOSE",
 			decision:  reviewdec.Decision{MissingFacts: []string{"transaction_semantics"}, AllowedActions: []string{"CONFIRM_REVIEW", "IGNORE"}, InteractionMode: reviewdec.ModeSingleField},
 			wantState: "AWAITING_DETAIL", wantMessage: "🟡 Perlu detail transaksi\n\nNominal: Rp18.502\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", context: "Nominal: Rp18.502", wantMode: "reply",
+		},
+		{
+			name: "transfer relationship gets the transfer chooser", reviewType: "TRANSFER_CLASSIFICATION",
+			decision:  reviewdec.Decision{MissingFacts: []string{"transfer_relationship"}, AllowedActions: []string{"CLASSIFY_TRANSFER", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}, InteractionMode: reviewdec.ModeBoundedChoice},
+			wantState: "AWAITING_DETAIL", wantMessage: "rincian transfer", context: "rincian transfer", wantMode: "transfer",
 		},
 		{
 			name: "duplicate conflict offers duplicate intents", reviewType: "POSSIBLE_DUPLICATE",

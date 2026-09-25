@@ -21,7 +21,7 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// Category is the single unresolved fact and it has bounded values, so the
 		// chooser is the whole interaction; merchant enrichment is optional.
 		return "AWAITING_CATEGORY", context, "category"
-	case decision.InteractionMode == reviewdec.ModePolicyChoice && reviewType == "TRANSFER_CLASSIFICATION":
+	case contains(decision.MissingFacts, "transfer_relationship"):
 		return "AWAITING_DETAIL", context, "transfer"
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
@@ -40,7 +40,10 @@ func isCategoryOnly(decision reviewdec.Decision) bool {
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "category" {
 		return false
 	}
-	return contains(decision.AllowedActions, "CONFIRM_REVIEW") || contains(decision.AllowedActions, "SET_CATEGORY")
+	// A transfer review also carries CONFIRM_REVIEW, so the decision class must
+	// agree that category is the unresolved dimension before using the chooser.
+	return decision.DecisionClass == reviewdec.ClassEvidenceGap &&
+		(contains(decision.AllowedActions, "CONFIRM_REVIEW") || contains(decision.AllowedActions, "SET_CATEGORY"))
 }
 
 // requiresBoundReply reports whether the unresolved dimension is a free-form
