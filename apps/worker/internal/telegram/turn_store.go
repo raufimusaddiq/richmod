@@ -61,7 +61,7 @@ func (p *Processor) hasPendingSalaryChoice(ctx context.Context, householdID stri
 
 func (p *Processor) hasMerchantLearning(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
 	var found bool
-	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND EXISTS (SELECT 1 FROM review_request_recipient rr WHERE rr.review_request_id=r.id AND rr.telegram_chat_id=$2))`, householdID, update.Message.Chat.ID).Scan(&found)
+	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND EXISTS (SELECT 1 FROM review_request_recipient rr WHERE rr.review_request_id=r.id AND rr.telegram_chat_id=$2))`, householdID, update.Message.Chat.ID).Scan(&found)
 	return found, err
 }
 func (p *Processor) activeReviewBinding(ctx context.Context, householdID string, update telegramUpdate) (any, int, error) {
