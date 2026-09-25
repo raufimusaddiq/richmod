@@ -287,6 +287,46 @@ updated; `git diff --check`).
 Known follow-up: PRs #151 and #152 are merged; deployment remains subject to the
 sprint release/approval flow.
 
+IR-10 rollout-scope audit: PRD §17 requires receipt/screenshot switches to
+independently reverse direct auto-confirm and residual category rescue. The
+follow-up implementation gates those calls too; rollback preserves category-only
+reviews and performs zero Jev calls. Eight source regression tests, including
+both new switch-off cases, pass against disposable PostgreSQL 17; the full worker
+document package passes.
+
+IR-10 follow-up completion record:
+Task: IR-10 rollout-switch scope
+Baseline main SHA: `fb23a97c153f2a18ab5da04eef3179225d0de2c9`
+Files changed: `apps/worker/internal/document/{receipt.go,screenshot.go}`;
+receipt and screenshot integration tests; this ledger; production deployment
+runbook switch table.
+User interactions before: with receipt/screenshot switches disabled, direct
+confirmation stopped but residual category Jev still ran and could confirm,
+leaving only the eventual human work disabled.
+User interactions after: switches on = unchanged minimal flow; switches off =
+one category-only review when category is residual, with no new fields or guesses.
+Jev calls before: switch off still allowed one receipt rescue or one selective
+screenshot batch; switch on was 0 for clear, 1 for residual receipt/one batch for
+residual screenshot rows.
+Jev calls after: switch off = 0 for either source; switch on unchanged (clear 0,
+receipt residual 1, screenshot residual rows batched in 1 call).
+Generative calls before/after: unchanged; one vision extraction, and existing
+conditional repair only.
+Canonical correctness guard: with the switches off, neither source auto-confirms
+from the disabled rescue; extracted evidence persists in review with
+`missing_facts=["category"]`. Duplicate/date paths unchanged.
+Residual uncertainty after: category only; transaction date is never guessed.
+Tests added/updated: receipt/screenshot switch-off integration tests assert zero
+Jev plus `NEEDS_REVIEW` and category-only ReviewDecision; 8 focused database tests
+pass; full `go test ./internal/document/` passes against disposable PostgreSQL 17.
+Drift checklist: A pass; B pass (switch removes bounded rescue and auto-confirm
+together); C pass; D pass (thresholds unchanged); E pass (facts not invented); F
+pass (exact category residual retained); G pass (no model failure used as
+approval); H receipt/screenshot pass; I pass (existing phase telemetry records
+only executed calls); J pass (canonical and call counts pinned); K pass (runbook
+and task ledger updated; `git diff --check`).
+Known follow-up: protected CI/Hermes and merge; deployment not requested.
+
 ## IR-09 — Intelligence-pass telemetry
 
 Task: IR-09

@@ -254,7 +254,11 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
 	categoryDecision := receiptCategoryProvenance{}
-	if categoryID == nil && len(candidates) == 0 && validation.DateKnown {
+	// The receipt kill-switch governs the whole PRD §17 scope for this source:
+	// direct auto-confirm *and* the residual category rescue. With it off, the
+	// receipt keeps asking, so a bad bounded rollout can be reverted without
+	// touching the screenshot, bank, or Telegram switches (PRD §17/§33).
+	if !p.receiptAutoConfirmOff && categoryID == nil && len(candidates) == 0 && validation.DateKnown {
 		// The category is the only bounded residual left. One Jev rescue can turn
 		// a category-only review into a confirmed expense; undecided or failure
 		// keeps the review. A missing date is never rescued here.

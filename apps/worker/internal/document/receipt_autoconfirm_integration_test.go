@@ -474,3 +474,33 @@ func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 		t.Fatalf("the receipt switch off must park a review, status=%s", status)
 	}
 }
+
+// PRD §17: the receipt switch covers residual category rescue as well as direct
+// confirmation. Disabled rescue leaves the category-only review untouched.
+func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt kill switch rescue")
+	ctx := context.Background()
+	var foodCategoryID string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food & Drink','food-and-drink') RETURNING id`, fixture.householdID).Scan(&foodCategoryID); err != nil {
+		t.Fatal(err)
+	}
+	verifier := &receiptCategoryVerifier{answer: receiptCategoryAnswer(fixture.categorySlug, 0.95)}
+	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	processor := &Processor{pool: fixture.pool, verifier: verifier}
+	processor.SetReceiptAutoConfirm(false)
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: foodCategoryID, Slug: "food-and-drink"}}); err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 0 {
+		t.Fatalf("disabled receipt rollout must skip Jev, calls=%d", verifier.calls)
+	}
+	var status, reviewType string
+	var missingFacts []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,r.review_type,ARRAY(SELECT jsonb_array_elements_text(r.decision->'missingFacts')) FROM transaction t JOIN review_item r ON r.transaction_id=t.id WHERE t.household_id=$1`, fixture.householdID).Scan(&status, &reviewType, &missingFacts); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || reviewType != "AMBIGUOUS_CATEGORY" || len(missingFacts) != 1 || missingFacts[0] != "category" {
+		t.Fatalf("disabled rollout must preserve category-only review: status=%s reason=%s missing=%v", status, reviewType, missingFacts)
+	}
+}
