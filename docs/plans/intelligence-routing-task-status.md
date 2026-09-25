@@ -325,7 +325,9 @@ pass (exact category residual retained); G pass (no model failure used as
 approval); H receipt/screenshot pass; I pass (existing phase telemetry records
 only executed calls); J pass (canonical and call counts pinned); K pass (runbook
 and task ledger updated; `git diff --check`).
-Known follow-up: protected CI/Hermes and merge; deployment not requested.
+Known follow-up: merged in PR #154 (merge commit
+`c91e30dc9119f4c04ff98e8d1f19b98f121fd7d0`); main CI, CodeQL, and Release
+Images published immutable `sha-c91e30d` images. Deployment not requested.
 
 ## IR-09 — Intelligence-pass telemetry
 
