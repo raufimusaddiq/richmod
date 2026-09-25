@@ -561,6 +561,18 @@ func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, house
 	return nil
 }
 
+// transactionConfirmableWithoutCategory reports whether the shared confirm rule
+// accepts this transaction with no category. An uncategorized EXPENSE needs a
+// category, so a date-only save must continue to the chooser instead of trying to
+// confirm and failing the expense-category invariant.
+func (p *Processor) transactionConfirmableWithoutCategory(ctx context.Context, tx pgx.Tx, transactionID string) bool {
+	var kind string
+	var categoryID *string
+	if err := tx.QueryRow(ctx, `SELECT type,category_id::text FROM transaction WHERE id=$1 FOR UPDATE`, transactionID).Scan(&kind, &categoryID); err != nil {
+		return false
+	}
+	return kind != "EXPENSE" || categoryID != nil
+}
 
 // reviewNeedsCategory reports whether the stored decision still lists category as
 // an unresolved fact, so a field save only continues to the chooser when the
@@ -620,13 +632,46 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	} else if field == "transaction_at" {
 		parsed, parseErr := parseSuppliedReviewDate(value)
 		if parseErr != nil || parsed == nil {
-			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tanggal transaksi wajib diisi dengan format YYYY-MM-DD.")
+			// Stay in AWAITING_DATE: switching to the category chooser here would strand
+			// the date fact this review actually needs.
+			if _, err = tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+				return err
+			}
+			if err = enqueueReply(ctx, tx, update, "Tanggal transaksi wajib diisi dengan format YYYY-MM-DD."); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, *parsed, householdID); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, *parsed); err != nil {
 			return err
+		}
+		// When the decision has no category fact and the shared confirm rule
+		// accepts this transaction without one, the date was the last missing fact: go
+		// straight through the canonical confirm so no resolved review is left behind
+		// an open transaction.
+		if !reviewNeedsCategory(ctx, tx, reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, transactionID) {
+			var dateRequestID string
+			if err = tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&dateRequestID); err != nil {
+				return err
+			}
+			if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+				HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+				ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: dateRequestID,
+				Action: "TELEGRAM_DATE_SET", TransactionAt: parsed,
+				ResolveReview: true,
+			}); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+				return err
+			}
+			if err = enqueueReply(ctx, tx, update, "Tanggal transaksi disimpan. Tinjauan selesai."); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
 		}
 	} else {
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, value, householdID); err != nil {
@@ -647,24 +692,6 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	}
 	if rememberedCategoryID != "" {
 		if err = p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, rememberedCategoryID, update, reviewExtraction{}, userID, false); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-	// A date-only review has no category left to ask for. Once the date is
-	// stored the residual is empty, so complete the review instead of pushing a
-	// category chooser the decision never requested.
-	if field == "transaction_at" && !reviewNeedsCategory(ctx, tx, reviewID) {
-		if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),updated_at=now() WHERE id=(SELECT review_item_id FROM review_request WHERE id=$1)`, reviewID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1`, reviewID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-			return err
-		}
-		if err = enqueueReply(ctx, tx, update, "Tanggal transaksi disimpan. Tinjauan selesai."); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
