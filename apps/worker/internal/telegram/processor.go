@@ -211,6 +211,15 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
+			// Transfer-classification buttons (review:expense / :own / :household /
+			// :asset) carry a bounded intent, not a free-form reply, so they continue
+			// into the bound-review lane instead of being rejected as a stale action.
+			switch update.CallbackQuery.Data {
+			case "review:expense", "review:own", "review:household", "review:asset", "review:investment":
+				if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
+					return err
+				}
+			}
 		}
 	}
 	text := strings.TrimSpace(update.Message.Text)

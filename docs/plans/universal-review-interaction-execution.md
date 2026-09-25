@@ -123,6 +123,24 @@ one-reply review while an uncategorized `UNKNOWN_PURPOSE` expense still
 resolves through the chooser. The plan doc's UIR-04 family list is therefore
 covered for the Telegram bound-reply channel.
 
+The thirteenth slice starts UIR-05: duplicate and transfer parity. A typed reply
+to a `TRANSFER_CLASSIFICATION` review no longer falls into the `AWAITING_DETAIL`
+description saver; a stored `transfer_relationship` decision now routes to a
+dedicated `classifyTransferReply`, which maps one of the bounded intents
+(expense, own account, household account, investment account, asset purchase,
+ignore) through the shared `reviewdomain.ClassifyTransferReview`. The transfer
+chooser keyboard follows the transaction type, so an expense review offers only
+the classifications the canonical rule accepts (expense, asset purchase) rather
+than buttons that would produce a stale-action reply. Transfer buttons delivered
+as callbacks (`review:expense`/`:own`/`:household`/`:asset`) now continue into the
+bound-review lane instead of being rejected as completed actions, and an expense
+transfer review offers the category chooser from Telegram rather than the Review
+Inbox. POSSIBLE_DUPLICATE already offered its candidate chooser; a DB-backed test
+now drives the full `Process` path (bound reply records candidates, callback
+merges and voids the source) to prove it completes without Web. `CONFLICTING_EVIDENCE`
+is produced on a source-event subject by financial email and has no transaction
+projection, so its Telegram surface belongs to UIR-07.
+
 The remaining channel gaps are subject-parity work: the rest of UIR-03
 action parity, UIR-04 transaction residual parity, UIR-06
 payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle
