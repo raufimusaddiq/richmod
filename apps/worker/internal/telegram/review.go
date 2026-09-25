@@ -1765,7 +1765,7 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 			SELECT id FROM review_request WHERE review_item_id=$2 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at LIMIT 1
 		)
 		INSERT INTO review_request(review_item_id,household_id,review_type,status)
-		SELECT $2,$1,ri.review_type,'PENDING_SEND' FROM review_item ri
+		SELECT $2,$1,ri.review_type,'OPEN' FROM review_item ri
 		WHERE ri.id=$2 AND NOT EXISTS (SELECT 1 FROM existing)
 		RETURNING id, review_type`, householdID, itemID).Scan(&reviewID, &reviewType)
 	if errors.Is(err, pgx.ErrNoRows) {

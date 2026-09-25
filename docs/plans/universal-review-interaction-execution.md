@@ -164,6 +164,12 @@ rendering is unchanged; `TestSuppliedContextKeepsItsMarkupMode` pins the
 supplied-prompt behavior.
 
 
++The slice also added migration 00069, which widens the
+review_request.review_type CHECK to the review_item reason set; without it a
+document, payslip, bank, or financial-email projection failed the constraint
+(SQLSTATE 23514) and the review never reached Telegram.
+
+
 The remaining channel gaps are subject-parity work: the rest of UIR-03
 action parity, UIR-04 transaction residual parity, UIR-06
 payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle

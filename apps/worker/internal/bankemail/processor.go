@@ -332,11 +332,11 @@ func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, s
 		return encodeErr
 	}
 	var itemID string
-	if err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'PENDING_SEND',$4::jsonb) ON CONFLICT DO NOTHING RETURNING id`, household, sourceEventID, reviewType, string(encoded)).Scan(&itemID); err != nil {
+	if err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN',$4::jsonb) ON CONFLICT DO NOTHING RETURNING id`, household, sourceEventID, reviewType, string(encoded)).Scan(&itemID); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		if err = tx.QueryRow(ctx, `SELECT id FROM review_item WHERE source_event_id=$1 AND review_type=$2 AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, sourceEventID, reviewType).Scan(&itemID); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT id FROM review_item WHERE source_event_id=$1 AND review_type=$2 AND status IN ('OPEN','PENDING_SEND') LIMIT 1`, sourceEventID, reviewType).Scan(&itemID); err != nil {
 			return err
 		}
 	}

@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -173,6 +174,16 @@ func (p *Processor) finishTransferReview(ctx context.Context, sourceID, househol
 		return err
 	}
 	if err = insertSourceEventReviewDecision(ctx, tx, householdID, sourceID, "TRANSFER_CLASSIFICATION", map[string]any{"amount_idr": intent.amount}, map[string]any{"blocking_reason": blockingReason, "candidate_count": len(candidateIDs)}); err != nil {
+		return err
+	}
+	// UIR-02: give the transfer review the shared actionable projection before the
+	// acknowledgement reply, so the chooser is delivered alongside the message.
+	var transferItemID string
+	if err = tx.QueryRow(ctx, `SELECT id::text FROM review_item WHERE household_id=$1 AND source_event_id=$2 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at DESC LIMIT 1`, householdID, sourceID).Scan(&transferItemID); err == nil {
+		if err = ProjectReviewItem(ctx, tx, householdID, transferItemID, update.Message.MessageID, "", update.Message.Chat.ID); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
 	if err = enqueueReply(ctx, tx, update, message); err != nil {

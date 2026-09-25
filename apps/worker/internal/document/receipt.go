@@ -507,7 +507,7 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	}
 	var reviewItemID string
 	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision)
-		SELECT $1,$2,$3,'PENDING_SEND',$4::jsonb
+		SELECT $1,$2,$3,'OPEN',$4::jsonb
 		ON CONFLICT (transaction_id) WHERE transaction_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN')
 		DO UPDATE SET review_type=EXCLUDED.review_type,decision=EXCLUDED.decision,updated_at=now()
 		RETURNING id`, householdID, transactionID, reviewType, string(encoded)).Scan(&reviewItemID)
