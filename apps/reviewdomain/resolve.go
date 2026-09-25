@@ -16,15 +16,16 @@ import (
 // longer open. Callers surface a deterministic stale/resolved response.
 var ErrAlreadyResolved = errors.New("reviewdomain: review already resolved")
 
-// resolveSQL records the human decision and leaves projection resolution to the
-// caller-supplied transaction, so Web and Telegram share one completion path.
-const resolveSQL = `UPDATE review_item
-		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,
-		    resolution_values=$4::jsonb,updated_at=now()
-		WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`
-
 const resolveRequestSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
-		WHERE (review_item_id=$1 OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
+		WHERE (review_item_id=ANY($1::uuid[]) OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
+
+// resolveTransactionSQL resolves every open canonical item for one transaction
+// in a single statement, preserving the prior all-item API behavior.
+const resolveTransactionSQL = `UPDATE review_item
+		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action=$4,
+		    resolution_values=$5::jsonb,updated_at=now()
+		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')
+		RETURNING id`
 
 const resolveByIDSQL = `UPDATE review_item
 		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,
@@ -62,28 +63,32 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 			return err
 		}
 	}
-	var reviewItemID string
-	err := tx.QueryRow(ctx, `SELECT id FROM review_item
-		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')
-		FOR UPDATE`, cmd.HouseholdID, cmd.SubjectID).Scan(&reviewItemID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	rows, err := tx.Query(ctx, resolveTransactionSQL, cmd.HouseholdID, cmd.SubjectID, cmd.ActorUserID, cmd.Action, string(values))
+	if err != nil {
+		return err
+	}
+	var reviewItemIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		reviewItemIDs = append(reviewItemIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(reviewItemIDs) == 0 {
 		// Older transaction review flows may predate review_item. Preserve their
 		// projection completion while new canonical producers always create one.
 		_, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now()
 			WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.SubjectID)
 		return err
 	}
-	if err != nil {
-		return err
-	}
-	result, err := tx.Exec(ctx, resolveSQL, reviewItemID, cmd.ActorUserID, cmd.Action, string(values))
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() != 1 {
-		return ErrAlreadyResolved
-	}
-	_, err = tx.Exec(ctx, resolveRequestSQL, reviewItemID, cmd.SubjectID)
+	_, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID)
 	return err
 }
 
@@ -121,6 +126,6 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved
 	}
-	_, err = tx.Exec(ctx, resolveRequestSQL, cmd.ReviewItemID, subjectID)
+	_, err = tx.Exec(ctx, resolveRequestSQL, []string{cmd.ReviewItemID}, subjectID)
 	return err
 }

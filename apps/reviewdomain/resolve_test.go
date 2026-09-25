@@ -12,14 +12,19 @@ import (
 func TestSharedResolverOwnsCanonicalCompletion(t *testing.T) {
 	for _, required := range []string{
 		"status='RESOLVED'",
-		"resolved_by_user_id=$2",
-		"resolution_action=$3",
-		"resolution_values=$4::jsonb",
+		"resolved_by_user_id=",
+		"resolution_action=",
+		"resolution_values=",
 		"status IN ('PENDING_SEND','OPEN')",
 	} {
-		if !strings.Contains(resolveSQL, required) || !strings.Contains(resolveByIDSQL, required) {
+		if !strings.Contains(resolveTransactionSQL, required) || !strings.Contains(resolveByIDSQL, required) {
 			t.Fatalf("shared resolver completion is missing %q", required)
 		}
+	}
+	// The API helper historically resolved every open item for a transaction;
+	// the shared operation must not silently narrow to one row.
+	if !strings.Contains(resolveTransactionSQL, "RETURNING id") || strings.Contains(resolveTransactionSQL, "LIMIT 1") {
+		t.Fatal("transaction completion must resolve every open canonical item")
 	}
 	if !strings.Contains(resolveRequestSQL, "UPDATE review_request SET status='RESOLVED'") || !strings.Contains(resolveRequestSQL, "transaction_id=$2") {
 		t.Fatal("shared resolver must resolve canonical and legacy transaction-linked projections")
