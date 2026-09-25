@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -605,7 +606,7 @@ func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user
 		}
 		transactionID = values.TransactionID
 		if targetType == "UNCLASSIFIED" || targetStatus == "NEEDS_REVIEW" {
-			if err := finalizeTransferReviewLifecycle(r.Context(), tx, household, user, transactionID, "TRANSFER", "ACCEPTED", "PROCESSED", nil, "TRANSFER_RECONCILED", "TRANSFER_RECONCILED"); err != nil {
+			if err := reviewdomain.FinalizeTransferReviewLifecycle(r.Context(), tx, household, user, transactionID, "TRANSFER", "ACCEPTED", "PROCESSED", nil, "TRANSFER_RECONCILED", "TRANSFER_RECONCILED"); err != nil {
 				return err
 			}
 		}

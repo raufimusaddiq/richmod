@@ -100,18 +100,18 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 	case "IGNORE":
 		return p.agentRejectTransactionReview(ctx, state, call, *review)
 	case "OWN_ACCOUNT_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "OWN_ACCOUNT", "", "")
+		return p.agentResolveTransferClassification(ctx, state, call, *review, "OWN_ACCOUNT", "", "")
 	case "HOUSEHOLD_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "HOUSEHOLD_ACCOUNT", "", "")
+		return p.agentResolveTransferClassification(ctx, state, call, *review, "HOUSEHOLD_ACCOUNT", "", "")
 	case "INVESTMENT_TRANSFER":
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "INVESTMENT_ACCOUNT", "", "")
+		return p.agentResolveTransferClassification(ctx, state, call, *review, "INVESTMENT_ACCOUNT", "", "")
 	case "ASSET_PURCHASE":
 		if strings.TrimSpace(wealthHint) == "" {
 			result.Status = "MISSING_WEALTH_ACCOUNT"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"wealth_account_hint"}}
 			return result, true, nil
 		}
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", wealthHint, "")
+		return p.agentResolveTransferClassification(ctx, state, call, *review, "ASSET_PURCHASE", wealthHint, "")
 	case "EXPENSE":
 		categoryID, err := p.agentCategoryID(ctx, state.HouseholdID, categorySlug)
 		if err != nil || categoryID == "" {
@@ -119,7 +119,7 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"category_slug"}}
 			return result, true, nil
 		}
-		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "CONFIRMED", "EXPENSE", "", categoryID)
+		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "", categoryID)
 	case "SET_PAY_DATE":
 		if !validReviewDate(payDate) {
 			result.Status = "INVALID_PAY_DATE"
@@ -221,39 +221,66 @@ func (p *Processor) agentResolveBoundWealthObservation(ctx context.Context, stat
 	switch action {
 	case "PREPARE_SNAPSHOT":
 		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-		if err != nil { return result,true,err }
+		if err != nil {
+			return result, true, err
+		}
 		defer tx.Rollback(ctx)
 		resolved, _, _, _, valid, err := p.loadBoundWealthObservationTx(ctx, tx, state, binding)
-		if err != nil { return result,true,err }
-		if !valid { result.Status="STALE_REVIEW_BINDING"; return result,true,nil }
+		if err != nil {
+			return result, true, err
+		}
+		if !valid {
+			result.Status = "STALE_REVIEW_BINDING"
+			return result, true, nil
+		}
 		if resolved == "" {
 			result.Status = "MISSING_WEALTH_ACCOUNT"
 			result.Review = map[string]any{"required": true, "review_type": "WEALTH_OBSERVATION", "missing_fields": []string{"wealth_account_hint"}}
 			return result, true, nil
 		}
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil { return result,true,err }
-		if err = tx.Commit(ctx); err != nil { return result,true,err }
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
+			return result, true, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return result, true, err
+		}
 		result.Status = "ACTION_REQUIRED"
 		result.Mutation = map[string]any{"action": "PREPARE_WEALTH_SNAPSHOT", "requires_web": true}
 		return result, true, nil
 	case "SET_WEALTH_ACCOUNT":
 		wealthHint, _ := args["wealth_account_hint"].(string)
 		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-		if err != nil { return result, true, err }
+		if err != nil {
+			return result, true, err
+		}
 		defer tx.Rollback(ctx)
 		_, _, _, _, valid, err := p.loadBoundWealthObservationTx(ctx, tx, state, binding)
-		if err != nil { return result,true,err }
-		if !valid { result.Status="STALE_REVIEW_BINDING"; return result,true,nil }
+		if err != nil {
+			return result, true, err
+		}
+		if !valid {
+			result.Status = "STALE_REVIEW_BINDING"
+			return result, true, nil
+		}
 		id, err := resolveUniqueWealthHint(ctx, tx, state.HouseholdID, wealthHint)
 		if err != nil {
 			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
 			return result, true, nil
 		}
 		updated, err := tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='PENDING'`, binding.TargetID, id, state.HouseholdID)
-		if err != nil { return result,true,err }
-		if updated.RowsAffected()!=1 { result.Status="STALE_REVIEW_BINDING"; return result,true,nil }
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil { return result,true,err }
-		if err = tx.Commit(ctx); err != nil { return result,true,err }
+		if err != nil {
+			return result, true, err
+		}
+		if updated.RowsAffected() != 1 {
+			result.Status = "STALE_REVIEW_BINDING"
+			return result, true, nil
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
+			return result, true, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return result, true, err
+		}
 		result.Status = "UPDATED"
 		result.Mutation = map[string]any{"action": "WEALTH_ACCOUNT_SET", "wealth_account_hint": wealthHint}
 		return result, true, nil
@@ -261,24 +288,46 @@ func (p *Processor) agentResolveBoundWealthObservation(ctx context.Context, stat
 		return p.agentResolveBoundWealthAssetPurchase(ctx, state, call, args, binding)
 	case "IGNORE":
 		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-		if err != nil { return result,true,err }
+		if err != nil {
+			return result, true, err
+		}
 		defer tx.Rollback(ctx)
 		_, _, _, originalSource, valid, err := p.loadBoundWealthObservationTx(ctx, tx, state, binding)
-		if err != nil { return result,true,err }
-		if !valid { result.Status="STALE_REVIEW_BINDING"; return result,true,nil }
+		if err != nil {
+			return result, true, err
+		}
+		if !valid {
+			result.Status = "STALE_REVIEW_BINDING"
+			return result, true, nil
+		}
 		var userID string
-		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil { return result,true,err }
+		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
+			return result, true, err
+		}
 		updated, err := tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='PENDING'`, binding.TargetID, state.HouseholdID)
-		if err != nil { return result,true,err }
-		if updated.RowsAffected()!=1 { result.Status="STALE_REVIEW_BINDING"; return result,true,nil }
-		if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "IGNORED"); err != nil { return result,true,err }
+		if err != nil {
+			return result, true, err
+		}
+		if updated.RowsAffected() != 1 {
+			result.Status = "STALE_REVIEW_BINDING"
+			return result, true, nil
+		}
+		if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "IGNORED"); err != nil {
+			return result, true, err
+		}
 		if originalSource != "" {
-			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, originalSource, state.HouseholdID); err != nil { return result,true,err }
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, originalSource, state.HouseholdID); err != nil {
+				return result, true, err
+			}
 		}
 		if state.SourceEventID != originalSource {
-			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, state.SourceEventID, state.HouseholdID); err != nil { return result,true,err }
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, state.SourceEventID, state.HouseholdID); err != nil {
+				return result, true, err
+			}
 		}
-		if err = tx.Commit(ctx); err != nil { return result,true,err }
+		if err = tx.Commit(ctx); err != nil {
+			return result, true, err
+		}
 		result.Status = "RESOLVED"
 		result.Mutation = map[string]any{"action": "WEALTH_OBSERVATION_IGNORED"}
 		return result, true, nil
@@ -304,46 +353,78 @@ func (p *Processor) agentResolveBoundWealthAssetPurchase(ctx context.Context, st
 	// recorded. If the second phase fails after that transfer commits, retry is
 	// safe because agentRecordTransfer is source-event idempotent.
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil { return result,true,err }
+	if err != nil {
+		return result, true, err
+	}
 	defer tx.Rollback(ctx)
 	_, institution, hint, originalSource, valid, err := p.loadBoundWealthObservationTx(ctx, tx, state, binding)
-	if err != nil { return result,true,err }
-	if !valid { result.Status="STALE_REVIEW_BINDING"; return result,true,nil }
+	if err != nil {
+		return result, true, err
+	}
+	if !valid {
+		result.Status = "STALE_REVIEW_BINDING"
+		return result, true, nil
+	}
 	if strings.TrimSpace(wealthHint) == "" {
 		wealthHint = strings.TrimSpace(institution + " " + hint)
 	}
 	if strings.TrimSpace(amount) == "" {
-		if err = tx.QueryRow(ctx, `SELECT observed_value_idr::text FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status='PENDING'`, binding.TargetID, state.HouseholdID).Scan(&amount); err != nil { return result,true,err }
+		if err = tx.QueryRow(ctx, `SELECT observed_value_idr::text FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status='PENDING'`, binding.TargetID, state.HouseholdID).Scan(&amount); err != nil {
+			return result, true, err
+		}
 	}
 	parsed, _ := time.Parse(time.RFC3339, atText)
 	local := parsed.In(jakartaLocation())
-		// No purpose argument: this is a fixed asset-purchase reclassification, and the
-		// transfer semantics are the caller's own deterministic decision, not a model
-		// assertion (PRD §13).
-		transferArgs := map[string]any{"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint, "reclassification_purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"), "local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram"}
+	// No purpose argument: this is a fixed asset-purchase reclassification, and the
+	// transfer semantics are the caller's own deterministic decision, not a model
+	// assertion (PRD §13).
+	transferArgs := map[string]any{"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint, "reclassification_purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"), "local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram"}
 	transferResult, _, err := p.agentRecordTransfer(ctx, state, gateway.ToolCall{CallID: call.CallID, Name: "record_transfer"}, transferArgs)
-	if err != nil { return result,true,err }
+	if err != nil {
+		return result, true, err
+	}
 	if transferResult.Status != "CONFIRMED" && transferResult.Status != "NO_OP_DUPLICATE" {
 		transferResult.Tool = call.Name
 		return transferResult, true, nil
 	}
 	var transactionID string
-	if err = tx.QueryRow(ctx, `SELECT transaction_id::text FROM transaction_evidence WHERE source_event_id=$1 ORDER BY created_at DESC LIMIT 1`, state.SourceEventID).Scan(&transactionID); err != nil { return result,true,err }
+	if err = tx.QueryRow(ctx, `SELECT transaction_id::text FROM transaction_evidence WHERE source_event_id=$1 ORDER BY created_at DESC LIMIT 1`, state.SourceEventID).Scan(&transactionID); err != nil {
+		return result, true, err
+	}
 	var userID string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil { return result,true,err }
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
+		return result, true, err
+	}
 	if originalSource != "" {
-		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TELEGRAM_IMAGE',1,jsonb_build_object('reclassified_from','WEALTH_OBSERVATION','observation_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, originalSource, binding.TargetID); err != nil { return result,true,err }
+		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TELEGRAM_IMAGE',1,jsonb_build_object('reclassified_from','WEALTH_OBSERVATION','observation_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, originalSource, binding.TargetID); err != nil {
+			return result, true, err
+		}
 	}
 	updated, err := tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='PENDING'`, binding.TargetID, state.HouseholdID)
-	if err != nil { return result,true,err }
-	if updated.RowsAffected()!=1 { result.Status="STALE_REVIEW_BINDING"; return result,true,nil }
-	if _, err = tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`, binding.TargetID); err != nil { return result,true,err }
-	if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "RECLASSIFIED_ASSET_PURCHASE"); err != nil { return result,true,err }
-	if originalSource != "" {
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, originalSource); err != nil { return result,true,err }
+	if err != nil {
+		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RECLASSIFY_WEALTH_OBSERVATION','wealth_observation',$3,jsonb_build_object('transaction_id',$4::uuid,'purpose','ASSET_PURCHASE','agent_sprint',1))`, state.HouseholdID, userID, binding.TargetID, transactionID); err != nil { return result,true,err }
-	if err = tx.Commit(ctx); err != nil { return result,true,err }
+	if updated.RowsAffected() != 1 {
+		result.Status = "STALE_REVIEW_BINDING"
+		return result, true, nil
+	}
+	if _, err = tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`, binding.TargetID); err != nil {
+		return result, true, err
+	}
+	if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "RECLASSIFIED_ASSET_PURCHASE"); err != nil {
+		return result, true, err
+	}
+	if originalSource != "" {
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, originalSource); err != nil {
+			return result, true, err
+		}
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RECLASSIFY_WEALTH_OBSERVATION','wealth_observation',$3,jsonb_build_object('transaction_id',$4::uuid,'purpose','ASSET_PURCHASE','agent_sprint',1))`, state.HouseholdID, userID, binding.TargetID, transactionID); err != nil {
+		return result, true, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return result, true, err
+	}
 	result = transferResult
 	result.Tool = call.Name
 	result.Mutation["action"] = "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE"
@@ -359,12 +440,18 @@ func (p *Processor) agentResolveBoundMerchantLearning(ctx context.Context, state
 	binding := state.MerchantLearningBinding
 	remember, _ := args["remember"].(bool)
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil { return result,true,err }
+	if err != nil {
+		return result, true, err
+	}
 	defer tx.Rollback(ctx)
 	var userID string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil { return result,true,err }
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
+		return result, true, err
+	}
 	var active bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id WHERE r.id=$1 AND r.household_id=$2 AND r.transaction_id=$3 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED')`, binding.ReviewRequestID, state.HouseholdID, binding.TransactionID).Scan(&active); err != nil { return result,true,err }
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id WHERE r.id=$1 AND r.household_id=$2 AND r.transaction_id=$3 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED')`, binding.ReviewRequestID, state.HouseholdID, binding.TransactionID).Scan(&active); err != nil {
+		return result, true, err
+	}
 	if !active {
 		result.Status = "STALE_MERCHANT_LEARNING_BINDING"
 		return result, true, nil
@@ -372,15 +459,31 @@ func (p *Processor) agentResolveBoundMerchantLearning(ctx context.Context, state
 	merchantName, categoryName := binding.Merchant, binding.Category
 	if remember {
 		var merchantID, categoryID string
-		if err = tx.QueryRow(ctx, `SELECT t.merchant_id,t.category_id,m.normalized_name,c.name FROM transaction t JOIN merchant m ON m.id=t.merchant_id JOIN category c ON c.id=t.category_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='CONFIRMED' AND t.merchant_id IS NOT NULL AND t.category_id IS NOT NULL`, binding.TransactionID, state.HouseholdID).Scan(&merchantID, &categoryID, &merchantName, &categoryName); err != nil { return result,true,err }
-		if _, err = tx.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,normalized_name,id,$3,true,true FROM merchant WHERE id=$2 AND household_id=$1 ON CONFLICT(household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET raw_name=excluded.raw_name,default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true`, state.HouseholdID, merchantID, categoryID); err != nil { return result,true,err }
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REMEMBER_MERCHANT','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'merchant_id',$5::uuid,'category_id',$6::uuid,'agent_sprint',1))`, state.HouseholdID, userID, binding.TransactionID, binding.ReviewRequestID, merchantID, categoryID); err != nil { return result,true,err }
+		if err = tx.QueryRow(ctx, `SELECT t.merchant_id,t.category_id,m.normalized_name,c.name FROM transaction t JOIN merchant m ON m.id=t.merchant_id JOIN category c ON c.id=t.category_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='CONFIRMED' AND t.merchant_id IS NOT NULL AND t.category_id IS NOT NULL`, binding.TransactionID, state.HouseholdID).Scan(&merchantID, &categoryID, &merchantName, &categoryName); err != nil {
+			return result, true, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,normalized_name,id,$3,true,true FROM merchant WHERE id=$2 AND household_id=$1 ON CONFLICT(household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET raw_name=excluded.raw_name,default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true`, state.HouseholdID, merchantID, categoryID); err != nil {
+			return result, true, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REMEMBER_MERCHANT','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'merchant_id',$5::uuid,'category_id',$6::uuid,'agent_sprint',1))`, state.HouseholdID, userID, binding.TransactionID, binding.ReviewRequestID, merchantID, categoryID); err != nil {
+			return result, true, err
+		}
 	}
-	if err = resolveCanonicalReviewItem(ctx, tx, binding.ReviewRequestID, userID, "TELEGRAM_MERCHANT_DECISION"); err != nil { return result,true,err }
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, binding.ReviewRequestID); err != nil { return result,true,err }
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil { return result,true,err }
-	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($3,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$1::uuid,'remember_merchant',$4::boolean)) ON CONFLICT DO NOTHING`, binding.ReviewRequestID, state.SourceEventID, binding.TransactionID, remember); err != nil { return result,true,err }
-	if err = tx.Commit(ctx); err != nil { return result,true,err }
+	if err = resolveCanonicalReviewItem(ctx, tx, binding.ReviewRequestID, userID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
+		return result, true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, binding.ReviewRequestID); err != nil {
+		return result, true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
+		return result, true, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($3,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$1::uuid,'remember_merchant',$4::boolean)) ON CONFLICT DO NOTHING`, binding.ReviewRequestID, state.SourceEventID, binding.TransactionID, remember); err != nil {
+		return result, true, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return result, true, err
+	}
 	result.Status = "CONFIRMED"
 	result.Mutation = map[string]any{"action": "MERCHANT_LEARNING_RESOLVED", "remember": remember, "merchant": merchantName, "category": categoryName}
 	return result, true, nil
