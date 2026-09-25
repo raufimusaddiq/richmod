@@ -69,10 +69,18 @@ write, observation dismissal, and evidence reclassification. The alias write
 now refuses to overwrite a USER-authored alias, which the previous Web-only
 path allowed.
 
-Still open in UIR-01: the financial-email family. It keeps its own
-subject-specific side effects until that whole operation is migrated with
-Web/Telegram parity tests. Non-transaction Telegram transition paths remain
-specialized for UIR-06/07.
+The tenth slice moves financial email entity resolution into
+apps/reviewdomain.ResolveFinancialEmailEntities, with shared LearnEntityAlias
+and LearnEntityAliasIfNew helpers. The Review Inbox financial-email handler now
+calls them instead of its inline merge, validation, and alias SQL, so the
+already-resolved-entity rules are channel-neutral and ready for the UIR-07
+Telegram surface (which has no financial-email handler today). That closes the
+UIR-01 operation families.
+
+The remaining channel gaps are rendering and subject-parity work: UIR-03
+renderer, UIR-04 transaction residual parity, UIR-06 payslip/source/document
+parity, and UIR-07 financial-email/Wealth/cycle Telegram surfaces. UIR-08
+through UIR-10 cover synchronization, telemetry, and the regression matrix.
 
 ## Source contracts
 
@@ -206,6 +214,14 @@ No review type is omitted from the implementation plan.
 ## Objective
 
 Remove channel ownership of financial review mutation.
+
+## Status
+
+Complete. All listed operation families have a shared implementation that every
+existing surface calls; the slice history above records each one. Financial
+email resolution currently has only the Review Inbox surface, so its shared
+operation is ready for the UIR-07 Telegram projection but that projection is
+still outstanding.
 
 ## Required work
 
