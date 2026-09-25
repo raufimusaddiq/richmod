@@ -41,10 +41,13 @@ while mutation requests are refused instead of falling back to generative
 semantic authority. Do not describe an outage as a reason to unset
 `JUDGMENT_MODEL`.
 
-Before trusting a new LiteRouter or Jev deployment, run the opt-in live contract
-smoke that exercises Richmod → LiteRouter `/v1/systemone` → TypeSafe and back
-through the Richmod decoder. It is skipped by default because it consumes live
-provider credits, so run it from an approved secret-bearing environment:
+Before trusting a new LiteRouter or Jev deployment, run the opt-in live residual
+category canary through Richmod → LiteRouter `/v1/systemone` → TypeSafe and back
+through the Richmod decoder. It submits synthetic receipt evidence with known
+merchant, amount, and date, asks only for category among server-owned household-
+style choices, and expects `makanan-minuman`. It makes one non-canonical decision
+and no database write. The check is skipped by default because it consumes live
+provider credits; run it from an approved secret-bearing environment:
 
 ```bash
 cd apps/worker && SYSTEMONE_SMOKE_BASE_URL=<literouter base url> \
@@ -55,8 +58,9 @@ cd apps/worker && SYSTEMONE_SMOKE_BASE_URL=<literouter base url> \
 `SYSTEMONE_SMOKE_MODEL` is optional and defaults to `typesafe/jev-latest`, the
 same model id production sets in `JUDGMENT_MODEL`. The smoke
 asserts the provider accepts the native question schema, returns a real
-versioned model id, and picks inside the server-supplied criteria. Supply only
-the LiteRouter client key; no upstream provider key belongs in Richmod.
+versioned model id, and chooses the residual category supported by the evidence
+from server-supplied criteria. Supply only the LiteRouter client key; no upstream
+provider key belongs in Richmod.
 
 Run the smoke from a host that shares a Docker network with LiteRouter and use
 its internal address (`http://9router:20128/v1`), not the public hostname. The

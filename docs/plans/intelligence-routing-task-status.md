@@ -281,7 +281,10 @@ switch, not a new residual contract for the happy path.
 Tests added/updated: `TestPostGenerativeAutoConfirmSwitchParksReview` asserts the
 disabled switch neither authorizes confirmation nor spends a Jev call; existing
 IR-04 direct-acceptance, residual-category, missing-date, ambiguity, and route
-authority tests remain the regression matrix.
+authority tests remain the regression matrix. The opt-in
+`TestRealLiteRouterSystemOneSmoke` is the synthetic receipt residual-category
+semantic canary: one real `/v1/systemone` call must select the evidence-supported
+category, with no LLM comparison or canonical write.
 Migration/schema changes: none.
 Drift checklist: A pass (no new user input; rollback is opt-in); B pass (no new
 model call; switch only removes an auto-confirm); C pass (semantic owner
@@ -291,7 +294,8 @@ review); G pass (Jev failure semantics unchanged); H Telegram pass (simple path
 still Jev-only, complex path still no full replay); I pass (telemetry untouched);
 J pass (switch behaviour asserted); K pass (runbook table and env example
 updated; `git diff --check`).
-Known follow-up: PRs #151 and #152 are merged; deployment remains subject to the
+Known follow-up: canary smoke requires an approved LiteRouter credential/network
+environment and is not run in ordinary CI; deployment remains subject to the
 sprint release/approval flow.
 
 IR-10 rollout-scope audit: PRD §17 requires receipt/screenshot switches to

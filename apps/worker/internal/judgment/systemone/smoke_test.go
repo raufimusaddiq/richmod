@@ -10,11 +10,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// TestRealLiteRouterSystemOneSmoke is the opt-in end-to-end contract check from
-// PRD §7: Richmod -> LiteRouter /systemone -> TypeSafe -> LiteRouter pass-through
+// TestRealLiteRouterSystemOneSmoke is the opt-in end-to-end residual-category
+// canary: Richmod -> LiteRouter /systemone -> TypeSafe -> LiteRouter pass-through
 // -> Richmod decoder. The mocked tests above prove transport behaviour against a
-// controlled server; this one proves the real provider accepts the native
-// question schema and that its actual versioned model id is captured.
+// controlled server; this one also checks a real bounded category decision from
+// source evidence and captures its actual versioned model id.
 //
 // It is skipped unless a secret-bearing environment supplies a real LiteRouter
 // endpoint and client key, because it consumes live provider credits:
@@ -48,12 +48,20 @@ func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 		model = "typesafe/jev-latest"
 	}
 
-	criteria := map[string]any{"READ_WEALTH": "net worth of the household", "OTHER_OR_UNCLEAR": "no safe route"}
+	criteria := map[string]any{
+		"makanan-minuman": "food, prepared meals, groceries",
+		"transportasi":    "transport, parking, transit",
+	}
 	client := New(baseURL, clientKey, model, 20*time.Second)
-	result, err := client.Evaluate(context.Background(), "richmod-systemone-smoke", judgment.Request{
-		State: map[string]any{"user_text": "berapa net worth saya?"},
+	result, err := client.Evaluate(context.Background(), "richmod-systemone-residual-category-smoke", judgment.Request{
+		State: map[string]any{
+			"source_evidence":     "Receipt from Warung Pagi: nasi padang, Rp 48.000, 2026-09-20.",
+			"known_facts":         map[string]any{"merchant": "Warung Pagi", "amount_idr": "48000", "transaction_at": "2026-09-20"},
+			"missing_facts":       []string{"category"},
+			"decision_provenance": "synthetic residual-category canary; no canonical IDs",
+		},
 		Questions: map[string]judgment.Question{
-			"route": {Type: "choice", Instructions: "Choose one allowed finance route.", Criteria: criteria},
+			"residual_category": {Type: "choice", Instructions: "Choose the household expense category supported by the receipt evidence. Decide category only; amount, merchant, and date are already known.", Criteria: criteria},
 		},
 	})
 	if err != nil {
@@ -64,15 +72,15 @@ func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 	if strings.TrimSpace(result.Model) == "" {
 		t.Fatal("real LiteRouter response carried no model id")
 	}
-	answer, ok := result.Answers["route"]
+	answer, ok := result.Answers["residual_category"]
 	if !ok {
 		t.Fatalf("real LiteRouter response omitted the requested question: %+v", result.Answers)
 	}
 	if !judgment.AcceptChoice(answer, criteria, judgment.ChoicePolicy{MinTop: 0.50, MinMargin: 0.10}) {
 		t.Fatalf("real LiteRouter answer did not decode to a usable Choice: %+v", answer)
 	}
-	if _, known := criteria[answer.Choice]; !known {
-		t.Fatalf("real LiteRouter chose an option outside the server criteria: %q", answer.Choice)
+	if answer.Choice != "makanan-minuman" {
+		t.Fatalf("receipt residual category=%q; want makanan-minuman", answer.Choice)
 	}
-	t.Logf("real systemone smoke ok: model=%s choice=%s probability=%.3f", result.Model, answer.Choice, answer.Probability)
+	t.Logf("real systemone residual-category canary ok: model=%s choice=%s probability=%.3f", result.Model, answer.Choice, answer.Probability)
 }
