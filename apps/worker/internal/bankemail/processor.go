@@ -625,7 +625,7 @@ func loadMerchantMemory(ctx context.Context, q rowQuerier, household, raw string
 		return MerchantMemory{}, nil
 	}
 	var m MerchantMemory
-	err := q.QueryRow(ctx, `SELECT ma.normalized_merchant_id::text,ma.default_category_id::text,ma.auto_apply FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(ma.raw_name)=lower($2) AND ma.auto_apply AND ma.created_from_user_confirmation AND ma.default_category_id IS NOT NULL AND c.household_id=$1 AND c.active LIMIT 1`, household, raw).Scan(&m.MerchantID, &m.CategoryID, &m.AutoApply)
+	err := q.QueryRow(ctx, `SELECT min(ma.normalized_merchant_id::text),min(ma.default_category_id::text),bool_and(ma.auto_apply) FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND ma.default_category_id IS NOT NULL AND c.household_id=$1 AND c.active GROUP BY ma.household_id,lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT ma.default_category_id)=1`, household, raw).Scan(&m.MerchantID, &m.CategoryID, &m.AutoApply)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MerchantMemory{}, nil
 	}
@@ -637,7 +637,7 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 		return "", nil
 	}
 	var id string
-	err := tx.QueryRow(ctx, `SELECT normalized_merchant_id::text FROM merchant_alias WHERE household_id=$1 AND lower(raw_name)=lower($2) LIMIT 1`, household, raw).Scan(&id)
+	err := tx.QueryRow(ctx, `SELECT min(normalized_merchant_id::text) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) GROUP BY household_id,lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT normalized_merchant_id)=1`, household, raw).Scan(&id)
 	if err == nil {
 		return id, nil
 	}
