@@ -212,64 +212,20 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid financial entity values"})
 			return
 		}
-		values.HumanSupplied = nil // Client-supplied telemetry claims are never trusted.
-		if values.AccountID != "" {
-			values.HumanSupplied = append(values.HumanSupplied, "account")
-		}
-		if values.WealthAccountID != "" {
-			values.HumanSupplied = append(values.HumanSupplied, "wealth_account")
-		}
-		var observationID, fundingHint, providerHint, knownAccount, knownWealth string
-		if err = tx.QueryRow(r.Context(), `SELECT id::text,COALESCE(facts_json->>'funding_account_hint',''),COALESCE(facts_json->>'provider_account_hint',''),COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1 AND household_id=$2 AND status='REVIEW' FOR UPDATE`, *financialObservation, household).Scan(&observationID, &fundingHint, &providerHint, &knownAccount, &knownWealth); err != nil {
-			writeJSON(w, 409, map[string]string{"error": "financial observation is unavailable"})
+		// ADR-046: the merge of supplied and already-resolved entities, the
+		// household validation, the alias learning, and the canonical payload all
+		// live in the shared operation. Web keeps its HTTP mapping, its review
+		// completion, and the replay enqueue.
+		result, err := reviewdomain.ResolveFinancialEmailEntities(r.Context(), tx, reviewdomain.FinancialEmailCommand{
+			HouseholdID: household, ObservationID: *financialObservation,
+			AccountID: values.AccountID, WealthAccountID: values.WealthAccountID,
+			ActorUserID: p.UserID,
+		})
+		if err != nil {
+			writeJSON(w, financialEmailStatus(err), map[string]string{"error": financialEmailMessage(err)})
 			return
 		}
-		// PRD §12/§20.1: the request supplies only the unresolved entities. Already
-		// resolved entities are reloaded from persisted state and merged here, so a
-		// review that already knows the funding account never asks for it again.
-		// An entity that is still unresolved must be supplied: a resolution that
-		// leaves one blank would write a half-bound observation.
-		if knownAccount == "" && values.AccountID == "" {
-			writeJSON(w, 400, map[string]string{"error": "the unresolved funding account is required"})
-			return
-		}
-		if knownWealth == "" && values.WealthAccountID == "" {
-			writeJSON(w, 400, map[string]string{"error": "the unresolved Wealth Account is required"})
-			return
-		}
-		accountID, wealthAccountID := values.AccountID, values.WealthAccountID
-		if accountID == "" {
-			accountID = knownAccount
-		}
-		if wealthAccountID == "" {
-			wealthAccountID = knownWealth
-		}
-		if accountID != "" {
-			var valid bool
-			if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, accountID, household).Scan(&valid); err != nil || !valid {
-				writeJSON(w, 400, map[string]string{"error": "invalid household account"})
-				return
-			}
-		}
-		if wealthAccountID != "" {
-			var valid bool
-			if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM wealth_account WHERE id=$1 AND household_id=$2 AND active)`, wealthAccountID, household).Scan(&valid); err != nil || !valid {
-				writeJSON(w, 400, map[string]string{"error": "invalid household wealth account"})
-				return
-			}
-		}
-		values.AccountID, values.WealthAccountID = accountID, wealthAccountID
-		merged, _ := json.Marshal(values)
-		if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status='PENDING',updated_at=now() WHERE id=$1`, observationID, values.AccountID, values.WealthAccountID); err == nil {
-			err = learnEntityAliasIfNew(r.Context(), tx, household, "ACCOUNT", values.AccountID, fundingHint, knownAccount)
-		}
-		if err == nil {
-			err = learnEntityAliasIfNew(r.Context(), tx, household, "WEALTH_ACCOUNT", values.WealthAccountID, providerHint, knownWealth)
-		}
-		if err == nil {
-			_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, string(merged))
-		}
-		if err == nil {
+		if _, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, string(result.Values)); err == nil {
 			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
 		}
 		if err == nil {
@@ -279,7 +235,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			_, err = tx.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('PROCESS_FINANCIAL_EMAIL',jsonb_build_object('source_event_id',$1::uuid,'financial_source_id',(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)),5)`, *source)
 		}
 		if err == nil {
-			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_FINANCIAL_EMAIL_ENTITIES", observationID, map[string]any{"accountId": values.AccountID, "wealthAccountId": values.WealthAccountID})
+			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_FINANCIAL_EMAIL_ENTITIES", result.ObservationID, map[string]any{"accountId": result.AccountID, "wealthAccountId": result.WealthAccountID})
 		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to resolve financial email entities"})
@@ -527,32 +483,9 @@ func normalizeEntityAlias(value string) string {
 	return b.String()
 }
 
-func learnEntityAlias(ctx context.Context, tx pgx.Tx, household, entityType, entityID, alias string) error {
-	normalized := normalizeEntityAlias(alias)
-	if normalized == "" {
-		return nil
-	}
-	// A mapping the household set itself is never overwritten by review learning:
-	// an explicit user choice outranks an inferred one (PRD §19, 'learning != silent
-	// assumption').
-	if entityType == "ACCOUNT" {
-		_, err := tx.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,account_id,alias,normalized_alias,source) VALUES($1,'ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET account_id=EXCLUDED.account_id,wealth_account_id=NULL,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now() WHERE financial_entity_alias.source <> 'USER'`, household, entityID, strings.TrimSpace(alias), normalized)
-		return err
-	}
-	_, err := tx.Exec(ctx, `INSERT INTO financial_entity_alias(household_id,entity_type,wealth_account_id,alias,normalized_alias,source) VALUES($1,'WEALTH_ACCOUNT',$2,$3,$4,'REVIEW_LEARNED') ON CONFLICT (household_id,entity_type,normalized_alias) WHERE active DO UPDATE SET wealth_account_id=EXCLUDED.wealth_account_id,account_id=NULL,alias=EXCLUDED.alias,source='REVIEW_LEARNED',updated_at=now() WHERE financial_entity_alias.source <> 'USER'`, household, entityID, strings.TrimSpace(alias), normalized)
-	return err
-}
-
-// learnEntityAliasIfNew records the alias a user supplied for an entity this
-// review just resolved. An entity that was already known before the request is
-// left alone: its alias was learned when it was first bound, and re-learning it
-// here would let a partial resolution quietly rewrite an existing mapping.
-func learnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, household, entityType, entityID, alias, known string) error {
-	if strings.TrimSpace(known) != "" {
-		return nil
-	}
-	return learnEntityAlias(ctx, tx, household, entityType, entityID, alias)
-}
+// learnEntityAlias and learnEntityAliasIfNew now live in reviewdomain; the
+// Review Inbox financial-email resolution calls them there. No local duplicate
+// is kept, so an alias-learning change cannot drift from the shared operation.
 
 func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user, household, reviewID, sourceID string, financialObservation *string, action string, raw json.RawMessage) error {
 	var accountID, amount, description, purpose, wealthID string
@@ -703,5 +636,40 @@ func cycleResidualMessage(err error) string {
 		return "invalid household wealth account"
 	default:
 		return "unable to resolve residual review"
+	}
+}
+
+// financialEmailStatus maps a shared financial-email resolution error to an HTTP
+// status so the surface does not re-implement the validation rules.
+func financialEmailStatus(err error) int {
+	switch {
+	case errors.Is(err, reviewdomain.ErrFinancialObservationUnavailable):
+		return 409
+	case errors.Is(err, reviewdomain.ErrFundingAccountRequired),
+		errors.Is(err, reviewdomain.ErrProviderAccountRequired),
+		errors.Is(err, reviewdomain.ErrAccountInvalid),
+		errors.Is(err, reviewdomain.ErrWealthAccountInvalid):
+		return 400
+	default:
+		return 500
+	}
+}
+
+// financialEmailMessage returns the client-facing message for a shared
+// financial-email resolution error, preserving the previous wording.
+func financialEmailMessage(err error) string {
+	switch {
+	case errors.Is(err, reviewdomain.ErrFinancialObservationUnavailable):
+		return "financial observation is unavailable"
+	case errors.Is(err, reviewdomain.ErrFundingAccountRequired):
+		return "the unresolved funding account is required"
+	case errors.Is(err, reviewdomain.ErrProviderAccountRequired):
+		return "the unresolved Wealth Account is required"
+	case errors.Is(err, reviewdomain.ErrAccountInvalid):
+		return "invalid household account"
+	case errors.Is(err, reviewdomain.ErrWealthAccountInvalid):
+		return "invalid household wealth account"
+	default:
+		return "unable to resolve financial email entities"
 	}
 }
