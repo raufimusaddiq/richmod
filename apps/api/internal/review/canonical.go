@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -355,81 +354,37 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid residual review action"})
 			return
 		}
-		var oldIncome, oldExpense, oldSavings, oldResidual string
-		var income, expense, savings, residual string
-		err = tx.QueryRow(r.Context(), `SELECT basis_income_idr::text,basis_expense_idr::text,basis_savings_idr::text,basis_residual_idr::text,(SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT (COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)-COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0))::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')) FROM cycle_residual_case c WHERE id=$1 AND household_id=$2 FOR UPDATE`, *residualCase, household).Scan(&oldIncome, &oldExpense, &oldSavings, &oldResidual, &income, &expense, &savings, &residual)
+		// ADR-046: cycle basis refresh, allocation validation, and completion live
+		// in the shared operation; Web keeps only its HTTP mapping and audit.
+		allocations := make([]reviewdomain.CycleAllocation, 0, len(values.Allocations))
+		for _, allocation := range values.Allocations {
+			allocations = append(allocations, reviewdomain.CycleAllocation{WealthAccountID: allocation.WealthAccountID, AmountIDR: allocation.AmountIDR, Note: allocation.Note})
+		}
+		outcome, err := reviewdomain.ApplyCycleResidual(r.Context(), tx, reviewdomain.CycleResidualCommand{
+			HouseholdID: household, CaseID: *residualCase, ReviewItemID: r.PathValue("id"),
+			Action: in.Action, Allocations: allocations, ActorUserID: p.UserID,
+		})
 		if err != nil {
-			writeJSON(w, 404, map[string]string{"error": "residual case not found"})
+			writeJSON(w, cycleResidualStatus(err), map[string]string{"error": cycleResidualMessage(err)})
 			return
 		}
-		changed := oldIncome != income || oldExpense != expense || oldSavings != savings || oldResidual != residual
-		residualInt, ok := new(big.Int).SetString(residual, 10)
-		if !ok {
-			writeJSON(w, 500, map[string]string{"error": "unable to refresh residual review"})
+		switch outcome.Outcome {
+		case reviewdomain.CycleStaleNotApplicable:
+			if audit(r.Context(), tx, household, p.UserID, "CYCLE_RESIDUAL_STALE_NOT_APPLICABLE", *residualCase, map[string]any{"residualIdr": outcome.Residual}) != nil || tx.Commit(r.Context()) != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to refresh residual review"})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		case reviewdomain.CycleStaleRefreshed:
+			if audit(r.Context(), tx, household, p.UserID, "CYCLE_RESIDUAL_STALE", *residualCase, map[string]any{"residualIdr": outcome.Residual}) != nil || tx.Commit(r.Context()) != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to refresh residual review"})
+				return
+			}
+			writeJSON(w, 409, map[string]string{"error": "residual basis changed; refresh and resolve again"})
 			return
 		}
-		if changed {
-			if residualInt.Sign() > 0 {
-				_, err = tx.Exec(r.Context(), `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, *residualCase, income, expense, savings, residual)
-				if err == nil {
-					err = audit(r.Context(), tx, household, p.UserID, "CYCLE_RESIDUAL_STALE", *residualCase, map[string]any{"incomeIdr": income, "expenseIdr": expense, "savingsIdr": savings, "residualIdr": residual})
-				}
-				if err != nil || tx.Commit(r.Context()) != nil {
-					writeJSON(w, 500, map[string]string{"error": "unable to refresh residual review"})
-					return
-				}
-				writeJSON(w, 409, map[string]string{"error": "residual basis changed; refresh and resolve again"})
-				return
-			}
-			in.Action = "NO_LONGER_APPLICABLE"
-		}
-		if in.Action == "ALLOCATE_RETAINED_BALANCE" {
-			if len(values.Allocations) == 0 {
-				writeJSON(w, 400, map[string]string{"error": "allocations are required"})
-				return
-			}
-			total := new(big.Int)
-			seen := make(map[string]struct{}, len(values.Allocations))
-			for _, allocation := range values.Allocations {
-				amount, valid := new(big.Int).SetString(allocation.AmountIDR, 10)
-				if allocation.WealthAccountID == "" || !valid || amount.Sign() <= 0 {
-					writeJSON(w, 400, map[string]string{"error": "invalid allocation"})
-					return
-				}
-				if _, duplicate := seen[allocation.WealthAccountID]; duplicate {
-					writeJSON(w, 400, map[string]string{"error": "wealth accounts must be unique"})
-					return
-				}
-				seen[allocation.WealthAccountID] = struct{}{}
-				total.Add(total, amount)
-			}
-			if total.Cmp(residualInt) != 0 {
-				writeJSON(w, 400, map[string]string{"error": "allocation total must equal residual"})
-				return
-			}
-			var validAccounts int
-			accountIDs := make([]string, 0, len(seen))
-			for id := range seen {
-				accountIDs = append(accountIDs, id)
-			}
-			if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM wealth_account WHERE household_id=$1 AND active AND id=ANY($2::uuid[])`, household, accountIDs).Scan(&validAccounts); err != nil || validAccounts != len(accountIDs) {
-				writeJSON(w, 400, map[string]string{"error": "invalid household wealth account"})
-				return
-			}
-			for _, allocation := range values.Allocations {
-				if _, err = tx.Exec(r.Context(), `INSERT INTO cycle_residual_allocation(cycle_residual_case_id,wealth_account_id,amount_idr,note,created_by_user_id) VALUES($1,$2,$3,$4,$5)`, *residualCase, allocation.WealthAccountID, allocation.AmountIDR, allocation.Note, p.UserID); err != nil {
-					writeJSON(w, 500, map[string]string{"error": "unable to allocate residual"})
-					return
-				}
-			}
-		}
-		if _, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, in.Action, string(in.Values)); err == nil {
-			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
-		}
-		if err == nil {
-			err = audit(r.Context(), tx, household, p.UserID, "CYCLE_RESIDUAL_"+in.Action, *residualCase, map[string]any{"residualIdr": residual})
-		}
-		if err != nil || tx.Commit(r.Context()) != nil {
+		if audit(r.Context(), tx, household, p.UserID, "CYCLE_RESIDUAL_"+in.Action, *residualCase, map[string]any{"residualIdr": outcome.Residual}) != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to resolve residual review"})
 			return
 		}
@@ -712,4 +667,43 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, pr
 		MakePrimary: choice == "PRIMARY_SALARY",
 	})
 	return err
+}
+
+// cycleResidualStatus maps a shared cycle-residual error to an HTTP status. The
+// shared operation returns typed errors so every surface keeps its own status
+// code without owning the validation rules.
+func cycleResidualStatus(err error) int {
+	switch {
+	case errors.Is(err, reviewdomain.ErrCycleCaseNotFound):
+		return 404
+	case errors.Is(err, reviewdomain.ErrCycleAllocationsRequired),
+		errors.Is(err, reviewdomain.ErrCycleAllocationInvalid),
+		errors.Is(err, reviewdomain.ErrCycleAllocationDuplicate),
+		errors.Is(err, reviewdomain.ErrCycleAllocationMismatch),
+		errors.Is(err, reviewdomain.ErrCycleWealthAccountInvalid):
+		return 400
+	default:
+		return 500
+	}
+}
+
+// cycleResidualMessage returns the client-facing message for a cycle-residual
+// error, preserving the wording the Web API already returned.
+func cycleResidualMessage(err error) string {
+	switch {
+	case errors.Is(err, reviewdomain.ErrCycleCaseNotFound):
+		return "residual case not found"
+	case errors.Is(err, reviewdomain.ErrCycleAllocationsRequired):
+		return "allocations are required"
+	case errors.Is(err, reviewdomain.ErrCycleAllocationInvalid):
+		return "invalid allocation"
+	case errors.Is(err, reviewdomain.ErrCycleAllocationDuplicate):
+		return "wealth accounts must be unique"
+	case errors.Is(err, reviewdomain.ErrCycleAllocationMismatch):
+		return "allocation total must equal residual"
+	case errors.Is(err, reviewdomain.ErrCycleWealthAccountInvalid):
+		return "invalid household wealth account"
+	default:
+		return "unable to resolve residual review"
+	}
 }

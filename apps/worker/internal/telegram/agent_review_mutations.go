@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
@@ -550,101 +549,54 @@ func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState,
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return true, result, err
 	}
-	var oldIncome, oldExpense, oldSavings, oldResidual, income, expense, savings, residual string
-	err = tx.QueryRow(ctx, `SELECT c.basis_income_idr::text,c.basis_expense_idr::text,c.basis_savings_idr::text,c.basis_residual_idr::text,(SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0)::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')),(SELECT (COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)-COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)-COALESCE(sum(amount) FILTER(WHERE type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE')),0))::text FROM transaction WHERE household_id=c.household_id AND status='CONFIRMED' AND transaction_at >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND transaction_at < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')) FROM cycle_residual_case c WHERE c.id=$1 AND c.household_id=$2 FOR UPDATE`, t.caseID, state.HouseholdID).Scan(&oldIncome, &oldExpense, &oldSavings, &oldResidual, &income, &expense, &savings, &residual)
+	// ADR-046: cycle basis refresh, allocation validation, and completion live in
+	// the shared operation; the agent lane maps the outcome to its own statuses.
+	allocations := make([]reviewdomain.CycleAllocation, 0, len(input.Allocations))
+	for _, allocation := range input.Allocations {
+		allocations = append(allocations, reviewdomain.CycleAllocation{WealthAccountID: allocation.WealthAccountID, AmountIDR: allocation.AmountIDR, Note: allocation.Note})
+	}
+	outcome, err := reviewdomain.ApplyCycleResidual(ctx, tx, reviewdomain.CycleResidualCommand{
+		HouseholdID: state.HouseholdID, CaseID: t.caseID, ReviewItemID: t.item, RequestID: t.request,
+		Action: action, Allocations: allocations, ActorUserID: userID,
+	})
 	if err != nil {
-		return true, result, err
-	}
-	if oldIncome != income || oldExpense != expense || oldSavings != savings || oldResidual != residual {
-		recomputed, ok := new(big.Int).SetString(residual, 10)
-		if !ok {
-			return true, result, fmt.Errorf("invalid recomputed residual")
-		}
-		if recomputed.Sign() <= 0 {
-			if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, t.item, userID, residual); err != nil {
-				return true, result, err
-			}
-			if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, t.request); err != nil {
-				return true, result, err
-			}
-			if err = tx.Commit(ctx); err != nil {
-				return true, result, err
-			}
-			result.Status = "NO_LONGER_APPLICABLE"
-			result.Mutation = map[string]any{"action": "CYCLE_RESIDUAL_CLOSED", "residual_idr": residual}
-			return true, result, nil
-		}
-		if _, err = tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, t.caseID, income, expense, savings, residual); err != nil {
-			return true, result, err
-		}
-		if err = tx.Commit(ctx); err != nil {
-			return true, result, err
-		}
-		result.Status = "STALE_REVIEW"
-		result.Mutation = map[string]any{"action": "CYCLE_RESIDUAL_REFRESHED", "residual_idr": residual}
-		result.Review = map[string]any{"required": true, "review_type": "CYCLE_RESIDUAL_ALLOCATION"}
-		return true, result, nil
-	}
-	residualInt, ok := new(big.Int).SetString(residual, 10)
-	if !ok {
-		return true, result, fmt.Errorf("invalid residual")
-	}
-	if action == "ALLOCATE_RETAINED_BALANCE" {
-		total := new(big.Int)
-		seen := map[string]struct{}{}
-		if len(input.Allocations) == 0 {
+		switch {
+		case errors.Is(err, reviewdomain.ErrCycleAllocationsRequired):
 			result.Status = "MISSING_ALLOCATIONS"
-			return true, result, nil
-		}
-		for _, a := range input.Allocations {
-			amount, valid := new(big.Int).SetString(a.AmountIDR, 10)
-			if a.WealthAccountID == "" || !valid || amount.Sign() <= 0 {
-				result.Status = "INVALID_ALLOCATION"
-				return true, result, nil
-			}
-			if _, dup := seen[a.WealthAccountID]; dup {
-				result.Status = "DUPLICATE_WEALTH_ACCOUNT"
-				return true, result, nil
-			}
-			seen[a.WealthAccountID] = struct{}{}
-			total.Add(total, amount)
-		}
-		if total.Cmp(residualInt) != 0 {
+		case errors.Is(err, reviewdomain.ErrCycleAllocationInvalid):
+			result.Status = "INVALID_ALLOCATION"
+		case errors.Is(err, reviewdomain.ErrCycleAllocationDuplicate):
+			result.Status = "DUPLICATE_WEALTH_ACCOUNT"
+		case errors.Is(err, reviewdomain.ErrCycleAllocationMismatch):
 			result.Status = "ALLOCATION_TOTAL_MISMATCH"
-			result.Facts = map[string]any{"expected_idr": residual, "provided_idr": total.String()}
-			return true, result, nil
-		}
-		ids := make([]string, 0, len(seen))
-		for id := range seen {
-			ids = append(ids, id)
-		}
-		var validAccounts int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM wealth_account WHERE household_id=$1 AND active AND id=ANY($2::uuid[])`, state.HouseholdID, ids).Scan(&validAccounts); err != nil || validAccounts != len(ids) {
+		case errors.Is(err, reviewdomain.ErrCycleWealthAccountInvalid):
 			result.Status = "INVALID_WEALTH_ACCOUNT"
-			return true, result, nil
+		default:
+			return true, result, err
 		}
-		for _, a := range input.Allocations {
-			if _, err = tx.Exec(ctx, `INSERT INTO cycle_residual_allocation(cycle_residual_case_id,wealth_account_id,amount_idr,note,created_by_user_id) VALUES($1,$2,$3,$4,$5)`, t.caseID, a.WealthAccountID, a.AmountIDR, clean(a.Note, 1000), userID); err != nil {
-				return true, result, err
-			}
-		}
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, t.item, userID, action, string(encoded)); err != nil {
-		return true, result, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, t.request); err != nil {
-		return true, result, err
+		return true, result, nil
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
 		return true, result, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,$3,'cycle_residual_case',$4,jsonb_build_object('residualIdr',$5,'agent_sprint',1))`, state.HouseholdID, userID, "CYCLE_RESIDUAL_"+action, t.caseID, residual); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,$3,'cycle_residual_case',$4,jsonb_build_object('residualIdr',$5,'agent_sprint',1))`, state.HouseholdID, userID, "CYCLE_RESIDUAL_"+action, t.caseID, outcome.Residual); err != nil {
 		return true, result, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return true, result, err
 	}
+	switch outcome.Outcome {
+	case reviewdomain.CycleStaleNotApplicable:
+		result.Status = "NO_LONGER_APPLICABLE"
+		result.Mutation = map[string]any{"action": "CYCLE_RESIDUAL_CLOSED", "residual_idr": outcome.Residual}
+		return true, result, nil
+	case reviewdomain.CycleStaleRefreshed:
+		result.Status = "STALE_REVIEW"
+		result.Mutation = map[string]any{"action": "CYCLE_RESIDUAL_REFRESHED", "residual_idr": outcome.Residual}
+		result.Review = map[string]any{"required": true, "review_type": "CYCLE_RESIDUAL_ALLOCATION"}
+		return true, result, nil
+	}
 	result.Status = "RESOLVED"
-	result.Mutation = map[string]any{"action": "CYCLE_RESIDUAL_RESOLVED", "resolution": action, "residual_idr": residual}
+	result.Mutation = map[string]any{"action": "CYCLE_RESIDUAL_RESOLVED", "resolution": action, "residual_idr": outcome.Residual}
 	return true, result, nil
 }

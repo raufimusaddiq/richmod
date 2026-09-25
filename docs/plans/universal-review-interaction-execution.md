@@ -53,7 +53,15 @@ promotion, and payslip-evidence facts. The conversational agent confirm also
 now calls the shared ConfirmTransactionReview instead of its own transaction
 and proposal mutation SQL.
 
-Still open in UIR-01: financial-email, Wealth, and cycle families. Each
+The eighth slice moves cycle residual reconciliation into
+apps/reviewdomain.ApplyCycleResidual (with shared ValidateCycleAllocations).
+Web, the bound Telegram reply lane, and the conversational agent lane now share
+the cycle basis recomputation, positive-residual staleness refresh,
+no-longer-applicable closure, allocation validation, allocation insert, and
+review completion. Each surface keeps only its own transport, wording, and
+audit action naming.
+
+Still open in UIR-01: financial-email and Wealth families. Each
 family keeps its own subject-specific side effects until that whole operation
 is migrated with Web/Telegram parity tests. Non-transaction Telegram
 transition paths remain specialized for UIR-06/07.
