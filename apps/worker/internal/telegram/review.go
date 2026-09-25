@@ -1255,6 +1255,15 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", false); len(blocked) > 0 {
 		return enqueueReply(ctx, tx, update, reviewNeedsFactsMessage(blocked))
 	}
+	// ADR-046: the selected category and the review subject are revalidated by the
+	// shared canonical resolver, not by this adapter. A stale keyboard callback
+	// must not reach the transaction mutation below.
+	if err := reviewdomain.ValidateCategoryForHousehold(ctx, tx, householdID, categoryID); err != nil {
+		return err
+	}
+	if err := reviewdomain.ValidateTransactionReview(ctx, tx, householdID, transactionID); err != nil {
+		return err
+	}
 	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($5::date::timestamp AT TIME ZONE 'Asia/Jakarta',transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' RETURNING merchant_id`, transactionID, categoryID, value.Description, value.Note, payDate).Scan(&merchantID); err != nil {
 		return fmt.Errorf("confirm reviewed transaction: %w", err)
 	}

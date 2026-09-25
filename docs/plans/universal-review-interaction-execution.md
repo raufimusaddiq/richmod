@@ -3,12 +3,21 @@
 ## Status
 
 PR #159 contract is integrated. UIR-00 audit is merged (PR #162). UIR-01
-implementation is in progress (PR #163). The first slice introduces
-`apps/reviewdomain` and shares locked canonical terminal transition/projection
-finalization across the API transaction adapter and Telegram transaction-review
-adapter. Review-family financial validation/mutations remain in the adapters;
-they are not considered complete until each operation family is migrated and
-Web/Telegram parity-tested. Non-transaction Telegram transition paths remain
+implementation continues. The first slice (PR #163, merge `72b1342`)
+introduced `apps/reviewdomain` and shared locked canonical terminal
+transition/projection finalization across the API transaction adapter and
+Telegram transaction-review adapter.
+
+The second slice shares household-scoped candidate revalidation
+(`ValidateCategoryForHousehold`) and locked subject revalidation
+(`ValidateTransactionReview`) so a stale Telegram callback and a stale Web
+action fail identically before any transaction mutation.
+
+Still open in UIR-01: the transaction confirm/reject mutation bodies themselves,
+plus transfer, duplicate, payslip/date, financial-email, Wealth, and cycle
+families. Each family keeps its residual/document/salary side effects until that
+whole operation — not just its final status write — is migrated with
+Web/Telegram parity tests. Non-transaction Telegram transition paths remain
 specialized for UIR-06/07.
 
 ## Source contracts
