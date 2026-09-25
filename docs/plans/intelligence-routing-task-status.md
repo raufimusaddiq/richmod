@@ -284,8 +284,8 @@ review); G pass (Jev failure semantics unchanged); H Telegram pass (simple path
 still Jev-only, complex path still no full replay); I pass (telemetry untouched);
 J pass (switch behaviour asserted); K pass (runbook table and env example
 updated; `git diff --check`).
-Known follow-up: PR #151 (IR-09) merge stays blocked until Hermes review passes;
-no IR-10 deployment until the sprint release/approval flow.
+Known follow-up: PRs #151 and #152 are merged; deployment remains subject to the
+sprint release/approval flow.
 
 ## IR-09 — Intelligence-pass telemetry
 
