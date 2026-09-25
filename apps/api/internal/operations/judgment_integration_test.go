@@ -107,3 +107,76 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 		t.Fatalf("judgment failures = %v, want 2", aggregate.Decisions["judgmentFailures"])
 	}
 }
+
+// TestJudgmentAggregateMeasuresPhaseOrderWithoutConfusingTransportForPolicy is
+// the IR-09 exit gate: model-order counts, latency, double-pass shape, and
+// rescue outcome must come from the rows that actually prove them. Transport
+// success is never reported as policy acceptance.
+func TestJudgmentAggregateMeasuresPhaseOrder(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	stamp := time.Now().UnixNano()
+	var householdID string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Phase Telemetry %d", stamp)).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	var eventID string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),decode('00','hex'),'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("phase-%d", stamp)).Scan(&eventID); err != nil {
+		t.Fatal(err)
+	}
+	phase := func(capability, purpose string, dimensions []string, outcome string) {
+		if _, err := pool.Exec(ctx, `INSERT INTO intelligence_phase_telemetry(household_id,source_event_id,capability,purpose,semantic_dimensions,answered_dimensions,policy_version,model,latency_ms,outcome) VALUES($1,$2,$3,$4,$5,$5,'test-policy','test-model',10,$6)`, householdID, eventID, capability, purpose, dimensions, outcome); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Valid order: generative extraction then a Jev residual category ruling.
+	phase("GENERATIVE", "EXTRACTION", []string{"amount", "merchant"}, "SUCCEEDED")
+	phase("JEV", "RESIDUAL_CATEGORY", []string{"category"}, "SUCCEEDED")
+	// Go accepted that rescue: the decision row is what makes it a success.
+	if _, err := pool.Exec(ctx, `INSERT INTO judgment_decision(household_id,source_event_id,task,model,policy_version,question_keys,outcome) VALUES($1,$2,'RECEIPT_CATEGORY','test-model','test-policy',ARRAY['category'],'AUTO_CONFIRM')`, householdID, eventID); err != nil {
+		t.Fatal(err)
+	}
+	// Redundant order on a second event: generative accepted a category and a
+	// later non-residual Jev pass repeated the same semantic dimension.
+	var redundantEvent string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),decode('01','hex'),'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("phase-redundant-%d", stamp)).Scan(&redundantEvent); err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range []struct {
+		capability string
+		purpose    string
+	}{
+		{"GENERATIVE", "EXTRACTION"},
+		{"JEV", "TRANSACTION_BOUNDED"},
+	} {
+		if _, err := pool.Exec(ctx, `INSERT INTO intelligence_phase_telemetry(household_id,source_event_id,capability,purpose,semantic_dimensions,answered_dimensions,policy_version,latency_ms,outcome) VALUES($1,$2,$3,$4,ARRAY['category'],ARRAY['category'],'test-policy',10,'SUCCEEDED')`, householdID, redundantEvent, spec.capability, spec.purpose); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	aggregate, err := NewHandler(pool).loadJudgmentAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := aggregate.Phases["jevCalls"].(int); got != 2 {
+		t.Fatalf("jevCalls = %v, want 2", aggregate.Phases["jevCalls"])
+	}
+	if got, _ := aggregate.Phases["generativeCalls"].(int); got != 2 {
+		t.Fatalf("generativeCalls = %v, want 2", aggregate.Phases["generativeCalls"])
+	}
+	if got, _ := aggregate.Phases["events"].(int); got != 2 {
+		t.Fatalf("events = %v, want 2", aggregate.Phases["events"])
+	}
+	if got, _ := aggregate.Phases["residualCategoryPasses"].(int); got != 1 {
+		t.Fatalf("residualCategoryPasses = %v, want 1", aggregate.Phases["residualCategoryPasses"])
+	}
+	if got, _ := aggregate.Phases["residualRescueSuccesses"].(int); got != 1 {
+		t.Fatalf("residualRescueSuccesses = %v, want 1", aggregate.Phases["residualRescueSuccesses"])
+	}
+	if got, _ := aggregate.Phases["categoryDoublePassCandidates"].(int); got != 1 {
+		t.Fatalf("categoryDoublePassCandidates = %v, want 1", aggregate.Phases["categoryDoublePassCandidates"])
+	}
+	if got, _ := aggregate.Phases["latencyP50Ms"].(float64); got != 10 {
+		t.Fatalf("latencyP50Ms = %v, want 10", got)
+	}
+}

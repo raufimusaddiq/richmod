@@ -167,6 +167,9 @@ func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requ
 // explicit human confirmation, not an autonomous extraction.
 func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
 	if direct, ok := directAcceptanceDecision(value, categories, state.Now, state.Update.Message.Text); ok {
+		if p.postGenerativeAutoConfirmOff {
+			return TransactionSemanticDecision{DecisionSource: direct.DecisionSource, PolicyVersion: direct.PolicyVersion}, nil
+		}
 		if exactCategory {
 			direct.DecisionSource = "DETERMINISTIC_POLICY"
 		}

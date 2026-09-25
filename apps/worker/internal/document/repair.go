@@ -113,6 +113,7 @@ func repairExtracted[T any](ctx context.Context, gw Gateway, requestID, document
 		issues.append(ValidationIssue{"", repairFailedCode})
 		return *value, gateway.Metadata{}, nil
 	}
+	ctx = gateway.WithPhaseMetadata(ctx, "DOCUMENT_REPAIR", "")
 	fields := make([]repairableField, 0, len(*issues))
 	for _, issue := range *issues {
 		field := repairableTopLevelField(documentType, issue.Field)

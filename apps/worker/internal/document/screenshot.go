@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -74,6 +75,9 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	if err != nil {
 		return fmt.Errorf("load screenshot document: %w", err)
 	}
+	ctx = gateway.WithSourceEvent(ctx, sourceID)
+	ctx = judgment.WithSourceEvent(ctx, sourceID)
+	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	if status == "EXTRACTED" || status == "NEEDS_REVIEW" {
 		return nil
 	}

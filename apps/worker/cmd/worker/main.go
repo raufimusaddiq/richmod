@@ -53,6 +53,21 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("ping database: %w", err)
 	}
 
+	recordPhase := func(callCtx context.Context, metric gateway.CallMetric) {
+		phaseCtx, phaseCancel := context.WithTimeout(context.WithoutCancel(callCtx), 2*time.Second)
+		defer phaseCancel()
+		phase := phaseMetric(metric, telegram.TurnSourceEventID(callCtx))
+		var householdID any = telegram.TurnHouseholdID(callCtx)
+		if phase.SourceEventID != "" {
+			householdID = nil
+		}
+		if _, err := pool.Exec(phaseCtx, `INSERT INTO intelligence_phase_telemetry(household_id,source_event_id,capability,purpose,semantic_dimensions,answered_dimensions,residual_dimensions,policy_version,model,latency_ms,outcome) VALUES(COALESCE(NULLIF($1::text,'')::uuid,(SELECT household_id FROM source_event WHERE id=NULLIF($2::text,'')::uuid)),NULLIF($2::text,'')::uuid,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''),$10,$11)`, householdID, nullUUID(phase.SourceEventID), phase.Capability, phase.Purpose, phase.Dimensions, phase.AnsweredDimensions, phase.ResidualDimensions, phase.PolicyVersion, phase.Model, phase.DurationMs, phaseOutcome(phase.Status)); err != nil {
+			logger.Warn("intelligence phase write failed", "task", phase.Purpose, "error", err)
+		}
+	}
+	recordIntelligencePhase := func(callCtx context.Context, metric systemone.Metric) {
+		recordPhase(callCtx, gateway.CallMetric{Capability: "JEV", Purpose: metric.Purpose, PolicyVersion: metric.PolicyVersion, Dimensions: metric.Dimensions, AnsweredDimensions: metric.AnsweredDimensions, SourceEventID: metric.SourceEventID, Model: metric.Model, Status: metric.Status, ErrorClass: metric.ErrorClass, DurationMs: metric.DurationMs})
+	}
 	recordLLMCall := func(callCtx context.Context, metric gateway.CallMetric) {
 		metricCtx, metricCancel := context.WithTimeout(context.WithoutCancel(callCtx), 2*time.Second)
 		defer metricCancel()
@@ -67,6 +82,13 @@ func run(logger *slog.Logger) error {
 		householdID := telegram.TurnHouseholdID(callCtx)
 		if _, err := pool.Exec(metricCtx, `INSERT INTO llm_call(household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,call_kind,tool_name) VALUES(NULLIF($1,'')::uuid,$2,$3,NULLIF($4,''),$5,NULLIF($6,''),$7,$8,$9,$10::numeric,1,$11,NULLIF($12,''))`, householdID, metric.Task, metric.Protocol, metric.Model, metric.Status, metric.ErrorClass, metric.DurationMs, metric.InputTokens, metric.OutputTokens, cost, metric.CallKind, metric.ToolName); err != nil {
 			logger.Warn("LLM metric write failed", "task", metric.Task, "error", err)
+			return
+		}
+		if metric.CallKind != "JUDGMENT" && metric.CallKind != "DECISION" {
+			if metric.Capability == "" {
+				metric.Capability = "GENERATIVE"
+			}
+			recordPhase(callCtx, metric)
 		}
 	}
 	llm := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_TELEGRAM_EXTRACT")).WithRecorder("TELEGRAM_NATIVE", recordLLMCall)
@@ -78,13 +100,13 @@ func run(logger *slog.Logger) error {
 	// Non-production environments opt out explicitly with JUDGMENT_MODE=disabled-dev.
 	judgmentMode := strings.ToLower(strings.TrimSpace(os.Getenv("JUDGMENT_MODE")))
 	judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL"))
-	var judgmentClient *systemone.Client
+	var judgmentEngine systemone.InstrumentedEngine
 	if judgmentMode != "disabled-dev" {
 		if err := requireJudgmentModel(judgmentMode, judgmentModel); err != nil {
 			return err
 		}
-		judgmentClient = systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second))
-		processor.SetJudgment(judgmentClient)
+		judgmentEngine = systemone.InstrumentedEngine{Engine: systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second)), Record: recordIntelligencePhase}
+		processor.SetJudgment(judgmentEngine)
 		// Task-attributed bounded telemetry: the client records the transport call,
 		// and the decision counter records what policy did with the answer, which
 		// is what makes review rate per decision task measurable (PRD §17).
@@ -93,6 +115,7 @@ func run(logger *slog.Logger) error {
 		// bounded generative decisions the judgment plane replaced (PRD §23).
 		processor.SetTurnTelemetry(true)
 	}
+	processor.SetPostGenerativeAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_TELEGRAM"))
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
 	documentStorage, err := blob.NewFromEnv(os.Getenv("DOCUMENT_STORAGE_PATH"))
 	if err != nil {
@@ -104,18 +127,18 @@ func run(logger *slog.Logger) error {
 	// rows in review without a deploy. Unset keeps auto-confirm on.
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
 	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
-	if judgmentClient != nil {
+	if judgmentEngine.Record != nil {
 		// Row-level category rulings let a clear screenshot row reach the ledger
 		// without a review; the bounded plane, not generative confidence, is what
 		// authorises that write (PRD §11.2).
-		documentProcessor.SetVerifier(judgmentClient)
+		documentProcessor.SetVerifier(judgmentEngine)
 	}
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
-	if judgmentClient != nil {
+	if judgmentEngine.Record != nil {
 		// Insight prose is only generated when a bounded selection says the
 		// aggregates contain something worth narrating (PRD §23).
-		insightProcessor.SetVerifier(judgmentClient)
+		insightProcessor.SetVerifier(judgmentEngine)
 	}
 	residualProcessor := residual.New(pool)
 	bankModel := os.Getenv("LLM_MODEL_BANK_EXTRACT")
@@ -130,8 +153,8 @@ func run(logger *slog.Logger) error {
 	// Evidence-channel semantic verification: the bounded plane rules on claims Go
 	// already holds, so neither email channel trusts generative self-confidence as
 	// its semantic gate (ADR-038, PRD §20/§21).
-	if judgmentClient != nil {
-		bankProcessor.SetVerifier(judgmentClient)
+	if judgmentEngine.Record != nil {
+		bankProcessor.SetVerifier(judgmentEngine)
 	}
 	financialModel := os.Getenv("LLM_MODEL_FINANCIAL_EMAIL")
 	if financialModel == "" {
@@ -139,8 +162,8 @@ func run(logger *slog.Logger) error {
 	}
 	financialLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), financialModel).WithRecorder("FINANCIAL_EMAIL_EXTRACTION", recordLLMCall)
 	financialProcessor := financialemail.NewProcessor(pool, financialLLM)
-	if judgmentClient != nil {
-		financialProcessor.SetVerifier(judgmentClient)
+	if judgmentEngine.Record != nil {
+		financialProcessor.SetVerifier(judgmentEngine)
 	}
 	imageProcessor := telegram.NewImageProcessorWithStorage(pool, bot, documentStorage)
 	jobs := queue.New(pool)
@@ -183,6 +206,33 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}
+}
+
+func phaseMetric(metric gateway.CallMetric, fallbackSourceEventID string) gateway.CallMetric {
+	if metric.Capability == "" {
+		metric.Capability = "GENERATIVE"
+	}
+	if metric.SourceEventID == "" {
+		metric.SourceEventID = fallbackSourceEventID
+	}
+	if metric.Purpose == "" {
+		metric.Purpose = "OTHER_BOUNDED"
+	}
+	return metric
+}
+
+func nullUUID(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func phaseOutcome(status string) string {
+	if status == "SUCCEEDED" {
+		return "SUCCEEDED"
+	}
+	return "FAILED"
 }
 
 // requireJudgmentModel enforces the production invariant that bounded mutation

@@ -57,6 +57,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// Processor cannot contaminate each other's value telemetry (PRD §23).
 	ctx, trace := withTurnTrace(ctx)
 	trace.householdID = householdID
+	trace.sourceEventID = sourceEventID
 	generativeRan := false
 	defer func() {
 		// Turn-level Jev value (PRD §23): classify how this turn was resolved so

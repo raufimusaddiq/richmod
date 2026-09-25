@@ -69,10 +69,18 @@ func chatToolChoice(name string) any {
 // and contains valid JSON arguments.
 func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentRequest) (response AgentResponse, err error) {
 	started := time.Now()
+	if sourceEventFrom(ctx) == "" {
+		ctx = withSourceEvent(ctx, requestID)
+	}
 	defer func() {
 		if response.Metadata.CallKind == "" {
 			response.Metadata.CallKind = "AGENT_TEXT"
 		}
+		for _, call := range response.ToolCalls {
+			response.Metadata.Dimensions = append(response.Metadata.Dimensions, semanticDimensions(call.Arguments)...)
+		}
+		response.Metadata.Dimensions = uniqueDimensions(response.Metadata.Dimensions)
+		response.Metadata.AnsweredDimensions = response.Metadata.Dimensions
 		c.observe(ctx, started, response.Metadata, err)
 	}()
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {

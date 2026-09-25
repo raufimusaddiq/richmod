@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
@@ -44,6 +45,9 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	if err != nil {
 		return fmt.Errorf("load payslip document: %w", err)
 	}
+	ctx = gateway.WithSourceEvent(ctx, sourceID)
+	ctx = judgment.WithSourceEvent(ctx, sourceID)
+	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	if status == "EXTRACTED" || status == "NEEDS_REVIEW" {
 		return nil
 	}

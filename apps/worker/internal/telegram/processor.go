@@ -70,9 +70,10 @@ type Processor struct {
 	// The zero value is a no-op recorder.
 	metrics judgmentMetrics
 	// turnTelemetryEnabled records one value row per Telegram turn (PRD §23).
-	turnTelemetryEnabled bool
-	now                  func() time.Time
-	bot                  *Bot
+	turnTelemetryEnabled         bool
+	postGenerativeAutoConfirmOff bool
+	now                          func() time.Time
+	bot                          *Bot
 }
 
 type extraction struct {
@@ -159,6 +160,11 @@ func (p *Processor) SetJudgment(engine judgment.Engine) {
 func (p *Processor) SetJudgmentMetrics(metrics judgmentMetrics) { p.metrics = metrics }
 
 func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
+
+// SetPostGenerativeAutoConfirm disables direct confirmation after generative extraction.
+func (p *Processor) SetPostGenerativeAutoConfirm(enabled bool) {
+	p.postGenerativeAutoConfirmOff = !enabled
+}
 
 // EnsureSourceEventFinal prevents a queue job from being acknowledged when a
 // Telegram event is still unprocessed. This turns orphaned successful jobs

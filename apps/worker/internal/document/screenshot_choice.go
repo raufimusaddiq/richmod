@@ -85,6 +85,7 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID stri
 	if len(questions) == 0 {
 		return nil, provenance, nil
 	}
+	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ScreenshotRowCategoryPolicyVersion)
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-screenshot-category", judgment.Request{State: state, Questions: questions})
 	if err != nil {
 		return nil, provenance, err

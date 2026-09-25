@@ -245,6 +245,98 @@ disposable PostgreSQL 17, with Go capped at 1 CPU/1 GiB and PostgreSQL at 0.5
 CPU/512 MiB.
 Known follow-up: IR-09 consumes bounded-call provenance.
 
+## IR-10 — Regression, canary, and rollout hardening
+
+Task: IR-10
+Baseline main SHA: `d2003de1189a368ca3f9a8c56d3de975ad32941c` (merged PR #150)
+Files changed: `apps/worker/internal/telegram/{processor.go,transaction_decision.go}`,
+`apps/worker/cmd/worker/main.go`, `apps/worker/internal/telegram/agent_single_pass_test.go`,
+`.env.example`, `docs/runbooks/production-deployment.md`.
+User interactions before: a complete Telegram generative extraction confirmed
+directly with no independent rollback scope; disabling any source switch left the
+conversational path unchanged.
+User interactions after: unchanged by default (switch on). When
+`RICHMOD_AUTOCONFIRM_TELEGRAM=0`, a complete extraction parks in review with the
+same extracted facts proposed, so the residual-date/category contract already in
+IR-01/IR-02 governs; no extra Jev or user step is introduced.
+Jev calls before/after: unchanged. Direct acceptance still costs zero Jev; the
+disabled switch also costs zero Jev, so rollback cannot silently re-open a full
+semantic replay.
+Generative calls before/after: unchanged; the switch gates Go's post-extraction
+acceptance, not the extraction itself.
+Canonical correctness guard: Go still owns the CONFIRMED transition; the
+disabled switch only removes auto-confirm, never the validation, so
+category/date/amount/duplicate guards keep running. Payment facts remain in the
+stored proposal for minimal review.
+Residual uncertainty after: on rollback, the whole proposal is reviewable rather
+than a named residual, which is the intended fail-safe behaviour of a rollback
+switch, not a new residual contract for the happy path.
+Tests added/updated: `TestPostGenerativeAutoConfirmSwitchParksReview` asserts the
+disabled switch neither authorizes confirmation nor spends a Jev call; existing
+IR-04 direct-acceptance, residual-category, missing-date, ambiguity, and route
+authority tests remain the regression matrix.
+Migration/schema changes: none.
+Drift checklist: A pass (no new user input; rollback is opt-in); B pass (no new
+model call; switch only removes an auto-confirm); C pass (semantic owner
+unchanged); D pass (validation/thresholds untouched); E pass (no fact invented;
+facts preserved for review); F pass (IR-01/02 residual contract still gates
+review); G pass (Jev failure semantics unchanged); H Telegram pass (simple path
+still Jev-only, complex path still no full replay); I pass (telemetry untouched);
+J pass (switch behaviour asserted); K pass (runbook table and env example
+updated; `git diff --check`).
+Known follow-up: PR #151 (IR-09) merge stays blocked until Hermes review passes;
+no IR-10 deployment until the sprint release/approval flow.
+
+## IR-09 — Intelligence-pass telemetry
+
+Task: IR-09
+Baseline main SHA: `d2003de1189a368ca3f9a8c56d3de975ad32941c` (merged PR #150)
+Files changed: `db/migrations/00065_intelligence_phase_telemetry.sql`;
+`apps/worker/internal/judgment/{judgment.go,systemone/{client.go,decorate.go}}`;
+`apps/worker/internal/gateway/{client.go,agent.go}`;
+`apps/worker/cmd/worker/main.go`; document/bank-email/financial-email/telegram
+call sites; `apps/api/internal/operations/judgment.go` and its integration test;
+`docs/DATABASE_SCHEMA.md`.
+User interactions before/after: unchanged. Telemetry is additive; no review is
+added, removed, or reordered by this task.
+Jev calls before/after: unchanged. Each bounded call now writes one
+`intelligence_phase_telemetry` row (`capability='JEV'`) through the reader-side
+`InstrumentedEngine`, which wraps the engine so test and production engines
+report identically. `llm_call` still records the transport call once.
+Generative calls before/after: unchanged. Generative phases report capability,
+purpose (from task/phase metadata), the semantic field names in the tool
+arguments, and the returned field names; they carry no prompt, answer, or value.
+Canonical correctness guard: telemetry is read-only with respect to canonical
+state; Go still owns every state transition. Phase rows store only field names,
+policy/model, latency, and transport outcome. Source-event correlation prefers
+the trusted caller context over a request ID, so a document ID can never be
+mistaken for a source event; the migration's `household_id` foreign key stays
+authoritative.
+Residual uncertainty after: residual rescue success is only reported when a
+Go-written `judgment_decision` row with a matching category outcome exists.
+Transport success is never reported as policy acceptance; the category
+double-pass figure is explicitly a candidate, because generative output alone
+cannot prove Go accepted the category.
+Tests added/updated: `InstrumentedEngine` exactly-once + source-event preference
+(`decorate_test.go`); API phase-order aggregate including valid vs redundant
+category pass, residual rescue attempt/success, and p50 latency
+(`judgment_integration_test.go`). Existing IR-04..IR-08 canonical tests remain
+green on disposable PostgreSQL 17 with Go capped at 1 CPU / 1.5 GiB.
+Migration/schema changes: `00065_intelligence_phase_telemetry.sql` (new table,
+two indexes); `docs/DATABASE_SCHEMA.md` ERD, table entry, and schema version.
+Drift checklist: A pass (no RHICE change; no new user input); B pass (no new
+model call; instrumentation wraps existing calls); C pass (no semantic owner
+change; telemetry never mutates canonical state); D pass (no threshold or
+validation changed); E pass (no fact invented; only field names recorded);
+F pass (review contracts untouched); G pass (transport failure stays distinct
+from semantic outcome; no retry behaviour changed); H pass (call ordering per
+source unchanged); I pass (migration 65 is telemetry-only, forward and down);
+J pass (no canonical write added; `go test`/`go vet` on affected API and worker
+packages against disposable PostgreSQL); K pass (schema reference updated;
+`git diff --check` clean).
+Known follow-up: IR-10 regression/canary/rollout hardening; no IR-09 production
+deployment until the sprint release/approval flow.
+
 ## IR-08 — Payslip residual policy separation
 
 Task: IR-08

@@ -121,3 +121,22 @@ func TestRecordTransactionRequiresMutationRoute(t *testing.T) {
 		t.Fatal("record_transaction must reject a non-mutation route before touching storage")
 	}
 }
+
+// IR-10 rollback: disabling post-generative direct acceptance parks a complete
+// extraction in review without Jev replay and without losing the extracted facts.
+func TestPostGenerativeAutoConfirmSwitchParksReview(t *testing.T) {
+	engine := &stubJudgmentEngine{err: errors.New("rollback must not call Jev")}
+	processor := &Processor{judgment: engine}
+	processor.SetPostGenerativeAutoConfirm(false)
+	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Indomaret", CategorySlug: "dining", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 24, 12, 30, 0, 0, jakartaLocation())}
+	decision, err := processor.semanticDecisionForRecord(context.Background(), newRecordState("indomaret 25rb hari ini"), value, []string{"dining", "transport"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.decisionAllowed() {
+		t.Fatalf("disabled switch must not authorize confirmation, got %+v", decision)
+	}
+	if engine.calls != 0 {
+		t.Fatalf("rollback must not spend a Jev call, calls=%d", engine.calls)
+	}
+}

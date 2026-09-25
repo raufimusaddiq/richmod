@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00064_payslip_date_review_telemetry.sql`.
+forward migration set through `db/migrations/00065_intelligence_phase_telemetry.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -96,6 +96,8 @@ erDiagram
     HOUSEHOLD ||--o{ JOB : queues
     JOB ||--o{ JOB_RETRY_LOG : retries
     HOUSEHOLD ||--o{ LLM_CALL : observes
+    HOUSEHOLD ||--o{ INTELLIGENCE_PHASE_TELEMETRY : observes
+    SOURCE_EVENT ||--o{ INTELLIGENCE_PHASE_TELEMETRY : correlates
     HOUSEHOLD ||--o{ PRODUCT_TELEMETRY_EVENT : records
     TRANSACTION ||--o{ PRODUCT_TELEMETRY_EVENT : measures
     REVIEW_ITEM ||--o{ PRODUCT_TELEMETRY_EVENT : measures
@@ -174,6 +176,7 @@ erDiagram
 | `worker_heartbeat` | Worker liveness/operational status. | Worker instance identity and observed timestamp. |
 | `llm_call` | LLM-call telemetry. | Optional household; task/protocol/model/status/cost metadata only; `call_kind` allows `NATIVE_TOOL`, `AGENT_TEXT`, `AGENT_TOOLS`, `JUDGMENT` (bounded transport call), or `DECISION` (consumed decision with its product outcome); `protocol` allows `responses`, `chat_completions`, or `systemone`. |
 | `judgment_decision` | Bounded System One / Jev decision provenance. | Household-scoped; optional `source_event_id → source_event`; `policy_version` plus bounded question keys, answer summary, and outcome. Stores no raw user text, email body, document bytes, or credentials; the canonical mutation stays in `transaction`/`audit_log`. |
+| `intelligence_phase_telemetry` | IR-09 per-inference metadata for model-order measurement. | Optional household/source event; capability, purpose, semantic question/output field names, policy/model, latency, and transport outcome only. No prompts, answers, messages, or financial values. |
 | `judgment_turn_telemetry` | Per-turn Jev value measurement (PRD §23). | Household/source-event scoped; one row per Telegram turn recording the resolving lane (`JEV_ONLY`, `JEV_THEN_GENERATIVE`, `JEV_THEN_GENERATIVE_THEN_RESIDUAL_JEV`, `GENERATIVE_ONLY`), the bounded decision tasks consumed, any rescued `residual_dimensions`, `policy_version`, model, and `native_tool_calls_avoided`. Aggregate-only: stores no prompt, answer text, household message, or financial value. |
 | `product_telemetry_event` | Append-only PRD §22.2/§22.3 product event (review turn, auto-confirm correction). | Household-scoped; optional `source_event_id`, `transaction_id`, `review_item_id`. Stores bounded `action`, decision policy/source, an allow-listed `changed_fields` array of field names, and a `bounded_choices` counter — never a financial value, prompt, or user text. Written by triggers in the same transaction as the canonical write; `payDate` on a payslip review is normalized to `transaction_at` for RHICE. |
 | `bank_email_evidence_verification` | Bounded verification ruling for one bank-email extraction. | One row per `source_event_id`; records the `bank_email_verification_policy_version`, the gateway model, and bounded boolean claims (observed, amount, direction, channel, ambiguity). Additive audit only — it writes no canonical financial state and never stores the email body. |

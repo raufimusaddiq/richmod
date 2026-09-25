@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -19,35 +20,70 @@ type Client struct {
 	protocol string
 	http     *http.Client
 	task     string
+	purpose  string
 	record   Recorder
 }
 
 type Metadata struct {
-	Model        string
-	InputTokens  int
-	OutputTokens int
-	Cost         string
-	CallKind     string
-	ToolName     string
+	Model              string
+	InputTokens        int
+	OutputTokens       int
+	Cost               string
+	CallKind           string
+	ToolName           string
+	SourceEventID      string
+	Capability         string
+	Purpose            string
+	PolicyVersion      string
+	Dimensions         []string
+	AnsweredDimensions []string
+	ResidualDimensions []string
 }
 
 // CallMetric contains metadata only. Prompt, response, and source content are
 // intentionally excluded from operational telemetry.
 type CallMetric struct {
-	Task         string
-	Protocol     string
-	Model        string
-	Status       string
-	ErrorClass   string
-	DurationMs   int64
-	InputTokens  int
-	OutputTokens int
-	Cost         string
-	CallKind     string
-	ToolName     string
+	Task               string
+	Protocol           string
+	Model              string
+	Status             string
+	ErrorClass         string
+	DurationMs         int64
+	InputTokens        int
+	OutputTokens       int
+	Cost               string
+	CallKind           string
+	ToolName           string
+	SourceEventID      string
+	Capability         string
+	Purpose            string
+	PolicyVersion      string
+	Dimensions         []string
+	AnsweredDimensions []string
+	ResidualDimensions []string
 }
 
 type Recorder func(context.Context, CallMetric)
+
+type sourceEventContextKey struct{}
+type phaseContextKey struct{}
+
+type phaseMetadata struct{ purpose, policyVersion string }
+
+func withSourceEvent(ctx context.Context, sourceEventID string) context.Context {
+	return context.WithValue(ctx, sourceEventContextKey{}, sourceEventID)
+}
+
+func WithSourceEvent(ctx context.Context, sourceEventID string) context.Context { return withSourceEvent(ctx, sourceEventID) }
+
+func sourceEventFrom(ctx context.Context) string {
+	sourceEventID, _ := ctx.Value(sourceEventContextKey{}).(string)
+	return sourceEventID
+}
+
+func WithPhaseMetadata(ctx context.Context, purpose, policyVersion string) context.Context {
+	return context.WithValue(ctx, phaseContextKey{}, phaseMetadata{purpose, policyVersion})
+}
 
 type ToolDefinition struct {
 	Name        string
@@ -73,9 +109,15 @@ type ToolCall struct {
 // NativeToolCall asks the gateway for a native function_call. It never
 // executes a tool; callers must validate and dispatch it in Go.
 func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (call ToolCall, metadata Metadata, err error) {
+	if sourceEventFrom(ctx) == "" { ctx = withSourceEvent(ctx, requestID) }
 	started := time.Now()
-	defer func() { c.observe(ctx, started, metadata, err) }()
-	return c.nativeToolCall(ctx, requestID, systemPrompt, content, tools, optionValues...)
+	defer func() {
+		metadata.Dimensions = semanticDimensions(call.Arguments)
+		metadata.AnsweredDimensions = metadata.Dimensions
+		c.observe(ctx, started, metadata, err)
+	}()
+	call, metadata, err = c.nativeToolCall(ctx, requestID, systemPrompt, content, tools, optionValues...)
+	return
 }
 
 // DecodeToolArguments strictly decodes one provider-native function call.
@@ -310,8 +352,73 @@ func NewWithProtocol(baseURL, apiKey, model, protocol string) *Client {
 func (c *Client) WithRecorder(task string, record Recorder) *Client {
 	clone := *c
 	clone.task = task
+	clone.purpose = purposeForTask(task)
 	clone.record = record
 	return &clone
+}
+
+func purposeForTask(task string) string {
+	switch task {
+	case "TELEGRAM_NATIVE":
+		return "EXTRACTION"
+	case "DOCUMENT_EXTRACTION", "BANK_EXTRACTION", "FINANCIAL_EMAIL_EXTRACTION":
+		return "EXTRACTION"
+	case "DOCUMENT_REPAIR":
+		return "DOCUMENT_REPAIR"
+	default:
+		return "OTHER_BOUNDED"
+	}
+}
+
+var semanticFieldNames = map[string]string{
+	"type": "transaction_type", "transaction_type": "transaction_type", "amount": "amount", "amount_idr": "amount",
+	"transaction_at": "transaction_at", "date": "transaction_at", "pay_date": "transaction_at",
+	"category": "category", "category_slug": "category", "merchant": "merchant", "merchant_raw": "merchant",
+	"account": "account", "account_hint": "account", "wealth_account": "wealth_account", "purpose": "purpose",
+	"payment_status": "payment_status", "employer": "employer", "net_pay": "net_pay",
+}
+
+func semanticDimensions(raw []byte) []string {
+	var value any
+	if len(raw) == 0 || json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+	found := map[string]bool{}
+	var visit func(any)
+	visit = func(node any) {
+		switch item := node.(type) {
+		case map[string]any:
+			for key, child := range item {
+				if dimension, ok := semanticFieldNames[key]; ok {
+					found[dimension] = true
+				}
+				visit(child)
+			}
+		case []any:
+			for _, child := range item {
+				visit(child)
+			}
+		}
+	}
+	visit(value)
+	result := make([]string, 0, len(found))
+	for dimension := range found {
+		result = append(result, dimension)
+	}
+	return uniqueDimensions(result)
+}
+
+func uniqueDimensions(dimensions []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(dimensions))
+	for _, dimension := range dimensions {
+		if dimension != "" && !seen[dimension] {
+			seen[dimension] = true
+			result = append(result, dimension)
+		}
+	}
+	slices.Sort(result)
+	return result
 }
 
 func (c *Client) observe(ctx context.Context, started time.Time, metadata Metadata, callErr error) {
@@ -326,7 +433,24 @@ func (c *Client) observe(ctx context.Context, started time.Time, metadata Metada
 	if model == "" {
 		model = c.model
 	}
-	c.record(ctx, CallMetric{Task: c.task, Protocol: c.protocol, Model: model, Status: status, ErrorClass: errorClass, DurationMs: time.Since(started).Milliseconds(), InputTokens: metadata.InputTokens, OutputTokens: metadata.OutputTokens, Cost: metadata.Cost, CallKind: metadata.CallKind, ToolName: metadata.ToolName})
+	phase, _ := ctx.Value(phaseContextKey{}).(phaseMetadata)
+	purpose := c.purpose
+	if phase.purpose != "" {
+		purpose = phase.purpose
+	}
+	metric := CallMetric{Task: c.task, Protocol: c.protocol, Model: model, Status: status, ErrorClass: errorClass, DurationMs: time.Since(started).Milliseconds(), InputTokens: metadata.InputTokens, OutputTokens: metadata.OutputTokens, Cost: metadata.Cost, CallKind: metadata.CallKind, ToolName: metadata.ToolName, Purpose: purpose, PolicyVersion: phase.policyVersion, Dimensions: metadata.Dimensions, AnsweredDimensions: metadata.AnsweredDimensions, ResidualDimensions: metadata.ResidualDimensions, Capability: "GENERATIVE"}
+	metric.Capability = "GENERATIVE"
+	metric.SourceEventID = sourceEventFrom(ctx)
+	if metric.SourceEventID == "" {
+		metric.SourceEventID = metadata.SourceEventID
+	}
+	if metric.Purpose == "" {
+		metric.Purpose = purposeForTask(c.task)
+	}
+	if len(metric.Dimensions) == 0 && metadata.ToolName != "" {
+		metric.Dimensions = []string{metadata.ToolName}
+	}
+	c.record(ctx, metric)
 }
 
 func metricErrorClass(err error) string {
