@@ -180,7 +180,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if err != nil {
 		return true, fmt.Errorf("bind Telegram review reply: %w", err)
 	}
-	if requestStatus == "OPEN" && transactionStatus == "CONFIRMED" && reviewState == "AWAITING_CONFIRMATION" {
+	if transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION" {
 		return true, p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 	}
 	if requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
@@ -382,7 +382,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 
 func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
 	var reviewID, transactionID string
-	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
+	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
 	}
@@ -1288,7 +1288,13 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	}
 	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""
 	if askRemember {
-		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CONFIRMATION',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, categoryID); err != nil {
+		// Complete the review item now so a merchant-learning question the user
+		// never answers cannot leave the review open (UIR-08). The pending question
+		// is tracked by conversation state, not by review_request.status.
+		if err := resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT_DECISION',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, categoryID); err != nil {
 			return err
 		}
 	} else {
@@ -1609,7 +1615,14 @@ func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID
 		_, err := tx.Exec(ctx, `UPDATE review_item ri SET status='RESOLVED',resolved_at=now(),resolution_action=$2,updated_at=now() FROM review_request rr WHERE rr.id=$1 AND ri.id=rr.review_item_id AND ri.status IN ('PENDING_SEND','OPEN')`, reviewID, action)
 		return err
 	}
-	return reviewdomain.ResolveByID(ctx, tx, reviewdomain.Command{HouseholdID: household, ActorUserID: userID, ReviewItemID: itemID, RequestID: reviewID, SubjectID: transaction, Action: action})
+	// Idempotent by design: a review already completed by an earlier step (for
+	// example the confirm that now resolves before the optional merchant question)
+	// is success, not a failure to re-resolve.
+	err := reviewdomain.ResolveByID(ctx, tx, reviewdomain.Command{HouseholdID: household, ActorUserID: userID, ReviewItemID: itemID, RequestID: reviewID, SubjectID: transaction, Action: action})
+	if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
+		return nil
+	}
+	return err
 }
 
 func pendingReviewItemID(ctx context.Context, tx pgx.Tx, reviewID string) string {
@@ -1673,7 +1686,7 @@ func FormatIDR(value string) string {
 func (p *Processor) resolveNativeMerchantLearning(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, args map[string]any) error {
 	remember, _ := args["remember"].(bool)
 	var reviewID, transactionID string
-	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 1`, householdID, update.Message.Chat.ID).Scan(&reviewID, &transactionID)
+	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 1`, householdID, update.Message.Chat.ID).Scan(&reviewID, &transactionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tidak ada konfirmasi merchant yang aktif.")
 	}

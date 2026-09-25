@@ -449,7 +449,7 @@ func (p *Processor) agentResolveBoundMerchantLearning(ctx context.Context, state
 		return result, true, err
 	}
 	var active bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id WHERE r.id=$1 AND r.household_id=$2 AND r.transaction_id=$3 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED')`, binding.ReviewRequestID, state.HouseholdID, binding.TransactionID).Scan(&active); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id WHERE r.id=$1 AND r.household_id=$2 AND r.transaction_id=$3 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED')`, binding.ReviewRequestID, state.HouseholdID, binding.TransactionID).Scan(&active); err != nil {
 		return result, true, err
 	}
 	if !active {

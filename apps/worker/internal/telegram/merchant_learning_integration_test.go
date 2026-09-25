@@ -73,11 +73,12 @@ func TestTelegramMerchantLearningUsesSeparateExplicitReply(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT t.status,r.status,c.state,(SELECT count(*) FROM merchant_alias WHERE household_id=$1) FROM transaction t JOIN review_request r ON r.transaction_id=t.id JOIN review_conversation c ON c.review_request_id=r.id WHERE t.id=$2`, householdID, transactionID).Scan(&transactionStatus, &reviewStatus, &conversationState, &aliases); err != nil {
 		t.Fatal(err)
 	}
-	if transactionStatus != "CONFIRMED" || reviewStatus != "OPEN" || conversationState != "AWAITING_CONFIRMATION" || aliases != 0 {
+	if transactionStatus != "CONFIRMED" || reviewStatus != "RESOLVED" || conversationState != "AWAITING_MERCHANT_DECISION" || aliases != 0 {
 		t.Fatalf("transaction=%s review=%s conversation=%s aliases=%d", transactionStatus, reviewStatus, conversationState, aliases)
 	}
-	// The shared confirm mutates the transaction but deliberately defers terminal
-	// review completion until the explicit merchant-learning answer below.
+	// UIR-08: the review item completes at confirm time so a merchant-learning
+	// question the user never answers cannot strand it. The optional question is
+	// tracked by conversation state only.
 	update.Message.MessageID = 24
 	update.Message.Text = "ingat merchant"
 	if err := processor.rememberMerchantReply(ctx, rememberSourceID, householdID, reviewID, transactionID, update); err != nil {
