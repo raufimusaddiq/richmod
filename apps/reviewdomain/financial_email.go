@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/jackc/pgx/v5"
 )
 
@@ -160,14 +162,14 @@ func LearnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, householdID, entityTy
 	return LearnEntityAlias(ctx, tx, householdID, entityType, entityID, alias)
 }
 
-// normalizeAlias folds an alias into its stored comparable form: lower case,
-// letters and digits only, single-spaced. It uses the standard library so the
-// domain package keeps no presentation dependency; callers that need Unicode
-// NFKC folding normalize before calling.
+// normalizeAlias folds an alias into its stored comparable form: NFKC
+// compatibility normalization, lower case, letters and digits only,
+// single-spaced. Every surface stores this one key, so the fold lives here
+// rather than at each call site.
 func normalizeAlias(value string) string {
 	var b strings.Builder
 	space := false
-	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+	for _, r := range strings.ToLower(strings.TrimSpace(norm.NFKC.String(value))) {
 		switch {
 		case unicode.IsLetter(r), unicode.IsDigit(r):
 			if space && b.Len() > 0 {

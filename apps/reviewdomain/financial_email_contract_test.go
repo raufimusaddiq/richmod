@@ -26,3 +26,19 @@ func TestFinancialEmailResolutionIsShared(t *testing.T) {
 		t.Fatalf("%s still owns alias-learning SQL", path)
 	}
 }
+
+// Alias keys must fold Unicode compatibility forms the same way every surface
+// does. A full-width hint and its ASCII spelling are the same household alias,
+// so losing NFKC here would persist two keys for one account and break lookup.
+func TestNormalizeAliasFoldsUnicodeCompatibility(t *testing.T) {
+	ascii := normalizeAlias("Bank BCA")
+	if got := normalizeAlias("Ｂａｎｋ　ＢＣＡ"); got != ascii {
+		t.Fatalf("full-width alias folded to %q, want %q", got, ascii)
+	}
+	if got := normalizeAlias("  Bank	BCA  "); got != ascii {
+		t.Fatalf("whitespace alias folded to %q, want %q", got, ascii)
+	}
+	if normalizeAlias("") != "" {
+		t.Fatal("empty alias must stay empty")
+	}
+}
