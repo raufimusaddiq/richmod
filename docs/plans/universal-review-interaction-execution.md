@@ -141,6 +141,29 @@ merges and voids the source) to prove it completes without Web. `CONFLICTING_EVI
 is produced on a source-event subject by financial email and has no transaction
 projection, so its Telegram surface belongs to UIR-07.
 
++### UIR-02 — universal projection model (in progress)
+
+Every producer that inserts a `review_item` now routes its Telegram delivery
+through one shared entrypoint, `telegram.ProjectReviewItem` (plus the
+message-free `ProjectReviewMessage`), instead of hand-rolling a notice or
+leaving the item Inbox-only. The producer writes the item and its
+`ReviewDecision` as before; the shared projection then resolves eligible
+recipients (falling back to the originating Telegram chat for a source with no
+linked household chat), picks the markup from the decision, and enqueues the
+message. Transaction creation, receipt/payslip/document extraction, financial
+provider email, bank email, and cycle residual all route through it, so a
+document, wealth, financial-email, or cycle review arrives as the same
+decision-driven actionable card as a transaction review. Projection creation is
+idempotent: an open `review_request` for the item is reused, and an
+already-open item is reused instead of duplicated.
+
+`renderReviewPresentation` now guarantees a producer-supplied prompt keeps the
+decision's conversation state and markup, so a supplied message still lands on
+the right interaction. Existing category, date, transfer, duplicate, and policy
+rendering is unchanged; `TestSuppliedContextKeepsItsMarkupMode` pins the
+supplied-prompt behavior.
+
+
 The remaining channel gaps are subject-parity work: the rest of UIR-03
 action parity, UIR-04 transaction residual parity, UIR-06
 payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle

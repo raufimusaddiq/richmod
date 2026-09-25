@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 const reviewPrompt = `Interpret one reply to a specifically bound household transaction review.
@@ -1679,20 +1680,30 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 			return err
 		}
 	}
+	return projectReviewRequest(ctx, tx, reviewID, itemID, reviewType, decision, replyTo, message, chatID)
+}
+
+// projectReviewRequest is the one place a review_item becomes an actionable
+// Telegram message (UIR-02). Every producer routes through it: the transaction
+// adapter creates the item first, the source/document adapter inserts a
+// source-event item, and both then call this with the same decision-driven
+// renderer. A review that has no eligible recipient produces no projection.
+// That keeps a non-transaction review (source, document, wealth, cycle) off the
+// transaction-only bound path while sharing all delivery, recipient, and
+// markup logic.
+func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, reviewType string, decision reviewdec.Decision, replyTo int64, message string, originatingChatID int64) error {
 	state, reviewMessage, markupMode := renderReviewPresentation(decision, reviewType, message)
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
 		return err
 	}
 	var markup *InlineKeyboardMarkup
 	switch markupMode {
-	case "category":
+	case "category", "transfer":
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	case "reply":
 		markup = requiredFieldReplyMarkup()
 	case "duplicate":
 		markup = duplicateIntentMarkup()
-	case "transfer":
-		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -1727,7 +1738,57 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 			return err
 		}
 	}
+	// A producer that had no eligible recipient at creation time (no linked
+	// Telegram identity, or a source-event review with no transaction) still
+	// projects to the chat that originated it when one is supplied.
+	if len(recipients) == 0 && originatingChatID != 0 {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, reviewID, originatingChatID); err != nil {
+			return err
+		}
+		if err := enqueueReviewMessageWithMarkup(ctx, tx, reviewID, originatingChatID, replyTo, reviewMessage, markup); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// ProjectReviewItem creates the single Telegram projection for an already
+// inserted review_item (UIR-02), whatever its subject: transaction, document,
+// proposal, source event, wealth observation, or financial email. Every
+// producer calls this after it writes the item and its ReviewDecision, so a
+// non-transaction review reaches Telegram through the same renderer, recipient
+// selection, and markup path as a transaction review. Idempotent: an existing
+// open projection for the item is reused rather than duplicated.
+func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID string, replyTo int64, message string, originatingChatID int64) error {
+	var reviewID, reviewType string
+	err := tx.QueryRow(ctx, `WITH existing AS (
+			SELECT id FROM review_request WHERE review_item_id=$2 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at LIMIT 1
+		)
+		INSERT INTO review_request(review_item_id,household_id,review_type,status)
+		SELECT $2,$1,ri.review_type,'PENDING_SEND' FROM review_item ri
+		WHERE ri.id=$2 AND NOT EXISTS (SELECT 1 FROM existing)
+		RETURNING id, review_type`, householdID, itemID).Scan(&reviewID, &reviewType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var decisionJSON []byte
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(decision,'{}'::jsonb) FROM review_item WHERE id=$1`, itemID).Scan(&decisionJSON); err != nil {
+		return err
+	}
+	var decision reviewdec.Decision
+	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
+		return err
+	}
+	return projectReviewRequest(ctx, tx, reviewID, itemID, reviewType, decision, replyTo, message, originatingChatID)
+}
+
+// ProjectReviewMessage is the message-free convenience for producers that do
+// not supply a bespoke prompt: the renderer derives one from the decision.
+func ProjectReviewMessage(ctx context.Context, tx pgx.Tx, householdID, itemID string, chatID, replyTo int64) error {
+	return ProjectReviewItem(ctx, tx, householdID, itemID, replyTo, "", chatID)
 }
 
 func requiredFieldReplyMarkup() *InlineKeyboardMarkup {

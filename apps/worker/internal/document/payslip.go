@@ -270,7 +270,16 @@ func (p *Processor) persistInvalidPayslip(ctx context.Context, documentID, house
 	if encodeErr != nil {
 		return encodeErr
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN',$3::jsonb) ON CONFLICT DO NOTHING`, householdID, documentID, string(encoded)); err != nil {
+	var reviewItemID string
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, documentID, string(encoded)).Scan(&reviewItemID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE document_id=$1 AND review_type='DOCUMENT_EXTRACTION_LOW_CONFIDENCE' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, documentID).Scan(&reviewItemID); err != nil {
+			return err
+		}
+	}
+	if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_PAYSLIP_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'reason',$4::text))`, householdID, sourceID, documentID, cause.Error()); err != nil {
@@ -353,7 +362,16 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		if encodeErr != nil {
 			return encodeErr
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,proposal_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN',$4::jsonb) ON CONFLICT DO NOTHING`, householdID, proposalID, reviewType, string(encoded)); err != nil {
+		var reviewItemID string
+		if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN',$4::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, proposalID, reviewType, string(encoded)).Scan(&reviewItemID); err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE proposal_id=$1 AND review_type=$2 AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, proposalID, reviewType).Scan(&reviewItemID); err != nil {
+				return err
+			}
+		}
+		if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
@@ -466,6 +484,22 @@ func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType stri
 		}
 	}
 	return decision
+}
+
+// projectDocumentReview gives a document/proposal review the same Telegram
+// projection as a transaction review (UIR-02), routed to the Telegram chat that
+// sent the source image when one exists. Non-Telegram sources keep the Inbox-only
+// behavior because there is no originating chat to bind a reply to.
+func (p *Processor) projectDocumentReview(ctx context.Context, tx pgx.Tx, householdID, sourceID, reviewItemID string) error {
+	if reviewItemID == "" {
+		return nil
+	}
+	var chatID, messageID int64
+	_ = tx.QueryRow(ctx, `SELECT COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0),COALESCE(s.telegram_message_id,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.source_type='TELEGRAM_IMAGE'`, sourceID).Scan(&chatID, &messageID)
+	if chatID == 0 {
+		return nil
+	}
+	return workerTelegram.ProjectReviewItem(ctx, tx, householdID, reviewItemID, messageID, "", chatID)
 }
 
 func payslipSchema() map[string]any {

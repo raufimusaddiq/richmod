@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 type Payload struct {
@@ -109,6 +110,13 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 		if _, err = tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2)`, requestID, chat); err != nil {
 			return err
 		}
+	}
+	// UIR-02: the cycle residual review is a first-class Telegram review, so it
+	// renders through the same decision-driven projection as every other review
+	// (message text + policy markup + bound reply state), not just an empty
+	// recipient row a later path must guess how to display.
+	if err = workerTelegram.ProjectReviewMessage(ctx, tx, v.HouseholdID, reviewID, 0, 0); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

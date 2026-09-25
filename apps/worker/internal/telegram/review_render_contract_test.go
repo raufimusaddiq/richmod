@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
@@ -71,6 +72,28 @@ func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
 		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
 		if !markupModesHandledAtCreation[mode] {
 			t.Fatalf("%s rendered mode %q with no creation markup case", reviewType, mode)
+		}
+	}
+}
+
+// TestSuppliedContextKeepsItsMarkupMode proves the UIR-02 shared projection does
+// not drop a review's supplied prompt: when a producer supplies its own message,
+// the decision still selects the markup and state, so a source/document review
+// arrives as an actionable card instead of an unanswerable notice. A category or
+// transfer review uses the provider's summary as the card body unchanged; a
+// detail/date/duplicate review wraps the summary in the decision prompt.
+func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
+	for _, reviewType := range producibleReviewTypes {
+		decision, ok := reviewdec.Preset(reviewType, "source_event", "00000000-0000-0000-0000-000000000000")
+		if !ok {
+			continue
+		}
+		state, message, mode := renderReviewPresentation(decision, reviewType, "bespoke prompt")
+		if state == "" || mode == "" {
+			t.Fatalf("%s lost its state/markup with a supplied prompt", reviewType)
+		}
+		if !strings.Contains(message, "bespoke prompt") {
+			t.Fatalf("%s dropped the supplied prompt: %q", reviewType, message)
 		}
 	}
 }

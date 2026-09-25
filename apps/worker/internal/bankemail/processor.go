@@ -331,10 +331,32 @@ func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, s
 	if encodeErr != nil {
 		return encodeErr
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN',$4::jsonb) ON CONFLICT DO NOTHING`, household, sourceEventID, reviewType, string(encoded)); err != nil {
+	var itemID string
+	if err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'PENDING_SEND',$4::jsonb) ON CONFLICT DO NOTHING RETURNING id`, household, sourceEventID, reviewType, string(encoded)).Scan(&itemID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err = tx.QueryRow(ctx, `SELECT id FROM review_item WHERE source_event_id=$1 AND review_type=$2 AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, sourceEventID, reviewType).Scan(&itemID); err != nil {
+			return err
+		}
+	}
+	if err = p.projectSourceReview(ctx, tx, household, sourceEventID, itemID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// projectSourceReview gives a source-event review (unknown bank template,
+// incomplete extraction, low confidence) the shared Telegram projection
+// (UIR-02) when the source originated in Telegram. Non-Telegram bank email keeps
+// the Inbox-only path because there is no chat to bind a reply to.
+func (p *Processor) projectSourceReview(ctx context.Context, tx pgx.Tx, household, sourceEventID, itemID string) error {
+	var chatID int64
+	_ = tx.QueryRow(ctx, `SELECT COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_TEXT','TELEGRAM_IMAGE','TELEGRAM_DOCUMENT')`, sourceEventID).Scan(&chatID)
+	if chatID == 0 {
+		return nil
+	}
+	return workerTelegram.ProjectReviewItem(ctx, tx, household, itemID, 0, "", chatID)
 }
 
 // partialDecision builds the ReviewDecision for a bank email that could not be

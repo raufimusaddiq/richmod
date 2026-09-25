@@ -15,6 +15,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 type Gateway interface {
@@ -252,7 +253,7 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 	if err != nil {
 		return err
 	}
-	return insertReviewDecision(ctx, tx, household, id, "TRANSFER_CLASSIFICATION")
+	return p.insertReviewDecision(ctx, tx, household, id, "TRANSFER_CLASSIFICATION")
 }
 func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) (string, error) {
 	if strings.TrimSpace(id) == "" {
@@ -323,8 +324,17 @@ func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, hous
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$4::jsonb) ON CONFLICT DO NOTHING`, household, wealthObservationID, financialObservationID, string(encoded))
-	return err
+	var reviewItemID string
+	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$4::jsonb) ON CONFLICT DO NOTHING RETURNING id`, household, wealthObservationID, financialObservationID, string(encoded)).Scan(&reviewItemID)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err = tx.QueryRow(ctx, `SELECT id FROM review_item WHERE financial_email_observation_id=$1 AND review_type='WEALTH_OBSERVATION_CONFIRMATION' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, financialObservationID).Scan(&reviewItemID); err != nil {
+			return err
+		}
+	}
+	return p.projectReviewItem(ctx, tx, household, reviewItemID)
 }
 
 type cashPlan struct {
@@ -542,7 +552,7 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, observation); err != nil {
 		return err
 	}
-	return insertReviewDecision(ctx, tx, household, observation, "CONFLICTING_EVIDENCE")
+	return p.insertReviewDecision(ctx, tx, household, observation, "CONFLICTING_EVIDENCE")
 }
 
 // resolutionReview parks a Financial Email whose entities Go could not fully
@@ -583,8 +593,7 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) SELECT $1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, id, string(encoded))
-	return err
+	return p.projectObservationReview(ctx, tx, household, id, "FINANCIAL_EMAIL_RESOLUTION", string(encoded))
 }
 func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, source, observation, account, amount string, at time.Time, purpose, wealth string, candidates []string) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, observation); err != nil {
@@ -593,13 +602,13 @@ func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, s
 	if _, err := tx.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,financial_email_observation_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,$5,$6,'Financial provider email',$7,NULLIF($8,'')::uuid,$9::uuid[]) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET candidate_transaction_ids=EXCLUDED.candidate_transaction_ids,status='OPEN',updated_at=now()`, household, source, observation, account, amount, at, purpose, wealth, candidates); err != nil {
 		return err
 	}
-	return insertReviewDecision(ctx, tx, household, observation, "TRANSFER_CLASSIFICATION")
+	return p.insertReviewDecision(ctx, tx, household, observation, "TRANSFER_CLASSIFICATION")
 }
 
 // insertReviewDecision writes an observation-scoped review together with its
 // canonical ReviewDecision contract (PRD 7, 37), so the Inbox can always
 // explain why the household's input is required. Idempotent on an open review.
-func insertReviewDecision(ctx context.Context, tx pgx.Tx, household, observation, reason string) error {
+func (p *Processor) insertReviewDecision(ctx context.Context, tx pgx.Tx, household, observation, reason string) error {
 	decision, ok := reviewdec.Preset(reason, "financial_email_observation", observation)
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reason)
@@ -608,8 +617,52 @@ func insertReviewDecision(ctx context.Context, tx pgx.Tx, household, observation
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) SELECT $1,$2,$3,'OPEN',$4::jsonb WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))`, household, observation, reason, string(encoded))
-	return err
+	return p.projectObservationReview(ctx, tx, household, observation, reason, string(encoded))
+}
+
+// projectObservationReview writes the observation-scoped review item if no open
+// one exists and then gives it the shared Telegram projection (UIR-02), so a
+// financial-email decision can finish in chat instead of only in the Inbox.
+func (p *Processor) projectObservationReview(ctx context.Context, tx pgx.Tx, household, observation, reason, decision string) error {
+	var itemID string
+	err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision)
+		SELECT $1,$2,$3,'PENDING_SEND',$4::jsonb
+		WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE financial_email_observation_id=$2 AND status IN ('PENDING_SEND','OPEN'))
+		RETURNING id`, household, observation, reason, decision).Scan(&itemID)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err = tx.QueryRow(ctx, `SELECT id FROM review_item WHERE financial_email_observation_id=$1 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at LIMIT 1`, observation).Scan(&itemID); err != nil {
+			return err
+		}
+	}
+	return p.projectReviewItem(ctx, tx, household, itemID)
+}
+
+// projectReviewItem resolves the originating Telegram chat for this source event
+// (when any) and creates the universal projection. Non-Telegram sources keep the
+// Inbox-only behavior because no live chat can bind the reply.
+func (p *Processor) projectReviewItem(ctx context.Context, tx pgx.Tx, household, itemID string) error {
+	var chatID, sourceID string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.source_event_id::text,''),COALESCE(fo.source_event_id::text,'')
+		FROM review_item ri
+		LEFT JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id
+		WHERE ri.id=$1`, itemID).Scan(&sourceID, &chatID); err != nil {
+		return err
+	}
+	if chatID != "" {
+		sourceID = chatID
+	}
+	if sourceID == "" {
+		return nil
+	}
+	var telegramChat int64
+	_ = tx.QueryRow(ctx, `SELECT COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_IMAGE','TELEGRAM_TEXT','TELEGRAM_DOCUMENT')`, sourceID).Scan(&telegramChat)
+	if telegramChat == 0 {
+		return nil
+	}
+	return workerTelegram.ProjectReviewItem(ctx, tx, household, itemID, 0, "", telegramChat)
 }
 func value(v *string) string {
 	if v == nil {
