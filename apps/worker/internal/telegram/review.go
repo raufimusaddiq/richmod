@@ -192,8 +192,11 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
 	}
-	if reviewType == "UNKNOWN_MERCHANT" && missingFactsJSON != nil && !reviewRequiresFact(missingFactsJSON, "merchant") {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini.")
+	// A review that no longer requires the merchant is a plain category choice; the
+	// Telegram lanes can complete it, so route it to the chooser instead of sending
+	// the user to the Review Inbox.
+	if missingFactsAreCategoryOnly(missingFactsJSON) {
+		return true, p.offerCategoryChooser(ctx, sourceEventID, householdID, reviewID, transactionID, reviewType, update)
 	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
 		return true, p.offerDuplicateChoices(ctx, sourceEventID, householdID, reviewID, transactionID, update)
@@ -696,6 +699,20 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 		}
 		return tx.Commit(ctx)
 	}
+	if field != "merchant" && !reviewNeedsCategory(ctx, tx, reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, transactionID) {
+		// A free-form residual (unknown purpose, manual correction) whose
+		// transaction the shared rule accepts as-is is complete from one reply.
+		// When the transaction still needs a category (an uncategorized expense),
+		// fall through to the chooser instead of attempting a confirm that the
+		// canonical expense-category invariant would reject.
+		if err = p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, "", update, reviewExtraction{Description: value}, userID, false); err != nil {
+			return err
+		}
+		if err = enqueueReply(ctx, tx, update, "Catatan transaksi disimpan. Tinjauan selesai."); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
 		return err
 	}
@@ -721,14 +738,13 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	defer tx.Rollback(ctx)
 	var reviewID, transactionID, reviewType, requestStatus, transactionStatus string
-	var missingFactsJSON *string
-	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status,ri.decision->'missingFacts'
+	err = tx.QueryRow(ctx, `SELECT r.id,r.transaction_id,r.review_type,r.status,t.status
 		FROM review_request r JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
 		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
-		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &missingFactsJSON)
+		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
 		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
 			return err
@@ -737,15 +753,6 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 	}
 	if err != nil {
 		return err
-	}
-	if reviewType == "UNKNOWN_MERCHANT" && missingFactsJSON != nil && !reviewRequiresFact(missingFactsJSON, "merchant") {
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-			return err
-		}
-		if err = enqueueReply(ctx, tx, update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini."); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
 	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
 		if err = renderDuplicateChoices(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update); err != nil {
@@ -1385,6 +1392,52 @@ func validReviewTimestamp(value string) bool {
 	}
 	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
 	return err == nil && !parsed.IsZero() && parsed.Format(time.RFC3339) != ""
+}
+
+// missingFactsAreCategoryOnly reports a stored ReviewDecision whose only unresolved
+// fact is the category. That is the whole interaction, so the Telegram chooser can
+// complete it instead of deferring to the Review Inbox. A legacy review without a
+// stored contract keeps its previous behavior and does not qualify.
+func missingFactsAreCategoryOnly(raw *string) bool {
+	if raw == nil || strings.TrimSpace(*raw) == "null" {
+		return false
+	}
+	var facts []string
+	if json.Unmarshal([]byte(*raw), &facts) != nil {
+		return false
+	}
+	return len(facts) == 1 && facts[0] == "category"
+}
+
+// offerCategoryChooser renders the household category chooser for a review whose only
+// unresolved fact is the category, so a merchant-less bank transaction is completable
+// inside Telegram. It reuses the same paged markup the initial send uses.
+func (p *Processor) offerCategoryChooser(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, reviewType string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	markup := reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
+	if markup == nil {
+		if err = enqueueReply(ctx, tx, update, "Tidak ada kategori aktif untuk dipilih."); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if update.CallbackQuery != nil {
+		// The chooser is already on screen, so edit it in place.
+		err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih kategori pengeluaran:", markup)
+	} else {
+		err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Pilih kategori pengeluaran:", markup)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (p *Processor) continueReview(ctx context.Context, sourceEventID, reviewID, transactionID string, update telegramUpdate, message string) error {
