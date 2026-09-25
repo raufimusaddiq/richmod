@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 const reviewPrompt = `Interpret one reply to a specifically bound household transaction review.
@@ -1609,10 +1609,11 @@ func (p *Processor) categories(ctx context.Context, householdID string) ([]categ
 
 func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID, action string) error {
 	var household, itemID, transaction string
-	if err := tx.QueryRow(ctx, `SELECT ri.household_id::text,ri.id::text,COALESCE(ri.transaction_id::text,'') FROM review_item ri WHERE ri.id=(SELECT review_item_id FROM review_request WHERE id=$1)`, reviewID).Scan(&household, &itemID, &transaction); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT rr.household_id::text,COALESCE(rr.review_item_id::text,''),COALESCE(ri.transaction_id::text,'')
+		FROM review_request rr LEFT JOIN review_item ri ON ri.id=rr.review_item_id WHERE rr.id=$1`, reviewID).Scan(&household, &itemID, &transaction); err != nil {
 		return err
 	}
-	if transaction == "" {
+	if itemID != "" && transaction == "" {
 		// Specialized non-transaction flows keep their subject-specific transition
 		// until UIR-07 migrates them; this avoids inventing a transaction binding.
 		_, err := tx.Exec(ctx, `UPDATE review_item ri SET status='RESOLVED',resolved_at=now(),resolution_action=$2,updated_at=now() FROM review_request rr WHERE rr.id=$1 AND ri.id=rr.review_item_id AND ri.status IN ('PENDING_SEND','OPEN')`, reviewID, action)
