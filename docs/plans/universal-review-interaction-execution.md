@@ -13,12 +13,19 @@ The second slice shares household-scoped candidate revalidation
 (`ValidateTransactionReview`) so a stale Telegram callback and a stale Web
 action fail identically before any transaction mutation.
 
-Still open in UIR-01: the transaction confirm/reject mutation bodies themselves,
-plus transfer, duplicate, payslip/date, financial-email, Wealth, and cycle
-families. Each family keeps its residual/document/salary side effects until that
-whole operation — not just its final status write — is migrated with
-Web/Telegram parity tests. Non-transaction Telegram transition paths remain
-specialized for UIR-06/07.
+The third slice moves transaction confirm mutation, proposal/date/merchant
+updates, source-event state, optional merchant learning, projection completion,
+and terminal review completion into apps/reviewdomain.ConfirmTransactionReview.
+Terminal versus partial completion is explicit: Telegram can confirm the
+transaction yet keep the review open while asking whether to remember the
+merchant; Web resolves in the same transaction. Document extraction and salary
+event side effects remain Telegram-specific because Web does not perform them.
+
+Still open in UIR-01: transaction reject, plus transfer, duplicate, payslip/date,
+financial-email, Wealth, and cycle families. Each family keeps its
+residual/document/salary side effects until that whole operation is migrated
+with Web/Telegram parity tests. Non-transaction Telegram transition paths
+remain specialized for UIR-06/07.
 
 ## Source contracts
 

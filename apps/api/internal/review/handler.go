@@ -370,66 +370,51 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	merchantName := clean(input.MerchantName, 160)
-	if merchantName != "" {
-		var id string
-		if err := tx.QueryRow(r.Context(), `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, household, merchantName).Scan(&id); err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to save merchant"})
-			return
-		}
-		merchantID = &id
+	result, err := reviewdomain.ConfirmTransactionReview(r.Context(), tx, reviewdomain.ConfirmCommand{
+		HouseholdID: household, ActorUserID: p.UserID, TransactionID: id,
+		Action: "CONFIRM_REVIEW", CategorySupplied: input.CategoryID != nil,
+		CategoryID: stringValue(categoryID), Description: clean(input.Description, 500),
+		Note: clean(input.Note, 1000), MerchantName: merchantName,
+		RememberMerchant: input.RememberMerchant, TransactionAt: suppliedAt,
+		Blocked:       confirmationBlockers(storedDecisionJSON, suppliedAt != nil, input.CategoryID != nil, merchantName != ""),
+		ResolveReview: true,
+	})
+	if errors.Is(err, reviewdomain.ErrMissingCategory) {
+		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
+		return
 	}
-	if input.RememberMerchant && merchantID == nil {
+	if errors.Is(err, reviewdomain.ErrMerchantRequiredForLearning) {
 		writeJSON(w, 400, map[string]string{"error": "merchant is required to remember a category"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='CONFIRMED',category_id=$2,merchant_id=COALESCE($5::uuid,merchant_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($6,transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1`, id, categoryID, clean(input.Description, 500), clean(input.Note, 1000), merchantID, suppliedAt); err != nil {
+	var missing *reviewdomain.ErrMissingFacts
+	if errors.As(err, &missing) {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": missing.Facts})
+		return
+	}
+	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
-	if suppliedAt != nil {
-		if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET transaction_at=$2,metadata_json=metadata_json||'{"date_known":true,"date_source":"USER"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, suppliedAt); err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to save transaction date"})
-			return
-		}
+	merchantID = nil
+	if result.MerchantID != "" {
+		merchantID = &result.MerchantID
 	}
-	if merchantName != "" {
-		if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, merchantName); err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to save merchant"})
-			return
-		}
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id, categoryID); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve Telegram review"})
-		return
-	}
-	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "CONFIRM_REVIEW"); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve Telegram conversation"})
-		return
-	}
-	if input.RememberMerchant && merchantID != nil && categoryID != nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO merchant_alias (household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,normalized_name,id,$3,true,true FROM merchant WHERE id=$2 ON CONFLICT (household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET raw_name=excluded.raw_name,default_category_id=excluded.default_category_id,auto_apply=true,created_from_user_confirmation=true`, household, merchantID, categoryID)
-		if err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to learn merchant category"})
-			return
-		}
+	if result.CategoryID != "" {
+		categoryID = &result.CategoryID
 	}
 	if err := audit(r.Context(), tx, household, p.UserID, "CONFIRM_REVIEW", id, map[string]any{"category_id": categoryID, "merchant_id": merchantID, "remember_merchant": input.RememberMerchant}); err != nil || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 type transferClassificationInput struct {
