@@ -435,7 +435,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	if !autoConfirm {
 		var chatID int64
 		if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err == nil {
-			message := "🟡 Slip gaji perlu ditinjau\n\nPenerbit: " + value.Employer + "\nGaji bersih: Rp" + workerTelegram.FormatIDR(value.NetPay) + "\n\nBalas pesan ini untuk menjelaskan, atau buka Review Inbox."
+			message := "🟡 Slip gaji perlu ditinjau\n\nPenerbit: " + value.Employer + "\nGaji bersih: Rp" + workerTelegram.FormatIDR(value.NetPay) + "\n\nBalas pesan ini untuk menjelaskan transaksi ini."
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, "MANUAL_CORRECTION", chatID, 0, message); err != nil {
 				return err
 			}

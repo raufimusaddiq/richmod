@@ -96,6 +96,33 @@ description, so a date-review could never store its date. A DB-backed integratio
 test covers the full bound-reply path. Transfer reviews also now render the 
 transfer chooser instead of falling through to the generic keyboard.
 
+The twelfth slice starts UIR-04: a review whose stored ReviewDecision leaves
+only the category unresolved is now completable inside Telegram instead of
+sending the user to the Review Inbox. The old bound-reply branch keyed off
+`reviewType == "UNKNOWN_MERCHANT"`, so an `AMBIGUOUS_CATEGORY` review (same
+category-only contract, different reason code) fell through to the
+conversational LLM lane and could not be answered deterministically. Both
+`processBoundReview` and the category pager callback now gate on
+`missingFactsAreCategoryOnly`, so any category-only decision offers the paged
+chooser: a bound text reply sends a fresh chooser message, while a pager
+callback edits the existing chooser in place. A legacy review with no stored
+contract keeps its previous behavior. The MANUAL_CORRECTION payslip notice no
+longer tells the user to open Review Inbox, since the bound reply lane handles
+it. DB-backed tests cover UNKNOWN_MERCHANT and AMBIGUOUS_CATEGORY bound replies
+and the chooser pager callback.
+
+The same slice closes the free-form residual families. A description reply to
+an `UNKNOWN_PURPOSE` or `MANUAL_CORRECTION` review used to be saved and then
+park the conversation in `AWAITING_CATEGORY`, so a salary correction or a
+purpose review could never finish from Telegram. The description save now
+completes through the shared `resolveReviewTx`/`ConfirmTransactionReview` when
+the transaction needs no category, and otherwise continues to the chooser
+instead of attempting a confirm that the canonical expense-category invariant
+would reject. This keeps MANUAL_CORRECTION (a payslip income transaction) a
+one-reply review while an uncategorized `UNKNOWN_PURPOSE` expense still
+resolves through the chooser. The plan doc's UIR-04 family list is therefore
+covered for the Telegram bound-reply channel.
+
 The remaining channel gaps are subject-parity work: the rest of UIR-03
 action parity, UIR-04 transaction residual parity, UIR-06
 payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle
