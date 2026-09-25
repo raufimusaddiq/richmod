@@ -232,6 +232,8 @@ an unset or mistyped variable never silently changes behavior.
 | --- | --- | --- |
 | `RICHMOD_AUTOCONFIRM_BANK_CATEGORY` | Bank Email | A merchant expense with a learned or decided category parks in review with the category proposed, instead of confirming |
 | `RICHMOD_AUTOCONFIRM_RECEIPT` | Receipt | A clear new receipt parks in review with its extraction proposed, instead of confirming |
+| `RICHMOD_AUTOCONFIRM_SCREENSHOT` | Screenshot | A clear screenshot row parks in review with its extraction proposed, instead of confirming |
+| `RICHMOD_AUTOCONFIRM_TELEGRAM` | Telegram | A complete generative extraction parks in review with its facts proposed, instead of confirming directly; no Jev replay is added |
 
 Setting the variable to `0`, `false`, `off`, `no` or `disabled` (any case)
 disables the switch; any other value keeps it on. Disabling is a worker-only
