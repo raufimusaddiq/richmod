@@ -67,7 +67,11 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')
 		FOR UPDATE`, cmd.HouseholdID, cmd.SubjectID).Scan(&reviewItemID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrAlreadyResolved
+		// Older transaction review flows may predate review_item. Preserve their
+		// projection completion while new canonical producers always create one.
+		_, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now()
+			WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.SubjectID)
+		return err
 	}
 	if err != nil {
 		return err

@@ -2,7 +2,14 @@
 
 ## Status
 
-Ready for /goals execution after the docs PR is approved/merged.
+PR #159 contract is integrated. UIR-00 audit is merged (PR #162). UIR-01
+implementation is in progress (PR #163). The first slice introduces
+`apps/reviewdomain` and shares locked canonical terminal transition/projection
+finalization across the API transaction adapter and Telegram transaction-review
+adapter. Review-family financial validation/mutations remain in the adapters;
+they are not considered complete until each operation family is migrated and
+Web/Telegram parity-tested. Non-transaction Telegram transition paths remain
+specialized for UIR-06/07.
 
 ## Source contracts
 
