@@ -95,7 +95,7 @@ func (p *Processor) agentRejectTransactionReview(ctx context.Context, state *age
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, review.reviewID); err != nil {
 		return result, true, err
 	}
-	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, "TELEGRAM_REJECTED"); err != nil {
+	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_REJECTED"); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
@@ -297,7 +297,7 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, review.reviewID); err != nil {
 			return err
 		}
-		if err := resolveCanonicalReviewItem(ctx, tx, review.reviewID, "TELEGRAM_CONFIRMED"); err != nil {
+		if err := resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID, categoryID); err != nil {
@@ -380,7 +380,7 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, review.reviewID); err != nil {
 		return result, true, err
 	}
-	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, "TELEGRAM_TRANSFER_CLASSIFIED"); err != nil {
+	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_TRANSFER_CLASSIFIED"); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {

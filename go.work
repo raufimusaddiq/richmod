@@ -1,0 +1,7 @@
+go 1.27.0
+
+use (
+	./apps/api
+	./apps/reviewdomain
+	./apps/worker
+)

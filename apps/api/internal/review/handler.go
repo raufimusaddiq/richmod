@@ -760,14 +760,6 @@ func audit(ctx context.Context, tx pgx.Tx, household, user, action, entity strin
 	return err
 }
 
-func resolveTransactionReviewItem(ctx context.Context, tx pgx.Tx, household, user, transactionID, action string) error {
-	_, err := tx.Exec(ctx, `UPDATE review_item
-		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action=$4,
-		    resolution_values=jsonb_build_object('transaction_id',$2::uuid),updated_at=now()
-		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')`, household, transactionID, user, action)
-	return err
-}
-
 func finalizeTransferReviewLifecycle(ctx context.Context, tx pgx.Tx, household, user, transactionID, proposedType, proposalStatus, sourceStatus string, categoryID *string, classification, action string) error {
 	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, proposedType, proposalStatus, categoryID, classification); err != nil {
 		return err

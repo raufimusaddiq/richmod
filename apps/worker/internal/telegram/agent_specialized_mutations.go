@@ -368,7 +368,7 @@ func (p *Processor) agentResolveMerchantLearning(ctx context.Context, state *age
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
 		return result, true, err
 	}
-	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
+	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
