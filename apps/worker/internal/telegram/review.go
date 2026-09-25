@@ -198,6 +198,12 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if missingFactsAreCategoryOnly(missingFactsJSON) {
 		return true, p.offerCategoryChooser(ctx, sourceEventID, householdID, reviewID, transactionID, reviewType, update)
 	}
+	// A transfer relationship is a bounded classification, not a free-form
+	// description, so a typed reply must reach the transfer classifier instead of
+	// being stored as an AWAITING_DETAIL description.
+	if missingFactsJSON != nil && reviewRequiresFact(missingFactsJSON, "transfer_relationship") {
+		return true, p.classifyTransferReply(ctx, sourceEventID, householdID, reviewID, transactionID, reviewType, update)
+	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
 		return true, p.offerDuplicateChoices(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 	}
@@ -213,51 +219,6 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if reviewState == "AWAITING_ASSET_WEALTH" {
 		return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Pembelian aset dicatat sebagai transfer.", "")
 	}
-	if transactionType == "UNCLASSIFIED" || transactionType == "EXPENSE" {
-		intent := transferReviewIntent(update.Message.Text)
-		switch intent {
-		case "ASSET_PURCHASE":
-			wealthHint := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(update.Message.Text), "beli aset"), "beli"))
-			if strings.TrimSpace(wealthHint) == "" {
-				return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas dengan Wealth Account tujuan, misalnya: beli aset Emas.")
-			}
-			update.Message.Text = wealthHint
-			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Pembelian aset dicatat sebagai transfer.", "")
-		}
-		if transactionType != "UNCLASSIFIED" {
-			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas 'beli aset Emas' untuk mencatatnya sebagai pembelian aset, atau pilih kategori pengeluaran di Inbox.")
-		}
-		switch intent {
-		case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
-			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
-		case "INVESTMENT_ACCOUNT":
-			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", intent, "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
-		case "IGNORE":
-			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "UNCLASSIFIED", "VOIDED", intent, "Transfer disimpan sebagai bukti non-pengeluaran.", "")
-		case "EXPENSE":
-			categories, categoryErr := p.categories(ctx, householdID)
-			if categoryErr != nil {
-				return true, categoryErr
-			}
-			extracted, extractErr := p.extractReview(ctx, sourceEventID, strings.TrimSpace(update.Message.Text), categories)
-			if extractErr != nil {
-				return true, extractErr
-			}
-			categoryID := ""
-			for _, category := range categories {
-				if category.Slug == extracted.CategorySlug {
-					categoryID = category.ID
-					break
-				}
-			}
-			if categoryID == "" || extracted.Ambiguous || extracted.Confidence < 0.90 {
-				return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Ini pengeluaran. Balas lagi dengan tujuan atau kategori yang lebih jelas, misalnya: renovasi rumah.")
-			}
-			return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
-		default:
-			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas: 'pengeluaran untuk ...', 'rekeningku sendiri', 'rekening household', atau 'abaikan'.")
-		}
-	}
 	if transactionType == "INCOME" {
 		switch incomeReviewIntent(update.Message.Text) {
 		case "REJECT":
@@ -270,27 +231,60 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 				"Balas dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk menolak.")
 		}
 	}
+	return false, nil
+}
 
-	categories, err := p.categories(ctx, householdID)
-	if err != nil {
-		return true, err
+// classifyTransferReply maps a free-text transfer reply to one of the bounded
+// transfer intents and resolves the review through the shared wealth/transfer
+// validation. It is reached both after the AWAITING_* field handlers and directly
+// for a stored transfer-relationship decision.
+func (p *Processor) classifyTransferReply(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, reviewType string, update telegramUpdate) error {
+	var transactionType string
+	if err := p.pool.QueryRow(ctx, `SELECT type FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, householdID).Scan(&transactionType); err != nil {
+		return err
 	}
-	extracted, err := p.extractReview(ctx, sourceEventID, strings.TrimSpace(update.Message.Text), categories)
-	if err != nil {
-		return true, err
+	if transactionType != "UNCLASSIFIED" && transactionType != "EXPENSE" {
+		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas: pengeluaran untuk tujuan, rekeningku sendiri, rekening household, atau abaikan.")
 	}
-	categoryID := ""
-	for _, category := range categories {
-		if category.Slug == extracted.CategorySlug {
-			categoryID = category.ID
-			break
+	switch transferReviewIntent(update.Message.Text) {
+	case "ASSET_PURCHASE":
+		wealthHint := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.ToLower(update.Message.Text), "beli aset"), "beli"))
+		if strings.TrimSpace(wealthHint) == "" {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas dengan Wealth Account tujuan, misalnya: beli aset Emas.")
 		}
+		update.Message.Text = wealthHint
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Pembelian aset dicatat sebagai transfer.", "")
+	case "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT":
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", transferReviewIntent(update.Message.Text), "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran.", "")
+	case "INVESTMENT_ACCOUNT":
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", "INVESTMENT_ACCOUNT", "Transfer diklasifikasikan sebagai kontribusi investasi.", "")
+	case "IGNORE":
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "UNCLASSIFIED", "VOIDED", "IGNORE", "Transfer disimpan sebagai bukti non-pengeluaran.", "")
+	case "EXPENSE":
+		categories, err := p.categories(ctx, householdID)
+		if err != nil {
+			return err
+		}
+		extracted, err := p.extractReview(ctx, sourceEventID, strings.TrimSpace(update.Message.Text), categories)
+		if err != nil {
+			return err
+		}
+		categoryID := ""
+		for _, category := range categories {
+			if category.Slug == extracted.CategorySlug {
+				categoryID = category.ID
+				break
+			}
+		}
+		if categoryID == "" || extracted.Ambiguous || extracted.Confidence < 0.90 {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Ini pengeluaran. Balas lagi dengan tujuan atau kategori yang lebih jelas, misalnya: renovasi rumah.")
+		}
+		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)
+	default:
+		// An expense transfer review is a bounded category/relationship choice, so a
+		// reply that names no intent gets the chooser rather than a Web detour.
+		return p.offerCategoryChooser(ctx, sourceEventID, householdID, reviewID, transactionID, reviewType, update)
 	}
-	if transactionType == "EXPENSE" && (categoryID == "" || extracted.Ambiguous || extracted.Confidence < 0.90) {
-		return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update,
-			"Kategorinya belum cukup jelas. Balas pesan ini dengan kategori atau tujuan, misalnya: belanja rumah tangga.")
-	}
-	return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, categoryID, update, extracted)
 }
 
 func reviewRequiresFact(raw *string, fact string) bool {
@@ -1776,7 +1770,16 @@ func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID stri
 
 func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType string, page int) *InlineKeyboardMarkup {
 	if reviewType == "TRANSFER_CLASSIFICATION" {
-		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}}}
+		// The canonical classifier accepts only classifications valid for the
+		// transaction type: an expense can only become an expense or an asset
+		// purchase, while an unclassified transfer also allows own/household
+		// accounts. Offering an invalid button would only produce a stale-action
+		// reply, so the keyboard follows the subject.
+		var kind string
+		if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind) == nil && kind == "EXPENSE" {
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}, {Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+		}
+		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Kontribusi investasi", CallbackData: "review:investment"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
 	var transactionType string
 	if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType) == nil && transactionType == "INCOME" {

@@ -385,6 +385,8 @@ func callbackText(data string) string {
 		return "rekening household"
 	case "review:asset":
 		return "beli aset"
+	case "review:investment":
+		return "investasi"
 	case "review:confirm":
 		return "konfirmasi"
 	case "review:change":
