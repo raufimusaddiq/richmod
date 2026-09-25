@@ -44,11 +44,19 @@ keeps only its server-owned candidate list in review_conversation.context_json,
 the indexed callback binding, and surface messaging; the duplicate review also
 reuses the shared confirm operation for "record as new".
 
-Still open in UIR-01: payslip/date,
-financial-email, Wealth, and cycle families. Each family keeps its
-residual/document/salary side effects until that whole operation is migrated
-with Web/Telegram parity tests. Non-transaction Telegram transition paths
-remain specialized for UIR-06/07.
+The seventh slice moves salary recording into
+apps/reviewdomain.RecordSalaryEvent (with shared PromoteEvidenceDocuments and
+LoadPayslipFacts helpers). Web payslip confirmation and both Telegram confirm
+lanes (the bound reply lane and the conversational agent lane) now share the
+salary_source upsert, first-primary promotion, salary_event insert, document
+promotion, and payslip-evidence facts. The conversational agent confirm also
+now calls the shared ConfirmTransactionReview instead of its own transaction
+and proposal mutation SQL.
+
+Still open in UIR-01: financial-email, Wealth, and cycle families. Each
+family keeps its own subject-specific side effects until that whole operation
+is migrated with Web/Telegram parity tests. Non-transaction Telegram
+transition paths remain specialized for UIR-06/07.
 
 ## Source contracts
 

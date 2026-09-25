@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"regexp"
 	"strings"
 	"time"
 
@@ -250,35 +249,48 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", value.Note != ""); len(blocked) > 0 {
 		return errReviewResidualFactsRequired{facts: blocked}
 	}
-	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($6::date::timestamp AT TIME ZONE 'Asia/Jakarta',transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND household_id=$5 AND status='NEEDS_REVIEW' RETURNING merchant_id`, review.transactionID, categoryID, value.Description, value.Note, state.HouseholdID, payDate).Scan(&merchantID); err != nil {
-		return fmt.Errorf("confirm reviewed transaction: %w", err)
-	}
+	var transactionAt any
 	if payDate != nil {
-		if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamp AT TIME ZONE 'Asia/Jakarta',metadata_json=metadata_json||'{"date_known":true,"date_source":"USER"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, *payDate); err != nil {
+		at, err := time.ParseInLocation("2006-01-02", *payDate, jakartaLocation())
+		if err != nil {
 			return err
 		}
+		transactionAt = at
 	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=COALESCE(NULLIF($2,'')::uuid,category_candidate_id),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, categoryID); err != nil {
+	// ADR-046: the conversational lane calls the same canonical confirm as the
+	// generic reply lane. Confirm owns the transaction/proposal mutation and
+	// candidate revalidation; Telegram keeps only conversation state, evidence,
+	// and its own audit shape.
+	confirmResult, err := reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+		HouseholdID: state.HouseholdID, ActorUserID: userID, TransactionID: review.transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, review.reviewID),
+		RequestID:    review.reviewID, Action: "TELEGRAM_CONFIRMED",
+		CategorySupplied: categoryID != "", CategoryID: categoryID,
+		Description: value.Description, Note: value.Note, TransactionAt: transactionAt,
+		ResolveReview: false,
+	})
+	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE document d SET status='EXTRACTED',updated_at=now() WHERE d.status='NEEDS_REVIEW' AND d.id IN (SELECT NULLIF(te.metadata_json->>'document_id','')::uuid FROM transaction_evidence te WHERE te.transaction_id=$1 AND te.metadata_json ? 'document_id')`, review.transactionID); err != nil {
+	if confirmResult.MerchantID != "" {
+		merchantID = &confirmResult.MerchantID
+	}
+	// A confirmed review also completes the document workflow and any payslip
+	// salary recording, both through the shared operations.
+	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, review.transactionID); err != nil {
 		return err
 	}
 	if value.PayDate != "" {
-		var employer, period string
-		err := tx.QueryRow(ctx, `SELECT COALESCE(t.counterparty_name,''),COALESCE(de.output_json->>'period','') FROM transaction t JOIN transaction_evidence te ON te.transaction_id=t.id JOIN document_extraction de ON de.document_id=NULLIF(te.metadata_json->>'document_id','')::uuid AND de.stage='PAYSLIP' WHERE t.id=$1 AND t.type='INCOME' AND te.evidence_type='PAYSLIP_IMAGE' LIMIT 1`, review.transactionID).Scan(&employer, &period)
-		if errors.Is(err, pgx.ErrNoRows) {
-			employer, period = "", ""
-		} else if err != nil {
+		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, review.transactionID)
+		if err != nil {
 			return err
 		}
-		if employer != "" && regexp.MustCompile(`^\d{4}-\d{2}$`).MatchString(period) {
-			normalized := strings.ToLower(strings.Join(strings.Fields(employer), " "))
-			var salarySourceID string
-			if err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, state.HouseholdID, employer, normalized).Scan(&salarySourceID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) SELECT $1,$2,to_date($3,'YYYY-MM'),$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySourceID, state.HouseholdID, period, value.PayDate, state.SourceEventID, review.transactionID); err != nil {
+		if ok && reviewPayrollPeriodPattern.MatchString(facts.Period) {
+			if _, err := reviewdomain.RecordSalaryEvent(ctx, tx, reviewdomain.SalaryCommand{
+				HouseholdID: state.HouseholdID, Employer: facts.Employer, Period: facts.Period,
+				PayDate: value.PayDate, NetPay: facts.NetPay,
+				Transaction: review.transactionID, SourceEvent: state.SourceEventID,
+			}); err != nil {
 				return err
 			}
 		}
