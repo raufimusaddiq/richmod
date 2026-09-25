@@ -1255,25 +1255,27 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", false); len(blocked) > 0 {
 		return enqueueReply(ctx, tx, update, reviewNeedsFactsMessage(blocked))
 	}
-	// ADR-046: the selected category and the review subject are revalidated by the
-	// shared canonical resolver, not by this adapter. A stale keyboard callback
-	// must not reach the transaction mutation below.
-	if err := reviewdomain.ValidateCategoryForHousehold(ctx, tx, householdID, categoryID); err != nil {
+	// ADR-046: the transaction mutation and candidate revalidation live in the
+	// shared canonical resolver. Telegram keeps only its own delivery/evidence and
+	// payslip side effects, and defers terminal completion while it asks whether to
+	// remember the merchant.
+	var requestID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&requestID); err != nil {
 		return err
 	}
-	if err := reviewdomain.ValidateTransactionReview(ctx, tx, householdID, transactionID); err != nil {
+	confirmResult, err := reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: requestID,
+		Action: "TELEGRAM_CONFIRMED", CategorySupplied: categoryID != "", CategoryID: categoryID,
+		Description: value.Description, Note: value.Note, TransactionAt: payDate,
+		ResolveReview: false,
+	})
+	if err != nil {
 		return err
 	}
-	if err := tx.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',category_id=COALESCE(NULLIF($2,'')::uuid,category_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($5::date::timestamp AT TIME ZONE 'Asia/Jakarta',transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW' RETURNING merchant_id`, transactionID, categoryID, value.Description, value.Note, payDate).Scan(&merchantID); err != nil {
-		return fmt.Errorf("confirm reviewed transaction: %w", err)
-	}
-	if payDate != nil {
-		if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamp AT TIME ZONE 'Asia/Jakarta',metadata_json=metadata_json||'{"date_known":true,"date_source":"USER"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, *payDate); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=COALESCE(NULLIF($2,'')::uuid,category_candidate_id),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, categoryID); err != nil {
-		return err
+	merchantID = &confirmResult.MerchantID
+	if confirmResult.MerchantID == "" {
+		merchantID = nil
 	}
 	// A confirmed review also completes the document workflow. Evidence keeps
 	// the document link, so this is scoped to documents attached to this exact
@@ -1629,6 +1631,12 @@ func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID
 		return err
 	}
 	return reviewdomain.ResolveByID(ctx, tx, reviewdomain.Command{HouseholdID: household, ActorUserID: userID, ReviewItemID: itemID, RequestID: reviewID, SubjectID: transaction, Action: action})
+}
+
+func pendingReviewItemID(ctx context.Context, tx pgx.Tx, reviewID string) string {
+	var id string
+	_ = tx.QueryRow(ctx, `SELECT COALESCE(review_item_id::text,'') FROM review_request WHERE id=$1`, reviewID).Scan(&id)
+	return id
 }
 
 func reviewSchema(slugs []string) map[string]any {

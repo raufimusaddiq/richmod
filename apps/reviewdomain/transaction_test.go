@@ -17,8 +17,8 @@ func TestTransactionReviewAdaptersUseSharedValidation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(source), "reviewdomain.ValidateTransactionReview") || !strings.Contains(string(source), "reviewdomain.ValidateCategoryForHousehold") {
-			t.Fatalf("%s bypasses shared transaction review validation", path)
+		if !strings.Contains(string(source), "reviewdomain.ConfirmTransactionReview") {
+			t.Fatalf("%s bypasses shared transaction confirm", path)
 		}
 	}
 }
