@@ -2,23 +2,40 @@
 
 ## Status
 
-Accepted — correctness/performance remediation Release 2.
+Accepted — correctness/performance remediation Release 2. Amended by ADR-046 on
+2026-09-25.
 
 ## Decision
 
 `review_item` is the canonical household backlog for transactions, proposals,
-source events, and documents. `review_request` is only an optional Telegram
-delivery projection. Active-subject uniqueness is enforced in PostgreSQL, and
-resolution metadata is retained.
+source events, documents, Wealth observations, financial-email observations, and
+other supported review subjects.
 
-Incomplete or low-confidence bank extraction creates a source review without a
-transaction. A first valid payslip creates a proposal-backed
-`PAYSLIP_CONFIRMATION` review and no income; a missing pay date creates
-`MISSING_PAY_DATE`. Telegram delivery is optional and never determines whether
-the canonical review exists.
+`review_request` is a Telegram delivery/conversation projection. It is optional
+for canonical correctness and availability: a review exists even when Telegram
+is not linked or delivery fails.
+
+ADR-046 adds a product requirement to that architectural statement:
+
+> when an eligible active Telegram recipient exists, every current producible
+> human review must have an actionable Telegram projection.
+
+"Optional" therefore does NOT mean that Richmod may intentionally make an
+ordinary review Web-only for a Telegram household.
+
+Active-subject uniqueness is enforced in PostgreSQL, and resolution metadata is
+retained.
+
+Incomplete or low-confidence bank extraction may create a source review without
+a transaction. A first valid payslip may create a proposal-backed review.
+Telegram projection must support those non-transaction subjects without
+inventing a transaction.
 
 ## Consequences
 
-- Ambiguous evidence is visible on the web even without a Telegram identity.
+- Ambiguous evidence remains visible on Web even without Telegram.
+- Telegram failure never prevents creation of canonical review work.
 - One subject cannot appear multiple times in the active backlog.
-- No first-payslip income exists before the household chooses its meaning.
+- Web and Telegram use the same canonical review resolution rules.
+- Cross-surface and multi-recipient races are resolved by locking/revalidating
+  review_item; first valid resolution wins.
