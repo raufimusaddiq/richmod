@@ -25,6 +25,8 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		return "AWAITING_DETAIL", context, "transfer"
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
+	case contains(decision.MissingFacts, "transaction_at") && len(decision.MissingFacts) == 1:
+		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction()), "reply"
 	case requiresBoundReply(decision):
 		title := promptTitle(decision)
 		return "AWAITING_DETAIL", reviewDetailMessage(title, context, replyInstruction(decision)), "reply"
@@ -74,6 +76,13 @@ func promptTitle(decision reviewdec.Decision) string {
 		}
 	}
 	return unknownReviewPrompt
+}
+
+
+// dateInstruction asks for the one fact the date review is missing in the format
+// the date resolver parses, instead of the generic description wording.
+func dateInstruction() string {
+	return "Balas pesan ini dengan tanggal transaksi (YYYY-MM-DD)."
 }
 
 func replyInstruction(decision reviewdec.Decision) string {

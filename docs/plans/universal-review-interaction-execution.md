@@ -88,6 +88,14 @@ of the old default category chooser. A contract test enumerates every
 producible review type and fails if a review can render as a category chooser
 without a category-only decision.
 
+The renderer also routes the unresolved dimension to the resolver that can store it: a 
+date-only decision now renders an `AWAITING_DATE` bound reply (migration 
+00068) that writes `transaction_at` on the transaction and proposal and completes the 
+review when no category is left. Before this, every `AWAITING_DETAIL` reply was saved as a 
+description, so a date-review could never store its date. A DB-backed integration 
+test covers the full bound-reply path. Transfer reviews also now render the 
+transfer chooser instead of falling through to the generic keyboard.
+
 The remaining channel gaps are subject-parity work: the rest of UIR-03
 action parity, UIR-04 transaction residual parity, UIR-06
 payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle

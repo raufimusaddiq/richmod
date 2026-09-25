@@ -151,7 +151,7 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
 		var messageID int64
-		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
+		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL','AWAITING_DATE') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
@@ -203,6 +203,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	}
 	if reviewState == "AWAITING_DETAIL" {
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "description")
+	}
+	if reviewState == "AWAITING_DATE" {
+		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "transaction_at")
 	}
 	if reviewState == "AWAITING_ASSET_WEALTH" {
 		return true, p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Pembelian aset dicatat sebagai transfer.", "")
@@ -558,6 +561,24 @@ func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, house
 	return nil
 }
 
+
+// reviewNeedsCategory reports whether the stored decision still lists category as
+// an unresolved fact, so a field save only continues to the chooser when the
+// decision actually asked for a category.
+func reviewNeedsCategory(ctx context.Context, tx pgx.Tx, reviewID string) bool {
+	var decision []byte
+	if err := tx.QueryRow(ctx, `SELECT ri.decision FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1`, reviewID).Scan(&decision); err != nil {
+		return true
+	}
+	var stored struct {
+		MissingFacts []string `json:"missingFacts"`
+	}
+	if json.Unmarshal(decision, &stored) != nil {
+		return true
+	}
+	return contains(stored.MissingFacts, "category")
+}
+
 func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, field string) error {
 	value := clean(strings.TrimSpace(update.Message.Text), 500)
 	if value == "" {
@@ -596,6 +617,17 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
 			return err
 		}
+	} else if field == "transaction_at" {
+		parsed, parseErr := parseSuppliedReviewDate(value)
+		if parseErr != nil || parsed == nil {
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tanggal transaksi wajib diisi dengan format YYYY-MM-DD.")
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, *parsed, householdID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, *parsed); err != nil {
+			return err
+		}
 	} else {
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, value, householdID); err != nil {
 			return err
@@ -615,6 +647,24 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	}
 	if rememberedCategoryID != "" {
 		if err = p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, rememberedCategoryID, update, reviewExtraction{}, userID, false); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	// A date-only review has no category left to ask for. Once the date is
+	// stored the residual is empty, so complete the review instead of pushing a
+	// category chooser the decision never requested.
+	if field == "transaction_at" && !reviewNeedsCategory(ctx, tx, reviewID) {
+		if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),updated_at=now() WHERE id=(SELECT review_item_id FROM review_request WHERE id=$1)`, reviewID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1`, reviewID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+			return err
+		}
+		if err = enqueueReply(ctx, tx, update, "Tanggal transaksi disimpan. Tinjauan selesai."); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -1287,6 +1337,9 @@ func residualReviewGuidance(err error) string {
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {
 	if state == "AWAITING_MERCHANT" {
 		return "merchant", clean(strings.TrimSpace(merchant), 500), true
+	}
+	if state == "AWAITING_DATE" {
+		return "transaction_at", clean(strings.TrimSpace(description), 500), true
 	}
 	if reviewType == "UNKNOWN_PURPOSE" || state == "AWAITING_DETAIL" {
 		return "description", clean(strings.TrimSpace(description), 500), true
