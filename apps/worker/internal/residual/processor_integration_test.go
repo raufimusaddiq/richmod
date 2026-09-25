@@ -32,6 +32,9 @@ func TestGenerateCreatesOneCaseAndReviewForPrimaryCycleOnly(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, stamp, household, user); err != nil {
+		t.Fatal(err)
+	}
 	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, household, fmt.Sprintf("residual-%d", stamp)).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +78,7 @@ func TestGenerateCreatesOneCaseAndReviewForPrimaryCycleOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var cases, reviews, requests, financialTransactions int
+	var cases, reviews, requests, recipients, financialTransactions int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM cycle_residual_case WHERE household_id=$1`, household).Scan(&cases); err != nil {
 		t.Fatal(err)
 	}
@@ -85,10 +88,13 @@ func TestGenerateCreatesOneCaseAndReviewForPrimaryCycleOnly(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id WHERE ri.household_id=$1 AND ri.review_type='CYCLE_RESIDUAL_ALLOCATION'`, household).Scan(&requests); err != nil {
 		t.Fatal(err)
 	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_request_recipient rrr JOIN review_request rr ON rr.id=rrr.review_request_id JOIN review_item ri ON ri.id=rr.review_item_id WHERE ri.household_id=$1 AND ri.review_type='CYCLE_RESIDUAL_ALLOCATION'`, household).Scan(&recipients); err != nil {
+		t.Fatal(err)
+	}
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&financialTransactions); err != nil {
 		t.Fatal(err)
 	}
-	if cases != 1 || reviews != 1 || requests != 1 || financialTransactions != 5 {
-		t.Fatalf("cases=%d reviews=%d requests=%d transactions=%d", cases, reviews, requests, financialTransactions)
+	if cases != 1 || reviews != 1 || requests != 1 || recipients != 1 || financialTransactions != 5 {
+		t.Fatalf("cases=%d reviews=%d requests=%d recipients=%d transactions=%d", cases, reviews, requests, recipients, financialTransactions)
 	}
 }
