@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 type Handler struct{ pool *pgxpool.Pool }
@@ -334,6 +335,13 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	var kind string
 	var currentCategory, merchantID *string
+	if err := reviewdomain.ValidateTransactionReview(r.Context(), tx, household, id); errors.Is(err, reviewdomain.ErrAlreadyResolved) {
+		writeJSON(w, 404, map[string]string{"error": "review not found"})
+		return
+	} else if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
+		return
+	}
 	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&kind, &currentCategory, &merchantID); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
 		return
@@ -343,12 +351,11 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	categoryID := currentCategory
 	if input.CategoryID != nil {
-		var valid string
-		if err := tx.QueryRow(r.Context(), `SELECT id FROM category WHERE id=$1 AND household_id=$2 AND active`, *input.CategoryID, household).Scan(&valid); err != nil {
+		if err := reviewdomain.ValidateCategoryForHousehold(r.Context(), tx, household, *input.CategoryID); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid household category"})
 			return
 		}
-		categoryID = &valid
+		categoryID = input.CategoryID
 	}
 	if kind == "EXPENSE" && categoryID == nil {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
@@ -573,6 +580,14 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	id := r.PathValue("id")
+	if err := reviewdomain.ValidateTransactionReview(r.Context(), tx, household, id); err != nil {
+		if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
+			writeJSON(w, 404, map[string]string{"error": "review not found"})
+			return
+		}
+		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
+		return
+	}
 	result, err := tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'`, id, household)
 	if err != nil || result.RowsAffected() != 1 {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
