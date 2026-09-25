@@ -35,7 +35,16 @@ proposal mutation, source-event refresh, and canonical review completion.
 Telegram retains only interaction binding, reply evidence, and surface-specific
 messaging; Web retains optional remembered-account creation and its audit.
 
-Still open in UIR-01: duplicate, payslip/date,
+The sixth slice moves possible-duplicate merging into
+apps/reviewdomain.MergeDuplicateReview. Web and both Telegram paths (the bound
+detail callback and the shared confirmation lane) now share the target
+revalidation, reconciliation_merge creation, evidence copy, source void,
+proposal merge, source-event refresh, and canonical review completion. Telegram
+keeps only its server-owned candidate list in review_conversation.context_json,
+the indexed callback binding, and surface messaging; the duplicate review also
+reuses the shared confirm operation for "record as new".
+
+Still open in UIR-01: payslip/date,
 financial-email, Wealth, and cycle families. Each family keeps its
 residual/document/salary side effects until that whole operation is migrated
 with Web/Telegram parity tests. Non-transaction Telegram transition paths

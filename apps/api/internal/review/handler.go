@@ -547,93 +547,27 @@ func (h *Handler) Merge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var sourceType, sourceAmount, sourceCurrency string
-	var sourceTime time.Time
-	if err := tx.QueryRow(r.Context(), `SELECT type,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE`, r.PathValue("id"), household).Scan(&sourceType, &sourceAmount, &sourceCurrency, &sourceTime); err != nil {
-		writeJSON(w, 404, map[string]string{"error": "review not found"})
-		return
-	}
-	var targetType, targetAmount, targetCurrency string
-	var targetTime time.Time
-	if err := tx.QueryRow(r.Context(), `SELECT type,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2 AND status='CONFIRMED' FOR UPDATE`, input.TargetTransactionID, household).Scan(&targetType, &targetAmount, &targetCurrency, &targetTime); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "merge target is not a confirmed household transaction"})
-		return
-	}
-	if sourceType != targetType || sourceAmount != targetAmount || sourceCurrency != targetCurrency || math.Abs(targetTime.Sub(sourceTime).Hours()) > 72 {
-		writeJSON(w, 409, map[string]string{"error": "transactions do not satisfy deterministic merge rules"})
-		return
-	}
-	var mergeID string
-	if err := tx.QueryRow(r.Context(), `INSERT INTO reconciliation_merge (household_id,source_transaction_id,target_transaction_id,status,created_by_user_id) VALUES ($1,$2,$3,'ACTIVE',$4) RETURNING id`, household, r.PathValue("id"), input.TargetTransactionID, p.UserID).Scan(&mergeID); err != nil {
+	duplicate, err := reviewdomain.MergeDuplicateReview(r.Context(), tx, reviewdomain.DuplicateCommand{
+		HouseholdID: household, ActorUserID: p.UserID, TransactionID: r.PathValue("id"),
+		TargetTransactionID: input.TargetTransactionID, Action: "MERGE_REVIEW",
+	})
+	if errors.Is(err, reviewdomain.ErrAlreadyMerged) {
 		writeJSON(w, 409, map[string]string{"error": "review is already merged"})
 		return
 	}
-	rows, err := tx.Query(r.Context(), `SELECT id,source_event_id,evidence_type,confidence,metadata_json FROM transaction_evidence WHERE transaction_id=$1`, r.PathValue("id"))
+	if errors.Is(err, reviewdomain.ErrDuplicateTargetInvalid) {
+		writeJSON(w, 409, map[string]string{"error": "transactions do not satisfy deterministic merge rules"})
+		return
+	}
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to merge evidence"})
-		return
-	}
-	type evidenceCopy struct {
-		originalID, sourceEventID, evidenceType string
-		confidence                              *string
-		metadata                                json.RawMessage
-	}
-	var evidence []evidenceCopy
-	for rows.Next() {
-		var value evidenceCopy
-		if err := rows.Scan(&value.originalID, &value.sourceEventID, &value.evidenceType, &value.confidence, &value.metadata); err != nil {
-			rows.Close()
-			writeJSON(w, 500, map[string]string{"error": "unable to merge evidence"})
-			return
-		}
-		evidence = append(evidence, value)
-	}
-	rows.Close()
-	for _, value := range evidence {
-		var copiedID string
-		err := tx.QueryRow(r.Context(), `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (transaction_id,source_event_id) DO NOTHING RETURNING id`, input.TargetTransactionID, value.sourceEventID, value.evidenceType, value.confidence, value.metadata).Scan(&copiedID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			rows.Close()
-			writeJSON(w, 500, map[string]string{"error": "unable to merge evidence"})
-			return
-		}
-		if _, err := tx.Exec(r.Context(), `INSERT INTO reconciliation_merge_evidence (merge_id,original_evidence_id,copied_evidence_id) VALUES ($1,$2,$3)`, mergeID, value.originalID, copiedID); err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to merge evidence"})
-			return
-		}
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1`, r.PathValue("id")); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to merge review"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, r.PathValue("id"), input.TargetTransactionID); err != nil {
+	if err := audit(r.Context(), tx, household, p.UserID, "MERGE_REVIEW", r.PathValue("id"), map[string]any{"target_transaction_id": input.TargetTransactionID, "merge_id": duplicate.MergeID}); err != nil || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to merge review"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, r.PathValue("id")); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to merge review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='CANCELLED' WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id")); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1 AND status='CANCELLED')`, r.PathValue("id")); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
-		return
-	}
-	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, r.PathValue("id"), "MERGE_REVIEW"); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
-		return
-	}
-	if err := audit(r.Context(), tx, household, p.UserID, "MERGE_REVIEW", r.PathValue("id"), map[string]any{"target_transaction_id": input.TargetTransactionID, "merge_id": mergeID}); err != nil || tx.Commit(r.Context()) != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to merge review"})
-		return
-	}
-	writeJSON(w, 200, map[string]string{"mergeId": mergeID})
+	writeJSON(w, 200, map[string]string{"mergeId": duplicate.MergeID})
 }
 
 func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {

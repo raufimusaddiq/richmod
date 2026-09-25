@@ -194,7 +194,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih kategori di Review Inbox untuk menyelesaikan tinjauan ini.")
 	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Transaksi ini mungkin duplikat. Buka Review Inbox untuk memilih gabung atau abaikan; belum ada transaksi yang diubah.")
+		return true, p.offerDuplicateChoices(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 	}
 	if reviewState == "AWAITING_MERCHANT" {
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
@@ -310,7 +310,8 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	if data == "review:remember" || data == "review:once" {
 		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
 	}
-	if data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:asset" && data != "review:ignore" {
+	duplicateMerge := strings.HasPrefix(data, "review:dup:merge:")
+	if !duplicateMerge && data != "review:dup:new" && data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:asset" && data != "review:ignore" {
 		return false, nil
 	}
 	tx, err := p.pool.Begin(ctx)
@@ -333,6 +334,67 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	}
 	if err != nil {
 		return true, err
+	}
+	if (duplicateMerge || data == "review:dup:new") && reviewType != "POSSIBLE_DUPLICATE" {
+		return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if reviewType == "POSSIBLE_DUPLICATE" && (duplicateMerge || data == "review:dup:new") {
+		var userID string
+		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.CallbackQuery.From.ID, householdID).Scan(&userID); err != nil {
+			return true, err
+		}
+		if duplicateMerge {
+			index, parseErr := strconv.Atoi(strings.TrimPrefix(data, "review:dup:merge:"))
+			if parseErr != nil || index < 0 || index > 9 {
+				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+			}
+			var targetID string
+			if err = tx.QueryRow(ctx, `SELECT c.value FROM review_conversation rc, LATERAL jsonb_array_elements_text(COALESCE(rc.context_json->'duplicate_candidates','[]'::jsonb)) WITH ORDINALITY AS c(value,ord) WHERE rc.review_request_id=$1 AND c.ord=$2`, reviewID, index+1).Scan(&targetID); err != nil {
+				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+			}
+			if _, err = reviewdomain.MergeDuplicateReview(ctx, tx, reviewdomain.DuplicateCommand{HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID, TargetTransactionID: targetID, ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID, Action: "TELEGRAM_MERGE_REVIEW"}); err != nil {
+				if errors.Is(err, reviewdomain.ErrDuplicateTargetInvalid) || errors.Is(err, reviewdomain.ErrAlreadyMerged) {
+					return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+				}
+				return true, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+				return true, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+				return true, err
+			}
+			if err = enqueueReply(ctx, tx, update, "Transaksi digabung dengan catatan yang sudah ada."); err != nil {
+				return true, err
+			}
+			return true, tx.Commit(ctx)
+		}
+		var allowed bool
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(decision->'allowedActions','[]'::jsonb) ? 'CONFIRM_REVIEW' FROM review_item WHERE id=$1 AND household_id=$2`, pendingReviewItemID(ctx, tx, reviewID), householdID).Scan(&allowed); err != nil {
+			return true, err
+		}
+		if !allowed {
+			return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		// ADR-046: confirming the duplicate as a distinct event is the canonical
+		// transaction confirm, not a Telegram-specific status update.
+		if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+			HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+			ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
+			Action: "TELEGRAM_CONFIRM_AS_NEW", ReviewType: "POSSIBLE_DUPLICATE", ResolveReview: true,
+		}); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return true, err
+		}
+		if err = enqueueReply(ctx, tx, update, "Transaksi disimpan sebagai transaksi baru."); err != nil {
+			return true, err
+		}
+		return true, tx.Commit(ctx)
 	}
 	if data == "review:ignore" {
 		if err = tx.Commit(ctx); err != nil {
@@ -401,6 +463,92 @@ func reviewDetailMarkup() *InlineKeyboardMarkup {
 	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
 	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
+}
+
+// duplicateChoicesMarkup renders one button per stored duplicate candidate. The
+// candidate transaction IDs never travel through Telegram. The callback carries
+// the list position, and the server-owned ordered candidate list stored with the
+// projection on the first render resolves it. Candidate IDs are revalidated by
+// the shared merge operation, so a stale or retargeted button cannot select a
+// different canonical transaction.
+func duplicateChoicesMarkup(candidates []string, amounts []string) *InlineKeyboardMarkup {
+	keyboard := make([][]InlineKeyboardButton, 0, len(candidates)+1)
+	for index := range candidates {
+		if index >= 9 {
+			break
+		}
+		label := "Gabungkan"
+		if amounts[index] != "" {
+			label = "Gabung Rp" + FormatIDR(amounts[index])
+		}
+		keyboard = append(keyboard, []InlineKeyboardButton{{Text: clean(label, 40), CallbackData: fmt.Sprintf("review:dup:merge:%d", index)}})
+	}
+	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Catat sebagai baru", CallbackData: "review:dup:new"}, {Text: "Abaikan", CallbackData: "review:ignore"}})
+	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
+}
+
+// offerDuplicateChoices sends the duplicate decision with one button per stored
+// candidate, so the ordinary blocker is completable inside Telegram.
+func (p *Processor) offerDuplicateChoices(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := renderDuplicateChoices(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// renderDuplicateChoices writes the candidate buttons and persists the ordered
+// candidate list the callbacks resolve against.
+func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+	var sourceType, sourceCurrency string
+	var sourceAmount string
+	var sourceAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT type::text,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, householdID).Scan(&sourceType, &sourceAmount, &sourceCurrency, &sourceAt); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `SELECT t.id::text,t.amount::text FROM transaction t WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED' AND t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 9`, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
+	if err != nil {
+		return err
+	}
+	var candidateIDs, candidateAmounts []string
+	for rows.Next() {
+		var candidateID, candidateAmount string
+		if err := rows.Scan(&candidateID, &candidateAmount); err != nil {
+			rows.Close()
+			return err
+		}
+		candidateIDs = append(candidateIDs, candidateID)
+		candidateAmounts = append(candidateAmounts, candidateAmount)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	// ponytail: one page of up to 9 candidates; page the list when a review can
+	// legitimately carry more (the API caps financial-email candidates at 10).
+	markup := duplicateChoicesMarkup(candidateIDs, candidateAmounts)
+	encoded, err := json.Marshal(candidateIDs)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence (transaction_id,source_event_id,evidence_type,metadata_json) VALUES ($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_DETAIL',context_json=context_json||jsonb_build_object('duplicate_candidates',$2::jsonb),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, string(encoded)); err != nil {
+		return err
+	}
+	if err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Transaksi ini mungkin duplikat. Pilih gabung dengan catatan yang sudah ada atau catat sebagai transaksi baru.", markup); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, field string) error {
@@ -516,10 +664,7 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		return tx.Commit(ctx)
 	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-			return err
-		}
-		if err = enqueueReply(ctx, tx, update, "Pilih gabung atau abaikan di Review Inbox. Belum ada transaksi yang diubah."); err != nil {
+		if err = renderDuplicateChoices(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
