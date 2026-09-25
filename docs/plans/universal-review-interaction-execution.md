@@ -461,9 +461,16 @@ Cross-surface race cannot duplicate mutation.
 
 ---
 
-# 13. UIR-09 — telemetry
+# 13. UIR-09 — telemetry + Admin Review Operations
 
-Add/derive:
+## Objective
+
+Make rollout health measurable and operationally visible without PostgreSQL
+queries.
+
+Telemetry storage alone does not complete UIR-09.
+
+## Add/derive telemetry
 
 - eligible Telegram reviews;
 - projection-created count;
@@ -473,7 +480,8 @@ Add/derive:
 - review type;
 - interaction turns;
 - stale action attempts;
-- Web escape action if explicitly chosen.
+- Web escape action if explicitly chosen;
+- review resolution latency.
 
 Metrics:
 
@@ -489,7 +497,159 @@ Target 0% for ordinary blockers.
 
 TELEGRAM / WEB / SYSTEM.
 
+### Resolution latency
+
+Expose p50 and p95 for time from first actionable projection / canonical review
+availability to canonical resolution, with definitions pinned in tests.
+
 Do not alter RHICE semantics.
+
+## Admin API contract
+
+Implement read-only Super Admin aggregates following existing Admin API
+conventions.
+
+Required routes:
+
+~~~text
+GET /api/v1/admin/reviews/summary?range=24h
+GET /api/v1/admin/reviews/breakdown?range=24h
+GET /api/v1/admin/reviews/projections?range=24h&status=&reviewType=&q=
+~~~
+
+The exact pagination token follows existing Admin list conventions.
+
+### summary response must support
+
+- openReviews;
+- eligibleTelegramReviews;
+- actionableTelegramProjections;
+- telegramActionableCoverageRate;
+- webEscapeRate;
+- deliveryAttempts;
+- deliverySucceeded;
+- deliveryFailed;
+- deliveryRetried;
+- deliverySuccessRate;
+- staleActionAttempts;
+- resolutionLatencyP50Ms;
+- resolutionLatencyP95Ms;
+- resolvedByTelegram;
+- resolvedByWeb;
+- resolvedBySystem.
+
+### breakdown rows must support
+
+- reviewType;
+- created;
+- open;
+- telegramEligible;
+- actionableProjected;
+- coverageRate;
+- resolvedTelegram;
+- resolvedWeb;
+- resolvedSystem;
+- webEscapeRate;
+- deliveryFailed.
+
+### projection rows must expose only safe operational metadata
+
+- review/projection reference;
+- review type;
+- review status;
+- projection status;
+- delivery status;
+- retry count;
+- created/updated timestamps;
+- age;
+- resolution surface;
+- safe error class.
+
+Do NOT return amount, merchant, counterparty, email body, document content,
+prompt/response text, or other raw financial evidence.
+
+## Admin Web contract
+
+Extend the existing `apps/web/app/admin/page.js` navigation with a dedicated:
+
+~~~text
+/admin?tab=reviews
+~~~
+
+### Reviews tab
+
+Show:
+
+1. headline metrics:
+   - open reviews;
+   - TARC;
+   - Web Escape Rate;
+   - Telegram delivery success;
+   - p50/p95 resolution latency;
+   - stale action attempts;
+   - completion surface split;
+
+2. per-review-type breakdown table;
+
+3. projection/delivery operations table with:
+   - range filter;
+   - projection/review status filter;
+   - review-type filter;
+   - safe reference search;
+   - pagination using existing Admin patterns.
+
+### Overview integration
+
+Add compact Review health to the existing Admin Overview:
+
+- open reviews;
+- TARC;
+- Telegram review delivery failures;
+- Web Escape Rate.
+
+Do not duplicate the detailed Reviews table on Overview.
+
+### Household detail integration
+
+Extend existing Admin household detail with safe review diagnostics:
+
+- Telegram linked/eligible state;
+- open reviews;
+- actionable Telegram projections;
+- latest delivery failure timestamp/error class;
+- completion surface distribution.
+
+If household-level diagnostics require an existing endpoint extension, extend the
+current household overview response rather than creating a competing household
+review API without need.
+
+## Required tests
+
+API:
+
+- TARC numerator/denominator semantics;
+- Web Escape Rate excludes voluntary View details;
+- completion surface classification;
+- stale action aggregation;
+- delivery retry/failure aggregation;
+- latency percentile definition;
+- per-review-type breakdown catches a single uncovered type;
+- sensitive financial fields never appear in Admin review responses;
+- Super Admin authorization follows existing Admin protection.
+
+Web:
+
+- Review tab is registered and loads summary/breakdown/projections;
+- headline values render null/zero safely;
+- filters produce expected Admin API requests;
+- Overview renders compact Review health;
+- household detail renders review diagnostics;
+- no raw financial evidence fields are rendered.
+
+## Exit gate
+
+UIR-09 is incomplete if any rollout/DoD review metric requires manual SQL to
+inspect.
 
 ---
 
@@ -517,7 +677,12 @@ Must include:
 - Telegram outage;
 - open review + unrelated new chat;
 - stale callback;
-- no AI call for deterministic callbacks.
+- no AI call for deterministic callbacks;
+- Admin TARC / Web Escape / completion-surface aggregate correctness;
+- Admin per-review-type coverage exposes one deliberately uncovered fixture;
+- Admin projection diagnostics omit raw financial evidence;
+- Admin Overview and Review tab contract tests;
+- Admin household review-diagnostic contract.
 
 ## Rollout
 
@@ -533,8 +698,12 @@ It must not mutate or discard canonical review state.
 
 ## Final exit
 
-Do not call sprint complete until the exhaustive current review-type coverage
-test shows every producible type is FULL Telegram capability.
+Do not call sprint complete until:
+
+1. the exhaustive current review-type coverage test shows every producible type
+   is FULL Telegram capability; and
+2. the Admin Review surface proves the same rollout metrics without manual
+   PostgreSQL inspection.
 
 ---
 

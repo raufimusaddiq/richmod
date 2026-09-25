@@ -875,6 +875,104 @@ Track:
 
 Do not store raw financial evidence in metrics.
 
+## 15.7 Admin observability contract
+
+Metrics in this section are rollout and Definition-of-Done gates. They MUST be
+observable from the existing platform Admin console without requiring a direct
+PostgreSQL query.
+
+Add a dedicated Admin surface:
+
+~~~text
+/admin?tab=reviews
+~~~
+
+The Admin Review surface is operational observability, not another canonical
+review resolver.
+
+It must expose at minimum:
+
+### Headline metrics
+
+- open canonical reviews;
+- Telegram Actionable Review Coverage (TARC);
+- Web Escape Rate;
+- Telegram review delivery success rate;
+- review resolution latency p50/p95;
+- stale review action attempts;
+- completion surface split: TELEGRAM / WEB / SYSTEM.
+
+### Review-type breakdown
+
+Per review type:
+
+- created;
+- currently open;
+- Telegram-eligible;
+- actionable projection coverage;
+- Telegram-resolved;
+- Web-resolved;
+- System-resolved;
+- Web Escape Rate;
+- delivery failures.
+
+This breakdown is required to detect a type-specific Web-only regression hidden
+inside a healthy global average.
+
+### Projection operations table
+
+Provide a safe operational table for projection health with:
+
+- review/projection reference;
+- review type;
+- canonical review state;
+- projection state;
+- delivery state;
+- retry count;
+- age;
+- resolution surface;
+- last safe error class when present.
+
+Do not expose raw transaction amounts, merchant names, email bodies, document
+content, model prompts, or other financial evidence merely for platform
+observability.
+
+### Admin Overview summary
+
+The existing Admin Overview should surface compact review health:
+
+- open reviews;
+- TARC;
+- Telegram review delivery failures in the selected/default operational window;
+- Web Escape Rate.
+
+The detailed Review tab remains the diagnostic destination.
+
+### Household diagnostic
+
+The existing Admin household detail should expose safe review diagnostics:
+
+- Telegram linked / eligible state;
+- open review count;
+- actionable Telegram projection count;
+- latest review delivery failure timestamp/error class if any;
+- review completion surface distribution.
+
+This exists so an operator can diagnose "my Telegram review did not appear"
+without querying PostgreSQL manually.
+
+## 15.8 Observability completeness rule
+
+A product metric used to claim rollout completion is NOT implemented merely
+because rows are written to a table.
+
+For this sprint:
+
+> if a metric is a rollout or Definition-of-Done gate, it must be queryable by
+> the API and visible in the Admin console.
+
+Telemetry storage, aggregate API, and Admin presentation are one deliverable.
+
 ---
 
 # 16. Current audited gaps at baseline
@@ -1099,13 +1197,21 @@ This sprint does not:
 - [ ] full Web details are optional, not mandatory;
 - [ ] raw UUIDs are never presented as user-facing choices.
 
-## Metrics
+## Metrics and Admin operations
 
 - [ ] TARC measurable;
 - [ ] Web Escape Rate measurable;
 - [ ] completion surface measurable;
 - [ ] stale action attempts measurable;
 - [ ] delivery success/retry measurable;
+- [ ] resolution latency p50/p95 measurable;
+- [ ] metrics are available through Admin aggregate APIs;
+- [ ] `/admin?tab=reviews` exposes headline metrics and per-review-type coverage;
+- [ ] Admin Review projection table exposes safe delivery/retry diagnostics;
+- [ ] Admin Overview exposes compact review health;
+- [ ] Admin household detail exposes safe household-level review diagnostics;
+- [ ] no rollout/DoD metric requires manual PostgreSQL queries;
+- [ ] no raw financial evidence is exposed by the Admin telemetry surface;
 - [ ] RHICE semantics remain unchanged.
 
 ## Regression

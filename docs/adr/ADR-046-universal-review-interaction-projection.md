@@ -238,6 +238,47 @@ Record surface-neutral review resolution events with:
 
 Do not store sensitive raw values solely for product metrics.
 
+### Admin operational read model
+
+Review telemetry must be exposed through read-only Admin aggregates that follow
+the existing `/api/v1/admin/*` authorization boundary.
+
+Required aggregate capabilities:
+
+- summary over an operational time range;
+- per-review-type breakdown;
+- projection/delivery diagnostics;
+- safe household-level review diagnostics.
+
+The Web Admin console consumes those aggregates through:
+
+~~~text
+/admin?tab=reviews
+~~~
+
+and compact Review health on the existing Admin Overview.
+
+Implementation should follow existing Admin API conventions. The execution
+contract defines the concrete endpoint shape.
+
+The Admin read model MUST NOT:
+
+- resolve or mutate review_item;
+- become a second financial-review implementation;
+- expose raw financial evidence merely for telemetry;
+- use a model call to derive operational metrics.
+
+Admin metrics are derived deterministically from canonical review/projection,
+delivery, audit, and telemetry state.
+
+A rollout metric is architecture-complete only when:
+
+~~~text
+event/state recorded
+-> deterministic aggregate available
+-> Admin surface renders it
+~~~
+
 ## Consequences
 
 Positive:

@@ -107,14 +107,23 @@ A failed applicable item blocks completion.
 - [ ] every producible type maps to FULL Telegram capability.
 - [ ] adding a new producible type without a renderer/capability test fails.
 
-## K. Metrics
+## K. Metrics and Admin observability
 
 - [ ] actionable review coverage measurable.
 - [ ] Web escape rate measurable.
 - [ ] completion surface measurable.
 - [ ] stale action attempts measurable.
 - [ ] delivery health measurable.
-- [ ] no raw evidence stored just for metrics.
+- [ ] resolution latency p50/p95 measurable.
+- [ ] every rollout/DoD metric has a deterministic Admin aggregate API.
+- [ ] `/admin?tab=reviews` renders headline rollout health.
+- [ ] Admin exposes per-review-type coverage so global averages cannot hide drift.
+- [ ] Admin exposes safe projection/delivery diagnostics.
+- [ ] Admin Overview exposes compact review health without duplicating detail.
+- [ ] household Admin detail can diagnose Telegram review delivery/actionability.
+- [ ] no rollout metric requires direct PostgreSQL inspection.
+- [ ] no raw financial evidence is stored or exposed just for metrics.
+- [ ] Admin telemetry is read-only and cannot resolve canonical reviews.
 - [ ] RHICE semantics unchanged.
 
 ## L. Scope
@@ -139,5 +148,7 @@ Before completion answer:
 5. What exact ReviewDecision residual is being collected?
 6. Does this add any unnecessary model call?
 7. Which test prevents this review type from becoming Web-only again?
+8. Can an operator verify the relevant rollout metric in Admin without SQL?
+9. Does the Admin surface expose only safe operational metadata?
 
 If any answer is unclear, the task is not complete.

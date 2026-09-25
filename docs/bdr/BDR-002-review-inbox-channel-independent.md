@@ -220,9 +220,28 @@ Supporting metrics:
 - Review Completion Surface;
 - Review Interaction Turns;
 - Cross-Surface Stale Action Rate;
-- Telegram delivery success/retry.
+- Telegram delivery success/retry;
+- review resolution latency p50/p95.
 
 Existing RHICE and correction-rate guardrails remain authoritative.
+
+### Operational observability decision
+
+These metrics are product rollout gates, not hidden engineering counters.
+
+Therefore:
+
+> any review metric used to claim rollout or Definition-of-Done completion must
+> be observable in the platform Admin console without direct database access.
+
+The existing Admin console gains a dedicated Review operations surface plus
+compact review health on Overview and safe household-level review diagnostics.
+
+This Admin surface is read-only operational observability. It is not a third
+canonical review interaction surface and does not replace the user-facing Web
+Review Inbox.
+
+Sensitive financial evidence is explicitly out of scope for Admin telemetry.
 
 ## Success definition
 
@@ -232,3 +251,13 @@ being forced into Web.
 
 Web should feel like an optional control center, not a mandatory second half of
 the product.
+
+An operator should also be able to answer, from Admin alone:
+
+- which review type lost Telegram actionability;
+- whether delivery is failing;
+- whether users are escaping to Web;
+- which surface is completing reviews;
+- whether the problem is global or household-specific.
+
+No SQL console should be required for those rollout questions.
