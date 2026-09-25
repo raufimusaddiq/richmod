@@ -25,7 +25,11 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		return "AWAITING_DETAIL", context, "transfer"
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
-	case contains(decision.MissingFacts, "transaction_at") && len(decision.MissingFacts) == 1:
+	// A date fact is collected first because the reply lane binds exactly one
+	// value. A compound category+date decision therefore starts with the date
+	// prompt and advances to the category chooser afterward, so no missing fact is
+	// dropped.
+	case contains(decision.MissingFacts, "transaction_at"):
 		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction()), "reply"
 	case requiresBoundReply(decision):
 		title := promptTitle(decision)
@@ -77,7 +81,6 @@ func promptTitle(decision reviewdec.Decision) string {
 	}
 	return unknownReviewPrompt
 }
-
 
 // dateInstruction asks for the one fact the date review is missing in the format
 // the date resolver parses, instead of the generic description wording.

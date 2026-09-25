@@ -29,9 +29,9 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 			wantState: "AWAITING_DATE", wantMessage: "\U0001F7E1 Tanggal transaksi belum ada\n\nNominal: Rp18.502\n\nBalas pesan ini dengan tanggal transaksi (YYYY-MM-DD).", context: "Nominal: Rp18.502", wantMode: "reply",
 		},
 		{
-			name: "compound residual keeps a bound reply", reviewType: "TRANSACTION_FACTS_MISSING",
+			name: "compound residual collects the date first", reviewType: "TRANSACTION_FACTS_MISSING",
 			decision:  reviewdec.Decision{MissingFacts: []string{"category", "transaction_at"}, AllowedActions: []string{"CONFIRM_REVIEW", "SET_PAY_DATE", "IGNORE"}, InteractionMode: reviewdec.ModeSingleField},
-			wantState: "AWAITING_DETAIL", wantMessage: "🟡 Tanggal transaksi belum ada\n\nNominal: Rp18.502\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", context: "Nominal: Rp18.502", wantMode: "reply",
+			wantState: "AWAITING_DATE", wantMessage: "\U0001F7E1 Tanggal transaksi belum ada\n\nNominal: Rp18.502\n\nBalas pesan ini dengan tanggal transaksi (YYYY-MM-DD).", context: "Nominal: Rp18.502", wantMode: "reply",
 		},
 		{
 			name: "unknown purpose is a bound reply", reviewType: "UNKNOWN_PURPOSE",
