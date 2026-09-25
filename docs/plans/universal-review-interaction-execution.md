@@ -21,7 +21,14 @@ transaction yet keep the review open while asking whether to remember the
 merchant; Web resolves in the same transaction. Document extraction and salary
 event side effects remain Telegram-specific because Web does not perform them.
 
-Still open in UIR-01: transaction reject, plus transfer, duplicate, payslip/date,
+The fourth slice moves transaction-review rejection into
+apps/reviewdomain.RejectTransactionReview: transaction void, proposal rejection,
+source-event refresh, Telegram projection cancellation, and canonical item
+completion run once for both Web and Telegram. Web cancels every open projection
+for the transaction; Telegram cancels the same way while pinning the exact
+bound item.
+
+Still open in UIR-01: transfer, duplicate, payslip/date,
 financial-email, Wealth, and cycle families. Each family keeps its
 residual/document/salary side effects until that whole operation is migrated
 with Web/Telegram parity tests. Non-transaction Telegram transition paths

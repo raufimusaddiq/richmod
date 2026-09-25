@@ -680,19 +680,16 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'`, transactionID); err != nil {
+	// ADR-046: the transaction void, proposal rejection, projection cancellation,
+	// source-event refresh, and review completion are one shared operation.
+	if err := reviewdomain.RejectTransactionReview(ctx, tx, reviewdomain.RejectCommand{
+		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
+		Action: "TELEGRAM_REJECTED",
+	}); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID); err != nil {
-		return err
-	}
-	if err := resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_REJECTED"); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
