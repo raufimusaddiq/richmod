@@ -27,6 +27,11 @@ rules and switch `auto_apply` off without deleting the rule or its history.
 Deterministic ingestion applies only enabled aliases; a disabled rule therefore
 stops affecting future proposals.
 
+Alias identity is case-insensitive with consecutive whitespace collapsed. The
+database enforces one alias per household and normalized raw name. Duplicate
+rules with different merchants or categories collapse to one disabled rule;
+removed alias values are recorded in `audit_log`.
+
 When an `UNKNOWN_MERCHANT` Telegram review receives a merchant name, Richmod
 also checks an enabled, explicitly confirmed alias using household-scoped,
 case-insensitive, whitespace-normalized matching. A match reuses its stored

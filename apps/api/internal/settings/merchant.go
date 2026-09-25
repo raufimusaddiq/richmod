@@ -102,7 +102,7 @@ func (h *Handler) CreateMerchantAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var id string
-	err = tx.QueryRow(r.Context(), `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,$2,m.id,c.id,$5,$6 FROM merchant m LEFT JOIN category c ON c.id=$4 AND c.household_id=$1 WHERE m.id=$3 AND m.household_id=$1 RETURNING id`, household, in.RawName, r.PathValue("id"), in.DefaultCategoryID, in.AutoApply, in.Confirmed).Scan(&id)
+	err = tx.QueryRow(r.Context(), `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) SELECT $1,$2,m.id,c.id,$5,$6 FROM merchant m LEFT JOIN category c ON c.id=$4 AND c.household_id=$1 WHERE m.id=$3 AND m.household_id=$1 ON CONFLICT(household_id,lower(regexp_replace(btrim(raw_name), '[[:space:]]+', ' ', 'g'))) DO UPDATE SET raw_name=excluded.raw_name,default_category_id=excluded.default_category_id,auto_apply=excluded.auto_apply,created_from_user_confirmation=excluded.created_from_user_confirmation RETURNING id`, household, in.RawName, r.PathValue("id"), in.DefaultCategoryID, in.AutoApply, in.Confirmed).Scan(&id)
 	if err != nil {
 		jsonError(w, 400, "unable to create merchant alias")
 		return

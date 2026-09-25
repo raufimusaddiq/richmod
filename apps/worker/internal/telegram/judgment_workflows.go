@@ -251,7 +251,7 @@ func (p *Processor) exactMerchantCategory(ctx context.Context, householdID, merc
 		return "", false, nil
 	}
 	var slug string
-	err := p.pool.QueryRow(ctx, `SELECT c.slug FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND c.active LIMIT 1`, householdID, merchant).Scan(&slug)
+	err := p.pool.QueryRow(ctx, `SELECT min(c.slug) FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND c.household_id=$1 AND c.active GROUP BY ma.household_id,lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT ma.default_category_id)=1`, householdID, merchant).Scan(&slug)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
