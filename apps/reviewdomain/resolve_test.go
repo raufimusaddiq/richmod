@@ -21,7 +21,7 @@ func TestSharedResolverOwnsCanonicalCompletion(t *testing.T) {
 			t.Fatalf("shared resolver completion is missing %q", required)
 		}
 	}
-	if !strings.Contains(resolveRequestSQL, "UPDATE review_request SET status='RESOLVED'") {
-		t.Fatal("shared resolver must resolve the Telegram projection in the same transaction")
+	if !strings.Contains(resolveRequestSQL, "UPDATE review_request SET status='RESOLVED'") || !strings.Contains(resolveRequestSQL, "transaction_id=$2") {
+		t.Fatal("shared resolver must resolve canonical and legacy transaction-linked projections")
 	}
 }

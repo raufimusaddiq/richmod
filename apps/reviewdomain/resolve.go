@@ -24,7 +24,7 @@ const resolveSQL = `UPDATE review_item
 		WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`
 
 const resolveRequestSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
-		WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`
+		WHERE (review_item_id=$1 OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
 
 const resolveByIDSQL = `UPDATE review_item
 		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,
@@ -79,7 +79,7 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved
 	}
-	_, err = tx.Exec(ctx, resolveRequestSQL, reviewItemID)
+	_, err = tx.Exec(ctx, resolveRequestSQL, reviewItemID, cmd.SubjectID)
 	return err
 }
 
@@ -117,6 +117,6 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved
 	}
-	_, err = tx.Exec(ctx, resolveRequestSQL, cmd.ReviewItemID)
+	_, err = tx.Exec(ctx, resolveRequestSQL, cmd.ReviewItemID, subjectID)
 	return err
 }
