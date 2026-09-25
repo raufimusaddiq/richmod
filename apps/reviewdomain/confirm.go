@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -32,6 +33,8 @@ type ConfirmCommand struct {
 	MerchantName     string
 	RememberMerchant bool
 	// TransactionAt is a column-compatible timestamp argument, nil when absent.
+	// It is `any` because surfaces pass a *string, a time.Time, or a *time.Time;
+	// ConfirmTransactionReview normalizes a typed-nil pointer before use.
 	TransactionAt any
 	// Blocked lists stored residual facts the caller did not supply this turn.
 	Blocked []string
@@ -72,6 +75,13 @@ func (e *ErrMissingFacts) Error() string {
 // neither surface owns transaction confirm policy (ADR-046).
 func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand) (ConfirmResult, error) {
 	var result ConfirmResult
+	// A typed-nil *time.Time stored in the `any` field is non-nil as an interface:
+	// surfaces that pass an absent date as a nil pointer would otherwise pass the
+	// `!= nil` guard below and write NULL into the NOT NULL
+	// transaction_proposal.transaction_at. Normalize it away at the boundary.
+	if at, ok := cmd.TransactionAt.(*time.Time); ok && at == nil {
+		cmd.TransactionAt = nil
+	}
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
 		return result, err
 	}
