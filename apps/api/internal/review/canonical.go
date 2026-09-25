@@ -703,27 +703,13 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, pr
 	if choice == "ORDINARY_INCOME" {
 		return nil
 	}
-	normalized := strings.ToLower(strings.Join(strings.Fields(employer), " "))
-	var salarySource string
-	if choice == "HOUSEHOLD_POLICY" {
-		if err := tx.QueryRow(r.Context(), `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4,false) ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, household, user, employer, normalized).Scan(&salarySource); err != nil {
-			return err
-		}
-	} else {
-		if err := tx.QueryRow(r.Context(), `SELECT id FROM salary_source WHERE household_id=$1 AND normalized_employer=$2 AND active FOR UPDATE`, household, normalized).Scan(&salarySource); err != nil {
-			if err := tx.QueryRow(r.Context(), `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4,true) RETURNING id`, household, user, employer, normalized).Scan(&salarySource); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2`, household, salarySource); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(r.Context(), `UPDATE salary_source SET is_primary=true,updated_at=now() WHERE id=$1`, salarySource); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySource, household, period+"-01", at, amount, transaction, source); err != nil {
-		return err
-	}
-	return nil
+	// ADR-046: salary_source promotion and salary_event recording are shared with
+	// the Telegram confirm lanes; Web keeps only its proposal-driven transaction
+	// creation above.
+	_, err := reviewdomain.RecordSalaryEvent(r.Context(), tx, reviewdomain.SalaryCommand{
+		HouseholdID: household, UserID: user, Employer: employer, Period: period,
+		PayDate: at, NetPay: amount, Transaction: transaction, SourceEvent: source,
+		MakePrimary: choice == "PRIMARY_SALARY",
+	})
+	return err
 }

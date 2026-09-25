@@ -32,6 +32,9 @@ type reviewExtraction struct {
 
 var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
 
+// reviewPayrollPeriodPattern matches the YYYY-MM payroll period stored on payslip evidence.
+var reviewPayrollPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
+
 // errReviewResidualFacts records that Telegram declined to confirm because the
 // stored residual contract was still open. The caller already replied, so this
 // is a control signal, not a user-facing failure.
@@ -1401,29 +1404,24 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	if confirmResult.MerchantID == "" {
 		merchantID = nil
 	}
-	// A confirmed review also completes the document workflow. Evidence keeps
-	// the document link, so this is scoped to documents attached to this exact
-	// transaction and cannot clear unrelated or still-pending documents.
-	if _, err := tx.Exec(ctx, `UPDATE document d SET status='EXTRACTED',updated_at=now() WHERE d.status='NEEDS_REVIEW' AND d.id IN (SELECT NULLIF(te.metadata_json->>'document_id','')::uuid FROM transaction_evidence te WHERE te.transaction_id=$1 AND te.metadata_json ? 'document_id')`, transactionID); err != nil {
+	// A confirmed review also completes the document workflow (ADR-046: shared op).
+	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, transactionID); err != nil {
 		return err
 	}
 	if value.PayDate != "" {
 		// A user-supplied pay date completes only a payslip-backed income review.
-		// The date is parsed deterministically; no expected payday is inferred.
-		var employer, period string
-		err = tx.QueryRow(ctx, `SELECT COALESCE(t.counterparty_name,''),COALESCE(de.output_json->>'period','') FROM transaction t JOIN transaction_evidence te ON te.transaction_id=t.id JOIN document_extraction de ON de.document_id=NULLIF(te.metadata_json->>'document_id','')::uuid AND de.stage='PAYSLIP' WHERE t.id=$1 AND t.type='INCOME' AND te.evidence_type='PAYSLIP_IMAGE' LIMIT 1`, transactionID).Scan(&employer, &period)
-		if errors.Is(err, pgx.ErrNoRows) {
-			employer, period = "", ""
-		} else if err != nil {
+		// Evidence and period come from the shared payslip reader; no expected
+		// payday is ever inferred.
+		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, transactionID)
+		if err != nil {
 			return err
 		}
-		if employer != "" && regexp.MustCompile(`^\d{4}-\d{2}$`).MatchString(period) {
-			normalized := strings.ToLower(strings.Join(strings.Fields(employer), " "))
-			var salarySourceID string
-			if err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, householdID, employer, normalized).Scan(&salarySourceID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) SELECT $1,$2,to_date($3,'YYYY-MM'),$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 ON CONFLICT (salary_source_id,payroll_period) DO NOTHING`, salarySourceID, householdID, period, value.PayDate, sourceEventID, transactionID); err != nil {
+		if ok && reviewPayrollPeriodPattern.MatchString(facts.Period) {
+			if _, err := reviewdomain.RecordSalaryEvent(ctx, tx, reviewdomain.SalaryCommand{
+				HouseholdID: householdID, Employer: facts.Employer, Period: facts.Period,
+				PayDate: value.PayDate, NetPay: facts.NetPay,
+				Transaction: transactionID, SourceEvent: sourceEventID,
+			}); err != nil {
 				return err
 			}
 		}
