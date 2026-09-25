@@ -76,6 +76,8 @@ func TestTelegramMerchantLearningUsesSeparateExplicitReply(t *testing.T) {
 	if transactionStatus != "CONFIRMED" || reviewStatus != "OPEN" || conversationState != "AWAITING_CONFIRMATION" || aliases != 0 {
 		t.Fatalf("transaction=%s review=%s conversation=%s aliases=%d", transactionStatus, reviewStatus, conversationState, aliases)
 	}
+	// The shared confirm mutates the transaction but deliberately defers terminal
+	// review completion until the explicit merchant-learning answer below.
 	update.Message.MessageID = 24
 	update.Message.Text = "ingat merchant"
 	if err := processor.rememberMerchantReply(ctx, rememberSourceID, householdID, reviewID, transactionID, update); err != nil {

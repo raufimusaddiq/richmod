@@ -32,6 +32,13 @@ func TestConfirmSupportsPartialResolution(t *testing.T) {
 	if !strings.Contains(string(mustRead(t, "./confirm.go")), "if !cmd.ResolveReview {") {
 		t.Fatal("shared confirm lost its partial-resolution path")
 	}
+	telegram, err := os.ReadFile("../worker/internal/telegram/review.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(telegram), "reviewID, userID, \"TELEGRAM_MERCHANT_DECISION\"") {
+		t.Fatal("merchant-learning reply no longer completes the already-confirmed transaction review")
+	}
 }
 
 func mustRead(t *testing.T, path string) []byte {
