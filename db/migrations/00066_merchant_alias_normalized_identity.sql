@@ -20,7 +20,9 @@ WITH grouped AS (
 UPDATE merchant_alias a SET auto_apply = ranked.group_auto AND ranked.group_confirmed AND ranked.category_count = 1 AND ranked.merchant_count = 1,
     created_from_user_confirmation = ranked.group_confirmed AND ranked.category_count = 1 AND ranked.merchant_count = 1
 FROM ranked WHERE a.id = ranked.keep_id
-  AND (a.auto_apply <> ranked.group_auto OR ranked.category_count > 1 OR ranked.merchant_count > 1);
+  AND (a.auto_apply <> (ranked.group_auto AND ranked.group_confirmed)
+       OR a.created_from_user_confirmation <> ranked.group_confirmed
+       OR ranked.category_count > 1 OR ranked.merchant_count > 1);
 
 WITH ranked AS (
     SELECT id, household_id, raw_name, normalized_merchant_id, default_category_id, auto_apply,

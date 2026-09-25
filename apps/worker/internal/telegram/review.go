@@ -419,7 +419,7 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 	rememberedCategoryID := ""
 	if field == "merchant" {
 		var merchantID string
-		err = tx.QueryRow(ctx, `SELECT ma.normalized_merchant_id::text,ma.default_category_id::text
+		err = tx.QueryRow(ctx, `SELECT min(ma.normalized_merchant_id::text),min(ma.default_category_id::text)
 			FROM merchant_alias ma
 			JOIN category c ON c.id=ma.default_category_id
 			WHERE ma.household_id=$1
