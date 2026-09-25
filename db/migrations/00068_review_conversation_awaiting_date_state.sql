@@ -27,6 +27,7 @@ ALTER TABLE review_conversation ADD CONSTRAINT review_conversation_state_check C
     ,'AWAITING_PURPOSE'
     ,'AWAITING_CONFIRMATION'
     ,'AWAITING_MERCHANT_DECISION'
+    ,'AWAITING_ASSET_WEALTH'
     ,'RESOLVED'
   )
 );
