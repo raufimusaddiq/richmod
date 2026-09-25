@@ -135,9 +135,6 @@ func (p *Processor) agentResolveBoundMerchantLearningStrict(ctx context.Context,
 			return result, true, err
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND household_id=$2 AND status='OPEN'`, binding.ReviewRequestID, state.HouseholdID); err != nil {
-		return result, true, err
-	}
 	if err = resolveCanonicalReviewItem(ctx, tx, binding.ReviewRequestID, userID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
 		return result, true, err
 	}

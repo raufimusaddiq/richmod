@@ -365,9 +365,6 @@ func (p *Processor) agentResolveMerchantLearning(ctx context.Context, state *age
 	} else {
 		_ = tx.QueryRow(ctx, `SELECT COALESCE(m.normalized_name,''),COALESCE(c.name,'') FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id LEFT JOIN category c ON c.id=t.category_id WHERE t.id=$1 AND t.household_id=$2`, transactionID, state.HouseholdID).Scan(&merchantName, &categoryName)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, reviewID); err != nil {
-		return result, true, err
-	}
 	if err = resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_MERCHANT_DECISION"); err != nil {
 		return result, true, err
 	}

@@ -1618,7 +1618,7 @@ func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID
 		_, err := tx.Exec(ctx, `UPDATE review_item ri SET status='RESOLVED',resolved_at=now(),resolution_action=$2,updated_at=now() FROM review_request rr WHERE rr.id=$1 AND ri.id=rr.review_item_id AND ri.status IN ('PENDING_SEND','OPEN')`, reviewID, action)
 		return err
 	}
-	return reviewdomain.ResolveByID(ctx, tx, reviewdomain.Command{HouseholdID: household, ActorUserID: userID, ReviewItemID: itemID, SubjectID: transaction, Action: action})
+	return reviewdomain.ResolveByID(ctx, tx, reviewdomain.Command{HouseholdID: household, ActorUserID: userID, ReviewItemID: itemID, RequestID: reviewID, SubjectID: transaction, Action: action})
 }
 
 func reviewSchema(slugs []string) map[string]any {

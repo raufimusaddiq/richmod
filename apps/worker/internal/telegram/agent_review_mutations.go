@@ -92,9 +92,6 @@ func (p *Processor) agentRejectTransactionReview(ctx context.Context, state *age
 	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID); err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, review.reviewID); err != nil {
-		return result, true, err
-	}
 	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_REJECTED"); err != nil {
 		return result, true, err
 	}
@@ -294,9 +291,6 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 			return err
 		}
 	} else {
-		if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, review.reviewID); err != nil {
-			return err
-		}
 		if err := resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
 			return err
 		}
@@ -375,9 +369,6 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		return result, true, fmt.Errorf("review transaction no longer eligible")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=NULLIF($4,'')::uuid,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)`, review.transactionID, newType, proposalStatus, categoryID, classification, purpose, wealthID); err != nil {
-		return result, true, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='OPEN'`, review.reviewID); err != nil {
 		return result, true, err
 	}
 	if err = resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_TRANSFER_CLASSIFIED"); err != nil {

@@ -19,6 +19,12 @@ var ErrAlreadyResolved = errors.New("reviewdomain: review already resolved")
 const resolveRequestSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
 		WHERE (review_item_id=ANY($1::uuid[]) OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
 
+// resolveRequestByItemSQL resolves only the request(s) bound to the exact
+// review item. The Telegram exact-binding path must never close sibling reviews
+// that merely share the same transaction.
+const resolveRequestByItemSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
+		WHERE review_item_id=ANY($1::uuid[]) AND status IN ('PENDING_SEND','OPEN')`
+
 // resolveTransactionSQL resolves every open canonical item for one transaction
 // in a single statement, preserving the prior all-item API behavior.
 const resolveTransactionSQL = `UPDATE review_item
@@ -38,6 +44,8 @@ type Command struct {
 	HouseholdID  string
 	ActorUserID  string
 	ReviewItemID string
+	// RequestID is the exact Telegram projection identity for bound resolution.
+	RequestID string
 	// SubjectID is the review subject identity (a transaction ID for the
 	// transaction operation family).
 	SubjectID string
@@ -104,9 +112,32 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 			return err
 		}
 	}
+	// Legacy projections may predate universal review_item: the request carries
+	// only a transaction link. Complete that projection directly in that case.
+	itemID := cmd.ReviewItemID
+	if itemID == "" {
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(review_item_id::text,'') FROM review_request
+			WHERE id=$1 AND household_id=$2`, cmd.RequestID, cmd.HouseholdID).Scan(&itemID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrAlreadyResolved
+			}
+			return err
+		}
+		if itemID == "" {
+			result, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now()
+				WHERE id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN')`, cmd.RequestID, cmd.HouseholdID)
+			if err != nil {
+				return err
+			}
+			if result.RowsAffected() != 1 {
+				return ErrAlreadyResolved
+			}
+			return nil
+		}
+	}
 	var subjectID string
 	err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,'') FROM review_item
-		WHERE id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN') FOR UPDATE`, cmd.ReviewItemID, cmd.HouseholdID).Scan(&subjectID)
+		WHERE id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN') FOR UPDATE`, itemID, cmd.HouseholdID).Scan(&subjectID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAlreadyResolved
 	}
@@ -119,13 +150,13 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if subjectID == "" {
 		return errors.New("reviewdomain: transaction subject required")
 	}
-	result, err := tx.Exec(ctx, resolveByIDSQL, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(values), cmd.HouseholdID)
+	result, err := tx.Exec(ctx, resolveByIDSQL, itemID, cmd.ActorUserID, cmd.Action, string(values), cmd.HouseholdID)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved
 	}
-	_, err = tx.Exec(ctx, resolveRequestSQL, []string{cmd.ReviewItemID}, subjectID)
+	_, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{itemID})
 	return err
 }

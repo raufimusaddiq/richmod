@@ -29,4 +29,7 @@ func TestSharedResolverOwnsCanonicalCompletion(t *testing.T) {
 	if !strings.Contains(resolveRequestSQL, "UPDATE review_request SET status='RESOLVED'") || !strings.Contains(resolveRequestSQL, "transaction_id=$2") {
 		t.Fatal("shared resolver must resolve canonical and legacy transaction-linked projections")
 	}
+	if !strings.Contains(resolveRequestByItemSQL, "review_item_id=ANY($1::uuid[])") || strings.Contains(resolveRequestByItemSQL, "transaction_id") {
+		t.Fatal("exact-item resolution must not close sibling transaction projections")
+	}
 }
