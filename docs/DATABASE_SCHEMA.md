@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00065_intelligence_phase_telemetry.sql`.
+forward migration set through `db/migrations/00066_merchant_alias_normalized_identity.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -127,7 +127,7 @@ erDiagram
 | `known_account` | Recognized counterparty/account hint. | Household-scoped; optional owning `user`. |
 | `category` | Hierarchical household category. | Self-referencing `parent_id`; unique slugs within a root/parent scope. |
 | `merchant` | Canonical household merchant identity. | Canonically normalized name, unique case-insensitively per household. |
-| `merchant_alias` | Raw merchant name mapped to canonical merchant/category. | `normalized_merchant_id → merchant`; optional default category. |
+| `merchant_alias` | Raw merchant name mapped to canonical merchant/category. | `normalized_merchant_id → merchant`; optional default category; unique per household after case-folding and whitespace normalization. |
 | `transaction` | Canonical financial record. | Household-scoped; optional account, merchant, category, and creator; never a direct LLM write target. `auto_confirmed_at` is set only when a policy auto-confirmed the row, and anchors the PRD §22.3 correction-rate cohort. |
 | `transaction_evidence` | Many-to-many evidence link for a transaction. | `transaction_id → transaction`, `source_event_id → source_event`; preserves source linkage. |
 | `reconciliation_merge` | Audited merge from duplicate source transaction to target transaction. | Household-scoped; source/target both reference `transaction`. |

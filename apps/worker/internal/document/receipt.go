@@ -526,7 +526,7 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 func (p *Processor) receiptCategory(ctx context.Context, householdID string, value receiptExtraction, categories []categoryOption) *string {
 	if strings.TrimSpace(value.Merchant) != "" {
 		var learned string
-		if err := p.pool.QueryRow(ctx, `SELECT default_category_id FROM merchant_alias WHERE household_id=$1 AND lower(raw_name)=lower($2) AND auto_apply AND default_category_id IS NOT NULL`, householdID, strings.TrimSpace(value.Merchant)).Scan(&learned); err == nil {
+		if err := p.pool.QueryRow(ctx, `SELECT min(default_category_id::text) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND auto_apply AND created_from_user_confirmation AND default_category_id IS NOT NULL GROUP BY household_id,lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT default_category_id)=1`, householdID, value.Merchant).Scan(&learned); err == nil {
 			return &learned
 		}
 	}
