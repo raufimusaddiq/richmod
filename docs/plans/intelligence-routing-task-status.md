@@ -52,7 +52,8 @@ Drift checklist: A pass; B pass (no model ordering/call-count change); C pass;
 D pass (no extraction acceptance change); E pass; F pass; G pass (failure
 semantics unchanged); H receipt/screenshot pass for review facts, clear row
 routing remains IR-05/06; I unchanged; J pass; K pass.
-Known follow-up: revalidate across IR-05/06 residual rescue and batching tasks.
+Known follow-up: none. IR-05/06 residual rescue and batching revalidated; IR-02
+API compound-residual guard and IR-10 canary closed the earlier gaps.
 
 ## IR-02 — Canonical confirmation guard
 
@@ -131,8 +132,8 @@ CodeQL, secrets, and Hermes review at `ec0f3af`.
 Drift checklist: A pass; B pass; C pass; D pass; E pass; F pass; G pass; H
 unchanged; I pass (user-supplied fields/bounded choices counted, server-merged
 values excluded); J pass for the bounded DB set; K pass (`git diff --check`).
-Known follow-up: IR-09 must consume these measured turns for call-efficiency
-analysis; no IR-03-specific correctness or telemetry gap remains.
+Known follow-up: closed by IR-09 telemetry; no IR-03-specific correctness or
+telemetry gap remains.
 
 ## IR-04 — Telegram single-pass routing
 
@@ -175,9 +176,9 @@ failure and residual uncertainty fail closed); H Telegram pass (simple, clear,
 residual, binding, open-review cases); I pass (phase lane and residual dimension
 recorded without raw facts); J pass (canonical state and model call budgets
 asserted); K pass (`git diff --check`, migration scope only).
-Known follow-up: IR-09 consumes the new residual lane for call-efficiency
-analysis. The legacy deterministic `Process` path remains for callbacks; regular
-text jobs enter through `ProcessAgent`.
+Known follow-up: IR-09 consumes the residual lane. The legacy deterministic
+`Process` path remains for callbacks; regular text jobs enter through
+`ProcessAgent`.
 
 ## IR-05 — Receipt residual bounded rescue
 
@@ -216,8 +217,8 @@ guessed); F pass (review facts remain canonical and now persisted as bounded
 provenance); G pass (provider failure fails closed); H receipt pass; I pass
 (bounded call recorded with policy version and outcome); J pass (canonical state
 and Jev call counts asserted); K pass (no schema change, `git diff --check`).
-Known follow-up: IR-09 consumes the new bounded-call provenance; IR-06 addresses
-the screenshot row batch.
+Known follow-up: IR-06 closed screenshot batching; IR-09 records bounded-call
+provenance. No task-specific follow-up remains.
 
 ## IR-06 — Screenshot selective bounded batch
 
@@ -250,7 +251,7 @@ I pass (only questioned rows appear in provenance); J pass; K pass (`git diff
 --check`). Full document package and `go vet ./internal/document` pass against
 disposable PostgreSQL 17, with Go capped at 1 CPU/1 GiB and PostgreSQL at 0.5
 CPU/512 MiB.
-Known follow-up: IR-09 consumes bounded-call provenance.
+Known follow-up: IR-09 telemetry consumes bounded-call provenance.
 
 ## IR-10 — Regression, canary, and rollout hardening
 
@@ -305,6 +306,14 @@ reviews and performs zero Jev calls. Eight source regression tests, including
 both new switch-off cases, pass against disposable PostgreSQL 17; the full worker
 document package passes.
 
+IR-10 completion record: the regression matrix above is covered by the merged
+worker/API suites, and `TestRealLiteRouterSystemOneSmoke` is now the opt-in
+residual-category semantic canary (synthetic receipt evidence, category question
+only, no canonical write). It is not part of CI and still needs an approved
+LiteRouter credential/network run before a future Jev/gateway promotion. Code and
+docs merged in PR #157 (merge commit `e0e655eac4ba4d55b1262e12c10125b77fb3b8ae`);
+main CI passed and Release Images published immutable `sha-e0e655e…` images.
+
 IR-10 follow-up completion record:
 Task: IR-10 rollout-switch scope
 Baseline main SHA: `fb23a97c153f2a18ab5da04eef3179225d0de2c9`
@@ -336,7 +345,7 @@ pass (exact category residual retained); G pass (no model failure used as
 approval); H receipt/screenshot pass; I pass (existing phase telemetry records
 only executed calls); J pass (canonical and call counts pinned); K pass (runbook
 and task ledger updated; `git diff --check`).
-Known follow-up: merged in PR #154 (merge commit
+Known follow-up: none. Merged in PR #154 (merge commit
 `c91e30dc9119f4c04ff98e8d1f19b98f121fd7d0`); main CI, CodeQL, and Release
 Images published immutable `sha-c91e30d` images. Deployment not requested.
 
@@ -387,8 +396,8 @@ source unchanged); I pass (migration 65 is telemetry-only, forward and down);
 J pass (no canonical write added; `go test`/`go vet` on affected API and worker
 packages against disposable PostgreSQL); K pass (schema reference updated;
 `git diff --check` clean).
-Known follow-up: IR-10 regression/canary/rollout hardening; no IR-09 production
-deployment until the sprint release/approval flow.
+Known follow-up: none for IR-09 implementation. IR-10 hardening merged; no IR-09
+production deployment until the sprint release/approval flow.
 
 ## IR-08 — Payslip residual policy separation
 
@@ -443,7 +452,7 @@ policy remains explicit); I pass (migration maps `payDate` to RHICE
 `transaction_at`, combined choice counted once); J pass (canonical state,
 RHICE count, one vision/zero Jev asserted); K pass (migration 64 is telemetry
 only; no unrelated source/UI scope; schema reference updated; `git diff --check`).
-Known follow-up: IR-09 consumes phase telemetry; no IR-08 production deployment
+Known follow-up: phase telemetry closed in IR-09; no IR-08 production deployment
 until the sprint release/approval flow.
 
 ## IR-07 — Bank Email merchant-less category resolution
@@ -474,4 +483,4 @@ D pass (no threshold relaxed, kill switch preserved); E pass (no merchant
 fabricated); F pass; G pass (provider failure and absent evidence keep review);
 H pass; I pass (bounded call carries policy version); J pass (canonical IDs and
 NULL merchant asserted); K pass (`git diff --check`).
-Known follow-up: IR-09 consumes bounded-call provenance.
+Known follow-up: IR-09 telemetry consumes bounded-call provenance.
