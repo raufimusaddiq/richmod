@@ -461,6 +461,11 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 	return p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 }
 
+// duplicateIntentMarkup is the initial duplicate prompt: the exact candidate list is offered when the user opens the review, so creation only needs the two terminal intents.
+func duplicateIntentMarkup() *InlineKeyboardMarkup {
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Catat sebagai baru", CallbackData: "review:dup:new"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
+}
+
 func reviewDetailMarkup() *InlineKeyboardMarkup {
 	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
 	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
@@ -1547,16 +1552,19 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 			return err
 		}
 	}
-	state, reviewMessage, markupMode := reviewInitialState(reviewType, message)
+	state, reviewMessage, markupMode := renderReviewPresentation(decision, reviewType, message)
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
 		return err
 	}
 	var markup *InlineKeyboardMarkup
-	if markupMode == "category" {
+	switch markupMode {
+	case "category":
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
-	} else if markupMode == "reply" {
+	case "reply":
 		markup = requiredFieldReplyMarkup()
-	} else {
+	case "duplicate":
+		markup = duplicateIntentMarkup()
+	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
 	rows, err := tx.Query(ctx, `SELECT ti.telegram_user_id
@@ -1591,21 +1599,6 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 		}
 	}
 	return nil
-}
-
-// reviewInitialState asks for the unresolved category; merchant is optional
-// enrichment and must never block confirmation.
-func reviewInitialState(reviewType, message string) (state, reviewMessage, markupMode string) {
-	switch reviewType {
-	case "UNKNOWN_MERCHANT":
-		return "AWAITING_CATEGORY", message, "category"
-	case "UNKNOWN_PURPOSE":
-		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Perlu detail transaksi", message, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "reply"
-	case "POSSIBLE_DUPLICATE":
-		return "AWAITING_DETAIL", "Transaksi ini mungkin duplikat. Selesaikan melalui Review Inbox untuk memilih gabung atau abaikan.", "reply"
-	default:
-		return "AWAITING_CATEGORY", message, "category"
-	}
 }
 
 func requiredFieldReplyMarkup() *InlineKeyboardMarkup {

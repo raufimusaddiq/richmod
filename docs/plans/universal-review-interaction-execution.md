@@ -77,9 +77,21 @@ already-resolved-entity rules are channel-neutral and ready for the UIR-07
 Telegram surface (which has no financial-email handler today). That closes the
 UIR-01 operation families.
 
-The remaining channel gaps are rendering and subject-parity work: UIR-03
-renderer, UIR-04 transaction residual parity, UIR-06 payslip/source/document
-parity, and UIR-07 financial-email/Wealth/cycle Telegram surfaces. UIR-08
+The eleventh slice starts UIR-03: a ReviewDecision-driven Telegram renderer
+(apps/worker/internal/telegram/review_render.go). EnqueueReviewRequest now
+renders the stored decision instead of branching on review_type, so the
+unresolved fact selects the prompt and the allowed actions select the markup:
+a category-only decision gets the bounded chooser, a date/policy/correction
+decision gets a bound reply, and a duplicate decision gets the duplicate
+intents. A decision-less review fails closed to a bound detail prompt instead
+of the old default category chooser. A contract test enumerates every
+producible review type and fails if a review can render as a category chooser
+without a category-only decision.
+
+The remaining channel gaps are subject-parity work: the rest of UIR-03
+action parity, UIR-04 transaction residual parity, UIR-06
+payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle
+Telegram surfaces. UIR-08
 through UIR-10 cover synchronization, telemetry, and the regression matrix.
 
 ## Source contracts
