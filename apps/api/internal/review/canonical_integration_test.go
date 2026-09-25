@@ -520,3 +520,39 @@ func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
 		t.Fatalf("transaction=%s proposalDate=%q", txStatus, proposalDate)
 	}
 }
+
+// Malformed account identifiers are user input: the shared resolver keeps them
+// a 400 like the previous inline handler, never a 500 server error.
+func TestResolveFinancialEmailMalformedAccountIsClientError(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var source, observation, review string
+	external := fmt.Sprintf("financial-malformed-%d", stamp)
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, external, []byte(external)).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, household, source).Scan(&observation))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, household, observation).Scan(&review))
+	body := `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"accountId":"not-a-uuid","wealthAccountId":"also-bad"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
+	req.SetPathValue("id", review)
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	res := httptest.NewRecorder()
+	NewHandler(pool).Resolve(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("malformed account status=%d body=%s", res.Code, res.Body.String())
+	}
+}

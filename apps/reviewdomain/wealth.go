@@ -42,7 +42,7 @@ func ValidateWealthAccount(ctx context.Context, tx pgx.Tx, householdID, wealthAc
 	}
 	var valid bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wealth_account WHERE id=$1 AND household_id=$2 AND active)`, wealthAccountID, householdID).Scan(&valid); err != nil {
-		return err
+		return invalidEntityIDError(err, ErrWealthAccountInvalid)
 	}
 	if !valid {
 		return ErrWealthAccountInvalid

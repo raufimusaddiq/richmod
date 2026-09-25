@@ -14,6 +14,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // FinancialEmailCommand carries one entity resolution for a financial email
@@ -96,7 +98,7 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	if accountID != "" {
 		var valid bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, accountID, cmd.HouseholdID).Scan(&valid); err != nil {
-			return result, err
+			return result, invalidEntityIDError(err, ErrAccountInvalid)
 		}
 		if !valid {
 			return result, ErrAccountInvalid
@@ -135,6 +137,17 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	result.ObservationID = observationID
 	result.AccountID, result.WealthAccountID, result.Values = accountID, wealthAccountID, payload
 	return result, nil
+}
+
+// invalidEntityIDError keeps malformed identifier input a client error: an
+// unparseable UUID reaches Postgres as a 22P02 syntax error, so callers map it
+// to 400 rather than reporting bad input as a server error.
+func invalidEntityIDError(err, invalid error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "22P02" {
+		return invalid
+	}
+	return err
 }
 
 // LearnEntityAlias records the alias a user supplied for an entity, refusing to
