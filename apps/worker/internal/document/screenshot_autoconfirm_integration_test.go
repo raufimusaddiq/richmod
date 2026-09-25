@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 type screenshotFixture struct {
@@ -118,6 +119,32 @@ func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	}
 	if confirmed != 0 || needsReview != 1 {
 		t.Fatalf("the screenshot switch off must park the clear row: confirmed=%d needs_review=%d", confirmed, needsReview)
+	}
+}
+
+// PRD §17: disabling screenshot auto-confirm also skips its selective rescue,
+// keeping the residual category in review rather than spending Jev.
+func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testing.T) {
+	fixture := seedScreenshotFixture(t, "Screenshot kill switch residual")
+	ctx := context.Background()
+	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor(fixture.categorySlug, .95)}}
+	processor := &Processor{pool: fixture.pool, verifier: verifier}
+	processor.SetRowAutoConfirm(false)
+	rows := []validatedScreenshotRow{unmatchedOutRow("25000")}
+	decided, provenance, err := processor.resolveScreenshotResidualCategories(ctx, fixture.sourceID, rows, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: fixture.secondCategoryID, Slug: fixture.secondCategorySlug}})
+	if err != nil || verifier.calls != 0 || len(decided) != 0 {
+		t.Fatalf("disabled screenshot rollout must skip Jev: calls=%d decided=%v err=%v", verifier.calls, decided, err)
+	}
+	if err := processor.persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", provenance, rows); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	var missingFacts []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,ARRAY(SELECT jsonb_array_elements_text(r.decision->'missingFacts')) FROM transaction t JOIN review_item r ON r.transaction_id=t.id WHERE t.household_id=$1`, fixture.householdID).Scan(&status, &missingFacts); err != nil {
+		t.Fatal(err)
+	}
+	if status != "NEEDS_REVIEW" || len(missingFacts) != 1 || missingFacts[0] != "category" {
+		t.Fatalf("disabled rollout must preserve category-only review: status=%s missing=%v", status, missingFacts)
 	}
 }
 

@@ -164,7 +164,8 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	}
 	// One bounded request rules on every unmatched OUT row's category (PRD §11.3)
 	// so an unmatched row means "new transaction", not "ambiguous transaction".
-	decided, provenance, err := p.resolveRowCategories(ctx, sourceID, rows, categories)
+	// The screenshot kill-switch also disables this residual batch.
+	decided, provenance, err := p.resolveScreenshotResidualCategories(ctx, sourceID, rows, categories)
 	if err != nil {
 		return err
 	}
@@ -179,6 +180,13 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		rows[index].CategoryID, rows[index].CategoryDecided = &id, true
 	}
 	return p.persistScreenshot(ctx, documentID, householdID, sourceID, documentType, result, metadata.Model, provenance, rows)
+}
+
+func (p *Processor) resolveScreenshotResidualCategories(ctx context.Context, sourceID string, rows []validatedScreenshotRow, categories []categoryOption) (map[int]string, rowChoiceProvenance, error) {
+	if p.rowAutoConfirmOff {
+		return nil, rowChoiceProvenance{PolicyVersion: ScreenshotRowCategoryPolicyVersion}, nil
+	}
+	return p.resolveRowCategories(ctx, sourceID, rows, categories)
 }
 
 func screenshotType(value string) bool {
