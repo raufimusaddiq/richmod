@@ -473,3 +473,50 @@ func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 		t.Fatalf("review=%s transaction=%s", status, txStatus)
 	}
 }
+
+// A plain confirm with no user-supplied date passes a nil *time.Time into the
+// shared command's `any` field. As a non-nil interface it used to slip past the
+// domain guard and write NULL into the NOT NULL transaction_proposal.transaction_at,
+// returning 500. The confirm must succeed untouched when no date was supplied.
+func TestConfirmWithoutSuppliedDateWaitsForProposalDate(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	household, user, category := seedTransferReviewOwner(t, pool, stamp)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var source, proposal, transaction, reviewItem string
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("confirm-date-%d", stamp), []byte(fmt.Sprintf("confirm-date-%d", stamp))).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,transaction_at,merchant_raw,confidence,proposal_status) VALUES($1,$2,'EXPENSE',33500,now(),'TINS MART',.98,'NEEDS_REVIEW') RETURNING id`, household, source).Scan(&proposal))
+	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description) VALUES($1,'EXPENSE','NEEDS_REVIEW',33500,now(),'Pembayaran ke TINS MART') RETURNING id`, household).Scan(&transaction))
+	_, evErr := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'BANK_EMAIL',jsonb_build_object('proposal_id',$3::uuid))`, transaction, source, proposal)
+	must(evErr)
+	decision := `{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"],"decisionSource":"GENERATIVE_PLUS_JEV"}`
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','PENDING_SEND',$3::jsonb) RETURNING id`, household, transaction, decision).Scan(&reviewItem))
+
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transaction+"/confirm", bytes.NewBufferString(`{"categoryId":"`+category+`"}`))
+	r.SetPathValue("id", transaction)
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	w := httptest.NewRecorder()
+	NewHandler(pool).Confirm(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("confirm=%d %s", w.Code, w.Body.String())
+	}
+	var txStatus, proposalDate string
+	must(pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, transaction).Scan(&txStatus))
+	must(pool.QueryRow(ctx, `SELECT transaction_at::text FROM transaction_proposal WHERE id=$1`, proposal).Scan(&proposalDate))
+	if txStatus != "CONFIRMED" || proposalDate == "" {
+		t.Fatalf("transaction=%s proposalDate=%q", txStatus, proposalDate)
+	}
+}
