@@ -91,18 +91,24 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	var chats []int64
 	for rows.Next() {
 		var chat int64
 		if err = rows.Scan(&chat); err != nil {
+			rows.Close()
 			return err
 		}
+		chats = append(chats, chat)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, chat := range chats {
 		if _, err = tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2)`, requestID, chat); err != nil {
 			return err
 		}
-	}
-	if err = rows.Err(); err != nil {
-		return err
 	}
 	return tx.Commit(ctx)
 }
