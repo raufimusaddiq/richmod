@@ -2,6 +2,10 @@ module github.com/raufimusaddiq/richmod/apps/worker
 
 go 1.27.0
 
+require github.com/raufimusaddiq/richmod/apps/reviewdomain v0.0.0
+
+replace github.com/raufimusaddiq/richmod/apps/reviewdomain => ../reviewdomain
+
 require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/minio/minio-go/v7 v7.3.0

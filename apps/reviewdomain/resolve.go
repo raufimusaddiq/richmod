@@ -1,0 +1,162 @@
+// Package reviewdomain holds the canonical, channel-neutral review resolution
+// operations for Richmod (ADR-046). Web and Telegram adapters call these
+// functions inside their own transaction; no surface owns financial mutation
+// policy for a review transition.
+package reviewdomain
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// ErrAlreadyResolved reports a resolution attempt against a review that is no
+// longer open. Callers surface a deterministic stale/resolved response.
+var ErrAlreadyResolved = errors.New("reviewdomain: review already resolved")
+
+const resolveRequestSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
+		WHERE (review_item_id=ANY($1::uuid[]) OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
+
+// resolveRequestByItemSQL resolves only the request(s) bound to the exact
+// review item. The Telegram exact-binding path must never close sibling reviews
+// that merely share the same transaction.
+const resolveRequestByItemSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
+		WHERE review_item_id=ANY($1::uuid[]) AND status IN ('PENDING_SEND','OPEN')`
+
+// resolveTransactionSQL resolves every open canonical item for one transaction
+// in a single statement, preserving the prior all-item API behavior.
+const resolveTransactionSQL = `UPDATE review_item
+		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action=$4,
+		    resolution_values=$5::jsonb,updated_at=now()
+		WHERE household_id=$1 AND transaction_id=$2 AND status IN ('PENDING_SEND','OPEN')
+		RETURNING id`
+
+const resolveByIDSQL = `UPDATE review_item
+		SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,
+		    resolution_values=$4::jsonb,updated_at=now()
+		WHERE id=$1 AND household_id=$5 AND status IN ('PENDING_SEND','OPEN')`
+
+// Command is a channel-neutral resolution request. Surface, callback, and reply
+// binding stay in the adapters; this type carries only canonical inputs.
+type Command struct {
+	HouseholdID  string
+	ActorUserID  string
+	ReviewItemID string
+	// RequestID is the exact Telegram projection identity for bound resolution.
+	RequestID string
+	// SubjectID is the review subject identity (a transaction ID for the
+	// transaction operation family).
+	SubjectID string
+	Action    string
+	// Values carries the canonical residual values recorded with the resolution.
+	Values []byte
+}
+
+// ResolveByTransaction completes every open review_item bound to one transaction
+// and household. It takes the canonical lock, verifies the review is still
+// active, records the human actor/action/values, and resolves the Telegram
+// projection in the same transaction.
+//
+// Financial fact validation and the review-family mutation stay with the caller
+// until each family is migrated; this function owns the terminal review
+// transition, which previously existed twice (API and Telegram).
+func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
+	values := cmd.Values
+	if len(values) == 0 {
+		var err error
+		values, err = json.Marshal(map[string]string{"transaction_id": cmd.SubjectID})
+		if err != nil {
+			return err
+		}
+	}
+	rows, err := tx.Query(ctx, resolveTransactionSQL, cmd.HouseholdID, cmd.SubjectID, cmd.ActorUserID, cmd.Action, string(values))
+	if err != nil {
+		return err
+	}
+	var reviewItemIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		reviewItemIDs = append(reviewItemIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(reviewItemIDs) == 0 {
+		// Older transaction review flows may predate review_item. Preserve their
+		// projection completion while new canonical producers always create one.
+		_, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now()
+			WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.SubjectID)
+		return err
+	}
+	_, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID)
+	return err
+}
+
+// ResolveByID completes one exact review item after locking and validating its
+// household, subject, and active status. Telegram uses this to preserve stored
+// message/request binding; the caller must authenticate actorUserID first.
+func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
+	values := cmd.Values
+	if len(values) == 0 {
+		var err error
+		values, err = json.Marshal(map[string]string{"transaction_id": cmd.SubjectID})
+		if err != nil {
+			return err
+		}
+	}
+	// Legacy projections may predate universal review_item: the request carries
+	// only a transaction link. Complete that projection directly in that case.
+	itemID := cmd.ReviewItemID
+	if itemID == "" {
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(review_item_id::text,'') FROM review_request
+			WHERE id=$1 AND household_id=$2`, cmd.RequestID, cmd.HouseholdID).Scan(&itemID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrAlreadyResolved
+			}
+			return err
+		}
+		if itemID == "" {
+			result, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now()
+				WHERE id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN')`, cmd.RequestID, cmd.HouseholdID)
+			if err != nil {
+				return err
+			}
+			if result.RowsAffected() != 1 {
+				return ErrAlreadyResolved
+			}
+			return nil
+		}
+	}
+	var subjectID string
+	err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,'') FROM review_item
+		WHERE id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN') FOR UPDATE`, itemID, cmd.HouseholdID).Scan(&subjectID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAlreadyResolved
+	}
+	if err != nil {
+		return err
+	}
+	if cmd.SubjectID != "" && subjectID != cmd.SubjectID {
+		return errors.New("reviewdomain: subject binding mismatch")
+	}
+	if subjectID == "" {
+		return errors.New("reviewdomain: transaction subject required")
+	}
+	result, err := tx.Exec(ctx, resolveByIDSQL, itemID, cmd.ActorUserID, cmd.Action, string(values), cmd.HouseholdID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrAlreadyResolved
+	}
+	_, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{itemID})
+	return err
+}

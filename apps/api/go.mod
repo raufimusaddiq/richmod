@@ -2,6 +2,10 @@ module github.com/raufimusaddiq/richmod/apps/api
 
 go 1.27.0
 
+require github.com/raufimusaddiq/richmod/apps/reviewdomain v0.0.0
+
+replace github.com/raufimusaddiq/richmod/apps/reviewdomain => ../reviewdomain
+
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
