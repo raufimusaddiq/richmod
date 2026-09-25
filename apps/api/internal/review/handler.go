@@ -565,37 +565,14 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	id := r.PathValue("id")
-	if err := reviewdomain.ValidateTransactionReview(r.Context(), tx, household, id); err != nil {
+	if err := reviewdomain.RejectTransactionReview(r.Context(), tx, reviewdomain.RejectCommand{
+		HouseholdID: household, ActorUserID: p.UserID, TransactionID: id, Action: "REJECT_REVIEW",
+	}); err != nil {
 		if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
 			writeJSON(w, 404, map[string]string{"error": "review not found"})
 			return
 		}
 		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
-		return
-	}
-	result, err := tx.Exec(r.Context(), `UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'`, id, household)
-	if err != nil || result.RowsAffected() != 1 {
-		writeJSON(w, 404, map[string]string{"error": "review not found"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to reject review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='CANCELLED' WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1 AND status='CANCELLED')`, id); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to cancel Telegram review"})
-		return
-	}
-	if err := resolveTransactionReviewItem(r.Context(), tx, household, p.UserID, id, "REJECT_REVIEW"); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to resolve canonical review"})
 		return
 	}
 	if err := audit(r.Context(), tx, household, p.UserID, "REJECT_REVIEW", id, nil); err != nil || tx.Commit(r.Context()) != nil {
