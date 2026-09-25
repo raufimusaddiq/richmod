@@ -77,13 +77,17 @@ Residual uncertainty after: remains in review until all canonical-required
 stored residual facts are supplied.
 Tests added/updated: API blocker tests, Telegram residual/date tests, web source
 test; API review, Telegram, document/reviewdec packages and 59 frontend tests
-pass (Go runs capped at 1 CPU / 1 GiB).
+pass (Go runs capped at 1 CPU / 1 GiB). The added
+`TestConfirmRefusesPartialCompoundResidualUntilAllSupplied` exercises the API
+handler against PostgreSQL: category-only supply returns 409 naming only
+`transaction_at` and leaves the transaction in review; supplying category and
+date confirms the same canonical transaction and resolves the review.
 Drift checklist: A pass; B pass (same existing calls/order); C pass; D pass; E
 pass; F pass; G pass; H Telegram/receipt/screenshot/bank/payslip behavior not
 otherwise changed; I unchanged; J pass; K pass.
-Known follow-up: run database-backed canonical/legacy confirm integration tests
-with `TEST_DATABASE_URL`; extend guard to other canonical confirm actions only
-if their decision contract identifies required residuals.
+Known follow-up: none for the current API and Telegram confirmation surfaces;
+re-audit any newly added canonical confirmer against the stored residual
+contract.
 
 IR-02 follow-up: the conversational Telegram agent confirmation path now uses
 the same stored residual guard; blocked confirms return the exact missing facts
@@ -91,7 +95,10 @@ instead of a generic turn failure. A supplied date is strict `YYYY-MM-DD` and
 is persisted to the transaction and proposal. If merchant learning attempts an
 auto-confirm while another residual remains, the saved detail is committed and
 the review stays open. Database-backed Telegram package tests pass against
-disposable PostgreSQL 17 (1 CPU / 1 GiB).
+disposable PostgreSQL 17 (1 CPU / 1 GiB). API compound-residual integration
+test and all migrations through 65 pass against disposable PostgreSQL 17; the
+test asserts zero model calls by exercising the deterministic confirmation API
+directly. Current `main` CI also passes the complete API/worker suites and vet.
 
 ## IR-03 — RHICE measurement correctness
 
