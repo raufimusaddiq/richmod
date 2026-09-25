@@ -1564,6 +1564,8 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 		markup = requiredFieldReplyMarkup()
 	case "duplicate":
 		markup = duplicateIntentMarkup()
+	case "transfer":
+		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}

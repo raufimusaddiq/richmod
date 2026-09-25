@@ -54,3 +54,23 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 		}
 	}
 }
+
+// markupModesHandledAtCreation mirrors the switch in EnqueueReviewRequest. Every
+// mode the renderer can emit must have a case there, or the review silently falls
+// back to the generic Ubah detail/Abaikan keyboard.
+var markupModesHandledAtCreation = map[string]bool{
+	"category":  true,
+	"reply":     true,
+	"duplicate": true,
+	"transfer":  true,
+}
+
+func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
+	for _, reviewType := range producibleReviewTypes {
+		decision, _ := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000")
+		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
+		if !markupModesHandledAtCreation[mode] {
+			t.Fatalf("%s rendered mode %q with no creation markup case", reviewType, mode)
+		}
+	}
+}
