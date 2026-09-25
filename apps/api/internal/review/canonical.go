@@ -54,7 +54,11 @@ type transferReviewCandidate struct {
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
-	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.financial_email_observation_id IS NOT NULL THEN 'financial_email_observation' WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.financial_email_observation_id,ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',t.id,'type',t.type,'status',t.status,'amount',t.amount::text,'transactionAt',t.transaction_at,'description',t.description,'purpose',COALESCE(t.purpose,''),'wealthAccountId',COALESCE(t.related_wealth_account_id::text,'')) ORDER BY t.transaction_at,t.id) FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids)),'[]'::jsonb),ri.decision,ri.created_at FROM review_item ri LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND ri.transaction_id IS NULL ORDER BY ri.created_at DESC`, household)
+	// UIR-08: transaction-bound items are normally delivered over Telegram, so the
+	// web Inbox excludes them to avoid double work. Include the orphaned ones — a
+	// transaction-bound item whose transaction is already CONFIRMED (no live work)
+	// — so a stranded review still surfaces where it can be resolved.
+	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.transaction_id IS NOT NULL THEN 'transaction' WHEN ri.financial_email_observation_id IS NOT NULL THEN 'financial_email_observation' WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.transaction_id,ri.financial_email_observation_id,ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',tx.description,CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' WHEN tx.id IS NOT NULL THEN 'Transaksi perlu ditinjau' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,tx.amount::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',t.id,'type',t.type,'status',t.status,'amount',t.amount::text,'transactionAt',t.transaction_at,'description',t.description,'purpose',COALESCE(t.purpose,''),'wealthAccountId',COALESCE(t.related_wealth_account_id::text,'')) ORDER BY t.transaction_at,t.id) FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids)),'[]'::jsonb),ri.decision,ri.created_at FROM review_item ri LEFT JOIN transaction tx ON tx.id=ri.transaction_id LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON (ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND (ri.transaction_id IS NULL OR (tx.status <> 'NEEDS_REVIEW' AND NOT EXISTS (SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN')))) ORDER BY ri.created_at DESC`, household)
 	if err != nil {
 		return nil, err
 	}
@@ -305,6 +309,32 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if transaction != nil {
+		// UIR-08: an orphaned transaction-bound item — one whose transaction is no
+		// longer awaiting review — has no remaining financial work. Acknowledge it
+		// (IGNORE) so it stops surfacing without touching the confirmed transaction.
+		if in.Action == "IGNORE" {
+			var txStatus string
+			if err = tx.QueryRow(r.Context(), `SELECT status FROM transaction WHERE id=$1 AND household_id=$2`, *transaction, household).Scan(&txStatus); err != nil {
+				writeJSON(w, 404, map[string]string{"error": "review subject not found"})
+				return
+			}
+			if txStatus == "NEEDS_REVIEW" {
+				writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
+				return
+			}
+			if _, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('reason','transaction_already_final'),updated_at=now() WHERE id=$1 AND household_id=$3 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"), p.UserID, household); err == nil {
+				_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
+			}
+			if err == nil {
+				err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": in.Action, "reason": "transaction_already_final"})
+			}
+			if err != nil || tx.Commit(r.Context()) != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to finalize review"})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
 		return
 	}

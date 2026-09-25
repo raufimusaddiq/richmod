@@ -405,3 +405,71 @@ func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
 		t.Fatalf("source=%s review=%s resolution=%s", sourceStatus, reviewStatus, resolution)
 	}
 }
+
+// UIR-08: a transaction-bound review item stranded after its transaction was
+// already finalized must surface in the Inbox (previously hidden by the
+// transaction_id IS NULL filter) and be dismissible without touching the
+// confirmed transaction.
+func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	household, user, category := seedTransferReviewOwner(t, pool, stamp)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var transaction, review string
+	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,category_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',2500000,now(),$2,now()) RETURNING id`, household, category).Scan(&transaction))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','PENDING_SEND') RETURNING id`, household, transaction).Scan(&review))
+	must(func() error {
+		_, e := pool.Exec(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,resolved_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','RESOLVED',now())`, household, review, transaction)
+		return e
+	}())
+
+	list := httptest.NewRecorder()
+	lr := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
+	lr = lr.WithContext(auth.ContextWithPrincipal(lr.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	NewHandler(pool).List(list, lr)
+	if list.Code != http.StatusOK {
+		t.Fatalf("list=%d %s", list.Code, list.Body.String())
+	}
+	var items []map[string]any
+	must(json.Unmarshal(list.Body.Bytes(), &items))
+	found := false
+	for _, item := range items {
+		if item["id"] == review {
+			found = true
+			if item["subjectType"] != "transaction" {
+				t.Fatalf("subjectType=%v; want transaction", item["subjectType"])
+			}
+		}
+	}
+	if !found {
+		t.Fatal("orphaned transaction-bound item missing from Inbox list")
+	}
+
+	resolve := httptest.NewRecorder()
+	rr := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(`{"action":"IGNORE"}`))
+	rr.SetPathValue("id", review)
+	rr = rr.WithContext(auth.ContextWithPrincipal(rr.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	NewHandler(pool).Resolve(resolve, rr)
+	if resolve.Code != http.StatusNoContent {
+		t.Fatalf("resolve=%d %s", resolve.Code, resolve.Body.String())
+	}
+	var status, txStatus string
+	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, review).Scan(&status))
+	must(pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, transaction).Scan(&txStatus))
+	if status != "RESOLVED" || txStatus != "CONFIRMED" {
+		t.Fatalf("review=%s transaction=%s", status, txStatus)
+	}
+}

@@ -226,7 +226,7 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 	_ = p.pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, review.reviewID).Scan(&conversationState)
 	result.Status = "RESOLVED"
 	result.Mutation = map[string]any{"action": "REVIEW_CONFIRMED", "review_type": review.reviewType}
-	if conversationState == "AWAITING_CONFIRMATION" {
+	if conversationState == "AWAITING_MERCHANT_DECISION" {
 		result.Status = "AWAITING_MERCHANT_DECISION"
 		result.Review = map[string]any{"required": true, "review_type": review.reviewType, "merchant_learning": true}
 	}
@@ -288,7 +288,14 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	}
 	askRemember := merchantID != nil && categoryID != ""
 	if askRemember {
-		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CONFIRMATION',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID, categoryID); err != nil {
+		// The review item completes now, not on the optional merchant answer: a
+		// follow-up question the user may never send must not strand the review
+		// (UIR-08). AWAITING_MERCHANT_DECISION marks the pending question without
+		// depending on review_request.status staying OPEN.
+		if err := resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_MERCHANT_DECISION',context_json=context_json||jsonb_build_object('category_id',NULLIF($2,'')::uuid),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID, categoryID); err != nil {
 			return err
 		}
 	} else {

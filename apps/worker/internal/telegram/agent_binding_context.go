@@ -199,7 +199,7 @@ func (p *Processor) loadAgentMerchantLearningBinding(ctx context.Context, househ
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		LEFT JOIN merchant m ON m.id=t.merchant_id
 		LEFT JOIN category cat ON cat.id=t.category_id
-		WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION'
+		WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION'
 		  AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2`
 	params := []any{householdID, update.Message.Chat.ID}
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {

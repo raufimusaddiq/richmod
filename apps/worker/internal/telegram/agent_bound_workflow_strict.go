@@ -107,7 +107,7 @@ func (p *Processor) agentResolveBoundMerchantLearningStrict(ctx context.Context,
 		JOIN transaction t ON t.id=r.transaction_id
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		WHERE r.id=$1 AND r.household_id=$2 AND r.transaction_id=$3
-		  AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED'
+		  AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED'
 		  AND rr.telegram_chat_id=$4 AND ($5::bigint=0 OR rr.telegram_message_id=$5)
 		FOR UPDATE OF r,c,t,rr`, binding.ReviewRequestID, state.HouseholdID, binding.TransactionID, state.Update.Message.Chat.ID, binding.TelegramMessageID).Scan(&lockedReview)
 	if errors.Is(err, pgx.ErrNoRows) {

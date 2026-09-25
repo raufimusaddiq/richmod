@@ -333,7 +333,7 @@ func (p *Processor) agentResolveMerchantLearning(ctx context.Context, state *age
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	remember, _ := args["remember"].(bool)
 	var reviewID, transactionID string
-	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND c.state='AWAITING_CONFIRMATION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 1`, state.HouseholdID, state.Update.Message.Chat.ID).Scan(&reviewID, &transactionID)
+	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 1`, state.HouseholdID, state.Update.Message.Chat.ID).Scan(&reviewID, &transactionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		result.Status = "NO_MERCHANT_LEARNING_PENDING"
 		return result, true, nil
