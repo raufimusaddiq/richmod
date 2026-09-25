@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -267,13 +268,14 @@ func (p *Processor) agentResolveBoundWealthObservation(ctx context.Context, stat
 			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
 			return result, true, nil
 		}
-		updated, err := tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='PENDING'`, binding.TargetID, id, state.HouseholdID)
-		if err != nil {
-			return result, true, err
-		}
-		if updated.RowsAffected() != 1 {
+		// ADR-046: the observation mutation and review-learned alias are shared.
+		err = reviewdomain.ResolveWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: state.HouseholdID, ObservationID: binding.TargetID, WealthAccountID: id})
+		if errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 			result.Status = "STALE_REVIEW_BINDING"
 			return result, true, nil
+		}
+		if err != nil {
+			return result, true, err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
 			return result, true, err
@@ -304,13 +306,15 @@ func (p *Processor) agentResolveBoundWealthObservation(ctx context.Context, stat
 		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 			return result, true, err
 		}
-		updated, err := tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='PENDING'`, binding.TargetID, state.HouseholdID)
-		if err != nil {
-			return result, true, err
-		}
-		if updated.RowsAffected() != 1 {
+		// ADR-046: dismissing the observation and ignoring its linked email
+		// observation are shared with the Review Inbox IGNORE action.
+		err = reviewdomain.DismissWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: state.HouseholdID, ObservationID: binding.TargetID, IgnoreFinancialEmail: true})
+		if errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 			result.Status = "STALE_REVIEW_BINDING"
 			return result, true, nil
+		}
+		if err != nil {
+			return result, true, err
 		}
 		if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "IGNORED"); err != nil {
 			return result, true, err
@@ -400,15 +404,18 @@ func (p *Processor) agentResolveBoundWealthAssetPurchase(ctx context.Context, st
 			return result, true, err
 		}
 	}
-	updated, err := tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='PENDING'`, binding.TargetID, state.HouseholdID)
-	if err != nil {
-		return result, true, err
-	}
-	if updated.RowsAffected() != 1 {
+	// ADR-046: the observation dismissal and evidence reclassification are shared.
+	// The evidence became a transaction, so the linked email observation is not
+	// marked ignored.
+	err = reviewdomain.DismissWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: state.HouseholdID, ObservationID: binding.TargetID})
+	if errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
 	}
-	if _, err = tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`, binding.TargetID); err != nil {
+	if err != nil {
+		return result, true, err
+	}
+	if err = reviewdomain.ReclassifyWealthEvidence(ctx, tx, binding.TargetID); err != nil {
 		return result, true, err
 	}
 	if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "RECLASSIFIED_ASSET_PURCHASE"); err != nil {

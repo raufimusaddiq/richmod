@@ -2,12 +2,14 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -192,15 +194,16 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 		}
 	}
 
-	updatedObservation, err := tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='PENDING'`, binding.TargetID, state.HouseholdID)
-	if err != nil {
-		return result, true, err
-	}
-	if updatedObservation.RowsAffected() != 1 {
+	// ADR-046: the observation dismissal and evidence reclassification are shared.
+	err = reviewdomain.DismissWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: state.HouseholdID, ObservationID: binding.TargetID})
+	if errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
 	}
-	if _, err = tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`, binding.TargetID); err != nil {
+	if err != nil {
+		return result, true, err
+	}
+	if err = reviewdomain.ReclassifyWealthEvidence(ctx, tx, binding.TargetID); err != nil {
 		return result, true, err
 	}
 	if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "RECLASSIFIED_ASSET_PURCHASE"); err != nil {

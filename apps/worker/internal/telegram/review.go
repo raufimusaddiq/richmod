@@ -1039,8 +1039,9 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		if resolveErr != nil {
 			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Wealth Account harus cocok tepat satu.")
 		}
-		if _, txErr = tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND status='PENDING'`, observationID, id); txErr != nil {
-			return true, txErr
+		// ADR-046: the observation mutation and review-learned alias are shared.
+		if txErr = reviewdomain.ResolveWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: householdID, ObservationID: observationID, WealthAccountID: id}); txErr != nil {
+			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Wealth Account tidak lagi tersedia. Pilih ulang rekeningnya.")
 		}
 		if _, txErr = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); txErr != nil {
 			return true, txErr
@@ -1093,10 +1094,11 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TELEGRAM_IMAGE',1,jsonb_build_object('reclassified_from','WEALTH_OBSERVATION','observation_id',$3::uuid)) ON CONFLICT DO NOTHING`, transactionID, originalSource, observationID); err != nil {
 			return true, err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE wealth_observation SET status='DISMISSED',updated_at=now() WHERE id=$1 AND status='PENDING'`, observationID); err != nil {
+		// ADR-046: the observation dismissal and evidence reclassification are shared.
+		if err = reviewdomain.DismissWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: householdID, ObservationID: observationID}); err != nil && !errors.Is(err, reviewdomain.ErrWealthObservationNotFound) {
 			return true, err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`, observationID); err != nil {
+		if err = reviewdomain.ReclassifyWealthEvidence(ctx, tx, observationID); err != nil {
 			return true, err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='RECLASSIFIED_ASSET_PURCHASE',updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observationID, userID); err != nil {
