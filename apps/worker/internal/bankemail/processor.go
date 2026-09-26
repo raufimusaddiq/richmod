@@ -79,9 +79,15 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		return fmt.Errorf("bank review id is required")
 	}
 	var household, listenerID, bank, sender, accountID string
+	var itemStatus string
 	var raw []byte
-	if err := p.pool.QueryRow(ctx, `SELECT s.household_id,l.id,l.bank_name,l.sender_address,COALESCE(l.account_id::text,''),e.output_json FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id WHERE ri.id=$1 AND ri.source_event_id=$2 AND ri.status IN ('OPEN','PENDING_SEND') FOR UPDATE`, payload.ReviewID, payload.SourceEventID).Scan(&household, &listenerID, &bank, &sender, &accountID, &raw); err != nil {
+	if err := p.pool.QueryRow(ctx, `SELECT s.household_id,l.id,l.bank_name,l.sender_address,COALESCE(l.account_id::text,''),e.output_json,ri.status FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id WHERE ri.id=$1 AND ri.source_event_id=$2 FOR UPDATE`, payload.ReviewID, payload.SourceEventID).Scan(&household, &listenerID, &bank, &sender, &accountID, &raw, &itemStatus); err != nil {
 		return err
+	}
+	if itemStatus != "OPEN" && itemStatus != "PENDING_SEND" {
+		// A Telegram confirmation may have completed the item first; treat the
+		// queued job as already satisfied instead of retrying forever.
+		return nil
 	}
 	var extraction Extraction
 	if err := json.Unmarshal(raw, &extraction); err != nil {
