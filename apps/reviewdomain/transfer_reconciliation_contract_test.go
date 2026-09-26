@@ -23,6 +23,22 @@ func TestReconcileTransferOwnsCaseMutation(t *testing.T) {
 	}
 }
 
+// TestTransferIgnoreBypassesTheCandidateCap pins the regression where a
+// financial-email case with more than ten candidates rejected every action,
+// including the IGNORE the Inbox offers as the only choice for that state.
+func TestTransferIgnoreBypassesTheCandidateCap(t *testing.T) {
+	source := sourceFile(t, "transfer_reconciliation.go")
+	capAt := strings.Index(source, "len(candidates) > 10")
+	commit := strings.Index(source, `if cmd.Action != "IGNORE" {`)
+	merge := strings.Index(source, `if cmd.Action == "MERGE_EXISTING" {`)
+	if capAt < 0 || commit < 0 || merge < 0 {
+		t.Fatal("candidate cap or action branch missing from shared reconciliation")
+	}
+	if capAt < commit || capAt > merge {
+		t.Fatal("the candidate cap must guard only the merge/create actions, so IGNORE stays available")
+	}
+}
+
 func TestTransferAdaptersDelegateReconciliation(t *testing.T) {
 	adapters := map[string]string{
 		"../api/internal/review/canonical.go":                       "reviewdomain.ReconcileTransfer",

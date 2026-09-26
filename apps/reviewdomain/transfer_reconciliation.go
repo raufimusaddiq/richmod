@@ -30,9 +30,6 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	if err != nil {
 		return "", err
 	}
-	if observationID != "" && len(candidates) > 10 {
-		return "", ErrTransferCaseUnavailable
-	}
 	if cmd.Action != "MERGE_EXISTING" && cmd.Action != "CONFIRM_NEW_TRANSFER" && cmd.Action != "IGNORE" {
 		return "", ErrTransferCaseUnavailable
 	}
@@ -42,6 +39,12 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	}
 	var id string
 	if cmd.Action != "IGNORE" {
+		// IGNORE stays available even when the observation carries too many
+		// candidates to choose from: the bounded chooser is unavailable, so
+		// dismissing is the only action the surfaces may offer.
+		if observationID != "" && len(candidates) > 10 {
+			return "", ErrTransferCaseUnavailable
+		}
 		var compatible bool
 		if err := tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, cmd.HouseholdID).Scan(&compatible); err != nil || !compatible {
 			return "", ErrTransferCaseUnavailable
@@ -75,9 +78,11 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			}
 		}
 	}
+	// resolution_action mirrors the action vocabulary the surfaces send, so a
+	// dismissed transfer and a dismissed financial email record the same value.
 	caseStatus, resolution, processing := "RESOLVED", cmd.Action, "PROCESSED"
 	if cmd.Action == "IGNORE" {
-		caseStatus, resolution, processing = "DISMISSED", "IGNORED", "IGNORED"
+		caseStatus, processing = "DISMISSED", "IGNORED"
 		if observationID != "" {
 			if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='REVIEW'`, observationID, cmd.HouseholdID); err != nil {
 				return "", err

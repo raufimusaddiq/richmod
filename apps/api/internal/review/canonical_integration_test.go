@@ -150,6 +150,63 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// UIRC-03: current producers write the canonical item with the transaction, so
+	// the Inbox must surface it without the transaction-only legacy fallback.
+	var transactionID, reviewItemID string
+	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,'EXPENSE','NEEDS_REVIEW',25000,now(),'Warung') RETURNING id`, household).Scan(&transactionID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, household, transactionID).Scan(&reviewItemID))
+
+	list := func() []struct {
+		ID string `json:"id"`
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
+		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		res := httptest.NewRecorder()
+		NewHandler(pool).List(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
+		}
+		var out []struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// The transaction-only fallback selects status='NEEDS_REVIEW'. Move the
+	// transaction out of that state while the canonical item stays open: if the
+	// item still lists, its authority is review_item, not the fallback.
+	must(pool.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',confirmed_at=now() WHERE id=$1 RETURNING id`, transactionID).Scan(&transactionID))
+	found := false
+	for _, value := range list() {
+		if value.ID == reviewItemID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("canonical item %s is missing from the Inbox once the transaction leaves NEEDS_REVIEW", reviewItemID)
+	}
+}
+
+func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	var source, attachment, documentID, wealthID, observationID, wealthReview string
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("observation-%d", stamp), []byte(fmt.Sprintf("observation-%d", stamp))).Scan(&source))
 	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, household, []byte(fmt.Sprintf("attachment-%d", stamp)), fmt.Sprintf("%s/observation.png", household)).Scan(&attachment))
