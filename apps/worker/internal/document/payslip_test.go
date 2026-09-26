@@ -49,7 +49,7 @@ func TestPayslipReviewSeparatesDateAndSalaryPolicy(t *testing.T) {
 	if !reflect.DeepEqual(dateOnly.MissingFacts, []string{"transaction_at"}) {
 		t.Fatalf("primary-known payslip missing facts=%v", dateOnly.MissingFacts)
 	}
-	if !reflect.DeepEqual(dateOnly.AllowedActions, []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}) {
+	if !reflect.DeepEqual(dateOnly.AllowedActions, []string{"SET_PAY_DATE", "IGNORE"}) {
 		t.Fatalf("date-only payslip resolution domain=%v", dateOnly.AllowedActions)
 	}
 
@@ -63,6 +63,9 @@ func TestPayslipReviewSeparatesDateAndSalaryPolicy(t *testing.T) {
 	firstSalaryAndDate = configurePayslipReviewDecision(firstSalaryAndDate, "MISSING_PAY_DATE", false)
 	if !reflect.DeepEqual(firstSalaryAndDate.MissingFacts, []string{"transaction_at", "salary_classification"}) {
 		t.Fatalf("first salary and date missing facts=%v", firstSalaryAndDate.MissingFacts)
+	}
+	if !reflect.DeepEqual(firstSalaryAndDate.AllowedActions, []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}) {
+		t.Fatalf("first-salary policy choices=%v", firstSalaryAndDate.AllowedActions)
 	}
 }
 

@@ -8,9 +8,8 @@ import (
 
 // Web and both Telegram confirm lanes must record salary through the shared
 // operation; no adapter may keep its own salary_source/salary_event mutation SQL.
-func TestSalaryRecordingIsSharedAcrossSurfaces(t *testing.T) {
+func TestTelegramConfirmLanesUseSharedSalaryRecording(t *testing.T) {
 	for _, path := range []string{
-		"../api/internal/review/canonical.go",
 		"../worker/internal/telegram/review.go",
 		"../worker/internal/telegram/agent_review_mutations.go",
 	} {
@@ -25,6 +24,20 @@ func TestSalaryRecordingIsSharedAcrossSurfaces(t *testing.T) {
 		if strings.Contains(text, "INSERT INTO salary_event") || strings.Contains(text, "INSERT INTO salary_source") {
 			t.Fatalf("%s still owns salary mutation SQL", path)
 		}
+	}
+}
+
+func TestWebPayslipResolutionUsesSharedProposalTransition(t *testing.T) {
+	source, err := os.ReadFile("../api/internal/review/canonical.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if !strings.Contains(text, "reviewdomain.ResolvePayslipProposal(") {
+		t.Fatal("Web payslip resolution bypasses the shared proposal transition")
+	}
+	if strings.Contains(text, "INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name") {
+		t.Fatal("Web still owns payslip proposal-to-transaction mutation SQL")
 	}
 }
 

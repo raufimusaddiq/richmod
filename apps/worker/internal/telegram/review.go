@@ -30,7 +30,8 @@ type reviewExtraction struct {
 	PayDate      string  `json:"pay_date"`
 }
 
-var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
+var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*)?(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
+var reviewLabeledPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*\d{1,2}\s+[a-z]+\s+\d{4}`)
 
 // reviewPayrollPeriodPattern matches the YYYY-MM payroll period stored on payslip evidence.
 var reviewPayrollPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
@@ -114,6 +115,10 @@ func parseReviewPayDate(text string) string {
 	return d.Format("2006-01-02")
 }
 
+func parseLabeledReviewPayDate(text string) string {
+	return parseReviewPayDate(reviewLabeledPayDatePattern.FindString(text))
+}
+
 type categoryChoice struct {
 	ID   string
 	Name string
@@ -150,9 +155,10 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 }
 
 func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
+	var err error
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
 		var messageID int64
-		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL','AWAITING_DATE') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
+		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id LEFT JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ((t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL','AWAITING_DATE')) OR (ri.proposal_id IS NOT NULL AND c.state='AWAITING_DATE')) AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
@@ -163,10 +169,49 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			MessageID int64 `json:"message_id"`
 		}{MessageID: messageID}
 	}
+	var proposalReviewID, proposalID, sourceID, documentID, userID, requestID string
+	err = p.pool.QueryRow(ctx, `SELECT ri.id::text,ri.proposal_id::text,COALESCE(ri.source_event_id,p.source_event_id)::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text,ti.user_id::text,r.id::text
+		FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
+		JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') AND c.state='AWAITING_DATE'`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&proposalReviewID, &proposalID, &sourceID, &documentID, &userID, &requestID)
+	if err == nil {
+		payDate := parseReviewPayDate(update.Message.Text)
+		if payDate == "" {
+			return true, p.continueProposalDateReview(ctx, sourceEventID, householdID, proposalReviewID, update)
+		}
+		parsed, _ := time.ParseInLocation("2006-01-02", payDate, jakartaLocation())
+		tx, beginErr := p.pool.Begin(ctx)
+		if beginErr != nil {
+			return true, beginErr
+		}
+		defer tx.Rollback(ctx)
+		var choice string
+		_ = tx.QueryRow(ctx, `SELECT decision->'knownFacts'->>'salary_classification' FROM review_item WHERE id=$1`, proposalReviewID).Scan(&choice)
+		result, resolveErr := reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: proposalReviewID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ActorType: "TELEGRAM", Action: "SET_PAY_DATE", Choice: choice, PayDate: &parsed})
+		if resolveErr != nil {
+			if errors.Is(resolveErr, reviewdomain.ErrPayslipReviewInvalid) {
+				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+			}
+			return true, resolveErr
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field','transaction_at')) ON CONFLICT DO NOTHING`, result.TransactionID, sourceEventID, requestID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return true, err
+		}
+		if err = enqueueReply(ctx, tx, update, "Slip gaji dikonfirmasi dan tanggal pembayaran dicatat."); err != nil {
+			return true, err
+		}
+		return true, tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return true, err
+	}
 	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
 	var missingFactsJSON *string
 	var expired bool
-	err := p.pool.QueryRow(ctx, `
+	err = p.pool.QueryRow(ctx, `
 		SELECT r.id,r.transaction_id,c.state,r.review_type,t.type,r.status,t.status,r.expires_at<=now(),
 		       ri.decision->'missingFacts'
 		FROM review_request r
@@ -183,11 +228,11 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if err != nil {
 		return true, fmt.Errorf("bind Telegram review reply: %w", err)
 	}
+	if (requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW") && !(transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION") {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
+	}
 	if transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION" {
 		return true, p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
-	}
-	if requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
 	}
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
@@ -225,7 +270,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		case "REJECT":
 			return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 		case "CONFIRM":
-			value := reviewExtraction{Description: "Penghasilan dari bukti transaksi", Note: clean(update.Message.Text, 1000), Confidence: 1, PayDate: parseReviewPayDate(update.Message.Text)}
+			value := reviewExtraction{Description: "Penghasilan dari bukti transaksi", Note: clean(update.Message.Text, 1000), Confidence: 1, PayDate: parseLabeledReviewPayDate(update.Message.Text)}
 			return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, "", update, value)
 		default:
 			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update,
@@ -233,6 +278,78 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		}
 	}
 	return false, nil
+}
+
+func (p *Processor) continueProposalDateReview(ctx context.Context, sourceEventID, householdID, itemID string, update telegramUpdate) error {
+	if _, err := p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	_, err := p.pool.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text))`, update.Message.Chat.ID, update.Message.MessageID, "Balas dengan tanggal pembayaran, misalnya: 25 September 2026.")
+	return err
+}
+
+func (p *Processor) processPayslipPolicyCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
+	choice := map[string]string{"review:salary:primary": "PRIMARY_SALARY", "review:salary:ordinary": "ORDINARY_INCOME"}[data]
+	if choice == "" {
+		return false, nil
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
+	var itemID, proposalID, sourceID, documentID, userID, requestID string
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.proposal_id::text,COALESCE(ri.source_event_id,p.source_event_id)::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text,ti.user_id::text,r.id::text FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') AND ri.status IN ('OPEN','PENDING_SEND') AND c.state='AWAITING_DETAIL'`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&itemID, &proposalID, &sourceID, &documentID, &userID, &requestID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return true, err
+	}
+	var decision []byte
+	if err = tx.QueryRow(ctx, `SELECT decision FROM review_item WHERE id=$1 FOR UPDATE`, itemID).Scan(&decision); err != nil {
+		return true, err
+	}
+	var contract struct {
+		MissingFacts   []string `json:"missingFacts"`
+		AllowedActions []string `json:"allowedActions"`
+	}
+	if json.Unmarshal(decision, &contract) != nil || !contains(contract.AllowedActions, choice) {
+		return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if contains(contract.MissingFacts, "transaction_at") {
+		err = reviewdomain.SetPayslipPolicy(ctx, tx, reviewdomain.PayslipPolicyCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ReplySourceEventID: sourceEventID, Choice: choice})
+		if err != nil {
+			if errors.Is(err, reviewdomain.ErrPayslipReviewInvalid) {
+				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+			}
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return true, err
+		}
+		if err = enqueueReply(ctx, tx, update, "Kategori gaji disimpan. Balas pesan ini dengan tanggal pembayaran."); err != nil {
+			return true, err
+		}
+		return true, tx.Commit(ctx)
+	}
+	result, err := reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ActorType: "TELEGRAM", Action: choice, Choice: choice})
+	if err != nil {
+		if errors.Is(err, reviewdomain.ErrPayslipReviewInvalid) {
+			return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification',$4::text)) ON CONFLICT DO NOTHING`, result.TransactionID, sourceEventID, requestID, choice); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return true, err
+	}
+	if err = enqueueReply(ctx, tx, update, "Slip gaji dikonfirmasi."); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
 }
 
 // classifyTransferReply maps a free-text transfer reply to one of the bounded
@@ -309,6 +426,56 @@ func reviewRequiresFact(raw *string, fact string) bool {
 
 // processReviewDetailCallback is the deterministic callback lane for review
 // editing. These callbacks never enter the conversational LLM pipeline.
+// processDocumentReviewCallback resolves a document-bound review (classification
+// or extraction failure) from its Telegram card. The buttons carry bounded
+// intents, so it never enters the conversational pipeline: it binds the card by
+// its delivered message id, then delegates to the shared document resolver.
+func (p *Processor) processDocumentReviewCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
+	action := map[string]string{"review:reprocess": "REPROCESS_DOCUMENT", "review:ignore": "IGNORE"}[data]
+	if action == "" {
+		return false, nil
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
+	var itemID, documentID, userID string
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.document_id::text,ti.user_id::text
+		FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN document d ON d.id=ri.document_id
+		JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type IN ('DOCUMENT_CLASSIFICATION','DOCUMENT_EXTRACTION_LOW_CONFIDENCE')`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID, &documentID, &userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	_, err = reviewdomain.ResolveDocumentReview(ctx, tx, reviewdomain.DocumentReviewCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID, DocumentID: documentID, ActorType: "TELEGRAM", Action: action})
+	if err != nil {
+		if errors.Is(err, reviewdomain.ErrDocumentReviewInvalid) {
+			return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		return true, err
+	}
+	if action == "REPROCESS_DOCUMENT" {
+		if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) SELECT 'PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid) WHERE NOT EXISTS(SELECT 1 FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1::text AND status IN ('PENDING','RUNNING'))`, documentID); err != nil {
+			return true, err
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return true, err
+	}
+	message := "Dokumen akan diproses ulang."
+	if action == "IGNORE" {
+		message = "Dokumen diabaikan."
+	}
+	if err = enqueueReply(ctx, tx, update, message); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
+}
+
 func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
 	if data == "review:remember" || data == "review:once" {
 		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
@@ -316,6 +483,34 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 	duplicateMerge := strings.HasPrefix(data, "review:dup:merge:")
 	if !duplicateMerge && data != "review:dup:new" && data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:asset" && data != "review:ignore" {
 		return false, nil
+	}
+	if data == "review:ignore" {
+		tx, err := p.pool.Begin(ctx)
+		if err != nil {
+			return true, err
+		}
+		defer tx.Rollback(ctx)
+		var itemID, proposalID, sourceID, documentID, userID string
+		err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.proposal_id::text,p.source_event_id::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text,ti.user_id::text
+			FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
+			JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
+			WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') FOR UPDATE OF ri,p`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID, &proposalID, &sourceID, &documentID, &userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return true, err
+		}
+		if _, err = reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ActorType: "TELEGRAM", Action: "IGNORE"}); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return true, err
+		}
+		if err = enqueueReply(ctx, tx, update, "Slip gaji diabaikan."); err != nil {
+			return true, err
+		}
+		return true, tx.Commit(ctx)
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -330,10 +525,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
 		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus, &merchantID)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
-			return true, err
-		}
-		return true, tx.Commit(ctx)
+		return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	if err != nil {
 		return true, err
@@ -741,10 +933,7 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		FOR UPDATE`, householdID, update.Message.Chat.ID, update.Message.MessageID).
 		Scan(&reviewID, &transactionID, &reviewType, &requestStatus, &transactionStatus)
 	if errors.Is(err, pgx.ErrNoRows) || requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		if err := finishStaleReviewCallback(ctx, tx, sourceEventID, update); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	if err != nil {
 		return err
@@ -790,7 +979,10 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	return enqueueReply(ctx, tx, update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
+	if err := enqueueReply(ctx, tx, update, "Tinjauan ini sudah selesai. Tidak ada perubahan baru."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func transferReviewIntent(value string) string {
@@ -1704,6 +1896,10 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		markup = requiredFieldReplyMarkup()
 	case "duplicate":
 		markup = duplicateIntentMarkup()
+	case "salary":
+		markup = salaryPolicyMarkup(decision.AllowedActions)
+	case "document":
+		markup = documentReviewMarkup()
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -1812,18 +2008,43 @@ func ProjectReviewMessage(ctx context.Context, tx pgx.Tx, householdID, itemID st
 // is enabled here when its UIR-06/UIR-07 resolver lands.
 func TelegramCompletableReviewType(reviewType string) bool {
 	switch reviewType {
-	case "CYCLE_RESIDUAL_ALLOCATION", "WEALTH_OBSERVATION_CONFIRMATION", "TRANSFER_CLASSIFICATION",
+	case "CYCLE_RESIDUAL_ALLOCATION", "WEALTH_OBSERVATION_CONFIRMATION", "TRANSFER_CLASSIFICATION", "PAYSLIP_CONFIRMATION",
 		"POSSIBLE_DUPLICATE", "CONFLICTING_EVIDENCE",
 		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE",
-		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION":
+		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION",
+		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE":
 		return true
 	default:
 		return false
 	}
 }
 
+// documentReviewMarkup offers the document-bound review's bounded intents: retry
+// the shared document pipeline (which re-classifies or re-extracts), or park the
+// document. The resolver owns both, so the button can always finish the review.
+func documentReviewMarkup() *InlineKeyboardMarkup {
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+		{{Text: "Proses ulang", CallbackData: "review:reprocess"}},
+		{{Text: "Abaikan", CallbackData: "review:ignore"}},
+	}}
+}
+
 func requiredFieldReplyMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+}
+
+func salaryPolicyMarkup(actions []string) *InlineKeyboardMarkup {
+	var buttons []InlineKeyboardButton
+	if contains(actions, "PRIMARY_SALARY") {
+		buttons = append(buttons, InlineKeyboardButton{Text: "Gaji utama", CallbackData: "review:salary:primary"})
+	}
+	if contains(actions, "ORDINARY_INCOME") {
+		buttons = append(buttons, InlineKeyboardButton{Text: "Pemasukan biasa", CallbackData: "review:salary:ordinary"})
+	}
+	if contains(actions, "IGNORE") {
+		buttons = append(buttons, InlineKeyboardButton{Text: "Abaikan", CallbackData: "review:ignore"})
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{buttons}}
 }
 
 func reviewDetailMessage(title, context, instruction string) string {

@@ -73,6 +73,11 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 			return nil, errors.New("invalid transfer reconciliation candidates")
 		}
 		v.AllowedActions = canonicalActions(v.ReviewType)
+		if v.ReviewType == "PAYSLIP_CONFIRMATION" || v.ReviewType == "MISSING_PAY_DATE" {
+			if actions := proposalFacts(v.Decision).AllowedActions; len(actions) > 0 {
+				v.AllowedActions = actions
+			}
+		}
 		if v.ReviewType == "TRANSFER_CLASSIFICATION" && (len(v.TransferCandidates) > 0 || v.ProposedPurpose != "") {
 			if v.FinancialObservationID != "" && len(v.TransferCandidates) > 10 {
 				v.AllowedActions = []string{"IGNORE"}
@@ -102,8 +107,11 @@ func canonicalActions(kind string) []string {
 	if kind == "FINANCIAL_EMAIL_RESOLUTION" {
 		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
 	}
-	if kind == "UNKNOWN_BANK_TEMPLATE" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
+	if kind == "UNKNOWN_BANK_TEMPLATE" {
 		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
+	}
+	if kind == "DOCUMENT_CLASSIFICATION" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
+		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
 	}
 	return []string{"IGNORE"}
 }
@@ -153,12 +161,28 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 409, map[string]string{"error": "review is already resolved"})
 		return
 	}
+	if (kind == "PAYSLIP_CONFIRMATION" || kind == "MISSING_PAY_DATE") && proposal != nil && (source == nil || document == nil) {
+		var boundSource, boundDocument string
+		err = tx.QueryRow(r.Context(), `SELECT p.source_event_id::text,d.id::text FROM transaction_proposal p
+			JOIN document d ON d.id=NULLIF(p.metadata_json->>'document_id','')::uuid
+			WHERE p.id=$1 AND p.household_id=$2 AND p.proposal_status='NEEDS_REVIEW' AND p.proposed_type='INCOME'
+			AND d.household_id=$2 AND d.document_type='PAYSLIP' AND d.source_event_id=p.source_event_id FOR UPDATE OF p,d`, *proposal, household).Scan(&boundSource, &boundDocument)
+		if err != nil || (source != nil && *source != boundSource) || (document != nil && *document != boundDocument) {
+			writeJSON(w, 409, map[string]string{"error": "payslip review binding is unavailable"})
+			return
+		}
+		source, document = &boundSource, &boundDocument
+	}
+	if (kind == "PAYSLIP_CONFIRMATION" || kind == "MISSING_PAY_DATE") && (proposal == nil || source == nil) {
+		writeJSON(w, 409, map[string]string{"error": "payslip review binding is unavailable"})
+		return
+	}
 	storedActions := proposalFacts(decisionJSON).AllowedActions
-	if kind == "MISSING_PAY_DATE" && !containsString(storedActions, in.Action) {
+	if (kind == "MISSING_PAY_DATE" || kind == "PAYSLIP_CONFIRMATION") && !containsString(storedActions, in.Action) {
 		writeJSON(w, 400, map[string]string{"error": "action is not allowed by this review"})
 		return
 	}
-	enqueueSalaryResidual := in.Action == "PRIMARY_SALARY"
+	payslipResolved := false
 	if kind == "WEALTH_OBSERVATION_CONFIRMATION" && wealthObservation != nil {
 		if in.Action == "PREPARE_SNAPSHOT" {
 			if err = tx.Commit(r.Context()); err != nil {
@@ -369,7 +393,31 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	if in.Action == "IGNORE" {
+	if (kind == "DOCUMENT_CLASSIFICATION" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE") && document != nil && (in.Action == "REPROCESS_DOCUMENT" || in.Action == "IGNORE") {
+		result, err := reviewdomain.ResolveDocumentReview(r.Context(), tx, reviewdomain.DocumentReviewCommand{
+			HouseholdID: household, UserID: p.UserID, ReviewItemID: r.PathValue("id"), DocumentID: *document, ActorType: "WEB", Action: in.Action,
+		})
+		if err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid or unavailable review action"})
+			return
+		}
+		if in.Action == "REPROCESS_DOCUMENT" {
+			if _, err = tx.Exec(r.Context(), `INSERT INTO job(type,payload_json) SELECT 'PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid) WHERE NOT EXISTS(SELECT 1 FROM job WHERE type='PROCESS_DOCUMENT' AND payload_json->>'document_id'=$1::text AND status IN ('PENDING','RUNNING'))`, *document); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to queue document reprocess"})
+				return
+			}
+		}
+		if audit(r.Context(), tx, household, p.UserID, "RESOLVE_DOCUMENT_REVIEW", r.PathValue("id"), map[string]any{"action": in.Action, "source_event_id": result.SourceEventID}) != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to resolve document review"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if in.Action == "IGNORE" && (kind == "PAYSLIP_CONFIRMATION" || kind == "MISSING_PAY_DATE") {
+		_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, "IGNORE", "", nil)
+		payslipResolved = err == nil
+	} else if in.Action == "IGNORE" {
 		if financialObservation != nil {
 			if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, *financialObservation, household); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "unable to ignore financial observation"})
@@ -395,7 +443,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			_, err = tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='DISMISSED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE status='OPEN' AND (($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$1))`, *source, p.UserID, financialObservation)
 		}
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
-		err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, in.Action)
+		_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, in.Action, in.Action, nil)
+		payslipResolved = err == nil
 	} else if kind == "MISSING_PAY_DATE" && in.Action == "SET_PAY_DATE" {
 		var v struct {
 			PayDate string `json:"payDate"`
@@ -409,31 +458,9 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			if parseErr != nil {
 				err = errInvalid
 			} else {
-				var hasPrimary bool
-				if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, household).Scan(&hasPrimary); err == nil {
-					choice := strings.ToUpper(strings.TrimSpace(v.Choice))
-					if !containsString(storedActions, "SET_PAY_DATE") {
-						err = errInvalid
-					}
-					if choice == "" && hasPrimary {
-						choice = "HOUSEHOLD_POLICY"
-					} else if choice == "" || (hasPrimary && choice != "") || (!hasPrimary && choice != "PRIMARY_SALARY" && choice != "ORDINARY_INCOME") {
-						err = errInvalid
-					}
-					if (choice == "PRIMARY_SALARY" || choice == "ORDINARY_INCOME") && !containsString(storedActions, choice) {
-						err = errInvalid
-					}
-					if err == nil {
-						_, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET transaction_at=$2::date,updated_at=now() WHERE id=$1`, *proposal, date)
-					}
-					if err == nil {
-						err = h.resolvePayslip(r, tx, household, p.UserID, *proposal, *source, *document, choice)
-						enqueueSalaryResidual = choice == "PRIMARY_SALARY" || choice == "HOUSEHOLD_POLICY"
-					}
-					if err == nil && choice == "HOUSEHOLD_POLICY" {
-						in.Values = json.RawMessage(`{"payDate":"` + v.PayDate + `"}`)
-					}
-				}
+				choice := strings.ToUpper(strings.TrimSpace(v.Choice))
+				_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, in.Action, choice, &date)
+				payslipResolved = err == nil
 			}
 		}
 	} else {
@@ -443,25 +470,19 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid or unavailable review action"})
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, in.Action, string(in.Values))
-	if err == nil {
-		_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
+	if !payslipResolved {
+		_, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, in.Action, string(in.Values))
+		if err == nil {
+			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
+		}
 	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to finalize review"})
 		return
 	}
-	if audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": in.Action}) != nil || tx.Commit(r.Context()) != nil {
+	if (!payslipResolved && audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": in.Action}) != nil) || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to audit review resolution"})
 		return
-	}
-	// Salary state is already committed. Queue failure is deliberately best-effort;
-	// worker catch-up repairs a lost enqueue without rolling salary back.
-	if enqueueSalaryResidual && source != nil {
-		var salaryEventID string
-		if err := h.pool.QueryRow(r.Context(), `SELECT id FROM salary_event WHERE household_id=$1 AND source_event_id=$2 AND status='CONFIRMED' ORDER BY created_at DESC LIMIT 1`, household, *source).Scan(&salaryEventID); err == nil {
-			_, _ = h.pool.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5)`, household, salaryEventID)
-		}
 	}
 	w.WriteHeader(204)
 }
@@ -561,43 +582,15 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
-func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, proposal, source, document, choice string) error {
-	if choice != "PRIMARY_SALARY" && choice != "ORDINARY_INCOME" && choice != "HOUSEHOLD_POLICY" {
-		return errInvalid
-	}
-	var amount, employer, period string
-	var at time.Time
-	if err := tx.QueryRow(r.Context(), `SELECT amount::text,COALESCE(counterparty_raw,''),COALESCE(metadata_json->>'period',''),transaction_at FROM transaction_proposal WHERE id=$1 AND household_id=$2 AND proposal_status='NEEDS_REVIEW' FOR UPDATE`, proposal, household).Scan(&amount, &employer, &period, &at); err != nil {
-		return errInvalid
-	}
-	var transaction string
-	if err := tx.QueryRow(r.Context(), `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'INCOME','CONFIRMED',$2,'IDR',$3,'Penghasilan dari slip gaji',NULLIF($4,''),$5,now()) RETURNING id`, household, amount, at, employer, user).Scan(&transaction); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',jsonb_build_object('proposal_id',$3::uuid,'document_id',$4::uuid))`, transaction, source, proposal, document); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='ACCEPTED',updated_at=now() WHERE id=$1`, proposal); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, source); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, document); err != nil {
-		return err
-	}
-	if choice == "ORDINARY_INCOME" {
-		return nil
-	}
-	// ADR-046: salary_source promotion and salary_event recording are shared with
-	// the Telegram confirm lanes; Web keeps only its proposal-driven transaction
-	// creation above.
-	_, err := reviewdomain.RecordSalaryEvent(r.Context(), tx, reviewdomain.SalaryCommand{
-		HouseholdID: household, UserID: user, Employer: employer, Period: period,
-		PayDate: at, NetPay: amount, Transaction: transaction, SourceEvent: source,
-		MakePrimary: choice == "PRIMARY_SALARY",
+func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, reviewItem, proposal, source, document, action, choice string, payDate *time.Time) (reviewdomain.PayslipResult, error) {
+	result, err := reviewdomain.ResolvePayslipProposal(r.Context(), tx, reviewdomain.PayslipCommand{
+		HouseholdID: household, UserID: user, ReviewItemID: reviewItem, ProposalID: proposal,
+		SourceEventID: source, DocumentID: document, ActorType: "USER", Action: action, Choice: choice, PayDate: payDate,
 	})
-	return err
+	if errors.Is(err, reviewdomain.ErrPayslipReviewInvalid) {
+		return result, errInvalid
+	}
+	return result, err
 }
 
 // cycleResidualStatus maps a shared cycle-residual error to an HTTP status. The

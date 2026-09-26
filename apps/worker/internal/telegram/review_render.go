@@ -23,10 +23,14 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 	// A producer may supply no subject summary. The card body still has to be
 	// non-empty or Telegram rejects the send, so fall back to the decision's own
 	// prompt for the category/transfer modes that otherwise pass context verbatim.
-	if strings.TrimSpace(context) == "" && (isCategoryOnly(decision) || contains(decision.MissingFacts, "transfer_relationship")) {
+	if strings.TrimSpace(context) == "" && (isCategoryOnly(decision) || contains(decision.MissingFacts, "transfer_relationship") || contains(decision.MissingFacts, "salary_classification") || contains(decision.MissingFacts, "transaction_at")) {
 		context = promptTitle(decision)
 	}
 	switch {
+	case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
+		// A document review's only bounded action is to retry the shared document
+		// pipeline; the summary is the document's own extraction context.
+		return "AWAITING_DETAIL", context, "document"
 	case isCategoryOnly(decision):
 		// Category is the single unresolved fact and it has bounded values, so the
 		// chooser is the whole interaction; merchant enrichment is optional.
@@ -35,12 +39,14 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		return "AWAITING_DETAIL", context, "transfer"
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
+	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
+		return "AWAITING_DETAIL", reviewDetailMessage("🧾 Pilih kebijakan gaji", context, "Pilih gaji utama atau pemasukan biasa."), "salary"
 	// A date fact is collected first because the reply lane binds exactly one
 	// value. A compound category+date decision therefore starts with the date
 	// prompt and advances to the category chooser afterward, so no missing fact is
 	// dropped.
 	case contains(decision.MissingFacts, "transaction_at"):
-		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction()), "reply"
+		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction(decision)), "reply"
 	case requiresBoundReply(decision):
 		title := promptTitle(decision)
 		return "AWAITING_DETAIL", reviewDetailMessage(title, context, replyInstruction(decision)), "reply"
@@ -81,7 +87,12 @@ func requiresBoundReply(decision reviewdec.Decision) bool {
 func promptTitle(decision reviewdec.Decision) string {
 	for _, fact := range decision.MissingFacts {
 		switch fact {
+		case "salary_classification":
+			return "🟡 Pilih klasifikasi gaji"
 		case "transaction_at":
+			if decision.ReasonCode == "MISSING_PAY_DATE" {
+				return "🟡 Tanggal pembayaran belum ada"
+			}
 			return "🟡 Tanggal transaksi belum ada"
 		case "transaction_semantics":
 			return "🟡 Perlu detail transaksi"
@@ -94,13 +105,19 @@ func promptTitle(decision reviewdec.Decision) string {
 
 // dateInstruction asks for the one fact the date review is missing in the format
 // the date resolver parses, instead of the generic description wording.
-func dateInstruction() string {
+func dateInstruction(decision reviewdec.Decision) string {
+	if decision.ReasonCode == "MISSING_PAY_DATE" {
+		return "Balas pesan ini dengan tanggal pembayaran (contoh: 25 September 2026)."
+	}
 	return "Balas pesan ini dengan tanggal transaksi (YYYY-MM-DD)."
 }
 
 func replyInstruction(decision reviewdec.Decision) string {
 	if contains(decision.MissingFacts, "duplicate_relationship") {
 		return "Balas pesan ini dengan pilihan pada tombol di atas."
+	}
+	if contains(decision.MissingFacts, "transaction_at") {
+		return dateInstruction(decision)
 	}
 	return "Balas pesan ini dengan keterangan atau tujuan transaksi."
 }

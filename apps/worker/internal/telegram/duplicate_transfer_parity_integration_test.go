@@ -36,6 +36,45 @@ func callbackUpdate(chatID, messageID int64, data string) telegramUpdate {
 	return update
 }
 
+func TestStaleReviewCallbackPersistsReply(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	var householdID, sourceID string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Stale callback %d", stamp)).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("stale-%d", stamp), []byte(fmt.Sprintf("stale-%d", stamp))).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err := finishStaleReviewCallback(ctx, tx, sourceID, callbackUpdate(stamp, 42, "review:ignore")); err != nil {
+		t.Fatal(err)
+	}
+	var status, message string
+	if err := pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'reply_to_message_id'='42'`, fmt.Sprint(stamp)).Scan(&message); err != nil {
+		t.Fatal(err)
+	}
+	if status != "PROCESSED" || !strings.Contains(message, "sudah selesai") {
+		t.Fatalf("stale callback status=%s reply=%q", status, message)
+	}
+}
+
 // A TRANSFER_CLASSIFICATION review on an expense must offer the transfer chooser
 // from a bound reply, and the chooser buttons must resolve it without leaving
 // Telegram.
