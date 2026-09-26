@@ -141,7 +141,7 @@ merges and voids the source) to prove it completes without Web. `CONFLICTING_EVI
 is produced on a source-event subject by financial email and has no transaction
 projection, so its Telegram surface belongs to UIR-07.
 
-+### UIR-02 — universal projection model (in progress)
+### UIR-02 — universal projection model (in progress)
 
 Every producer that inserts a `review_item` now routes its Telegram delivery
 through one shared entrypoint, `telegram.ProjectReviewItem` (plus the
@@ -164,7 +164,7 @@ rendering is unchanged; `TestSuppliedContextKeepsItsMarkupMode` pins the
 supplied-prompt behavior.
 
 
-+The slice also added migration 00069, which widens the
+The slice also added migration 00069, which widens the
 review_request.review_type CHECK to the review_item reason set; without it a
 document, payslip, bank, or financial-email projection failed the constraint
 (SQLSTATE 23514) and the review never reached Telegram.

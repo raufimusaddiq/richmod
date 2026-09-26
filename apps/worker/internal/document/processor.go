@@ -340,11 +340,6 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	return tx.Commit(ctx)
 }
 
-func enqueueTelegramDocumentReply(ctx context.Context, tx pgx.Tx, sourceID, text string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',(p.payload_json->'message'->'chat'->>'id')::bigint,'reply_to_message_id',s.telegram_message_id,'text',$2::text),3 FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.source_type='TELEGRAM_IMAGE' AND COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0)<>0 AND NOT EXISTS(SELECT 1 FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'text'=$2 AND payload_json->>'reply_to_message_id'=s.telegram_message_id::text AND created_at>now()-interval '1 day')`, sourceID, text)
-	return err
-}
-
 func nullableValue(value *string) string {
 	if value == nil {
 		return ""

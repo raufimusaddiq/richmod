@@ -28,6 +28,10 @@ var producibleReviewTypes = []string{
 	"UNKNOWN_BANK_TEMPLATE",
 	"CYCLE_RESIDUAL_ALLOCATION",
 	"FINANCIAL_EMAIL_RESOLUTION",
+	"SALARY_SOURCE_CONFIRMATION",
+	"RECEIPT_MISMATCH",
+	"INVOICE_PAYMENT_STATUS",
+	"UNKNOWN_EMAIL_TEMPLATE",
 }
 
 func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
@@ -94,6 +98,20 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		}
 		if !strings.Contains(message, "bespoke prompt") {
 			t.Fatalf("%s dropped the supplied prompt: %q", reviewType, message)
+		}
+		// The mode must follow the decision, not the review type: a supplied
+		// prompt must not turn a bounded chooser into a free-form reply or back.
+		wantMode := "reply"
+		switch {
+		case isCategoryOnly(decision):
+			wantMode = "category"
+		case contains(decision.MissingFacts, "transfer_relationship"):
+			wantMode = "transfer"
+		case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
+			wantMode = "duplicate"
+		}
+		if mode != wantMode {
+			t.Fatalf("%s rendered mode %q with a supplied prompt, want %q", reviewType, mode, wantMode)
 		}
 	}
 }

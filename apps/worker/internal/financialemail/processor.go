@@ -644,15 +644,16 @@ func (p *Processor) projectObservationReview(ctx context.Context, tx pgx.Tx, hou
 // (when any) and creates the universal projection. Non-Telegram sources keep the
 // Inbox-only behavior because no live chat can bind the reply.
 func (p *Processor) projectReviewItem(ctx context.Context, tx pgx.Tx, household, itemID string) error {
-	var chatID, sourceID string
+	var itemSource, observationSource string
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.source_event_id::text,''),COALESCE(fo.source_event_id::text,'')
 		FROM review_item ri
 		LEFT JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id
-		WHERE ri.id=$1`, itemID).Scan(&sourceID, &chatID); err != nil {
+		WHERE ri.id=$1`, itemID).Scan(&itemSource, &observationSource); err != nil {
 		return err
 	}
-	if chatID != "" {
-		sourceID = chatID
+	sourceID := itemSource
+	if observationSource != "" {
+		sourceID = observationSource
 	}
 	if sourceID == "" {
 		return nil
