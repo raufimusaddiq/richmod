@@ -205,6 +205,13 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			MessageID int64 `json:"message_id"`
 		}{MessageID: update.CallbackQuery.Message.MessageID}
 		update.Message.Text = callbackText(update.CallbackQuery.Data)
+	}
+	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
+			return err
+		}
+	}
+	if update.CallbackQuery != nil {
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
 			return p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}

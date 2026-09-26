@@ -75,6 +75,7 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer tx.Rollback(ctx)
 	if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, household, time.Date(2026, 9, 20, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600)), user); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +98,7 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer tx.Rollback(ctx)
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7000000,'2026-09-20',$2,'GENERAL',now())`, household, user); err != nil {
 		t.Fatal(err)
 	}

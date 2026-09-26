@@ -109,7 +109,7 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, "UPDATE review_request SET status='OPEN',expires_at=now()+interval '7 days' WHERE id=$1", reviewID); err != nil {
+	if _, err = pool.Exec(ctx, "UPDATE review_request SET status='EXPIRED',expires_at=now()-interval '1 second' WHERE id=$1", reviewID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, "UPDATE review_request_recipient SET telegram_message_id=CASE telegram_chat_id WHEN $2 THEN 31 WHEN $3 THEN 32 END WHERE review_request_id=$1", reviewID, firstChat, secondChat); err != nil {
@@ -119,6 +119,10 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	reply := seedTelegramReply(t, pool, householdID, firstChat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
 	if err = processor.Process(ctx, reply); err != nil {
 		t.Fatal(err)
+	}
+	var renewed bool
+	if err = pool.QueryRow(ctx, "SELECT status='OPEN' AND expires_at>now() FROM review_request WHERE id=$1", reviewID).Scan(&renewed); err != nil || !renewed {
+		t.Fatalf("expired projection did not renew while canonical bank review remains open: %v %v", renewed, err)
 	}
 	var queued int
 	if err = pool.QueryRow(ctx, "SELECT count(*) FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1", itemID).Scan(&queued); err != nil {
@@ -175,13 +179,11 @@ func TestUnlinkedBankReviewBindsAccountThenCompletesThroughExistingJob(t *testin
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("unlinked-bank-%d@example.test", stamp)).Scan(&user); err != nil {
 		t.Fatal(err)
 	}
-	for _, query := range []string{
-		`INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`,
-		`INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($3,$1,$2)`,
-	} {
-		if _, err := pool.Exec(ctx, query, household, user, chat); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chat, household, user); err != nil {
+		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Rekening','BANK','FULL_LEDGER') RETURNING id`, household).Scan(&account); err != nil {
 		t.Fatal(err)

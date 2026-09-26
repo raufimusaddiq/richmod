@@ -9,7 +9,8 @@
 **Progress:** UIRC-02 C: confirm timestamp boundary now accepts only `*time.Time`; Telegram adapters parse supplied dates before calling the shared operation. Other UIRC gates remain open.
 **UIRC-01 B partial:** bank amount/time preflight now shares the canonical positive whole-IDR limit; async pre-commit reply says processing, not recorded. Unlinked-source Telegram account binding and post-commit terminal delivery remain open.
 **UIRC-01 A implementation:** cycle `TRANSACTION_MISSING` continues through normal Telegram intake; newly confirmed income/expense refreshes matching open cycle reviews in the same transaction and closes only if no positive residual remains. CI integration test required before exit.
-**UIRC-01 B implementation:** unlinked bank review shows bounded active household funding accounts, stores submitted facts in its existing conversation, revalidates selected account against the open review, links the source, then queues the same `COMPLETE_BANK_REVIEW` job. A terminal post-worker notification remains open.
+**UIRC-01 B implementation:** unlinked bank review shows bounded active household funding accounts, stores submitted facts in its existing conversation, revalidates selected account against the open review, links the source, then queues the same `COMPLETE_BANK_REVIEW` job. The worker queues the status-accurate terminal reply only after canonical persistence. CI integration test required before exit.
+**UIRC-01 C implementation:** an expired Telegram request bound to an open canonical item is renewed by an authorized reply/callback; it retains the same review item. CI integration test required before exit.
 
 ### UIRC-00 re-audit (merged PR #189 base)
 

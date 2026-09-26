@@ -140,6 +140,14 @@ func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID st
 	return open, nil
 }
 
+// A request TTL only bounds the Telegram projection, never the canonical item.
+// A member replying to its exact old card renews that same projection; no new
+// review_item is created and all existing callback binding remains server-owned.
+func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdID string, update telegramUpdate) error {
+	_, err := p.pool.Exec(ctx, `UPDATE review_request r SET status='OPEN',expires_at=now()+interval '7 days' FROM review_item ri,review_request_recipient rr,telegram_identity ti,household_member hm WHERE r.review_item_id=ri.id AND rr.review_request_id=r.id AND ri.household_id=$1 AND r.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND r.status IN ('OPEN','EXPIRED') AND (r.expires_at<=now() OR r.status='EXPIRED') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active AND hm.household_id=$1 AND hm.user_id=ti.user_id AND hm.active`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID)
+	return err
+}
+
 func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
 	result, err := p.pool.Exec(ctx, `
 		UPDATE review_request_recipient rr
@@ -213,7 +221,7 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 	// Reuse the exact Web completion job rather than duplicating the bank policy
 	// in the Telegram lane. The job re-reads the reviewed extraction, applies the
 	// user's facts, resolves the item, and persists through the one Go policy path.
-	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text))`, bankSourceID, reviewID, amountIDR, at.Format(time.RFC3339)); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text,'telegram_chat_id',$5::bigint))`, bankSourceID, reviewID, amountIDR, at.Format(time.RFC3339), update.Message.Chat.ID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
