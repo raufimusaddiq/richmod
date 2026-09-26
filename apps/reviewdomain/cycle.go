@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -104,6 +105,9 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 			return result, errors.New("reviewdomain: invalid recomputed residual")
 		}
 		if recomputed.Sign() <= 0 {
+			if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, cmd.CaseID, income, expense, savings, residual); err != nil {
+				return result, err
+			}
 			if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, residual); err != nil {
 				return result, err
 			}
@@ -116,6 +120,13 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, cmd.CaseID, income, expense, savings, residual); err != nil {
 			return result, err
 		}
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{knownFacts,residual_idr}',to_jsonb($2::text),true),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, residual); err != nil {
+			return result, err
+		}
+		result.Outcome = CycleStaleRefreshed
+		return result, nil
+	}
+	if cmd.Action == "TRANSACTION_MISSING" {
 		result.Outcome = CycleStaleRefreshed
 		return result, nil
 	}
@@ -147,6 +158,36 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	}
 	result.Outcome = CycleResolved
 	return result, nil
+}
+
+// RefreshOpenCycleResiduals re-evaluates only open cycle reviews affected by a
+// newly confirmed transaction. Run inside the transaction's commit boundary.
+func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {
+	rows, err := tx.Query(ctx, `SELECT c.id::text,ri.id::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id WHERE c.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta') ORDER BY c.id`, householdID, at)
+	if err != nil {
+		return err
+	}
+	type target struct{ caseID, itemID string }
+	var targets []target
+	for rows.Next() {
+		var v target
+		if err := rows.Scan(&v.caseID, &v.itemID); err != nil {
+			rows.Close()
+			return err
+		}
+		targets = append(targets, v)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, v := range targets {
+		if _, err := ApplyCycleResidual(ctx, tx, CycleResidualCommand{HouseholdID: householdID, CaseID: v.caseID, ReviewItemID: v.itemID, ActorUserID: actorID, Action: "TRANSACTION_MISSING"}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // resolveCycleRequest completes the exact Telegram projection (or every open

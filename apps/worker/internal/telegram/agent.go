@@ -569,8 +569,8 @@ func agentMutationFallback(result agentToolResult) string {
 			return "Nilai sisa salary cycle berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
 		case "CYCLE_RESIDUAL_CLOSED":
 			return "Rekonsiliasi sisa salary cycle ditutup karena tidak lagi berlaku."
-		case "ADD_MISSING_TRANSACTION_IN_WEB":
-			return "Tambahkan transaksi yang belum ada lewat Review Inbox di web, lalu lanjutkan rekonsiliasinya."
+		case "ADD_MISSING_TRANSACTION_IN_TELEGRAM":
+			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan."
 		}
 	}
 

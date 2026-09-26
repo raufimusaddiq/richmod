@@ -8,6 +8,23 @@
 **Implementation base:** merged PR #189, `main@fe55a19a97d6993db803e278d360a9a5c0930467`.
 **Progress:** UIRC-02 C: confirm timestamp boundary now accepts only `*time.Time`; Telegram adapters parse supplied dates before calling the shared operation. Other UIRC gates remain open.
 **UIRC-01 B partial:** bank amount/time preflight now shares the canonical positive whole-IDR limit; async pre-commit reply says processing, not recorded. Unlinked-source Telegram account binding and post-commit terminal delivery remain open.
+**UIRC-01 A implementation:** cycle `TRANSACTION_MISSING` continues through normal Telegram intake; newly confirmed income/expense refreshes matching open cycle reviews in the same transaction and closes only if no positive residual remains. CI integration test required before exit.
+**UIRC-01 B implementation:** unlinked bank review shows bounded active household funding accounts, stores submitted facts in its existing conversation, revalidates selected account against the open review, links the source, then queues the same `COMPLETE_BANK_REVIEW` job. A terminal post-worker notification remains open.
+
+### UIRC-00 re-audit (merged PR #189 base)
+
+- Cycle Web escape: `apps/worker/internal/telegram/review.go` `resolveNativeResidualReview` and `agent_review_mutations.go` `agentResolveResidual`; canonical recomputation already lives in `apps/reviewdomain/cycle.go`, while `residual/processor.go` only refreshes a positive case's basis when invoked.
+- Bank unlinked/false-success: `review.go` `completeBankFactsReply` + `parseBankFactsReply`; `reviewdomain/bank_facts.go` source validation; `bankemail/processor.go` COMPLETE_BANK_REVIEW mutation.
+- Expired projection: `review.go` `processBoundReview` sends Web-only expired message, despite canonical item still open.
+- Wealth Web action: `api/internal/review/canonical.go` `reviewActions` and `ResolveCanonical`; `telegram/agent_bound_mutations.go` `agentResolveBoundWealthObservation` and `telegram/review.go` `resolveNativeSpecialReview`.
+- Investment mapping: `reviewdomain/transfer.go` `ErrInvestmentAccountAmbiguous`; `telegram/review.go` `resolveTransferReview` and `agent_review_mutations.go` agent transfer classifier.
+- Transfer reconciliation mutation: `api/internal/review/canonical.go` `resolveTransferReconciliation`; `telegram/review.go` `resolveNativeTransferCase`; `telegram/agent_review_mutations.go` agent transfer-case path.
+- Financial-email lifecycle: `api/internal/review/canonical.go` `ResolveCanonical`; `telegram/review.go` financial-email reply path. Inbox reads: `api/internal/review/handler.go` transaction-first list and `canonical.go` `listCanonical`.
+- Metrics: `api/internal/admin/reviews.go` ReviewOpsSummary/Breakdown/Projections; actionability currently counts delivered `telegram_message_id`, surface looks up `RESOLVE_REVIEW` audit.
+- Producer coverage: `telegram/review_render_contract_test.go` manually curated `producibleReviewTypes`; production presets `telegram/reviewdec`; action lists `telegram/tool_registry.go`.
+- Confirm date: Web `api/internal/review/handler.go` passes `*time.Time`; Telegram date, ordinary confirm and agent confirm were `*string`, `*string`, `time.Time` respectively; all five callers now use typed `*time.Time`.
+
+The ordinary `allowed_actions` action-by-action capability audit remains open; this is not UIRC-00 exit evidence yet.
 
 ## Operating rule
 

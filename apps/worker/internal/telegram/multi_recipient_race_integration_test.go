@@ -154,3 +154,105 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 		t.Fatalf("second action mutated canonical state: jobs=%d resolved=%d transactions=%d", queued, resolved, txns)
 	}
 }
+
+func TestUnlinkedBankReviewBindsAccountThenCompletesThroughExistingJob(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	chat := stamp
+	var household, user, account, listener, source, item, request string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Unlinked bank %d", stamp)).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("unlinked-bank-%d@example.test", stamp)).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{
+		`INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`,
+		`INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($3,$1,$2)`,
+	} {
+		if _, err := pool.Exec(ctx, query, household, user, chat); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Rekening','BANK','FULL_LEDGER') RETURNING id`, household).Scan(&account); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id) VALUES($1,'Bank','unlinked@bank.test',$2) RETURNING id`, household, user).Scan(&listener); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprintf("unlinked-bank-%d", stamp), []byte("bank")).Scan(&source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'IMAP','v1','{}'::jsonb,'VALID')`, source, listener); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{}'::jsonb) RETURNING id`, household, source).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	if err := ProjectReviewItem(ctx, tx, household, item, 0, "", chat); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT id FROM review_request WHERE review_item_id=$1`, item).Scan(&request); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=31 WHERE review_request_id=$1`, request); err != nil {
+		t.Fatal(err)
+	}
+	p := NewProcessor(pool, boundReviewGateway{})
+	invalid := seedTelegramReply(t, pool, household, chat, 40, 31, "-54000 2026-09-23T13:45:00+07:00")
+	if err := p.Process(ctx, invalid); err != nil {
+		t.Fatal(err)
+	}
+	var jobs int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1`, item).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 0 {
+		t.Fatalf("signed amount queued %d completion jobs", jobs)
+	}
+	reply := seedTelegramReply(t, pool, household, chat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
+	if err := p.Process(ctx, reply); err != nil {
+		t.Fatal(err)
+	}
+	var pendingAmount, pendingAt string
+	if err := pool.QueryRow(ctx, `SELECT context_json#>>'{bank_pending,amount_idr}',context_json#>>'{bank_pending,transaction_at}' FROM review_conversation WHERE review_request_id=$1`, request).Scan(&pendingAmount, &pendingAt); err != nil {
+		t.Fatal(err)
+	}
+	if pendingAmount != "54000" || pendingAt != "2026-09-23T13:45:00+07:00" {
+		t.Fatalf("pending bank facts lost: %s %s", pendingAmount, pendingAt)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=53 WHERE review_request_id=$1`, request); err != nil {
+		t.Fatal(err)
+	}
+	callback := callbackUpdate(chat, 53, "review:bank:"+account)
+	callbackSource := seedTelegramRaw(t, pool, household, "TELEGRAM_CALLBACK", map[string]any{"callback_query": callback.CallbackQuery})
+	if err := p.Process(ctx, callbackSource); err != nil {
+		t.Fatal(err)
+	}
+	var linked string
+	if err := pool.QueryRow(ctx, `SELECT account_id::text FROM bank_email_listener WHERE id=$1`, listener).Scan(&linked); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1`, item).Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if linked != account || jobs != 1 {
+		t.Fatalf("bank completion did not resume: linked=%s jobs=%d", linked, jobs)
+	}
+}

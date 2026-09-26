@@ -526,7 +526,7 @@ func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState,
 			return true, result, err
 		}
 		result.Status = "ACTION_REQUIRED"
-		result.Mutation = map[string]any{"action": "ADD_MISSING_TRANSACTION_IN_WEB", "requires_web": true}
+		result.Mutation = map[string]any{"action": "ADD_MISSING_TRANSACTION_IN_TELEGRAM"}
 		return true, result, nil
 	}
 	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {

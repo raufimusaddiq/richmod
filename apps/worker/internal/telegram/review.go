@@ -198,7 +198,15 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrBankSourceUnlinked) {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Email bank ini belum terhubung ke rekening. Buka Review Inbox untuk menautkannya.")
+			accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, sourceEventID, 10)
+			if listErr != nil {
+				return listErr
+			}
+			if len(accounts) == 0 {
+				return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu.")
+			}
+			_ = tx.Rollback(ctx)
+			return p.offerBankAccountChooser(ctx, sourceEventID, householdID, reviewID, accounts, amountIDR, transactionAt, update)
 		}
 		return err
 	}
@@ -215,6 +223,72 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (p *Processor) offerBankAccountChooser(ctx context.Context, sourceEventID, householdID, reviewID string, accounts []reviewdomain.BankAccountChoice, amount, at string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var requestID string
+	if err := tx.QueryRow(ctx, `SELECT r.id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.review_item_id=$1 AND r.household_id=$2 AND rr.telegram_chat_id=$3 AND r.status='OPEN' AND r.expires_at>now()`, reviewID, householdID, update.Message.Chat.ID).Scan(&requestID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{bank_pending}',jsonb_build_object('amount_idr',$2::text,'transaction_at',$3::text),true),updated_at=now() WHERE review_request_id=$1`, requestID, amount, at); err != nil {
+		return err
+	}
+	// ponytail: first 10 accounts only; paginate when households exceed ten.
+	buttons := make([][]InlineKeyboardButton, 0, len(accounts))
+	for _, account := range accounts {
+		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(account.Name, 28), CallbackData: "review:bank:" + account.ID}})
+	}
+	if err := enqueueReviewMessageWithMarkup(ctx, tx, requestID, update.Message.Chat.ID, update.Message.MessageID, "Pilih rekening untuk email bank ini:", &InlineKeyboardMarkup{InlineKeyboard: buttons}); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) processBankAccountCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var reviewID, bankSourceID, userID, amount, at string
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.source_event_id::text,ti.user_id::text,COALESCE(c.context_json#>>'{bank_pending,amount_idr}',''),COALESCE(c.context_json#>>'{bank_pending,transaction_at}','') FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='UNKNOWN_BANK_TEMPLATE' FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &bankSourceID, &userID, &amount, &at)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	if reviewdomain.ValidateBankFactValues(amount, at) != nil {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	choices, err := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 10)
+	if err != nil {
+		return err
+	}
+	accountID := strings.TrimPrefix(data, "review:bank:")
+	valid := false
+	for _, choice := range choices {
+		valid = valid || choice.ID == accountID
+	}
+	if !valid {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err := reviewdomain.BindBankSourceAccount(ctx, tx, householdID, reviewID, bankSourceID, accountID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	update.Message.Text = amount + " " + at
+	return p.completeBankFactsReply(ctx, sourceEventID, householdID, reviewID, userID, bankSourceID, update)
 }
 
 // parseBankFactsReply extracts "<amount> <rfc3339 timestamp>" from a reply, in
@@ -1558,7 +1632,7 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		if resolved == "" {
 			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih Wealth Account terlebih dahulu sebelum menyiapkan snapshot lengkap.")
 		}
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Buka halaman Wealth untuk menyiapkan snapshot lengkap; nilai dokumen belum mengubah saldo sampai snapshot disimpan.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Buka halaman Wealth untuk menyiapkan snapshot lengkap (opsional); review ini tetap terbuka sampai Wealth Account disimpan atau diabaikan. Nilai dokumen belum mengubah saldo sampai snapshot disimpan.")
 	}
 	if action == "SET_WEALTH_ACCOUNT" {
 		wealthHint, _ := args["wealth_account_hint"].(string)
@@ -1724,10 +1798,10 @@ type residualAllocation struct {
 
 func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, requestID, itemID, caseID, action string, args map[string]any) error {
 	if action == "TRANSACTION_MISSING" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Tambahkan transaksi lewat Review Inbox di web, lalu selesaikan rekonsiliasi ini.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah transaksi tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan.")
 	}
 	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau tambahkan transaksi di web.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau catat transaksi baru lewat Telegram.")
 	}
 	var input struct {
 		Allocations []residualAllocation `json:"allocations"`

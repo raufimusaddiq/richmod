@@ -126,6 +126,13 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 			return result, err
 		}
 	}
+	var confirmedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT transaction_at FROM transaction WHERE id=$1`, cmd.TransactionID).Scan(&confirmedAt); err != nil {
+		return result, err
+	}
+	if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, confirmedAt, cmd.ActorUserID); err != nil {
+		return result, err
+	}
 	if merchantName != "" {
 		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID, merchantName); err != nil {
 			return result, err
