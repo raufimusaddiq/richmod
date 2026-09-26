@@ -59,7 +59,6 @@ type CycleResult struct {
 	Allocated string
 }
 
-
 var (
 	// ErrCycleCaseNotFound reports a cycle case outside the household.
 	ErrCycleCaseNotFound = errors.New("reviewdomain: cycle residual case not found")

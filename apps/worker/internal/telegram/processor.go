@@ -231,6 +231,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:bank:") {
 			return p.processBankAccountCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:invest:") {
+			return p.processInvestmentCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
 			if handled, err := p.processPayslipPolicyCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err

@@ -290,6 +290,9 @@ func (p *Processor) processBankAccountCallback(ctx context.Context, sourceEventI
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	if err := reviewdomain.BindBankSourceAccount(ctx, tx, householdID, reviewID, bankSourceID, accountID); err != nil {
+		if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) || errors.Is(err, reviewdomain.ErrBankAccountInvalid) {
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1349,6 +1352,11 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 		return err
 	}
 	defer tx.Rollback(ctx)
+	return p.resolveTransferReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update, newType, newStatus, classification, message, categoryID, "")
+}
+
+func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, newType, newStatus, classification, message, categoryID, selectedWealthID string) error {
+	var err error
 	var userID string
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
@@ -1365,7 +1373,7 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 		wealthHint = id
 	}
 	if classification == "INVESTMENT_ACCOUNT" {
-		wealthHint = ""
+		wealthHint = selectedWealthID
 	}
 	// ADR-046: the transfer mutation, candidate resolution, proposal/source-event
 	// refresh, and review completion are one shared operation.
@@ -1377,9 +1385,11 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	})
 	if err != nil {
 		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
-			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tujuan investasi belum dapat dipetakan ke satu Wealth Account. Lengkapi tautan Known Account di Pengaturan atau selesaikan lewat Review Inbox.")
+			_ = tx.Rollback(ctx)
+			return p.offerInvestmentChooser(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
+			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account tujuan bukan aset yang kompatibel.")
 		}
 		return err
@@ -1400,6 +1410,86 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// offerInvestmentChooser keeps ambiguous Known Account mapping in Telegram.
+// The stored review and callback are bound to real account IDs; the shared
+// classifier performs the final household/compatibility check under the lock.
+func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var open bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN telegram_identity ti ON ti.telegram_user_id=$5 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.id=$1 AND r.household_id=$2 AND r.transaction_id=$3 AND ri.status IN ('OPEN','PENDING_SEND') AND r.status='OPEN' AND r.expires_at>now() AND rr.telegram_chat_id=$4)`, reviewID, householdID, transactionID, update.Message.Chat.ID, update.Message.From.ID).Scan(&open); err != nil {
+		return err
+	}
+	if !open {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	// ponytail: first ten investment accounts only; paginate if a household grows beyond ten.
+	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND usage_role='INVESTMENT' ORDER BY name,id LIMIT 10`, householdID)
+	if err != nil {
+		return err
+	}
+	var buttons [][]InlineKeyboardButton
+	for rows.Next() {
+		var id, name string
+		if err = rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:invest:" + id}})
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if len(buttons) == 0 {
+		_ = tx.Rollback(ctx)
+		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Belum ada Wealth Account investasi aktif untuk dipilih. Review tetap terbuka sampai rekening tersedia.")
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	markup := &InlineKeyboardMarkup{InlineKeyboard: buttons}
+	if update.CallbackQuery != nil {
+		err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih Wealth Account investasi tujuan:", markup)
+	} else {
+		err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Pilih Wealth Account investasi tujuan:", markup)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) processInvestmentCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var reviewID, transactionID string
+	err = tx.QueryRow(ctx, `SELECT r.id::text,r.transaction_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction t ON t.id=r.transaction_id JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.review_type='TRANSFER_CLASSIFICATION' AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' FOR UPDATE OF t,ri`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.Message.From.ID).Scan(&reviewID, &transactionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	selectedID := strings.TrimPrefix(data, "review:invest:")
+	var valid string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM wealth_account WHERE id::text=$1 AND household_id=$2 AND transfer_wealth_compatible('INVESTMENT_CONTRIBUTION',id,$2::uuid)`, selectedID, householdID).Scan(&valid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	return p.resolveTransferReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", "INVESTMENT_ACCOUNT", "Transfer diklasifikasikan sebagai kontribusi investasi.", "", valid)
 }
 
 func incomeReviewIntent(value string) string {

@@ -366,7 +366,16 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		CategoryID: categoryID, WealthAccountID: wealthID,
 	})
 	if err != nil {
-		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) || errors.Is(err, reviewdomain.ErrWealthAccountRequired) {
+		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
+			_ = tx.Rollback(ctx)
+			if err := p.offerInvestmentChooser(ctx, state.SourceEventID, state.HouseholdID, review.reviewID, review.transactionID, state.Update); err != nil {
+				return result, true, err
+			}
+			result.Status = "WEALTH_ACCOUNT_SELECTION_REQUIRED"
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType}
+			return result, true, nil
+		}
+		if errors.Is(err, reviewdomain.ErrWealthAccountRequired) {
 			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType}
 			return result, true, nil
