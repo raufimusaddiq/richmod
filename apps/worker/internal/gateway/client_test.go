@@ -60,6 +60,28 @@ func TestNativeToolCallAdaptsChatCompletionsEnvelopeWithAuxiliaryProse(t *testin
 	}
 }
 
+func TestChatMessagesAlwaysIncludeNonEmptyUserTurn(t *testing.T) {
+	cases := map[string]any{
+		"nil":         nil,
+		"empty":       "",
+		"blank":       "   ",
+		"empty pages": []map[string]any{},
+	}
+	for name, content := range cases {
+		messages := chatMessages("system", content)
+		if len(messages) != 2 || messages[0]["role"] != "system" || messages[1]["role"] != "user" {
+			t.Fatalf("%s: roles = %#v", name, messages)
+		}
+		text, _ := messages[1]["content"].(string)
+		if strings.TrimSpace(text) == "" {
+			t.Fatalf("%s: user turn was empty: %#v", name, messages[1]["content"])
+		}
+	}
+	if messages := chatMessages("system", "expense"); messages[1]["content"] != "expense" {
+		t.Fatalf("real content must pass through unchanged: %#v", messages[1]["content"])
+	}
+}
+
 func TestConfiguredProtocolNeverFallsBackOrDuplicatesRequest(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; http.Error(w, "missing", http.StatusNotFound) }))

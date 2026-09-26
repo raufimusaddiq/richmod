@@ -34,6 +34,13 @@ type reviewUIItem struct {
 	} `json:"candidates"`
 }
 
+func TestDocumentExtractionOffersReprocessInsteadOfBankFacts(t *testing.T) {
+	actions := canonicalActions("DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
+	if len(actions) != 2 || actions[0] != "REPROCESS_DOCUMENT" || actions[1] != "IGNORE" {
+		t.Fatalf("document extraction actions: %v", actions)
+	}
+}
+
 func TestPayslipMissingDateListsOnlyCurrentResidualAndPolicy(t *testing.T) {
 	pool, household, user := reviewUIFixture(t)
 	ctx := context.Background()

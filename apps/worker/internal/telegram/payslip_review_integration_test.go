@@ -57,7 +57,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 		return sourceID
 	}
 	processor := NewProcessor(pool, boundReviewGateway{})
-	callback := callbackUpdate(chatID, 61, "review:salary:ordinary")
+	callback := callbackUpdate(chatID, 61, "review:salary:primary")
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callback)))
 	var state, requestStatus, itemStatus string
 	must(pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, requestID).Scan(&state))
@@ -91,6 +91,13 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM transaction_evidence WHERE source_event_id=$1 AND evidence_type='PAYSLIP_IMAGE'`, imageID).Scan(&transactions))
 	if transactions != 1 {
 		t.Fatalf("stale callback created another payslip transaction: %d", transactions)
+	}
+	// A confirmed salary opens cycle residual reconciliation from the shared
+	// resolver, and the stale replay must not enqueue a second one.
+	var residualJobs int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'household_id'=$1`, householdID).Scan(&residualJobs))
+	if residualJobs != 1 {
+		t.Fatalf("telegram payslip confirmation enqueued %d cycle residual jobs, want 1", residualJobs)
 	}
 }
 
