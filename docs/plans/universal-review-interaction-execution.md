@@ -196,6 +196,20 @@ through a fail-closed `documentMatches` guard instead of a hard `JOIN document`,
 which had made `FOR UPDATE` illegal on the nullable side of a `LEFT JOIN`
 (SQLSTATE 0A000) and surfaced as "no rows".
 
+Cycle-residual coverage. A confirmed primary/household-policy salary now enqueues
+`GENERATE_CYCLE_RESIDUAL_REVIEW` from inside `reviewdomain.ResolvePayslipProposal`
+(same transaction, keyed on the newly inserted `salary_event` id) instead of only
+from the Web adapter, so both Telegram lanes and Web enqueue exactly one residual
+review from one place. `RecordSalaryEvent` returns the inserted event id (empty on
+an `ON CONFLICT` skip), so a stale replay cannot double-enqueue. The generic
+income-confirm extraction path now uses a labelled-date parser
+(`parseLabeledReviewPayDate`) so an unlabelled `dd Month yyyy` in ordinary
+free-text is no longer picked up as a pay date; the bound pay-date lane keeps the
+permissive parser.
+The legacy-only `UNKNOWN_BANK_TEMPLATE` Telegram tool action list now matches
+Web/preset (`COMPLETE_BANK_FACTS`, `IGNORE`) rather than incorrectly suggesting
+document reprocessing; it remains unprojected until it has an active producer.
+
 Document parity. `DOCUMENT_CLASSIFICATION` and
 `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` — the terminal-failure reviews the shared
 document pipeline raises for a payslip, receipt, or document it cannot classify
@@ -231,6 +245,15 @@ finishes in two taps. Completion enqueues the `PROCESS_FINANCIAL_EMAIL` replay,
 matching the Review Inbox. The renderer gained a `financial_email` markup mode
 and the family was added to `TelegramCompletableReviewType` and the tool
 registry, so the card is projected instead of fail-closed.
+
+The card's Abaikan action also closes the bound observation and canonical review
+without a replay, matching the Inbox's ignore semantics. Telegram locks the
+canonical item before mutating the observation, guards completion on open status,
+and does not re-offer a chooser after a concurrent resolution. Partial choices
+pass the same household/active entity validation as final resolution before
+persisting. The chooser pages through both account types instead of silently
+truncating large households; query errors stop projection rather than sending
+a buttonless card.
 
 ### UIR-08 — cross-surface synchronization and concurrency (complete; PR open)
 

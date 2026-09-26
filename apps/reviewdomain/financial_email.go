@@ -96,12 +96,8 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 		wealthAccountID = knownWealth
 	}
 	if accountID != "" {
-		var valid bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, accountID, cmd.HouseholdID).Scan(&valid); err != nil {
-			return result, invalidEntityIDError(err, ErrAccountInvalid)
-		}
-		if !valid {
-			return result, ErrAccountInvalid
+		if err := ValidateFinancialFundingAccount(ctx, tx, cmd.HouseholdID, accountID); err != nil {
+			return result, err
 		}
 	}
 	if wealthAccountID != "" {
@@ -137,6 +133,18 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	result.ObservationID = observationID
 	result.AccountID, result.WealthAccountID, result.Values = accountID, wealthAccountID, payload
 	return result, nil
+}
+
+// ValidateFinancialFundingAccount checks a partial choice before it is persisted.
+func ValidateFinancialFundingAccount(ctx context.Context, tx pgx.Tx, householdID, accountID string) error {
+	var valid bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, accountID, householdID).Scan(&valid); err != nil {
+		return invalidEntityIDError(err, ErrAccountInvalid)
+	}
+	if !valid {
+		return ErrAccountInvalid
+	}
+	return nil
 }
 
 // invalidEntityIDError keeps malformed identifier input a client error: an

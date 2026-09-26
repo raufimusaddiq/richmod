@@ -107,10 +107,10 @@ func canonicalActions(kind string) []string {
 	if kind == "FINANCIAL_EMAIL_RESOLUTION" {
 		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
 	}
-	if kind == "UNKNOWN_BANK_TEMPLATE" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
+	if kind == "UNKNOWN_BANK_TEMPLATE" {
 		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
 	}
-	if kind == "DOCUMENT_CLASSIFICATION" {
+	if kind == "DOCUMENT_CLASSIFICATION" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
 		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
 	}
 	return []string{"IGNORE"}
@@ -182,7 +182,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "action is not allowed by this review"})
 		return
 	}
-	enqueueSalaryResidual := in.Action == "PRIMARY_SALARY"
 	payslipResolved := false
 	if kind == "WEALTH_OBSERVATION_CONFIRMATION" && wealthObservation != nil {
 		if in.Action == "PREPARE_SNAPSHOT" {
@@ -460,10 +459,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 				err = errInvalid
 			} else {
 				choice := strings.ToUpper(strings.TrimSpace(v.Choice))
-				var result reviewdomain.PayslipResult
-				result, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, in.Action, choice, &date)
+				_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, in.Action, choice, &date)
 				payslipResolved = err == nil
-				enqueueSalaryResidual = result.Choice == "PRIMARY_SALARY" || result.Choice == "HOUSEHOLD_POLICY"
 			}
 		}
 	} else {
@@ -486,14 +483,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	if (!payslipResolved && audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": in.Action}) != nil) || tx.Commit(r.Context()) != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to audit review resolution"})
 		return
-	}
-	// Salary state is already committed. Queue failure is deliberately best-effort;
-	// worker catch-up repairs a lost enqueue without rolling salary back.
-	if enqueueSalaryResidual && source != nil {
-		var salaryEventID string
-		if err := h.pool.QueryRow(r.Context(), `SELECT id FROM salary_event WHERE household_id=$1 AND source_event_id=$2 AND status='CONFIRMED' ORDER BY created_at DESC LIMIT 1`, household, *source).Scan(&salaryEventID); err == nil {
-			_, _ = h.pool.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5)`, household, salaryEventID)
-		}
 	}
 	w.WriteHeader(204)
 }

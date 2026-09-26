@@ -223,12 +223,40 @@ func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemProm
 	if options.Required {
 		choice = "required"
 	}
-	payload := map[string]any{"model": c.model, "messages": []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}, "tools": functions, "tool_choice": choice, "stream": false}
+	payload := map[string]any{"model": c.model, "messages": chatMessages(systemPrompt, userContent), "tools": functions, "tool_choice": choice, "stream": false}
 	if options.ReasoningEffort != "" {
 		payload["reasoning_effort"] = options.ReasoningEffort
 	}
 	payload["parallel_tool_calls"] = false
 	return c.doChatToolCall(ctx, requestID, payload, options)
+}
+
+// chatMessages builds the Chat Completions message list. The provider rejects a
+// request whose messages carry no user turn (`messages must not be empty`), and
+// a system prompt alone gives the model nothing to answer, so a real user turn
+// is always emitted. Callers that supply no content are bounded extraction
+// lanes whose instruction is the required tool contract itself; the fallback
+// text keeps that turn non-empty instead of shipping a system-only request.
+func chatMessages(systemPrompt string, userContent any) []map[string]any {
+	if chatContentEmpty(userContent) {
+		userContent = "Use the required tool call to answer for the supplied evidence."
+	}
+	return []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}
+}
+
+func chatContentEmpty(content any) bool {
+	switch value := content.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(value) == ""
+	case []map[string]any:
+		return len(value) == 0
+	case []any:
+		return len(value) == 0
+	default:
+		return false
+	}
 }
 
 func (c *Client) doChatToolCall(ctx context.Context, requestID string, payload map[string]any, options NativeToolOptions) (ToolCall, Metadata, error) {

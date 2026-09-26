@@ -481,6 +481,18 @@ func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType stri
 		decision.InteractionMode = reviewdec.ModePolicyChoice
 		decision.WhyNotAuto = "pay date is absent and the first salary source requires household classification"
 	}
+	// A household that already has a primary salary cannot promote this slip to
+	// primary: the resolver fails closed on PRIMARY_SALARY. Drop the dead button so
+	// the card never advertises an action that would 400.
+	if reviewType == "PAYSLIP_CONFIRMATION" && hasPrimary {
+		actions := make([]string, 0, len(decision.AllowedActions))
+		for _, action := range decision.AllowedActions {
+			if action != "PRIMARY_SALARY" {
+				actions = append(actions, action)
+			}
+		}
+		decision.AllowedActions = actions
+	}
 	return decision
 }
 

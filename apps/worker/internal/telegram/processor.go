@@ -211,8 +211,11 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			if handled, err := p.processDocumentReviewCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
+			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+				return err
+			}
 		}
-		if strings.HasPrefix(update.CallbackQuery.Data, "review:fe:") {
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:fe:") || strings.HasPrefix(update.CallbackQuery.Data, "review:fepage:") {
 			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
@@ -222,6 +225,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 				return err
 			}
 		}
+		// A review:salary: callback that the policy lane did not handle (the review
+		// is already resolved or the binding changed) is stale; answer it here so it
+		// never falls through to the generic lanes as an unrecognized action.
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
 			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
 		}

@@ -156,3 +156,17 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		}
 	}
 }
+func TestFinancialEmailEntityMarkupPagesLargeAccountSets(t *testing.T) {
+	if got := financialEmailPage("review:fepage:2"); got != 2 {
+		t.Fatalf("pager parse = %d, want 2", got)
+	}
+	if got := financialEmailPage("review:fe:account:abc"); got != -1 {
+		t.Fatalf("non-pager parsed as %d, want -1", got)
+	}
+	if dimension, id := financialEmailDimension("review:fe:wealth:w1"); dimension != "wealth" || id != "w1" {
+		t.Fatalf("dimension parse = %q %q", dimension, id)
+	}
+	if dimension, _ := financialEmailDimension("review:ignore"); dimension != "ignore" {
+		t.Fatalf("ignore action did not map to the ignore dimension: %q", dimension)
+	}
+}

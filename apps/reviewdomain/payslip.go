@@ -159,9 +159,18 @@ func ResolvePayslipProposal(ctx context.Context, tx pgx.Tx, cmd PayslipCommand) 
 	}
 	out.Choice = cmd.Choice
 	if out.Choice == "PRIMARY_SALARY" || out.Choice == "HOUSEHOLD_POLICY" {
-		_, err := RecordSalaryEvent(ctx, tx, SalaryCommand{HouseholdID: cmd.HouseholdID, UserID: cmd.UserID, Employer: employer, Period: period, PayDate: at, NetPay: amount, Transaction: out.TransactionID, SourceEvent: cmd.SourceEventID, MakePrimary: out.Choice == "PRIMARY_SALARY"})
+		salary, err := RecordSalaryEvent(ctx, tx, SalaryCommand{HouseholdID: cmd.HouseholdID, UserID: cmd.UserID, Employer: employer, Period: period, PayDate: at, NetPay: amount, Transaction: out.TransactionID, SourceEvent: cmd.SourceEventID, MakePrimary: out.Choice == "PRIMARY_SALARY"})
 		if err != nil {
 			return PayslipResult{}, err
+		}
+		// A confirmed primary/household-policy salary opens cycle residual
+		// reconciliation. Enqueued in the same tx so it commits with the salary and
+		// every surface (Web and both Telegram lanes) gets it from one place; the
+		// worker catch-up sweep repairs a lost enqueue if this ever fails.
+		if salary.SalaryEventID != "" {
+			if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5) ON CONFLICT DO NOTHING`, cmd.HouseholdID, salary.SalaryEventID); err != nil {
+				return PayslipResult{}, err
+			}
 		}
 	}
 	resolutionValues := []byte(`{}`)
