@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -178,7 +177,7 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 // instead of guessing.
 func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, householdID, reviewID, userID, bankSourceID string, update telegramUpdate) error {
 	amountIDR, transactionAt := parseBankFactsReply(update.Message.Text)
-	if amountIDR == "" || transactionAt == "" {
+	if reviewdomain.ValidateBankFactValues(amountIDR, transactionAt) != nil {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Balas nominal dan waktu transaksi, contoh: 54000 2026-09-23T13:45:00+07:00.")
 	}
 	at, parseErr := time.Parse(time.RFC3339, transactionAt)
@@ -212,7 +211,7 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, "Transaksi bank dicatat."); err != nil {
+	if err := enqueueReply(ctx, tx, update, "Fakta bank diterima untuk diproses. Transaksi belum dicatat; status review akan diperbarui setelah pemrosesan berhasil."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -239,7 +238,7 @@ func parseBankFactsReply(text string) (string, string) {
 		if candidate == "" || strings.ContainsAny(candidate, ",.") {
 			continue
 		}
-		if _, ok := new(big.Int).SetString(candidate, 10); ok {
+		if reviewdomain.ValidBankAmountIDR(candidate) {
 			amount = candidate
 		}
 	}
@@ -1091,10 +1090,14 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 			if err = tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&dateRequestID); err != nil {
 				return err
 			}
+			dateAt, parseErr := time.ParseInLocation("2006-01-02", *parsed, jakartaLocation())
+			if parseErr != nil {
+				return parseErr
+			}
 			if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 				HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 				ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: dateRequestID,
-				Action: "TELEGRAM_DATE_SET", TransactionAt: &parsed,
+				Action: "TELEGRAM_DATE_SET", TransactionAt: &dateAt,
 				ResolveReview: true,
 			}); err != nil {
 				return err

@@ -7,6 +7,7 @@
 
 **Implementation base:** merged PR #189, `main@fe55a19a97d6993db803e278d360a9a5c0930467`.
 **Progress:** UIRC-02 C: confirm timestamp boundary now accepts only `*time.Time`; Telegram adapters parse supplied dates before calling the shared operation. Other UIRC gates remain open.
+**UIRC-01 B partial:** bank amount/time preflight now shares the canonical positive whole-IDR limit; async pre-commit reply says processing, not recorded. Unlinked-source Telegram account binding and post-commit terminal delivery remain open.
 
 ## Operating rule
 

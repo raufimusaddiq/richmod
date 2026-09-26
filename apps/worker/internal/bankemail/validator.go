@@ -5,15 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-var idrInteger = regexp.MustCompile(`^[0-9]+$`)
 var missingNames = map[string]bool{"amount_idr": true, "transaction_at": true, "merchant": true, "counterparty": true, "reference": true, "description": true, "direction": true, "channel": true}
 
 func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
@@ -66,11 +64,10 @@ func ValidateEmitBankTransaction(call gateway.ToolCall) (Extraction, error) {
 		return Extraction{}, fmt.Errorf("invalid bank email channel")
 	}
 	if raw.AmountIDR != nil {
-		if !idrInteger.MatchString(*raw.AmountIDR) {
+		if *raw.AmountIDR == "" || strings.Trim(*raw.AmountIDR, "0123456789") != "" {
 			return Extraction{}, fmt.Errorf("amount must be a whole IDR integer")
 		}
-		amount, ok := new(big.Int).SetString(*raw.AmountIDR, 10)
-		if !ok || amount.Sign() <= 0 || len(*raw.AmountIDR) > 20 {
+		if !reviewdomain.ValidBankAmountIDR(*raw.AmountIDR) {
 			return Extraction{}, fmt.Errorf("amount must be a positive IDR integer")
 		}
 	}

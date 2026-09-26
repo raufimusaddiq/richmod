@@ -19,6 +19,17 @@ func TestConfirmDateBoundaryIsOptionalTimestamp(t *testing.T) {
 	}
 }
 
+func TestBankFactValuesRejectUnqueueableFacts(t *testing.T) {
+	for _, amount := range []string{"-54000", "+54000", "0", "000", "54,000", "999999999999999999999"} {
+		if ValidateBankFactValues(amount, "2026-09-23T13:45:00+07:00") == nil {
+			t.Fatalf("invalid amount %q accepted", amount)
+		}
+	}
+	if err := ValidateBankFactValues("54000", "2026-09-23T13:45:00+07:00"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The transaction confirm operation must stay channel-neutral: both surfaces
 // call ConfirmTransactionReview, and neither re-owns the transaction mutation.
 func TestConfirmIsSharedAcrossSurfaces(t *testing.T) {

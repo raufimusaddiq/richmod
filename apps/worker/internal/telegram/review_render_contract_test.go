@@ -219,6 +219,9 @@ func TestBankFactsReplyParserAndCapability(t *testing.T) {
 	for _, text := range []string{
 		"54,5 2026-09-23T13:45:00+07:00",
 		"12.500,50 2026-09-23T13:45:00+07:00",
+		"-54000 2026-09-23T13:45:00+07:00",
+		"0 2026-09-23T13:45:00+07:00",
+		"999999999999999999999 2026-09-23T13:45:00+07:00",
 	} {
 		if amount, _ := parseBankFactsReply(text); amount != "" {
 			t.Fatalf("separator amount %q parsed as %q, want rejection", text, amount)

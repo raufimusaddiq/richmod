@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -44,8 +45,8 @@ var (
 // transaction, and resolving the item, and would no-op against an
 // already-resolved item.
 func ValidateBankSourceAccount(ctx context.Context, tx pgx.Tx, cmd BankFactCommand) error {
-	if strings.TrimSpace(cmd.AmountIDR) == "" || strings.TrimSpace(cmd.TransactionAt) == "" {
-		return ErrBankFactsRequired
+	if err := ValidateBankFactValues(cmd.AmountIDR, cmd.TransactionAt); err != nil {
+		return err
 	}
 	var listenerAccount string
 	err := tx.QueryRow(ctx, `SELECT COALESCE(l.account_id::text,'') FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id WHERE ri.id=$1 AND ri.household_id=$2 AND ri.source_event_id=$3 AND ri.review_type='UNKNOWN_BANK_TEMPLATE' AND ri.status IN ('OPEN','PENDING_SEND') FOR UPDATE OF ri`, cmd.ReviewItemID, cmd.HouseholdID, cmd.SourceEventID).Scan(&listenerAccount)
@@ -62,4 +63,23 @@ func ValidateBankSourceAccount(ctx context.Context, tx pgx.Tx, cmd BankFactComma
 		return err
 	}
 	return nil
+}
+
+// ValidateBankFactValues applies the same whole-IDR and zoned-time limits to
+// Telegram and the queued bank completion before either can claim success.
+func ValidateBankFactValues(amount, timestamp string) error {
+	if strings.TrimSpace(amount) == "" || strings.TrimSpace(timestamp) == "" {
+		return ErrBankFactsRequired
+	}
+	if !ValidBankAmountIDR(amount) {
+		return ErrBankFactsRequired
+	}
+	if _, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(timestamp)); err != nil {
+		return ErrBankFactsRequired
+	}
+	return nil
+}
+
+func ValidBankAmountIDR(amount string) bool {
+	return len(amount) > 0 && len(amount) <= 20 && strings.Trim(amount, "0123456789") == "" && strings.Trim(amount, "0") != ""
 }
