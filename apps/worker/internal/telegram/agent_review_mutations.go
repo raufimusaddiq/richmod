@@ -409,7 +409,7 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 	return result, true, nil
 }
 
-func (p *Processor) agentResolveTransferCaseTx(ctx context.Context, state *agentState, caseID, originalSource, accountID, amount, description, purpose, wealthID string, at time.Time, target string, createNew bool) (string, error) {
+func (p *Processor) agentResolveTransferCaseTx(ctx context.Context, state *agentState, caseID, target string, createNew bool) (string, error) {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return "", err
@@ -422,82 +422,28 @@ func (p *Processor) agentResolveTransferCaseTx(ctx context.Context, state *agent
 	if !valid || state.ReviewBinding.TargetID != caseID {
 		return "", fmt.Errorf("stale transfer reconciliation binding")
 	}
-	var candidates []string
-	if err = tx.QueryRow(ctx, `SELECT source_event_id::text,account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE id=$1 AND household_id=$2 AND status='OPEN' FOR UPDATE`, caseID, state.HouseholdID).Scan(&originalSource, &accountID, &amount, &description, &purpose, &wealthID, &at, &candidates); err != nil {
+	var itemID, userID string
+	if err := tx.QueryRow(ctx, `SELECT review_item_id::text FROM review_request WHERE id=$1 AND household_id=$2`, state.ReviewBinding.ReviewRequestID, state.HouseholdID).Scan(&itemID); err != nil {
 		return "", err
 	}
-	if target != "" {
-		found := false
-		for _, candidate := range candidates {
-			if candidate == target {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return "", fmt.Errorf("reconciliation candidate changed")
-		}
-	}
-	var compatible bool
-	if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, state.HouseholdID).Scan(&compatible); err != nil || !compatible {
-		return "", fmt.Errorf("invalid transfer wealth relationship")
-	}
-	var userID string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return "", err
 	}
-	id := target
+	action := "MERGE_EXISTING"
 	if createNew {
-		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`, state.HouseholdID, accountID, amount, at, description, userID, purpose, wealthID).Scan(&id); err != nil {
-			return "", err
-		}
-	} else if id != "" {
-		var kind, status, targetAccount, targetAmount string
-		if err = tx.QueryRow(ctx, `SELECT type,status,account_id::text,amount::text FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`, id, state.HouseholdID).Scan(&kind, &status, &targetAccount, &targetAmount); err != nil || targetAccount != accountID || targetAmount != amount || status == "VOIDED" {
-			return "", fmt.Errorf("invalid reconciliation candidate")
-		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),confirmed_at=COALESCE(confirmed_at,now()),updated_at=now() WHERE id=$1`, id, purpose, wealthID, description); err != nil {
-			return "", err
-		}
-		if kind == "UNCLASSIFIED" || status == "NEEDS_REVIEW" {
-			if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='TRANSFER',proposal_status='ACCEPTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, id); err != nil {
-				return "", err
-			}
-			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, id); err != nil {
-				return "", err
-			}
-			if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN ('OPEN','PENDING_SEND')`, id); err != nil {
-				return "", err
-			}
-			if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE transaction_id=$1)`, id); err != nil {
-				return "", err
-			}
-		}
+		action = "CONFIRM_NEW_TRANSFER"
 	}
-	if id != "" {
-		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'TELEGRAM_TEXT',1) ON CONFLICT DO NOTHING`, id, originalSource); err != nil {
-			return "", err
-		}
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id IN ($1,$2)`, originalSource, state.SourceEventID); err != nil {
+	id, err := reviewdomain.ReconcileTransfer(ctx, tx, reviewdomain.TransferReconciliationCommand{
+		HouseholdID: state.HouseholdID, ActorUserID: userID, ReviewItemID: itemID,
+		CaseID: caseID, Action: action, CandidateID: target,
+	})
+	if err != nil {
 		return "", err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='TRANSFER_RECONCILED',updated_at=now() WHERE id=(SELECT review_item_id FROM review_request WHERE id=$3 AND household_id=$4) AND status IN ('OPEN','PENDING_SEND')`, originalSource, userID, state.ReviewBinding.ReviewRequestID, state.HouseholdID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1 AND household_id=$2`, state.SourceEventID, state.HouseholdID); err != nil {
 		return "", err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND household_id=$2 AND status='OPEN'`, state.ReviewBinding.ReviewRequestID, state.HouseholdID); err != nil {
-		return "", err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, state.ReviewBinding.ReviewRequestID); err != nil {
-		return "", err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='OPEN'`, caseID, userID, state.HouseholdID); err != nil {
-		return "", err
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return "", err
-	}
-	return id, nil
+	return id, tx.Commit(ctx)
 }
 
 func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState, call gateway.ToolCall, action string, args map[string]any) (bool, agentToolResult, error) {

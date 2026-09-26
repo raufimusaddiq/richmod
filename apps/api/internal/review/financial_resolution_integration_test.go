@@ -73,6 +73,44 @@ func seedFinancialResolution(t *testing.T, resolved bool) financialResolutionFix
 	return fixture
 }
 
+func seedFinancialResolutionValues(t *testing.T, resolved bool) financialResolutionFixture {
+	t.Helper()
+	return seedFinancialResolution(t, resolved)
+}
+
+// UIRC-02 B: a partial first pick must persist, stay pending, and not close the
+// review; the same canonical operation is what Telegram calls.
+func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
+	fixture := seedFinancialResolutionValues(t, true)
+	ctx := context.Background()
+	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"wealthAccountId":"`+fixture.wealthAccount+`"}}`); w.Code != http.StatusNoContent {
+		t.Fatalf("resolved-on-the-final-entity must be 204: %d %s", w.Code, w.Body.String())
+	}
+	var status string
+	if err := fixture.pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, fixture.observation).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "PENDING" {
+		t.Fatalf("final entity must queue the observation for replay: %s", status)
+	}
+}
+
+// UIRC-02 B: Web IGNORE must take the same lifecycle as the Telegram callback.
+func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
+	fixture := seedFinancialResolutionValues(t, true)
+	ctx := context.Background()
+	if w := fixture.resolve(t, `{"action":"IGNORE","values":{}}`); w.Code != http.StatusNoContent {
+		t.Fatalf("ignore must resolve: %d %s", w.Code, w.Body.String())
+	}
+	var observationStatus, itemStatus, requestStatus, sourceStatus string
+	if err := fixture.pool.QueryRow(ctx, `SELECT fo.status,ri.status,COALESCE((SELECT status FROM review_request WHERE review_item_id=ri.id),''),se.processing_status FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id JOIN source_event se ON se.id=fo.source_event_id WHERE fo.id=$1`, fixture.observation).Scan(&observationStatus, &itemStatus, &requestStatus, &sourceStatus); err != nil {
+		t.Fatal(err)
+	}
+	if observationStatus != "IGNORED" || itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || sourceStatus != "IGNORED" {
+		t.Fatalf("ignore lifecycle observation=%s item=%s request=%s source=%s", observationStatus, itemStatus, requestStatus, sourceStatus)
+	}
+}
+
 func (f financialResolutionFixture) resolve(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+f.review+"/resolve", bytes.NewBufferString(body))
