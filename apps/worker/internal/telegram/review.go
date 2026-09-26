@@ -31,6 +31,7 @@ type reviewExtraction struct {
 }
 
 var reviewPayDatePattern = regexp.MustCompile(`(?i)(?:(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*)?(\d{1,2})\s+([a-z]+)\s+(\d{4})`)
+var reviewLabeledPayDatePattern = regexp.MustCompile(`(?i)(?:tanggal|date|dibayar|paid(?:\s+on)?)\s*[:=]?\s*\d{1,2}\s+[a-z]+\s+\d{4}`)
 
 // reviewPayrollPeriodPattern matches the YYYY-MM payroll period stored on payslip evidence.
 var reviewPayrollPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
@@ -112,6 +113,10 @@ func parseReviewPayDate(text string) string {
 		return ""
 	}
 	return d.Format("2006-01-02")
+}
+
+func parseLabeledReviewPayDate(text string) string {
+	return parseReviewPayDate(reviewLabeledPayDatePattern.FindString(text))
 }
 
 type categoryChoice struct {
@@ -265,7 +270,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		case "REJECT":
 			return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 		case "CONFIRM":
-			value := reviewExtraction{Description: "Penghasilan dari bukti transaksi", Note: clean(update.Message.Text, 1000), Confidence: 1, PayDate: parseReviewPayDate(update.Message.Text)}
+			value := reviewExtraction{Description: "Penghasilan dari bukti transaksi", Note: clean(update.Message.Text, 1000), Confidence: 1, PayDate: parseLabeledReviewPayDate(update.Message.Text)}
 			return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, "", update, value)
 		default:
 			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update,

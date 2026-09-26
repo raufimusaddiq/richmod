@@ -80,6 +80,56 @@ func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
 	if residual != "500000" || allocations != 0 {
 		t.Fatalf("residual=%s allocations=%d", residual, allocations)
 	}
+	if got := cycleResidualStatus(reviewdomain.ErrCycleCaseNotFound); got != http.StatusNotFound {
+		t.Fatalf("cycle residual status=%d", got)
+	}
+}
+
+// UIR-06: a confirmed primary salary enqueues exactly one cycle-residual review,
+// even when a stale replay repeats the confirmation. Pins the residual coverage
+// the Telegram lanes previously skipped.
+func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	household, user, _ := seedTransferReviewOwner(t, pool, stamp)
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var source, attachment, documentID, proposal, review string
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("residual-payslip-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, household, []byte(fmt.Sprint(stamp)), fmt.Sprintf("%s/residual.png", household)).Scan(&attachment))
+	must(pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'PAYSLIP','NEEDS_REVIEW') RETURNING id`, household, source, attachment).Scan(&documentID))
+	must(pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,counterparty_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',1000000,'IDR',now(),'Employer','Penghasilan dari slip gaji',.99,'NEEDS_REVIEW',jsonb_build_object('period','2026-09','document_id',$3::uuid)) RETURNING id`, household, source, documentID).Scan(&proposal))
+	decision := `{"version":1,"reasonCode":"PAYSLIP_CONFIRMATION","decisionClass":"HUMAN_POLICY_CHOICE","interactionMode":"POLICY_CHOICE","knownFacts":{},"missingFacts":["salary_classification"],"allowedActions":["PRIMARY_SALARY","ORDINARY_INCOME","IGNORE"],"decisionSource":"DETERMINISTIC"}`
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,'PAYSLIP_CONFIRMATION','OPEN',$5::jsonb) RETURNING id`, household, proposal, source, documentID, decision).Scan(&review))
+	resolve := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(`{"action":"PRIMARY_SALARY","values":{}}`))
+		r.SetPathValue("id", review)
+		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+		w := httptest.NewRecorder()
+		NewHandler(pool).Resolve(w, r)
+		return w
+	}
+	if w := resolve(); w.Code != http.StatusNoContent {
+		t.Fatalf("primary salary resolve=%d %s", w.Code, w.Body.String())
+	}
+	resolve() // a replay must not enqueue a second residual
+	var jobs int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND payload_json->>'household_id'=$1`, household).Scan(&jobs))
+	if jobs != 1 {
+		t.Fatalf("cycle residual jobs=%d, want 1", jobs)
+	}
 }
 
 func TestListPreservesCanonicalReviewMetadata(t *testing.T) {

@@ -196,6 +196,17 @@ through a fail-closed `documentMatches` guard instead of a hard `JOIN document`,
 which had made `FOR UPDATE` illegal on the nullable side of a `LEFT JOIN`
 (SQLSTATE 0A000) and surfaced as "no rows".
 
+Cycle-residual coverage. A confirmed primary/household-policy salary now enqueues
+`GENERATE_CYCLE_RESIDUAL_REVIEW` from inside `reviewdomain.ResolvePayslipProposal`
+(same transaction, keyed on the newly inserted `salary_event` id) instead of only
+from the Web adapter, so both Telegram lanes and Web enqueue exactly one residual
+review from one place. `RecordSalaryEvent` returns the inserted event id (empty on
+an `ON CONFLICT` skip), so a stale replay cannot double-enqueue. The generic
+income-confirm extraction path now uses a labelled-date parser
+(`parseLabeledReviewPayDate`) so an unlabelled `dd Month yyyy` in ordinary
+free-text is no longer picked up as a pay date; the bound pay-date lane keeps the
+permissive parser.
+
 Document parity. `DOCUMENT_CLASSIFICATION` and
 `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` — the terminal-failure reviews the shared
 document pipeline raises for a payslip, receipt, or document it cannot classify

@@ -23,6 +23,12 @@ func TestParseReviewPayDate(t *testing.T) {
 	if got := parseReviewPayDate("BENAR, gunakan tanggal 31 februari 2026"); got != "" {
 		t.Fatalf("invalid pay date = %q", got)
 	}
+	if got := parseLabeledReviewPayDate("penghasilan 25 September 2026"); got != "" {
+		t.Fatalf("generic income reply inferred an unlabelled date: %q", got)
+	}
+	if got := parseLabeledReviewPayDate("penghasilan dibayar tanggal 25 September 2026"); got != "2026-09-25" {
+		t.Fatalf("generic income reply missed a labelled date: %q", got)
+	}
 }
 
 // IR-02: Telegram must request exactly the stored residual fact and must not
