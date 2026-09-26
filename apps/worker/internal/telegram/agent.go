@@ -561,16 +561,14 @@ func agentMutationFallback(result agentToolResult) string {
 			return "Observasi Wealth sudah direklasifikasi sebagai pembelian aset."
 		case "WEALTH_OBSERVATION_IGNORED":
 			return "Observasi Wealth sudah diabaikan."
-		case "PREPARE_WEALTH_SNAPSHOT":
-			return "Wealth Account sudah siap; lanjutkan snapshot lengkap di halaman Wealth."
 		case "CYCLE_RESIDUAL_RESOLVED":
 			return "Rekonsiliasi sisa salary cycle sudah diselesaikan."
 		case "CYCLE_RESIDUAL_REFRESHED":
 			return "Nilai sisa salary cycle berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
 		case "CYCLE_RESIDUAL_CLOSED":
 			return "Rekonsiliasi sisa salary cycle ditutup karena tidak lagi berlaku."
-		case "ADD_MISSING_TRANSACTION_IN_WEB":
-			return "Tambahkan transaksi yang belum ada lewat Review Inbox di web, lalu lanjutkan rekonsiliasinya."
+		case "ADD_MISSING_TRANSACTION_IN_TELEGRAM":
+			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan."
 		}
 	}
 

@@ -182,12 +182,13 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 	}
 	var reviews []struct {
 		ID, ReviewType, CycleStart, CycleEnd, WealthObservationID, ResolvedWealthAccountID, Institution, AccountHint string
+		AllowedActions []string `json:"allowedActions"`
 	}
 	must(json.Unmarshal(res.Body.Bytes(), &reviews))
 	var gotWealth, gotResidual bool
 	for _, value := range reviews {
 		if value.ID == wealthReview {
-			gotWealth = value.ReviewType == "WEALTH_OBSERVATION_CONFIRMATION" && value.WealthObservationID == observationID && value.ResolvedWealthAccountID == wealthID && value.Institution == "Bibit" && value.AccountHint == "Reksadana"
+			gotWealth = value.ReviewType == "WEALTH_OBSERVATION_CONFIRMATION" && value.WealthObservationID == observationID && value.ResolvedWealthAccountID == wealthID && value.Institution == "Bibit" && value.AccountHint == "Reksadana" && len(value.AllowedActions) == 2 && value.AllowedActions[0] == "SET_WEALTH_ACCOUNT" && value.AllowedActions[1] == "IGNORE"
 		}
 		if value.ReviewType == "CYCLE_RESIDUAL_ALLOCATION" {
 			gotResidual = value.CycleStart == "2026-08-25" && value.CycleEnd == "2026-09-25"
@@ -195,6 +196,17 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 	}
 	if !gotWealth || !gotResidual {
 		t.Fatalf("wealth=%t residual=%t reviews=%s", gotWealth, gotResidual, res.Body.String())
+	}
+	// Optional snapshot navigation is a link, not a canonical completion.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+wealthReview+"/resolve", bytes.NewBufferString(`{"action":"PREPARE_SNAPSHOT"}`))
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}))
+	req.SetPathValue("id", wealthReview)
+	res = httptest.NewRecorder()
+	NewHandler(pool).Resolve(res, req)
+	var status string
+	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, wealthReview).Scan(&status))
+	if res.Code != http.StatusBadRequest || status != "OPEN" {
+		t.Fatalf("snapshot navigation incorrectly completed review: code=%d status=%s", res.Code, status)
 	}
 }
 

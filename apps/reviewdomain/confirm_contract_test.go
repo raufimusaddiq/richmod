@@ -2,9 +2,33 @@ package reviewdomain
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestConfirmDateBoundaryIsOptionalTimestamp(t *testing.T) {
+	field, ok := reflect.TypeOf(ConfirmCommand{}).FieldByName("TransactionAt")
+	if !ok || field.Type != reflect.TypeOf((*time.Time)(nil)) {
+		t.Fatal("confirm date must be a *time.Time, never an interface")
+	}
+	var absent ConfirmCommand
+	if absent.TransactionAt != nil {
+		t.Fatal("unsupplied date must not overwrite the proposal timestamp")
+	}
+}
+
+func TestBankFactValuesRejectUnqueueableFacts(t *testing.T) {
+	for _, amount := range []string{"-54000", "+54000", "0", "000", "54,000", "999999999999999999999"} {
+		if ValidateBankFactValues(amount, "2026-09-23T13:45:00+07:00") == nil {
+			t.Fatalf("invalid amount %q accepted", amount)
+		}
+	}
+	if err := ValidateBankFactValues("54000", "2026-09-23T13:45:00+07:00"); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // The transaction confirm operation must stay channel-neutral: both surfaces
 // call ConfirmTransactionReview, and neither re-owns the transaction mutation.

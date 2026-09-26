@@ -102,7 +102,9 @@ func canonicalActions(kind string) []string {
 		return []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED"}
 	}
 	if kind == "WEALTH_OBSERVATION_CONFIRMATION" {
-		return []string{"PREPARE_SNAPSHOT", "SET_WEALTH_ACCOUNT", "IGNORE"}
+		// UIRC-01 D: the snapshot editor is optional navigation, so it is not an
+		// allowed completion action and never counts as a mandatory Web escape.
+		return []string{"SET_WEALTH_ACCOUNT", "IGNORE"}
 	}
 	if kind == "FINANCIAL_EMAIL_RESOLUTION" {
 		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
@@ -185,11 +187,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	payslipResolved := false
 	if kind == "WEALTH_OBSERVATION_CONFIRMATION" && wealthObservation != nil {
 		if in.Action == "PREPARE_SNAPSHOT" {
-			if err = tx.Commit(r.Context()); err != nil {
-				writeJSON(w, 500, map[string]string{"error": "unable to prepare wealth snapshot"})
-				return
-			}
-			writeJSON(w, http.StatusAccepted, map[string]any{"action": in.Action, "route": "WEALTH_SNAPSHOT", "wealthObservationId": *wealthObservation})
+			writeJSON(w, 400, map[string]string{"error": "snapshot preparation is optional navigation, not a review action"})
 			return
 		}
 		if in.Action == "SET_WEALTH_ACCOUNT" {

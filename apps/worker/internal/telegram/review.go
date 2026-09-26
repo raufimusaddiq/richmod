@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -141,6 +140,14 @@ func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID st
 	return open, nil
 }
 
+// A request TTL only bounds the Telegram projection, never the canonical item.
+// A member replying to its exact old card renews that same projection; no new
+// review_item is created and all existing callback binding remains server-owned.
+func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdID string, update telegramUpdate) error {
+	_, err := p.pool.Exec(ctx, `UPDATE review_request r SET status='OPEN',expires_at=now()+interval '7 days' FROM review_item ri,review_request_recipient rr,telegram_identity ti,household_member hm WHERE r.review_item_id=ri.id AND rr.review_request_id=r.id AND ri.household_id=$1 AND r.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND r.status IN ('OPEN','EXPIRED') AND (r.expires_at<=now() OR r.status='EXPIRED') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active AND hm.household_id=$1 AND hm.user_id=ti.user_id AND hm.active`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID)
+	return err
+}
+
 func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
 	result, err := p.pool.Exec(ctx, `
 		UPDATE review_request_recipient rr
@@ -178,7 +185,7 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 // instead of guessing.
 func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, householdID, reviewID, userID, bankSourceID string, update telegramUpdate) error {
 	amountIDR, transactionAt := parseBankFactsReply(update.Message.Text)
-	if amountIDR == "" || transactionAt == "" {
+	if reviewdomain.ValidateBankFactValues(amountIDR, transactionAt) != nil {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Balas nominal dan waktu transaksi, contoh: 54000 2026-09-23T13:45:00+07:00.")
 	}
 	at, parseErr := time.Parse(time.RFC3339, transactionAt)
@@ -199,23 +206,100 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrBankSourceUnlinked) {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Email bank ini belum terhubung ke rekening. Buka Review Inbox untuk menautkannya.")
+			accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 10)
+			if listErr != nil {
+				return listErr
+			}
+			if len(accounts) == 0 {
+				return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu.")
+			}
+			_ = tx.Rollback(ctx)
+			return p.offerBankAccountChooser(ctx, sourceEventID, householdID, reviewID, accounts, amountIDR, transactionAt, update)
 		}
 		return err
 	}
 	// Reuse the exact Web completion job rather than duplicating the bank policy
 	// in the Telegram lane. The job re-reads the reviewed extraction, applies the
 	// user's facts, resolves the item, and persists through the one Go policy path.
-	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text))`, bankSourceID, reviewID, amountIDR, at.Format(time.RFC3339)); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text,'telegram_chat_id',$5::bigint))`, bankSourceID, reviewID, amountIDR, at.Format(time.RFC3339), update.Message.Chat.ID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, "Transaksi bank dicatat."); err != nil {
+	if err := enqueueReply(ctx, tx, update, "Fakta bank diterima untuk diproses. Transaksi belum dicatat; status review akan diperbarui setelah pemrosesan berhasil."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (p *Processor) offerBankAccountChooser(ctx context.Context, sourceEventID, householdID, reviewID string, accounts []reviewdomain.BankAccountChoice, amount, at string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var requestID string
+	if err := tx.QueryRow(ctx, `SELECT r.id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.review_item_id=$1 AND r.household_id=$2 AND rr.telegram_chat_id=$3 AND r.status='OPEN' AND r.expires_at>now()`, reviewID, householdID, update.Message.Chat.ID).Scan(&requestID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{bank_pending}',jsonb_build_object('amount_idr',$2::text,'transaction_at',$3::text),true),updated_at=now() WHERE review_request_id=$1`, requestID, amount, at); err != nil {
+		return err
+	}
+	// ponytail: first 10 accounts only; paginate when households exceed ten.
+	buttons := make([][]InlineKeyboardButton, 0, len(accounts))
+	for _, account := range accounts {
+		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(account.Name, 28), CallbackData: "review:bank:" + account.ID}})
+	}
+	if err := enqueueReviewMessageWithMarkup(ctx, tx, requestID, update.Message.Chat.ID, update.Message.MessageID, "Pilih rekening untuk email bank ini:", &InlineKeyboardMarkup{InlineKeyboard: buttons}); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) processBankAccountCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var reviewID, bankSourceID, userID, amount, at string
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.source_event_id::text,ti.user_id::text,COALESCE(c.context_json#>>'{bank_pending,amount_idr}',''),COALESCE(c.context_json#>>'{bank_pending,transaction_at}','') FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_conversation c ON c.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='UNKNOWN_BANK_TEMPLATE' FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &bankSourceID, &userID, &amount, &at)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	if reviewdomain.ValidateBankFactValues(amount, at) != nil {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	choices, err := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 10)
+	if err != nil {
+		return err
+	}
+	accountID := strings.TrimPrefix(data, "review:bank:")
+	valid := false
+	for _, choice := range choices {
+		valid = valid || choice.ID == accountID
+	}
+	if !valid {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err := reviewdomain.BindBankSourceAccount(ctx, tx, householdID, reviewID, bankSourceID, accountID); err != nil {
+		if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) || errors.Is(err, reviewdomain.ErrBankAccountInvalid) {
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	update.Message.Text = amount + " " + at
+	return p.completeBankFactsReply(ctx, sourceEventID, householdID, reviewID, userID, bankSourceID, update)
 }
 
 // parseBankFactsReply extracts "<amount> <rfc3339 timestamp>" from a reply, in
@@ -239,7 +323,7 @@ func parseBankFactsReply(text string) (string, string) {
 		if candidate == "" || strings.ContainsAny(candidate, ",.") {
 			continue
 		}
-		if _, ok := new(big.Int).SetString(candidate, 10); ok {
+		if reviewdomain.ValidBankAmountIDR(candidate) {
 			amount = candidate
 		}
 	}
@@ -1091,10 +1175,14 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 			if err = tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&dateRequestID); err != nil {
 				return err
 			}
+			dateAt, parseErr := time.ParseInLocation("2006-01-02", *parsed, jakartaLocation())
+			if parseErr != nil {
+				return parseErr
+			}
 			if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 				HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 				ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: dateRequestID,
-				Action: "TELEGRAM_DATE_SET", TransactionAt: parsed,
+				Action: "TELEGRAM_DATE_SET", TransactionAt: &dateAt,
 				ResolveReview: true,
 			}); err != nil {
 				return err
@@ -1264,6 +1352,11 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 		return err
 	}
 	defer tx.Rollback(ctx)
+	return p.resolveTransferReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update, newType, newStatus, classification, message, categoryID, "")
+}
+
+func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, newType, newStatus, classification, message, categoryID, selectedWealthID string) error {
+	var err error
 	var userID string
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return err
@@ -1280,7 +1373,7 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 		wealthHint = id
 	}
 	if classification == "INVESTMENT_ACCOUNT" {
-		wealthHint = ""
+		wealthHint = selectedWealthID
 	}
 	// ADR-046: the transfer mutation, candidate resolution, proposal/source-event
 	// refresh, and review completion are one shared operation.
@@ -1292,9 +1385,11 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 	})
 	if err != nil {
 		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
-			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Tujuan investasi belum dapat dipetakan ke satu Wealth Account. Lengkapi tautan Known Account di Pengaturan atau selesaikan lewat Review Inbox.")
+			_ = tx.Rollback(ctx)
+			return p.offerInvestmentChooser(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
+			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account tujuan bukan aset yang kompatibel.")
 		}
 		return err
@@ -1315,6 +1410,86 @@ func (p *Processor) resolveTransferReview(ctx context.Context, sourceEventID, ho
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// offerInvestmentChooser keeps ambiguous Known Account mapping in Telegram.
+// The stored review and callback are bound to real account IDs; the shared
+// classifier performs the final household/compatibility check under the lock.
+func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var open bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN telegram_identity ti ON ti.telegram_user_id=$5 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.id=$1 AND r.household_id=$2 AND r.transaction_id=$3 AND ri.status IN ('OPEN','PENDING_SEND') AND r.status='OPEN' AND r.expires_at>now() AND rr.telegram_chat_id=$4)`, reviewID, householdID, transactionID, update.Message.Chat.ID, update.Message.From.ID).Scan(&open); err != nil {
+		return err
+	}
+	if !open {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	// ponytail: first ten investment accounts only; paginate if a household grows beyond ten.
+	rows, err := tx.Query(ctx, `SELECT id::text,name FROM wealth_account WHERE household_id=$1 AND active AND side='ASSET' AND usage_role='INVESTMENT' ORDER BY name,id LIMIT 10`, householdID)
+	if err != nil {
+		return err
+	}
+	var buttons [][]InlineKeyboardButton
+	for rows.Next() {
+		var id, name string
+		if err = rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return err
+		}
+		buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:invest:" + id}})
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if len(buttons) == 0 {
+		_ = tx.Rollback(ctx)
+		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Belum ada Wealth Account investasi aktif untuk dipilih. Review tetap terbuka sampai rekening tersedia.")
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	markup := &InlineKeyboardMarkup{InlineKeyboard: buttons}
+	if update.CallbackQuery != nil {
+		err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih Wealth Account investasi tujuan:", markup)
+	} else {
+		err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Pilih Wealth Account investasi tujuan:", markup)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (p *Processor) processInvestmentCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var reviewID, transactionID string
+	err = tx.QueryRow(ctx, `SELECT r.id::text,r.transaction_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction t ON t.id=r.transaction_id JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.review_type='TRANSFER_CLASSIFICATION' AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' FOR UPDATE OF t,ri`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.Message.From.ID).Scan(&reviewID, &transactionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	selectedID := strings.TrimPrefix(data, "review:invest:")
+	var valid string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM wealth_account WHERE id::text=$1 AND household_id=$2 AND transfer_wealth_compatible('INVESTMENT_CONTRIBUTION',id,$2::uuid)`, selectedID, householdID).Scan(&valid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	return p.resolveTransferReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", "INVESTMENT_ACCOUNT", "Transfer diklasifikasikan sebagai kontribusi investasi.", "", valid)
 }
 
 func incomeReviewIntent(value string) string {
@@ -1541,21 +1716,13 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return true, err
 	}
-	var observationID, resolved, institution, hint string
-	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,COALESCE(wo.resolved_wealth_account_id::text,''),wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &resolved, &institution, &hint, &originalSource)
+	var observationID, institution, hint string
+	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &institution, &hint, &originalSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return true, err
-	}
-	_ = institution
-	_ = hint
-	if action == "PREPARE_SNAPSHOT" {
-		if resolved == "" {
-			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih Wealth Account terlebih dahulu sebelum menyiapkan snapshot lengkap.")
-		}
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Buka halaman Wealth untuk menyiapkan snapshot lengkap; nilai dokumen belum mengubah saldo sampai snapshot disimpan.")
 	}
 	if action == "SET_WEALTH_ACCOUNT" {
 		wealthHint, _ := args["wealth_account_hint"].(string)
@@ -1721,10 +1888,10 @@ type residualAllocation struct {
 
 func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, requestID, itemID, caseID, action string, args map[string]any) error {
 	if action == "TRANSACTION_MISSING" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Tambahkan transaksi lewat Review Inbox di web, lalu selesaikan rekonsiliasi ini.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah transaksi tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan.")
 	}
 	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau tambahkan transaksi di web.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau catat transaksi baru lewat Telegram.")
 	}
 	var input struct {
 		Allocations []residualAllocation `json:"allocations"`
@@ -1935,6 +2102,14 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", false); len(blocked) > 0 {
 		return enqueueReply(ctx, tx, update, reviewNeedsFactsMessage(blocked))
 	}
+	var transactionAt *time.Time
+	if payDate != nil {
+		parsed, err := time.ParseInLocation("2006-01-02", *payDate, jakartaLocation())
+		if err != nil {
+			return err
+		}
+		transactionAt = &parsed
+	}
 	// ADR-046: the transaction mutation and candidate revalidation live in the
 	// shared canonical resolver. Telegram keeps only its own delivery/evidence and
 	// payslip side effects, and defers terminal completion while it asks whether to
@@ -1947,7 +2122,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: requestID,
 		Action: "TELEGRAM_CONFIRMED", CategorySupplied: categoryID != "", CategoryID: categoryID,
-		Description: value.Description, Note: value.Note, TransactionAt: payDate,
+		Description: value.Description, Note: value.Note, TransactionAt: transactionAt,
 		ResolveReview: false,
 	})
 	if err != nil {

@@ -32,10 +32,8 @@ type ConfirmCommand struct {
 	Note             string
 	MerchantName     string
 	RememberMerchant bool
-	// TransactionAt is a column-compatible timestamp argument, nil when absent.
-	// It is `any` because surfaces pass a *string, a time.Time, or a *time.Time;
-	// ConfirmTransactionReview normalizes a typed-nil pointer before use.
-	TransactionAt any
+	// TransactionAt is nil when no date was supplied; adapters normalize dates.
+	TransactionAt *time.Time
 	// Blocked lists stored residual facts the caller did not supply this turn.
 	Blocked []string
 	// ResolveReview selects the terminal completion. Telegram keeps the review open
@@ -75,22 +73,6 @@ func (e *ErrMissingFacts) Error() string {
 // neither surface owns transaction confirm policy (ADR-046).
 func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand) (ConfirmResult, error) {
 	var result ConfirmResult
-	// A typed-nil *time.Time stored in the `any` field is non-nil as an interface:
-	// surfaces that pass an absent date as a nil pointer would otherwise pass the
-	// `!= nil` guard below and write NULL into the NOT NULL
-	// transaction_proposal.transaction_at. Normalize it away at the boundary.
-	// Telegram passes the date as a *string (the canonical `YYYY-MM-DD` it just
-	// parsed), so every pointer type must be normalized, not just *time.Time.
-	switch at := cmd.TransactionAt.(type) {
-	case *time.Time:
-		if at == nil {
-			cmd.TransactionAt = nil
-		}
-	case *string:
-		if at == nil {
-			cmd.TransactionAt = nil
-		}
-	}
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
 		return result, err
 	}
@@ -143,6 +125,13 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET transaction_at=$2,metadata_json=metadata_json||'{\"date_known\":true,\"date_source\":\"USER\"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID, cmd.TransactionAt); err != nil {
 			return result, err
 		}
+	}
+	var confirmedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT transaction_at FROM transaction WHERE id=$1`, cmd.TransactionID).Scan(&confirmedAt); err != nil {
+		return result, err
+	}
+	if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, confirmedAt, cmd.ActorUserID); err != nil {
+		return result, err
 	}
 	if merchantName != "" {
 		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID, merchantName); err != nil {
