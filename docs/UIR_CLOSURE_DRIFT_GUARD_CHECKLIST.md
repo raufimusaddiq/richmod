@@ -29,6 +29,13 @@ A failed applicable item blocks completion.
 - [ ] Voluntary Wealth richer-workflow navigation is not counted as mandatory
       escape.
 - [ ] Expired projection does not force Web while canonical item remains open.
+- [ ] Every active ordinary `ReviewDecision.allowed_actions` value has a Telegram
+      terminal or Telegram continuation lane.
+- [ ] No active ordinary allowed action returns `requires_web=true` or equivalent.
+- [ ] Web-only Wealth snapshot navigation, if retained, is outside the canonical
+      `allowed_actions` set and leaves the review actionable.
+- [ ] Investment-transfer ambiguity continues with a bounded Telegram Wealth
+      Account chooser instead of Settings / Review Inbox.
 
 ## Canonical resolver
 
@@ -38,6 +45,8 @@ A failed applicable item blocks completion.
 - [ ] Household/candidate/current-state validation remains server-side.
 - [ ] First valid resolution wins.
 - [ ] Stale second action cannot mutate again.
+- [ ] Shared transaction-confirm timestamp input is one explicit optional type,
+      not `any` / typed-nil interface state.
 
 ## Canonical Inbox
 
@@ -54,12 +63,24 @@ A failed applicable item blocks completion.
 - [ ] Admin metrics remain read-only and do not expose raw financial evidence.
 - [ ] Metrics can be verified without manual SQL.
 
-## Producer coverage
+## User-visible completion truth
+
+- [ ] Bank amount/time facts are validated against canonical invariants before a
+      completion job is queued.
+- [ ] Non-positive/signed IDR cannot produce a queued completion or recorded-success
+      reply.
+- [ ] A user-facing terminal success message is emitted only after canonical
+      persistence succeeds; an async pre-commit acknowledgment is explicitly
+      non-terminal.
+
+## Producer and action coverage
 
 - [ ] Active producer/capability source of truth is used by production code.
 - [ ] New unregistered producer/type fails CI.
 - [ ] Compatibility-only review types are explicit.
 - [ ] A delivered-but-dead-end fixture fails actionability coverage.
+- [ ] A registered review type with one newly dead-end `allowed_action` also fails
+      CI; type-level registration alone is insufficient.
 
 ## SAVR protection
 
@@ -90,5 +111,11 @@ Before marking a UIRC task complete:
 7. Can a new producer silently bypass the capability gate?
 8. Did this PR touch any SAVR-owned semantic behavior?
 9. Is there any new abstraction we can delete before merge?
+10. Can any active ordinary `allowed_action` still require Web despite its review
+    type being marked Telegram-completable?
+11. Can the UI claim a mutation succeeded before canonical persistence actually
+    committed?
+12. Can an absent transaction date cross the shared resolver as a typed-nil
+    interface?
 
 If an answer is unclear, the task is not complete.

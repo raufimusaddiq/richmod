@@ -55,7 +55,10 @@ The existing UIR contract remains authoritative:
   Telegram household;
 - Web and Telegram must resolve through the same canonical Go rules;
 - the first valid resolution wins;
-- optional "View details" navigation is allowed, but mandatory Web escape is not.
+- optional "View details" navigation is allowed, but mandatory Web escape is not;
+- closure is evaluated at the active `ReviewDecision.allowed_actions` level, not
+  only at `review_type` level. A type is not FULL Telegram capability when one
+  of its ordinary allowed actions still dead-ends into Web.
 
 This closure gate does **not** redefine those decisions.
 
@@ -197,13 +200,105 @@ For this closure:
 - `SET_WEALTH_ACCOUNT` and `IGNORE` remain ordinary review completion paths
   and must be fully completable in Telegram;
 - `PREPARE_SNAPSHOT` may remain an explicit **voluntary richer-workflow
-  navigation** if snapshot authoring itself is a separate Wealth workflow;
-- it must not be counted as a mandatory Web escape;
+  navigation** only if it is not represented as a canonical completion
+  `allowed_action`;
+- if it remains in `ReviewDecision.allowed_actions`, it must have a Telegram-native
+  completion/continuation lane and MUST NOT return `requires_web=true`;
+- a Web-only snapshot link may be rendered as a secondary navigation affordance,
+  separate from the canonical allowed-action contract;
+- voluntary navigation must not be counted as a mandatory Web escape;
 - it must not be presented as though the current review was completed when it was
   not;
 - any still-required canonical review after navigation remains visible/actionable.
 
 Do not build snapshot authoring in Telegram as part of this gate.
+
+---
+
+## 4.5 Action-level parity is the closure unit
+
+The UIR-10 type-level gate is necessary but insufficient. At the audited
+baseline, a review type can return `TelegramCompletableReviewType=true` while one
+of its active `allowed_actions` still requires Web.
+
+For every current producible ReviewDecision, each ordinary allowed action MUST
+be classified as exactly one of:
+
+- **TELEGRAM_TERMINAL** — completes the action through canonical Go rules;
+- **TELEGRAM_CONTINUATION** — stays in Telegram, keeps the canonical review open
+  when needed, and deterministically advances to the next bounded turn.
+
+Optional richer-workflow navigation is presentation metadata, not a canonical
+completion action. It must not be used to make an otherwise Web-only
+`allowed_action` appear covered.
+
+No current ordinary `allowed_action` may end in `requires_web=true`, "open
+Review Inbox", or an equivalent mandatory surface switch.
+
+This gate must be structural: adding a new allowed action without one of the two
+Telegram capability classes above must fail CI.
+
+---
+
+## 4.6 Bank facts must not produce false success
+
+The audited baseline has a concrete mismatch: the Telegram bank-fact parser can
+accept a signed integer such as `-54000` through `big.Int.SetString`, while the
+canonical bank validator later rejects non-positive amounts. The Telegram lane
+queues `COMPLETE_BANK_REVIEW` and currently can answer "Transaksi bank dicatat."
+before that asynchronous job has persisted the canonical transaction.
+
+Required behavior:
+
+- validate user-supplied bank facts against the same positive whole-IDR and
+  timestamp invariants before queueing completion;
+- invalid/non-positive amounts must re-prompt and MUST NOT queue a completion job;
+- user-facing wording must distinguish **accepted for processing** from
+  **canonically committed**. A terminal "recorded" success message is only valid
+  after the canonical mutation succeeds;
+- asynchronous retries/failures must not leave a false-success interaction in the
+  review history.
+
+Do not add a second bank policy implementation. Reuse or extract the existing
+validator predicate narrowly.
+
+---
+
+## 4.7 Investment-transfer ambiguity must remain in Telegram
+
+For `TRANSFER_CLASSIFICATION`, choosing investment contribution can still hit
+`ErrInvestmentAccountAmbiguous` and direct the user to Settings / Review Inbox.
+That is an ordinary bounded follow-up, not a reason to switch surfaces.
+
+Required behavior:
+
+- when deterministic Known Account mapping produces zero or multiple eligible
+  investment targets, show a bounded chooser of active compatible household
+  Wealth Accounts in Telegram;
+- server revalidates the selected ID under the review lock;
+- continue through the same shared transfer-classification operation;
+- do not require the user to configure Settings before finishing the current
+  review;
+- do not build a generic Known Account editor in Telegram.
+
+---
+
+## 4.8 Canonical confirm date input must be typed
+
+Hotfix #188 exposed a boundary smell: `reviewdomain.ConfirmCommand.TransactionAt`
+is typed as `any`, allowing typed-nil `*string` / `*time.Time` values to pass a
+non-nil interface check and reach SQL incorrectly.
+
+Closure requirement:
+
+- surface adapters parse/normalize their date representation before entering the
+  shared resolver;
+- the canonical confirm command accepts one explicit optional timestamp shape
+  (preferred: `*time.Time`), not `any`;
+- absent dates cannot be represented as a typed-nil interface;
+- existing household-timezone/date-only behavior remains unchanged.
+
+This is UIR boundary hardening, not SAVR natural-language date semantic work.
 
 ---
 
@@ -322,8 +417,12 @@ A review counts in the numerator only when:
 
 - the canonical review is eligible/open;
 - a Telegram projection exists and is delivered/live;
-- the review type/action has an implemented Telegram completion lane for its
-  current ReviewDecision.
+- every ordinary allowed action on the current ReviewDecision has an implemented
+  Telegram terminal or Telegram continuation lane.
+
+If even one ordinary current `allowed_action` is Web-only, the review is not FULL
+Telegram capability. Optional richer-workflow navigation must live outside the
+canonical allowed-action set and does not reduce TARC.
 
 Do not inflate TARC from `telegram_message_id IS NOT NULL` alone.
 
@@ -337,15 +436,16 @@ coverage.
 
 Required outcome:
 
-> adding a new current review producer without ReviewDecision + Telegram
-> completion capability must fail CI by construction.
+> adding a new current review producer, ReviewDecision allowed action, or
+> Telegram interaction path without completion/continuation capability must fail
+> CI by construction.
 
 Use the smallest production-used source of truth.
 
 Acceptable direction:
 
 - one Go review capability/producer registry used by actual projection/decision
-  code and by the contract test; or
+  code and by the contract test, with explicit action-level capability; or
 - another equally small mechanism where producers cannot emit an unregistered
   type.
 
@@ -377,7 +477,15 @@ UIR closure is complete only when all of the following are true on merged main:
 13. first-valid-write and stale-action behavior remain unchanged;
 14. deterministic review actions introduce no new model call;
 15. PRD #144 intelligence routing is unchanged;
-16. SAVR scope listed in §3 remains untouched.
+16. SAVR scope listed in §3 remains untouched;
+17. every active ordinary `ReviewDecision.allowed_actions` value maps to a
+    Telegram terminal or Telegram continuation capability;
+18. invalid/non-positive bank facts cannot queue completion or produce a terminal
+    recorded-success message;
+19. ambiguous investment-transfer targets are resolved through a bounded
+    Telegram Wealth Account chooser, not Settings / Review Inbox;
+20. canonical transaction confirm no longer accepts an `any` timestamp boundary
+    that permits typed-nil date values.
 
 After these gates pass, UIR is frozen and SAVR may start.
 
@@ -421,6 +529,32 @@ A delivered fixture with no completion capability does not increase TARC.
 
 A test-only new producer/type without registered decision/completion capability
 fails the coverage contract.
+
+## C8 — allowed-action regression
+
+A test fixture adds an ordinary `allowed_action` to an otherwise supported review
+type without a Telegram terminal/continuation capability. CI fails even though
+the review type itself is registered.
+
+## C9 — bank fact false-success guard
+
+Given `-54000 2026-09-23T13:45:00+07:00`, Telegram re-prompts, queues no
+`COMPLETE_BANK_REVIEW` job, and does not claim the transaction was recorded.
+For valid facts, any pre-job acknowledgment describes processing rather than a
+canonical commit until persistence actually succeeds.
+
+## C10 — investment transfer ambiguity
+
+Given a transfer review whose investment mapping is not unique, Telegram shows a
+bounded active compatible Wealth Account chooser. Selecting one completes the
+same canonical transfer-classification operation without opening Settings or
+Review Inbox.
+
+## C11 — typed date boundary
+
+A category-only confirm with no supplied date cannot pass a typed-nil timestamp
+through the shared resolver or overwrite a stored proposal timestamp. All shared
+confirm callers compile against one explicit optional timestamp type.
 
 ---
 

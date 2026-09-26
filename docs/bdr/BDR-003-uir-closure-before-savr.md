@@ -23,7 +23,15 @@ A post-delivery product audit found a bounded set of gaps:
 - Review Inbox reads still retain a legacy transaction-first path;
 - completion-surface / Web-escape / TARC semantics can overstate UIR success;
 - producer coverage is asserted from a manual list rather than structurally
-  enforced.
+  enforced;
+- the UIR-10 gate is type-level, so a registered review type can still contain a
+  Web-only ordinary `allowed_action`;
+- bank-fact input validation can acknowledge success before asynchronous canonical
+  persistence, including a signed-amount mismatch between Telegram and the bank
+  validator;
+- investment-transfer ambiguity can still escape to Settings / Review Inbox;
+- the shared confirm boundary accepts `TransactionAt any`, the class of bug that
+  caused the typed-nil regression fixed in PR #188.
 
 SAVR is the next architectural sprint, but it relies on UIR as its human-decision
 substrate.
@@ -33,6 +41,10 @@ substrate.
 > Run one bounded UIR Closure Gate before SAVR.
 
 The closure gate fixes only violations of the already-approved UIR contract.
+
+Closure is judged at **review type + current ordinary allowed action**, not review
+type alone. Optional richer-workflow navigation is not allowed to masquerade as
+a canonical completion action.
 
 It does not expand the product and does not absorb semantic-authority work that
 belongs to SAVR.
@@ -72,7 +84,15 @@ model.
 ### Build full Wealth snapshot editing in Telegram
 
 Rejected as YAGNI. Snapshot authoring is a richer Wealth workflow, not required
-to prove the current review blocker is actionable.
+to prove the current review blocker is actionable. If `PREPARE_SNAPSHOT` remains
+Web navigation, it is a secondary surface affordance rather than a canonical
+review `allowed_action`.
+
+### Treat type-level coverage as sufficient
+
+Rejected. `TelegramCompletableReviewType=true` does not prove every ordinary
+allowed action is completable. UIR closure requires action-level capability so a
+single Web-only action cannot hide behind an otherwise supported review type.
 
 ## Boundary
 
@@ -82,7 +102,10 @@ UIR Closure owns:
 - shared canonical review resolution parity;
 - canonical Inbox read authority for current producers;
 - truthful review telemetry;
-- structural producer-to-capability gating.
+- structural producer-and-action-to-capability gating;
+- truthful user-facing completion acknowledgment for asynchronous review jobs;
+- narrow type-safety hardening at the shared review-confirm boundary where a
+  production typed-nil defect already occurred.
 
 SAVR owns:
 

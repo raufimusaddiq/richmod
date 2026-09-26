@@ -28,13 +28,18 @@ Re-audit latest main and record the exact current call sites for:
 
 - cycle `TRANSACTION_MISSING`;
 - bank review with unlinked source account;
+- bank-fact parser/validator parity and pre-commit success wording;
 - expired Telegram projection;
 - Wealth `PREPARE_SNAPSHOT`;
+- transfer `INVESTMENT_ACCOUNT` ambiguity / Wealth candidate continuation;
 - transfer reconciliation Web / bound Telegram / agent mutation paths;
 - financial-email partial / ignore / terminal paths;
 - Web Review Inbox active read paths;
 - Admin resolution-surface, Web Escape, and TARC calculations;
-- producer/capability coverage test source.
+- producer/capability coverage test source;
+- every active ReviewDecision ordinary `allowed_action` and its actual Telegram
+  terminal/continuation path;
+- every `ConfirmTransactionReview` caller and current `TransactionAt` runtime type.
 
 Exit:
 
@@ -62,7 +67,7 @@ Test:
 - refreshed residual review is closed or updated;
 - no `requires_web=true` / "open Review Inbox" ordinary path.
 
-## B. Bank source account binding
+## B. Bank source binding + bank-fact completion truth
 
 Required:
 
@@ -70,14 +75,22 @@ Required:
   choices in Telegram;
 - server revalidates selected account;
 - link using existing canonical source/account semantics;
-- resume the same bank completion job/path.
+- resume the same bank completion job/path;
+- validate the Telegram amount/time against the same canonical bank invariants
+  before queueing the job;
+- reject signed/non-positive or otherwise invalid facts without queueing;
+- do not answer "recorded" before canonical persistence has succeeded. If the
+  current architecture acknowledges before the worker runs, use non-terminal
+  processing wording and emit terminal success only from/after the canonical job.
 
 Test:
 
 - UNKNOWN_BANK_TEMPLATE + unlinked source;
 - account selection;
 - amount/time completion;
-- canonical transaction/review resolves without Web.
+- canonical transaction/review resolves without Web;
+- `-54000` queues no completion job and yields no false-success reply;
+- valid asynchronous completion cannot claim canonical commit before persistence.
 
 ## C. Expired projection continuation
 
@@ -99,10 +112,37 @@ Required:
 
 - do not implement full Telegram snapshot authoring;
 - ensure `SET_WEALTH_ACCOUNT` / `IGNORE` remain Telegram-completable;
-- treat `PREPARE_SNAPSHOT` as voluntary richer-workflow navigation if it still
-  routes to Web;
-- telemetry must not classify that voluntary choice as mandatory Web escape;
+- if `PREPARE_SNAPSHOT` still routes to Web, remove it from the canonical
+  `ReviewDecision.allowed_actions` completion set and render it only as optional
+  secondary navigation;
+- if it remains an ordinary allowed action, it must instead have a Telegram-native
+  continuation/completion lane;
+- telemetry must not classify true voluntary navigation as mandatory Web escape;
 - review must not be falsely marked complete.
+
+Test:
+
+- the Wealth review's ordinary allowed-action matrix contains no Web-only action;
+- optional snapshot navigation leaves the canonical review open/actionable and is
+  excluded from Web Escape Rate.
+
+## E. Investment transfer ambiguity
+
+Required:
+
+- when investment classification cannot deterministically map to one Wealth
+  Account, present active compatible household Wealth Account candidates in
+  Telegram;
+- selected candidate is server-ID bound and revalidated under the review lock;
+- continue through the same shared transfer classifier;
+- do not require Settings / Review Inbox and do not add a Telegram settings editor.
+
+Test:
+
+- zero/multiple deterministic mapping produces bounded candidates;
+- selected candidate completes canonical transfer classification;
+- stale/foreign/inactive candidates fail closed;
+- no mandatory Web redirect remains.
 
 Exit:
 
@@ -159,6 +199,26 @@ Tests:
 - ignore parity;
 - concurrent stale action parity.
 
+## C. Typed transaction-confirm date boundary
+
+Narrow `reviewdomain.ConfirmCommand.TransactionAt` from `any` to one explicit
+optional timestamp representation (preferred `*time.Time`). Surface adapters own
+parsing/household-timezone normalization before entering the domain operation.
+
+Required:
+
+- no typed-nil interface state can cross the shared confirm boundary;
+- category-only/no-date confirmation preserves the stored proposal timestamp;
+- existing explicit date updates remain equivalent;
+- do not change natural-language date semantics (SAVR-owned).
+
+Tests:
+
+- absent date cannot overwrite proposal/transaction timestamp;
+- explicit Web/Telegram/agent dates reach the same canonical type/result;
+- regression equivalent to PR #188 stays green without type-switching over
+  multiple pointer representations.
+
 Exit:
 
 No covered review family has separate Web-vs-Telegram canonical mutation rules.
@@ -214,7 +274,9 @@ Test each case.
 
 Numerator requires both delivery and current Telegram completion capability.
 
-A delivered dead-end fixture must not count as actionable.
+A delivered dead-end fixture must not count as actionable. Actionability is
+computed from the current decision's ordinary allowed-action set: every such
+action must have a Telegram terminal or Telegram continuation capability.
 
 Prefer existing audit/request/capability data. No new telemetry table unless
 strictly required.
@@ -232,9 +294,9 @@ Replace the "manual list proves exhaustive coverage" assumption.
 Required property:
 
 ```text
-new current review producer
+new current review producer OR new ordinary allowed action
         ↓
-must declare/use supported ReviewDecision + Telegram completion capability
+must declare/use supported ReviewDecision + Telegram terminal/continuation capability
         ↓
 otherwise CI fails
 ```
@@ -248,6 +310,8 @@ Do not add plugin infrastructure or database capability tables.
 Tests:
 
 - test-only unregistered producer/capability fixture fails;
+- a registered type with one unregistered/dead-end ordinary `allowed_action`
+  fails independently of the type-level gate;
 - compatibility-only values remain render-safe but are not counted as active
   producer coverage.
 
@@ -268,7 +332,10 @@ Required final evidence:
 - no active mandatory Web escape;
 - shared resolution parity tests green;
 - actual-surface Admin metrics green;
-- structural producer gate green;
+- structural producer + allowed-action gate green;
+- bank invalid-fact / false-success regression green;
+- investment-transfer ambiguity remains Telegram-native;
+- shared confirm timestamp boundary is explicitly typed;
 - no new deterministic callback model calls;
 - no SAVR-owned behavior changed.
 
@@ -276,7 +343,9 @@ Perform a short deployed smoke check using real current flows:
 
 - Telegram category/date review;
 - cycle residual actionability;
-- bank review prerequisite/completion;
+- bank review prerequisite/completion, including invalid fact rejection;
+- investment transfer with ambiguous Wealth mapping;
+- Wealth optional snapshot navigation classification;
 - Web ↔ Telegram stale resolution;
 - Admin Review metrics sanity.
 
