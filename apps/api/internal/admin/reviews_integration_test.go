@@ -108,7 +108,7 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	// The same user resolves a second review from the Web lane: it must count as
 	// WEB even though the user owns a Telegram identity, and must not create a
 	// Web escape because that item never had a Telegram projection.
-	webResolvedItem := createResolvedReviewForSurface(t, pool, householdID, sourceID, userID, "WEB")
+	webResolvedItem := createResolvedReviewForSurface(t, pool, householdID, sourceID, userID, "USER")
 	_ = createResolvedReviewForSurface(t, pool, householdID, sourceID, userID, "TELEGRAM")
 	_ = webResolvedItem
 	resp = call(handler.ReviewOpsSummary, "/api/v1/admin/reviews/summary?range=24h")
