@@ -1,9 +1,10 @@
 package telegram
 
-// UIR-10 regression matrix: multi-recipient race. One review_item can be
-// delivered to several household members. The first valid action must win; a
-// second recipient acting on the same card must be answered as stale and must
-// not double-mutate canonical state.
+// UIR-10 regression matrix: multi-recipient race for a bank-fact review. One
+// UNKNOWN_BANK_TEMPLATE review_item can be delivered to several household
+// members. The first valid reply must queue the shared completion job once; once
+// the job resolves the item, a second recipient's reply on the same card must be
+// answered as stale with no second job and no second mutation.
 
 import (
 	"context"
@@ -16,9 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func seedTelegramReply(t *testing.T, pool *pgxpool.Pool, householdID, kind string, update telegramUpdate) string {
+func seedTelegramRaw(t *testing.T, pool *pgxpool.Pool, householdID, kind string, payload map[string]any) string {
 	t.Helper()
-	raw, err := json.Marshal(update)
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +33,21 @@ func seedTelegramReply(t *testing.T, pool *pgxpool.Pool, householdID, kind strin
 	return sourceID
 }
 
-func TestMultiRecipientFirstActionWinsAndSecondIsStale(t *testing.T) {
+func seedTelegramReply(t *testing.T, pool *pgxpool.Pool, householdID string, chatID, messageID, replyTo int64, text string) string {
+	t.Helper()
+	return seedTelegramRaw(t, pool, householdID, "TELEGRAM_TEXT", map[string]any{
+		"update_id": time.Now().UnixNano(),
+		"message": map[string]any{
+			"message_id":       messageID,
+			"text":             text,
+			"reply_to_message": map[string]any{"message_id": replyTo},
+			"from":             map[string]any{"id": chatID},
+			"chat":             map[string]any{"id": chatID},
+		},
+	})
+}
+
+func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -45,14 +60,14 @@ func TestMultiRecipientFirstActionWinsAndSecondIsStale(t *testing.T) {
 	defer pool.Close()
 	stamp := time.Now().UnixNano()
 	firstChat, secondChat := stamp, stamp+1
-	var householdID, firstUser, secondUser, categoryID, transactionID, itemID, reviewID string
-	if err = pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("Multi recipient %d", stamp)).Scan(&householdID); err != nil {
+	var householdID, firstUser, secondUser, accountID, listenerID, sourceEventID, itemID, reviewID string
+	if err = pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("Multi bank %d", stamp)).Scan(&householdID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, "INSERT INTO \"user\"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id", fmt.Sprintf("multi-a-%d@example.test", stamp)).Scan(&firstUser); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-race-a-%d@example.test", stamp)).Scan(&firstUser); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, "INSERT INTO \"user\"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id", fmt.Sprintf("multi-b-%d@example.test", stamp)).Scan(&secondUser); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-race-b-%d@example.test", stamp)).Scan(&secondUser); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, "INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER'),($1,$3,'OWNER')", householdID, firstUser, secondUser); err != nil {
@@ -61,75 +76,81 @@ func TestMultiRecipientFirstActionWinsAndSecondIsStale(t *testing.T) {
 	if _, err = pool.Exec(ctx, "INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3),($4,$2,$5)", firstChat, householdID, firstUser, secondChat, secondUser); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id", householdID).Scan(&categoryID); err != nil {
+	if err = pool.QueryRow(ctx, "INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Rekening','BANK','FULL_LEDGER') RETURNING id", householdID).Scan(&accountID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, "INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',12000,now()) RETURNING id", householdID).Scan(&transactionID); err != nil {
+	if err = pool.QueryRow(ctx, "INSERT INTO bank_email_listener(household_id,bank_name,sender_address,account_id,created_by_user_id) VALUES($1,'Bank','notifikasi@bank.test',$2,$3) RETURNING id", householdID, accountID, firstUser).Scan(&listenerID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, "INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id", householdID, fmt.Sprintf("bank-race-%d", stamp), []byte("bank")).Scan(&sourceEventID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, "INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'IMAP','v1','{}'::jsonb,'VALID')", sourceEventID, listenerID); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_MERCHANT", firstChat, 0, "Pilih kategori"); err != nil {
+	// Mirror the bank-email producer: insert the OPEN item, then project it to
+	// every eligible household Telegram identity through the shared projector.
+	if err = tx.QueryRow(ctx, "INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{}'::jsonb) RETURNING id", householdID, sourceEventID).Scan(&itemID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}
-	if err = tx.QueryRow(ctx, "SELECT id FROM review_item WHERE transaction_id=$1", transactionID).Scan(&itemID); err != nil {
+	if err = ProjectReviewItem(ctx, tx, householdID, itemID, 0, "", firstChat); err != nil {
 		_ = tx.Rollback(ctx)
-		t.Fatal(err)
+		t.Fatalf("project bank review: %v", err)
 	}
-	if err = tx.QueryRow(ctx, "SELECT id FROM review_request WHERE transaction_id=$1", transactionID).Scan(&reviewID); err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatal(err)
-	}
-	if _, err = tx.Exec(ctx, "UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','[\"category\"]'::jsonb) WHERE id=$1", itemID); err != nil {
+	if err = tx.QueryRow(ctx, "SELECT id FROM review_request WHERE review_item_id=$1", itemID).Scan(&reviewID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// The projection already inserted a recipient row per household identity and
-	// a conversation row. Simulate the delivery job: mark the request/item OPEN
-	// and bind each recipient's delivered message id.
-	if _, err = pool.Exec(ctx, "UPDATE review_request SET status='OPEN' WHERE id=$1", reviewID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, "UPDATE review_item SET status='OPEN' WHERE id=$1", itemID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, "UPDATE review_conversation SET state='AWAITING_CATEGORY' WHERE review_request_id=$1", reviewID); err != nil {
+	if _, err = pool.Exec(ctx, "UPDATE review_request SET status='OPEN',expires_at=now()+interval '7 days' WHERE id=$1", reviewID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, "UPDATE review_request_recipient SET telegram_message_id=CASE telegram_chat_id WHEN $2 THEN 31 WHEN $3 THEN 32 END WHERE review_request_id=$1", reviewID, firstChat, secondChat); err != nil {
 		t.Fatal(err)
 	}
 	processor := NewProcessor(pool, boundReviewGateway{})
-	if err = processor.Process(ctx, seedTelegramReply(t, pool, householdID, "TELEGRAM_CALLBACK", callbackUpdate(firstChat, 31, "review:cat:"+categoryID))); err != nil {
+	reply := seedTelegramReply(t, pool, householdID, firstChat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
+	if err = processor.Process(ctx, reply); err != nil {
 		t.Fatal(err)
 	}
-	var itemStatus, transactionStatus string
+	var queued int
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1", itemID).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	var itemStatus string
 	if err = pool.QueryRow(ctx, "SELECT status FROM review_item WHERE id=$1", itemID).Scan(&itemStatus); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, "SELECT status FROM transaction WHERE id=$1", transactionID).Scan(&transactionStatus); err != nil {
+	if queued != 1 || itemStatus != "OPEN" {
+		t.Fatalf("first reply must queue exactly one job and leave the item open: jobs=%d item=%s", queued, itemStatus)
+	}
+	// The queued job resolves the item out of band; simulate that canonical outcome.
+	if _, err = pool.Exec(ctx, "UPDATE review_item SET status='RESOLVED',resolved_at=now() WHERE id=$1", itemID); err != nil {
 		t.Fatal(err)
 	}
-	if itemStatus != "RESOLVED" || transactionStatus != "CONFIRMED" {
-		t.Fatalf("first action must win: item=%s transaction=%s", itemStatus, transactionStatus)
-	}
-	if err = processor.Process(ctx, seedTelegramReply(t, pool, householdID, "TELEGRAM_CALLBACK", callbackUpdate(secondChat, 32, "review:cat:"+categoryID))); err != nil {
+	reply2 := seedTelegramReply(t, pool, householdID, secondChat, 42, 32, "54000 2026-09-23T13:45:00+07:00")
+	if err = processor.Process(ctx, reply2); err != nil {
 		t.Fatal(err)
 	}
-	var items, confirmed int
-	if err = pool.QueryRow(ctx, "SELECT count(*) FROM review_item WHERE transaction_id=$1 AND status='RESOLVED'", transactionID).Scan(&items); err != nil {
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1", itemID).Scan(&queued); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, "SELECT count(*) FROM transaction WHERE id=$1 AND status='CONFIRMED'", transactionID).Scan(&confirmed); err != nil {
+	var resolved int
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM review_item WHERE id=$1 AND status='RESOLVED'", itemID).Scan(&resolved); err != nil {
 		t.Fatal(err)
 	}
-	if items != 1 || confirmed != 1 {
-		t.Fatalf("second action mutated canonical state: items=%d confirmed=%d", items, confirmed)
+	var txns int
+	if err = pool.QueryRow(ctx, "SELECT count(*) FROM transaction WHERE household_id=$1", householdID).Scan(&txns); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 || resolved != 1 || txns != 0 {
+		t.Fatalf("second action mutated canonical state: jobs=%d resolved=%d transactions=%d", queued, resolved, txns)
 	}
 }

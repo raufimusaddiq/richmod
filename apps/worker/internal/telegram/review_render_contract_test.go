@@ -204,7 +204,7 @@ func TestBankFactsReplyParserAndCapability(t *testing.T) {
 	}
 	for _, text := range []string{
 		"54000 2026-09-23T13:45:00+07:00",
-		"2026-09-23T13:45:00+07:00 Rp54.000",
+		"2026-09-23T13:45:00+07:00 Rp54000",
 	} {
 		amount, at := parseBankFactsReply(text)
 		if amount != "54000" || at != "2026-09-23T13:45:00+07:00" {
@@ -213,5 +213,15 @@ func TestBankFactsReplyParserAndCapability(t *testing.T) {
 	}
 	if amount, at := parseBankFactsReply("lihat nanti ya"); amount != "" || at != "" {
 		t.Fatalf("non-fact reply parsed as %q,%q", amount, at)
+	}
+	// A separator-bearing amount is ambiguous IDR; it must be rejected rather
+	// than silently reshaped into a different canonical value.
+	for _, text := range []string{
+		"54,5 2026-09-23T13:45:00+07:00",
+		"12.500,50 2026-09-23T13:45:00+07:00",
+	} {
+		if amount, _ := parseBankFactsReply(text); amount != "" {
+			t.Fatalf("separator amount %q parsed as %q, want rejection", text, amount)
+		}
 	}
 }

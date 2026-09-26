@@ -190,21 +190,22 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := reviewdomain.LinkBankSourceAccountAndComplete(ctx, tx, reviewdomain.BankFactCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: reviewID, SourceEventID: bankSourceID, AmountIDR: amountIDR, TransactionAt: at.Format(time.RFC3339)}); err != nil {
+	// Validate fast (so a missing account re-prompts instead of queueing a job that
+	// can never complete) but leave resolution and persistence to the shared job,
+	// exactly like the Web lane. Resolving here would make the job a no-op and drop
+	// the user's facts on the floor.
+	if err := reviewdomain.ValidateBankSourceAccount(ctx, tx, reviewdomain.BankFactCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: reviewID, SourceEventID: bankSourceID, AmountIDR: amountIDR, TransactionAt: at.Format(time.RFC3339)}); err != nil {
 		if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) || errors.Is(err, reviewdomain.ErrAlreadyResolved) {
 			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrBankSourceUnlinked) {
 			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Email bank ini belum terhubung ke rekening. Buka Review Inbox untuk menautkannya.")
 		}
-		if errors.Is(err, reviewdomain.ErrBankFactsRequired) {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Balas nominal dan waktu transaksi, contoh: 54000 2026-09-23T13:45:00+07:00.")
-		}
 		return err
 	}
 	// Reuse the exact Web completion job rather than duplicating the bank policy
 	// in the Telegram lane. The job re-reads the reviewed extraction, applies the
-	// user's facts, and persists through the one Go policy path.
+	// user's facts, resolves the item, and persists through the one Go policy path.
 	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text))`, bankSourceID, reviewID, amountIDR, at.Format(time.RFC3339)); err != nil {
 		return err
 	}
@@ -218,7 +219,10 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 }
 
 // parseBankFactsReply extracts "<amount> <rfc3339 timestamp>" from a reply, in
-// either order, so the user can answer naturally.
+// either order, so the user can answer naturally. The amount must be whole IDR
+// digits (an optional Rp/IDR prefix is allowed); a value carrying `.` or `,` is
+// rejected rather than reshaped, so "54,5" or "12.500,50" can never be silently
+// read as a different canonical amount.
 func parseBankFactsReply(text string) (string, string) {
 	fields := strings.Fields(text)
 	amount, at := "", ""
@@ -227,11 +231,16 @@ func parseBankFactsReply(text string) (string, string) {
 			at = field
 			continue
 		}
-		candidate := strings.NewReplacer(".", "", ",", "", "rp", "", "Rp", "", "idr", "", "IDR", "").Replace(field)
-		if candidate != "" && candidate != amount {
-			if _, ok := new(big.Int).SetString(candidate, 10); ok {
-				amount = candidate
-			}
+		candidate := strings.TrimSpace(field)
+		for _, prefix := range []string{"Rp", "rp", "IDR", "idr"} {
+			candidate = strings.TrimPrefix(candidate, prefix)
+		}
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || strings.ContainsAny(candidate, ",.") {
+			continue
+		}
+		if _, ok := new(big.Int).SetString(candidate, 10); ok {
+			amount = candidate
 		}
 	}
 	return amount, at

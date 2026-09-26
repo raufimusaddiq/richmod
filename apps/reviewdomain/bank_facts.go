@@ -36,10 +36,14 @@ var (
 	ErrBankSourceUnlinked = errors.New("reviewdomain: bank source has no active account")
 )
 
-// LinkBankSourceAccountAndComplete validates the review and account, marks the
-// source linked, and completes the review. The caller performs the extraction
-// re-evaluation in the same transaction.
-func LinkBankSourceAccountAndComplete(ctx context.Context, tx pgx.Tx, cmd BankFactCommand) error {
+// ValidateBankSourceAccount checks that a bank-fact reply targets an open
+// UNKNOWN_BANK_TEMPLATE item whose listener is bound to a live funding account,
+// so the caller can fail fast (and re-prompt) before queueing completion. It
+// deliberately does not resolve the review or touch the source: the shared
+// COMPLETE_BANK_REVIEW job is the single owner of linking, persisting the
+// transaction, and resolving the item, and would no-op against an
+// already-resolved item.
+func ValidateBankSourceAccount(ctx context.Context, tx pgx.Tx, cmd BankFactCommand) error {
 	if strings.TrimSpace(cmd.AmountIDR) == "" || strings.TrimSpace(cmd.TransactionAt) == "" {
 		return ErrBankFactsRequired
 	}
@@ -55,19 +59,6 @@ func LinkBankSourceAccountAndComplete(ctx context.Context, tx pgx.Tx, cmd BankFa
 		return ErrBankSourceUnlinked
 	}
 	if err := ValidateFinancialFundingAccount(ctx, tx, cmd.HouseholdID, listenerAccount); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='bank-email-generic',parser_version='telegram-review' WHERE id=$1 AND household_id=$2`, cmd.SourceEventID, cmd.HouseholdID); err != nil {
-		return err
-	}
-	tag, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr',$3::text,'transaction_at',$4::text),updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, cmd.ReviewItemID, cmd.UserID, cmd.AmountIDR, cmd.TransactionAt)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrAlreadyResolved
-	}
-	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID); err != nil {
 		return err
 	}
 	return nil
