@@ -208,7 +208,11 @@ free-text is no longer picked up as a pay date; the bound pay-date lane keeps th
 permissive parser.
 The legacy-only `UNKNOWN_BANK_TEMPLATE` Telegram tool action list now matches
 Web/preset (`COMPLETE_BANK_FACTS`, `IGNORE`) rather than incorrectly suggesting
-document reprocessing; it remains unprojected until it has an active producer.
+document reprocessing. The bank-email processor does produce it when bounded
+verification cannot confirm the email supports the extracted facts, so UIR-10
+makes the family completable end to end: `TelegramCompletableReviewType` admits
+it, a bound reply (`completeBankFactsReply`) links the listener account and
+confirms, and the Web branch replays the same `COMPLETE_BANK_REVIEW` job.
 
 Document parity. `DOCUMENT_CLASSIFICATION` and
 `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` — the terminal-failure reviews the shared
@@ -225,10 +229,11 @@ button that can finish the review. `TelegramCompletableReviewType` now admits
 both families, so the previously dead-ended classification card is projected.
 
 Still no producer in the active path: `SALARY_SOURCE_CONFIRMATION`,
-`UNKNOWN_BANK_TEMPLATE`, `UNKNOWN_EMAIL_TEMPLATE`, `RECEIPT_MISMATCH`, and
-`INVOICE_PAYMENT_STATUS`. They remain schema compatibility values with renderer
-fallbacks; the exhaustive renderer contract test keeps any future producer from
-reaching Telegram without a completable path.
+`UNKNOWN_EMAIL_TEMPLATE`, `RECEIPT_MISMATCH`, and `INVOICE_PAYMENT_STATUS`. They
+remain schema compatibility values with renderer fallbacks; the exhaustive
+renderer contract test keeps any future producer from reaching Telegram without
+a completable path. (`UNKNOWN_BANK_TEMPLATE` left this set: the bank-email
+processor produces it and UIR-10 gives it a completable bound-reply lane.)
 
 ### UIR-07 — financial-email, Wealth, and cycle parity (complete; PR open)
 
