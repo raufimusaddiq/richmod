@@ -211,8 +211,11 @@ Web/preset (`COMPLETE_BANK_FACTS`, `IGNORE`) rather than incorrectly suggesting
 document reprocessing. The bank-email processor does produce it when bounded
 verification cannot confirm the email supports the extracted facts, so UIR-10
 makes the family completable end to end: `TelegramCompletableReviewType` admits
-it, a bound reply (`completeBankFactsReply`) links the listener account and
-confirms, and the Web branch replays the same `COMPLETE_BANK_REVIEW` job.
+it, and a bound reply (`completeBankFactsReply`) validates the listener account
+and queues the same `COMPLETE_BANK_REVIEW` job the Web branch uses. That job is
+the single owner of linking, persistence, and resolution — the Telegram lane no
+longer resolves the item itself, which previously made the job a no-op and
+silently dropped the user's facts.
 
 Document parity. `DOCUMENT_CLASSIFICATION` and
 `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` — the terminal-failure reviews the shared
