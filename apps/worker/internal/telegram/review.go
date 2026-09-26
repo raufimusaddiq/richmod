@@ -452,6 +452,8 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 		dimension, entityID = "account", strings.TrimPrefix(data, "review:fe:account:")
 	} else if strings.HasPrefix(data, "review:fe:wealth:") {
 		dimension, entityID = "wealth", strings.TrimPrefix(data, "review:fe:wealth:")
+	} else if data == "review:ignore" {
+		dimension = "ignore"
 	} else {
 		return false, nil
 	}
@@ -464,12 +466,36 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text,fo.source_event_id::text,ti.user_id::text
 		FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id
 		JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
-		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_RESOLUTION'`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID, &observationID, &source, &userID)
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_RESOLUTION' FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID, &observationID, &source, &userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return true, err
+	}
+	if dimension == "ignore" {
+		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='REVIEW'`, observationID, householdID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1 AND household_id=$2`, source, householdID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='IGNORE',updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, itemID, userID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RESOLVE_REVIEW','review_item',$3,'{"action":"IGNORE"}')`, householdID, userID, itemID); err != nil {
+			return true, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+			return true, err
+		}
+		if err = enqueueReply(ctx, tx, update, "Bukti email finansial diabaikan."); err != nil {
+			return true, err
+		}
+		return true, tx.Commit(ctx)
 	}
 	cmd := reviewdomain.FinancialEmailCommand{HouseholdID: householdID, ObservationID: observationID, ActorUserID: userID}
 	if dimension == "account" {
@@ -506,8 +532,12 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 		}
 		return true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, itemID, userID, string(result.Values)); err != nil {
+	tag, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, itemID, userID, string(result.Values))
+	if err != nil {
 		return true, err
+	}
+	if tag.RowsAffected() != 1 {
+		return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID); err != nil {
 		return true, err
@@ -2000,6 +2030,9 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		markup = documentReviewMarkup()
 	case "financial_email":
 		markup = financialEmailEntityMarkup(ctx, tx, reviewID, decision)
+		if markup == nil {
+			markup = requiredFieldReplyMarkup()
+		}
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -2145,8 +2178,12 @@ func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, 
 	defer tx.Rollback(ctx)
 	var decisionJSON []byte
 	var requestID string
-	if err := tx.QueryRow(ctx, `SELECT decision FROM review_item WHERE id=$1 FOR UPDATE`, itemID).Scan(&decisionJSON); err != nil {
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT decision,status FROM review_item WHERE id=$1 AND household_id=$2 FOR UPDATE`, itemID, householdID).Scan(&decisionJSON, &status); err != nil {
 		return err
+	}
+	if status != "OPEN" && status != "PENDING_SEND" {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	if err := tx.QueryRow(ctx, `SELECT id FROM review_request WHERE review_item_id=$1 AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at LIMIT 1`, itemID).Scan(&requestID); err != nil {
 		return err
@@ -2169,9 +2206,12 @@ func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, 
 		remaining = append(remaining, fact)
 	}
 	decision.MissingFacts = remaining
+	if len(remaining) == 0 {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
 	markup := financialEmailEntityMarkup(ctx, tx, requestID, decision)
 	if markup == nil {
-		return nil
+		return fmt.Errorf("build financial email chooser for review %s", itemID)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err

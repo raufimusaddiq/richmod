@@ -246,6 +246,11 @@ matching the Review Inbox. The renderer gained a `financial_email` markup mode
 and the family was added to `TelegramCompletableReviewType` and the tool
 registry, so the card is projected instead of fail-closed.
 
+The card's Abaikan action also closes the bound observation and canonical review
+without a replay, matching the Inbox's ignore semantics. Telegram locks the
+canonical item before mutating the observation, guards completion on open status,
+and does not re-offer a chooser after a concurrent resolution.
+
 ### UIR-08 — cross-surface synchronization and concurrency (complete; PR open)
 
 The canonical resolve path already serializes on `FOR UPDATE` and completes a

@@ -247,6 +247,19 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	if replays < 1 {
 		t.Fatalf("resolution did not enqueue the provider-email replay: %d", replays)
 	}
+	var ignoredObservation, ignoredItem, ignoredRequest string
+	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,1,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, householdID, sourceID).Scan(&ignoredObservation))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb) RETURNING id`, householdID, ignoredObservation, decision).Scan(&ignoredItem))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, ignoredItem, householdID).Scan(&ignoredRequest))
+	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,82)`, ignoredRequest, chatID)
+	must(err)
+	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 82, "review:ignore"))))
+	var ignoredStatus, observationStatus string
+	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, ignoredItem).Scan(&ignoredStatus))
+	must(pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, ignoredObservation).Scan(&observationStatus))
+	if ignoredStatus != "RESOLVED" || observationStatus != "IGNORED" {
+		t.Fatalf("ignore action did not finish financial email: item=%s observation=%s", ignoredStatus, observationStatus)
+	}
 }
 
 // TestQueuedReviewSendSkipsResolvedProjection pins UIR-08's "queued delivery
