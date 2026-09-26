@@ -229,9 +229,6 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION" {
 		return true, p.rememberMerchantReply(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 	}
-	if requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
-	}
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
