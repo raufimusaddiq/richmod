@@ -82,6 +82,46 @@ func TestChatMessagesAlwaysIncludeNonEmptyUserTurn(t *testing.T) {
 	}
 }
 
+func TestChatCompletionConvertsResponsesDocumentParts(t *testing.T) {
+	var sent map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","model":"router-model","choices":[{"message":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"classify_document","arguments":"{}"}}]}}]}`))
+	}))
+	defer server.Close()
+	content := []map[string]any{
+		{"type": "input_text", "text": "Classify this finance document."},
+		{"type": "input_image", "image_url": "data:image/png;base64,AAAA"},
+	}
+	_, _, err := NewWithProtocol(server.URL, "key", "primary", "chat_completions").NativeToolCall(context.Background(), "request", "system", content, []ToolDefinition{{Name: "classify_document"}}, NativeToolOptions{Required: true})
+	if err != nil {
+		t.Fatalf("NativeToolCall() error = %v", err)
+	}
+	messages := sent["messages"].([]any)
+	parts := messages[1].(map[string]any)["content"].([]any)
+	first, second := parts[0].(map[string]any), parts[1].(map[string]any)
+	if first["type"] != "text" || first["text"] != "Classify this finance document." {
+		t.Fatalf("text part = %#v", first)
+	}
+	image, _ := second["image_url"].(map[string]any)
+	if second["type"] != "image_url" || image["url"] != "data:image/png;base64,AAAA" {
+		t.Fatalf("image part = %#v", second)
+	}
+}
+
+func TestChatContentFailsClosedOnUnsupportedPart(t *testing.T) {
+	_, err := chatContent([]map[string]any{{"type": "input_file", "file_id": "f"}})
+	if err == nil {
+		t.Fatal("unsupported part must fail locally, not reach the provider")
+	}
+}
+
 func TestConfiguredProtocolNeverFallsBackOrDuplicatesRequest(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; http.Error(w, "missing", http.StatusNotFound) }))

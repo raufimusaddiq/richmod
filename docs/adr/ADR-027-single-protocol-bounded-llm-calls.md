@@ -10,6 +10,9 @@ Accepted — correctness/performance remediation Release 2. **Amended by ADR-033
 `responses` (the default and production setting) or `chat_completions`. A call
 never retries through a different protocol after HTTP, transport, decoding, or
 schema failure. Responses are capped at 2 MiB.
+When using `chat_completions`, the gateway adapter converts Responses-style
+`input_text` and `input_image` document parts to Chat Completions `text` and
+`image_url` parts before sending; unsupported part types fail locally.
 
 Go owns task budgets. Bank extraction remains 45 seconds total, document stages
 60 seconds, and insights 30 seconds. Telegram callbacks retain their deterministic
