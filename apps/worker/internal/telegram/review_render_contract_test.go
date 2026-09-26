@@ -115,6 +115,30 @@ func TestPayslipReviewTypesCanProject(t *testing.T) {
 	}
 }
 
+// noProducerReviewTypes are schema compatibility values with no active producer
+// in the Go sources. They are renderable (so an old open item still displays) but
+// may legitimately lack a Telegram completion lane until a producer lands.
+var noProducerReviewTypes = map[string]bool{
+	"SALARY_SOURCE_CONFIRMATION": true,
+	"RECEIPT_MISMATCH":           true,
+	"INVOICE_PAYMENT_STATUS":     true,
+	"UNKNOWN_EMAIL_TEMPLATE":     true,
+}
+
+// TestEveryProducedReviewTypeIsTelegramCompletable pins UIR-10 exit criterion 1:
+// every review_type a producer can emit must be resolvable to completion from
+// Telegram. Adding a producer without a completion lane fails here.
+func TestEveryProducedReviewTypeIsTelegramCompletable(t *testing.T) {
+	for _, reviewType := range producibleReviewTypes {
+		if noProducerReviewTypes[reviewType] {
+			continue
+		}
+		if !TelegramCompletableReviewType(reviewType) {
+			t.Fatalf("%s is producible but has no Telegram completion lane", reviewType)
+		}
+	}
+}
+
 // TestSuppliedContextKeepsItsMarkupMode proves the UIR-02 shared projection does
 // not drop a review's supplied prompt: when a producer supplies its own message,
 // the decision still selects the markup and state, so a source/document review
