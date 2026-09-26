@@ -248,13 +248,13 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", value.Note != ""); len(blocked) > 0 {
 		return errReviewResidualFactsRequired{facts: blocked}
 	}
-	var transactionAt any
+	var transactionAt *time.Time
 	if payDate != nil {
 		at, err := time.ParseInLocation("2006-01-02", *payDate, jakartaLocation())
 		if err != nil {
 			return err
 		}
-		transactionAt = at
+		transactionAt = &at
 	}
 	// ADR-046: the conversational lane calls the same canonical confirm as the
 	// generic reply lane. Confirm owns the transaction/proposal mutation and

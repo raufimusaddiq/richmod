@@ -1094,7 +1094,7 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 			if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 				HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 				ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: dateRequestID,
-				Action: "TELEGRAM_DATE_SET", TransactionAt: parsed,
+				Action: "TELEGRAM_DATE_SET", TransactionAt: &parsed,
 				ResolveReview: true,
 			}); err != nil {
 				return err
@@ -1935,6 +1935,14 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", false); len(blocked) > 0 {
 		return enqueueReply(ctx, tx, update, reviewNeedsFactsMessage(blocked))
 	}
+	var transactionAt *time.Time
+	if payDate != nil {
+		parsed, err := time.ParseInLocation("2006-01-02", *payDate, jakartaLocation())
+		if err != nil {
+			return err
+		}
+		transactionAt = &parsed
+	}
 	// ADR-046: the transaction mutation and candidate revalidation live in the
 	// shared canonical resolver. Telegram keeps only its own delivery/evidence and
 	// payslip side effects, and defers terminal completion while it asks whether to
@@ -1947,7 +1955,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: requestID,
 		Action: "TELEGRAM_CONFIRMED", CategorySupplied: categoryID != "", CategoryID: categoryID,
-		Description: value.Description, Note: value.Note, TransactionAt: payDate,
+		Description: value.Description, Note: value.Note, TransactionAt: transactionAt,
 		ResolveReview: false,
 	})
 	if err != nil {

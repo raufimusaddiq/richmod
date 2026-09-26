@@ -5,6 +5,9 @@
 **Drift guard:** `docs/UIR_CLOSURE_DRIFT_GUARD_CHECKLIST.md`  
 **Baseline:** `main@fabe7368c76dff2032685e23ef037bcefe36dcef`
 
+**Implementation base:** merged PR #189, `main@fe55a19a97d6993db803e278d360a9a5c0930467`.
+**Progress:** UIRC-02 C: confirm timestamp boundary now accepts only `*time.Time`; Telegram adapters parse supplied dates before calling the shared operation. Other UIRC gates remain open.
+
 ## Operating rule
 
 This is a closure sprint, not UIR v2.

@@ -2,9 +2,22 @@ package reviewdomain
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestConfirmDateBoundaryIsOptionalTimestamp(t *testing.T) {
+	field, ok := reflect.TypeOf(ConfirmCommand{}).FieldByName("TransactionAt")
+	if !ok || field.Type != reflect.TypeOf((*time.Time)(nil)) {
+		t.Fatal("confirm date must be a *time.Time, never an interface")
+	}
+	var absent ConfirmCommand
+	if absent.TransactionAt != nil {
+		t.Fatal("unsupplied date must not overwrite the proposal timestamp")
+	}
+}
 
 // The transaction confirm operation must stay channel-neutral: both surfaces
 // call ConfirmTransactionReview, and neither re-owns the transaction mutation.
