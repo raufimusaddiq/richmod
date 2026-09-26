@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
@@ -232,6 +234,15 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	if itemStatus != "OPEN" || resolvedAccount != accountID {
 		t.Fatalf("first pick must persist the account and stay open: item=%s account=%s", itemStatus, resolvedAccount)
 	}
+	var foreignHousehold, foreignWealth string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Foreign fe %d", stamp)).Scan(&foreignHousehold))
+	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Foreign','Bank','ASSET','DEPOSIT','SAVINGS') RETURNING id`, foreignHousehold).Scan(&foreignWealth))
+	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:wealth:"+foreignWealth))))
+	var invalidWealth string
+	must(pool.QueryRow(ctx, `SELECT COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, observationID).Scan(&invalidWealth))
+	if invalidWealth != "" {
+		t.Fatalf("foreign wealth account persisted as partial binding: %s", invalidWealth)
+	}
 	var wealthID string
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role,linked_account_id) VALUES($1,'Tabungan','Bank A','ASSET','DEPOSIT','SAVINGS',$2) RETURNING id`, householdID, accountID).Scan(&wealthID))
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:wealth:"+wealthID))))
@@ -249,10 +260,41 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	}
 	var ignoredObservation, ignoredItem, ignoredRequest string
 	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,1,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, householdID, sourceID).Scan(&ignoredObservation))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb) RETURNING id`, householdID, ignoredObservation, decision).Scan(&ignoredItem))
+	ignoreDecision := `{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","decisionClass":"EVIDENCE_GAP","interactionMode":"BOUNDED_CHOICE","knownFacts":{},"missingFacts":["wealth_account"],"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"],"decisionSource":"DETERMINISTIC"}`
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb) RETURNING id`, householdID, ignoredObservation, ignoreDecision).Scan(&ignoredItem))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, ignoredItem, householdID).Scan(&ignoredRequest))
 	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,82)`, ignoredRequest, chatID)
 	must(err)
+	for n := 0; n < 9; n++ {
+		_, err = pool.Exec(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,$2,'BANK','FULL_LEDGER')`, householdID, fmt.Sprintf("Extra %02d", n))
+		must(err)
+	}
+	tx, err := pool.Begin(ctx)
+	must(err)
+	defer tx.Rollback(ctx)
+	chooser, err := financialEmailEntityMarkup(ctx, tx, ignoredRequest, reviewdec.Decision{MissingFacts: []string{"funding_account"}}, 0)
+	must(err)
+	var hasNext bool
+	for _, row := range chooser.InlineKeyboard {
+		for _, button := range row {
+			hasNext = hasNext || button.CallbackData == "review:fepage:1"
+		}
+	}
+	if !hasNext {
+		t.Fatal("account chooser did not offer the next page")
+	}
+	chooser, err = financialEmailEntityMarkup(ctx, tx, ignoredRequest, reviewdec.Decision{MissingFacts: []string{"funding_account"}}, 1)
+	must(err)
+	var hasAccountOnNext bool
+	for _, row := range chooser.InlineKeyboard {
+		for _, button := range row {
+			hasAccountOnNext = hasAccountOnNext || strings.HasPrefix(button.CallbackData, "review:fe:account:")
+		}
+	}
+	if !hasAccountOnNext {
+		t.Fatal("next page did not expose the remaining account")
+	}
+	must(tx.Rollback(ctx))
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 82, "review:ignore"))))
 	var ignoredStatus, observationStatus string
 	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, ignoredItem).Scan(&ignoredStatus))

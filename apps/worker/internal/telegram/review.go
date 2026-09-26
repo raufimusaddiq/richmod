@@ -441,20 +441,32 @@ func reviewRequiresFact(raw *string, fact string) bool {
 
 // processReviewDetailCallback is the deterministic callback lane for review
 // editing. These callbacks never enter the conversational LLM pipeline.
+// processFinancialEmailPager re-renders the bound financial-email chooser on a
+// later page, so a household with more accounts than one keyboard holds can still
+// reach the missing entity.
+func (p *Processor) processFinancialEmailPager(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, page int) (bool, error) {
+	var itemID string
+	err := p.pool.QueryRow(ctx, `SELECT ri.id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_RESOLUTION'`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	return true, p.askFinancialEmailEntityPage(ctx, sourceEventID, itemID, householdID, update, page)
+}
+
 // processFinancialEmailCallback resolves a FINANCIAL_EMAIL_RESOLUTION review
 // from the entity chooser. Each button names one dimension (funding account or
 // wealth account) and one household-scoped id, so it delegates straight to the
 // shared resolver and then enqueues the provider-email replay, exactly as the
 // Review Inbox does. Bounded buttons never enter the conversational pipeline.
 func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
-	dimension, entityID := "", ""
-	if strings.HasPrefix(data, "review:fe:account:") {
-		dimension, entityID = "account", strings.TrimPrefix(data, "review:fe:account:")
-	} else if strings.HasPrefix(data, "review:fe:wealth:") {
-		dimension, entityID = "wealth", strings.TrimPrefix(data, "review:fe:wealth:")
-	} else if data == "review:ignore" {
-		dimension = "ignore"
-	} else {
+	dimension, entityID := financialEmailDimension(data)
+	if dimension == "" {
+		if page := financialEmailPage(data); page >= 0 {
+			return p.processFinancialEmailPager(ctx, sourceEventID, householdID, update, page)
+		}
 		return false, nil
 	}
 	tx, err := p.pool.Begin(ctx)
@@ -511,10 +523,22 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 		// resolver reads those columns on the next turn.
 		if errors.Is(err, reviewdomain.ErrFundingAccountRequired) || errors.Is(err, reviewdomain.ErrProviderAccountRequired) {
 			if dimension == "account" {
+				if verr := reviewdomain.ValidateFinancialFundingAccount(ctx, tx, householdID, entityID); verr != nil {
+					if rerr := tx.Rollback(ctx); rerr != nil {
+						return true, rerr
+					}
+					return true, p.askFinancialEmailEntity(ctx, sourceEventID, itemID, householdID, update)
+				}
 				if _, uerr := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=$2::uuid,updated_at=now() WHERE id=$1`, observationID, entityID); uerr != nil {
 					return true, uerr
 				}
 			} else {
+				if verr := reviewdomain.ValidateWealthAccount(ctx, tx, householdID, entityID); verr != nil {
+					if rerr := tx.Rollback(ctx); rerr != nil {
+						return true, rerr
+					}
+					return true, p.askFinancialEmailEntity(ctx, sourceEventID, itemID, householdID, update)
+				}
 				if _, uerr := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_wealth_account_id=$2::uuid,updated_at=now() WHERE id=$1`, observationID, entityID); uerr != nil {
 					return true, uerr
 				}
@@ -524,7 +548,10 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 			}
 			return true, p.askFinancialEmailEntity(ctx, sourceEventID, itemID, householdID, update)
 		}
-		if errors.Is(err, reviewdomain.ErrAccountInvalid) {
+		if errors.Is(err, reviewdomain.ErrAccountInvalid) || errors.Is(err, reviewdomain.ErrWealthAccountInvalid) {
+			if rerr := tx.Rollback(ctx); rerr != nil {
+				return true, rerr
+			}
 			return true, p.askFinancialEmailEntity(ctx, sourceEventID, itemID, householdID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrFinancialObservationUnavailable) {
@@ -2017,6 +2044,7 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		return err
 	}
 	var markup *InlineKeyboardMarkup
+	var err error
 	switch markupMode {
 	case "category", "transfer":
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
@@ -2029,9 +2057,9 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	case "document":
 		markup = documentReviewMarkup()
 	case "financial_email":
-		markup = financialEmailEntityMarkup(ctx, tx, reviewID, decision)
-		if markup == nil {
-			markup = requiredFieldReplyMarkup()
+		markup, err = financialEmailEntityMarkup(ctx, tx, reviewID, decision, 0)
+		if err != nil {
+			return err
 		}
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
@@ -2209,9 +2237,9 @@ func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, 
 	if len(remaining) == 0 {
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
-	markup := financialEmailEntityMarkup(ctx, tx, requestID, decision)
-	if markup == nil {
-		return fmt.Errorf("build financial email chooser for review %s", itemID)
+	markup, err := financialEmailEntityMarkup(ctx, tx, requestID, decision, 0)
+	if err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
@@ -2222,7 +2250,10 @@ func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, 
 	return tx.Commit(ctx)
 }
 
-func financialEmailEntityMarkup(ctx context.Context, tx pgx.Tx, reviewID string, decision reviewdec.Decision) *InlineKeyboardMarkup {
+// financialEmailEntityMarkup builds the entity chooser for the still-missing
+// dimensions. page selects the chunk of each dimension, so a household with more
+// accounts than fit one Telegram keyboard can still bind the missing entity.
+func financialEmailEntityMarkup(ctx context.Context, tx pgx.Tx, reviewID string, decision reviewdec.Decision, page int) (*InlineKeyboardMarkup, error) {
 	hasAccount := contains(decision.MissingFacts, "funding_account")
 	hasWealth := contains(decision.MissingFacts, "wealth_account")
 	// A legacy decision with neither dimension named means both are open.
@@ -2230,40 +2261,155 @@ func financialEmailEntityMarkup(ctx context.Context, tx pgx.Tx, reviewID string,
 		hasAccount, hasWealth = true, true
 	}
 	var householdID string
-	if tx.QueryRow(ctx, `SELECT household_id FROM review_request WHERE id=$1`, reviewID).Scan(&householdID) != nil {
-		return nil
+	if err := tx.QueryRow(ctx, `SELECT household_id FROM review_request WHERE id=$1`, reviewID).Scan(&householdID); err != nil {
+		return nil, err
 	}
 	var buttons [][]InlineKeyboardButton
+	total, cap := 0, 8
 	if hasAccount {
-		rows, err := tx.Query(ctx, `SELECT id,name FROM account WHERE household_id=$1 AND active ORDER BY name,id LIMIT 9`, householdID)
+		rows, err := tx.Query(ctx, `SELECT count(*) FROM account WHERE household_id=$1 AND active`, householdID)
 		if err != nil {
-			return nil
+			return nil, err
+		}
+		for rows.Next() {
+			if err := rows.Scan(&total); err != nil {
+				rows.Close()
+				return nil, err
+			}
+		}
+		rows.Close()
+		rows, err = tx.Query(ctx, `SELECT id,name FROM account WHERE household_id=$1 AND active ORDER BY name,id LIMIT $2 OFFSET $3`, householdID, cap, page*cap)
+		if err != nil {
+			return nil, err
 		}
 		for rows.Next() {
 			var id, name string
-			if rows.Scan(&id, &name) == nil {
-				buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:fe:account:" + id}})
+			if err := rows.Scan(&id, &name); err != nil {
+				rows.Close()
+				return nil, err
 			}
+			buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:fe:account:" + id}})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
 		}
 		rows.Close()
 	}
+	wealthTotal, wealthCap := 0, 16
 	if hasWealth {
-		rows, err := tx.Query(ctx, `SELECT id,name FROM wealth_account WHERE household_id=$1 AND active ORDER BY name,id LIMIT 18`, householdID)
+		rows, err := tx.Query(ctx, `SELECT count(*) FROM wealth_account WHERE household_id=$1 AND active`, householdID)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		for rows.Next() {
-			var id, name string
-			if rows.Scan(&id, &name) == nil {
-				buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:fe:wealth:" + id}})
+			if err := rows.Scan(&wealthTotal); err != nil {
+				rows.Close()
+				return nil, err
 			}
 		}
 		rows.Close()
+		rows, err = tx.Query(ctx, `SELECT id,name FROM wealth_account WHERE household_id=$1 AND active ORDER BY name,id LIMIT $2 OFFSET $3`, householdID, wealthCap, page*wealthCap)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id, name string
+			if err := rows.Scan(&id, &name); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:fe:wealth:" + id}})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	lastPage := (total - 1) / cap
+	if wealthPage := (wealthTotal - 1) / wealthCap; wealthPage > lastPage {
+		lastPage = wealthPage
+	}
+	if lastPage > 0 {
+		var pager []InlineKeyboardButton
+		if page > 0 {
+			pager = append(pager, InlineKeyboardButton{Text: "‹", CallbackData: fmt.Sprintf("review:fepage:%d", page-1)})
+		}
+		if page < lastPage {
+			pager = append(pager, InlineKeyboardButton{Text: "›", CallbackData: fmt.Sprintf("review:fepage:%d", page+1)})
+		}
+		if len(pager) > 0 {
+			buttons = append(buttons, pager)
+		}
 	}
 	buttons = append(buttons, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})
-	return &InlineKeyboardMarkup{InlineKeyboard: buttons}
+	return &InlineKeyboardMarkup{InlineKeyboard: buttons}, nil
 }
 
+// askFinancialEmailEntityPage re-renders the chooser on a later page without
+// touching the observation.
+func (p *Processor) askFinancialEmailEntityPage(ctx context.Context, sourceEventID, itemID, householdID string, update telegramUpdate, page int) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var decisionJSON []byte
+	var status, reviewID string
+	if err := tx.QueryRow(ctx, `SELECT ri.decision,ri.status,rr.id::text FROM review_item ri JOIN review_request rr ON rr.review_item_id=ri.id AND rr.status IN ('OPEN','PENDING_SEND') WHERE ri.id=$1 AND ri.household_id=$2 ORDER BY rr.created_at LIMIT 1 FOR UPDATE OF ri`, itemID, householdID).Scan(&decisionJSON, &status, &reviewID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		return err
+	}
+	if status != "OPEN" && status != "PENDING_SEND" {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	var decision reviewdec.Decision
+	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
+		return err
+	}
+	markup, err := financialEmailEntityMarkup(ctx, tx, reviewID, decision, page)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if err := enqueueReplyMarkup(ctx, tx, update, "Masih ada rekening yang perlu dipilih.", markup); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// financialEmailDimension returns the household-scoped entity dimensions a
+// financial-email chooser callback refers to: an entity id, or "ignore".
+func financialEmailDimension(data string) (string, string) {
+	switch {
+	case strings.HasPrefix(data, "review:fe:account:"):
+		return "account", strings.TrimPrefix(data, "review:fe:account:")
+	case strings.HasPrefix(data, "review:fe:wealth:"):
+		return "wealth", strings.TrimPrefix(data, "review:fe:wealth:")
+	case data == "review:ignore":
+		return "ignore", ""
+	default:
+		return "", ""
+	}
+}
+
+// financialEmailPage parses review:fepage:<n>; the negative sentinel means the
+// callback is not a pager.
+func financialEmailPage(data string) int {
+	if !strings.HasPrefix(data, "review:fepage:") {
+		return -1
+	}
+	page, err := strconv.Atoi(strings.TrimPrefix(data, "review:fepage:"))
+	if err != nil || page < 0 {
+		return -1
+	}
+	return page
+}
 func requiredFieldReplyMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 }

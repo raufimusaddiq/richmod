@@ -249,7 +249,11 @@ registry, so the card is projected instead of fail-closed.
 The card's Abaikan action also closes the bound observation and canonical review
 without a replay, matching the Inbox's ignore semantics. Telegram locks the
 canonical item before mutating the observation, guards completion on open status,
-and does not re-offer a chooser after a concurrent resolution.
+and does not re-offer a chooser after a concurrent resolution. Partial choices
+pass the same household/active entity validation as final resolution before
+persisting. The chooser pages through both account types instead of silently
+truncating large households; query errors stop projection rather than sending
+a buttonless card.
 
 ### UIR-08 — cross-surface synchronization and concurrency (complete; PR open)
 
