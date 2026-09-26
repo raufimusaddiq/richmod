@@ -1134,6 +1134,15 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
+	actor := update.Message.From.ID
+	messageID := update.Message.MessageID
+	if update.CallbackQuery != nil {
+		actor = update.CallbackQuery.From.ID
+		messageID = update.CallbackQuery.Message.MessageID
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT s.household_id,'TELEGRAM',ti.user_id,'STALE_REVIEW_ACTION','source_event',s.id,jsonb_build_object('telegram_message_id',$2::bigint) FROM source_event s JOIN telegram_identity ti ON ti.household_id=s.household_id AND ti.telegram_user_id=$3 AND ti.active WHERE s.id=$1`, sourceEventID, messageID, actor); err != nil {
+		return err
+	}
 	if err := enqueueReply(ctx, tx, update, "Tinjauan ini sudah selesai. Tidak ada perubahan baru."); err != nil {
 		return err
 	}

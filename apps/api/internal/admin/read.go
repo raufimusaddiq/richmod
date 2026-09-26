@@ -361,7 +361,46 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "name": name, "timezone": timezone, "createdAt": created, "members": members, "transactions": transactions, "openReviews": reviews, "lastSourceActivityAt": last, "integrations": map[string]any{"activeBankListeners": listeners, "telegramLinked": telegram, "primarySalaryConfigured": primary}, "memberItems": memberItems, "recentJobs": jobs, "recentLLMCalls": llmCalls, "failedSourceEvents": failedSources, "recentAudit": audits})
+	var reviewDiag struct {
+		EligibleTelegram      int
+		ActionableProjections int
+		ResolvedTelegram      int
+		ResolvedWeb           int
+		ResolvedSystem        int
+		LatestFailureAt       *time.Time
+		LatestFailureError    *string
+	}
+	if err := h.pool.QueryRow(r.Context(), `SELECT
+		(SELECT count(*) FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1::uuid AND ti.active),
+		(SELECT count(DISTINCT ri.id) FROM review_item ri JOIN review_request rr ON rr.review_item_id=ri.id JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE ri.household_id=$1::uuid AND ri.status IN ('OPEN','PENDING_SEND') AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL),
+		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),
+		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),
+		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NULL),
+		(SELECT max(j.updated_at) FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid),
+		(SELECT j.last_error FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid ORDER BY j.updated_at DESC LIMIT 1)`, id).Scan(&reviewDiag.EligibleTelegram, &reviewDiag.ActionableProjections, &reviewDiag.ResolvedTelegram, &reviewDiag.ResolvedWeb, &reviewDiag.ResolvedSystem, &reviewDiag.LatestFailureAt, &reviewDiag.LatestFailureError); err == nil {
+		reviewDiagOut := map[string]any{
+			"eligibleTelegram":                reviewDiag.EligibleTelegram,
+			"actionableProjections":           reviewDiag.ActionableProjections,
+			"resolvedTelegram":                reviewDiag.ResolvedTelegram,
+			"resolvedWeb":                     reviewDiag.ResolvedWeb,
+			"resolvedSystem":                  reviewDiag.ResolvedSystem,
+			"latestDeliveryFailureAt":         reviewDiag.LatestFailureAt,
+			"latestDeliveryFailureErrorClass": reviewDiag.LatestFailureError,
+		}
+		writeJSON(w, 200, householdOverviewPayload(id, name, timezone, created, members, transactions, reviews, last, listeners, telegram, primary, memberItems, jobs, llmCalls, failedSources, audits, reviewDiagOut))
+		return
+	}
+	// Diagnostics are best-effort; a query error omits them rather than failing
+	// the whole household overview.
+	writeJSON(w, 200, householdOverviewPayload(id, name, timezone, created, members, transactions, reviews, last, listeners, telegram, primary, memberItems, jobs, llmCalls, failedSources, audits, nil))
+}
+
+func householdOverviewPayload(id, name, timezone string, created time.Time, members, transactions, reviews int, last *time.Time, listeners, telegram int, primary bool, memberItems, jobs, llmCalls, failedSources, audits []map[string]any, reviewDiagnostics map[string]any) map[string]any {
+	out := map[string]any{"id": id, "name": name, "timezone": timezone, "createdAt": created, "members": members, "transactions": transactions, "openReviews": reviews, "lastSourceActivityAt": last, "integrations": map[string]any{"activeBankListeners": listeners, "telegramLinked": telegram, "primarySalaryConfigured": primary}, "memberItems": memberItems, "recentJobs": jobs, "recentLLMCalls": llmCalls, "failedSourceEvents": failedSources, "recentAudit": audits}
+	if reviewDiagnostics != nil {
+		out["reviewDiagnostics"] = reviewDiagnostics
+	}
+	return out
 }
 
 func (h *Handler) PlatformAudit(w http.ResponseWriter, r *http.Request) {
