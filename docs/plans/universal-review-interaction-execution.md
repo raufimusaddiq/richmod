@@ -178,7 +178,7 @@ confirmation from the Web handler into `reviewdomain.ResolvePayslipProposal`;
 it does not yet provide Telegram parity or close UIR-06. UIR-08
 through UIR-10 cover synchronization, telemetry, and the regression matrix.
 
-### UIR-06 — payslip, source, and document parity (complete; PR open)
+### UIR-06 — payslip, source, and document parity (complete; PR #181, merged 2026-09-26)
 
 Two slices close UIR-06.
 
@@ -238,7 +238,7 @@ renderer contract test keeps any future producer from reaching Telegram without
 a completable path. (`UNKNOWN_BANK_TEMPLATE` left this set: the bank-email
 processor produces it and UIR-10 gives it a completable bound-reply lane.)
 
-### UIR-07 — financial-email, Wealth, and cycle parity (complete; PR open)
+### UIR-07 — financial-email, Wealth, and cycle parity (complete; PR #182, merged 2026-09-26)
 
 `WEALTH_OBSERVATION_CONFIRMATION` (UIR-01 slice 9) and
 `CYCLE_RESIDUAL_ALLOCATION` (slice 13) already resolve in Telegram through the
@@ -263,7 +263,7 @@ persisting. The chooser pages through both account types instead of silently
 truncating large households; query errors stop projection rather than sending
 a buttonless card.
 
-### UIR-08 — cross-surface synchronization and concurrency (complete; PR open)
+### UIR-08 — cross-surface synchronization and concurrency (complete; PR #183 via #182, merged 2026-09-26)
 
 The canonical resolve path already serializes on `FOR UPDATE` and completes a
 review only when `RowsAffected=1` on `OPEN|PENDING_SEND`, so a Web action and a
@@ -280,7 +280,7 @@ delivered as a fresh live card (a pending callback is still answered so the
 client spinner clears). `TestQueuedReviewSendSkipsResolvedProjection` pins the
 open/resolved/expired/empty cases.
 
-### UIR-09 — telemetry + Admin Review Operations (complete; PR open)
+### UIR-09 — telemetry + Admin Review Operations (complete; PR #184, merged 2026-09-26)
 
 Rollout health is measurable and viewable without PostgreSQL. Three read-only
 Super Admin aggregates back the Admin Web Reviews tab:
@@ -314,6 +314,16 @@ projections, TELEGRAM/WEB/SYSTEM completion split, latest delivery failure
 timestamp and error class) so an operator can diagnose one household's Telegram
 review delivery/actionability without SQL; a query failure omits the block
 rather than failing the overview.
+
+### UIR-10 — rollout and regression (complete; PR #186, merged 2026-09-26)
+
+The bank-email `UNKNOWN_BANK_TEMPLATE` family is completable from Telegram: the
+bound reply validates the listener account and queues the shared
+`COMPLETE_BANK_REVIEW` job (the same job the Web lane uses) rather than
+resolving the item itself, so the job's persistence is never skipped. Every
+produced review type is pinned to a Telegram completion lane by
+`TestEveryProducedReviewTypeIsTelegramCompletable`, and the multi-recipient race
+is covered by `TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale`.
 
 ## Source contracts
 
@@ -1030,6 +1040,16 @@ Do not call sprint complete until:
    is FULL Telegram capability; and
 2. the Admin Review surface proves the same rollout metrics without manual
    PostgreSQL inspection.
+
+Both hold on merged `main`:
+
+1. `TestEveryProducedReviewTypeIsTelegramCompletable`
+   (`apps/worker/internal/telegram/review_render_contract_test.go`) fails if any
+   produced review type lacks a Telegram completion lane, and
+   `TestEveryProducibleReviewTypeHasARenderableDecision` pins the renderer
+   contract.
+2. The Admin Review Operations surface (UIR-09, PR #184) exposes the rollout
+   metrics; its contract tests run in CI.
 
 ---
 
