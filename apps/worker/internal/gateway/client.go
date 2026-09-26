@@ -214,6 +214,11 @@ func normalizeToolArguments(raw json.RawMessage) json.RawMessage {
 // same internal ToolCall shape, so callers do not need protocol-specific
 // financial logic.
 func (c *Client) nativeChatCompletion(ctx context.Context, requestID, systemPrompt string, userContent any, tools []map[string]any, options NativeToolOptions) (ToolCall, Metadata, error) {
+	var err error
+	userContent, err = chatContent(userContent)
+	if err != nil {
+		return ToolCall{}, Metadata{}, err
+	}
 	functions := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
 		fn := map[string]any{"type": "function", "function": map[string]any{"name": tool["name"], "description": tool["description"], "parameters": tool["parameters"]}}
@@ -242,6 +247,34 @@ func chatMessages(systemPrompt string, userContent any) []map[string]any {
 		userContent = "Use the required tool call to answer for the supplied evidence."
 	}
 	return []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": userContent}}
+}
+
+// chatContent adapts Responses image/text parts to Chat Completions parts.
+func chatContent(content any) (any, error) {
+	parts, ok := content.([]map[string]any)
+	if !ok {
+		return content, nil
+	}
+	converted := make([]map[string]any, 0, len(parts))
+	for _, part := range parts {
+		switch part["type"] {
+		case "input_text":
+			value, ok := part["text"].(string)
+			if !ok || strings.TrimSpace(value) == "" {
+				return nil, fmt.Errorf("invalid chat text part")
+			}
+			converted = append(converted, map[string]any{"type": "text", "text": value})
+		case "input_image":
+			url, ok := part["image_url"].(string)
+			if !ok || url == "" {
+				return nil, fmt.Errorf("invalid chat image part")
+			}
+			converted = append(converted, map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}})
+		default:
+			return nil, fmt.Errorf("unsupported chat content part type %q", part["type"])
+		}
+	}
+	return converted, nil
 }
 
 func chatContentEmpty(content any) bool {

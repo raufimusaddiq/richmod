@@ -184,6 +184,11 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 }
 
 func (c *Client) agentChatCompletion(ctx context.Context, requestID string, request AgentRequest, content any, tools []map[string]any, allowed map[string]bool) (AgentResponse, error) {
+	var err error
+	content, err = chatContent(content)
+	if err != nil {
+		return AgentResponse{}, err
+	}
 	functions := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
 		functions = append(functions, map[string]any{
