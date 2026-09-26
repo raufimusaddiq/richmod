@@ -363,7 +363,7 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			return encodeErr
 		}
 		var reviewItemID string
-		if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,review_type,status,decision) VALUES($1,$2,$3,'OPEN',$4::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, proposalID, reviewType, string(encoded)).Scan(&reviewItemID); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,$5,'OPEN',$6::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, proposalID, sourceID, documentID, reviewType, string(encoded)).Scan(&reviewItemID); err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return err
 			}
@@ -474,14 +474,12 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 
 func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType string, hasPrimary bool) reviewdec.Decision {
 	decision.Provenance["hasPrimarySalary"] = hasPrimary
-	if reviewType == "MISSING_PAY_DATE" {
+	if reviewType == "MISSING_PAY_DATE" && !hasPrimary {
 		decision.AllowedActions = []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
-		if !hasPrimary {
-			decision.MissingFacts = append(decision.MissingFacts, "salary_classification")
-			decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
-			decision.InteractionMode = reviewdec.ModePolicyChoice
-			decision.WhyNotAuto = "pay date is absent and the first salary source requires household classification"
-		}
+		decision.MissingFacts = append(decision.MissingFacts, "salary_classification")
+		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
+		decision.InteractionMode = reviewdec.ModePolicyChoice
+		decision.WhyNotAuto = "pay date is absent and the first salary source requires household classification"
 	}
 	return decision
 }

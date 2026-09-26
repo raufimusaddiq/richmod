@@ -14,6 +14,12 @@ func TestParseReviewPayDate(t *testing.T) {
 	if got := parseReviewPayDate("BENAR, gaji masuk tanggal 24 agustus 2026"); got != "2026-08-24" {
 		t.Fatalf("pay date = %q", got)
 	}
+	if got := parseReviewPayDate("25 September 2026"); got != "2026-09-25" {
+		t.Fatalf("unprefixed pay date = %q", got)
+	}
+	if got := parseReviewPayDate("tanggal 25 November 2026"); got != "2026-11-25" {
+		t.Fatalf("English month = %q", got)
+	}
 	if got := parseReviewPayDate("BENAR, gunakan tanggal 31 februari 2026"); got != "" {
 		t.Fatalf("invalid pay date = %q", got)
 	}

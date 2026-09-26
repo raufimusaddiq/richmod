@@ -35,13 +35,13 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 	case "DOCUMENT_EXTRACTION_LOW_CONFIDENCE":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"document_extraction"}
-		base.AllowedActions = []string{"COMPLETE_BANK_FACTS", "IGNORE"}
+		base.AllowedActions = []string{"REPROCESS_DOCUMENT", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the document extraction could not be validated deterministically"
 	case "DOCUMENT_CLASSIFICATION":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"document_type"}
-		base.AllowedActions = []string{"COMPLETE_BANK_FACTS", "IGNORE"}
+		base.AllowedActions = []string{"REPROCESS_DOCUMENT", "IGNORE"}
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the document type could not be classified with enough confidence"
 	case "UNKNOWN_BANK_TEMPLATE":

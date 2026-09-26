@@ -67,7 +67,9 @@ var markupModesHandledAtCreation = map[string]bool{
 	"category":  true,
 	"reply":     true,
 	"duplicate": true,
+	"salary":    true,
 	"transfer":  true,
+	"document":  true,
 }
 
 func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
@@ -76,6 +78,38 @@ func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
 		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
 		if !markupModesHandledAtCreation[mode] {
 			t.Fatalf("%s rendered mode %q with no creation markup case", reviewType, mode)
+		}
+	}
+}
+
+func TestPayslipReviewUsesIndonesianPrompts(t *testing.T) {
+	for _, reviewType := range []string{"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE"} {
+		decision, ok := reviewdec.Preset(reviewType, "source_event", "00000000-0000-0000-0000-000000000000")
+		if !ok {
+			t.Fatalf("missing preset for %s", reviewType)
+		}
+		_, message, _ := renderReviewPresentation(decision, reviewType, "")
+		if strings.Contains(message, "salary") || strings.Contains(message, "transaction date") {
+			t.Fatalf("%s has non-Indonesian UI: %q", reviewType, message)
+		}
+		if reviewType == "MISSING_PAY_DATE" && !strings.Contains(message, "25 September 2026") {
+			t.Fatalf("missing Indonesian date example: %q", message)
+		}
+	}
+}
+
+func TestTransactionDatePromptKeepsItsSupportedFormat(t *testing.T) {
+	decision, _ := reviewdec.Preset("MISSING_TRANSACTION_DATE", "transaction", "00000000-0000-0000-0000-000000000000")
+	_, message, _ := renderReviewPresentation(decision, "MISSING_TRANSACTION_DATE", "")
+	if !strings.Contains(message, "tanggal transaksi (YYYY-MM-DD)") || strings.Contains(message, "September") {
+		t.Fatalf("transaction date prompt does not match its parser: %q", message)
+	}
+}
+
+func TestPayslipReviewTypesCanProject(t *testing.T) {
+	for _, kind := range []string{"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE"} {
+		if !TelegramCompletableReviewType(kind) {
+			t.Fatalf("%s cannot project", kind)
 		}
 	}
 }
@@ -103,12 +137,16 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		// prompt must not turn a bounded chooser into a free-form reply or back.
 		wantMode := "reply"
 		switch {
+		case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
+			wantMode = "document"
 		case isCategoryOnly(decision):
 			wantMode = "category"
 		case contains(decision.MissingFacts, "transfer_relationship"):
 			wantMode = "transfer"
 		case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 			wantMode = "duplicate"
+		case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
+			wantMode = "salary"
 		}
 		if mode != wantMode {
 			t.Fatalf("%s rendered mode %q with a supplied prompt, want %q", reviewType, mode, wantMode)

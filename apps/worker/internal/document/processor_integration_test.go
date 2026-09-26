@@ -12,10 +12,9 @@ import (
 )
 
 // TestTerminalTelegramDocumentFailureCreatesReviewAndReply pins the terminal
-// failure path: it writes exactly one open review item and one audit row, and
-// does not double-fire on a duplicate callback. DOCUMENT_CLASSIFICATION has no
-// Telegram completion path until UIR-06, so it projects no card (fail closed)
-// even when the source came from Telegram.
+// failure path: it writes exactly one open review item and one audit row, does
+// not double-fire on a duplicate callback, and (since UIR-06) projects exactly
+// one actionable card when the source came from Telegram.
 func TestTerminalTelegramDocumentFailureCreatesReviewAndReply(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -59,7 +58,7 @@ func TestTerminalTelegramDocumentFailureCreatesReviewAndReply(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT d.status,s.processing_status,(SELECT count(*) FROM review_item WHERE document_id=d.id AND status='OPEN'),(SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'reply_to_message_id'=$2),(SELECT count(*) FROM audit_log WHERE entity_id=s.id AND action='DOCUMENT_CLASSIFICATION_FAILED') FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID, fmt.Sprint(stamp)).Scan(&documentStatus, &sourceStatus, &reviews, &replies, &audits); err != nil {
 		t.Fatal(err)
 	}
-	if documentStatus != "NEEDS_REVIEW" || sourceStatus != "NEEDS_REVIEW" || reviews != 1 || replies != 0 || audits != 1 {
+	if documentStatus != "NEEDS_REVIEW" || sourceStatus != "NEEDS_REVIEW" || reviews != 1 || replies != 1 || audits != 1 {
 		t.Fatalf("document=%s source=%s reviews=%d replies=%d audits=%d", documentStatus, sourceStatus, reviews, replies, audits)
 	}
 }

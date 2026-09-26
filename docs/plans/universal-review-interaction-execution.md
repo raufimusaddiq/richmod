@@ -141,7 +141,7 @@ merges and voids the source) to prove it completes without Web. `CONFLICTING_EVI
 is produced on a source-event subject by financial email and has no transaction
 projection, so its Telegram surface belongs to UIR-07.
 
-### UIR-02 — universal projection model (in progress)
+### UIR-02 — universal projection model (complete; PR #179, merged 2026-09-26)
 
 Every producer that inserts a `review_item` now routes its Telegram delivery
 through one shared entrypoint, `telegram.ProjectReviewItem` (plus the
@@ -173,8 +173,48 @@ document, payslip, bank, or financial-email projection failed the constraint
 The remaining channel gaps are subject-parity work: the rest of UIR-03
 action parity, UIR-04 transaction residual parity, UIR-06
 payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle
-Telegram surfaces. UIR-08
+Telegram surfaces. The first UIR-06 slice extracts proposal-backed payslip
+confirmation from the Web handler into `reviewdomain.ResolvePayslipProposal`;
+it does not yet provide Telegram parity or close UIR-06. UIR-08
 through UIR-10 cover synchronization, telemetry, and the regression matrix.
+
+### UIR-06 — payslip, source, and document parity (complete; PR open)
+
+Two slices close UIR-06.
+
+Payslip parity. `PAYSLIP_CONFIRMATION` and `MISSING_PAY_DATE` now finish inside
+Telegram through the shared `reviewdomain.ResolvePayslipProposal`. The policy
+chooser (`review:salary:primary` / `:ordinary`) stores the salary classification
+as a `knownFacts` residual via `reviewdomain.SetPayslipPolicy` and advances the
+conversation to `AWAITING_DATE`; a bound date reply resolves the same proposal
+into a canonical income transaction and, for a primary salary, records the
+salary event through `reviewdomain.RecordSalaryEvent`. The pay-date parser
+accepts an unprefixed `25 September 2026` as well as the labelled form, while
+the transaction-date prompt keeps its `YYYY-MM-DD` parser. Legacy unbound
+payslip items (no `document_id`, metadata without a document binding) resolve
+through a fail-closed `documentMatches` guard instead of a hard `JOIN document`,
+which had made `FOR UPDATE` illegal on the nullable side of a `LEFT JOIN`
+(SQLSTATE 0A000) and surfaced as "no rows".
+
+Document parity. `DOCUMENT_CLASSIFICATION` and
+`DOCUMENT_EXTRACTION_LOW_CONFIDENCE` — the terminal-failure reviews the shared
+document pipeline raises for a payslip, receipt, or document it cannot classify
+or extract — now resolve through the shared `reviewdomain.ResolveDocumentReview`.
+Their bounded actions are `REPROCESS_DOCUMENT` (re-run the document pipeline) and
+`IGNORE` (park the document), replacing the old `COMPLETE_BANK_FACTS` action that
+could never apply: a document-bound item has no `bank_email_extraction` row and
+no required `source_event_id`, so the bank-fact completion path and the Web
+branch both rejected it. The Review Inbox action list, a new
+`review:reprocess` Telegram callback, and the decision-driven renderer's
+`document` markup mode all route to the one resolver, so the card always has a
+button that can finish the review. `TelegramCompletableReviewType` now admits
+both families, so the previously dead-ended classification card is projected.
+
+Still no producer in the active path: `SALARY_SOURCE_CONFIRMATION`,
+`UNKNOWN_BANK_TEMPLATE`, `UNKNOWN_EMAIL_TEMPLATE`, `RECEIPT_MISMATCH`, and
+`INVOICE_PAYMENT_STATUS`. They remain schema compatibility values with renderer
+fallbacks; the exhaustive renderer contract test keeps any future producer from
+reaching Telegram without a completable path.
 
 ## Source contracts
 
@@ -369,6 +409,13 @@ No new Telegram review action requires duplicated financial SQL semantics.
 ---
 
 # 6. UIR-02 — universal Telegram projection model
+
+## Status
+
+Complete. PR #179 merged into `main` on 2026-09-26 at
+`9dd61833c133575193f75a4834c137c742332ce4`. Reviewer findings were addressed
+before approval. Family-specific resolver parity remains tracked by UIR-06 and
+UIR-07; projection coverage alone does not complete those tasks.
 
 ## Objective
 

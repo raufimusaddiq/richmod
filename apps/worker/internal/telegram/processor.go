@@ -207,6 +207,19 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
 			return p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
+		if update.CallbackQuery.Data == "review:reprocess" || update.CallbackQuery.Data == "review:ignore" {
+			if handled, err := p.processDocumentReviewCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+				return err
+			}
+		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
+			if handled, err := p.processPayslipPolicyCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+				return err
+			}
+		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
+		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
 			if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
