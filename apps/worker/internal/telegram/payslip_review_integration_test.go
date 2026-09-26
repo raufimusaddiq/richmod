@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
@@ -232,6 +234,15 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	if itemStatus != "OPEN" || resolvedAccount != accountID {
 		t.Fatalf("first pick must persist the account and stay open: item=%s account=%s", itemStatus, resolvedAccount)
 	}
+	var foreignHousehold, foreignWealth string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Foreign fe %d", stamp)).Scan(&foreignHousehold))
+	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Foreign','Bank','ASSET','DEPOSIT','SAVINGS') RETURNING id`, foreignHousehold).Scan(&foreignWealth))
+	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:wealth:"+foreignWealth))))
+	var invalidWealth string
+	must(pool.QueryRow(ctx, `SELECT COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, observationID).Scan(&invalidWealth))
+	if invalidWealth != "" {
+		t.Fatalf("foreign wealth account persisted as partial binding: %s", invalidWealth)
+	}
 	var wealthID string
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role,linked_account_id) VALUES($1,'Tabungan','Bank A','ASSET','DEPOSIT','SAVINGS',$2) RETURNING id`, householdID, accountID).Scan(&wealthID))
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:wealth:"+wealthID))))
@@ -246,5 +257,104 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='PROCESS_FINANCIAL_EMAIL' AND payload_json->>'source_event_id'=$1`, sourceID).Scan(&replays))
 	if replays < 1 {
 		t.Fatalf("resolution did not enqueue the provider-email replay: %d", replays)
+	}
+	var ignoredObservation, ignoredItem, ignoredRequest string
+	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,1,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, householdID, sourceID).Scan(&ignoredObservation))
+	ignoreDecision := `{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","decisionClass":"EVIDENCE_GAP","interactionMode":"BOUNDED_CHOICE","knownFacts":{},"missingFacts":["wealth_account"],"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"],"decisionSource":"DETERMINISTIC"}`
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN',$3::jsonb) RETURNING id`, householdID, ignoredObservation, ignoreDecision).Scan(&ignoredItem))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, ignoredItem, householdID).Scan(&ignoredRequest))
+	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,82)`, ignoredRequest, chatID)
+	must(err)
+	for n := 0; n < 9; n++ {
+		_, err = pool.Exec(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,$2,'BANK','FULL_LEDGER')`, householdID, fmt.Sprintf("Extra %02d", n))
+		must(err)
+	}
+	tx, err := pool.Begin(ctx)
+	must(err)
+	defer tx.Rollback(ctx)
+	chooser, err := financialEmailEntityMarkup(ctx, tx, ignoredRequest, reviewdec.Decision{MissingFacts: []string{"funding_account"}}, 0)
+	must(err)
+	var hasNext bool
+	for _, row := range chooser.InlineKeyboard {
+		for _, button := range row {
+			hasNext = hasNext || button.CallbackData == "review:fepage:1"
+		}
+	}
+	if !hasNext {
+		t.Fatal("account chooser did not offer the next page")
+	}
+	chooser, err = financialEmailEntityMarkup(ctx, tx, ignoredRequest, reviewdec.Decision{MissingFacts: []string{"funding_account"}}, 1)
+	must(err)
+	var hasAccountOnNext bool
+	for _, row := range chooser.InlineKeyboard {
+		for _, button := range row {
+			hasAccountOnNext = hasAccountOnNext || strings.HasPrefix(button.CallbackData, "review:fe:account:")
+		}
+	}
+	if !hasAccountOnNext {
+		t.Fatal("next page did not expose the remaining account")
+	}
+	must(tx.Rollback(ctx))
+	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 82, "review:ignore"))))
+	var ignoredStatus, observationStatus string
+	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, ignoredItem).Scan(&ignoredStatus))
+	must(pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, ignoredObservation).Scan(&observationStatus))
+	if ignoredStatus != "RESOLVED" || observationStatus != "IGNORED" {
+		t.Fatalf("ignore action did not finish financial email: item=%s observation=%s", ignoredStatus, observationStatus)
+	}
+}
+
+// TestQueuedReviewSendSkipsResolvedProjection pins UIR-08's "queued delivery
+// after resolution" rule: a review card that resolves between enqueue and send
+// must not be delivered as a live card, while an open projection still sends.
+func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := time.Now().UnixNano()
+	var householdID, openItem, resolvedItem, expiredItem, openRequest, resolvedRequest, expiredRequest string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("queued send %d", stamp)).Scan(&householdID))
+	// Each item needs its own source event: review_item_active_source_unique allows
+	// only one active AMBIGUOUS_CATEGORY item per source.
+	newItem := func(status string, resolved bool) string {
+		var sourceID, id string
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("queued-%d-%s", time.Now().UnixNano(), status), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+		if resolved {
+			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3,now()) RETURNING id`, householdID, sourceID, status).Scan(&id))
+		} else {
+			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3) RETURNING id`, householdID, sourceID, status).Scan(&id))
+		}
+		return id
+	}
+	// A resolved item must carry resolved_at (schema cross-check).
+	resolvedItem = newItem("RESOLVED", true)
+	openItem, expiredItem = newItem("OPEN", false), newItem("OPEN", false)
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, openItem, householdID).Scan(&openRequest))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now()) RETURNING id`, resolvedItem, householdID).Scan(&resolvedRequest))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status,expires_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',now()-interval '1 minute') RETURNING id`, expiredItem, householdID).Scan(&expiredRequest))
+	processor := NewProcessor(pool, nil)
+	if open, err := processor.ReviewProjectionOpen(ctx, openRequest); err != nil || !open {
+		t.Fatalf("open projection must send: open=%v err=%v", open, err)
+	}
+	if open, err := processor.ReviewProjectionOpen(ctx, resolvedRequest); err != nil || open {
+		t.Fatalf("resolved projection must be skipped: open=%v err=%v", open, err)
+	}
+	if open, err := processor.ReviewProjectionOpen(ctx, expiredRequest); err != nil || open {
+		t.Fatalf("expired projection must be skipped: open=%v err=%v", open, err)
+	}
+	if open, err := processor.ReviewProjectionOpen(ctx, ""); err != nil || !open {
+		t.Fatalf("empty review id must not block a non-review send: open=%v err=%v", open, err)
 	}
 }

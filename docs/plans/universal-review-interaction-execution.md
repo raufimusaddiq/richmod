@@ -246,6 +246,32 @@ matching the Review Inbox. The renderer gained a `financial_email` markup mode
 and the family was added to `TelegramCompletableReviewType` and the tool
 registry, so the card is projected instead of fail-closed.
 
+The card's Abaikan action also closes the bound observation and canonical review
+without a replay, matching the Inbox's ignore semantics. Telegram locks the
+canonical item before mutating the observation, guards completion on open status,
+and does not re-offer a chooser after a concurrent resolution. Partial choices
+pass the same household/active entity validation as final resolution before
+persisting. The chooser pages through both account types instead of silently
+truncating large households; query errors stop projection rather than sending
+a buttonless card.
+
+### UIR-08 — cross-surface synchronization and concurrency (complete; PR open)
+
+The canonical resolve path already serializes on `FOR UPDATE` and completes a
+review only when `RowsAffected=1` on `OPEN|PENDING_SEND`, so a Web action and a
+Telegram callback for the same item cannot both mutate: the loser sees an
+already-resolved review. Web's next read drops the resolved item, a stale Web
+POST returns 409 (pinned by the residual integration test), and a stale Telegram
+callback answers deterministically. Multiple recipients share one `review_item`,
+so the first valid action wins and siblings go stale.
+
+The one missing piece was queued delivery after resolution. A `SEND_TELEGRAM_MESSAGE`
+job that carries a `review_request_id` now rechecks `ReviewProjectionOpen` before
+sending: a review resolved, cancelled, or expired between enqueue and send is not
+delivered as a fresh live card (a pending callback is still answered so the
+client spinner clears). `TestQueuedReviewSendSkipsResolvedProjection` pins the
+open/resolved/expired/empty cases.
+
 ## Source contracts
 
 Read in order:

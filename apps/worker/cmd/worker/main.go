@@ -416,6 +416,21 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
+		// UIR-08: a review card resolved (or cancelled/expired) between enqueue and
+		// send must not arrive as a fresh live card; skip the send but still answer a
+		// pending callback so the client spinner clears.
+		if payload.ReviewRequestID != "" {
+			open, err := processor.ReviewProjectionOpen(ctx, payload.ReviewRequestID)
+			if err != nil {
+				return err
+			}
+			if !open {
+				if payload.CallbackQueryID != "" {
+					return bot.AnswerCallback(ctx, payload.CallbackQueryID)
+				}
+				return nil
+			}
+		}
 		messageID, err := bot.Send(ctx, payload)
 		if err != nil {
 			return err
