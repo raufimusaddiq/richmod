@@ -1,3 +1,5 @@
+> **Post-delivery product closure gate (2026-09-27):** UIR-00..UIR-10 are delivered, but UIR is not product-closed until `docs/RICHMOD_UIR_CLOSURE_GATE_PRD.md` and `docs/plans/uir-closure-execution.md` pass. The closure gate is intentionally bounded and must finish before SAVR. The UIR-10 type-level capability gate is not by itself proof of action-level closure; every active ordinary `ReviewDecision.allowed_actions` path must also be Telegram-terminal or Telegram-continuable. Do not expand the gate into SAVR-owned semantic work.
+
 # Execution Plan — Universal Review Interaction
 
 ## Status
@@ -73,9 +75,9 @@ The tenth slice moves financial email entity resolution into
 apps/reviewdomain.ResolveFinancialEmailEntities, with shared LearnEntityAlias
 and LearnEntityAliasIfNew helpers. The Review Inbox financial-email handler now
 calls them instead of its inline merge, validation, and alias SQL, so the
-already-resolved-entity rules are channel-neutral and ready for the UIR-07
-Telegram surface (which has no financial-email handler today). That closes the
-UIR-01 operation families.
+already-resolved-entity rules became channel-neutral. Historical note: at this
+UIR-01 slice the Telegram surface was still outstanding; UIR-07 later delivered
+that projection and interaction path. That closes the UIR-01 operation families.
 
 The eleventh slice starts UIR-03: a ReviewDecision-driven Telegram renderer
 (apps/worker/internal/telegram/review_render.go). EnqueueReviewRequest now
@@ -170,13 +172,12 @@ document, payslip, bank, or financial-email projection failed the constraint
 (SQLSTATE 23514) and the review never reached Telegram.
 
 
-The remaining channel gaps are subject-parity work: the rest of UIR-03
+Historical status at the UIR-02 merge: remaining channel gaps were UIR-03
 action parity, UIR-04 transaction residual parity, UIR-06
 payslip/source/document parity, and UIR-07 financial-email/Wealth/cycle
-Telegram surfaces. The first UIR-06 slice extracts proposal-backed payslip
-confirmation from the Web handler into `reviewdomain.ResolvePayslipProposal`;
-it does not yet provide Telegram parity or close UIR-06. UIR-08
-through UIR-10 cover synchronization, telemetry, and the regression matrix.
+Telegram surfaces. Those delivery slices subsequently merged. The post-delivery
+UIR Closure Gate now owns the smaller action-level, resolver, Inbox-authority,
+and metric gaps that the type-level UIR-10 gate did not prove closed.
 
 ### UIR-06 — payslip, source, and document parity (complete; PR #181, merged 2026-09-26)
 
@@ -1041,7 +1042,9 @@ Do not call sprint complete until:
 2. the Admin Review surface proves the same rollout metrics without manual
    PostgreSQL inspection.
 
-Both hold on merged `main`:
+Both delivery gates hold on merged `main`. They establish UIR-10 delivery,
+not final product closure; the UIR Closure Gate adds action-level capability and
+truthful completion/metric checks before UIR is frozen:
 
 1. `TestEveryProducedReviewTypeIsTelegramCompletable`
    (`apps/worker/internal/telegram/review_render_contract_test.go`) fails if any
