@@ -170,3 +170,24 @@ func TestFinancialEmailEntityMarkupPagesLargeAccountSets(t *testing.T) {
 		t.Fatalf("ignore action did not map to the ignore dimension: %q", dimension)
 	}
 }
+
+// TestBankFactsReplyParserAndCapability pins the UIR-10 bank-email fix: the
+// UNKNOWN_BANK_TEMPLATE card must be completable from Telegram, and a natural
+// reply ("54000 2026-09-23T13:45:00+07:00", either order) must yield both facts.
+func TestBankFactsReplyParserAndCapability(t *testing.T) {
+	if !TelegramCompletableReviewType("UNKNOWN_BANK_TEMPLATE") {
+		t.Fatal("UNKNOWN_BANK_TEMPLATE must be completable from Telegram")
+	}
+	for _, text := range []string{
+		"54000 2026-09-23T13:45:00+07:00",
+		"2026-09-23T13:45:00+07:00 Rp54.000",
+	} {
+		amount, at := parseBankFactsReply(text)
+		if amount != "54000" || at != "2026-09-23T13:45:00+07:00" {
+			t.Fatalf("parse %q = %q,%q", text, amount, at)
+		}
+	}
+	if amount, at := parseBankFactsReply("lihat nanti ya"); amount != "" || at != "" {
+		t.Fatalf("non-fact reply parsed as %q,%q", amount, at)
+	}
+}

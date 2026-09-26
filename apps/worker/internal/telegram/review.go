@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"regexp"
 	"sort"
 	"strconv"
@@ -169,6 +170,73 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 	return nil
 }
 
+// completeBankFactsReply resolves a UNKNOWN_BANK_TEMPLATE review from Telegram.
+// It parses the amount and timestamp out of the bound reply, validates the
+// account and completes through the shared operation, then re-runs the same
+// deterministic bank policy locally and hands a completed transaction to the
+// shared confirm path. A reply that leaves a required fact missing re-asks for it
+// instead of guessing.
+func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, householdID, reviewID, userID, bankSourceID string, update telegramUpdate) error {
+	amountIDR, transactionAt := parseBankFactsReply(update.Message.Text)
+	if amountIDR == "" || transactionAt == "" {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Balas nominal dan waktu transaksi, contoh: 54000 2026-09-23T13:45:00+07:00.")
+	}
+	at, parseErr := time.Parse(time.RFC3339, transactionAt)
+	if parseErr != nil {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Waktu transaksi wajib format ISO 8601 dengan zona waktu, contoh: 2026-09-23T13:45:00+07:00.")
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := reviewdomain.LinkBankSourceAccountAndComplete(ctx, tx, reviewdomain.BankFactCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: reviewID, SourceEventID: bankSourceID, AmountIDR: amountIDR, TransactionAt: at.Format(time.RFC3339)}); err != nil {
+		if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) || errors.Is(err, reviewdomain.ErrAlreadyResolved) {
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		if errors.Is(err, reviewdomain.ErrBankSourceUnlinked) {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Email bank ini belum terhubung ke rekening. Buka Review Inbox untuk menautkannya.")
+		}
+		if errors.Is(err, reviewdomain.ErrBankFactsRequired) {
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Balas nominal dan waktu transaksi, contoh: 54000 2026-09-23T13:45:00+07:00.")
+		}
+		return err
+	}
+	// Reuse the exact Web completion job rather than duplicating the bank policy
+	// in the Telegram lane. The job re-reads the reviewed extraction, applies the
+	// user's facts, and persists through the one Go policy path.
+	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text))`, bankSourceID, reviewID, amountIDR, at.Format(time.RFC3339)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if err := enqueueReply(ctx, tx, update, "Transaksi bank dicatat."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// parseBankFactsReply extracts "<amount> <rfc3339 timestamp>" from a reply, in
+// either order, so the user can answer naturally.
+func parseBankFactsReply(text string) (string, string) {
+	fields := strings.Fields(text)
+	amount, at := "", ""
+	for _, field := range fields {
+		if _, err := time.Parse(time.RFC3339, field); err == nil {
+			at = field
+			continue
+		}
+		candidate := strings.NewReplacer(".", "", ",", "", "rp", "", "Rp", "", "idr", "", "IDR", "").Replace(field)
+		if candidate != "" && candidate != amount {
+			if _, ok := new(big.Int).SetString(candidate, 10); ok {
+				amount = candidate
+			}
+		}
+	}
+	return amount, at
+}
+
 func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
 	var err error
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
@@ -222,6 +290,18 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return true, err
+	}
+	// A bank email whose bounded verification could not confirm the transaction
+	// semantics is a source-event review with no transaction. Its
+	// COMPLETE_BANK_FACTS reply is handled by the same shared operation the Web
+	// COMPLETE_BANK_REVIEW job uses, so the card is not a dead end.
+	var bankReviewID, bankUserID, bankSourceID string
+	bankErr := p.pool.QueryRow(ctx, `SELECT ri.id::text,ti.user_id::text,s.id::text FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id JOIN review_request r ON r.review_item_id=ri.id JOIN review_request_recipient rr ON rr.review_request_id=r.id AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='UNKNOWN_BANK_TEMPLATE'`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&bankReviewID, &bankUserID, &bankSourceID)
+	if bankErr == nil {
+		return true, p.completeBankFactsReply(ctx, sourceEventID, householdID, bankReviewID, bankUserID, bankSourceID, update)
+	}
+	if !errors.Is(bankErr, pgx.ErrNoRows) {
+		return true, bankErr
 	}
 	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
 	var missingFactsJSON *string
@@ -2173,7 +2253,8 @@ func TelegramCompletableReviewType(reviewType string) bool {
 		"POSSIBLE_DUPLICATE", "CONFLICTING_EVIDENCE",
 		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE",
 		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION",
-		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "FINANCIAL_EMAIL_RESOLUTION":
+		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "FINANCIAL_EMAIL_RESOLUTION",
+		"UNKNOWN_BANK_TEMPLATE":
 		return true
 	default:
 		return false
