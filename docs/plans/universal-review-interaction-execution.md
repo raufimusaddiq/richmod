@@ -277,6 +277,41 @@ delivered as a fresh live card (a pending callback is still answered so the
 client spinner clears). `TestQueuedReviewSendSkipsResolvedProjection` pins the
 open/resolved/expired/empty cases.
 
+### UIR-09 — telemetry + Admin Review Operations (complete; PR open)
+
+Rollout health is measurable and viewable without PostgreSQL. Three read-only
+Super Admin aggregates back the Admin Web Reviews tab:
+
+- `GET /api/v1/admin/reviews/summary` — open reviews, Telegram-eligible open
+  reviews, actionable projections, TARC, Web Escape Rate, delivery
+  attempts/success/failure/retry, stale action attempts, p50/p95 resolution
+  latency, and the TELEGRAM/WEB/SYSTEM completion-surface split.
+- `GET /api/v1/admin/reviews/breakdown` — the same signals per review type.
+- `GET /api/v1/admin/reviews/projections` — paginated projection/delivery rows
+  exposing only safe operational metadata (reference, statuses, delivery state,
+  retry count, timestamps, age, resolution surface). No amount, merchant,
+  counterparty, email body, document content, or prompt text is ever selected.
+
+Stale Telegram callbacks write a household-scoped `STALE_REVIEW_ACTION` audit
+row before the acknowledgment commits. The summary counts these rows in the
+selected range. Household delivery failures are attributed by the job's
+`review_request_id` to the canonical request, not by a missing household
+field on the send payload. Breakdown coverage counts only still-open canonical
+items, matching the summary; projection cursors start after the last returned
+row.
+
+The Web Admin Reviews tab (`/admin?tab=reviews`) renders the headline metrics,
+the per-type table, and the filterable/paginated projections table; the Overview
+shows compact Review health (open reviews, TARC, delivery failures, Web Escape
+Rate) sourced from the same summary endpoint. Projection `updatedAt` uses
+`COALESCE(resolved_at,created_at)` because `review_request` has no `updated_at`.
+Admin household detail (`GET /api/v1/admin/households/{id}/overview`) now also
+returns a `reviewDiagnostics` block (Telegram-eligible members, actionable
+projections, TELEGRAM/WEB/SYSTEM completion split, latest delivery failure
+timestamp and error class) so an operator can diagnose one household's Telegram
+review delivery/actionability without SQL; a query failure omits the block
+rather than failing the overview.
+
 ## Source contracts
 
 Read in order:
