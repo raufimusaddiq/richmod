@@ -64,12 +64,13 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 // mode the renderer can emit must have a case there, or the review silently falls
 // back to the generic Ubah detail/Abaikan keyboard.
 var markupModesHandledAtCreation = map[string]bool{
-	"category":  true,
-	"reply":     true,
-	"duplicate": true,
-	"salary":    true,
-	"transfer":  true,
-	"document":  true,
+	"category":        true,
+	"reply":           true,
+	"duplicate":       true,
+	"salary":          true,
+	"transfer":        true,
+	"document":        true,
+	"financial_email": true,
 }
 
 func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
@@ -139,6 +140,8 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		switch {
 		case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
 			wantMode = "document"
+		case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):
+			wantMode = "financial_email"
 		case isCategoryOnly(decision):
 			wantMode = "category"
 		case contains(decision.MissingFacts, "transfer_relationship"):
@@ -151,5 +154,19 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		if mode != wantMode {
 			t.Fatalf("%s rendered mode %q with a supplied prompt, want %q", reviewType, mode, wantMode)
 		}
+	}
+}
+func TestFinancialEmailEntityMarkupPagesLargeAccountSets(t *testing.T) {
+	if got := financialEmailPage("review:fepage:2"); got != 2 {
+		t.Fatalf("pager parse = %d, want 2", got)
+	}
+	if got := financialEmailPage("review:fe:account:abc"); got != -1 {
+		t.Fatalf("non-pager parsed as %d, want -1", got)
+	}
+	if dimension, id := financialEmailDimension("review:fe:wealth:w1"); dimension != "wealth" || id != "w1" {
+		t.Fatalf("dimension parse = %q %q", dimension, id)
+	}
+	if dimension, _ := financialEmailDimension("review:ignore"); dimension != "ignore" {
+		t.Fatalf("ignore action did not map to the ignore dimension: %q", dimension)
 	}
 }
