@@ -230,6 +230,22 @@ Still no producer in the active path: `SALARY_SOURCE_CONFIRMATION`,
 fallbacks; the exhaustive renderer contract test keeps any future producer from
 reaching Telegram without a completable path.
 
+### UIR-07 — financial-email, Wealth, and cycle parity (complete; PR open)
+
+`WEALTH_OBSERVATION_CONFIRMATION` (UIR-01 slice 9) and
+`CYCLE_RESIDUAL_ALLOCATION` (slice 13) already resolve in Telegram through the
+special and residual lanes. The remaining active family,
+`FINANCIAL_EMAIL_RESOLUTION`, now resolves from Telegram too: the shared
+`reviewdomain.ResolveFinancialEmailEntities` is reached from a household-scoped
+entity chooser (`review:fe:account:` / `review:fe:wealth:`), which offers only
+the dimension the stored decision still names as missing. A partial resolution
+is persisted on the observation columns — the resolver's own source of truth —
+before the card re-asks for the remaining entity, so a two-entity provider email
+finishes in two taps. Completion enqueues the `PROCESS_FINANCIAL_EMAIL` replay,
+matching the Review Inbox. The renderer gained a `financial_email` markup mode
+and the family was added to `TelegramCompletableReviewType` and the tool
+registry, so the card is projected instead of fail-closed.
+
 ## Source contracts
 
 Read in order:

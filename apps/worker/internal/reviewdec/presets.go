@@ -84,6 +84,16 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"CLASSIFY_TRANSFER", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
 		base.WhyNotAuto = "the transfer relationship is ambiguous, so the household must classify it"
+	case "FINANCIAL_EMAIL_RESOLUTION":
+		// The producer writes a decision naming only the still-unresolved entity
+		// (funding_account and/or wealth_account); this preset is the shape used when
+		// no narrower decision is available, so the review still carries the bounded
+		// entity-resolution action rather than a zero decision.
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"funding_account", "wealth_account"}
+		base.AllowedActions = []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
+		base.InteractionMode = ModeBoundedChoice
+		base.WhyNotAuto = "an entity the evidence identifies only in prose must be bound by the household"
 	case "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"category"}
