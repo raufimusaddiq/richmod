@@ -1626,21 +1626,13 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return true, err
 	}
-	var observationID, resolved, institution, hint string
-	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,COALESCE(wo.resolved_wealth_account_id::text,''),wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &resolved, &institution, &hint, &originalSource)
+	var observationID, institution, hint string
+	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &institution, &hint, &originalSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return true, err
-	}
-	_ = institution
-	_ = hint
-	if action == "PREPARE_SNAPSHOT" {
-		if resolved == "" {
-			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih Wealth Account terlebih dahulu sebelum menyiapkan snapshot lengkap.")
-		}
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Buka halaman Wealth untuk menyiapkan snapshot lengkap (opsional); review ini tetap terbuka sampai Wealth Account disimpan atau diabaikan. Nilai dokumen belum mengubah saldo sampai snapshot disimpan.")
 	}
 	if action == "SET_WEALTH_ACCOUNT" {
 		wealthHint, _ := args["wealth_account_hint"].(string)

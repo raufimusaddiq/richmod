@@ -561,8 +561,6 @@ func agentMutationFallback(result agentToolResult) string {
 			return "Observasi Wealth sudah direklasifikasi sebagai pembelian aset."
 		case "WEALTH_OBSERVATION_IGNORED":
 			return "Observasi Wealth sudah diabaikan."
-		case "PREPARE_WEALTH_SNAPSHOT":
-			return "Wealth Account sudah siap; lanjutkan snapshot lengkap di halaman Wealth."
 		case "CYCLE_RESIDUAL_RESOLVED":
 			return "Rekonsiliasi sisa salary cycle sudah diselesaikan."
 		case "CYCLE_RESIDUAL_REFRESHED":

@@ -29,7 +29,10 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 	case "WEALTH_OBSERVATION_CONFIRMATION":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"wealth_snapshot_confirmation"}
-		base.AllowedActions = []string{"PREPARE_SNAPSHOT", "SET_WEALTH_ACCOUNT", "IGNORE"}
+		// PREPARE_SNAPSHOT is voluntary richer-workflow navigation, not a
+		// canonical completion: it must not appear in allowed_actions or the
+		// remaining actions would look unavailable (UIRC-01 D).
+		base.AllowedActions = []string{"SET_WEALTH_ACCOUNT", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
 		base.WhyNotAuto = "a wealth value is an observation; the complete active account set must be confirmed"
 	case "DOCUMENT_EXTRACTION_LOW_CONFIDENCE":

@@ -45,7 +45,7 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 	if got := reviewActionsForType("TRANSFER_RECONCILIATION"); strings.Join(got, ",") != "MERGE_EXISTING,CONFIRM_NEW_TRANSFER,IGNORE" {
 		t.Fatalf("reconciliation actions=%v", got)
 	}
-	if got := reviewActionsForType("WEALTH_OBSERVATION"); strings.Join(got, ",") != "PREPARE_SNAPSHOT,SET_WEALTH_ACCOUNT,RECORD_ASSET_PURCHASE,IGNORE" {
+	if got := reviewActionsForType("WEALTH_OBSERVATION"); strings.Join(got, ",") != "SET_WEALTH_ACCOUNT,RECORD_ASSET_PURCHASE,IGNORE" {
 		t.Fatalf("wealth actions=%v", got)
 	}
 	if got := reviewActionsForType("AMBIGUOUS_CATEGORY"); strings.Join(got, ",") != "CONFIRM,ASSET_PURCHASE,IGNORE" {
