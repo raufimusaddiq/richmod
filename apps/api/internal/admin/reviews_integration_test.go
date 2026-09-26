@@ -113,6 +113,65 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	}
 }
 
+func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustExec := func(_ pgconn.CommandTag, err error) { must(err) }
+	stamp := time.Now().UnixNano()
+	chatID := stamp
+	var adminID, userID, householdID, sourceID, itemID, requestID string
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,is_super_admin) VALUES($1,'Admin','!',true) RETURNING id`, fmt.Sprintf("admin-hh-ops-%d@example.test", stamp)).Scan(&adminID))
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("HH ops %d", stamp)).Scan(&householdID))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','!') RETURNING id`, fmt.Sprintf("owner-hh-ops-%d@example.test", stamp)).Scan(&userID))
+	mustExec(pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID))
+	mustExec(pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("hh-ro-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, sourceID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, itemID, householdID).Scan(&requestID))
+	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,7)`, requestID, chatID))
+
+	handler := NewHandler(pool, false, "responses")
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/households/"+householdID+"/overview", nil)
+	request.SetPathValue("householdId", householdID)
+	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: adminID, IsSuperAdmin: true}))
+	response := httptest.NewRecorder()
+	handler.Require(http.HandlerFunc(handler.HouseholdOverview)).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("household overview status=%d body=%s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{"reviewDiagnostics", "actionableProjections", "latestDeliveryFailureErrorClass"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("household overview missing %q: %s", want, body)
+		}
+	}
+	var parsed struct {
+		ReviewDiagnostics struct {
+			EligibleTelegram      int `json:"eligibleTelegram"`
+			ActionableProjections int `json:"actionableProjections"`
+		} `json:"reviewDiagnostics"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.ReviewDiagnostics.EligibleTelegram < 1 || parsed.ReviewDiagnostics.ActionableProjections < 1 {
+		t.Fatalf("review diagnostics = %+v", parsed.ReviewDiagnostics)
+	}
+}
+
 func TestReviewOpsRequiresSuperAdmin(t *testing.T) {
 	pool, err := pgxpool.New(context.Background(), "postgres://invalid:invalid@127.0.0.1:1/none")
 	if err != nil {

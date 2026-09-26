@@ -921,6 +921,34 @@ function HouseholdDetail({ id, close, setError }) {
               {data.integrations.primarySalaryConfigured ? "Ya" : "Tidak"}
             </dd>
           </dl>
+          {data.reviewDiagnostics && (
+            <>
+              <h3>Diagnostik review</h3>
+              <dl className="admin-definition">
+                <dt>Telegram eligible</dt>
+                <dd>{data.reviewDiagnostics.eligibleTelegram}</dd>
+                <dt>Proyeksi actionable</dt>
+                <dd>{data.reviewDiagnostics.actionableProjections}</dd>
+                <dt>Selesai via Telegram</dt>
+                <dd>{data.reviewDiagnostics.resolvedTelegram}</dd>
+                <dt>Selesai via Web</dt>
+                <dd>{data.reviewDiagnostics.resolvedWeb}</dd>
+                <dt>Selesai via Sistem</dt>
+                <dd>{data.reviewDiagnostics.resolvedSystem}</dd>
+                <dt>Gagal kirim terakhir</dt>
+                <dd>
+                  {data.reviewDiagnostics.latestDeliveryFailureAt
+                    ? time(data.reviewDiagnostics.latestDeliveryFailureAt)
+                    : "—"}
+                </dd>
+                <dt>Kelas galat</dt>
+                <dd>
+                  {data.reviewDiagnostics.latestDeliveryFailureErrorClass ||
+                    "—"}
+                </dd>
+              </dl>
+            </>
+          )}
           <h3>Anggota</h3>
           {data.memberItems?.length ? <Table headers={["Nama", "Email", "Role", "Status"]}>{data.memberItems.map((x) => <tr key={x.id}><td>{x.displayName}</td><td>{x.email}</td><td>{x.role}</td><td><Badge value={x.active ? "ACTIVE" : "INACTIVE"} /></td></tr>)}</Table> : <Empty>Tidak ada anggota.</Empty>}
           <h3>LLM terbaru</h3>

@@ -269,6 +269,12 @@ the per-type table, and the filterable/paginated projections table; the Overview
 shows compact Review health (open reviews, TARC, delivery failures, Web Escape
 Rate) sourced from the same summary endpoint. Projection `updatedAt` uses
 `COALESCE(resolved_at,created_at)` because `review_request` has no `updated_at`.
+Admin household detail (`GET /api/v1/admin/households/{id}/overview`) now also
+returns a `reviewDiagnostics` block (Telegram-eligible members, actionable
+projections, TELEGRAM/WEB/SYSTEM completion split, latest delivery failure
+timestamp and error class) so an operator can diagnose one household's Telegram
+review delivery/actionability without SQL; a query failure omits the block
+rather than failing the overview.
 
 ## Source contracts
 
