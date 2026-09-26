@@ -424,6 +424,89 @@ func reviewRequiresFact(raw *string, fact string) bool {
 
 // processReviewDetailCallback is the deterministic callback lane for review
 // editing. These callbacks never enter the conversational LLM pipeline.
+// processFinancialEmailCallback resolves a FINANCIAL_EMAIL_RESOLUTION review
+// from the entity chooser. Each button names one dimension (funding account or
+// wealth account) and one household-scoped id, so it delegates straight to the
+// shared resolver and then enqueues the provider-email replay, exactly as the
+// Review Inbox does. Bounded buttons never enter the conversational pipeline.
+func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) (bool, error) {
+	dimension, entityID := "", ""
+	if strings.HasPrefix(data, "review:fe:account:") {
+		dimension, entityID = "account", strings.TrimPrefix(data, "review:fe:account:")
+	} else if strings.HasPrefix(data, "review:fe:wealth:") {
+		dimension, entityID = "wealth", strings.TrimPrefix(data, "review:fe:wealth:")
+	} else {
+		return false, nil
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
+	var itemID, observationID, source, userID string
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text,fo.source_event_id::text,ti.user_id::text
+		FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id
+		JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_RESOLUTION'`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID, &observationID, &source, &userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	cmd := reviewdomain.FinancialEmailCommand{HouseholdID: householdID, ObservationID: observationID, ActorUserID: userID}
+	if dimension == "account" {
+		cmd.AccountID = entityID
+	} else {
+		cmd.WealthAccountID = entityID
+	}
+	result, err := reviewdomain.ResolveFinancialEmailEntities(ctx, tx, cmd)
+	if err != nil {
+		// A still-unresolved second dimension keeps the review open. The observation
+		// columns are the single source of truth for a partial resolution, so the
+		// dimension chosen now is persisted before we ask for the remaining one; the
+		// resolver reads those columns on the next turn.
+		if errors.Is(err, reviewdomain.ErrFundingAccountRequired) || errors.Is(err, reviewdomain.ErrProviderAccountRequired) {
+			if dimension == "account" {
+				if _, uerr := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=$2::uuid,updated_at=now() WHERE id=$1`, observationID, entityID); uerr != nil {
+					return true, uerr
+				}
+			} else {
+				if _, uerr := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_wealth_account_id=$2::uuid,updated_at=now() WHERE id=$1`, observationID, entityID); uerr != nil {
+					return true, uerr
+				}
+			}
+			if cerr := tx.Commit(ctx); cerr != nil {
+				return true, cerr
+			}
+			return true, p.askFinancialEmailEntity(ctx, sourceEventID, itemID, householdID, update)
+		}
+		if errors.Is(err, reviewdomain.ErrAccountInvalid) {
+			return true, p.askFinancialEmailEntity(ctx, sourceEventID, itemID, householdID, update)
+		}
+		if errors.Is(err, reviewdomain.ErrFinancialObservationUnavailable) {
+			return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, itemID, userID, string(result.Values)); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, itemID); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='RECEIVED' WHERE id=$1 AND household_id=$2`, source, householdID); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('PROCESS_FINANCIAL_EMAIL',jsonb_build_object('source_event_id',$1::uuid,'financial_source_id',(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)),5)`, source); err != nil {
+		return true, err
+	}
+	if err = enqueueReply(ctx, tx, update, "Rekening bukti email disimpan."); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
+}
+
 // processDocumentReviewCallback resolves a document-bound review (classification
 // or extraction failure) from its Telegram card. The buttons carry bounded
 // intents, so it never enters the conversational pipeline: it binds the card by
@@ -1898,6 +1981,8 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		markup = salaryPolicyMarkup(decision.AllowedActions)
 	case "document":
 		markup = documentReviewMarkup()
+	case "financial_email":
+		markup = financialEmailEntityMarkup(ctx, tx, reviewID, decision)
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -2010,7 +2095,7 @@ func TelegramCompletableReviewType(reviewType string) bool {
 		"POSSIBLE_DUPLICATE", "CONFLICTING_EVIDENCE",
 		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE",
 		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION",
-		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE":
+		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "FINANCIAL_EMAIL_RESOLUTION":
 		return true
 	default:
 		return false
@@ -2025,6 +2110,101 @@ func documentReviewMarkup() *InlineKeyboardMarkup {
 		{{Text: "Proses ulang", CallbackData: "review:reprocess"}},
 		{{Text: "Abaikan", CallbackData: "review:ignore"}},
 	}}
+}
+
+// financialEmailEntityMarkup offers the still-unresolved entity dimensions as
+// paged choosers over the household's own accounts and wealth accounts. Only the
+// dimension the decision names as missing is offered, so a review that already
+// knows the funding account asks for the wealth account alone. Callback data is
+// prefixed with the dimension so the resolver sets the right field.
+// askFinancialEmailEntity keeps an unfinished entity review open and re-emits the
+// chooser for the dimension(s) still missing, so a two-dimension resolution can
+// finish in two taps without leaving Telegram.
+func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, itemID, householdID string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var decisionJSON []byte
+	var requestID string
+	if err := tx.QueryRow(ctx, `SELECT decision FROM review_item WHERE id=$1 FOR UPDATE`, itemID).Scan(&decisionJSON); err != nil {
+		return err
+	}
+	if err := tx.QueryRow(ctx, `SELECT id FROM review_request WHERE review_item_id=$1 AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at LIMIT 1`, itemID).Scan(&requestID); err != nil {
+		return err
+	}
+	var decision reviewdec.Decision
+	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
+		return err
+	}
+	// A dimension resolved on an earlier turn must not be offered again: rebuild
+	// the missing set from the observation's persisted columns.
+	var resolvedAccount, resolvedWealth string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(fo.resolved_account_id::text,''),COALESCE(fo.resolved_wealth_account_id::text,'') FROM review_item ri JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id WHERE ri.id=$1`, itemID).Scan(&resolvedAccount, &resolvedWealth); err != nil {
+		return err
+	}
+	remaining := decision.MissingFacts[:0:0]
+	for _, fact := range decision.MissingFacts {
+		if (fact == "funding_account" && resolvedAccount != "") || (fact == "wealth_account" && resolvedWealth != "") {
+			continue
+		}
+		remaining = append(remaining, fact)
+	}
+	decision.MissingFacts = remaining
+	markup := financialEmailEntityMarkup(ctx, tx, requestID, decision)
+	if markup == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if err := enqueueReplyMarkup(ctx, tx, update, "Masih ada rekening yang perlu dipilih.", markup); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func financialEmailEntityMarkup(ctx context.Context, tx pgx.Tx, reviewID string, decision reviewdec.Decision) *InlineKeyboardMarkup {
+	hasAccount := contains(decision.MissingFacts, "funding_account")
+	hasWealth := contains(decision.MissingFacts, "wealth_account")
+	// A legacy decision with neither dimension named means both are open.
+	if !hasAccount && !hasWealth {
+		hasAccount, hasWealth = true, true
+	}
+	var householdID string
+	if tx.QueryRow(ctx, `SELECT household_id FROM review_request WHERE id=$1`, reviewID).Scan(&householdID) != nil {
+		return nil
+	}
+	var buttons [][]InlineKeyboardButton
+	if hasAccount {
+		rows, err := tx.Query(ctx, `SELECT id,name FROM account WHERE household_id=$1 AND active ORDER BY name,id LIMIT 9`, householdID)
+		if err != nil {
+			return nil
+		}
+		for rows.Next() {
+			var id, name string
+			if rows.Scan(&id, &name) == nil {
+				buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:fe:account:" + id}})
+			}
+		}
+		rows.Close()
+	}
+	if hasWealth {
+		rows, err := tx.Query(ctx, `SELECT id,name FROM wealth_account WHERE household_id=$1 AND active ORDER BY name,id LIMIT 18`, householdID)
+		if err != nil {
+			return nil
+		}
+		for rows.Next() {
+			var id, name string
+			if rows.Scan(&id, &name) == nil {
+				buttons = append(buttons, []InlineKeyboardButton{{Text: clean(name, 28), CallbackData: "review:fe:wealth:" + id}})
+			}
+		}
+		rows.Close()
+	}
+	buttons = append(buttons, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})
+	return &InlineKeyboardMarkup{InlineKeyboard: buttons}
 }
 
 func requiredFieldReplyMarkup() *InlineKeyboardMarkup {

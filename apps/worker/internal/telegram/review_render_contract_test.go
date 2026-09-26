@@ -64,12 +64,13 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 // mode the renderer can emit must have a case there, or the review silently falls
 // back to the generic Ubah detail/Abaikan keyboard.
 var markupModesHandledAtCreation = map[string]bool{
-	"category":  true,
-	"reply":     true,
-	"duplicate": true,
-	"salary":    true,
-	"transfer":  true,
-	"document":  true,
+	"category":        true,
+	"reply":           true,
+	"duplicate":       true,
+	"salary":          true,
+	"transfer":        true,
+	"document":        true,
+	"financial_email": true,
 }
 
 func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
@@ -139,6 +140,8 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 		switch {
 		case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
 			wantMode = "document"
+		case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):
+			wantMode = "financial_email"
 		case isCategoryOnly(decision):
 			wantMode = "category"
 		case contains(decision.MissingFacts, "transfer_relationship"):

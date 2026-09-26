@@ -31,6 +31,11 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// A document review's only bounded action is to retry the shared document
 		// pipeline; the summary is the document's own extraction context.
 		return "AWAITING_DETAIL", context, "document"
+	case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):
+		// A financial provider email resolved every entity except one or two, so the
+		// card is a bounded chooser over the household's own accounts; the summary
+		// names the provider hint that still needs binding.
+		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, "Pilih rekening untuk bukti email ini."), "financial_email"
 	case isCategoryOnly(decision):
 		// Category is the single unresolved fact and it has bounded values, so the
 		// chooser is the whole interaction; merchant enrichment is optional.
@@ -98,6 +103,8 @@ func promptTitle(decision reviewdec.Decision) string {
 			return "🟡 Perlu detail transaksi"
 		case "duplicate_relationship":
 			return "🟡 Transaksi ini mungkin duplikat"
+		case "funding_account", "wealth_account":
+			return "🟡 Rekening bukti email belum pasti"
 		}
 	}
 	return unknownReviewPrompt
