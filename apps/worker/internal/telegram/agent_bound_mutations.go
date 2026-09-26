@@ -35,7 +35,7 @@ func (p *Processor) agentResolveBoundReview(ctx context.Context, state *agentSta
 		return p.agentResolveBoundTransactionReview(ctx, state, call, args, state.ReviewBinding)
 	case "TRANSFER_RECONCILIATION":
 		return p.agentResolveBoundTransferReconciliation(ctx, state, call, args, state.ReviewBinding)
-	case "WEALTH_OBSERVATION":
+		case "WEALTH_OBSERVATION":
 		return p.agentResolveBoundWealthObservation(ctx, state, call, args, state.ReviewBinding)
 	case "CYCLE_RESIDUAL":
 		bound := *state
@@ -220,34 +220,6 @@ func (p *Processor) agentResolveBoundWealthObservation(ctx context.Context, stat
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	action, _ := args["action"].(string)
 	switch action {
-	case "PREPARE_SNAPSHOT":
-		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-		if err != nil {
-			return result, true, err
-		}
-		defer tx.Rollback(ctx)
-		resolved, _, _, _, valid, err := p.loadBoundWealthObservationTx(ctx, tx, state, binding)
-		if err != nil {
-			return result, true, err
-		}
-		if !valid {
-			result.Status = "STALE_REVIEW_BINDING"
-			return result, true, nil
-		}
-		if resolved == "" {
-			result.Status = "MISSING_WEALTH_ACCOUNT"
-			result.Review = map[string]any{"required": true, "review_type": "WEALTH_OBSERVATION", "missing_fields": []string{"wealth_account_hint"}}
-			return result, true, nil
-		}
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
-			return result, true, err
-		}
-		if err = tx.Commit(ctx); err != nil {
-			return result, true, err
-		}
-		result.Status = "ACTION_REQUIRED"
-		result.Mutation = map[string]any{"action": "PREPARE_WEALTH_SNAPSHOT", "requires_web": true}
-		return result, true, nil
 	case "SET_WEALTH_ACCOUNT":
 		wealthHint, _ := args["wealth_account_hint"].(string)
 		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})

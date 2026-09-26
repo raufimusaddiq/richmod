@@ -248,13 +248,13 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	if blocked := residualConfirmationBlockers(storedDecision, payDate != nil, categoryID != "", value.Note != ""); len(blocked) > 0 {
 		return errReviewResidualFactsRequired{facts: blocked}
 	}
-	var transactionAt any
+	var transactionAt *time.Time
 	if payDate != nil {
 		at, err := time.ParseInLocation("2006-01-02", *payDate, jakartaLocation())
 		if err != nil {
 			return err
 		}
-		transactionAt = at
+		transactionAt = &at
 	}
 	// ADR-046: the conversational lane calls the same canonical confirm as the
 	// generic reply lane. Confirm owns the transaction/proposal mutation and
@@ -366,7 +366,16 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		CategoryID: categoryID, WealthAccountID: wealthID,
 	})
 	if err != nil {
-		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) || errors.Is(err, reviewdomain.ErrWealthAccountRequired) {
+		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
+			_ = tx.Rollback(ctx)
+			if err := p.offerInvestmentChooser(ctx, state.SourceEventID, state.HouseholdID, review.reviewID, review.transactionID, state.Update); err != nil {
+				return result, true, err
+			}
+			result.Status = "WEALTH_ACCOUNT_SELECTION_REQUIRED"
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType}
+			return result, true, nil
+		}
+		if errors.Is(err, reviewdomain.ErrWealthAccountRequired) {
 			result.Status = "WEALTH_ACCOUNT_AMBIGUOUS"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType}
 			return result, true, nil
@@ -526,7 +535,7 @@ func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState,
 			return true, result, err
 		}
 		result.Status = "ACTION_REQUIRED"
-		result.Mutation = map[string]any{"action": "ADD_MISSING_TRANSACTION_IN_WEB", "requires_web": true}
+		result.Mutation = map[string]any{"action": "ADD_MISSING_TRANSACTION_IN_TELEGRAM"}
 		return true, result, nil
 	}
 	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {

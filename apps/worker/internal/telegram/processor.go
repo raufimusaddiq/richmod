@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
@@ -204,6 +205,13 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			MessageID int64 `json:"message_id"`
 		}{MessageID: update.CallbackQuery.Message.MessageID}
 		update.Message.Text = callbackText(update.CallbackQuery.Data)
+	}
+	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
+			return err
+		}
+	}
+	if update.CallbackQuery != nil {
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
 			return p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
@@ -219,6 +227,12 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
+		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:bank:") {
+			return p.processBankAccountCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
+		}
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:invest:") {
+			return p.processInvestmentCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
 			if handled, err := p.processPayslipPolicyCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
@@ -1220,6 +1234,11 @@ func (p *Processor) persistTransaction(ctx context.Context, sourceEventID, house
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','CREATE_FROM_TELEGRAM','transaction',$2,jsonb_build_object('status',$3::text,'proposal_id',$4::uuid))`, householdID, transactionID, transactionStatus, proposalID); err != nil {
 		return err
+	}
+	if autoConfirm {
+		if err := reviewdomain.RefreshOpenCycleResiduals(ctx, tx, householdID, value.TransactionAt, userID); err != nil {
+			return err
+		}
 	}
 	if autoConfirm {
 		message := value.ResponseMessage

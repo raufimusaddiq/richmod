@@ -64,11 +64,12 @@ func applyCategoryAutoConfirmSwitch(result PolicyResult, enabled bool) PolicyRes
 }
 
 type Payload struct {
-	SourceEventID string  `json:"source_event_id"`
-	Shadow        bool    `json:"shadow"`
-	ReviewID      string  `json:"review_id,omitempty"`
-	AmountIDR     *string `json:"amount_idr,omitempty"`
-	TransactionAt *string `json:"transaction_at,omitempty"`
+	SourceEventID  string  `json:"source_event_id"`
+	Shadow         bool    `json:"shadow"`
+	ReviewID       string  `json:"review_id,omitempty"`
+	AmountIDR      *string `json:"amount_idr,omitempty"`
+	TransactionAt  *string `json:"transaction_at,omitempty"`
+	TelegramChatID int64   `json:"telegram_chat_id,omitempty"`
 }
 
 // Complete resumes a source-bound review with only the facts a person entered.
@@ -140,6 +141,23 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	defer tx.Rollback(ctx)
 	if _, err = tx.Exec(ctx, `UPDATE bank_email_extraction SET output_json=$2::jsonb,validation_status='VALID',policy_result=$3 WHERE source_event_id=$1`, payload.SourceEventID, mustJSON(extraction), result.Status); err != nil {
 		return err
+	}
+	// The Telegram lane answered "accepted for processing" when it queued this
+	// job. Emit the terminal wording here, only now that the canonical mutation
+	// actually committed, through the same review_request lane that delivered the
+	// card. The claim is idempotent because the item status update below matches
+	// once.
+	if payload.TelegramChatID != 0 {
+		message := "Email bank diproses tanpa mencatat transaksi."
+		switch result.Status {
+		case "CONFIRMED":
+			message = "Transaksi bank dicatat."
+		case "NEEDS_REVIEW":
+			message = "Fakta bank tersimpan. Transaksi masih perlu ditinjau melalui kartu review baru."
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$2::bigint,'text',$3::text) WHERE EXISTS(SELECT 1 FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.review_item_id=$1 AND rr.telegram_chat_id=$2) AND EXISTS(SELECT 1 FROM review_item WHERE id=$1 AND status IN ('OPEN','PENDING_SEND'))`, payload.ReviewID, payload.TelegramChatID, message); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr',$2::text,'transaction_at',$3::timestamptz),updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID, value(extraction.AmountIDR), extraction.TransactionAt); err != nil {
 		return err

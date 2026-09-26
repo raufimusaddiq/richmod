@@ -73,17 +73,29 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	proposalStatus, sourceStatus := "ACCEPTED", "PROCESSED"
 	var wealthAccountID, categoryID *string
 	if cmd.Classification == "INVESTMENT_ACCOUNT" {
-		hint := strings.TrimSpace(cmd.WealthAccountID)
-		if counterparty != nil && strings.TrimSpace(*counterparty) != "" && hint == "" {
-			hint = strings.TrimSpace(*counterparty)
-		}
-		var count int
 		var linked string
-		if err = tx.QueryRow(ctx, "SELECT count(DISTINCT ka.wealth_account_id),COALESCE(min(ka.wealth_account_id::text),'') FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower($2) LIKE '%'||lower(ka.match_hint)", cmd.HouseholdID, hint).Scan(&count, &linked); err != nil {
-			return result, err
-		}
-		if count != 1 {
-			return result, ErrInvestmentAccountAmbiguous
+		if cmd.WealthAccountID != "" {
+			// An explicit chooser selection bypasses ambiguous hint matching, but
+			// only if the account remains active, compatible, and in this household.
+			err = tx.QueryRow(ctx, "SELECT id::text FROM wealth_account WHERE id::text=$1 AND household_id=$2 AND transfer_wealth_compatible('INVESTMENT_CONTRIBUTION',id,$2::uuid)", cmd.WealthAccountID, cmd.HouseholdID).Scan(&linked)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return result, ErrWealthAccountIncompatible
+			}
+			if err != nil {
+				return result, err
+			}
+		} else {
+			hint := ""
+			if counterparty != nil {
+				hint = strings.TrimSpace(*counterparty)
+			}
+			var count int
+			if err = tx.QueryRow(ctx, "SELECT count(DISTINCT ka.wealth_account_id),COALESCE(min(ka.wealth_account_id::text),'') FROM known_account ka JOIN wealth_account wa ON wa.id=ka.wealth_account_id AND wa.household_id=ka.household_id AND wa.active AND wa.side='ASSET' AND wa.usage_role='INVESTMENT' WHERE ka.household_id=$1 AND ka.active AND ka.relationship='INVESTMENT_ACCOUNT' AND ka.wealth_account_id IS NOT NULL AND lower($2) LIKE '%'||lower(ka.match_hint)", cmd.HouseholdID, hint).Scan(&count, &linked); err != nil {
+				return result, err
+			}
+			if count != 1 {
+				return result, ErrInvestmentAccountAmbiguous
+			}
 		}
 		wealthAccountID = &linked
 		result.Purpose = "INVESTMENT_CONTRIBUTION"

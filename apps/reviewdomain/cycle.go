@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -116,6 +117,18 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, cmd.CaseID, income, expense, savings, residual); err != nil {
 			return result, err
 		}
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{knownFacts,residual_idr}',to_jsonb($2::text),true),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, residual); err != nil {
+			return result, err
+		}
+		// Edit bound cards in the same commit. The sender falls back to a new
+		// message if Telegram can no longer edit the original card.
+		if _, err := tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) SELECT 'EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',rr.telegram_chat_id,'message_id',rr.telegram_message_id,'text','Sisa salary cycle diperbarui: Rp'||$2::text||'. Balas kartu ini untuk mengalokasikan sisa saldo atau mencatat transaksi yang belum masuk.','reply_markup',COALESCE((SELECT j.payload_json->'reply_markup' FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=r.id::text ORDER BY j.id DESC LIMIT 1),'{"inline_keyboard":[]}'::jsonb)) FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN telegram_identity ti ON ti.telegram_user_id=rr.telegram_chat_id AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.review_item_id=$1 AND r.household_id=$3 AND r.status='OPEN' AND rr.telegram_message_id IS NOT NULL`, cmd.ReviewItemID, residual, cmd.HouseholdID); err != nil {
+			return result, err
+		}
+		result.Outcome = CycleStaleRefreshed
+		return result, nil
+	}
+	if cmd.Action == "TRANSACTION_MISSING" {
 		result.Outcome = CycleStaleRefreshed
 		return result, nil
 	}
@@ -147,6 +160,36 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	}
 	result.Outcome = CycleResolved
 	return result, nil
+}
+
+// RefreshOpenCycleResiduals re-evaluates only open cycle reviews affected by a
+// newly confirmed transaction. Run inside the transaction's commit boundary.
+func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {
+	rows, err := tx.Query(ctx, `SELECT c.id::text,ri.id::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id WHERE c.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta') ORDER BY c.id`, householdID, at)
+	if err != nil {
+		return err
+	}
+	type target struct{ caseID, itemID string }
+	var targets []target
+	for rows.Next() {
+		var v target
+		if err := rows.Scan(&v.caseID, &v.itemID); err != nil {
+			rows.Close()
+			return err
+		}
+		targets = append(targets, v)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, v := range targets {
+		if _, err := ApplyCycleResidual(ctx, tx, CycleResidualCommand{HouseholdID: householdID, CaseID: v.caseID, ReviewItemID: v.itemID, ActorUserID: actorID, Action: "TRANSACTION_MISSING"}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // resolveCycleRequest completes the exact Telegram projection (or every open

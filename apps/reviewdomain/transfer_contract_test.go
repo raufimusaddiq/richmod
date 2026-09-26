@@ -11,7 +11,7 @@ import (
 func TestTransferIsSharedAcrossSurfaces(t *testing.T) {
 	cases := []struct{ path, start, end string }{
 		{"../api/internal/review/handler.go", "func (h *Handler) ClassifyTransfer(", "\nfunc "},
-		{"../worker/internal/telegram/review.go", "func (p *Processor) resolveTransferReview(", "\nfunc "},
+		{"../worker/internal/telegram/review.go", "func (p *Processor) resolveTransferReviewTx(", "\nfunc "},
 		{"../worker/internal/telegram/agent_review_mutations.go", "func (p *Processor) agentResolveTransferClassification(", "\nfunc "},
 	}
 	for _, c := range cases {

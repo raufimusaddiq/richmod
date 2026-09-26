@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -169,6 +170,11 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_TELEGRAM','transaction',$2,jsonb_build_object('status',$3::text,'proposal_id',$4::uuid,'agent_sprint',1))`, state.HouseholdID, transactionID, transactionStatus, proposalID); err != nil {
 		return result, true, err
+	}
+	if autoConfirm {
+		if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, state.HouseholdID, value.TransactionAt, userID); err != nil {
+			return result, true, err
+		}
 	}
 	if !autoConfirm {
 		reviewType := "AMBIGUOUS_CATEGORY"
