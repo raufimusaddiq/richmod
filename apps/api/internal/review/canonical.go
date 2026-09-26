@@ -238,8 +238,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		// household validation, the alias learning, and the canonical payload all
 		// live in the shared operation. Web keeps its HTTP mapping, its review
 		// completion, and the replay enqueue.
-		result, err := reviewdomain.ResolveFinancialEmailEntities(r.Context(), tx, reviewdomain.FinancialEmailCommand{
-			HouseholdID: household, ObservationID: *financialObservation,
+		result, err := reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{
+			HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"),
 			AccountID: values.AccountID, WealthAccountID: values.WealthAccountID,
 			ActorUserID: p.UserID,
 		})
@@ -247,36 +247,28 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, financialEmailStatus(err), map[string]string{"error": financialEmailMessage(err)})
 			return
 		}
-		if _, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='SET_FINANCIAL_EMAIL_ENTITIES',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, string(result.Values)); err == nil {
-			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id"))
-		}
-		if err == nil {
-			_, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status='RECEIVED' WHERE id=$1 AND household_id=$2`, *source, household)
-		}
-		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO job(type,payload_json,max_attempts) VALUES('PROCESS_FINANCIAL_EMAIL',jsonb_build_object('source_event_id',$1::uuid,'financial_source_id',(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)),5)`, *source)
-		}
-		if err == nil {
-			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_FINANCIAL_EMAIL_ENTITIES", result.ObservationID, map[string]any{"accountId": result.AccountID, "wealthAccountId": result.WealthAccountID})
-		}
+		err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_FINANCIAL_EMAIL_ENTITIES", result.ObservationID, map[string]any{"accountId": result.AccountID, "wealthAccountId": result.WealthAccountID})
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to resolve financial email entities"})
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		if result.Complete {
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			w.WriteHeader(http.StatusAccepted)
+		}
 		return
 	}
 	if kind == "TRANSFER_CLASSIFICATION" && source != nil && (in.Action == "MERGE_EXISTING" || in.Action == "CONFIRM_NEW_TRANSFER") {
-		if err = h.resolveTransferReconciliation(r, tx, p.UserID, household, r.PathValue("id"), *source, financialObservation, in.Action, in.Values); err != nil {
+		var values struct {
+			TransactionID string `json:"transactionId"`
+		}
+		if json.Unmarshal(in.Values, &values) != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid transfer candidate"})
+			return
+		}
+		if _, err = reviewdomain.ReconcileTransfer(r.Context(), tx, reviewdomain.TransferReconciliationCommand{HouseholdID: household, ActorUserID: p.UserID, ReviewItemID: r.PathValue("id"), Action: in.Action, CandidateID: values.TransactionID}); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid or unavailable transfer reconciliation"})
-			return
-		}
-		if _, err = tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1`, r.PathValue("id"), p.UserID, in.Action, string(in.Values)); err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to finalize transfer reconciliation"})
-			return
-		}
-		if _, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, r.PathValue("id")); err != nil {
-			writeJSON(w, 500, map[string]string{"error": "unable to finalize transfer reconciliation"})
 			return
 		}
 		if err = audit(r.Context(), tx, household, p.UserID, "RECONCILE_TELEGRAM_TRANSFER", *source, map[string]any{"action": in.Action}); err != nil || tx.Commit(r.Context()) != nil {
@@ -412,6 +404,30 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if in.Action == "IGNORE" && kind == "TRANSFER_CLASSIFICATION" && source != nil {
+		_, err = reviewdomain.ReconcileTransfer(r.Context(), tx, reviewdomain.TransferReconciliationCommand{HouseholdID: household, ActorUserID: p.UserID, ReviewItemID: r.PathValue("id"), Action: "IGNORE"})
+		if err == nil {
+			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": "IGNORE"})
+		}
+		if err != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid or unavailable transfer reconciliation"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if in.Action == "IGNORE" && kind == "FINANCIAL_EMAIL_RESOLUTION" && financialObservation != nil {
+		_, err = reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"), ActorUserID: p.UserID, Ignore: true})
+		if err == nil {
+			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": "IGNORE"})
+		}
+		if err != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 409, map[string]string{"error": "financial observation is unavailable"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if in.Action == "IGNORE" && (kind == "PAYSLIP_CONFIRMATION" || kind == "MISSING_PAY_DATE") {
 		_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, "IGNORE", "", nil)
 		payslipResolved = err == nil
@@ -436,9 +452,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == nil && document != nil {
 			_, err = tx.Exec(r.Context(), `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, *document)
-		}
-		if err == nil && source != nil {
-			_, err = tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='DISMISSED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE status='OPEN' AND (($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$1))`, *source, p.UserID, financialObservation)
 		}
 	} else if kind == "PAYSLIP_CONFIRMATION" && (in.Action == "PRIMARY_SALARY" || in.Action == "ORDINARY_INCOME") {
 		_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, in.Action, in.Action, nil)
@@ -505,65 +518,6 @@ func normalizeEntityAlias(value string) string {
 // learnEntityAlias and learnEntityAliasIfNew now live in reviewdomain; the
 // Review Inbox financial-email resolution calls them there. No local duplicate
 // is kept, so an alias-learning change cannot drift from the shared operation.
-
-func (h *Handler) resolveTransferReconciliation(r *http.Request, tx pgx.Tx, user, household, reviewID, sourceID string, financialObservation *string, action string, raw json.RawMessage) error {
-	var accountID, amount, description, purpose, wealthID string
-	var at time.Time
-	var candidates []string
-	if err := tx.QueryRow(r.Context(), `SELECT account_id::text,amount_idr::text,COALESCE(description,''),proposed_purpose,COALESCE(proposed_wealth_account_id::text,''),transaction_at,candidate_transaction_ids FROM transfer_reconciliation_case WHERE household_id=$1 AND status='OPEN' AND (($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$2)) FOR UPDATE`, household, sourceID, financialObservation).Scan(&accountID, &amount, &description, &purpose, &wealthID, &at, &candidates); err != nil {
-		return errInvalid
-	}
-	if financialObservation != nil && len(candidates) > 10 {
-		return errInvalid
-	}
-	var compatible bool
-	if err := tx.QueryRow(r.Context(), `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, household).Scan(&compatible); err != nil || !compatible {
-		return errInvalid
-	}
-	var transactionID string
-	var sourceType string
-	if err := tx.QueryRow(r.Context(), `SELECT source_type FROM source_event WHERE id=$1 AND household_id=$2`, sourceID, household).Scan(&sourceType); err != nil {
-		return errInvalid
-	}
-	if action == "MERGE_EXISTING" {
-		var values struct {
-			TransactionID string `json:"transactionId"`
-		}
-		if json.Unmarshal(raw, &values) != nil || values.TransactionID == "" {
-			return errInvalid
-		}
-		var targetAccount, targetType, targetStatus, targetAmount string
-		if err := tx.QueryRow(r.Context(), `SELECT account_id::text,type,status,amount::text FROM transaction WHERE id=$1 AND household_id=$2 AND id=ANY($3::uuid[]) FOR UPDATE`, values.TransactionID, household, candidates).Scan(&targetAccount, &targetType, &targetStatus, &targetAmount); err != nil || targetAccount != accountID || targetAmount != amount || (targetType != "TRANSFER" && targetType != "UNCLASSIFIED") || targetStatus == "VOIDED" {
-			return errInvalid
-		}
-		if _, err := tx.Exec(r.Context(), `UPDATE transaction SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),confirmed_at=COALESCE(confirmed_at,now()),updated_at=now() WHERE id=$1`, values.TransactionID, purpose, wealthID, description); err != nil {
-			return err
-		}
-		transactionID = values.TransactionID
-		if targetType == "UNCLASSIFIED" || targetStatus == "NEEDS_REVIEW" {
-			if err := reviewdomain.FinalizeTransferReviewLifecycle(r.Context(), tx, household, user, transactionID, "TRANSFER", "ACCEPTED", "PROCESSED", nil, "TRANSFER_RECONCILED", "TRANSFER_RECONCILED"); err != nil {
-				return err
-			}
-		}
-	} else {
-		if err := tx.QueryRow(r.Context(), `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,NULLIF($5,''),$6,$7,NULLIF($8,'')::uuid,now()) RETURNING id`, household, accountID, amount, at, description, user, purpose, wealthID).Scan(&transactionID); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING`, transactionID, sourceID, sourceType); err != nil {
-		return err
-	}
-	if financialObservation != nil {
-		if _, err := tx.Exec(r.Context(), `UPDATE financial_email_observation SET transaction_id=$2,status='APPLIED',updated_at=now() WHERE id=$1 AND household_id=$3`, *financialObservation, transactionID, household); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status=CASE WHEN source_type='FINANCIAL_EMAIL' AND EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END,parser_name=CASE WHEN source_type='FINANCIAL_EMAIL' THEN 'financial-email-reconciliation' ELSE 'telegram-transfer' END,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, household); err != nil {
-		return err
-	}
-	_, err := tx.Exec(r.Context(), `UPDATE transfer_reconciliation_case SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE ($3::uuid IS NOT NULL AND financial_email_observation_id=$3::uuid) OR ($3::uuid IS NULL AND source_event_id=$1)`, sourceID, user, financialObservation)
-	return err
-}
 
 var errInvalid = &reviewResolutionError{}
 

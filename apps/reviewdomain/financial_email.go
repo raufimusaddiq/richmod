@@ -24,6 +24,9 @@ import (
 type FinancialEmailCommand struct {
 	HouseholdID   string
 	ObservationID string
+	ReviewItemID  string
+	Ignore        bool
+	AllowPartial  bool
 	// ObservationScope is the household-scoped observation update; it is not
 	// optional because a resolution without a bound observation is refused.
 	AccountID       string
@@ -39,6 +42,7 @@ type FinancialEmailCommand struct {
 // FinancialEmailResult reports the resolved entity binding so each surface can
 // record its own audit and response shape.
 type FinancialEmailResult struct {
+	Complete bool
 	// ObservationID is the canonical observation the resolution applied to.
 	ObservationID   string
 	AccountID       string
@@ -83,10 +87,10 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	// entity that is still unresolved must be supplied: a partial resolution that
 	// leaves one blank would write a half-bound observation.
 	accountID, wealthAccountID := strings.TrimSpace(cmd.AccountID), strings.TrimSpace(cmd.WealthAccountID)
-	if knownAccount == "" && accountID == "" {
+	if knownAccount == "" && accountID == "" && !cmd.AllowPartial {
 		return result, ErrFundingAccountRequired
 	}
-	if knownWealth == "" && wealthAccountID == "" {
+	if knownWealth == "" && wealthAccountID == "" && !cmd.AllowPartial {
 		return result, ErrProviderAccountRequired
 	}
 	if accountID == "" {
@@ -94,6 +98,9 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	}
 	if wealthAccountID == "" {
 		wealthAccountID = knownWealth
+	}
+	if cmd.AllowPartial && cmd.AccountID == "" && cmd.WealthAccountID == "" {
+		return result, ErrFundingAccountRequired
 	}
 	if accountID != "" {
 		if err := ValidateFinancialFundingAccount(ctx, tx, cmd.HouseholdID, accountID); err != nil {
@@ -111,7 +118,8 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	if cmd.WealthAccountID != "" {
 		result.HumanSupplied = append(result.HumanSupplied, "wealth_account")
 	}
-	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status='PENDING',updated_at=now() WHERE id=$1`, observationID, accountID, wealthAccountID); err != nil {
+	result.Complete = accountID != "" && wealthAccountID != ""
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status=CASE WHEN $4::boolean THEN 'PENDING' ELSE 'REVIEW' END,updated_at=now() WHERE id=$1`, observationID, accountID, wealthAccountID, result.Complete); err != nil {
 		return result, err
 	}
 	// An entity that was already known keeps its existing alias: re-learning here
@@ -133,6 +141,57 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	result.ObservationID = observationID
 	result.AccountID, result.WealthAccountID, result.Values = accountID, wealthAccountID, payload
 	return result, nil
+}
+
+// ResolveFinancialEmailReview owns partial/terminal entity binding and ignore.
+// All surfaces pass a household-scoped review ID and authenticated actor.
+func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEmailCommand) (FinancialEmailResult, error) {
+	var result FinancialEmailResult
+	var sourceID string
+	err := tx.QueryRow(ctx, `SELECT fo.source_event_id::text FROM review_item ri JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id AND fo.household_id=ri.household_id WHERE ri.id=$1 AND ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_RESOLUTION' AND fo.id=$3 AND fo.status='REVIEW' FOR UPDATE OF ri,fo`, cmd.ReviewItemID, cmd.HouseholdID, cmd.ObservationID).Scan(&sourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, ErrFinancialObservationUnavailable
+	}
+	if err != nil {
+		return result, err
+	}
+	if cmd.Ignore {
+		if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, cmd.ObservationID, cmd.HouseholdID); err != nil {
+			return result, err
+		}
+		result.Complete = true
+	} else {
+		cmd.AllowPartial = true
+		result, err = ResolveFinancialEmailEntities(ctx, tx, cmd)
+		if err != nil || !result.Complete {
+			return result, err
+		}
+	}
+	action := "SET_FINANCIAL_EMAIL_ENTITIES"
+	if cmd.Ignore {
+		action = "IGNORE"
+	}
+	values := "{}"
+	if len(result.Values) > 0 {
+		values = string(result.Values)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5`, cmd.ReviewItemID, cmd.ActorUserID, action, values, cmd.HouseholdID); err != nil {
+		return result, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('OPEN','PENDING_SEND')`, cmd.ReviewItemID); err != nil {
+		return result, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
+		return result, err
+	}
+	if cmd.Ignore {
+		_, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID)
+	} else {
+		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='RECEIVED' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID); err == nil {
+			_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('PROCESS_FINANCIAL_EMAIL',jsonb_build_object('source_event_id',$1::uuid,'financial_source_id',(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)),5)`, sourceID)
+		}
+	}
+	return result, err
 }
 
 // ValidateFinancialFundingAccount checks a partial choice before it is persisted.

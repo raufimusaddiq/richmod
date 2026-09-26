@@ -44,6 +44,9 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("ro-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, sourceID).Scan(&openItem))
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3) RETURNING id`, householdID, sourceID, userID).Scan(&resolvedItem))
+	// The resolution surface is recorded by the surface's own audit row: the
+	// Telegram resolve records actor_type TELEGRAM (UIRC-04).
+	mustExec(pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'RESOLVE_REVIEW','review_item',$3)`, householdID, userID, resolvedItem))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, openItem, householdID).Scan(&openRequest))
 	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,99)`, openRequest, chatID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now()) RETURNING id`, resolvedItem, householdID).Scan(&resolvedRequest))
@@ -69,6 +72,8 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 		DeliverySucceeded              int      `json:"deliverySucceeded"`
 		StaleActionAttempts            int      `json:"staleActionAttempts"`
 		ResolvedByTelegram             int      `json:"resolvedByTelegram"`
+		ResolvedByWeb                  int      `json:"resolvedByWeb"`
+		WebEscapeRate                  *float64 `json:"webEscapeRate"`
 		ResolutionLatencyP95Ms         *float64 `json:"resolutionLatencyP95Ms"`
 	}
 	resp := call(handler.ReviewOpsSummary, "/api/v1/admin/reviews/summary?range=24h")
@@ -93,6 +98,29 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	if summary.StaleActionAttempts < 1 {
 		t.Fatalf("stale actions not counted: %+v", summary)
 	}
+	// UIRC-04: a Telegram-linked user resolving from Web must count as WEB, and
+	// the escape denominator excludes Web-only reviews. The fixture's only
+	// resolution is Telegram, so Web must stay zero here.
+	if summary.ResolvedByWeb != 0 {
+		t.Fatalf("a Telegram resolve must not count as Web: %+v", summary)
+	}
+
+	// The same user resolves a second review from the Web lane: it must count as
+	// WEB even though the user owns a Telegram identity, and must not create a
+	// Web escape because that item never had a Telegram projection.
+	webResolvedItem := createResolvedReviewForSurface(t, pool, householdID, sourceID, userID, "WEB")
+	_ = createResolvedReviewForSurface(t, pool, householdID, sourceID, userID, "TELEGRAM")
+	_ = webResolvedItem
+	resp = call(handler.ReviewOpsSummary, "/api/v1/admin/reviews/summary?range=24h")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("summary status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.ResolvedByWeb < 1 {
+		t.Fatalf("a Web resolve must count as Web: %+v", summary)
+	}
 
 	resp = call(handler.ReviewOpsBreakdown, "/api/v1/admin/reviews/breakdown?range=24h")
 	if resp.Code != http.StatusOK {
@@ -116,6 +144,22 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 			t.Fatalf("projections leaked %q: %s", forbidden, body)
 		}
 	}
+}
+
+// createResolvedReviewForSurface seeds one resolved review_item plus the audit
+// row that records which surface resolved it, which is the canonical source the
+// Admin aggregates read (UIRC-04).
+func createResolvedReviewForSurface(t *testing.T, pool *pgxpool.Pool, householdID, sourceID, userID, surface string) string {
+	t.Helper()
+	ctx := context.Background()
+	var itemID string
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3) RETURNING id`, householdID, sourceID, userID).Scan(&itemID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4)`, householdID, surface, userID, itemID); err != nil {
+		t.Fatal(err)
+	}
+	return itemID
 }
 
 func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 // lockAgentReviewBindingTx revalidates the server-owned Telegram review binding
@@ -111,21 +112,18 @@ func (p *Processor) agentDismissBoundTransferReconciliation(ctx context.Context,
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
 	}
-	var originalSource, amount, purpose string
+	var originalSource, amount, purpose, itemID string
 	if err = tx.QueryRow(ctx, `SELECT source_event_id::text,amount_idr::text,proposed_purpose FROM transfer_reconciliation_case WHERE id=$1 AND household_id=$2 AND status='OPEN' FOR UPDATE`, binding.TargetID, state.HouseholdID).Scan(&originalSource, &amount, &purpose); err != nil {
+		return result, true, err
+	}
+	if err = tx.QueryRow(ctx, `SELECT review_item_id::text FROM review_request WHERE id=$1 AND household_id=$2`, binding.ReviewRequestID, state.HouseholdID).Scan(&itemID); err != nil {
 		return result, true, err
 	}
 	var userID string
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='DISMISSED',resolved_at=now(),resolved_by_user_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='OPEN'`, binding.TargetID, userID, state.HouseholdID); err != nil {
-		return result, true, err
-	}
-	if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "IGNORED"); err != nil {
-		return result, true, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1 AND household_id=$2`, originalSource, state.HouseholdID); err != nil {
+	if _, err = reviewdomain.ReconcileTransfer(ctx, tx, reviewdomain.TransferReconciliationCommand{HouseholdID: state.HouseholdID, ActorUserID: userID, ReviewItemID: itemID, CaseID: binding.TargetID, Action: "IGNORE"}); err != nil {
 		return result, true, err
 	}
 	if state.SourceEventID != originalSource {
