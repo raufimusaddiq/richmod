@@ -1,3 +1,5 @@
+> **Post-delivery product closure gate (2026-09-27):** UIR-00..UIR-10 are delivered, but UIR is not product-closed until `docs/RICHMOD_UIR_CLOSURE_GATE_PRD.md` and `docs/plans/uir-closure-execution.md` pass. The closure gate is intentionally bounded and must finish before SAVR. Do not expand it into SAVR-owned semantic work.
+
 # Execution Plan — Universal Review Interaction
 
 ## Status
