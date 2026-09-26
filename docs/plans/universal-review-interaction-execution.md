@@ -264,6 +264,14 @@ Super Admin aggregates back the Admin Web Reviews tab:
   retry count, timestamps, age, resolution surface). No amount, merchant,
   counterparty, email body, document content, or prompt text is ever selected.
 
+Stale Telegram callbacks write a household-scoped `STALE_REVIEW_ACTION` audit
+row before the acknowledgment commits. The summary counts these rows in the
+selected range. Household delivery failures are attributed by the job's
+`review_request_id` to the canonical request, not by a missing household
+field on the send payload. Breakdown coverage counts only still-open canonical
+items, matching the summary; projection cursors start after the last returned
+row.
+
 The Web Admin Reviews tab (`/admin?tab=reviews`) renders the headline metrics,
 the per-type table, and the filterable/paginated projections table; the Overview
 shows compact Review health (open reviews, TARC, delivery failures, Web Escape

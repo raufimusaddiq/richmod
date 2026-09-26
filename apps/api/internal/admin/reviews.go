@@ -68,7 +68,7 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action IN ('STALE_REVIEW_ACTION','STALE_CALLBACK') AND created_at>=$1`, start).Scan(&out.StaleActionAttempts); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action='STALE_REVIEW_ACTION' AND created_at>=$1`, start).Scan(&out.StaleActionAttempts); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -95,7 +95,7 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 		       count(*) FILTER(WHERE ri.created_at>=$1),
 		       count(*) FILTER(WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')),
 		       count(*) FILTER(WHERE ri.created_at>=$1 AND (ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')) AND EXISTS (SELECT 1 FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=ri.household_id AND ti.active)),
-		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
+		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND ri.resolved_by_user_id IS NOT NULL AND EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=ri.resolved_by_user_id AND ti.household_id=ri.household_id)),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND ri.resolved_by_user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=ri.resolved_by_user_id AND ti.household_id=ri.household_id)),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND ri.resolved_by_user_id IS NULL)
@@ -164,8 +164,6 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	items := []map[string]any{}
-	var lastID string
-	var lastAt time.Time
 	for rows.Next() {
 		var id, reviewType, reviewStatus, projectionStatus, resolvedSurface string
 		var delivered bool
@@ -175,7 +173,6 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "ADMIN_QUERY_FAILED")
 			return
 		}
-		lastID, lastAt = id, createdAt
 		deliveryStatus := "PENDING"
 		switch {
 		case sent > 0:
@@ -206,7 +203,8 @@ func (h *Handler) ReviewOpsProjections(w http.ResponseWriter, r *http.Request) {
 	nextCursor := ""
 	if len(items) > limit {
 		items = items[:limit]
-		nextCursor = makeCursor(lastAt, lastID)
+		last := items[len(items)-1]
+		nextCursor = makeCursor(last["createdAt"].(time.Time), last["projectionId"].(string))
 	}
 	writeJSON(w, 200, map[string]any{"items": items, "nextCursor": nextCursor})
 }

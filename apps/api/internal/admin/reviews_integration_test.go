@@ -49,6 +49,7 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now()) RETURNING id`, resolvedItem, householdID).Scan(&resolvedRequest))
 	// A delivered card's send job should count as a delivery attempt.
 	mustExec(pool.Exec(ctx, `INSERT INTO job(type,payload_json,status) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'review_request_id',$2::text),'SUCCEEDED')`, chatID, openRequest))
+	mustExec(pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id) VALUES($1,'TELEGRAM','STALE_REVIEW_ACTION','source_event',$2)`, householdID, sourceID))
 
 	handler := NewHandler(pool, false, "responses")
 	call := func(fn http.HandlerFunc, target string) *httptest.ResponseRecorder {
@@ -66,6 +67,7 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 		TelegramActionableCoverageRate *float64 `json:"telegramActionableCoverageRate"`
 		DeliveryAttempts               int      `json:"deliveryAttempts"`
 		DeliverySucceeded              int      `json:"deliverySucceeded"`
+		StaleActionAttempts            int      `json:"staleActionAttempts"`
 		ResolvedByTelegram             int      `json:"resolvedByTelegram"`
 		ResolutionLatencyP95Ms         *float64 `json:"resolutionLatencyP95Ms"`
 	}
@@ -87,6 +89,9 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	}
 	if summary.ResolutionLatencyP95Ms == nil {
 		t.Fatal("resolution latency p95 missing")
+	}
+	if summary.StaleActionAttempts < 1 {
+		t.Fatalf("stale actions not counted: %+v", summary)
 	}
 
 	resp = call(handler.ReviewOpsBreakdown, "/api/v1/admin/reviews/breakdown?range=24h")
@@ -142,6 +147,7 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, sourceID).Scan(&itemID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, itemID, householdID).Scan(&requestID))
 	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,7)`, requestID, chatID))
+	mustExec(pool.Exec(ctx, `INSERT INTO job(type,payload_json,status,last_error) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('review_request_id',$1::text),'FAILED','TELEGRAM_SEND_FAILED')`, requestID))
 
 	handler := NewHandler(pool, false, "responses")
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/households/"+householdID+"/overview", nil)
@@ -162,6 +168,8 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 		ReviewDiagnostics struct {
 			EligibleTelegram      int `json:"eligibleTelegram"`
 			ActionableProjections int `json:"actionableProjections"`
+			LatestFailureAt       *time.Time `json:"latestDeliveryFailureAt"`
+			LatestFailureError    *string `json:"latestDeliveryFailureErrorClass"`
 		} `json:"reviewDiagnostics"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &parsed); err != nil {
@@ -169,6 +177,9 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 	}
 	if parsed.ReviewDiagnostics.EligibleTelegram < 1 || parsed.ReviewDiagnostics.ActionableProjections < 1 {
 		t.Fatalf("review diagnostics = %+v", parsed.ReviewDiagnostics)
+	}
+	if parsed.ReviewDiagnostics.LatestFailureAt == nil || parsed.ReviewDiagnostics.LatestFailureError == nil || *parsed.ReviewDiagnostics.LatestFailureError != "TELEGRAM_SEND_FAILED" {
+		t.Fatalf("household failure diagnosis = %+v", parsed.ReviewDiagnostics)
 	}
 }
 

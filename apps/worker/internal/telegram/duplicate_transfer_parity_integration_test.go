@@ -73,6 +73,13 @@ func TestStaleReviewCallbackPersistsReply(t *testing.T) {
 	if status != "PROCESSED" || !strings.Contains(message, "sudah selesai") {
 		t.Fatalf("stale callback status=%s reply=%q", status, message)
 	}
+	var staleActions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE entity_id=$1 AND action='STALE_REVIEW_ACTION' AND household_id=$2`, sourceID, householdID).Scan(&staleActions); err != nil {
+		t.Fatal(err)
+	}
+	if staleActions != 1 {
+		t.Fatalf("stale action audit rows=%d, want 1", staleActions)
+	}
 }
 
 // A TRANSFER_CLASSIFICATION review on an expense must offer the transfer chooser

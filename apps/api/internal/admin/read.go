@@ -376,8 +376,8 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),
 		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),
 		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NULL),
-		(SELECT max(updated_at) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND status='FAILED' AND payload_json->>'household_id'=$2),
-		(SELECT last_error FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND status='FAILED' AND payload_json->>'household_id'=$2 ORDER BY updated_at DESC LIMIT 1)`, id, id).Scan(&reviewDiag.EligibleTelegram, &reviewDiag.ActionableProjections, &reviewDiag.ResolvedTelegram, &reviewDiag.ResolvedWeb, &reviewDiag.ResolvedSystem, &reviewDiag.LatestFailureAt, &reviewDiag.LatestFailureError); err == nil {
+		(SELECT max(j.updated_at) FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid),
+		(SELECT j.last_error FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid ORDER BY j.updated_at DESC LIMIT 1)`, id).Scan(&reviewDiag.EligibleTelegram, &reviewDiag.ActionableProjections, &reviewDiag.ResolvedTelegram, &reviewDiag.ResolvedWeb, &reviewDiag.ResolvedSystem, &reviewDiag.LatestFailureAt, &reviewDiag.LatestFailureError); err == nil {
 		reviewDiagOut := map[string]any{
 			"eligibleTelegram":                reviewDiag.EligibleTelegram,
 			"actionableProjections":           reviewDiag.ActionableProjections,
