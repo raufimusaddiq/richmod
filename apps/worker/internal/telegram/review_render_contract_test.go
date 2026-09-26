@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
@@ -27,6 +28,10 @@ var producibleReviewTypes = []string{
 	"UNKNOWN_BANK_TEMPLATE",
 	"CYCLE_RESIDUAL_ALLOCATION",
 	"FINANCIAL_EMAIL_RESOLUTION",
+	"SALARY_SOURCE_CONFIRMATION",
+	"RECEIPT_MISMATCH",
+	"INVOICE_PAYMENT_STATUS",
+	"UNKNOWN_EMAIL_TEMPLATE",
 }
 
 func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
@@ -71,6 +76,42 @@ func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
 		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
 		if !markupModesHandledAtCreation[mode] {
 			t.Fatalf("%s rendered mode %q with no creation markup case", reviewType, mode)
+		}
+	}
+}
+
+// TestSuppliedContextKeepsItsMarkupMode proves the UIR-02 shared projection does
+// not drop a review's supplied prompt: when a producer supplies its own message,
+// the decision still selects the markup and state, so a source/document review
+// arrives as an actionable card instead of an unanswerable notice. A category or
+// transfer review uses the provider's summary as the card body unchanged; a
+// detail/date/duplicate review wraps the summary in the decision prompt.
+func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
+	for _, reviewType := range producibleReviewTypes {
+		decision, ok := reviewdec.Preset(reviewType, "source_event", "00000000-0000-0000-0000-000000000000")
+		if !ok {
+			continue
+		}
+		state, message, mode := renderReviewPresentation(decision, reviewType, "bespoke prompt")
+		if state == "" || mode == "" {
+			t.Fatalf("%s lost its state/markup with a supplied prompt", reviewType)
+		}
+		if !strings.Contains(message, "bespoke prompt") {
+			t.Fatalf("%s dropped the supplied prompt: %q", reviewType, message)
+		}
+		// The mode must follow the decision, not the review type: a supplied
+		// prompt must not turn a bounded chooser into a free-form reply or back.
+		wantMode := "reply"
+		switch {
+		case isCategoryOnly(decision):
+			wantMode = "category"
+		case contains(decision.MissingFacts, "transfer_relationship"):
+			wantMode = "transfer"
+		case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
+			wantMode = "duplicate"
+		}
+		if mode != wantMode {
+			t.Fatalf("%s rendered mode %q with a supplied prompt, want %q", reviewType, mode, wantMode)
 		}
 	}
 }

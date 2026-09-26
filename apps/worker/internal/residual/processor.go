@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 type Payload struct {
@@ -83,32 +84,11 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 		}
 		return err
 	}
-	var requestID string
-	if err = tx.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,review_type,status) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','PENDING_SEND') RETURNING id`, v.HouseholdID, reviewID).Scan(&requestID); err != nil {
+	// UIR-02: the cycle residual review is a first-class Telegram review. Let the
+	// shared projection create the request, pick the recipients, and render the
+	// policy card, so this path has no hand-rolled request/recipient SQL.
+	if err = workerTelegram.ProjectReviewMessage(ctx, tx, v.HouseholdID, reviewID, 0, 0); err != nil {
 		return err
-	}
-	rows, err := tx.Query(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 10`, v.HouseholdID)
-	if err != nil {
-		return err
-	}
-	var chats []int64
-	for rows.Next() {
-		var chat int64
-		if err = rows.Scan(&chat); err != nil {
-			rows.Close()
-			return err
-		}
-		chats = append(chats, chat)
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
-	for _, chat := range chats {
-		if _, err = tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2)`, requestID, chat); err != nil {
-			return err
-		}
 	}
 	return tx.Commit(ctx)
 }

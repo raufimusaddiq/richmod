@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 const reviewPrompt = `Interpret one reply to a specifically bound household transaction review.
@@ -1679,20 +1680,30 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 			return err
 		}
 	}
+	return projectReviewRequest(ctx, tx, reviewID, itemID, reviewType, decision, replyTo, message, chatID)
+}
+
+// projectReviewRequest is the one place a review_item becomes an actionable
+// Telegram message (UIR-02). Every producer routes through it: the transaction
+// adapter creates the item first, the source/document adapter inserts a
+// source-event item, and both then call this with the same decision-driven
+// renderer. A review that has no eligible recipient produces no projection.
+// That keeps a non-transaction review (source, document, wealth, cycle) off the
+// transaction-only bound path while sharing all delivery, recipient, and
+// markup logic.
+func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, reviewType string, decision reviewdec.Decision, replyTo int64, message string, originatingChatID int64) error {
 	state, reviewMessage, markupMode := renderReviewPresentation(decision, reviewType, message)
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
 		return err
 	}
 	var markup *InlineKeyboardMarkup
 	switch markupMode {
-	case "category":
+	case "category", "transfer":
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	case "reply":
 		markup = requiredFieldReplyMarkup()
 	case "duplicate":
 		markup = duplicateIntentMarkup()
-	case "transfer":
-		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -1727,7 +1738,88 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 			return err
 		}
 	}
+	// A producer that had no eligible recipient at creation time (no linked
+	// Telegram identity, or a source-event review with no transaction) still
+	// projects to the chat that originated it when one is supplied.
+	if len(recipients) == 0 && originatingChatID != 0 {
+		if _, err := tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, reviewID, originatingChatID); err != nil {
+			return err
+		}
+		if err := enqueueReviewMessageWithMarkup(ctx, tx, reviewID, originatingChatID, replyTo, reviewMessage, markup); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// ProjectReviewItem creates the single Telegram projection for an already
+// inserted review_item (UIR-02), whatever its subject: transaction, document,
+// proposal, source event, wealth observation, or financial email. Every
+// producer calls this after it writes the item and its ReviewDecision. The
+// request carries the item's transaction_id (when the subject has one) so the
+// bound reply lane can join it. Idempotent: an existing open projection with a
+// delivered message is reused; an existing request without a message is
+// rendered now.
+func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID string, replyTo int64, message string, originatingChatID int64) error {
+	var reviewID, reviewType, transactionID string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),review_type FROM review_item WHERE id=$1`, itemID).Scan(&transactionID, &reviewType); err != nil {
+		return err
+	}
+	// Fail closed: never send a card whose buttons cannot complete the review.
+	if !TelegramCompletableReviewType(reviewType) {
+		return nil
+	}
+	// Reuse an open request for this item; only render it when it has no bound
+	// message yet, otherwise a re-run would double-send the card.
+	// A projection is "rendered" once its conversation row exists. The send job
+	// binds the Telegram message id later, so checking only the recipient would
+	// re-render (and re-insert review_conversation) on a second call.
+	var alreadyRendered bool
+	err := tx.QueryRow(ctx, `SELECT r.id, EXISTS(SELECT 1 FROM review_conversation c WHERE c.review_request_id=r.id)
+		FROM review_request r WHERE r.review_item_id=$1 AND r.status IN ('PENDING_SEND','OPEN') ORDER BY r.created_at LIMIT 1`, itemID).Scan(&reviewID, &alreadyRendered)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,status)
+			VALUES($1,$2,NULLIF($3,'')::uuid,$4,'OPEN') RETURNING id`, itemID, householdID, transactionID, reviewType).Scan(&reviewID)
+	}
+	if err != nil {
+		return err
+	}
+	if alreadyRendered {
+		return nil
+	}
+	var decisionJSON []byte
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(decision,'{}'::jsonb) FROM review_item WHERE id=$1`, itemID).Scan(&decisionJSON); err != nil {
+		return err
+	}
+	var decision reviewdec.Decision
+	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
+		return err
+	}
+	return projectReviewRequest(ctx, tx, reviewID, itemID, reviewType, decision, replyTo, message, originatingChatID)
+}
+
+// ProjectReviewMessage is the message-free convenience for producers that do
+// not supply a bespoke prompt: the renderer derives one from the decision.
+func ProjectReviewMessage(ctx context.Context, tx pgx.Tx, householdID, itemID string, chatID, replyTo int64) error {
+	return ProjectReviewItem(ctx, tx, householdID, itemID, replyTo, "", chatID)
+}
+
+// TelegramCompletableReviewType reports whether a review subject can be resolved
+// to completion from Telegram today. A review whose completion path still lives
+// only in the Review Inbox (document classification, bank-fact completion,
+// payslip policy) must not be projected, or the user gets a card whose buttons
+// cannot finish the work. The producers call this before projecting; the family
+// is enabled here when its UIR-06/UIR-07 resolver lands.
+func TelegramCompletableReviewType(reviewType string) bool {
+	switch reviewType {
+	case "CYCLE_RESIDUAL_ALLOCATION", "WEALTH_OBSERVATION_CONFIRMATION", "TRANSFER_CLASSIFICATION",
+		"POSSIBLE_DUPLICATE", "CONFLICTING_EVIDENCE",
+		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE",
+		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION":
+		return true
+	default:
+		return false
+	}
 }
 
 func requiredFieldReplyMarkup() *InlineKeyboardMarkup {
