@@ -510,6 +510,8 @@ function Reviews({ setError }) {
 }
 
 function Jobs({ setError }) {
+  const [filters, setFilters] = useState({ status: "", lane: "", type: "", range: "24h", q: "" });
+  const [data, refresh, more] = useAdminList("/api/v1/admin/jobs", filters, setError), [selected, setSelected] = useState(null);
   if (!data) return <Empty>Memuat jobs…</Empty>;
   return (
     <section className="admin-stack">
