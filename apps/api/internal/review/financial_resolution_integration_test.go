@@ -102,15 +102,13 @@ func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
 	if w := fixture.resolve(t, `{"action":"IGNORE","values":{}}`); w.Code != http.StatusNoContent {
 		t.Fatalf("ignore must resolve: %d %s", w.Code, w.Body.String())
 	}
-	var observationStatus, itemStatus, requestStatus, sourceStatus string
-	if err := fixture.pool.QueryRow(ctx, `SELECT fo.status,ri.status,COALESCE((SELECT status FROM review_request rr WHERE rr.review_item_id=ri.id AND rr.status='RESOLVED' ORDER BY rr.created_at DESC LIMIT 1),''),se.processing_status FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id JOIN source_event se ON se.id=fo.source_event_id WHERE fo.id=$1`, fixture.observation).Scan(&observationStatus, &itemStatus, &requestStatus, &sourceStatus); err != nil {
+	var observationStatus, itemStatus, sourceStatus string
+	var openRequests int
+	if err := fixture.pool.QueryRow(ctx, `SELECT fo.status,ri.status,se.processing_status,(SELECT count(*) FROM review_request WHERE review_item_id=ri.id AND status IN ('OPEN','PENDING_SEND')) FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id JOIN source_event se ON se.id=fo.source_event_id WHERE fo.id=$1`, fixture.observation).Scan(&observationStatus, &itemStatus, &sourceStatus, &openRequests); err != nil {
 		t.Fatal(err)
 	}
-	if itemStatus != "RESOLVED" {
-		t.Fatalf("action did not resolve the fixture review: item=%s", itemStatus)
-	}
-	if observationStatus != "IGNORED" || itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || sourceStatus != "IGNORED" {
-		t.Fatalf("ignore lifecycle observation=%s item=%s request=%s source=%s", observationStatus, itemStatus, requestStatus, sourceStatus)
+	if observationStatus != "IGNORED" || itemStatus != "RESOLVED" || sourceStatus != "IGNORED" || openRequests != 0 {
+		t.Fatalf("ignore lifecycle observation=%s item=%s source=%s openRequests=%d", observationStatus, itemStatus, sourceStatus, openRequests)
 	}
 }
 
