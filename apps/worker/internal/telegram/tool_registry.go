@@ -85,7 +85,9 @@ func reviewActionsForType(kind string) []string {
 		return []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
 	case "MISSING_PAY_DATE":
 		return []string{"SET_PAY_DATE", "IGNORE"}
-	case "UNKNOWN_BANK_TEMPLATE", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION":
+	case "UNKNOWN_BANK_TEMPLATE":
+		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
+	case "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION":
 		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
 	default:
 		return []string{"CONFIRM", "IGNORE"}

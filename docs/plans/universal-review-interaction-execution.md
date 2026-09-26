@@ -206,6 +206,9 @@ income-confirm extraction path now uses a labelled-date parser
 (`parseLabeledReviewPayDate`) so an unlabelled `dd Month yyyy` in ordinary
 free-text is no longer picked up as a pay date; the bound pay-date lane keeps the
 permissive parser.
+The legacy-only `UNKNOWN_BANK_TEMPLATE` Telegram tool action list now matches
+Web/preset (`COMPLETE_BANK_FACTS`, `IGNORE`) rather than incorrectly suggesting
+document reprocessing; it remains unprojected until it has an active producer.
 
 Document parity. `DOCUMENT_CLASSIFICATION` and
 `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` — the terminal-failure reviews the shared
