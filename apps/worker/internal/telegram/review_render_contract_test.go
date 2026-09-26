@@ -115,6 +115,30 @@ func TestPayslipReviewTypesCanProject(t *testing.T) {
 	}
 }
 
+// noProducerReviewTypes are schema compatibility values with no active producer
+// in the Go sources. They are renderable (so an old open item still displays) but
+// may legitimately lack a Telegram completion lane until a producer lands.
+var noProducerReviewTypes = map[string]bool{
+	"SALARY_SOURCE_CONFIRMATION": true,
+	"RECEIPT_MISMATCH":           true,
+	"INVOICE_PAYMENT_STATUS":     true,
+	"UNKNOWN_EMAIL_TEMPLATE":     true,
+}
+
+// TestEveryProducedReviewTypeIsTelegramCompletable pins UIR-10 exit criterion 1:
+// every review_type a producer can emit must be resolvable to completion from
+// Telegram. Adding a producer without a completion lane fails here.
+func TestEveryProducedReviewTypeIsTelegramCompletable(t *testing.T) {
+	for _, reviewType := range producibleReviewTypes {
+		if noProducerReviewTypes[reviewType] {
+			continue
+		}
+		if !TelegramCompletableReviewType(reviewType) {
+			t.Fatalf("%s is producible but has no Telegram completion lane", reviewType)
+		}
+	}
+}
+
 // TestSuppliedContextKeepsItsMarkupMode proves the UIR-02 shared projection does
 // not drop a review's supplied prompt: when a producer supplies its own message,
 // the decision still selects the markup and state, so a source/document review
@@ -168,5 +192,36 @@ func TestFinancialEmailEntityMarkupPagesLargeAccountSets(t *testing.T) {
 	}
 	if dimension, _ := financialEmailDimension("review:ignore"); dimension != "ignore" {
 		t.Fatalf("ignore action did not map to the ignore dimension: %q", dimension)
+	}
+}
+
+// TestBankFactsReplyParserAndCapability pins the UIR-10 bank-email fix: the
+// UNKNOWN_BANK_TEMPLATE card must be completable from Telegram, and a natural
+// reply ("54000 2026-09-23T13:45:00+07:00", either order) must yield both facts.
+func TestBankFactsReplyParserAndCapability(t *testing.T) {
+	if !TelegramCompletableReviewType("UNKNOWN_BANK_TEMPLATE") {
+		t.Fatal("UNKNOWN_BANK_TEMPLATE must be completable from Telegram")
+	}
+	for _, text := range []string{
+		"54000 2026-09-23T13:45:00+07:00",
+		"2026-09-23T13:45:00+07:00 Rp54000",
+	} {
+		amount, at := parseBankFactsReply(text)
+		if amount != "54000" || at != "2026-09-23T13:45:00+07:00" {
+			t.Fatalf("parse %q = %q,%q", text, amount, at)
+		}
+	}
+	if amount, at := parseBankFactsReply("lihat nanti ya"); amount != "" || at != "" {
+		t.Fatalf("non-fact reply parsed as %q,%q", amount, at)
+	}
+	// A separator-bearing amount is ambiguous IDR; it must be rejected rather
+	// than silently reshaped into a different canonical value.
+	for _, text := range []string{
+		"54,5 2026-09-23T13:45:00+07:00",
+		"12.500,50 2026-09-23T13:45:00+07:00",
+	} {
+		if amount, _ := parseBankFactsReply(text); amount != "" {
+			t.Fatalf("separator amount %q parsed as %q, want rejection", text, amount)
+		}
 	}
 }
