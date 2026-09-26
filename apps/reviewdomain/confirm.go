@@ -79,8 +79,17 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	// surfaces that pass an absent date as a nil pointer would otherwise pass the
 	// `!= nil` guard below and write NULL into the NOT NULL
 	// transaction_proposal.transaction_at. Normalize it away at the boundary.
-	if at, ok := cmd.TransactionAt.(*time.Time); ok && at == nil {
-		cmd.TransactionAt = nil
+	// Telegram passes the date as a *string (the canonical `YYYY-MM-DD` it just
+	// parsed), so every pointer type must be normalized, not just *time.Time.
+	switch at := cmd.TransactionAt.(type) {
+	case *time.Time:
+		if at == nil {
+			cmd.TransactionAt = nil
+		}
+	case *string:
+		if at == nil {
+			cmd.TransactionAt = nil
+		}
 	}
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
 		return result, err
