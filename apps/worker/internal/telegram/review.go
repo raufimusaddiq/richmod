@@ -120,6 +120,21 @@ type categoryChoice struct {
 	Slug string
 }
 
+// ReviewProjectionOpen reports whether a queued review card is still worth
+// sending. A review resolved (or cancelled/expired) between enqueue and send must
+// not produce a fresh live card with buttons that can only answer stale (UIR-08).
+// An unknown request id is treated as still-open so non-review sends are unaffected.
+func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID string) (bool, error) {
+	if reviewRequestID == "" {
+		return true, nil
+	}
+	var open bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request WHERE id=$1 AND status IN ('PENDING_SEND','OPEN') AND expires_at>now())`, reviewRequestID).Scan(&open); err != nil {
+		return false, err
+	}
+	return open, nil
+}
+
 func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
 	result, err := p.pool.Exec(ctx, `
 		UPDATE review_request_recipient rr

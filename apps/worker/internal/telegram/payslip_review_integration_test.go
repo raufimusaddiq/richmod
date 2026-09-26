@@ -241,3 +241,58 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 		t.Fatalf("resolution did not enqueue the provider-email replay: %d", replays)
 	}
 }
+
+// TestQueuedReviewSendSkipsResolvedProjection pins UIR-08's "queued delivery
+// after resolution" rule: a review card that resolves between enqueue and send
+// must not be delivered as a live card, while an open projection still sends.
+func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := time.Now().UnixNano()
+	var householdID, openItem, resolvedItem, expiredItem, openRequest, resolvedRequest, expiredRequest string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("queued send %d", stamp)).Scan(&householdID))
+	// Each item needs its own source event: review_item_active_source_unique allows
+	// only one active AMBIGUOUS_CATEGORY item per source.
+	newItem := func(status string, resolved bool) string {
+		var sourceID, id string
+		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("queued-%d-%s", time.Now().UnixNano(), status), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
+		if resolved {
+			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3,now()) RETURNING id`, householdID, sourceID, status).Scan(&id))
+		} else {
+			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3) RETURNING id`, householdID, sourceID, status).Scan(&id))
+		}
+		return id
+	}
+	// A resolved item must carry resolved_at (schema cross-check).
+	resolvedItem = newItem("RESOLVED", true)
+	openItem, expiredItem = newItem("OPEN", false), newItem("OPEN", false)
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, openItem, householdID).Scan(&openRequest))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now()) RETURNING id`, resolvedItem, householdID).Scan(&resolvedRequest))
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status,expires_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',now()-interval '1 minute') RETURNING id`, expiredItem, householdID).Scan(&expiredRequest))
+	processor := NewProcessor(pool, nil)
+	if open, err := processor.ReviewProjectionOpen(ctx, openRequest); err != nil || !open {
+		t.Fatalf("open projection must send: open=%v err=%v", open, err)
+	}
+	if open, err := processor.ReviewProjectionOpen(ctx, resolvedRequest); err != nil || open {
+		t.Fatalf("resolved projection must be skipped: open=%v err=%v", open, err)
+	}
+	if open, err := processor.ReviewProjectionOpen(ctx, expiredRequest); err != nil || open {
+		t.Fatalf("expired projection must be skipped: open=%v err=%v", open, err)
+	}
+	if open, err := processor.ReviewProjectionOpen(ctx, ""); err != nil || !open {
+		t.Fatalf("empty review id must not block a non-review send: open=%v err=%v", open, err)
+	}
+}
