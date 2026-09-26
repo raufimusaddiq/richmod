@@ -103,7 +103,7 @@ func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
 		t.Fatalf("ignore must resolve: %d %s", w.Code, w.Body.String())
 	}
 	var observationStatus, itemStatus, requestStatus, sourceStatus string
-	if err := fixture.pool.QueryRow(ctx, `SELECT fo.status,ri.status,COALESCE((SELECT status FROM review_request WHERE review_item_id=ri.id),''),se.processing_status FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id JOIN source_event se ON se.id=fo.source_event_id WHERE fo.id=$1`, fixture.observation).Scan(&observationStatus, &itemStatus, &requestStatus, &sourceStatus); err != nil {
+	if err := fixture.pool.QueryRow(ctx, `SELECT fo.status,ri.status,COALESCE((SELECT status FROM review_request WHERE review_item_id=ri.id ORDER BY created_at LIMIT 1),''),se.processing_status FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id JOIN source_event se ON se.id=fo.source_event_id WHERE fo.id=$1`, fixture.observation).Scan(&observationStatus, &itemStatus, &requestStatus, &sourceStatus); err != nil {
 		t.Fatal(err)
 	}
 	if observationStatus != "IGNORED" || itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || sourceStatus != "IGNORED" {
