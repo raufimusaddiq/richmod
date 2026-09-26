@@ -39,6 +39,9 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, stamp, household, user); err != nil {
+		t.Fatal(err)
+	}
 	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'{}','PROCESSED') RETURNING id`, household, fmt.Sprintf("refresh-%d", stamp)).Scan(&source); err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +74,9 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if basis != "7000000" {
 		t.Fatalf("seed residual = %s, want 7000000", basis)
 	}
+	if _, err = pool.Exec(ctx, `UPDATE review_request_recipient rr SET telegram_message_id=71 FROM review_request r WHERE rr.review_request_id=r.id AND r.review_item_id=$1 AND rr.telegram_chat_id=$2`, itemID, stamp); err != nil {
+		t.Fatal(err)
+	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -92,14 +98,43 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if refreshed != "7000000" || status != "PENDING_SEND" && status != "OPEN" {
 		t.Fatalf("unrelated confirmed transaction changed the review: residual=%s status=%s", refreshed, status)
 	}
-	// The missing transaction lands inside the cycle: the residual drops to 0 and
-	// the open review closes as no-longer-applicable instead of staying stale.
+	// A partial offset keeps the review open and tells the card recipient the
+	// exact new basis; repeating the refresh must not send duplicate updates.
 	tx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7000000,'2026-09-20',$2,'GENERAL',now())`, household, user); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',2000000,'2026-09-20',$2,'GENERAL',now())`, household, user); err != nil {
+		t.Fatal(err)
+	}
+	cycleAt := time.Date(2026, 9, 20, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600))
+	if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, household, cycleAt, user); err != nil {
+		t.Fatal(err)
+	}
+	if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, household, cycleAt, user); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var notices int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'message_id'='71' AND payload_json->>'text' LIKE '%5000000%'`).Scan(&notices); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT basis_residual_idr::text FROM cycle_residual_case WHERE id=$1`, caseID).Scan(&refreshed); err != nil {
+		t.Fatal(err)
+	}
+	if refreshed != "5000000" || notices != 1 {
+		t.Fatalf("partial offset: basis=%s notices=%d", refreshed, notices)
+	}
+	// The next missing transaction drops the residual to 0 and closes review.
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',5000000,'2026-09-20',$2,'GENERAL',now())`, household, user); err != nil {
 		t.Fatal(err)
 	}
 	if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, household, time.Date(2026, 9, 20, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600)), user); err != nil {
@@ -111,10 +146,11 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT basis_residual_idr::text FROM cycle_residual_case WHERE id=$1`, caseID).Scan(&refreshed); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, itemID).Scan(&status); err != nil {
+	var recomputed string
+	if err = pool.QueryRow(ctx, `SELECT status,COALESCE(resolution_values->>'recomputed_residual_idr','') FROM review_item WHERE id=$1`, itemID).Scan(&status, &recomputed); err != nil {
 		t.Fatal(err)
 	}
-	if refreshed != "0" || status != "RESOLVED" {
-		t.Fatalf("missing transaction did not refresh the review: residual=%s status=%s", refreshed, status)
+	if refreshed != "5000000" || status != "RESOLVED" || recomputed != "0" {
+		t.Fatalf("missing transaction did not close the review: stored=%s computed=%s status=%s", refreshed, recomputed, status)
 	}
 }

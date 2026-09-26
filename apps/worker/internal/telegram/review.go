@@ -206,7 +206,7 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
 		if errors.Is(err, reviewdomain.ErrBankSourceUnlinked) {
-			accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, sourceEventID, 10)
+			accounts, listErr := reviewdomain.ListBankSourceAccountChoices(ctx, tx, householdID, reviewID, bankSourceID, 10)
 			if listErr != nil {
 				return listErr
 			}
