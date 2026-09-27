@@ -209,6 +209,15 @@ func run(logger *slog.Logger) error {
 }
 
 func phaseMetric(metric gateway.CallMetric, fallbackSourceEventID string) gateway.CallMetric {
+	if metric.Dimensions == nil {
+		metric.Dimensions = []string{}
+	}
+	if metric.AnsweredDimensions == nil {
+		metric.AnsweredDimensions = []string{}
+	}
+	if metric.ResidualDimensions == nil {
+		metric.ResidualDimensions = []string{}
+	}
 	if metric.Capability == "" {
 		metric.Capability = "GENERATIVE"
 	}
