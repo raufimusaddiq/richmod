@@ -11,7 +11,8 @@ import (
 
 func TestValidatePayslipIDRArithmetic(t *testing.T) {
 	date := "2026-08-25"
-	value := payslipExtraction{Period: "2026-08", Employer: "Example", GrossPay: "17500000", Deductions: []moneyLine{{Name: "Tax", Amount: "1500000"}}, NetPay: "16000000", Currency: "IDR", PayDate: &date, Confidence: .97}
+	gross := "17500000"
+	value := payslipExtraction{Period: "2026-08", Employer: "Example", GrossPay: &gross, Deductions: []moneyLine{{Name: "Tax", Amount: "1500000"}}, NetPay: "16000000", Currency: "IDR", PayDate: &date, Confidence: .97}
 	transactionAt, arithmeticOK, err := validatePayslip(value)
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +23,8 @@ func TestValidatePayslipIDRArithmetic(t *testing.T) {
 }
 
 func TestValidatePayslipRejectsFractionalOrNonIDR(t *testing.T) {
-	value := payslipExtraction{Period: "2026-08", GrossPay: "18500000", NetPay: "16000000.50", Currency: "IDR", Confidence: .9}
+	gross := "18500000"
+	value := payslipExtraction{Period: "2026-08", GrossPay: &gross, NetPay: "16000000.50", Currency: "IDR", Confidence: .9}
 	if _, _, err := validatePayslip(value); err == nil {
 		t.Fatal("expected fractional rupiah rejection")
 	}
@@ -40,6 +42,46 @@ func TestPayrollDeductionsDoNotBecomeTransactions(t *testing.T) {
 	properties := schema["properties"].(map[string]any)
 	if _, ok := properties["deductions"]; !ok {
 		t.Fatal("deductions metadata missing")
+	}
+}
+
+// SAVR-03B: real payroll forms carry a display period, may omit gross pay, and
+// may contain component lines the net/gross/deduction formula cannot explain.
+// Those are representable without fabricating a gross or a deduction.
+func TestPayslipRepresentationAcceptsRealPayrollRange(t *testing.T) {
+	period, err := parsePayslipPeriod("September 2026 (01/09/26 - 30/09/26)")
+	if err != nil || period.Format("2006-01") != "2026-09" {
+		t.Fatalf("real payroll range must normalize to its stored month: %v %v", period, err)
+	}
+	period, err = parsePayslipPeriod("Agustus 2026 (26/07/26 - 25/08/26)")
+	if err != nil || period.Format("2006-01") != "2026-08" {
+		t.Fatalf("Indonesian cross-month payroll range must normalize to its pay month: %v %v", period, err)
+	}
+	if _, err := parsePayslipPeriod("September 2026 (30/09/26 - 01/09/26)"); err == nil {
+		t.Fatal("a reversed range must be rejected")
+	}
+	if _, err := parsePayslipPeriod("September 2026 (01/09/26 - 30/10/26)"); err == nil {
+		t.Fatal("a range ending outside its labeled month must be rejected")
+	}
+	if _, err := parsePayslipPeriod("2026-13"); err == nil {
+		t.Fatal("an impossible month must be rejected")
+	}
+	date := "2026-09-25"
+	missingGross := payslipExtraction{Period: "September 2026 (01/09/26 - 30/09/26)", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "-250000"}}, Currency: "IDR", PayDate: &date, Confidence: .96}
+	transactionAt, arithmeticOK, err := validatePayslip(missingGross)
+	if err != nil || transactionAt.IsZero() || transactionAt.Month() != 9 {
+		t.Fatalf("a real payroll range must survive validation: %v %v", transactionAt, err)
+	}
+	if arithmeticOK {
+		t.Fatal("an unproven breakdown is a quality signal, not a proven reconciliation")
+	}
+	gross := "15500000"
+	missingGross.GrossPay, missingGross.OtherComponents = &gross, nil
+	if _, arithmeticOK, err := validatePayslip(missingGross); err != nil || arithmeticOK {
+		t.Fatalf("a printed net exceeding a labeled gross is a quality signal, not an invalid net: arithmetic=%t err=%v", arithmeticOK, err)
+	}
+	if _, _, err := validatePayslip(payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "250.000"}}, Currency: "IDR", Confidence: .96}); err == nil {
+		t.Fatal("a component amount that is not whole rupiah must be rejected")
 	}
 }
 
