@@ -304,6 +304,12 @@ with the exact affected/missing fact (`amount_idr`/`direction`/
 `transaction_ambiguity` as `CANONICAL_AMBIGUITY`; `transaction_semantics` as a
 `BOUNDED_RESIDUAL`), preserving amount, date, direction, channel, and merchant.
 
+Implementation slice: store all bounded predicate outcomes (YES/NO/UNDECIDED)
+before routing unsupported evidence to review. The bank review carries affected
+facts and exact missing/conflict dimensions; unrelated accepted facts, including
+the transaction timestamp, remain known. A negative predicate does not invent
+an alternative source value. Provider-email residual parity remains separate.
+
 ## Financial-provider email
 
 - classify structural/evidence/time/purpose/compatibility consequences;
