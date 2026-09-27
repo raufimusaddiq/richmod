@@ -277,6 +277,12 @@ receipt review outcomes remain for SAVR-08 source-family audit.
 - derive exact residual/conflict from the failed predicate;
 - do not use generic transaction_semantics when a narrower reason is known.
 
+Implementation slice: store all bounded predicate outcomes (YES/NO/UNDECIDED)
+before routing unsupported evidence to review. The bank review carries affected
+facts and exact missing/conflict dimensions; unrelated accepted facts, including
+the transaction timestamp, remain known. A negative predicate does not invent
+an alternative source value. Provider-email residual parity remains separate.
+
 ## Financial-provider email
 
 - classify structural/evidence/time/purpose/compatibility consequences;
