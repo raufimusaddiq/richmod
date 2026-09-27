@@ -62,13 +62,16 @@ func testExtraction() Extraction {
 // not a required human fact, so it must not create a review: the material
 // predicates only concern the transaction itself (SAVR-06).
 func TestUndecidedPaymentMechanismDoesNotCreateReview(t *testing.T) {
+	// The extraction channel is irrelevant to the bounded ruling: the verifier
+	// answers the same bundle for every mechanism, so an uncertain QR-vs-debit
+	// distinction cannot appear in the residual. Assert through the real verifier
+	// so a reintroduced channel predicate would fail this test.
 	for _, channel := range []string{"QR", "DEBIT_CARD", "MERCHANT_PAYMENT", ""} {
-		verification := EvidenceVerification{
-			TransactionObserved: true, AmountSupported: true, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true,
-			ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "NO"},
-		}
-		if !verification.supported() {
-			t.Fatalf("channel %q must not block an otherwise supported expense: %+v", channel, verification)
+		extraction := testExtraction()
+		extraction.Channel = stringPtrFor(channel)
+		verification, verified, err := (&Processor{verifier: &stubVerifier{answers: supportedRuling()}}).verifyEvidence(context.Background(), "src", extraction, TrustedEmail{})
+		if err != nil || !verified || !verification.supported() {
+			t.Fatalf("channel %q must not block an otherwise supported expense: verified=%v v=%+v err=%v", channel, verified, verification, err)
 		}
 		if _, _, material := verification.materialResidual(); material {
 			t.Fatalf("channel %q produced a material residual", channel)

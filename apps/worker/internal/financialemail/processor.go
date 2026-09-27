@@ -328,13 +328,12 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	var observationID string
 	date := any(nil)
 	if v.ObservedDate != nil {
-		d, err := time.Parse("2006-01-02", value(v.ObservedDate))
-		if err != nil {
-			// A printed value with an unreadable date is a fact Go cannot trust,
-			// not a transfer relationship (SAVR-06).
-			return p.evidenceReview(ctx, tx, household, "", id, v, ObservationClassification{}, true)
+		// An unreadable printed date must not discard the observed value: keep the
+		// wealth observation with a null date so the household can still bind the
+		// account and confirm the value (SAVR-06).
+		if d, err := time.Parse("2006-01-02", value(v.ObservedDate)); err == nil {
+			date = d
 		}
-		date = d
 	}
 	err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,NULL,'',$2,$3,$4,$5) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id`, household, hint, *v.ValueIDR, date, id).Scan(&observationID)
 	if err != nil {
@@ -404,13 +403,11 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	// production (ADR-038, PRD §21).
 	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
 	if classifyErr != nil {
-		// A gateway error must not lose the event: park it with the same unbounded
-		// contract the "no plane configured" case uses, so a provider outage never
-		// turns into an auto-confirm or a dropped review (AGENTS.md: deterministic
-		// flows keep working when the AI gateway is unavailable).
-		plan.review = "FINANCIAL_EMAIL_FACTS"
-		plan.unbounded = true
-		return plan, nil
+		// A provider outage is transient infrastructure state, not a semantic
+		// verdict. Returning the error keeps the observation PENDING so the queue
+		// retries, instead of parking a real cash movement on an IGNORE-only card
+		// from which it could never be recovered (AGENTS.md).
+		return plan, classifyErr
 	}
 	if verified {
 		if residual := classification.cashResidual(); len(residual) > 0 {

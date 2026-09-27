@@ -1561,8 +1561,16 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 	if replyID == 0 {
 		return false, nil
 	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
 	var itemID, observationID string
-	err := p.pool.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_FACTS' AND ri.financial_email_observation_id IS NOT NULL AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, replyID).Scan(&itemID, &observationID)
+	// Bind inside the transaction with the open-liveness guards its siblings use
+	// (unexpired request, FOR UPDATE) so an expired card cannot still resolve and
+	// two concurrent taps cannot both commit (SAVR-06).
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_FACTS' AND ri.financial_email_observation_id IS NOT NULL AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, replyID).Scan(&itemID, &observationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -1570,18 +1578,13 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 		return true, err
 	}
 	var userID string
-	if err = p.pool.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return true, err
 	}
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='REVIEW'`, observationID, householdID); err != nil {
 		return true, err
 	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, observationID, householdID); err != nil {
-		return true, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE',updated_at=now() WHERE id=$1 AND household_id=$2`, itemID, householdID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE',updated_at=now() WHERE id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, itemID, householdID); err != nil {
 		return true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status='OPEN'`, itemID); err != nil {

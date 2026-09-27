@@ -573,7 +573,6 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	return source
 }
 
-// The worker is the only writer of a partial resolution, and the Inbox list API
 // TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite proves SAVR-06 for
 // provider email: a cash observation whose typed evidence predicates failed is
 // parked as FINANCIAL_EMAIL_FACTS with only IGNORE allowed, names the exact

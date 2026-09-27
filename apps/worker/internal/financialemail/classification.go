@@ -139,7 +139,15 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 			classification.ClaimOutcomes[key] = answer.Choice
 			continue
 		}
-		yes, decided := judgment.AcceptNoul(answer, classificationPolicy.Supported)
+		// material_ambiguity is an inverted claim read through the Ambiguity policy,
+		// so it must use that same policy here; judging it with Supported would make
+		// a noul in the (Low, High) band read as a decided negative to cashResidual
+		// while the boolean gate still treats it as undecided (SAVR-06).
+		policy := classificationPolicy.Supported
+		if key == "material_ambiguity" {
+			policy = classificationPolicy.Ambiguity
+		}
+		yes, decided := judgment.AcceptNoul(answer, policy)
 		classification.ClaimOutcomes[key] = "UNDECIDED"
 		if decided {
 			classification.ClaimOutcomes[key] = "NO"
@@ -168,11 +176,12 @@ func (c ObservationClassification) cashResidual() []string {
 	return missing
 }
 
-// factsMissing names the residual when no bounded plane was configured, so a
-// case Go cannot adjudicate names what it could not trust instead of borrowing
-// the human transfer-relationship choice (SAVR-06).
+// factsMissing names the residual when no bounded ruling is available (no plane
+// configured, or an incomplete observation). Nothing was evaluated, so it names
+// the whole missing evidence as one fact rather than inventing predicate-level
+// outcomes, and never borrows the human transfer-relationship choice (SAVR-06).
 func (c ObservationClassification) factsMissing() []string {
-	return []string{"evidence_support", "observation_type"}
+	return []string{"evidence_support"}
 }
 
 // reviewFacts returns the SAVR-06 review contract for this classification: the
@@ -197,11 +206,10 @@ func (c ObservationClassification) reviewFacts(residual []string, unbounded bool
 		consequence = reviewdec.CanonicalAmbiguity
 	}
 	provenance = map[string]any{"pipeline": "financial-provider-email"}
-	if c.ClaimOutcomes == nil {
-		c.ClaimOutcomes = map[string]string{}
-	}
 	if unbounded {
 		provenance["bounded_plane"] = "unconfigured"
+	} else if c.ClaimOutcomes == nil {
+		provenance["claim_outcomes"] = map[string]string{}
 	} else {
 		provenance["claim_outcomes"] = c.ClaimOutcomes
 	}

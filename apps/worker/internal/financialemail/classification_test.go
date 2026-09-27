@@ -165,3 +165,28 @@ func TestUnconfiguredVerifierIsNotApproval(t *testing.T) {
 		t.Fatalf("unconfigured verifier must report unverified, verified=%v err=%v", verified, err)
 	}
 }
+
+// material_ambiguity must be judged by the same inverted Ambiguity policy that
+// the boolean gate uses. Reading it with the non-inverted Supported policy made
+// a noul in the (Low, High) band record as a decided "NO" while the gate still
+// treated it as undecided, so cashResidual returned empty and the case borrowed
+// TRANSFER_CLASSIFICATION (SAVR-06, Hermes finding 1).
+func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
+	for _, probability := range []float64{0.10, 0.20} {
+		answers := cashRuling("CONTRIBUTION")
+		answers["material_ambiguity"] = noul(probability)
+		processor := &Processor{verifier: &stubVerifier{answers: answers}}
+		classification, _, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if classification.cashAllowed() {
+			t.Fatalf("undecided ambiguity (noul=%.2f) must fail closed: %+v", probability, classification)
+		}
+		// The same undecided reading must reach the residual so the review names the
+		// real blocker instead of falling through to a transfer classification.
+		if !containsString(classification.cashResidual(), "transaction_ambiguity") {
+			t.Fatalf("undecided ambiguity (noul=%.2f) must produce the transaction_ambiguity residual: %+v", probability, classification.cashResidual())
+		}
+	}
+}
