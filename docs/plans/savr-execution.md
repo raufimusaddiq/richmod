@@ -317,8 +317,11 @@ a cash movement whose typed evidence failed parks as the new
 dimension (`observation_type`, `cash_movement`, `evidence_support`,
 `transaction_ambiguity`) with only `IGNORE` allowed — no canonical write. A
 transfer relationship/purpose residual and a date Go could not parse keep
-`TRANSFER_CLASSIFICATION`; malformed wealth values route to
-`FINANCIAL_EMAIL_FACTS` instead of a bogus transfer classification.
+`TRANSFER_CLASSIFICATION`. A case the bounded plane could not rule at all (an
+unconfigured plane, a gateway outage, or a structurally incomplete observation)
+does **not** park an IGNORE-only facts card from which the household could never
+recover: it takes the `TRANSFER_CLASSIFICATION` recovery lane so the missing
+amount or relationship can be supplied.
 
 Exit:
 

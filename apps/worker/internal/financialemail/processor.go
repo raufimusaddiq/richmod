@@ -259,11 +259,11 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 // evidenceReview parks a cash case whose bounded evidence claims failed, naming
 // only the unsupported dimensions instead of reusing the human
 // transfer-relationship choice (SAVR-06).
-func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, source, id string, observation observation, classification ObservationClassification, unbounded bool) error {
+func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, source, id string, observation observation, classification ObservationClassification) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
 		return err
 	}
-	missing, affected, consequence, provenance := classification.reviewFacts(classification.cashResidual(), unbounded)
+	missing, affected, consequence, provenance := classification.reviewFacts(classification.cashResidual())
 	decision, ok := reviewdec.Preset("FINANCIAL_EMAIL_FACTS", "financial_email_observation", id)
 	if !ok {
 		return fmt.Errorf("no review decision preset for provider evidence residual")
@@ -381,20 +381,19 @@ type cashPlan struct {
 	account, wealth, amount, purpose, existing, providerReference, review string
 	missingEntities                                                       []string
 	classification                                                        ObservationClassification
-	// unbounded marks a residual raised because no bounded plane was configured,
-	// so the review names what Go could not prove rather than a failed predicate.
-	unbounded  bool
-	at         time.Time
-	candidates []string
+	at                                                                    time.Time
+	candidates                                                            []string
 }
 
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil {
-		// A structurally incomplete observation cannot be adjudicated, so park it
-		// as a facts residual naming what Go could not trust (SAVR-06).
-		plan.review = "FINANCIAL_EMAIL_FACTS"
-		plan.unbounded = true
+		// A structurally incomplete observation cannot be adjudicated and Go
+		// cannot prove a single predicate about it, so park the recovery lane that
+		// lets the household supply the missing amount/relationship. That is the
+		// one residual a human can actually fix, unlike an IGNORE-only facts card
+		// (SAVR-06, Hermes recovery finding).
+		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
 	// A configured bounded plane rules on whether the email actually supports the
@@ -403,11 +402,14 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	// production (ADR-038, PRD §21).
 	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
 	if classifyErr != nil {
-		// A provider outage is transient infrastructure state, not a semantic
-		// verdict. Returning the error keeps the observation PENDING so the queue
-		// retries, instead of parking a real cash movement on an IGNORE-only card
-		// from which it could never be recovered (AGENTS.md).
-		return plan, classifyErr
+		// The bounded plane could not rule (gateway outage). That is infrastructure
+		// state, not a semantic verdict, so the case must still end somewhere a
+		// human can act: park the shared transfer-classification recovery lane that
+		// lets the household supply the missing amount/relationship. Returning the
+		// raw error instead left the observation PENDING with no card once the job
+		// hit max_attempts (SAVR-06, Hermes B2).
+		plan.review = "TRANSFER_CLASSIFICATION"
+		return plan, nil
 	}
 	if verified {
 		if residual := classification.cashResidual(); len(residual) > 0 {
@@ -424,8 +426,10 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			v.MovementType = &movement
 		}
 	} else if v.Confidence < .8 {
-		plan.review = "FINANCIAL_EMAIL_FACTS"
-		plan.unbounded = true
+		// No bounded plane ruled and the extractor's own confidence is below the
+		// legacy gate, so nothing proves the movement. Route to the recovery lane
+		// rather than an IGNORE-only facts card the household cannot act on.
+		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
 	var err error
@@ -583,7 +587,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	}
 	switch plan.review {
 	case "FINANCIAL_EMAIL_FACTS":
-		return p.evidenceReview(ctx, tx, household, source, id, v, plan.classification, plan.unbounded)
+		return p.evidenceReview(ctx, tx, household, source, id, v, plan.classification)
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth, plan.missingEntities)
 	case "CONFLICTING_EVIDENCE":

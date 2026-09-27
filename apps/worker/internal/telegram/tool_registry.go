@@ -91,6 +91,12 @@ func reviewActionsForType(kind string) []string {
 		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
+	case "FINANCIAL_EMAIL_FACTS":
+		// The provider email did not support a required fact and no canonical
+		// transaction was written, so the only bounded action is to acknowledge it.
+		// Without this case the default offered CONFIRM, which boundedReviewAction
+		// rejects, leaving the agent lane unreachable (SAVR-06, Hermes).
+		return []string{"IGNORE"}
 	default:
 		return []string{"CONFIRM", "IGNORE"}
 	}

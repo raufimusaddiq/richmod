@@ -136,7 +136,19 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 			continue
 		}
 		if answer.Type == "choice" {
-			classification.ClaimOutcomes[key] = answer.Choice
+			// A choice only clears the gate when AcceptChoice accepts it, exactly
+			// like the booleans below and the ObservationType/MovementType fields
+			// above. Recording the raw label regardless made a rejected choice read
+			// as a passing predicate, so cashResidual() came back empty and the case
+			// fell through to a bogus transfer classification (SAVR-06, Hermes B1).
+			criteria, policy := observationTypeCriteria, classificationPolicy.Type
+			if key == "movement_type" {
+				criteria, policy = movementTypeCriteria, classificationPolicy.Movement
+			}
+			classification.ClaimOutcomes[key] = "UNDECIDED"
+			if judgment.AcceptChoice(answer, judgment.ChoiceCriteria(criteria), policy) {
+				classification.ClaimOutcomes[key] = answer.Choice
+			}
 			continue
 		}
 		// material_ambiguity is an inverted claim read through the Ambiguity policy,
@@ -176,27 +188,15 @@ func (c ObservationClassification) cashResidual() []string {
 	return missing
 }
 
-// factsMissing names the residual when no bounded ruling is available (no plane
-// configured, or an incomplete observation). Nothing was evaluated, so it names
-// the whole missing evidence as one fact rather than inventing predicate-level
-// outcomes, and never borrows the human transfer-relationship choice (SAVR-06).
-func (c ObservationClassification) factsMissing() []string {
-	return []string{"evidence_support"}
-}
-
 // reviewFacts returns the SAVR-06 review contract for this classification: the
 // exact unsupported dimensions, the validator consequence that follows from
 // them, and whether a rule (rather than a predicate) ruled. Derived here so no
 // call site can hand-roll a contradicting contract.
-func (c ObservationClassification) reviewFacts(residual []string, unbounded bool) (missing, affected []string, consequence reviewdec.Consequence, provenance map[string]any) {
-	// Only a bounded ruling that actually ran can name predicate-level facts. An
-	// unbounded residual has no predicate outcomes, so it must not fabricate the
-	// four failed dimensions a zero classification would appear to carry.
-	if unbounded {
-		missing = c.factsMissing()
-	} else {
-		missing = residual
-	}
+func (c ObservationClassification) reviewFacts(residual []string) (missing, affected []string, consequence reviewdec.Consequence, provenance map[string]any) {
+	// Only a bounded ruling that actually ran reaches here, so it may name
+	// predicate-level facts. A case with no bounded ruling never parks a facts
+	// residual: it takes the recovery lane instead (SAVR-06).
+	missing = residual
 	if len(missing) == 0 {
 		missing = []string{"evidence_support"}
 	}
@@ -206,9 +206,7 @@ func (c ObservationClassification) reviewFacts(residual []string, unbounded bool
 		consequence = reviewdec.CanonicalAmbiguity
 	}
 	provenance = map[string]any{"pipeline": "financial-provider-email"}
-	if unbounded {
-		provenance["bounded_plane"] = "unconfigured"
-	} else if c.ClaimOutcomes == nil {
+	if c.ClaimOutcomes == nil {
 		provenance["claim_outcomes"] = map[string]string{}
 	} else {
 		provenance["claim_outcomes"] = c.ClaimOutcomes

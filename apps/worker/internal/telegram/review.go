@@ -1578,22 +1578,31 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 		return true, err
 	}
 	var userID string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+	// Require an active household membership, not just an active Telegram
+	// identity, exactly like the sibling resolvers (SAVR-06, Hermes).
+	if err = tx.QueryRow(ctx, `SELECT ti.user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.telegram_user_id=$1 AND ti.household_id=$2 AND ti.active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 		return true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='REVIEW'`, observationID, householdID); err != nil {
 		return true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE',updated_at=now() WHERE id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, itemID, householdID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,resolution_action='IGNORE',updated_at=now() WHERE id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, itemID, householdID, userID); err != nil {
 		return true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status='OPEN'`, itemID); err != nil {
 		return true, err
 	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, itemID); err != nil {
+		return true, err
+	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'IGNORE_FINANCIAL_EMAIL_FACTS','financial_email_observation',$3,jsonb_build_object('review_item_id',$4::uuid))`, householdID, userID, observationID, itemID); err != nil {
 		return true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' ELSE 'IGNORED' END WHERE id=$1`, sourceEventID); err != nil {
+	// Three-branch CASE shared with reviewdomain.ResolveFinancialEmailReview and
+	// financialemail's own projection: an email with one APPLIED observation is
+	// PROCESSED even after another observation is ignored, so this lane must not
+	// stamp IGNORED over canonical state already written (SAVR-06, Hermes B3).
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1`, sourceEventID); err != nil {
 		return true, err
 	}
 	if err = enqueueReply(ctx, tx, update, "Bukti email finansial diabaikan."); err != nil {
@@ -1829,7 +1838,11 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		return true, err
 	}
 	var observationID, institution, hint, originalSource string
-	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') ORDER BY wo.created_at DESC LIMIT 1`, householdID).Scan(&observationID, &institution, &hint, &originalSource)
+	// Bind the wealth observation to the card the user actually replied to, not
+	// just the newest PENDING observation in the household. Without the message
+	// join an IGNORE on one card (such as a provider-email facts card) could
+	// resolve an unrelated pending wealth observation (SAVR-06, Hermes).
+	err = p.pool.QueryRow(ctx, `SELECT wo.id::text,wo.institution,wo.account_hint,d.source_event_id FROM wealth_observation wo JOIN review_item ri ON ri.wealth_observation_id=wo.id JOIN review_request r ON r.review_item_id=ri.id JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN document d ON d.id=wo.document_id WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('OPEN','PENDING_SEND') AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND $3<>0 ORDER BY wo.created_at DESC LIMIT 1`, householdID, update.Message.Chat.ID, replyID).Scan(&observationID, &institution, &hint, &originalSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

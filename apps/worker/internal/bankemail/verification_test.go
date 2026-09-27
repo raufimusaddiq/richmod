@@ -133,7 +133,6 @@ func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 	}
 }
 
-// 5) No additional intelligence pass: the whole ruling rides in the single
 // An undecided material predicate is a missing fact, not a conflict: nothing
 // disagreed, the plane just could not decide, so the review must request the
 // fact rather than claim an independent-evidence conflict (SAVR-06).

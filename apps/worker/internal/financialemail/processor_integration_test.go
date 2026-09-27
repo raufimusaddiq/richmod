@@ -604,7 +604,7 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = (&Processor{pool: pool}).evidenceReview(ctx, tx, h, source, observationID, v, classification, false); err != nil {
+	if err = (&Processor{pool: pool}).evidenceReview(ctx, tx, h, source, observationID, v, classification); err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {

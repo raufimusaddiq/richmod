@@ -799,7 +799,7 @@ Keep bounded evidence verification for:
 - transaction_observed
 - amount_supported
 - direction_supported
-- channel_supported
+- semantic_grounded
 - material_ambiguity
 
 Preserve PR #120 semantics:
