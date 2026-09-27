@@ -18,6 +18,9 @@ type EvidenceVerification struct {
 	DirectionSupported  bool
 	ChannelSupported    bool
 	MaterialAmbiguity   bool
+	// Each bounded predicate retains YES, NO, or UNDECIDED independently of
+	// the booleans used by the canonical auto-confirm guard.
+	ClaimOutcomes map[string]string
 
 	// AmbiguityDecidedNotAmbiguous records that the ambiguity question resolved to
 	// a decided *negative*. It is tracked separately because material_ambiguity is
@@ -228,6 +231,27 @@ func (p *Processor) verifyEvidenceOnce(ctx context.Context, requestID string, ex
 	verification.DirectionSupported = noulClaimed(result.Answers, "direction_supported", evidenceVerificationPolicy.Direction)
 	verification.ChannelSupported = noulClaimed(result.Answers, "channel_supported", evidenceVerificationPolicy.Channel)
 	verification.MaterialAmbiguity, verification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity", evidenceVerificationPolicy.Ambiguity)
+	verification.ClaimOutcomes = make(map[string]string, len(verificationClaims))
+	policies := map[string]judgment.NoulPolicy{
+		"transaction_observed": evidenceVerificationPolicy.Observed,
+		"amount_supported":     evidenceVerificationPolicy.Amount,
+		"direction_supported":  evidenceVerificationPolicy.Direction,
+		"channel_supported":    evidenceVerificationPolicy.Channel,
+		"material_ambiguity":   evidenceVerificationPolicy.Ambiguity,
+	}
+	for _, claim := range verificationClaims {
+		status := "UNDECIDED"
+		if answer, ok := result.Answers[claim.Key]; ok {
+			yes, decided := judgment.AcceptNoul(answer, policies[claim.Key])
+			if decided {
+				status = "NO"
+				if yes {
+					status = "YES"
+				}
+			}
+		}
+		verification.ClaimOutcomes[claim.Key] = status
+	}
 	return verification, true, nil
 }
 

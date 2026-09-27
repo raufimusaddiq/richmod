@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
@@ -79,6 +80,35 @@ func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 		if _, ok := verifier.request.Questions[claim]; !ok {
 			t.Fatalf("missing claim %q in %v", claim, verifier.request.Questions)
 		}
+	}
+}
+
+func TestEvidenceVerificationPreservesExactResidual(t *testing.T) {
+	answers := supportedRuling()
+	answers["channel_supported"] = noul(0.01)
+	verification, verified, err := (&Processor{verifier: &stubVerifier{answers: answers}}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil || !verified || verification.supported() {
+		t.Fatalf("negative evidence must block confirmation: %+v verified=%t err=%v", verification, verified, err)
+	}
+	extraction := testExtraction()
+	date := "2026-09-27T12:00:00+07:00"
+	parsed, err := time.Parse(time.RFC3339, date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extraction.TransactionAt = &parsed
+	decision := verificationReviewDecision("household", "source", extraction, verification)
+	if len(decision.AffectedFacts) != 1 || decision.AffectedFacts[0] != "channel" || len(decision.MissingFacts) != 0 || decision.ProposedFacts["channel"] != "QR" || decision.KnownFacts["transaction_at"] != timeValue(extraction.TransactionAt) {
+		t.Fatalf("channel conflict must retain known time without inventing a missing fact: %+v", decision)
+	}
+	answers["channel_supported"] = noul(0.5)
+	verification, _, err = (&Processor{verifier: &stubVerifier{answers: answers}}).verifyEvidence(context.Background(), "src", extraction, TrustedEmail{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision = verificationReviewDecision("household", "source", extraction, verification)
+	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "channel" || decision.KnownFacts["transaction_at"] != timeValue(extraction.TransactionAt) {
+		t.Fatalf("undecided channel must be the sole residual: %+v", decision)
 	}
 }
 

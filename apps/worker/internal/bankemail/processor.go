@@ -321,16 +321,16 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		_ = p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "VERIFICATION_FAILED", "RETRY")
 		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
 	}
-	if verified && !verification.supported() {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", partialDecision(household, payload.SourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", []string{"transaction_semantics"}, "bounded verification could not confirm the email supports the extracted transaction facts"))
-	}
-	if !verified && extraction.Confidence < 0.80 {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
-	}
 	if verified {
 		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
 			return persistErr
 		}
+	}
+	if verified && !verification.supported() {
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification))
+	}
+	if !verified && extraction.Confidence < 0.80 {
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
 	}
 	var alreadyPersisted bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
@@ -393,6 +393,9 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 	if amount := value(extraction.AmountIDR); amount != "" {
 		known["amount_idr"] = amount
 	}
+	if at := timeValue(extraction.TransactionAt); at != "" {
+		known["transaction_at"] = at
+	}
 	if extraction.Direction != nil {
 		known["direction"] = *extraction.Direction
 	}
@@ -425,6 +428,49 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 	}
 }
 
+// verificationReviewDecision keeps each independently supported fact while
+// targeting only the predicate(s) the bounded evidence check did not clear.
+func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification) reviewdec.Decision {
+	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", nil, "independent bank-email evidence did not support every extracted transaction fact")
+	decision.PolicyVersion = verification.PolicyVersion
+	decision.Provenance["claim_outcomes"] = verification.ClaimOutcomes
+	for _, claim := range []struct{ predicate, fact string }{
+		{"transaction_observed", "transaction_observed"},
+		{"amount_supported", "amount_idr"},
+		{"direction_supported", "direction"},
+		{"channel_supported", "channel"},
+		{"material_ambiguity", "transaction_ambiguity"},
+	} {
+		status := verification.ClaimOutcomes[claim.predicate]
+		if claim.predicate == "material_ambiguity" {
+			if status == "NO" {
+				continue // A decided negative means the source is not ambiguous.
+			}
+		} else if status == "YES" {
+			continue
+		}
+		decision.AffectedFacts = append(decision.AffectedFacts, claim.fact)
+		if value, ok := decision.KnownFacts[claim.fact]; ok {
+			decision.ProposedFacts[claim.fact] = value
+			delete(decision.KnownFacts, claim.fact)
+		}
+		if status == "UNDECIDED" || status == "" {
+			decision.MissingFacts = append(decision.MissingFacts, claim.fact)
+			continue
+		}
+		if claim.predicate == "material_ambiguity" {
+			decision.Consequence = reviewdec.CanonicalAmbiguity
+		} else {
+			decision.Consequence = reviewdec.IndependentEvidenceConflict
+		}
+		decision.DecisionClass = reviewdec.ClassEvidenceConflict
+	}
+	if decision.Consequence == "" {
+		decision.Consequence = reviewdec.BoundedResidual
+	}
+	return decision
+}
+
 // persistEvidenceVerification records the bounded ruling next to the extraction
 // so an operator can see what the decision plane actually claimed, without
 // storing the email body again (PRD §15/§20).
@@ -440,6 +486,7 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 		// whether the event may auto-confirm.
 		"ambiguity_decided_not_ambiguous": verification.AmbiguityDecidedNotAmbiguous,
 		"supported":                       verification.supported(),
+		"claim_outcomes":                  verification.ClaimOutcomes,
 		"policy_version":                  verification.PolicyVersion,
 	})
 	if err != nil {
