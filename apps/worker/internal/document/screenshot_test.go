@@ -11,8 +11,8 @@ func TestValidateScreenshotKeepsRowsIndependent(t *testing.T) {
 	inAt := "2026-08-25T11:00:00+07:00"
 	food := "food-dining"
 	input := screenshotExtraction{Confidence: .96, Transactions: []screenshotRow{
-		{Direction: "OUT", Amount: "75000", Currency: "IDR", TransactionAt: &outAt, Merchant: "Warung", CategorySlug: &food, CategoryConfidence: .94, Confidence: .97},
-		{Direction: "IN", Amount: "100000", Currency: "IDR", TransactionAt: &inAt, Merchant: "Teman", CategoryConfidence: 0, Confidence: .92},
+		{Direction: "OUT", Amount: ptr("75000"), Currency: "IDR", TransactionAt: &outAt, Merchant: "Warung", CategorySlug: &food, CategoryConfidence: .94, Confidence: .97},
+		{Direction: "IN", Amount: ptr("100000"), Currency: "IDR", TransactionAt: &inAt, Merchant: "Teman", CategoryConfidence: 0, Confidence: .92},
 	}}
 	rows, err := validateScreenshot(input, received, []categoryOption{{ID: "category-id", Slug: food}}, "")
 	if err != nil {
@@ -35,7 +35,7 @@ func TestUnacceptedVisionCategoriesRemainResidual(t *testing.T) {
 		{name: "missing category", confidence: .99},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: "1000", Currency: "IDR", TransactionAt: &date, CategorySlug: test.slug, CategoryConfidence: test.confidence, Confidence: .95}}}, time.Now().In(jakarta()), []categoryOption{{ID: "food-id", Slug: "food-dining"}}, "")
+			rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("1000"), Currency: "IDR", TransactionAt: &date, CategorySlug: test.slug, CategoryConfidence: test.confidence, Confidence: .95}}}, time.Now().In(jakarta()), []categoryOption{{ID: "food-id", Slug: "food-dining"}}, "")
 			if err != nil || len(rows) != 1 || rows[0].CategoryDecided {
 				t.Fatalf("category must remain residual: rows=%+v err=%v", rows, err)
 			}
@@ -44,7 +44,7 @@ func TestUnacceptedVisionCategoriesRemainResidual(t *testing.T) {
 }
 
 func TestValidateScreenshotRejectsOneInvalidRowInsteadOfDroppingIt(t *testing.T) {
-	input := screenshotExtraction{Confidence: .9, Transactions: []screenshotRow{{Direction: "OUT", Amount: "10.5", Currency: "IDR", Confidence: .9}}}
+	input := screenshotExtraction{Confidence: .9, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("10.5"), Currency: "IDR", Confidence: .9}}}
 	if _, err := validateScreenshot(input, time.Now().In(jakarta()), nil, ""); err == nil {
 		t.Fatal("expected the extraction to enter review")
 	}
@@ -59,19 +59,39 @@ func TestSupportedScreenshotTypes(t *testing.T) {
 }
 
 func TestValidateInvoiceRequiresPaidStatus(t *testing.T) {
-	input := screenshotExtraction{AccountHint: "wallet", PaymentStatus: "UNPAID", Confidence: 1, Transactions: []screenshotRow{{Direction: "OUT", Amount: "50000", Currency: "IDR", Merchant: "PLN", Description: "listrik", Confidence: 1}}}
+	input := screenshotExtraction{AccountHint: "wallet", PaymentStatus: "UNPAID", Confidence: 1, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("50000"), Currency: "IDR", Merchant: "PLN", Description: "listrik", Confidence: 1}}}
 	if _, err := validateScreenshot(input, time.Now().In(jakarta()), nil, "BILL_OR_INVOICE"); err == nil {
 		t.Fatal("expected unpaid invoice to require review")
 	}
 }
 
 func TestIncomingScreenshotRowsRemainIncomeCandidates(t *testing.T) {
-	input := screenshotExtraction{AccountHint: "Primary bank", Confidence: .95, Transactions: []screenshotRow{{Direction: "IN", Amount: "100000", Currency: "IDR", Confidence: .95}}}
+	input := screenshotExtraction{AccountHint: "Primary bank", Confidence: .95, Transactions: []screenshotRow{{Direction: "IN", Amount: ptr("100000"), Currency: "IDR", Confidence: .95}}}
 	rows, err := validateScreenshot(input, time.Now().In(jakarta()), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 1 || rows[0].Type != "INCOME" {
 		t.Fatalf("incoming row must remain an income candidate: %+v", rows)
+	}
+}
+
+// SAVR-03: a genuinely invisible amount is representable as null and reaches
+// review. It is never coerced to a sentinel "0", and a still-invalid amount
+// (non-digits) is still rejected rather than silently accepted.
+func TestMissingScreenshotAmountIsRepresentable(t *testing.T) {
+	date := "2026-08-25T10:00:00+07:00"
+	rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Currency: "IDR", TransactionAt: &date, Merchant: "Warung", Confidence: .95}}}, time.Now().In(jakarta()), nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Value.Amount != nil {
+		t.Fatalf("a missing amount must stay absent, not become a sentinel: %+v", rows)
+	}
+	if issues := screenshotValidationIssues(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Currency: "IDR", TransactionAt: &date, Merchant: "Warung", Confidence: .95}}}, ""); len(issues) != 0 {
+		t.Fatalf("a null amount is a valid representation: %v", issues)
+	}
+	if _, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("0"), Currency: "IDR", Confidence: .95}}}, time.Now().In(jakarta()), nil, ""); err == nil {
+		t.Fatal("a zero amount is not a positive canonical amount")
 	}
 }

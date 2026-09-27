@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -91,13 +92,134 @@ func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
 }
 
 func screenshotDataRow(rowType, amount, merchant string) validatedScreenshotRow {
-	return validatedScreenshotRow{Value: screenshotRow{Amount: amount, Currency: "IDR", Merchant: merchant, Confidence: .95}, Type: rowType, TransactionAt: screenshotRowTime(), DateKnown: true}
+	return validatedScreenshotRow{Value: screenshotRow{Amount: &amount, Currency: "IDR", Merchant: merchant, Confidence: .95}, Type: rowType, TransactionAt: screenshotRowTime(), DateKnown: true}
 }
 
 func (f screenshotFixture) persist(t *testing.T, provenance rowChoiceProvenance, rows []validatedScreenshotRow) {
 	t.Helper()
 	if err := (&Processor{pool: f.pool}).persistScreenshot(context.Background(), f.documentID, f.householdID, f.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", provenance, rows); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestScreenshotMissingAmountReviewFinalizesWithoutSentinel(t *testing.T) {
+	f := seedScreenshotFixture(t, "Screenshot absent amount")
+	ctx := context.Background()
+	category := f.categoryID
+	row := screenshotDataRow("EXPENSE", "54000", "Warung")
+	row.Value.Amount = nil
+	row.Value.Direction, row.Value.CategorySlug = "OUT", &f.categorySlug
+	row.CategoryID, row.CategoryDecided = &category, true
+	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	var proposalID, reviewID, userID string
+	var amount *string
+	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,p.amount::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &amount, &userID); err != nil {
+		t.Fatal(err)
+	}
+	if amount != nil {
+		t.Fatalf("missing amount was stored as %q", *amount)
+	}
+	var count int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("no canonical transaction may exist before the user supplies an amount")
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	zero := "0"
+	if _, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &zero}); err != reviewdomain.ErrMissingAmountReviewInvalid {
+		t.Fatalf("zero must be rejected: %v", err)
+	}
+	amountIDR := "54000"
+	result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amountIDR})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var status, recorded string
+	if err := f.pool.QueryRow(ctx, `SELECT status,amount::text FROM transaction WHERE id=$1`, result.TransactionID).Scan(&status, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	if status != "CONFIRMED" || recorded != amountIDR {
+		t.Fatalf("transaction status=%s amount=%s", status, recorded)
+	}
+	retry, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer retry.Rollback(ctx)
+	if _, err := reviewdomain.ResolveMissingAmountProposal(ctx, retry, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amountIDR}); err != reviewdomain.ErrMissingAmountReviewInvalid {
+		t.Fatalf("review must not finalize twice: %v", err)
+	}
+}
+
+func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T) {
+	f := seedScreenshotFixture(t, "Screenshot absent amount ignored")
+	row := screenshotDataRow("EXPENSE", "54000", "Warung")
+	row.Value.Amount = nil
+	row.Value.Direction = "OUT"
+	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED' WHERE source_event_id=$1 AND amount IS NULL AND proposal_status='NEEDS_REVIEW'`, f.sourceID); err != nil {
+		t.Fatalf("a rejected screenshot proposal must be allowed to keep its missing amount: %v", err)
+	}
+	var count int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("ignoring an amount-missing row must not create a canonical transaction")
+	}
+}
+
+// Hermes Review: an income row whose amount is not visible must reach a
+// completable Telegram card, and a duplicate the ingest-time matcher could see
+// must still be found when the household supplies a day-only date.
+func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
+	f := seedScreenshotFixture(t, "Screenshot absent amount income")
+	ctx := context.Background()
+	row := screenshotDataRow("INCOME", "5000000", "Teman")
+	row.Value.Amount, row.Value.Direction, row.Value.CategorySlug, row.CategoryID = nil, "IN", nil, nil
+	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	var proposalID, reviewID, userID, requestState string
+	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1),COALESCE((SELECT c.state FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id WHERE r.review_item_id=ri.id LIMIT 1),'') FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &userID, &requestState); err != nil {
+		t.Fatal(err)
+	}
+	if requestState == "" {
+		t.Fatal("an income missing-amount row must project a completable Telegram card")
+	}
+	// A same-amount confirmed transaction at the row's printed time is the duplicate
+	// the ingest matcher sees; the household-supplied day must not lose it.
+	printedAt := screenshotRowTime()
+	if _, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,'INCOME','CONFIRMED',5000000,'IDR',$2,'Honor',.95,.95,now())`, f.householdID, printedAt); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	amount, day := "5000000", printedAt.AddDate(0, 0, 2).Format("2006-01-02")
+	result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amount, TransactionDate: day, IncomeConfirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var duplicates int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE transaction_id=$1 AND review_type='POSSIBLE_DUPLICATE' AND status='OPEN'`, result.TransactionID).Scan(&duplicates); err != nil {
+		t.Fatal(err)
+	}
+	if duplicates != 1 {
+		t.Fatalf("the ingest-visible duplicate must stay in duplicate review, got %d", duplicates)
 	}
 }
 

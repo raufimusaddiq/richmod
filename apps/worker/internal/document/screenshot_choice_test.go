@@ -39,7 +39,7 @@ func rowAnswerFor(choice string, top float64) judgment.Answer {
 }
 
 func unmatchedOutRow(amount string) validatedScreenshotRow {
-	return validatedScreenshotRow{Value: screenshotRow{Direction: "OUT", Amount: amount, Currency: "IDR", Merchant: "Warung", Confidence: .95}, Type: "EXPENSE", DateKnown: true}
+	return validatedScreenshotRow{Value: screenshotRow{Direction: "OUT", Amount: &amount, Currency: "IDR", Merchant: "Warung", Confidence: .95}, Type: "EXPENSE", DateKnown: true}
 }
 
 func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
@@ -68,6 +68,7 @@ func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
 		{"category conflict and date", "AMBIGUOUS_CATEGORY", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryConflict: true}, []string{"category"}},
 		{"category conflict and missing date", "TRANSACTION_FACTS_MISSING", validatedScreenshotRow{Type: "EXPENSE", CategoryConflict: true}, []string{"category", "transaction_at"}},
 		{"duplicate takes priority", "POSSIBLE_DUPLICATE", validatedScreenshotRow{Type: "EXPENSE"}, []string{"duplicate_relationship"}},
+		{"missing amount only", "MISSING_AMOUNT", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryID: ptr("food"), CategoryDecided: true, Value: screenshotRow{CategorySlug: ptr("food")}}, []string{"amount"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got := screenshotRowDecision("h", "s", "t", test.reason, 0, test.row, false)

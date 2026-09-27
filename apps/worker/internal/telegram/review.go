@@ -334,7 +334,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	var err error
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
 		var messageID int64
-		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id LEFT JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ((t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL','AWAITING_DATE')) OR (ri.proposal_id IS NOT NULL AND c.state='AWAITING_DATE')) AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
+		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id LEFT JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ((t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL','AWAITING_DATE')) OR (ri.proposal_id IS NOT NULL AND c.state IN ('AWAITING_DATE','AWAITING_DETAIL','AWAITING_CONFIRMATION'))) AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
@@ -344,6 +344,81 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		update.Message.ReplyToMessage = &struct {
 			MessageID int64 `json:"message_id"`
 		}{MessageID: messageID}
+	}
+	var amountItemID, amountProposalID, amountSourceID, amountUserID, amountRequestID, amountState, stagedAmount, amountType string
+	err = p.pool.QueryRow(ctx, `SELECT ri.id::text,p.id::text,p.source_event_id::text,ti.user_id::text,r.id::text,c.state,COALESCE(c.context_json->>'amount_idr',''),p.proposed_type
+		FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		JOIN review_item ri ON ri.id=r.review_item_id JOIN transaction_proposal p ON p.id=ri.proposal_id
+		JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active
+		JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now()
+		AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='MISSING_AMOUNT' AND c.state IN ('AWAITING_DETAIL','AWAITING_CONFIRMATION')
+		`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID).Scan(&amountItemID, &amountProposalID, &amountSourceID, &amountUserID, &amountRequestID, &amountState, &stagedAmount, &amountType)
+	if err == nil {
+		amount := strings.TrimSpace(update.Message.Text)
+		incomeConfirmed := false
+		if amountState == "AWAITING_CONFIRMATION" {
+			switch incomeReviewIntent(amount) {
+			case "CONFIRM":
+				amount, incomeConfirmed = stagedAmount, true
+			case "REJECT":
+				tx, beginErr := p.pool.Begin(ctx)
+				if beginErr != nil {
+					return true, beginErr
+				}
+				defer tx.Rollback(ctx)
+				if err := reviewdomain.IgnoreMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: householdID, UserID: amountUserID, ReviewItemID: amountItemID, ProposalID: amountProposalID, SourceEventID: amountSourceID, ActorType: "TELEGRAM"}); err != nil {
+					return true, err
+				}
+				if err := enqueueReply(ctx, tx, update, "Tidak dicatat sebagai penghasilan."); err != nil {
+					return true, err
+				}
+				return true, tx.Commit(ctx)
+			default:
+				return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Balas 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan.")
+			}
+		}
+		if !reviewdomain.ValidBankAmountIDR(amount) {
+			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Jumlah belum terbaca. Balas dengan angka IDR tanpa pemisah, contoh: 75000.")
+		}
+		tx, beginErr := p.pool.Begin(ctx)
+		if beginErr != nil {
+			return true, beginErr
+		}
+		defer tx.Rollback(ctx)
+		if amountType == "INCOME" && amountState == "AWAITING_DETAIL" {
+			tag, err := tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CONFIRMATION',context_json=context_json||jsonb_build_object('amount_idr',$2::text),updated_at=now() WHERE review_request_id=$1 AND state='AWAITING_DETAIL' AND EXISTS(SELECT 1 FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND r.status='OPEN' AND ri.status IN ('OPEN','PENDING_SEND'))`, amountRequestID, amount)
+			if err != nil {
+				return true, err
+			}
+			if tag.RowsAffected() != 1 {
+				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+			}
+			if err := enqueueReviewMessage(ctx, tx, amountRequestID, update.Message.Chat.ID, update.Message.MessageID, "Jumlah diterima. Balas 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan."); err != nil {
+				return true, err
+			}
+			return true, tx.Commit(ctx)
+		}
+		result, resolveErr := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{
+			HouseholdID: householdID, UserID: amountUserID, ReviewItemID: amountItemID, ProposalID: amountProposalID,
+			SourceEventID: amountSourceID, ActorType: "TELEGRAM", AmountIDR: &amount, IncomeConfirmed: incomeConfirmed,
+		})
+		if errors.Is(resolveErr, reviewdomain.ErrMissingAmountReviewInvalid) {
+			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Tinjauan berubah. Buka Review Inbox untuk menyelesaikannya.")
+		}
+		if resolveErr != nil {
+			return true, resolveErr
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field','amount')) ON CONFLICT DO NOTHING`, result.TransactionID, amountSourceID, amountRequestID); err != nil {
+			return true, err
+		}
+		if err := enqueueReply(ctx, tx, update, "Jumlah transaksi disimpan. Tinjauan selesai."); err != nil {
+			return true, err
+		}
+		return true, tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return true, err
 	}
 	var proposalReviewID, proposalID, sourceID, documentID, userID, requestID string
 	err = p.pool.QueryRow(ctx, `SELECT ri.id::text,ri.proposal_id::text,COALESCE(ri.source_event_id,p.source_event_id)::text,COALESCE(ri.document_id,NULLIF(p.metadata_json->>'document_id','')::uuid)::text,ti.user_id::text,r.id::text
@@ -473,6 +548,16 @@ func (p *Processor) continueProposalDateReview(ctx context.Context, sourceEventI
 		return err
 	}
 	_, err := p.pool.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text))`, update.Message.Chat.ID, update.Message.MessageID, "Balas dengan tanggal pembayaran, misalnya: 25 September 2026.")
+	return err
+}
+
+// continueProposalAmountReview re-asks the one missing fact and leaves the
+// proposal and review open, so an unusable amount never resolves the review.
+func (p *Processor) continueProposalAmountReview(ctx context.Context, sourceEventID, householdID, itemID string, update telegramUpdate, message string) error {
+	if _, err := p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	_, err := p.pool.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text))`, update.Message.Chat.ID, update.Message.MessageID, message)
 	return err
 }
 
@@ -2369,7 +2454,7 @@ func TelegramCompletableReviewType(reviewType string) bool {
 	case "CYCLE_RESIDUAL_ALLOCATION", "WEALTH_OBSERVATION_CONFIRMATION", "TRANSFER_CLASSIFICATION", "PAYSLIP_CONFIRMATION",
 		"POSSIBLE_DUPLICATE", "CONFLICTING_EVIDENCE",
 		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE",
-		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION",
+		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "MISSING_AMOUNT", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION",
 		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "FINANCIAL_EMAIL_RESOLUTION",
 		"UNKNOWN_BANK_TEMPLATE", "RECEIPT_MISMATCH":
 		return true

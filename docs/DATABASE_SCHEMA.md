@@ -82,7 +82,7 @@ erDiagram
     DOCUMENT ||--o{ DOCUMENT_PAGE : contains
     DOCUMENT ||--o{ DOCUMENT_EXTRACTION : extracted_as
     TRANSACTION ||--o{ REVIEW_ITEM : may_require
-    TRANSACTION_PROPOSAL ||--o{ REVIEW_ITEM : may_require
+    TRANSACTION_PROPOSAL ||--o{ REVIEW_ITEM : may_require_amount
     SOURCE_EVENT ||--o{ REVIEW_ITEM : may_require
     DOCUMENT ||--o{ REVIEW_ITEM : may_require
     REVIEW_ITEM ||--o{ REVIEW_REQUEST : delivered_as
@@ -157,8 +157,8 @@ erDiagram
 
 | Table | Purpose | Principal relationships / constraints |
 | --- | --- | --- |
-| `transaction_proposal` | Untrusted interpretation awaiting deterministic handling. | Household/source-event scoped; may become a transaction or review item. |
-| `review_item` | Canonical actionable human-review unit. | May reference a transaction, proposal, source event, or document; active uniqueness prevents duplicate open work. `review_type` is a CHECK-constrained reason set that now includes the source-fact residuals `MISSING_TRANSACTION_DATE` and `TRANSACTION_FACTS_MISSING`. Optional `decision` jsonb holds the PRD §7 ReviewDecision contract (known/proposed/missing/conflicting facts, bounded choices, reason code, decision class, why-not-auto-confirm, interaction mode); nullable so existing reviews stay resolvable. |
+| `transaction_proposal` | Untrusted interpretation awaiting deterministic handling. | Household/source-event scoped; may become a transaction or review item. `amount` is nullable only while `proposal_status IN ('NEEDS_REVIEW','REJECTED')`, so a screenshot row whose amount is genuinely not visible stays representable without a sentinel `0` (SAVR-03, migration `00070`) and may be ignored without inventing a value; a proposal that advances must carry a positive amount. |
+| `review_item` | Canonical actionable human-review unit. | May reference a transaction, proposal, source event, or document; active uniqueness prevents duplicate open work. `review_type` is a CHECK-constrained reason set that now includes the source-fact residuals `MISSING_TRANSACTION_DATE`, `TRANSACTION_FACTS_MISSING`, and the screenshot representation residual `MISSING_AMOUNT` (migration `00070`). A `MISSING_AMOUNT` item is proposal-bound: the canonical transaction is written only after the household supplies the amount, and a plausible same-amount transaction stays in duplicate review. Optional `decision` jsonb holds the PRD §7 ReviewDecision contract (known/proposed/missing/conflicting facts, bounded choices, reason code, decision class, why-not-auto-confirm, interaction mode); nullable so existing reviews stay resolvable. |
 | `review_request` | Telegram delivery/request for review. | Optional `review_item_id`; retains older transaction/proposal review linkage. `review_type` is CHECK-constrained to the same reason set as `review_item` (migration `00069`), so a document, payslip, bank, financial-email, wealth, or cycle review can be projected to Telegram (UIR-02). |
 | `review_request_recipient` | Per-recipient Telegram delivery binding. | `review_request_id → review_request`; stores chat/message IDs. |
 | `review_conversation` | Human review messages and resolution context. | `review_request_id → review_request`. `state` is CHECK-constrained (`AWAITING_MERCHANT`, `AWAITING_CATEGORY`, `AWAITING_DETAIL`, `AWAITING_DATE`, `AWAITING_PURPOSE`, `AWAITING_CONFIRMATION`, `AWAITING_MERCHANT_DECISION`, `RESOLVED`); `AWAITING_DATE` binds a date-only review reply to the transaction-date resolver (UIR-03); `AWAITING_MERCHANT_DECISION` tracks the optional post-confirm merchant-learning question independently of `review_request.status`, so the review item completes at confirm time (UIR-08). |

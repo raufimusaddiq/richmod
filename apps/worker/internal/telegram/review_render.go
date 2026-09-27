@@ -27,6 +27,12 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		context = promptTitle(decision)
 	}
 	switch {
+	case decision.ReasonCode == "MISSING_AMOUNT":
+		instruction := "Balas pesan ini dengan jumlah IDR berupa angka tanpa pemisah."
+		if contains(decision.MissingFacts, "transfer_relationship") {
+			instruction += " Setelah itu, konfirmasi apakah ini penghasilan atau transfer sendiri."
+		}
+		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Jumlah transaksi belum terlihat", context, instruction), "reply"
 	case decision.ReasonCode == "RECEIPT_MISMATCH" && decision.Consequence == reviewdec.QualitySignal && len(decision.MissingFacts) == 0:
 		const prompt = "Rincian struk tidak sesuai dengan total tercetak. Periksa total sebelum mencatat."
 		if strings.TrimSpace(context) == "" {

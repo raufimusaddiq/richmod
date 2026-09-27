@@ -66,7 +66,7 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 	assertIssueCoverage(t, "RECEIPT", receiptActual, "receipt")
 	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: "x", Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}})
 	assertIssueCoverage(t, "PAYSLIP", payslipActual, "payslip")
-	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: "x", Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE")
+	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: ptr("x"), Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE")
 	assertIssueCoverage(t, "BILL_OR_INVOICE", screenshotActual)
 	if repairableTopLevelField("RECEIPT", "receipt") != "" || repairableTopLevelField("PAYSLIP", "payslip") != "" {
 		t.Fatal("family-level validation failures must remain no-repair")
