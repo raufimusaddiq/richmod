@@ -21,9 +21,7 @@ func TestPendingBatchConfirmationRejectsMissingCategory(t *testing.T) {
 
 	processor := NewProcessor(f.pool, nil)
 	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, "ya")
-	if err == nil {
-		t.Fatal("missing category must block confirmation")
-	}
+	mustAgentTest(t, err)
 	if !handled {
 		t.Fatal("confirming a pending batch must be handled")
 	}
@@ -36,6 +34,11 @@ func TestPendingBatchConfirmationRejectsMissingCategory(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1`, f.householdID).Scan(&decisionRows))
 	if decisionRows != 0 {
 		t.Fatalf("an unresolved batch must not record a decision; rows=%d", decisionRows)
+	}
+	var status string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM telegram_pending_batch WHERE household_id=$1 AND telegram_user_id=$2`, f.householdID, f.chatID).Scan(&status))
+	if status != "CANCELLED" {
+		t.Fatalf("unresolved batch status=%s; want CANCELLED", status)
 	}
 }
 
