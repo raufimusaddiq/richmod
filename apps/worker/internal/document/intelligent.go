@@ -220,7 +220,7 @@ func decodeInterpretationArguments(call gateway.ToolCall) (gatewayInterpretation
 
 var interpretationFieldTypes = map[string]map[string]string{
 	toolInterpretReceipt:     {"merchant": "string", "transaction_at": "string", "currency": "string", "subtotal": "string", "tax": "string", "service_charge": "string", "discount": "string", "total": "string", "items": "array", "payment_method_hint": "string", "category_slug": "string"},
-	toolInterpretPayslip:     {"period": "string", "employer": "string", "gross_pay": "string", "allowances": "array", "deductions": "array", "net_pay": "string", "currency": "string", "pay_date": "string"},
+	toolInterpretPayslip:     {"period": "string", "employer": "string", "gross_pay": "string", "allowances": "array", "deductions": "array", "other_components": "array", "net_pay": "string", "currency": "string", "pay_date": "string"},
 	toolInterpretTransaction: {"account_hint": "string", "transactions": "array", "payment_status": "string", "due_date": "string"},
 	toolInterpretWealth:      {"institution": "string", "account_hint": "string", "observed_value_idr": "string", "quantity": "string", "unit": "string", "unit_price_idr": "string", "observed_date": "string"},
 	toolInterpretUnknown:     {"document_description": "string"},
@@ -240,6 +240,9 @@ var interpretationArrayItemSchemas = map[string]map[string]map[string]any{
 		}, "required": []string{"name", "amount"}},
 		"deductions": {"type": "object", "additionalProperties": false, "properties": map[string]any{
 			"name": map[string]any{"type": "string"}, "amount": map[string]any{"type": "string", "pattern": "^[0-9]+$"},
+		}, "required": []string{"name", "amount"}},
+		"other_components": {"type": "object", "additionalProperties": false, "properties": map[string]any{
+			"name": map[string]any{"type": "string"}, "amount": map[string]any{"type": "string", "pattern": "^-?[0-9]+$"},
 		}, "required": []string{"name", "amount"}},
 	},
 	toolInterpretTransaction: {
@@ -432,7 +435,7 @@ func interpretationToolDefinitions() []gateway.ToolDefinition {
 	}
 	return []gateway.ToolDefinition{
 		callTool(toolInterpretReceipt, "Interpret one receipt: merchant, line items, amounts, and date.", interpretationCriticalFields[toolInterpretReceipt]),
-		callTool(toolInterpretPayslip, "Interpret one payslip: employer, period, gross, allowances, deductions, net pay, and pay date.", interpretationCriticalFields[toolInterpretPayslip]),
+		callTool(toolInterpretPayslip, "Interpret one payslip: employer, period, gross, allowances, deductions, other signed components, net pay, and pay date.", interpretationCriticalFields[toolInterpretPayslip]),
 		callTool(toolInterpretTransaction, "Interpret visible completed transaction rows, transfer proof, or balance-bearing transaction history.", interpretationCriticalFields[toolInterpretTransaction]),
 		callTool(toolInterpretWealth, "Interpret one visible point-in-time account balance or valuation observation.", interpretationCriticalFields[toolInterpretWealth]),
 		callTool(toolInterpretUnknown, "Interpret an unreadable or generic financial document that still needs review.", nil),

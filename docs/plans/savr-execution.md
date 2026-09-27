@@ -161,6 +161,13 @@ Rework only the representation needed to prevent false semantic loss:
   quality is not confused with net-pay validity;
 - preserve net pay/pay date/employer/period independently.
 
+Implementation slice: the printed range is validated against its month label,
+then normalized to `YYYY-MM` for proposal/salary storage while the literal
+period remains in extraction and `period_raw`. Missing gross pay is nullable,
+and unfamiliar signed payroll lines are preserved as `other_components` rather
+than used to invent a net-pay formula. Unproved arithmetic is a quality signal;
+the payslip review/finalizer parity remains SAVR-07.
+
 Do not model a full payroll accounting engine.
 
 Exit:

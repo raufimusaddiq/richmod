@@ -31,7 +31,7 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 			}
 		}
 	}
-	payslipIssues := []string{"currency", "confidence", "net_pay", "gross_pay", "period", "allowances[0].amount", "deductions[0].amount", "payslip"}
+	payslipIssues := []string{"currency", "confidence", "net_pay", "gross_pay", "period", "allowances[0].amount", "deductions[0].amount", "other_components[0].amount", "payslip"}
 	for _, field := range payslipIssues {
 		for _, code := range []string{"INVALID_CURRENCY", "INVALID_CONFIDENCE", "INVALID_AMOUNT", "INVALID_AMOUNT_OR_ORDER", "INVALID_PERIOD", "UNMAPPED_VALIDATION_FAILURE"} {
 			issue := ValidationIssue{Field: field, Code: code}
@@ -64,7 +64,7 @@ func TestEveryValidationIssueMapsToRepairableField(t *testing.T) {
 	receipt := receiptExtraction{Currency: "USD", Total: "1.2", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: -1, Items: []receiptItem{{Name: "", Amount: "x"}}, TransactionAt: ptr("not-a-date")}
 	_, receiptActual := validateReceiptIssues(receipt, received)
 	assertIssueCoverage(t, "RECEIPT", receiptActual, "receipt")
-	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: "x", Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}})
+	payslipActual := payslipValidationIssues(payslipExtraction{Currency: "USD", Confidence: 2, NetPay: "x", GrossPay: ptr("x"), Period: "bad", Allowances: []moneyLine{{Name: "a", Amount: "x"}}, Deductions: []moneyLine{{Name: "d", Amount: "x"}}, OtherComponents: []moneyLine{{Name: "other", Amount: "x"}}})
 	assertIssueCoverage(t, "PAYSLIP", payslipActual, "payslip")
 	screenshotActual := screenshotValidationIssues(screenshotExtraction{Confidence: 2, AccountHint: strings.Repeat("x", 161), Transactions: []screenshotRow{{Amount: ptr("x"), Currency: "USD", Direction: "?", Merchant: strings.Repeat("x", 161), Confidence: 2, CategoryConfidence: 2}}}, "BILL_OR_INVOICE")
 	assertIssueCoverage(t, "BILL_OR_INVOICE", screenshotActual)
