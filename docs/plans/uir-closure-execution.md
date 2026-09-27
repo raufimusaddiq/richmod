@@ -382,6 +382,10 @@ Perform a short deployed smoke check using real current flows:
 
 Then update UIR docs from "delivered" to "product-closed".
 
+**UIRC-06 status — CODE PRODUCT-CLOSED; interactive deployed smoke deferred (2026-09-27).** Merged main is `37b87306a97bfa65c36412c4e2ce345239105206` (PR #191). The exact-SHA gates are green: CI (`backend` API+worker `go test ./...`, `secrets`, `frontend`, `containers`), CodeQL/Analyze, and Release Images published immutable `sha-37b8730…` tags for api, worker, migrate, and web. Deployment run `36302582979` shipped that SHA: migration reported nothing to run (schema version 69), `/healthz`, `/readyz`, and `/` return 200; api/worker/web were running with zero restarts and no error lines in the five-minute post-deploy log window. The merged contract tests and green gates close the code-level matrix; this does not prove the interactive smoke below.
+
+**Deferred:** the interactive deployed smoke matrix (Telegram category/date review; cycle residual actionability; bank prerequisite/completion incl. invalid-fact rejection; investment-transfer ambiguity; Wealth snapshot navigation; Web ↔ Telegram stale resolution; Admin Review metrics). Production has a single household, and `docs/runbooks/sprint-delivery.md` forbids seeding test transactions into real household data, so the smoke was not run rather than risk canonical financial state. Run it when a disposable test household or an explicitly-approved manual script exists; it is the only remaining UIRC-06 item.
+
 ## Stop condition
 
 After UIRC-06 passes:

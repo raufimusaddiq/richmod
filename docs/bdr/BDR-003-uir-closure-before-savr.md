@@ -1,6 +1,6 @@
 # BDR-003 — Close UIR Contract Drift Before SAVR
 
-**Status:** ACCEPTED PRODUCT DECISION  
+**Status:** ACCEPTED PRODUCT DECISION — CODE PRODUCT-CLOSED 2026-09-27 (PR #191, `main@37b8730`); interactive deployed smoke deferred (single production household, runbook forbids seeding test data).
 **Date:** 2026-09-27  
 **Baseline:** `main@fabe7368c76dff2032685e23ef037bcefe36dcef`
 
