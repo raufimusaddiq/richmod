@@ -64,6 +64,12 @@ Telemetry prerequisite: normalize all three dimension arrays at the worker
 recorder boundary before PostgreSQL insertion, so omitted Jev residuals do not
 become NULL. Contract helpers and product metrics remain part of SAVR-01.
 
+The Operations product aggregate can derive known-fact re-asks from populated
+ReviewDecision `knownFacts` / `missingFacts`; historical contracts without a
+`missingFacts` array are excluded. The other three SAVR metrics require
+validation-consequence / accepted-fact provenance and remain explicitly listed
+as coverage gaps, not zero-valued rates.
+
 ## Objective
 
 Make SAVR measurable before changing semantics.
