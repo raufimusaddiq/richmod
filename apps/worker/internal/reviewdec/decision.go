@@ -24,6 +24,20 @@ const (
 	ClassCorrectionConfirmation = "CORRECTION_CONFIRMATION"
 )
 
+// Consequence names what a validator actually found, independently of which
+// source produced it. It never grants canonical mutation authority.
+type Consequence string
+
+const (
+	HardCanonicalInvariant      Consequence = "HARD_CANONICAL_INVARIANT"
+	RepresentationInvalid       Consequence = "REPRESENTATION_INVALID"
+	IndependentEvidenceConflict Consequence = "INDEPENDENT_EVIDENCE_CONFLICT"
+	BoundedResidual             Consequence = "BOUNDED_RESIDUAL"
+	QualitySignal               Consequence = "QUALITY_SIGNAL"
+	HumanPolicy                 Consequence = "HUMAN_POLICY"
+	CanonicalAmbiguity          Consequence = "CANONICAL_AMBIGUITY"
+)
+
 // Interaction modes (PRD §7.8). Generic FORM is intentionally absent so it
 // cannot become the default by accident.
 const (
@@ -74,6 +88,8 @@ type Decision struct {
 	Subject         Subject                    `json:"subject"`
 	SourceEventID   string                     `json:"sourceEventId,omitempty"`
 	ReasonCode      string                     `json:"reasonCode"`
+	Consequence     Consequence                `json:"validationConsequence,omitempty"`
+	AffectedFacts   []string                   `json:"affectedFacts,omitempty"`
 	DecisionClass   string                     `json:"decisionClass"`
 	KnownFacts      map[string]any             `json:"knownFacts"`
 	ProposedFacts   map[string]any             `json:"proposedFacts,omitempty"`

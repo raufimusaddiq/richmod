@@ -751,7 +751,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		return true, p.processMerchantLearningCallback(ctx, sourceEventID, householdID, update, data)
 	}
 	duplicateMerge := strings.HasPrefix(data, "review:dup:merge:")
-	if !duplicateMerge && data != "review:dup:new" && data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:asset" && data != "review:ignore" {
+	if !duplicateMerge && data != "review:dup:new" && data != "review:edit" && data != "review:merchant" && data != "review:description" && data != "review:category" && data != "review:asset" && data != "review:ignore" && data != "review:quality:confirm" {
 		return false, nil
 	}
 	if data == "review:ignore" {
@@ -860,6 +860,15 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 			return true, err
 		}
 		return true, tx.Commit(ctx)
+	}
+	if data == "review:quality:confirm" {
+		if reviewType != "RECEIPT_MISMATCH" {
+			return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return true, err
+		}
+		return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, "", update, reviewExtraction{Confidence: 1})
 	}
 	if data == "review:ignore" {
 		if err = tx.Commit(ctx); err != nil {
@@ -2247,6 +2256,8 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		if err != nil {
 			return err
 		}
+	case "receipt_quality":
+		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Terima total", CallbackData: "review:quality:confirm"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -2360,7 +2371,7 @@ func TelegramCompletableReviewType(reviewType string) bool {
 		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE",
 		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION",
 		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "FINANCIAL_EMAIL_RESOLUTION",
-		"UNKNOWN_BANK_TEMPLATE":
+		"UNKNOWN_BANK_TEMPLATE", "RECEIPT_MISMATCH":
 		return true
 	default:
 		return false

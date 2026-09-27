@@ -236,3 +236,13 @@ No universal validation engine.
 
 No schema migration unless a source/domain cannot represent the required state
 with existing structures.
+
+## Receipt implementation (SAVR-02/06)
+
+ReviewDecision now carries an optional typed `validationConsequence` and
+`affectedFacts` pair. For receipt line/total mismatch, Go records
+`QUALITY_SIGNAL` targeting `receipt_arithmetic`. With category and date known,
+the existing `RECEIPT_MISMATCH` reason asks no missing semantic fact; the
+household may explicitly accept the printed total or ignore the evidence.
+Canonical amount/category/date validation remains in the shared transaction
+review finalizer. Candidate duplicates still take priority.

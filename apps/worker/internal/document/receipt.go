@@ -413,7 +413,11 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	return tx.Commit(ctx)
 }
 
-func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown bool) string {
+// receiptReviewReason names the exact residual dimension(s). The arithmetic
+// quality signal is independent of the category/date facts, so a reconciled-
+// looking receipt that fails its own arithmetic is not reported as a category
+// ambiguity (ADR-048, SAVR-06).
+func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown, arithmeticSignal bool) string {
 	if possibleDuplicate {
 		return "POSSIBLE_DUPLICATE"
 	}
@@ -424,6 +428,8 @@ func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown bool) strin
 		return "AMBIGUOUS_CATEGORY"
 	case !dateKnown:
 		return "MISSING_TRANSACTION_DATE"
+	case arithmeticSignal:
+		return "RECEIPT_MISMATCH"
 	default:
 		return "AMBIGUOUS_CATEGORY"
 	}
@@ -489,7 +495,8 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	}
 	// PRD 7/ADR-045: the stored reason names the exact residual dimension(s). A
 	// fallback received time is provenance, never an observed transaction date.
-	reviewType := receiptReviewReason(possibleDuplicate, categoryID != nil, validation.DateKnown)
+	arithmeticSignal := validation.ArithmeticAvailable && !validation.ArithmeticOK
+	reviewType := receiptReviewReason(possibleDuplicate, categoryID != nil, validation.DateKnown, arithmeticSignal)
 	// PRD 7: persist the contract even without a Telegram recipient; the Inbox
 	// must not depend on notification configuration.
 	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
@@ -499,6 +506,12 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	// PRD 18.3: a fallback time keeps its provenance instead of pretending the
 	// receipt printed it.
 	decision.KnownFacts = receiptKnownFacts(value, validation)
+	if categoryID != nil {
+		decision.KnownFacts["category"] = *categoryID
+	}
+	if arithmeticSignal {
+		decision.Provenance["arithmetic_quality_signal"] = true
+	}
 	decision.SourceEventID = sourceID
 	decision.EvidenceRefs = []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceID}}
 	encoded, encodeErr := decision.JSON()

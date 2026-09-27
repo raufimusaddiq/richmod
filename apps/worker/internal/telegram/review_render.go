@@ -27,6 +27,12 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		context = promptTitle(decision)
 	}
 	switch {
+	case decision.ReasonCode == "RECEIPT_MISMATCH" && decision.Consequence == reviewdec.QualitySignal && len(decision.MissingFacts) == 0:
+		const prompt = "Rincian struk tidak sesuai dengan total tercetak. Periksa total sebelum mencatat."
+		if strings.TrimSpace(context) == "" {
+			return "AWAITING_DETAIL", prompt, "receipt_quality"
+		}
+		return "AWAITING_DETAIL", prompt + "\n\n" + context, "receipt_quality"
 	case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
 		// A document review's only bounded action is to retry the shared document
 		// pipeline; the summary is the document's own extraction context.

@@ -274,6 +274,29 @@ func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 
 // R4/R5: a receipt that cannot resolve the category must still go to review and
 // must not be confirmed on a guess.
+func TestReceiptArithmeticMismatchPreservesKnownFactsAndExactQualitySignal(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt mismatch")
+	ctx := context.Background()
+	slug := fixture.categorySlug
+	printedAt := receiptTime().Format(time.RFC3339)
+	value := receiptExtraction{Merchant: "Indomaret", TransactionAt: &printedAt, Total: "57500", Subtotal: ptr("50000"), Tax: ptr("5000"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
+	validation, err := validateReceipt(value, receiptTime())
+	if err != nil || !validation.ArithmeticAvailable || validation.ArithmeticOK || !validation.DateKnown {
+		t.Fatalf("arithmetic mismatch must preserve observed facts: %+v %v", validation, err)
+	}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var reviewType, consequence, amount, category, transactionAt string
+	var missing []string
+	if err := fixture.pool.QueryRow(ctx, `SELECT review_type,decision->>'validationConsequence',decision->'knownFacts'->>'amount_idr',decision->'knownFacts'->>'category',decision->'knownFacts'->>'transaction_at',ARRAY(SELECT jsonb_array_elements_text(decision->'missingFacts')) FROM review_item WHERE household_id=$1`, fixture.householdID).Scan(&reviewType, &consequence, &amount, &category, &transactionAt, &missing); err != nil {
+		t.Fatal(err)
+	}
+	if reviewType != "RECEIPT_MISMATCH" || consequence != "QUALITY_SIGNAL" || amount != "57500" || category != fixture.categoryID || transactionAt != receiptTime().Format(time.RFC3339) || len(missing) != 0 {
+		t.Fatalf("mismatch re-asked known facts: %s %s amount=%s category=%s date=%s missing=%v", reviewType, consequence, amount, category, transactionAt, missing)
+	}
+}
+
 func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt review")
 	ctx := context.Background()
