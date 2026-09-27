@@ -1,6 +1,20 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+)
+
+func TestPhaseMetricDimensionsAreNotNull(t *testing.T) {
+	phase := phaseMetric(gateway.CallMetric{Capability: "JEV", Dimensions: []string{"category"}}, "")
+	if phase.Dimensions == nil || phase.AnsweredDimensions == nil || phase.ResidualDimensions == nil {
+		t.Fatal("telemetry dimensions must be non-null PostgreSQL arrays")
+	}
+	if len(phase.Dimensions) != 1 || phase.Dimensions[0] != "category" {
+		t.Fatalf("existing dimensions changed: %v", phase.Dimensions)
+	}
+}
 
 // Production must not be able to disable Jev-owned mutation semantics by
 // leaving the model unset; only an explicit non-production opt-out is allowed

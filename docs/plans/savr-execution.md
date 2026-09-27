@@ -60,6 +60,10 @@ No source family in scope is missing from the matrix.
 
 # SAVR-01 — observability + contract test foundation
 
+Telemetry prerequisite: normalize all three dimension arrays at the worker
+recorder boundary before PostgreSQL insertion, so omitted Jev residuals do not
+become NULL. Contract helpers and product metrics remain part of SAVR-01.
+
 ## Objective
 
 Make SAVR measurable before changing semantics.
