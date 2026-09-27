@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
@@ -145,14 +146,10 @@ func telegramReviewLanes() map[string]bool {
 	for _, action := range reviewActions() {
 		telegramLanes[action] = true
 	}
-	// MERGE_EXISTING and CONFIRM_NEW_TRANSFER are not preset actions: a surface adds
-	// them only for a transfer reconciliation case that carries candidates, and the
-	// bound Telegram lane resolves that case through the shared operation.
+	// MERGE_EXISTING and CONFIRM_NEW_TRANSFER are case-bound actions, not presets.
 	telegramLanes["MERGE_EXISTING"] = true
 	telegramLanes["CONFIRM_NEW_TRANSFER"] = true
-	// The transfer classification vocabulary reaches the shared classifier through
-	// the Telegram transfer-intent lane, which maps each of these to the same
-	// canonical classification the Review Inbox sends as CLASSIFY_TRANSFER.
+	// Classification uses the shared classifier through Telegram intent values.
 	for _, action := range []string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE"} {
 		telegramLanes[action] = true
 	}
@@ -161,13 +158,20 @@ func telegramReviewLanes() map[string]bool {
 
 func TestEveryOrdinaryAllowedActionHasATelegramLane(t *testing.T) {
 	telegramLanes := telegramReviewLanes()
+	capabilities := map[string]bool{"IGNORE": true}
+	for _, action := range reviewdomain.TelegramCompleteActions() {
+		capabilities[action] = true
+		if !telegramLanes[action] {
+			t.Fatalf("Admin marks %s completable but Telegram has no lane", action)
+		}
+	}
 	for _, reviewType := range producibleReviewTypes {
 		decision, ok := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000")
 		if !ok {
 			continue
 		}
 		for _, action := range decision.AllowedActions {
-			if !telegramLanes[action] {
+			if !capabilities[action] || !telegramLanes[action] {
 				t.Fatalf("%s offers %q with no Telegram terminal or continuation capability", reviewType, action)
 			}
 		}
