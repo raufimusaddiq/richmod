@@ -182,7 +182,13 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	case "MISSING_AMOUNT":
 		decision.Subject.Type = "proposal"
 		decision.DecisionClass, decision.InteractionMode = reviewdec.ClassEvidenceGap, reviewdec.ModeSingleField
-		decision.MissingFacts = append([]string{"amount"}, screenshotMissingFacts(categoryKnown, row.DateKnown)...)
+		decision.MissingFacts = []string{"amount"}
+		if row.Type == "EXPENSE" && !categoryKnown {
+			decision.MissingFacts = append(decision.MissingFacts, "category")
+		}
+		if !row.DateKnown {
+			decision.MissingFacts = append(decision.MissingFacts, "transaction_at")
+		}
 		decision.AllowedActions = []string{"SET_AMOUNT", "IGNORE"}
 		if row.Type == "INCOME" {
 			decision.MissingFacts = append(decision.MissingFacts, "transfer_relationship")

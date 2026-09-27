@@ -455,28 +455,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			payslipResolved = err == nil
 		}
 	} else if kind == "MISSING_AMOUNT" && in.Action == "IGNORE" {
-		if proposal != nil {
-			if _, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id=$1 AND household_id=$2 AND amount IS NULL AND proposal_status='NEEDS_REVIEW'`, *proposal, household); err != nil {
-				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
-				return
-			}
-			if _, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE id=$1 AND household_id=$2`, *source, household); err != nil {
-				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
-				return
-			}
-			if _, err = tx.Exec(r.Context(), `UPDATE document SET status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'EXTRACTED' END,updated_at=now() WHERE source_event_id=$1 AND household_id=$2`, *source, household); err != nil {
-				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
-				return
-			}
-			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('OPEN','PENDING_SEND')`, r.PathValue("id"))
-			if err == nil {
-				_, err = tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, r.PathValue("id"))
-			}
-			if err != nil {
-				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
-				return
-			}
-		}
+		err = reviewdomain.IgnoreMissingAmountProposal(r.Context(), tx, reviewdomain.MissingAmountCommand{HouseholdID: household, UserID: p.UserID, ReviewItemID: r.PathValue("id"), ProposalID: *proposal, SourceEventID: *source, ActorType: "USER"})
+		payslipResolved = err == nil
 	} else if in.Action == "IGNORE" {
 		if financialObservation != nil {
 			if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, *financialObservation, household); err != nil {

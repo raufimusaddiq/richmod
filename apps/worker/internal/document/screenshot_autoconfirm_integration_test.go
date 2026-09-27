@@ -179,6 +179,50 @@ func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T)
 	}
 }
 
+// Hermes Review: an income row whose amount is not visible must reach a
+// completable Telegram card, and a duplicate the ingest-time matcher could see
+// must still be found when the household supplies a day-only date.
+func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
+	f := seedScreenshotFixture(t, "Screenshot absent amount income")
+	ctx := context.Background()
+	row := screenshotDataRow("INCOME", "5000000", "Teman")
+	row.Value.Amount, row.Value.Direction, row.Value.CategorySlug, row.CategoryID = nil, "IN", nil, nil
+	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	var proposalID, reviewID, userID, requestState string
+	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1),COALESCE((SELECT c.state FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id WHERE r.review_item_id=ri.id LIMIT 1),'') FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1`, f.sourceID).Scan(&proposalID, &reviewID, &userID, &requestState); err != nil {
+		t.Fatal(err)
+	}
+	if requestState == "" {
+		t.Fatal("an income missing-amount row must project a completable Telegram card")
+	}
+	// A same-amount confirmed transaction at the row's printed time is the duplicate
+	// the ingest matcher sees; the household-supplied day must not lose it.
+	printedAt := screenshotRowTime()
+	if _, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,source_confidence,classification_confidence,confirmed_at) VALUES($1,'INCOME','CONFIRMED',5000000,'IDR',$2,'Honor',.95,.95,now())`, f.householdID, printedAt); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	amount, day := "5000000", printedAt.AddDate(0, 0, 2).Format("2006-01-02")
+	result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amount, TransactionDate: day, IncomeConfirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var duplicates int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE transaction_id=$1 AND review_type='POSSIBLE_DUPLICATE' AND status='OPEN'`, result.TransactionID).Scan(&duplicates); err != nil {
+		t.Fatal(err)
+	}
+	if duplicates != 1 {
+		t.Fatalf("the ingest-visible duplicate must stay in duplicate review, got %d", duplicates)
+	}
+}
+
 // PRD §33: the screenshot row auto-confirm must be independently disable-able.
 // With the switch off, the same clear row waits for a human instead of writing.
 func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {

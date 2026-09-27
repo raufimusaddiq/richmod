@@ -51,6 +51,10 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	if source != cmd.SourceEventID {
 		return result, ErrMissingAmountReviewInvalid
 	}
+	// Retain the extracted/fallback instant as a second duplicate probe anchor.
+	// Replacing it with a day-only user date can miss the same event at the edge
+	// of the original 72-hour matching window.
+	probeAt := at
 	if !dateKnown {
 		if cmd.TransactionDate == "" {
 			return result, ErrMissingAmountReviewInvalid
@@ -75,14 +79,14 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		if category == nil {
 			return result, ErrMissingAmountReviewInvalid
 		}
-		if err := ValidateCategoryForHousehold(ctx, tx, cmd.HouseholdID, *category); err != nil {
+		if cmd.CategoryID == "" && ValidateCategoryForHousehold(ctx, tx, cmd.HouseholdID, *category) != nil {
 			return result, ErrMissingAmountReviewInvalid
 		}
 	} else if typ != "INCOME" || !cmd.IncomeConfirmed {
 		return result, ErrMissingAmountReviewInvalid
 	}
 	var duplicate bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type=$2 AND currency='IDR' AND amount=$3::numeric AND transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '96 hours')`, cmd.HouseholdID, typ, *cmd.AmountIDR, at).Scan(&duplicate); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type=$2 AND currency='IDR' AND amount=$3::numeric AND (transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' OR transaction_at BETWEEN $5::timestamptz-interval '72 hours' AND $5::timestamptz+interval '96 hours'))`, cmd.HouseholdID, typ, *cmd.AmountIDR, probeAt, at).Scan(&duplicate); err != nil {
 		return result, err
 	}
 	status, proposalStatus := "CONFIRMED", "ACCEPTED"
@@ -133,4 +137,44 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'SET_SCREENSHOT_AMOUNT','transaction',$4,jsonb_build_object('review_item_id',$5::uuid,'proposal_id',$6::uuid,'needs_duplicate_review',$7::boolean))`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, result.TransactionID, cmd.ReviewItemID, cmd.ProposalID, duplicate)
 	return result, err
+}
+
+// IgnoreMissingAmountProposal drops one unresolved screenshot row without
+// inventing an amount. Sibling rows of the same image remain independent.
+func IgnoreMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmountCommand) error {
+	var source, document string
+	err := tx.QueryRow(ctx, `SELECT p.source_event_id::text,p.metadata_json->>'document_id'
+		FROM review_item ri JOIN transaction_proposal p ON p.id=ri.proposal_id
+		WHERE ri.id=$1 AND ri.household_id=$2 AND ri.review_type='MISSING_AMOUNT' AND ri.status IN ('OPEN','PENDING_SEND')
+		AND p.id=$3 AND p.household_id=$2 AND p.amount IS NULL AND p.proposal_status='NEEDS_REVIEW'
+		FOR UPDATE OF ri,p`, cmd.ReviewItemID, cmd.HouseholdID, cmd.ProposalID).Scan(&source, &document)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrMissingAmountReviewInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if source != cmd.SourceEventID {
+		return ErrMissingAmountReviewInvalid
+	}
+	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id=$1`, cmd.ProposalID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='IGNORE',resolution_values='{}'::jsonb,updated_at=now() WHERE id=$1`, cmd.ReviewItemID, cmd.UserID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('OPEN','PENDING_SEND')`, cmd.ReviewItemID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE id=$1 AND household_id=$2`, source, cmd.HouseholdID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE document SET status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'EXTRACTED' END,updated_at=now() WHERE id=$2 AND household_id=$3 AND source_event_id=$1`, source, document, cmd.HouseholdID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'IGNORE_SCREENSHOT_AMOUNT','transaction_proposal',$4,'{}'::jsonb)`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, cmd.ProposalID)
+	return err
 }

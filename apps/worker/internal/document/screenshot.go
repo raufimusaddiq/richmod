@@ -292,7 +292,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,review_type,status,decision) VALUES($1,$2,'MISSING_AMOUNT','OPEN',$3::jsonb) RETURNING id`, householdID, proposalID, string(encoded)).Scan(&itemID); err != nil {
 				return err
 			}
-			if hasChat && row.DateKnown && row.CategoryID != nil && row.Type == "EXPENSE" {
+			if hasChat && row.DateKnown && (row.Type == "INCOME" || row.CategoryID != nil) {
 				if err := workerTelegram.ProjectReviewItem(ctx, tx, householdID, itemID, 0, "", chatID); err != nil {
 					return err
 				}
