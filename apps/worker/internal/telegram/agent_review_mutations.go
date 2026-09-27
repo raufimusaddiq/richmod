@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
 // agentResolveReview is retained for internal callers/tests, but review
@@ -131,8 +132,13 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	rememberedCategoryID := ""
 	if field == "merchant" {
 		var merchantID string
-		err = tx.QueryRow(ctx, `SELECT min(ma.normalized_merchant_id::text),min(ma.default_category_id::text) FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name), '[[:space:]]+', ' ', 'g'))=lower(regexp_replace(btrim($2), '[[:space:]]+', ' ', 'g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND c.household_id=$1 AND c.active GROUP BY ma.household_id,lower(regexp_replace(btrim(ma.raw_name), '[[:space:]]+', ' ', 'g')) HAVING count(DISTINCT ma.default_category_id)=1 AND count(DISTINCT ma.normalized_merchant_id)=1`, state.HouseholdID, value).Scan(&merchantID, &rememberedCategoryID)
-		if errors.Is(err, pgx.ErrNoRows) {
+		match, lookupErr := merchantmemory.Lookup(ctx, tx, state.HouseholdID, value)
+		if lookupErr != nil {
+			return result, true, lookupErr
+		}
+		if match != nil {
+			merchantID, rememberedCategoryID = match.MerchantID, match.CategoryID
+		} else {
 			err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, state.HouseholdID, value).Scan(&merchantID)
 		}
 		if err != nil {
