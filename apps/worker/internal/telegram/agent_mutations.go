@@ -581,7 +581,17 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 			return result, true, fmt.Errorf("invalid batch time")
 		}
 		if (v.Type == "EXPENSE" && !contains(allowedCategories, v.CategorySlug)) || (v.CategorySlug != "" && !contains(allowedCategories, v.CategorySlug)) {
-			return result, true, fmt.Errorf("invalid batch category")
+			if _, err = tx.Exec(ctx, `UPDATE telegram_pending_batch SET status='CANCELLED',resolved_at=now() WHERE id=$1`, batchID); err != nil {
+				return result, true, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='telegram-agent-batch-resolution',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
+				return result, true, err
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return result, true, err
+			}
+			result.Status = "NEEDS_REVIEW"
+			return result, true, nil
 		}
 	}
 	for i, v := range items {

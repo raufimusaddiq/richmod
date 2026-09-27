@@ -839,7 +839,11 @@ func (p *Processor) offerBatch(ctx context.Context, householdID string, update t
 		if label == "" {
 			label = "Transaksi"
 		}
-		lines = append(lines, fmt.Sprintf("• %s Rp%s (%s, %s, %s)", label, FormatIDR(v.Amount), v.Type, v.CategorySlug, v.TransactionAt.In(jakartaLocation()).Format("02/01/2006 15:04 WIB")))
+		category := v.CategorySlug
+		if category == "" {
+			category = "-"
+		}
+		lines = append(lines, fmt.Sprintf("• %s Rp%s (%s, %s, %s)", label, FormatIDR(v.Amount), v.Type, category, v.TransactionAt.In(jakartaLocation()).Format("02/01/2006 15:04 WIB")))
 	}
 	msg := fmt.Sprintf("Saya menemukan %d transaksi (total Rp%s):\n%s\n\nBalas yes/ya untuk mencatat semuanya, atau no/tidak untuk membatalkan.", len(vals), FormatIDR(total.String()), strings.Join(lines, "\n"))
 	if err = enqueueReply(ctx, tx, update, msg); err != nil {
@@ -899,7 +903,16 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 				return true, fmt.Errorf("invalid batch amount or time")
 			}
 			if (v.Type == "EXPENSE" && !contains(allowedCategories, v.CategorySlug)) || (v.CategorySlug != "" && !contains(allowedCategories, v.CategorySlug)) {
-				return true, fmt.Errorf("invalid batch category")
+				if _, e := tx.Exec(ctx, `UPDATE telegram_pending_batch SET status='CANCELLED',resolved_at=now() WHERE id=$1`, batchID); e != nil {
+					return true, e
+				}
+				if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); e != nil {
+					return true, e
+				}
+				if e := enqueueReply(ctx, tx, update, "Batch ini belum bisa dicatat karena ada kategori yang tidak valid. Kirim ulang dengan kategori pengeluaran yang aktif."); e != nil {
+					return true, e
+				}
+				return true, tx.Commit(ctx)
 			}
 		}
 		for i, v := range items {
