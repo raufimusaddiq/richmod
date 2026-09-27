@@ -134,7 +134,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
 	// A fresh household has no full telemetry window yet.
-	if len(aggregate.Coverage) != 1 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
+	if len(aggregate.Coverage) != 4 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
 		t.Fatalf("unmeasurable section 22 signals must stay named: %+v", aggregate.Coverage)
 	}
 
