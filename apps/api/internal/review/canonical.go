@@ -98,6 +98,9 @@ func canonicalActions(kind string) []string {
 		// leaves classification unresolved (PRD §7.6, E1/E2).
 		return []string{"SET_PAY_DATE", "IGNORE"}
 	}
+	if kind == "MISSING_AMOUNT" {
+		return []string{"SET_AMOUNT", "IGNORE"}
+	}
 	if kind == "CYCLE_RESIDUAL_ALLOCATION" {
 		return []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED"}
 	}
@@ -177,6 +180,18 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if (kind == "PAYSLIP_CONFIRMATION" || kind == "MISSING_PAY_DATE") && (proposal == nil || source == nil) {
 		writeJSON(w, 409, map[string]string{"error": "payslip review binding is unavailable"})
+		return
+	}
+	if kind == "MISSING_AMOUNT" && proposal != nil && source == nil {
+		var boundSource string
+		if err := tx.QueryRow(r.Context(), `SELECT source_event_id::text FROM transaction_proposal WHERE id=$1 AND household_id=$2 AND amount IS NULL AND proposal_status='NEEDS_REVIEW' FOR UPDATE`, *proposal, household).Scan(&boundSource); err != nil {
+			writeJSON(w, 409, map[string]string{"error": "missing-amount review binding is unavailable"})
+			return
+		}
+		source = &boundSource
+	}
+	if kind == "MISSING_AMOUNT" && (proposal == nil || source == nil) {
+		writeJSON(w, 409, map[string]string{"error": "missing-amount review binding is unavailable"})
 		return
 	}
 	storedActions := proposalFacts(decisionJSON).AllowedActions
@@ -425,6 +440,43 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	if in.Action == "IGNORE" && (kind == "PAYSLIP_CONFIRMATION" || kind == "MISSING_PAY_DATE") {
 		_, err = h.resolvePayslip(r, tx, household, p.UserID, r.PathValue("id"), *proposal, *source, *document, "IGNORE", "", nil)
 		payslipResolved = err == nil
+	} else if kind == "MISSING_AMOUNT" && in.Action == "SET_AMOUNT" {
+		var values struct {
+			AmountIDR       *string `json:"amountIdr"`
+			CategoryID      string  `json:"categoryId"`
+			TransactionDate string  `json:"transactionDate"`
+			IncomeConfirmed bool    `json:"incomeConfirmed"`
+		}
+		if json.Unmarshal(in.Values, &values) != nil {
+			err = errInvalid
+		}
+		if err == nil {
+			_, err = h.resolveMissingAmount(r.Context(), tx, household, p.UserID, r.PathValue("id"), *proposal, *source, values.AmountIDR, values.CategoryID, values.TransactionDate, values.IncomeConfirmed)
+			payslipResolved = err == nil
+		}
+	} else if kind == "MISSING_AMOUNT" && in.Action == "IGNORE" {
+		if proposal != nil {
+			if _, err = tx.Exec(r.Context(), `UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id=$1 AND household_id=$2 AND amount IS NULL AND proposal_status='NEEDS_REVIEW'`, *proposal, household); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
+				return
+			}
+			if _, err = tx.Exec(r.Context(), `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE id=$1 AND household_id=$2`, *source, household); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
+				return
+			}
+			if _, err = tx.Exec(r.Context(), `UPDATE document SET status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'EXTRACTED' END,updated_at=now() WHERE source_event_id=$1 AND household_id=$2`, *source, household); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
+				return
+			}
+			_, err = tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('OPEN','PENDING_SEND')`, r.PathValue("id"))
+			if err == nil {
+				_, err = tx.Exec(r.Context(), `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, r.PathValue("id"))
+			}
+			if err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to ignore screenshot row"})
+				return
+			}
+		}
 	} else if in.Action == "IGNORE" {
 		if financialObservation != nil {
 			if _, err = tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, *financialObservation, household); err != nil {
@@ -534,6 +586,20 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, re
 		SourceEventID: source, DocumentID: document, ActorType: "USER", Action: action, Choice: choice, PayDate: payDate,
 	})
 	if errors.Is(err, reviewdomain.ErrPayslipReviewInvalid) {
+		return result, errInvalid
+	}
+	return result, err
+}
+
+// resolveMissingAmount completes a screenshot row whose image never showed an
+// amount (SAVR-03). The proposal stays unresolved until the household supplies
+// the value, so no canonical transaction exists without a positive amount. The
+// shared domain operation owns the mutation and the review completion.
+func (h *Handler) resolveMissingAmount(ctx context.Context, tx pgx.Tx, household, user, reviewItem, proposal, source string, amount *string, categoryID, transactionDate string, incomeConfirmed bool) (reviewdomain.MissingAmountResult, error) {
+	result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{
+		HouseholdID: household, UserID: user, ReviewItemID: reviewItem, ProposalID: proposal, SourceEventID: source, ActorType: "USER", AmountIDR: amount, CategoryID: categoryID, TransactionDate: transactionDate, IncomeConfirmed: incomeConfirmed,
+	})
+	if errors.Is(err, reviewdomain.ErrMissingAmountReviewInvalid) {
 		return result, errInvalid
 	}
 	return result, err

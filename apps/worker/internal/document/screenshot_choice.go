@@ -136,7 +136,10 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 // Inbox asks only the dimension that is genuinely missing instead of reshowing
 // amount, direction, and time that Go already holds.
 func screenshotRowDecision(household, sourceEventID, transactionID, reviewType string, index int, row validatedScreenshotRow, jevAsked bool) reviewdec.Decision {
-	known := map[string]any{"amount_idr": row.Value.Amount, "direction": row.Value.Direction}
+	known := map[string]any{"direction": row.Value.Direction}
+	if row.Value.Amount != nil {
+		known["amount_idr"] = *row.Value.Amount
+	}
 	if row.DateKnown {
 		known["transaction_at"] = row.TransactionAt.Format(time.RFC3339)
 	} else {
@@ -176,6 +179,15 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		decision.WhyNotAuto = shared.WhyNotAuto
 	}
 	switch reviewType {
+	case "MISSING_AMOUNT":
+		decision.Subject.Type = "proposal"
+		decision.DecisionClass, decision.InteractionMode = reviewdec.ClassEvidenceGap, reviewdec.ModeSingleField
+		decision.MissingFacts = append([]string{"amount"}, screenshotMissingFacts(categoryKnown, row.DateKnown)...)
+		decision.AllowedActions = []string{"SET_AMOUNT", "IGNORE"}
+		if row.Type == "INCOME" {
+			decision.MissingFacts = append(decision.MissingFacts, "transfer_relationship")
+		}
+		decision.WhyNotAuto = "the screenshot does not show an amount"
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass, decision.InteractionMode = reviewdec.ClassHumanPolicyChoice, reviewdec.ModePolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}

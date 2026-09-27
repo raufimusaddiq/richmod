@@ -171,8 +171,10 @@ func screenshotValidationIssues(value screenshotExtraction, documentType string)
 			if row.Currency != "IDR" || (row.Direction != "OUT" && row.Direction != "IN") {
 				issues = append(issues, ValidationIssue{prefix, "INVALID_DIRECTION_OR_CURRENCY"})
 			}
-			if _, ok := wholeMoney(row.Amount, true); !ok {
-				issues = append(issues, ValidationIssue{prefix + ".amount", "INVALID_AMOUNT"})
+			if row.Amount != nil {
+				if _, ok := wholeMoney(*row.Amount, true); !ok {
+					issues = append(issues, ValidationIssue{prefix + ".amount", "INVALID_AMOUNT"})
+				}
 			}
 			if row.Confidence < 0 || row.Confidence > 1 {
 				issues = append(issues, ValidationIssue{prefix + ".confidence", "INVALID_CONFIDENCE"})
