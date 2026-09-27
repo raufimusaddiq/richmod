@@ -160,6 +160,25 @@ func TestScreenshotMissingAmountReviewFinalizesWithoutSentinel(t *testing.T) {
 	}
 }
 
+func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T) {
+	f := seedScreenshotFixture(t, "Screenshot absent amount ignored")
+	row := screenshotDataRow("EXPENSE", "54000", "Warung")
+	row.Value.Amount = nil
+	row.Value.Direction = "OUT"
+	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED' WHERE source_event_id=$1 AND amount IS NULL AND proposal_status='NEEDS_REVIEW'`, f.sourceID); err != nil {
+		t.Fatalf("a rejected screenshot proposal must be allowed to keep its missing amount: %v", err)
+	}
+	var count int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("ignoring an amount-missing row must not create a canonical transaction")
+	}
+}
+
 // PRD §33: the screenshot row auto-confirm must be independently disable-able.
 // With the switch off, the same clear row waits for a human instead of writing.
 func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {

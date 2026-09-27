@@ -82,7 +82,7 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		return result, ErrMissingAmountReviewInvalid
 	}
 	var duplicate bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type=$2 AND currency='IDR' AND amount=$3::numeric AND transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours')`, cmd.HouseholdID, typ, *cmd.AmountIDR, at).Scan(&duplicate); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type=$2 AND currency='IDR' AND amount=$3::numeric AND transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '96 hours')`, cmd.HouseholdID, typ, *cmd.AmountIDR, at).Scan(&duplicate); err != nil {
 		return result, err
 	}
 	status, proposalStatus := "CONFIRMED", "ACCEPTED"

@@ -4,7 +4,7 @@
 -- being coerced to a sentinel "0". The review reason names only that residual.
 ALTER TABLE transaction_proposal ALTER COLUMN amount DROP NOT NULL;
 ALTER TABLE transaction_proposal ADD CONSTRAINT transaction_proposal_missing_amount_check
-    CHECK (amount IS NOT NULL OR proposal_status='NEEDS_REVIEW');
+    CHECK (amount IS NOT NULL OR proposal_status IN ('NEEDS_REVIEW','REJECTED'));
 ALTER TABLE review_item DROP CONSTRAINT review_item_review_type_check;
 ALTER TABLE review_item ADD CONSTRAINT review_item_review_type_check CHECK (review_type IN (
     'UNKNOWN_MERCHANT','UNKNOWN_PURPOSE','AMBIGUOUS_CATEGORY','POSSIBLE_DUPLICATE',
