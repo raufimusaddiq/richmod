@@ -125,10 +125,10 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 	if _, ok := wholeMoney(value.NetPay, true); !ok {
 		issues = append(issues, ValidationIssue{"net_pay", "INVALID_AMOUNT"})
 	}
-	gross, grossOK := wholeMoney(value.GrossPay, true)
-	net, netOK := wholeMoney(value.NetPay, true)
-	if !grossOK || (grossOK && netOK && gross.Cmp(net) < 0) {
-		issues = append(issues, ValidationIssue{"gross_pay", "INVALID_AMOUNT_OR_ORDER"})
+	if value.GrossPay != nil {
+		if _, ok := wholeMoney(*value.GrossPay, true); !ok {
+			issues = append(issues, ValidationIssue{"gross_pay", "INVALID_AMOUNT"})
+		}
 	}
 	if _, periodErr := parsePayslipPeriod(value.Period); periodErr != nil {
 		issues = append(issues, ValidationIssue{"period", "INVALID_PERIOD"})
@@ -141,6 +141,11 @@ func payslipValidationIssues(value payslipExtraction) validationIssues {
 	for i, line := range value.Deductions {
 		if _, ok := wholeMoney(line.Amount, false); !ok {
 			issues = append(issues, ValidationIssue{fmt.Sprintf("deductions[%d].amount", i), "INVALID_AMOUNT"})
+		}
+	}
+	for i, line := range value.OtherComponents {
+		if !validPayrollComponent(line.Amount) {
+			issues = append(issues, ValidationIssue{fmt.Sprintf("other_components[%d].amount", i), "INVALID_AMOUNT"})
 		}
 	}
 	if len(issues) == 0 {
