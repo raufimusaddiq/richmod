@@ -6,77 +6,42 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// batchAffirmationEngine affirms every bounded transaction question so a batch
-// confirmation can be attributed to the decision plane instead of model
-// self-confidence.
-type batchAffirmationEngine struct{ t *testing.T }
-
-func (e batchAffirmationEngine) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	if _, ok := request.Questions["transaction_type"]; !ok {
-		e.t.Fatalf("batch confirmation must ask the shared transaction bundle, got %v", request.Questions)
-	}
-	answers := map[string]judgment.Answer{
-		"amount_support":     decidedNoul(0.99),
-		"date_support":       decidedNoul(0.99),
-		"material_ambiguity": decidedNoul(0.02),
-	}
-	if question, ok := request.Questions["category"]; ok {
-		criteria, valid := question.Criteria.(map[string]any)
-		if !valid {
-			e.t.Fatalf("expected category criteria, got %T", question.Criteria)
-		}
-		answers["category"] = confidentChoice(criteria, "dining")
-	}
-	// The INCOME item has no category question, so the type answer must be
-	// derived from the hint the batch passed in.
-	typeHint := ""
-	if state, ok := request.State.(map[string]any); ok {
-		typeHint, _ = state["transaction_type_hint"].(string)
-	}
-	if typeHint == "" {
-		typeHint = "EXPENSE"
-	}
-	answers["transaction_type"] = confidentChoice(judgmentTypeCriteria, typeHint)
-	return judgment.Result{Model: "jev-batch", Answers: answers}, nil
-}
-
-// A pending batch must not be confirmable through a different authority than a
-// single transaction. With no judgment plane configured the confirmation must
-// fail closed, leave the batch unresolvable-by-write, and create no canonical
-// transaction (ADR-038; Hermes review on PR #98).
-func TestPendingBatchConfirmationFailsClosedWithoutDecisionPlane(t *testing.T) {
+// A batch with an unresolved category must not offer confirmation as if every
+// semantic dimension had already been accepted.
+func TestPendingBatchConfirmationRejectsMissingCategory(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "batch-authority")
 	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Dining','dining')`, f.householdID)
 	mustAgentTest(t, err)
-	items := `[{"Type":"EXPENSE","Amount":"50000","Merchant":"makan siang","CategorySlug":"dining","Description":"makan siang","TransactionAt":"` + f.state.Now.Format(time.RFC3339) + `"}]`
+	items := `[{"Type":"EXPENSE","Amount":"50000","Merchant":"makan siang","CategorySlug":"","Description":"makan siang","TransactionAt":"` + f.state.Now.Format(time.RFC3339) + `"}]`
 	_, err = f.pool.Exec(ctx, `INSERT INTO telegram_pending_batch(household_id,telegram_user_id,telegram_chat_id,source_event_id,items_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING')`, f.householdID, f.chatID, f.chatID, f.sourceID, items)
 	mustAgentTest(t, err)
 
 	processor := NewProcessor(f.pool, nil)
 	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, "ya")
-	mustAgentTest(t, err)
+	if err == nil {
+		t.Fatal("missing category must block confirmation")
+	}
 	if !handled {
 		t.Fatal("confirming a pending batch must be handled")
 	}
 	var confirmed int
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'`, f.householdID).Scan(&confirmed))
 	if confirmed != 0 {
-		t.Fatalf("unavailable judgment plane must not confirm a batch; confirmed=%d", confirmed)
+		t.Fatalf("unresolved category must not confirm a batch; confirmed=%d", confirmed)
 	}
 	var decisionRows int
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1`, f.householdID).Scan(&decisionRows))
 	if decisionRows != 0 {
-		t.Fatalf("a fail-closed batch must not record a confirmed decision; rows=%d", decisionRows)
+		t.Fatalf("an unresolved batch must not record a decision; rows=%d", decisionRows)
 	}
 }
 
-// With an affirmative bounded evaluation the batch confirms and leaves one
-// bounded provenance row per canonical transaction.
-func TestPendingBatchConfirmationRecordsOneDecisionPerItem(t *testing.T) {
+// A complete staged batch is confirmed by the user's explicit action, without
+// a redundant bounded semantic vote or fabricated judgment provenance.
+func TestPendingBatchConfirmationUsesHumanAuthority(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "batch-decisions")
 	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Dining','dining')`, f.householdID)
@@ -87,7 +52,6 @@ func TestPendingBatchConfirmationRecordsOneDecisionPerItem(t *testing.T) {
 	mustAgentTest(t, err)
 
 	processor := NewProcessor(f.pool, nil)
-	processor.SetJudgment(batchAffirmationEngine{t: t})
 	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, "ya")
 	mustAgentTest(t, err)
 	if !handled {
@@ -98,9 +62,14 @@ func TestPendingBatchConfirmationRecordsOneDecisionPerItem(t *testing.T) {
 	if confirmed != 2 {
 		t.Fatalf("confirmed=%d; want 2", confirmed)
 	}
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1 AND outcome='CONFIRMED'`, f.householdID).Scan(&decisionRows))
-	if decisionRows != 2 {
-		t.Fatalf("decision rows=%d; want one per confirmed item", decisionRows)
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1`, f.householdID).Scan(&decisionRows))
+	if decisionRows != 0 {
+		t.Fatalf("human confirmation must not forge bounded decisions; rows=%d", decisionRows)
+	}
+	var audits int
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND action='CONFIRM_PENDING_BATCH'`, f.householdID).Scan(&audits))
+	if audits != 2 {
+		t.Fatalf("human confirmation audit rows=%d; want 2", audits)
 	}
 }
 

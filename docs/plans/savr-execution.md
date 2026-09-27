@@ -229,6 +229,13 @@ Jev semantic replay count = 0 for accepted dimensions
 canonical writes = N
 ```
 
+Implementation: explicit batch CONFIRM validates structural/canonical invariants
+and active household categories, then writes the already-presented items once.
+It does not call Jev again for accepted dimensions and does not fabricate bounded
+judgment provenance for a human decision; the audit row carries the batch and
+item identity. Staging now requires an active category for every expense, so a
+missing one becomes review instead of an offer of confirmation.
+
 ## B. Single-record/correction paths
 
 Audit dimension by dimension.

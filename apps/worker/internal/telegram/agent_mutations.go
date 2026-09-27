@@ -250,6 +250,10 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 	}
 	defer tx.Rollback(ctx)
 	for _, item := range vals {
+		if item.Type == "EXPENSE" && item.CategorySlug == "" {
+			result.Status = "MISSING_CATEGORY"
+			return result, true, nil
+		}
 		if item.CategorySlug == "" {
 			continue
 		}
@@ -556,44 +560,29 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
 	}
-	// Batch confirmation is a canonical mutation and must pass the same
-	// semantic decision policy as a single transaction. Evaluate every item
-	// BEFORE writing anything so an unavailable or unclear judgment plane can
-	// never confirm a batch through a different authority (ADR-038).
-	allowedCategories, _ := p.categorySlugs(ctx, state.HouseholdID)
-	decisions := make([]TransactionSemanticDecision, len(items))
-	for i, v := range items {
+	// The user already reviewed these staged items, so their displayed facts are
+	// accepted: explicit CONFIRM must not re-run semantic approval for them
+	// (SAVR-05A). Only structural/canonical invariants and deterministic
+	// merchant-category policy still apply, and every check happens before any
+	// canonical write.
+	allowedCategories, err := p.categorySlugs(ctx, state.HouseholdID)
+	if err != nil {
+		return result, true, err
+	}
+	for _, v := range items {
 		n, ok := new(big.Int).SetString(v.Amount, 10)
 		if !ok || n.Sign() <= 0 || n.String() != v.Amount {
 			return result, true, fmt.Errorf("invalid batch amount")
 		}
-		exactCategory := false
-		if v.CategorySlug != "" {
-			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND ma.auto_apply AND ma.created_from_user_confirmation AND c.slug=$2)`, state.HouseholdID, v.CategorySlug).Scan(&exactCategory); err != nil {
-				return result, true, err
-			}
+		if v.Type != "INCOME" && v.Type != "EXPENSE" {
+			return result, true, fmt.Errorf("invalid batch type")
 		}
-		decision, decisionErr := p.resolveTransactionDecision(ctx, state.SourceEventID, state.HouseholdID, state.Update.Message.Text, validatedExtraction{
-			Type: v.Type, Amount: v.Amount, TransactionAt: v.TransactionAt, Merchant: v.Merchant, CategorySlug: v.CategorySlug,
-		}, allowedCategories, exactCategory)
-		if decisionErr != nil {
-			return result, true, decisionErr
+		if v.TransactionAt.IsZero() {
+			return result, true, fmt.Errorf("invalid batch time")
 		}
-		if !decision.decisionAllowed() {
-			if _, err = tx.Exec(ctx, `UPDATE telegram_pending_batch SET status='CANCELLED',resolved_at=now() WHERE id=$1`, batchID); err != nil {
-				return result, true, err
-			}
-			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='telegram-agent-batch-resolution',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
-				return result, true, err
-			}
-			if err = tx.Commit(ctx); err != nil {
-				return result, true, err
-			}
-			result.Status = "NEEDS_REVIEW"
-			result.Facts = map[string]any{"item_ref": fmt.Sprintf("batch_%d", i+1)}
-			return result, true, nil
+		if (v.Type == "EXPENSE" && !contains(allowedCategories, v.CategorySlug)) || (v.CategorySlug != "" && !contains(allowedCategories, v.CategorySlug)) {
+			return result, true, fmt.Errorf("invalid batch category")
 		}
-		decisions[i] = decision
 	}
 	for i, v := range items {
 		var cat *string
@@ -618,9 +607,7 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,'CONFIRMED',$3,'IDR',$4,$5,NULLIF($6,''),NULLIF($7,''),1,1,$8,now()) RETURNING id`, state.HouseholdID, v.Type, v.Amount, v.TransactionAt, cat, v.Description, v.Merchant, userID).Scan(&tid); err != nil {
 			return result, true, err
 		}
-		// One bounded decision row per confirmed batch item, in the same
-		// transaction as the canonical write (PRD §15/§16).
-		if err = p.recordJudgmentDecision(ctx, tx, state.HouseholdID, state.SourceEventID, decisions[i], true); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CONFIRM_PENDING_BATCH','transaction',$3,jsonb_build_object('batch_id',$4::uuid,'item_index',$5::integer))`, state.HouseholdID, userID, tid, batchID, i); err != nil {
 			return result, true, err
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),'TELEGRAM_TEXT',1,jsonb_build_object('proposal_id',$3::uuid))`, tid, batchID, pid); err != nil {
