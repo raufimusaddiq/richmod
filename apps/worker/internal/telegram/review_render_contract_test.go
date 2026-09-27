@@ -50,6 +50,7 @@ var markupModesHandledAtCreation = map[string]bool{
 	"transfer":        true,
 	"document":        true,
 	"financial_email": true,
+	"receipt_quality": true,
 }
 
 func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
@@ -100,7 +101,6 @@ func TestPayslipReviewTypesCanProject(t *testing.T) {
 // reviewdec.ActiveReasons and need no Telegram completion lane.
 var compatibilityOnlyReviewTypes = []string{
 	"SALARY_SOURCE_CONFIRMATION",
-	"RECEIPT_MISMATCH",
 	"INVOICE_PAYMENT_STATUS",
 	"UNKNOWN_EMAIL_TEMPLATE",
 }

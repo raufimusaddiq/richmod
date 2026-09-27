@@ -49,6 +49,11 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 			wantState: "AWAITING_DETAIL", wantMessage: "🟡 Transaksi ini mungkin duplikat\n\ncandidate exists\n\nBalas pesan ini dengan pilihan pada tombol di atas.", context: "candidate exists", wantMode: "duplicate",
 		},
 		{
+			name: "receipt mismatch asks only to accept the printed total", reviewType: "RECEIPT_MISMATCH",
+			decision:  reviewdec.Decision{ReasonCode: "RECEIPT_MISMATCH", Consequence: reviewdec.QualitySignal, AllowedActions: []string{"CONFIRM_REVIEW", "IGNORE"}},
+			wantState: "AWAITING_DETAIL", wantMessage: "Rincian struk tidak sesuai dengan total tercetak. Periksa total sebelum mencatat.", wantMode: "receipt_quality",
+		},
+		{
 			name: "no decision fails closed to a detail prompt", reviewType: "SOMETHING_NEW",
 			decision:  reviewdec.Decision{},
 			wantState: "AWAITING_DETAIL", wantMessage: "🟡 Perlu detail transaksi\n\nkeep context\n\nBalas pesan ini dengan keterangan atau tujuan transaksi.", context: "keep context", wantMode: "reply",

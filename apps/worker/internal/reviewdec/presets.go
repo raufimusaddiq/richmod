@@ -22,6 +22,9 @@ var activeReasons = []string{
 	"MANUAL_CORRECTION",
 	"CONFLICTING_EVIDENCE",
 	"POSSIBLE_DUPLICATE",
+	// A receipt whose printed lines do not add up to its printed total is a
+	// quality signal, not a category gap (SAVR-06).
+	"RECEIPT_MISMATCH",
 }
 
 // ActiveReasons returns a copy so a caller cannot reorder or truncate the
@@ -165,6 +168,15 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
 		base.WhyNotAuto = "a plausible duplicate exists; choose the matching event, confirm as new, or ignore"
+	case "RECEIPT_MISMATCH":
+		// The receipt's own total, date, and category may all be known; only the
+		// line arithmetic disagrees, and that cannot prove the printed total wrong.
+		base.DecisionClass = ClassCorrectionConfirmation
+		base.Consequence = QualitySignal
+		base.AffectedFacts = []string{"receipt_arithmetic"}
+		base.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
+		base.InteractionMode = ModeOneTapConfirmation
+		base.WhyNotAuto = "the printed lines do not reconcile with the printed total"
 	default:
 		return Decision{}, false
 	}

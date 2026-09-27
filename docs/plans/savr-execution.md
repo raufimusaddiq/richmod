@@ -252,6 +252,11 @@ Migrate three confirmed collapse points.
 - preserve known category/date/amount;
 - review only a real blocker.
 
+Implemented slice: the known-category/date arithmetic mismatch uses
+`RECEIPT_MISMATCH` with typed `QUALITY_SIGNAL` / `receipt_arithmetic`, no
+invented missing category, and a bounded confirm/ignore Telegram card. Other
+receipt review outcomes remain for SAVR-08 source-family audit.
+
 ## Bank email
 
 - persist negative/undecided evidence predicate outcomes;
