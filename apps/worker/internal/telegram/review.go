@@ -683,11 +683,6 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 		}
 		return true, p.askFinancialEmailEntity(ctx, sourceEventID, itemID, householdID, update)
 	}
-	if cmd.Ignore {
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'RESOLVE_REVIEW','review_item',$3,'{"action":"IGNORE"}')`, householdID, userID, itemID); err != nil {
-			return true, err
-		}
-	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return true, err
 	}

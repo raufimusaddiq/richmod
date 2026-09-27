@@ -96,6 +96,51 @@ func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
 }
 
 // UIRC-02 B: Web IGNORE must take the same lifecycle as the Telegram callback.
+// UIRC-02 B: a genuinely partial first turn (one entity still unresolved)
+// persists the supplied entity, stays 202 with the item OPEN and asks for the
+// remaining entity; only the second turn completes the review.
+func TestFinancialResolutionGenuinePartialTurnThenSecondTurnCompletes(t *testing.T) {
+	fixture := seedFinancialResolution(t, false)
+	ctx := context.Background()
+	// Both entities are initially unresolved; the first turn must not leave
+	// the original decision advertising a choice that has already been bound.
+	if _, err := fixture.pool.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(decision,'{missingFacts}','["funding_account","wealth_account"]'::jsonb) WHERE id=$1`, fixture.review); err != nil {
+		t.Fatal(err)
+	}
+	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"accountId":"`+fixture.account+`"}}`); w.Code != http.StatusAccepted {
+		t.Fatalf("a genuinely partial pick must be 202: %d %s", w.Code, w.Body.String())
+	}
+	var account, wealth, observationStatus, itemStatus, missing string
+	if err := fixture.pool.QueryRow(ctx, `SELECT COALESCE(fo.resolved_account_id::text,''),COALESCE(fo.resolved_wealth_account_id::text,''),fo.status,ri.status,COALESCE(ri.decision->'missingFacts'->>0,'') FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id WHERE fo.id=$1`, fixture.observation).Scan(&account, &wealth, &observationStatus, &itemStatus, &missing); err != nil {
+		t.Fatal(err)
+	}
+	if account != fixture.account || wealth != "" || observationStatus != "REVIEW" || itemStatus != "OPEN" || missing != "wealth_account" {
+		t.Fatalf("partial pick must persist and stay open on the remaining entity: account=%s wealth=%s observation=%s item=%s missing=%s", account, wealth, observationStatus, itemStatus, missing)
+	}
+	var queued int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='PROCESS_FINANCIAL_EMAIL' AND payload_json->>'source_event_id'=(SELECT source_event_id::text FROM financial_email_observation WHERE id=$1)`, fixture.observation).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 0 {
+		t.Fatalf("a partial pick must not replay the observation, got %d jobs", queued)
+	}
+	if w := fixture.resolve(t, `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"wealthAccountId":"`+fixture.wealthAccount+`"}}`); w.Code != http.StatusNoContent {
+		t.Fatalf("the second turn must complete the review: %d %s", w.Code, w.Body.String())
+	}
+	if err := fixture.pool.QueryRow(ctx, `SELECT COALESCE(fo.resolved_account_id::text,''),COALESCE(fo.resolved_wealth_account_id::text,''),fo.status,ri.status FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id WHERE fo.id=$1`, fixture.observation).Scan(&account, &wealth, &observationStatus, &itemStatus); err != nil {
+		t.Fatal(err)
+	}
+	if account != fixture.account || wealth != fixture.wealthAccount || observationStatus != "PENDING" || itemStatus != "RESOLVED" {
+		t.Fatalf("second turn must merge the known entity and complete: account=%s wealth=%s observation=%s item=%s", account, wealth, observationStatus, itemStatus)
+	}
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='PROCESS_FINANCIAL_EMAIL' AND payload_json->>'source_event_id'=(SELECT source_event_id::text FROM financial_email_observation WHERE id=$1)`, fixture.observation).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 {
+		t.Fatalf("completion must replay the observation exactly once, got %d jobs", queued)
+	}
+}
+
 func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
 	fixture := seedFinancialResolutionValues(t, true)
 	ctx := context.Background()
@@ -109,6 +154,13 @@ func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
 	}
 	if observationStatus != "IGNORED" || itemStatus != "RESOLVED" || sourceStatus != "IGNORED" || openRequests != 0 {
 		t.Fatalf("ignore lifecycle observation=%s item=%s source=%s openRequests=%d", observationStatus, itemStatus, sourceStatus, openRequests)
+	}
+	var audits int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND entity_type='review_item' AND entity_id=$2 AND action='RESOLVE_REVIEW'`, fixture.household, fixture.review).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if audits != 1 {
+		t.Fatalf("ignore must record one canonical resolution audit, got %d", audits)
 	}
 }
 

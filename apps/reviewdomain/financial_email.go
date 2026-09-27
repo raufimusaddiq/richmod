@@ -166,7 +166,13 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 	} else {
 		cmd.AllowPartial = true
 		result, err = ResolveFinancialEmailEntities(ctx, tx, cmd)
-		if err != nil || !result.Complete {
+		if err != nil {
+			return result, err
+		}
+		if !result.Complete {
+			// The next Telegram chooser reads the current ReviewDecision; name only
+			// the still-unresolved dimension after persisting this partial pick.
+			_, err = tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{missingFacts}',CASE WHEN $2::text='' THEN '["funding_account"]'::jsonb ELSE '["wealth_account"]'::jsonb END),updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ReviewItemID, result.AccountID, cmd.HouseholdID)
 			return result, err
 		}
 	}
@@ -247,6 +253,11 @@ func LearnEntityAlias(ctx context.Context, tx pgx.Tx, householdID, entityType, e
 // LearnEntityAliasIfNew learns an alias only when the entity was not already
 // known before this request. An empty known entity means the alias is new.
 func LearnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, householdID, entityType, entityID, alias, known string) error {
+	// A partial turn leaves the other entity unbound; an empty id must not reach
+	// the alias insert as ''::uuid (UIRC-02 B).
+	if strings.TrimSpace(entityID) == "" {
+		return nil
+	}
 	if strings.TrimSpace(known) != "" {
 		return nil
 	}

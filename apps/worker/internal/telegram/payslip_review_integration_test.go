@@ -228,11 +228,11 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	// Partial resolution is supported: the first pick (funding account) persists
 	// and re-asks for the remaining wealth dimension; the second pick resolves.
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callbackUpdate(chatID, 81, "review:fe:account:"+accountID))))
-	var itemStatus, resolvedAccount string
-	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, itemID).Scan(&itemStatus))
+	var itemStatus, resolvedAccount, missingFact string
+	must(pool.QueryRow(ctx, `SELECT status,COALESCE(decision->'missingFacts'->>0,'') FROM review_item WHERE id=$1`, itemID).Scan(&itemStatus, &missingFact))
 	must(pool.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=$1`, observationID).Scan(&resolvedAccount))
-	if itemStatus != "OPEN" || resolvedAccount != accountID {
-		t.Fatalf("first pick must persist the account and stay open: item=%s account=%s", itemStatus, resolvedAccount)
+	if itemStatus != "OPEN" || resolvedAccount != accountID || missingFact != "wealth_account" {
+		t.Fatalf("first pick must persist the account and re-ask only for wealth: item=%s account=%s missing=%s", itemStatus, resolvedAccount, missingFact)
 	}
 	var foreignHousehold, foreignWealth string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Foreign fe %d", stamp)).Scan(&foreignHousehold))
@@ -301,6 +301,11 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, ignoredObservation).Scan(&observationStatus))
 	if ignoredStatus != "RESOLVED" || observationStatus != "IGNORED" {
 		t.Fatalf("ignore action did not finish financial email: item=%s observation=%s", ignoredStatus, observationStatus)
+	}
+	var audits int
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND entity_type='review_item' AND entity_id=$2 AND action='RESOLVE_REVIEW'`, householdID, ignoredItem).Scan(&audits))
+	if audits != 1 {
+		t.Fatalf("Telegram ignore must record one canonical resolution audit, got %d", audits)
 	}
 }
 

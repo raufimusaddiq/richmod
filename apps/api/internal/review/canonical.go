@@ -406,9 +406,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Action == "IGNORE" && kind == "TRANSFER_CLASSIFICATION" && source != nil {
 		_, err = reviewdomain.ReconcileTransfer(r.Context(), tx, reviewdomain.TransferReconciliationCommand{HouseholdID: household, ActorUserID: p.UserID, ReviewItemID: r.PathValue("id"), Action: "IGNORE", ActorType: "USER"})
-		if err == nil {
-			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": "IGNORE"})
-		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid or unavailable transfer reconciliation"})
 			return
@@ -418,9 +415,6 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Action == "IGNORE" && kind == "FINANCIAL_EMAIL_RESOLUTION" && financialObservation != nil {
 		_, err = reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"), ActorUserID: p.UserID, ActorType: "USER", Ignore: true})
-		if err == nil {
-			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": "IGNORE"})
-		}
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 409, map[string]string{"error": "financial observation is unavailable"})
 			return
