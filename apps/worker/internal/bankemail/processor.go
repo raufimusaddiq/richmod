@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
@@ -662,20 +663,12 @@ func bankReviewMessage(reviewType, amount string, transactionAt time.Time, descr
 	return "🏦 Transaksi bank perlu ditinjau\n\n" + context + "\n\nPilih kategori atau lengkapi detail transaksi."
 }
 
-type rowQuerier interface {
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
-func loadMerchantMemory(ctx context.Context, q rowQuerier, household, raw string) (MerchantMemory, error) {
-	if strings.TrimSpace(raw) == "" {
-		return MerchantMemory{}, nil
+func loadMerchantMemory(ctx context.Context, q merchantmemory.Querier, household, raw string) (MerchantMemory, error) {
+	match, err := merchantmemory.Lookup(ctx, q, household, raw)
+	if err != nil || match == nil {
+		return MerchantMemory{}, err
 	}
-	var m MerchantMemory
-	err := q.QueryRow(ctx, `SELECT min(ma.normalized_merchant_id::text),min(ma.default_category_id::text),bool_and(ma.auto_apply) FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND ma.auto_apply AND ma.created_from_user_confirmation AND ma.default_category_id IS NOT NULL AND c.household_id=$1 AND c.active GROUP BY ma.household_id,lower(regexp_replace(btrim(ma.raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT ma.default_category_id)=1`, household, raw).Scan(&m.MerchantID, &m.CategoryID, &m.AutoApply)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return MerchantMemory{}, nil
-	}
-	return m, err
+	return MerchantMemory{MerchantID: match.MerchantID, CategoryID: match.CategoryID, AutoApply: true}, nil
 }
 func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (string, error) {
 	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
@@ -534,11 +535,8 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 }
 
 func (p *Processor) receiptCategory(ctx context.Context, householdID string, value receiptExtraction, categories []categoryOption) *string {
-	if strings.TrimSpace(value.Merchant) != "" {
-		var learned string
-		if err := p.pool.QueryRow(ctx, `SELECT min(default_category_id::text) FROM merchant_alias WHERE household_id=$1 AND lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g'))=lower(regexp_replace(btrim($2),'[[:space:]]+',' ','g')) AND auto_apply AND created_from_user_confirmation AND default_category_id IS NOT NULL GROUP BY household_id,lower(regexp_replace(btrim(raw_name),'[[:space:]]+',' ','g')) HAVING count(DISTINCT default_category_id)=1`, householdID, value.Merchant).Scan(&learned); err == nil {
-			return &learned
-		}
+	if match, err := merchantmemory.Lookup(ctx, p.pool, householdID, value.Merchant); err == nil && match != nil {
+		return &match.CategoryID
 	}
 	if value.CategorySlug == nil || value.CategoryConfidence < 0.90 {
 		return nil
