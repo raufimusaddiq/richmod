@@ -255,6 +255,43 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 	}
 	return p.insertReviewDecision(ctx, tx, household, id, "TRANSFER_CLASSIFICATION")
 }
+
+// evidenceReview parks a cash case whose bounded evidence claims failed, naming
+// only the unsupported dimensions instead of reusing the human
+// transfer-relationship choice (SAVR-06).
+func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, source, id string, observation observation, classification ObservationClassification, unbounded bool) error {
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
+		return err
+	}
+	missing, affected, consequence, provenance := classification.reviewFacts(classification.cashResidual(), unbounded)
+	decision, ok := reviewdec.Preset("FINANCIAL_EMAIL_FACTS", "financial_email_observation", id)
+	if !ok {
+		return fmt.Errorf("no review decision preset for provider evidence residual")
+	}
+	decision.Subject = reviewdec.Subject{Type: "financial_email_observation", ID: id}
+	decision.MissingFacts = missing
+	decision.AffectedFacts = affected
+	decision.Consequence = consequence
+	decision.PolicyVersion = classification.PolicyVersion
+	decision.Provenance = provenance
+	if observation.AmountIDR != nil {
+		decision.KnownFacts["amount_idr"] = value(observation.AmountIDR)
+	}
+	if observation.OccurredAt != nil {
+		decision.KnownFacts["transaction_at"] = value(observation.OccurredAt)
+	}
+	if observation.FundingAccountHint != nil {
+		decision.KnownFacts["funding_account_hint"] = value(observation.FundingAccountHint)
+	}
+	if observation.ProviderAccountHint != nil {
+		decision.KnownFacts["provider_account_hint"] = value(observation.ProviderAccountHint)
+	}
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	return p.projectObservationReview(ctx, tx, household, id, decision.ReasonCode, string(encoded))
+}
 func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) (string, error) {
 	if strings.TrimSpace(id) == "" {
 		return "", nil
@@ -291,9 +328,13 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	var observationID string
 	date := any(nil)
 	if v.ObservedDate != nil {
-		if d, err := time.Parse("2006-01-02", value(v.ObservedDate)); err == nil {
-			date = d
+		d, err := time.Parse("2006-01-02", value(v.ObservedDate))
+		if err != nil {
+			// A printed value with an unreadable date is a fact Go cannot trust,
+			// not a transfer relationship (SAVR-06).
+			return p.evidenceReview(ctx, tx, household, "", id, v, ObservationClassification{}, true)
 		}
+		date = d
 	}
 	err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,NULL,'',$2,$3,$4,$5) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id`, household, hint, *v.ValueIDR, date, id).Scan(&observationID)
 	if err != nil {
@@ -340,14 +381,27 @@ func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, hous
 type cashPlan struct {
 	account, wealth, amount, purpose, existing, providerReference, review string
 	missingEntities                                                       []string
-	at                                                                    time.Time
-	candidates                                                            []string
+	classification                                                        ObservationClassification
+	// unbounded marks a residual raised because no bounded plane was configured,
+	// so the review names what Go could not prove rather than a failed predicate.
+	unbounded  bool
+	at         time.Time
+	candidates []string
 }
 
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil {
-		plan.review = "TRANSFER_CLASSIFICATION"
+		// Requirement is about the risky direction (money not provably moved). A
+		// missing amount or date has no cash to be wrong about; keep the generic
+		// classification only for a missing funding account.
+		if v.FundingAccountHint == nil {
+			plan.review = "FINANCIAL_EMAIL_FACTS"
+			plan.unbounded = true
+			return plan, nil
+		}
+		plan.review = "FINANCIAL_EMAIL_FACTS"
+		plan.unbounded = true
 		return plan, nil
 	}
 	// A configured bounded plane rules on whether the email actually supports the
@@ -356,10 +410,14 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	// production (ADR-038, PRD §21).
 	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
 	if classifyErr != nil {
-		plan.review = "TRANSFER_CLASSIFICATION"
-		return plan, nil
+		return plan, classifyErr
 	}
 	if verified {
+		if residual := classification.cashResidual(); len(residual) > 0 {
+			plan.classification = classification
+			plan.review = "FINANCIAL_EMAIL_FACTS"
+			return plan, nil
+		}
 		if !classification.cashAllowed() {
 			plan.review = "TRANSFER_CLASSIFICATION"
 			return plan, nil
@@ -369,7 +427,8 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			v.MovementType = &movement
 		}
 	} else if v.Confidence < .8 {
-		plan.review = "TRANSFER_CLASSIFICATION"
+		plan.review = "FINANCIAL_EMAIL_FACTS"
+		plan.unbounded = true
 		return plan, nil
 	}
 	var err error
@@ -526,6 +585,8 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 		}
 	}
 	switch plan.review {
+	case "FINANCIAL_EMAIL_FACTS":
+		return p.evidenceReview(ctx, tx, household, source, id, v, plan.classification, plan.unbounded)
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth, plan.missingEntities)
 	case "CONFLICTING_EVIDENCE":

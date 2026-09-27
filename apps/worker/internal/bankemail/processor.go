@@ -322,7 +322,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
 	}
 	if verified && !verification.supported() {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", partialDecision(household, payload.SourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", []string{"transaction_semantics"}, "bounded verification could not confirm the email supports the extracted transaction facts"))
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification))
 	}
 	if !verified && extraction.Confidence < 0.80 {
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
@@ -393,6 +393,9 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 	if amount := value(extraction.AmountIDR); amount != "" {
 		known["amount_idr"] = amount
 	}
+	if at := timeValue(extraction.TransactionAt); at != "" {
+		known["transaction_at"] = at
+	}
 	if extraction.Direction != nil {
 		known["direction"] = *extraction.Direction
 	}
@@ -425,6 +428,24 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 	}
 }
 
+// verificationReviewDecision keeps every independently supported fact and names
+// only the material predicate the bounded evidence check did not clear. A
+// non-material ordering predicate (an uncertain payment mechanism) never appears
+// here because materialResidual drops it, so it cannot add a required human fact
+// (SAVR-06).
+func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification) reviewdec.Decision {
+	fact, conflict, _ := verification.materialResidual()
+	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", []string{fact}, "the email evidence conflicts on a material fact; Go refuses to guess")
+	decision.PolicyVersion = verification.PolicyVersion
+	decision.Provenance["claim_outcomes"] = verification.ClaimOutcomes
+	decision.AffectedFacts = []string{fact}
+	if conflict {
+		decision.DecisionClass = reviewdec.ClassEvidenceConflict
+		decision.Consequence = reviewdec.IndependentEvidenceConflict
+	}
+	return decision
+}
+
 // persistEvidenceVerification records the bounded ruling next to the extraction
 // so an operator can see what the decision plane actually claimed, without
 // storing the email body again (PRD §15/§20).
@@ -433,8 +454,9 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 		"transaction_observed": verification.TransactionObserved,
 		"amount_supported":     verification.AmountSupported,
 		"direction_supported":  verification.DirectionSupported,
-		"channel_supported":    verification.ChannelSupported,
+		"semantic_grounded":    verification.SemanticGrounded,
 		"material_ambiguity":   verification.MaterialAmbiguity,
+		"claim_outcomes":       verification.ClaimOutcomes,
 		// Without this an operator reading the row cannot tell "ruled not ambiguous"
 		// from "the plane could not tell", which is the distinction that decides
 		// whether the event may auto-confirm.

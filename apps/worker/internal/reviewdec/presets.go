@@ -16,6 +16,7 @@ var activeReasons = []string{
 	"TRANSACTION_FACTS_MISSING",
 	"TRANSFER_CLASSIFICATION",
 	"FINANCIAL_EMAIL_RESOLUTION",
+	"FINANCIAL_EMAIL_FACTS",
 	"UNKNOWN_MERCHANT",
 	"AMBIGUOUS_CATEGORY",
 	"UNKNOWN_PURPOSE",
@@ -133,6 +134,15 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.AllowedActions = []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
 		base.WhyNotAuto = "an entity the evidence identifies only in prose must be bound by the household"
+	case "FINANCIAL_EMAIL_FACTS":
+		// The producer overrides MissingFacts/AffectedFacts/Consequence with the
+		// exact predicate that failed; this default holds the action contract for a
+		// review whose bounded plane could not resolve anything.
+		base.DecisionClass = ClassEvidenceGap
+		base.MissingFacts = []string{"evidence_support"}
+		base.AllowedActions = []string{"IGNORE"}
+		base.InteractionMode = ModeSingleField
+		base.WhyNotAuto = "the provider email does not support all extracted financial facts; no transaction was written"
 	case "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"category"}

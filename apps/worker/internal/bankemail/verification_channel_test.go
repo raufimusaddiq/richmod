@@ -18,7 +18,7 @@ func TestChannelSupportedAcceptsIndonesianMethodWord(t *testing.T) {
 		"transaction_observed": noul(0.99),
 		"amount_supported":     noul(0.99),
 		"direction_supported":  noul(0.99),
-		"channel_supported":    noul(0.99),
+		"semantic_grounded":    noul(0.99),
 		"material_ambiguity":   noul(0.02),
 	}}
 	processor := &Processor{verifier: verifier}

@@ -16,8 +16,19 @@ type EvidenceVerification struct {
 	TransactionObserved bool
 	AmountSupported     bool
 	DirectionSupported  bool
-	ChannelSupported    bool
-	MaterialAmbiguity   bool
+	// SemanticGrounded rules that the email's wording supports the canonical
+	// class the deterministic policy will act on (an ordinary spend versus a
+	// transfer/internal movement). It replaces channel_supported: the exact
+	// payment mechanism (QR vs DEBIT_CARD vs MERCHANT_PAYMENT) is evidence
+	// metadata, not a required human fact, so an uncertain mechanism must not
+	// independently block an otherwise safe expense (SAVR-06).
+	SemanticGrounded  bool
+	MaterialAmbiguity bool
+
+	// ClaimOutcomes keeps YES/NO/UNDECIDED per bounded predicate so a review can
+	// name the exact material predicate that did not clear, independently of the
+	// booleans used by the canonical auto-confirm guard (SAVR-06).
+	ClaimOutcomes map[string]string
 
 	// AmbiguityDecidedNotAmbiguous records that the ambiguity question resolved to
 	// a decided *negative*. It is tracked separately because material_ambiguity is
@@ -40,7 +51,7 @@ type EvidenceVerification struct {
 // (PRD 17). Reading it as "not ambiguous" is fail-open, which is what this
 // previously did.
 func (v EvidenceVerification) supported() bool {
-	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.ChannelSupported && v.AmbiguityDecidedNotAmbiguous
+	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.SemanticGrounded && v.AmbiguityDecidedNotAmbiguous
 }
 
 // jeverifier is the seam onto the bounded judgment plane. It is defined here, in
@@ -58,13 +69,13 @@ const BankEmailVerificationPolicyVersion = "2026-09-jev3"
 var evidenceVerificationPolicy = struct {
 	Amount    judgment.NoulPolicy
 	Direction judgment.NoulPolicy
-	Channel   judgment.NoulPolicy
+	Semantic  judgment.NoulPolicy
 	Observed  judgment.NoulPolicy
 	Ambiguity judgment.NoulPolicy
 }{
 	Amount:    judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Direction: judgment.NoulPolicy{High: 0.85, Low: 0.15},
-	Channel:   judgment.NoulPolicy{High: 0.85, Low: 0.15},
+	Semantic:  judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Observed:  judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Ambiguity: judgment.NoulPolicy{High: 0.15, Low: 0.05},
 }
@@ -167,7 +178,7 @@ var verificationClaims = []struct {
 	{"transaction_observed", "Does the email report one real completed transaction (a purchase, payment, transfer, or fee the customer has made), as opposed to a promotion, statement, balance update, or unrelated notice? Answer yes when the email states a completed transaction, even if it also contains routine security or support boilerplate such as 'if you did not make this transaction, lock your card', 'contact us if this was not you', or a link to check your transaction history. Those protective footers do not make a completed transaction unreal or uncertain.", evidenceVerificationPolicy.Observed},
 	{"amount_supported", "Is the extracted amount the amount this email states for its transaction? Answer yes when the email names that amount for the transaction; other numbers elsewhere in the email, such as a customer-service phone number, an OTP validity window, or a phone/SIM digit string, do not count as a competing transaction amount.", evidenceVerificationPolicy.Amount},
 	{"direction_supported", "Does the email's wording support the extracted money direction (INCOMING or OUTGOING)? Answer yes when ordinary wording implies it, for example a debit-card or payment notification for OUTGOING and a transfer-received notice for INCOMING. Answer no only when the email suggests the opposite direction or none at all.", evidenceVerificationPolicy.Direction},
-	{"channel_supported", "Does the email describe the same payment method as the extracted channel? The channel is a server vocabulary token (DEBIT_CARD, MERCHANT_PAYMENT, QR, TRANSFER, ATM, BANK_FEE, INTERNAL_TRANSFER, RDN, OTHER), so ordinary wording that names that method counts, for example 'kartu debit' or 'debit card' for DEBIT_CARD, 'QR' for QR, 'transfer' for TRANSFER. Answer no only when the email names a different method or none.", evidenceVerificationPolicy.Channel},
+	{"semantic_grounded", "Does the email's wording support the canonical class Go will act on: an ordinary outgoing spend at a merchant, or movement of money to or from the customer's own accounts (transfer, internal transfer, RDN investment)? Answer yes when the wording clearly supports one of these. The exact payment mechanism (QR, debit card, merchant payment, ATM) does NOT matter here and must not lower the answer; answer no only when the wording suggests no real movement of money at all.", evidenceVerificationPolicy.Semantic},
 	{"material_ambiguity", "Is this notification genuinely ambiguous about the transaction itself, for example two plausible transaction amounts, or two plausible transaction dates? Routine email boilerplate is not ambiguity: a security footer like 'if this was not you, lock your card', a support phone number, or a link to view your history does not make the transaction ambiguous.", evidenceVerificationPolicy.Ambiguity},
 }
 
@@ -226,8 +237,29 @@ func (p *Processor) verifyEvidenceOnce(ctx context.Context, requestID string, ex
 	verification.TransactionObserved = noulClaimed(result.Answers, "transaction_observed", evidenceVerificationPolicy.Observed)
 	verification.AmountSupported = noulClaimed(result.Answers, "amount_supported", evidenceVerificationPolicy.Amount)
 	verification.DirectionSupported = noulClaimed(result.Answers, "direction_supported", evidenceVerificationPolicy.Direction)
-	verification.ChannelSupported = noulClaimed(result.Answers, "channel_supported", evidenceVerificationPolicy.Channel)
+	verification.SemanticGrounded = noulClaimed(result.Answers, "semantic_grounded", evidenceVerificationPolicy.Semantic)
 	verification.MaterialAmbiguity, verification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity", evidenceVerificationPolicy.Ambiguity)
+	verification.ClaimOutcomes = make(map[string]string, len(verificationClaims))
+	policies := map[string]judgment.NoulPolicy{
+		"transaction_observed": evidenceVerificationPolicy.Observed,
+		"amount_supported":     evidenceVerificationPolicy.Amount,
+		"direction_supported":  evidenceVerificationPolicy.Direction,
+		"semantic_grounded":    evidenceVerificationPolicy.Semantic,
+		"material_ambiguity":   evidenceVerificationPolicy.Ambiguity,
+	}
+	for _, claim := range verificationClaims {
+		status := "UNDECIDED"
+		if answer, ok := result.Answers[claim.Key]; ok {
+			yes, decided := judgment.AcceptNoul(answer, policies[claim.Key])
+			if decided {
+				status = "NO"
+				if yes {
+					status = "YES"
+				}
+			}
+		}
+		verification.ClaimOutcomes[claim.Key] = status
+	}
 	return verification, true, nil
 }
 

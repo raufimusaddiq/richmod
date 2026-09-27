@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // ObservationClassification is the bounded ruling over one already-extracted
@@ -20,6 +21,10 @@ type ObservationClassification struct {
 	WealthSupported    bool
 	EvidenceSufficient bool
 	MaterialAmbiguity  bool
+	// ClaimOutcomes keeps YES/NO/UNDECIDED per bounded predicate so the review
+	// can name the exact unresolved/conflicting dimension instead of collapsing
+	// every unsupported case into transfer classification.
+	ClaimOutcomes map[string]string
 	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
 	// question, which is the favourable answer. The middle band means the plane
 	// could not tell, and must fail closed rather than read as approval.
@@ -123,7 +128,77 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 	classification.WealthSupported = noulSupported(result.Answers, "wealth_value_supported")
 	classification.EvidenceSufficient = noulSupported(result.Answers, "evidence_sufficient")
 	classification.MaterialAmbiguity, classification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity")
+	classification.ClaimOutcomes = map[string]string{}
+	for _, key := range []string{"observation_type", "movement_type", "cash_movement_supported", "wealth_value_supported", "evidence_sufficient", "material_ambiguity"} {
+		answer, ok := result.Answers[key]
+		if !ok {
+			classification.ClaimOutcomes[key] = "UNDECIDED"
+			continue
+		}
+		if answer.Type == "choice" {
+			classification.ClaimOutcomes[key] = answer.Choice
+			continue
+		}
+		yes, decided := judgment.AcceptNoul(answer, classificationPolicy.Supported)
+		classification.ClaimOutcomes[key] = "UNDECIDED"
+		if decided {
+			classification.ClaimOutcomes[key] = "NO"
+			if yes {
+				classification.ClaimOutcomes[key] = "YES"
+			}
+		}
+	}
 	return classification, true, nil
+}
+
+// cashResidual names only failed cash-evidence dimensions. Movement/purpose
+// remains a transfer classification choice, not a generic evidence failure.
+func (c ObservationClassification) cashResidual() []string {
+	var missing []string
+	for _, claim := range []struct{ key, fact, expected string }{
+		{"observation_type", "observation_type", "CASH_MOVEMENT"},
+		{"cash_movement_supported", "cash_movement", "YES"},
+		{"evidence_sufficient", "evidence_support", "YES"},
+		{"material_ambiguity", "transaction_ambiguity", "NO"},
+	} {
+		if c.ClaimOutcomes[claim.key] != claim.expected {
+			missing = append(missing, claim.fact)
+		}
+	}
+	return missing
+}
+
+// factsMissing names the residual when no bounded plane was configured, so a
+// case Go cannot adjudicate names what it could not trust instead of borrowing
+// the human transfer-relationship choice (SAVR-06).
+func (c ObservationClassification) factsMissing() []string {
+	return []string{"evidence_support", "observation_type"}
+}
+
+// reviewFacts returns the SAVR-06 review contract for this classification: the
+// exact unsupported dimensions, the validator consequence that follows from
+// them, and whether a rule (rather than a predicate) ruled. Derived here so no
+// call site can hand-roll a contradicting contract.
+func (c ObservationClassification) reviewFacts(residual []string, unbounded bool) (missing, affected []string, consequence reviewdec.Consequence, provenance map[string]any) {
+	missing = residual
+	if len(missing) == 0 {
+		missing = []string{"evidence_support"}
+	}
+	affected = append([]string(nil), missing...)
+	consequence = reviewdec.BoundedResidual
+	if containsString(missing, "transaction_ambiguity") {
+		consequence = reviewdec.CanonicalAmbiguity
+	}
+	provenance = map[string]any{"pipeline": "financial-provider-email"}
+	if c.ClaimOutcomes == nil {
+		c.ClaimOutcomes = map[string]string{}
+	}
+	if unbounded {
+		provenance["bounded_plane"] = "unconfigured"
+	} else {
+		provenance["claim_outcomes"] = c.ClaimOutcomes
+	}
+	return
 }
 
 // cashAllowed reports whether Go may treat this observation as a real cash

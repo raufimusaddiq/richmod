@@ -2,6 +2,30 @@ package bankemail
 
 import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 
+// materialResidual names only the bounded predicate that did not clear, and only
+// when it is material to the canonical decision being attempted. Non-material
+// metadata (an uncertain payment mechanism) never reaches here, so it cannot
+// independently block an otherwise safe expense (SAVR-06).
+func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok bool) {
+	switch {
+	case v.ClaimOutcomes["amount_supported"] != "YES":
+		// Two evidence-supported amounts disagree: an independent-evidence conflict.
+		return "amount_idr", true, true
+	case v.ClaimOutcomes["direction_supported"] != "YES":
+		return "direction", true, true
+	case v.ClaimOutcomes["transaction_observed"] != "YES":
+		return "transaction_observed", true, true
+	case !v.AmbiguityDecidedNotAmbiguous || v.MaterialAmbiguity:
+		return "transaction_ambiguity", false, true
+	case v.ClaimOutcomes["semantic_grounded"] != "YES":
+		// SPEND vs TRANSFER_OR_INTERNAL unresolved: a material residual the
+		// household resolves, not a blind fail-closed (the deterministic policy
+		// still owns which canonical class a resolved case becomes).
+		return "transaction_semantics", false, true
+	}
+	return "", false, false
+}
+
 // reviewPolicyVersion names the policy that actually decided each review type,
 // so the stored contract stays reproducible (PRD §18).
 func reviewPolicyVersion(reviewType string) string {

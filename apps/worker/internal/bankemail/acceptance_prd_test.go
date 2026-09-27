@@ -272,7 +272,7 @@ func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
 	if verified {
 		t.Fatal("a nil verifier must not report a verified email")
 	}
-	if verification != (EvidenceVerification{}) {
+	if verification.TransactionObserved || verification.AmountSupported || verification.DirectionSupported || verification.SemanticGrounded || verification.MaterialAmbiguity || verification.AmbiguityDecidedNotAmbiguous || len(verification.ClaimOutcomes) != 0 {
 		t.Fatalf("a nil verifier must return the zero verification: %+v", verification)
 	}
 }

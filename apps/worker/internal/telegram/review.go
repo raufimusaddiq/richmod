@@ -1537,6 +1537,59 @@ func incomeReviewIntent(value string) string {
 	return ""
 }
 
+// ignoreFinancialEmailFacts resolves a FINANCIAL_EMAIL_FACTS review: the provider
+// email did not support a required financial fact, so no canonical transaction
+// exists and the only bounded action is to acknowledge it. It binds the open
+// observation review by the replied/callback Telegram message, marks the
+// observation IGNORED, and completes the review item (SAVR-06).
+func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
+	replyID := int64(0)
+	if update.Message.ReplyToMessage != nil {
+		replyID = update.Message.ReplyToMessage.MessageID
+	} else if update.CallbackQuery != nil {
+		replyID = update.Message.MessageID
+	}
+	if replyID == 0 {
+		return false, nil
+	}
+	var itemID, observationID string
+	err := p.pool.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_FACTS' AND ri.financial_email_observation_id IS NOT NULL AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, replyID).Scan(&itemID, &observationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	var userID string
+	if err = p.pool.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
+		return true, err
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, observationID, householdID); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',updated_at=now() WHERE id=$1 AND household_id=$2`, itemID, householdID); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',updated_at=now() WHERE review_item_id=$1 AND status='OPEN'`, itemID); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'IGNORE_FINANCIAL_EMAIL_FACTS','financial_email_observation',$3,jsonb_build_object('review_item_id',$4::uuid))`, householdID, userID, observationID, itemID); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' ELSE 'IGNORED' END WHERE id=$1`, sourceEventID); err != nil {
+		return true, err
+	}
+	if err = enqueueReply(ctx, tx, update, "Bukti email finansial diabaikan."); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
+}
+
 func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -1605,6 +1658,14 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	action, _ := args["action"].(string)
 	if handled, err := p.resolveNativeSpecialReview(ctx, sourceEventID, householdID, update, action, args); handled {
 		return err
+	}
+	// A provider-email evidence residual is observation-bound and its only bounded
+	// action is IGNORE, so resolve it directly instead of falling through to the
+	// transaction-bound lanes below (SAVR-06).
+	if action == "IGNORE" {
+		if handled, err := p.ignoreFinancialEmailFacts(ctx, sourceEventID, householdID, update); handled {
+			return err
+		}
 	}
 	if update.Message.ReplyToMessage != nil {
 		var requestID, itemID, caseID string
@@ -2341,6 +2402,8 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		}
 	case "receipt_quality":
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Terima total", CallbackData: "review:quality:confirm"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
+	case "financial_email_facts":
+		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	default:
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}
@@ -2454,7 +2517,7 @@ func TelegramCompletableReviewType(reviewType string) bool {
 		"UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY", "UNKNOWN_PURPOSE",
 		"MISSING_TRANSACTION_DATE", "MISSING_PAY_DATE", "MISSING_AMOUNT", "TRANSACTION_FACTS_MISSING", "MANUAL_CORRECTION",
 		"DOCUMENT_CLASSIFICATION", "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "FINANCIAL_EMAIL_RESOLUTION",
-		"UNKNOWN_BANK_TEMPLATE", "RECEIPT_MISMATCH":
+		"UNKNOWN_BANK_TEMPLATE", "RECEIPT_MISMATCH", "FINANCIAL_EMAIL_FACTS":
 		return true
 	default:
 		return false

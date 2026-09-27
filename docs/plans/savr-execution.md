@@ -281,8 +281,28 @@ receipt review outcomes remain for SAVR-08 source-family audit.
 
 - persist negative/undecided evidence predicate outcomes;
 - preserve transaction_at and other accepted facts;
-- derive exact residual/conflict from the failed predicate;
-- do not use generic transaction_semantics when a narrower reason is known.
+- derive the exact residual/conflict from the failed predicate;
+- a failed/undecided predicate blocks confirmation only when it is material to
+  the canonical decision being attempted. For `SPENDING_ONLY` ingestion the
+  payment mechanism (QR vs `DEBIT_CARD` vs `MERCHANT_PAYMENT`) is evidence
+  metadata, not a required human fact, so an uncertain mechanism alone must not
+  create a review or ask the household to resolve it;
+- material predicates remain: transaction existence, amount, direction,
+  SPEND-vs-TRANSFER/INTERNAL semantics, duplicate/reconciliation safety, and
+  genuinely required category/account facts. A material independent-evidence
+  conflict still fails closed.
+
+Implemented slice: the bounded bundle rules on `transaction_observed`,
+`amount_supported`, `direction_supported`, `semantic_grounded`, and
+`material_ambiguity` — the old `channel_supported` claim is replaced by
+`semantic_grounded`, which asks only whether the email supports the canonical
+class (ordinary spend versus transfer/internal movement) and is explicitly
+indifferent to the mechanism. A failed material predicate records
+`claim_outcomes` on `bank_email_evidence_verification` and builds the review
+with the exact affected/missing fact (`amount_idr`/`direction`/
+`transaction_observed` as an `INDEPENDENT_EVIDENCE_CONFLICT`;
+`transaction_ambiguity` as `CANONICAL_AMBIGUITY`; `transaction_semantics` as a
+`BOUNDED_RESIDUAL`), preserving amount, date, direction, channel, and merchant.
 
 ## Financial-provider email
 
@@ -290,6 +310,15 @@ receipt review outcomes remain for SAVR-08 source-family audit.
 - preserve `FINANCIAL_EMAIL_RESOLUTION + resolutionGaps`;
 - use transfer classification only when transfer relationship/purpose is truly
   the residual.
+
+Implemented slice: the bounded bundle records `claim_outcomes` per predicate, so
+a cash movement whose typed evidence failed parks as the new
+`FINANCIAL_EMAIL_FACTS` reason (migration `00071`) naming the exact unsupported
+dimension (`observation_type`, `cash_movement`, `evidence_support`,
+`transaction_ambiguity`) with only `IGNORE` allowed — no canonical write. A
+transfer relationship/purpose residual and a date Go could not parse keep
+`TRANSFER_CLASSIFICATION`; malformed wealth values route to
+`FINANCIAL_EMAIL_FACTS` instead of a bogus transfer classification.
 
 Exit:
 
