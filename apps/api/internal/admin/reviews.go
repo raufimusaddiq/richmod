@@ -137,7 +137,8 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND `+strings.ReplaceAll(telegramCapabilitySQL, "$1", "$2")+` AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='TELEGRAM'),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='USER'),
-			       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='SYSTEM')
+		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='SYSTEM'),
+		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface IN ('USER','TELEGRAM') AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id))
 		FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id
 		LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true
 		GROUP BY ri.review_type ORDER BY ri.review_type`, start, telegramCompleteActions)
@@ -149,8 +150,8 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var rt string
-		var created, open, eligible, projected, resolvedTelegram, resolvedWeb, resolvedSystem int
-		if err := rows.Scan(&rt, &created, &open, &eligible, &projected, &resolvedTelegram, &resolvedWeb, &resolvedSystem); err != nil {
+		var created, open, eligible, projected, resolvedTelegram, resolvedWeb, resolvedSystem, telegramEligibleResolved int
+		if err := rows.Scan(&rt, &created, &open, &eligible, &projected, &resolvedTelegram, &resolvedWeb, &resolvedSystem, &telegramEligibleResolved); err != nil {
 			writeError(w, 500, "ADMIN_QUERY_FAILED")
 			return
 		}
@@ -159,9 +160,8 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 			rate := float64(projected) / float64(eligible)
 			coverage = &rate
 		}
-		resolved := resolvedTelegram + resolvedWeb + resolvedSystem
 		var webEscape *float64
-		if resolved > 0 {
+		if telegramEligibleResolved > 0 {
 			// Escape only when the review also had a Telegram projection; a
 			// Web-only review is not a mandatory Web escape.
 			var telegramEscapes int
@@ -169,7 +169,7 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 				writeError(w, 500, "ADMIN_QUERY_FAILED")
 				return
 			}
-			rate := float64(telegramEscapes) / float64(resolved)
+			rate := float64(telegramEscapes) / float64(telegramEligibleResolved)
 			webEscape = &rate
 		}
 		var deliveryFailed int
