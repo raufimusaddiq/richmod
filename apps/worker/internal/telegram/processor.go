@@ -222,7 +222,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
-			if handled, err := p.ignoreFinancialEmailFactsCallback(ctx, sourceEventID, householdID, update); handled {
+			if handled, err := p.ignoreFinancialEmailFacts(ctx, sourceEventID, householdID, update); handled {
 				return err
 			}
 		}

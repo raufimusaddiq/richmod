@@ -21,9 +21,12 @@ type ObservationClassification struct {
 	WealthSupported    bool
 	EvidenceSufficient bool
 	MaterialAmbiguity  bool
-	// ClaimOutcomes keeps YES/NO/UNDECIDED per bounded predicate so the review
-	// can name the exact unresolved/conflicting dimension instead of collapsing
-	// every unsupported case into transfer classification.
+	// ClaimOutcomes keeps one entry per bounded predicate so the review can name
+	// the exact unresolved/conflicting dimension instead of collapsing every
+	// unsupported case into transfer classification. Noul predicates store
+	// YES/NO/UNDECIDED; choice predicates store the accepted option label when
+	// AcceptChoice passes and UNDECIDED otherwise, so a rejected choice never reads
+	// as a passing predicate (SAVR-06).
 	ClaimOutcomes map[string]string
 	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
 	// question, which is the favourable answer. The middle band means the plane

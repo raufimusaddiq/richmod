@@ -321,16 +321,20 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		_ = p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "VERIFICATION_FAILED", "RETRY")
 		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
 	}
+	// Persist the bounded ruling before any review branch: the audit row is the
+	// only record of what the plane actually claimed, and a verified-but-
+	// unsupported ruling (every SAVR-06 bank residual) is exactly the case the row
+	// exists to explain (SAVR-06, Hermes round 4).
+	if verified {
+		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
+			return persistErr
+		}
+	}
 	if verified && !verification.supported() {
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification))
 	}
 	if !verified && extraction.Confidence < 0.80 {
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
-	}
-	if verified {
-		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
-			return persistErr
-		}
 	}
 	var alreadyPersisted bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
@@ -447,9 +451,17 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 	decision.PolicyVersion = verification.PolicyVersion
 	decision.Provenance["claim_outcomes"] = verification.ClaimOutcomes
 	decision.AffectedFacts = []string{fact}
-	if conflict {
+	switch {
+	case conflict:
 		decision.DecisionClass = reviewdec.ClassEvidenceConflict
 		decision.Consequence = reviewdec.IndependentEvidenceConflict
+	case fact == "transaction_ambiguity":
+		decision.Consequence = reviewdec.CanonicalAmbiguity
+	default:
+		// transaction_semantics and any other bounded material residual: a
+		// predicate did not clear, so the consequence is the bounded residual the
+		// shared contract names (SAVR-06, Hermes round 4).
+		decision.Consequence = reviewdec.BoundedResidual
 	}
 	return decision
 }

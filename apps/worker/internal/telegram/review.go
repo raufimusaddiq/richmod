@@ -1538,15 +1538,6 @@ func incomeReviewIntent(value string) string {
 }
 
 // ignoreFinancialEmailFacts resolves a FINANCIAL_EMAIL_FACTS review: the provider
-// ignoreFinancialEmailFactsCallback is the review:ignore button entry for a
-// FINANCIAL_EMAIL_FACTS card. It uses the callback message id to bind the open
-// observation review, so the button completes the card instead of falling
-// through to the generic stale-action reply (SAVR-06).
-func (p *Processor) ignoreFinancialEmailFactsCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
-	return p.ignoreFinancialEmailFacts(ctx, sourceEventID, householdID, update)
-}
-
-// ignoreFinancialEmailFacts resolves a FINANCIAL_EMAIL_FACTS review: the provider
 // email did not support a required financial fact, so no canonical transaction
 // exists and the only bounded action is to acknowledge it. It binds the open
 // observation review by the replied/callback Telegram message, marks the

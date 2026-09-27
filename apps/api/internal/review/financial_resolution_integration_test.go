@@ -336,3 +336,41 @@ func TestFinancialResolutionListItemExposesPartialState(t *testing.T) {
 	}
 	t.Fatal("the open financial resolution review must appear in the list")
 }
+
+// A provider-email facts residual is observation-scoped: the review_item carries
+// only financial_email_observation_id, so source_event_id is NULL. Web IGNORE
+// must still settle the owning source event instead of leaving it parked as
+// NEEDS_REVIEW, exactly like the Telegram lane and the shared financial-email
+// resolver (SAVR-06, Hermes round 4).
+func TestFinancialEmailFactsIgnoreSettlesSourceEvent(t *testing.T) {
+	fixture := seedFinancialResolution(t, true)
+	ctx := context.Background()
+	// Move the observation into the facts-residual shape and drop the entity
+	// binding: the review_item keeps only the observation id, never a source id.
+	var source string
+	if err := fixture.pool.QueryRow(ctx, `SELECT source_event_id::text FROM financial_email_observation WHERE id=$1`, fixture.observation).Scan(&source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW',resolved_account_id=NULL,resolved_wealth_account_id=NULL WHERE id=$1`, fixture.observation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `UPDATE review_item SET review_type='FINANCIAL_EMAIL_FACTS',source_event_id=NULL,decision=jsonb_build_object('version',1,'reasonCode','FINANCIAL_EMAIL_FACTS','decisionClass','EVIDENCE_GAP','interactionMode','SINGLE_FIELD','knownFacts',jsonb_build_object(),'missingFacts',jsonb_build_array('evidence_support'),'allowedActions',jsonb_build_array('IGNORE'),'decisionSource','DETERMINISTIC') WHERE id=$1`, fixture.review); err != nil {
+		t.Fatal(err)
+	}
+	if w := fixture.resolve(t, `{"action":"IGNORE"}`); w.Code != http.StatusNoContent {
+		t.Fatalf("ignoring a facts residual must succeed: %d %s", w.Code, w.Body.String())
+	}
+	var observationStatus, reviewStatus, sourceStatus string
+	if err := fixture.pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, fixture.observation).Scan(&observationStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, fixture.review).Scan(&reviewStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, source).Scan(&sourceStatus); err != nil {
+		t.Fatal(err)
+	}
+	if observationStatus != "IGNORED" || reviewStatus != "RESOLVED" || sourceStatus == "NEEDS_REVIEW" {
+		t.Fatalf("facts ignore must settle the event: observation=%s review=%s source=%s", observationStatus, reviewStatus, sourceStatus)
+	}
+}
