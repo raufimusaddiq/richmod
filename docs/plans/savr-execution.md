@@ -202,6 +202,12 @@ Rules:
 Do the same for another knowledge family only if the audit proves duplicate exact
 logic and the shared contract is obvious.
 
+Implementation: worker `merchantmemory.Lookup` uses one household-scoped exact
+alias query for receipt, screenshot, bank email, and Telegram. It requires an
+active household category and an explicitly confirmed auto-apply rule; a
+conflicting screenshot category remains in review. Other knowledge families
+remain source-specific until an actual duplicate contract is identified.
+
 Exit:
 
 A learned merchant/category fact is not forgotten because the next evidence

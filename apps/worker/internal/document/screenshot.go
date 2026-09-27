@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
@@ -138,6 +139,22 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {
 		return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, err)
+	}
+	for index := range rows {
+		if rows[index].Type != "EXPENSE" {
+			continue
+		}
+		match, err := merchantmemory.Lookup(ctx, p.pool, householdID, rows[index].Value.Merchant)
+		if err != nil {
+			return err
+		}
+		if match == nil {
+			continue
+		}
+		if rows[index].CategoryID != nil && *rows[index].CategoryID != match.CategoryID {
+			rows[index].CategoryConflict = true
+		}
+		rows[index].CategoryID, rows[index].CategoryDecided = &match.CategoryID, true
 	}
 	usedMatches := make(map[string]bool)
 	for index := range rows {
