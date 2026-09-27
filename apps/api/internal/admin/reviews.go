@@ -65,7 +65,7 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	// Resolution surface comes from the canonical audit row the surface wrote,
 	// never from the resolver's Telegram identity: one person may resolve from
 	// either channel (UIRC-04). Latency still uses the canonical review window.
-	if err := h.pool.QueryRow(ctx, `SELECT count(DISTINCT ri.id) FILTER(WHERE s.surface='TELEGRAM'),count(DISTINCT ri.id) FILTER(WHERE s.surface='USER'),count(DISTINCT ri.id) FILTER(WHERE s.surface='SYSTEM'),percentile_cont(.5) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL),percentile_cont(.95) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id=ri.id ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1`, start).Scan(&out.ResolvedByTelegram, &out.ResolvedByWeb, &out.ResolvedBySystem, &out.ResolutionLatencyP50Ms, &out.ResolutionLatencyP95Ms); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT count(DISTINCT ri.id) FILTER(WHERE s.surface='TELEGRAM'),count(DISTINCT ri.id) FILTER(WHERE s.surface='USER'),count(DISTINCT ri.id) FILTER(WHERE s.surface='SYSTEM'),percentile_cont(.5) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL),percentile_cont(.95) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1`, start).Scan(&out.ResolvedByTelegram, &out.ResolvedByWeb, &out.ResolvedBySystem, &out.ResolutionLatencyP50Ms, &out.ResolutionLatencyP95Ms); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -76,7 +76,7 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	// Web escape: only reviews that entered Telegram and were completed on Web.
 	// A Web-only review, and voluntary details/wealth navigation, are not escapes.
 	var webEscapes, telegramEligibleResolved int
-	if err := h.pool.QueryRow(ctx, `SELECT count(*),coalesce(sum(CASE WHEN te.telegram_path THEN 1 ELSE 0 END),0) FROM (SELECT ri.id,coalesce(s.surface,'') AS surface,EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id) AS telegram_path FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id=ri.id ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1) te WHERE te.surface='USER'`, start).Scan(&telegramEligibleResolved, &webEscapes); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT count(*),coalesce(sum(CASE WHEN te.telegram_path THEN 1 ELSE 0 END),0) FROM (SELECT ri.id,coalesce(s.surface,'') AS surface,EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id) AS telegram_path FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1) te WHERE te.surface='USER'`, start).Scan(&telegramEligibleResolved, &webEscapes); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -98,9 +98,9 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='TELEGRAM'),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='USER'),
-		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='SYSTEM')
+			       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='SYSTEM')
 		FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id
-		LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id=ri.id ORDER BY a.created_at DESC LIMIT 1) s ON true
+		LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true
 		GROUP BY ri.review_type ORDER BY ri.review_type`, start)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
@@ -126,7 +126,10 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 			// Escape only when the review also had a Telegram projection; a
 			// Web-only review is not a mandatory Web escape.
 			var telegramEscapes int
-			_ = h.pool.QueryRow(r.Context(), `SELECT count(*) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id=ri.id ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.review_type=$2 AND ri.resolved_at>=$1 AND s.surface='USER' AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)`, start, rt).Scan(&telegramEscapes)
+			if err := h.pool.QueryRow(r.Context(), `SELECT count(*) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.review_type=$2 AND ri.resolved_at>=$1 AND s.surface='USER' AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)`, start, rt).Scan(&telegramEscapes); err != nil {
+				writeError(w, 500, "ADMIN_QUERY_FAILED")
+				return
+			}
 			rate := float64(telegramEscapes) / float64(resolved)
 			webEscape = &rate
 		}

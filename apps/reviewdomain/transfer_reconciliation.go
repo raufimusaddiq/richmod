@@ -12,6 +12,10 @@ var ErrTransferCaseUnavailable = errors.New("reviewdomain: transfer reconciliati
 
 type TransferReconciliationCommand struct {
 	HouseholdID, ActorUserID, ReviewItemID, CaseID, Action, CandidateID string
+	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for
+	// the chat lanes). Empty defaults to USER so a surface that forgets it is
+	// recorded as a human resolution rather than an unattributed one (UIRC-04).
+	ActorType string
 }
 
 // ReconcileTransfer owns the financial mutation and canonical review lifecycle.
@@ -78,11 +82,11 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			}
 		}
 	}
-	// resolution_action mirrors the action vocabulary the surfaces send, so a
-	// dismissed transfer and a dismissed financial email record the same value.
 	caseStatus, resolution, processing := "RESOLVED", cmd.Action, "PROCESSED"
 	if cmd.Action == "IGNORE" {
-		caseStatus, processing = "DISMISSED", "IGNORED"
+		// A dismissed transfer keeps its historical IGNORED marker; the Inbox and
+		// the agent lane both read it as "parked, not reconciled".
+		caseStatus, resolution, processing = "DISMISSED", "IGNORED", "IGNORED"
 		if observationID != "" {
 			if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2 AND status='REVIEW'`, observationID, cmd.HouseholdID); err != nil {
 				return "", err
@@ -101,6 +105,16 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('OPEN','PENDING_SEND')`, cmd.ReviewItemID); err != nil {
 		return "", err
 	}
-	_, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID)
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
+		return "", err
+	}
+	// UIRC-04: the surface is recorded on the canonical review item so Admin
+	// counts a resolution by the channel that performed it. Per-surface audit rows
+	// key off a transaction or source event, which cannot be joined back here.
+	actorType := cmd.ActorType
+	if actorType == "" {
+		actorType = "USER"
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action',$5::text))`, cmd.HouseholdID, actorType, cmd.ActorUserID, cmd.ReviewItemID, cmd.Action)
 	return id, err
 }

@@ -435,7 +435,7 @@ func (p *Processor) agentResolveTransferCaseTx(ctx context.Context, state *agent
 	}
 	id, err := reviewdomain.ReconcileTransfer(ctx, tx, reviewdomain.TransferReconciliationCommand{
 		HouseholdID: state.HouseholdID, ActorUserID: userID, ReviewItemID: itemID,
-		CaseID: caseID, Action: action, CandidateID: target,
+		CaseID: caseID, Action: action, CandidateID: target, ActorType: "TELEGRAM",
 	})
 	if err != nil {
 		return "", err

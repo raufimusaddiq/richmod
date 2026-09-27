@@ -37,6 +37,9 @@ type FinancialEmailCommand struct {
 	// SourceEventID is the email source to requeue once the entities resolve.
 	SourceEventID string
 	ActorUserID   string
+	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for
+	// the chat lanes); empty defaults to USER (UIRC-04).
+	ActorType string
 }
 
 // FinancialEmailResult reports the resolved entity binding so each surface can
@@ -182,6 +185,14 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 		return result, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
+		return result, err
+	}
+	// UIRC-04: record the resolving surface on the canonical review item.
+	actorType := cmd.ActorType
+	if actorType == "" {
+		actorType = "USER"
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action',$5::text))`, cmd.HouseholdID, actorType, cmd.ActorUserID, cmd.ReviewItemID, action); err != nil {
 		return result, err
 	}
 	if cmd.Ignore {

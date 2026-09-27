@@ -241,7 +241,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		result, err := reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{
 			HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"),
 			AccountID: values.AccountID, WealthAccountID: values.WealthAccountID,
-			ActorUserID: p.UserID,
+			ActorUserID: p.UserID, ActorType: "USER",
 		})
 		if err != nil {
 			writeJSON(w, financialEmailStatus(err), map[string]string{"error": financialEmailMessage(err)})
@@ -267,7 +267,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "invalid transfer candidate"})
 			return
 		}
-		if _, err = reviewdomain.ReconcileTransfer(r.Context(), tx, reviewdomain.TransferReconciliationCommand{HouseholdID: household, ActorUserID: p.UserID, ReviewItemID: r.PathValue("id"), Action: in.Action, CandidateID: values.TransactionID}); err != nil {
+		if _, err = reviewdomain.ReconcileTransfer(r.Context(), tx, reviewdomain.TransferReconciliationCommand{HouseholdID: household, ActorUserID: p.UserID, ReviewItemID: r.PathValue("id"), Action: in.Action, CandidateID: values.TransactionID, ActorType: "USER"}); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid or unavailable transfer reconciliation"})
 			return
 		}
@@ -405,7 +405,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Action == "IGNORE" && kind == "TRANSFER_CLASSIFICATION" && source != nil {
-		_, err = reviewdomain.ReconcileTransfer(r.Context(), tx, reviewdomain.TransferReconciliationCommand{HouseholdID: household, ActorUserID: p.UserID, ReviewItemID: r.PathValue("id"), Action: "IGNORE"})
+		_, err = reviewdomain.ReconcileTransfer(r.Context(), tx, reviewdomain.TransferReconciliationCommand{HouseholdID: household, ActorUserID: p.UserID, ReviewItemID: r.PathValue("id"), Action: "IGNORE", ActorType: "USER"})
 		if err == nil {
 			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": "IGNORE"})
 		}
@@ -417,7 +417,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Action == "IGNORE" && kind == "FINANCIAL_EMAIL_RESOLUTION" && financialObservation != nil {
-		_, err = reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"), ActorUserID: p.UserID, Ignore: true})
+		_, err = reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"), ActorUserID: p.UserID, ActorType: "USER", Ignore: true})
 		if err == nil {
 			err = audit(r.Context(), tx, household, p.UserID, "RESOLVE_REVIEW", r.PathValue("id"), map[string]any{"action": "IGNORE"})
 		}

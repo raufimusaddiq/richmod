@@ -658,7 +658,7 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 	if err != nil {
 		return true, err
 	}
-	cmd := reviewdomain.FinancialEmailCommand{HouseholdID: householdID, ObservationID: observationID, ReviewItemID: itemID, ActorUserID: userID, Ignore: dimension == "ignore"}
+	cmd := reviewdomain.FinancialEmailCommand{HouseholdID: householdID, ObservationID: observationID, ReviewItemID: itemID, ActorUserID: userID, ActorType: "TELEGRAM", Ignore: dimension == "ignore"}
 	if dimension == "account" {
 		cmd.AccountID = entityID
 	} else if dimension == "wealth" {
@@ -1781,7 +1781,7 @@ func (p *Processor) resolveNativeTransferCase(ctx context.Context, sourceEventID
 	}
 	if _, err := reviewdomain.ReconcileTransfer(ctx, tx, reviewdomain.TransferReconciliationCommand{
 		HouseholdID: householdID, ActorUserID: userID, ReviewItemID: itemID,
-		CaseID: caseID, Action: action, CandidateID: target,
+		CaseID: caseID, Action: action, CandidateID: target, ActorType: "TELEGRAM",
 	}); err != nil {
 		return err
 	}

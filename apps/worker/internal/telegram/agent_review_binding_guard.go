@@ -123,7 +123,7 @@ func (p *Processor) agentDismissBoundTransferReconciliation(ctx context.Context,
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
 	}
-	if _, err = reviewdomain.ReconcileTransfer(ctx, tx, reviewdomain.TransferReconciliationCommand{HouseholdID: state.HouseholdID, ActorUserID: userID, ReviewItemID: itemID, CaseID: binding.TargetID, Action: "IGNORE"}); err != nil {
+	if _, err = reviewdomain.ReconcileTransfer(ctx, tx, reviewdomain.TransferReconciliationCommand{HouseholdID: state.HouseholdID, ActorUserID: userID, ReviewItemID: itemID, CaseID: binding.TargetID, Action: "IGNORE", ActorType: "TELEGRAM"}); err != nil {
 		return result, true, err
 	}
 	if state.SourceEventID != originalSource {

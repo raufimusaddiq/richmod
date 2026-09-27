@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
@@ -98,13 +99,11 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	if summary.StaleActionAttempts < 1 {
 		t.Fatalf("stale actions not counted: %+v", summary)
 	}
-	// UIRC-04: a Telegram-linked user resolving from Web must count as WEB, and
-	// the escape denominator excludes Web-only reviews. The fixture's only
-	// resolution is Telegram, so Web must stay zero here.
-	if summary.ResolvedByWeb != 0 {
-		t.Fatalf("a Telegram resolve must not count as Web: %+v", summary)
-	}
-
+	// UIRC-04: the surface split is asserted against this fixture's own items in
+	// TestReviewOpsSurfaceComesFromTheSharedResolver, which resolves through the
+	// real shared operations. The aggregate totals below are household-wide, so a
+	// shared test database can already contain both surfaces.
+	//
 	// The same user resolves a second review from the Web lane: it must count as
 	// WEB even though the user owns a Telegram identity, and must not create a
 	// Web escape because that item never had a Telegram projection.
@@ -160,6 +159,119 @@ func createResolvedReviewForSurface(t *testing.T, pool *pgxpool.Pool, householdI
 		t.Fatal(err)
 	}
 	return itemID
+}
+
+// seedReviewOpsHousehold creates an admin, a household owner with a Telegram
+// identity, and the household itself for the review-ops surface tests.
+func seedReviewOpsHousehold(t *testing.T, pool *pgxpool.Pool, stamp int64) (adminID, observerID, householdID string, chatID int64) {
+	t.Helper()
+	ctx := context.Background()
+	chatID = stamp
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash,is_super_admin) VALUES($1,'Admin','!',true) RETURNING id`, fmt.Sprintf("admin-surface-%d@example.test", stamp)).Scan(&adminID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Review surface %d", stamp)).Scan(&householdID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','!') RETURNING id`, fmt.Sprintf("owner-surface-%d@example.test", stamp)).Scan(&observerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, observerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, observerID); err != nil {
+		t.Fatal(err)
+	}
+	return adminID, observerID, householdID, chatID
+}
+
+// TestReviewOpsSurfaceComesFromTheSharedResolver proves the UIRC-04 surface is
+// written by the resolution itself. The earlier fixture seeded audit rows by
+// hand, so the metric would have looked correct even if no production path wrote
+// the row the aggregate reads. This routes a real financial-email resolution
+// through the shared operation and asserts the surface it recorded.
+func TestReviewOpsSurfaceComesFromTheSharedResolver(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	handler := NewHandler(pool, false, "responses")
+	adminID, observerID, householdID, _ := seedReviewOpsHousehold(t, pool, stamp)
+	_ = observerID
+
+	// One review resolved from Web and one from Telegram, both by the same user,
+	// through the operation each surface actually calls.
+	var webItem, telegramItem string
+	for _, resolvedBy := range []struct {
+		surface string
+		into    *string
+	}{{"USER", &webItem}, {"TELEGRAM", &telegramItem}} {
+		var source, observation string
+		if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("surface-%s-%d", resolvedBy.surface, stamp), []byte(fmt.Sprint(stamp))).Scan(&source); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}'::jsonb,'REVIEW') RETURNING id`, householdID, source).Scan(&observation); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, householdID, observation).Scan(resolvedBy.into); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := reviewdomain.ResolveFinancialEmailReview(ctx, tx, reviewdomain.FinancialEmailCommand{
+			HouseholdID: householdID, ObservationID: observation, ReviewItemID: *resolvedBy.into,
+			ActorUserID: observerID, ActorType: resolvedBy.surface, Ignore: true,
+		}); err != nil {
+			tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The aggregate is household-wide, so assert the row the resolver wrote for
+	// each of this fixture's items rather than a delta in a shared database.
+	for _, want := range []struct {
+		itemID  string
+		surface string
+	}{{webItem, "USER"}, {telegramItem, "TELEGRAM"}} {
+		var surface string
+		if err := pool.QueryRow(ctx, `SELECT a.actor_type FROM audit_log a WHERE a.action='RESOLVE_REVIEW' AND a.entity_type='review_item' AND a.entity_id=$1`, want.itemID).Scan(&surface); err != nil {
+			t.Fatalf("%s: shared resolver wrote no canonical surface row: %v", want.surface, err)
+		}
+		if surface != want.surface {
+			t.Fatalf("surface=%s want %s", surface, want.surface)
+		}
+	}
+	// The aggregate must still read those rows: the counts it reports for the
+	// fixture are included in the household-wide totals.
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/reviews/summary?range=24h", nil)
+	req = req.WithContext(auth.ContextWithPrincipal(req.Context(), auth.Principal{UserID: adminID}))
+	handler.ReviewOpsSummary(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("summary status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var summary struct {
+		ResolvedByTelegram int `json:"resolvedByTelegram"`
+		ResolvedByWeb      int `json:"resolvedByWeb"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.ResolvedByWeb < 1 || summary.ResolvedByTelegram < 1 {
+		t.Fatalf("shared resolver surface not counted: %+v", summary)
+	}
 }
 
 func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {

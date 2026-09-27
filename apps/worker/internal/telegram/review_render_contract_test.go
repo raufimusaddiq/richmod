@@ -7,32 +7,10 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
-// producibleReviewTypes is the review_type set the producers can emit. Adding a
-// new producer without a ReviewDecision preset must fail this test, so no review
-// can reach Telegram without renderer capability (UIR-03 exhaustiveness).
-var producibleReviewTypes = []string{
-	"UNKNOWN_MERCHANT",
-	"AMBIGUOUS_CATEGORY",
-	"UNKNOWN_PURPOSE",
-	"MISSING_TRANSACTION_DATE",
-	"MISSING_PAY_DATE",
-	"TRANSACTION_FACTS_MISSING",
-	"MANUAL_CORRECTION",
-	"POSSIBLE_DUPLICATE",
-	"CONFLICTING_EVIDENCE",
-	"TRANSFER_CLASSIFICATION",
-	"PAYSLIP_CONFIRMATION",
-	"WEALTH_OBSERVATION_CONFIRMATION",
-	"DOCUMENT_EXTRACTION_LOW_CONFIDENCE",
-	"DOCUMENT_CLASSIFICATION",
-	"UNKNOWN_BANK_TEMPLATE",
-	"CYCLE_RESIDUAL_ALLOCATION",
-	"FINANCIAL_EMAIL_RESOLUTION",
-	"SALARY_SOURCE_CONFIRMATION",
-	"RECEIPT_MISMATCH",
-	"INVOICE_PAYMENT_STATUS",
-	"UNKNOWN_EMAIL_TEMPLATE",
-}
+// producibleReviewTypes reads the review reason set from the production package
+// that also owns the presets, so a new producer cannot be added to a second
+// hand-maintained list here (UIRC-05).
+var producibleReviewTypes = reviewdec.ActiveReasons()
 
 func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
@@ -115,14 +93,85 @@ func TestPayslipReviewTypesCanProject(t *testing.T) {
 	}
 }
 
-// noProducerReviewTypes are schema compatibility values with no active producer
-// in the Go sources. They are renderable (so an old open item still displays) but
-// may legitimately lack a Telegram completion lane until a producer lands.
-var noProducerReviewTypes = map[string]bool{
-	"SALARY_SOURCE_CONFIRMATION": true,
-	"RECEIPT_MISMATCH":           true,
-	"INVOICE_PAYMENT_STATUS":     true,
-	"UNKNOWN_EMAIL_TEMPLATE":     true,
+// compatibilityOnlyReviewTypes are schema CHECK values kept for rows written
+// before the current producers existed. They must still render (an old open item
+// has to display) but they are not active producer coverage, so they are not in
+// reviewdec.ActiveReasons and need no Telegram completion lane.
+var compatibilityOnlyReviewTypes = []string{
+	"SALARY_SOURCE_CONFIRMATION",
+	"RECEIPT_MISMATCH",
+	"INVOICE_PAYMENT_STATUS",
+	"UNKNOWN_EMAIL_TEMPLATE",
+}
+
+// TestCompatibilityOnlyReviewTypesAreNotProducerCoverage pins the tagging: a
+// compatibility value must not be claimed as active coverage, and an active
+// reason must not be parked in the compatibility bucket to dodge the capability
+// gate.
+func TestCompatibilityOnlyReviewTypesAreNotProducerCoverage(t *testing.T) {
+	active := map[string]bool{}
+	for _, reviewType := range producibleReviewTypes {
+		active[reviewType] = true
+	}
+	for _, reviewType := range compatibilityOnlyReviewTypes {
+		if active[reviewType] {
+			t.Fatalf("%s is both compatibility-only and active producer coverage", reviewType)
+		}
+	}
+}
+
+// TestActiveReasonsArePresetBacked requires every active reason to have a
+// decision preset, so a producer that starts emitting one still gets the shared
+// contract rather than a zero decision.
+func TestActiveReasonsArePresetBacked(t *testing.T) {
+	for _, reviewType := range producibleReviewTypes {
+		if _, ok := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000"); !ok {
+			t.Fatalf("%s is active producer coverage with no ReviewDecision preset", reviewType)
+		}
+	}
+}
+
+// TestEveryOrdinaryAllowedActionHasATelegramLane is the action-level gate. The
+// type-level check below only proves the review can be projected; this one proves
+// each ordinary action it offers can actually be carried out from Telegram.
+// CONFIRM_REVIEW is the preset spelling of the reply/callback confirm lane, which
+// the Telegram and agent resolvers handle as CONFIRM (UIRC-05).
+// telegramReviewLanes is the ordinary-action vocabulary with a Telegram terminal
+// or continuation path. CONFIRM_REVIEW and CLASSIFY_TRANSFER are the preset
+// spellings the surfaces translate to their own callback vocabulary, so the entry
+// names the lane the action reaches rather than the wire value Telegram receives.
+func telegramReviewLanes() map[string]bool {
+	telegramLanes := map[string]bool{"CONFIRM_REVIEW": true, "IGNORE": true, "CLASSIFY_TRANSFER": true}
+	for _, action := range reviewActions() {
+		telegramLanes[action] = true
+	}
+	// MERGE_EXISTING and CONFIRM_NEW_TRANSFER are not preset actions: a surface adds
+	// them only for a transfer reconciliation case that carries candidates, and the
+	// bound Telegram lane resolves that case through the shared operation.
+	telegramLanes["MERGE_EXISTING"] = true
+	telegramLanes["CONFIRM_NEW_TRANSFER"] = true
+	// The transfer classification vocabulary reaches the shared classifier through
+	// the Telegram transfer-intent lane, which maps each of these to the same
+	// canonical classification the Review Inbox sends as CLASSIFY_TRANSFER.
+	for _, action := range []string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE"} {
+		telegramLanes[action] = true
+	}
+	return telegramLanes
+}
+
+func TestEveryOrdinaryAllowedActionHasATelegramLane(t *testing.T) {
+	telegramLanes := telegramReviewLanes()
+	for _, reviewType := range producibleReviewTypes {
+		decision, ok := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000")
+		if !ok {
+			continue
+		}
+		for _, action := range decision.AllowedActions {
+			if !telegramLanes[action] {
+				t.Fatalf("%s offers %q with no Telegram terminal or continuation capability", reviewType, action)
+			}
+		}
+	}
 }
 
 // TestEveryProducedReviewTypeIsTelegramCompletable pins UIR-10 exit criterion 1:
@@ -130,12 +179,54 @@ var noProducerReviewTypes = map[string]bool{
 // Telegram. Adding a producer without a completion lane fails here.
 func TestEveryProducedReviewTypeIsTelegramCompletable(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
-		if noProducerReviewTypes[reviewType] {
-			continue
-		}
 		if !TelegramCompletableReviewType(reviewType) {
 			t.Fatalf("%s is producible but has no Telegram completion lane", reviewType)
 		}
+	}
+}
+
+// TestUnregisteredProducerFailsTheGate proves the gate is structural rather than
+// descriptive: a producer emitting a reason that is not registered as active
+// coverage, and has no Telegram completion lane, must be rejected the same way
+// the real fixture is.
+func TestUnregisteredProducerFailsTheGate(t *testing.T) {
+	const unregistered = "TEST_ONLY_UNREGISTERED_REVIEW"
+	for _, reviewType := range producibleReviewTypes {
+		if reviewType == unregistered {
+			t.Fatalf("%s must not be registered as active coverage", unregistered)
+		}
+	}
+	if TelegramCompletableReviewType(unregistered) {
+		t.Fatalf("gate accepted %s: an unregistered producer reached a Telegram completion lane", unregistered)
+	}
+	if _, ok := reviewdec.Preset(unregistered, "transaction", "00000000-0000-0000-0000-000000000000"); ok {
+		t.Fatalf("gate accepted %s: it resolved a decision preset without being registered", unregistered)
+	}
+}
+
+// TestUnregisteredOrdinaryActionFailsTheGate pins the action-level half of
+// UIRC-05: a registered review type whose ordinary allowed action has no
+// Telegram lane must fail independently of the type-level gate, or a bounded
+// chooser could offer a button nothing can complete.
+func TestUnregisteredOrdinaryActionFailsTheGate(t *testing.T) {
+	const deadEndAction = "TEST_ONLY_DEAD_END_ACTION"
+	if contains(reviewActions(), deadEndAction) {
+		t.Fatalf("%s must not be a registered ordinary action", deadEndAction)
+	}
+	decision, ok := reviewdec.Preset("AMBIGUOUS_CATEGORY", "transaction", "00000000-0000-0000-0000-000000000000")
+	if !ok {
+		t.Fatal("AMBIGUOUS_CATEGORY lost its preset")
+	}
+	decision.AllowedActions = append(append([]string(nil), decision.AllowedActions...), deadEndAction)
+	telegramLanes := telegramReviewLanes()
+	rejected := false
+	for _, action := range decision.AllowedActions {
+		if !telegramLanes[action] {
+			rejected = action == deadEndAction
+		}
+	}
+	if !rejected {
+		t.Fatalf("the gate accepted %s: an ordinary action without a Telegram lane must fail on its own", deadEndAction)
 	}
 }
 
