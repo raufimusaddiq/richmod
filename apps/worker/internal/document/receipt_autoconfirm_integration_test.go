@@ -278,8 +278,8 @@ func TestReceiptArithmeticMismatchPreservesKnownFactsAndExactQualitySignal(t *te
 	fixture := seedReceiptFixture(t, "Receipt mismatch")
 	ctx := context.Background()
 	slug := fixture.categorySlug
-	transactionAt := receiptTime().Format(time.RFC3339)
-	value := receiptExtraction{Merchant: "Indomaret", TransactionAt: &transactionAt, Total: "57500", Subtotal: ptr("50000"), Tax: ptr("5000"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
+	printedAt := receiptTime().Format(time.RFC3339)
+	value := receiptExtraction{Merchant: "Indomaret", TransactionAt: &printedAt, Total: "57500", Subtotal: ptr("50000"), Tax: ptr("5000"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
 	validation, err := validateReceipt(value, receiptTime())
 	if err != nil || !validation.ArithmeticAvailable || validation.ArithmeticOK || !validation.DateKnown {
 		t.Fatalf("arithmetic mismatch must preserve observed facts: %+v %v", validation, err)

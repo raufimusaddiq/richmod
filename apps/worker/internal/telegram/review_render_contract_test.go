@@ -261,6 +261,8 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 			wantMode = "document"
 		case contains(decision.AllowedActions, "SET_FINANCIAL_EMAIL_ENTITIES"):
 			wantMode = "financial_email"
+		case decision.Consequence == reviewdec.QualitySignal:
+			wantMode = "receipt_quality"
 		case isCategoryOnly(decision):
 			wantMode = "category"
 		case contains(decision.MissingFacts, "transfer_relationship"):
