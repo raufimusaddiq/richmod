@@ -23,6 +23,8 @@ The objective is:
 > close the remaining Universal Review Interaction contract gaps with the
 > smallest durable changes, freeze the UIR boundary, then start SAVR.
 
+> **Gate status (2026-09-27):** Code product-closed on merged `main@37b8730`; contract tests, CI/CodeQL, Release Images, and deployment health passed. Interactive deployed smoke (UIRC-06) remains deferred: production has one household and the runbook forbids seeding test data into it. See `docs/plans/uir-closure-execution.md`.
+
 This gate exists because SAVR depends on a trustworthy review layer:
 
 ```text
