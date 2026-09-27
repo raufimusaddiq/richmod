@@ -16,7 +16,7 @@ func TestFinancialEmailResolutionIsShared(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(source)
-	if !strings.Contains(text, "ResolveFinancialEmailEntities") {
+	if !strings.Contains(text, "ResolveFinancialEmailReview") {
 		t.Fatalf("%s does not call the shared financial email resolution", path)
 	}
 	if strings.Contains(text, "UPDATE financial_email_observation SET resolved_account_id") {

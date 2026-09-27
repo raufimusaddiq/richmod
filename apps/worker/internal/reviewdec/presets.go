@@ -1,5 +1,33 @@
 package reviewdec
 
+// activeReasons is the review reason set with a live producer, in one place so
+// the Telegram capability gate can read the same list the presets are written
+// from instead of a hand-maintained copy (UIRC-05). Add a reason here when a
+// producer starts emitting it, and add the matching Preset case below.
+var activeReasons = []string{
+	"CYCLE_RESIDUAL_ALLOCATION",
+	"WEALTH_OBSERVATION_CONFIRMATION",
+	"DOCUMENT_EXTRACTION_LOW_CONFIDENCE",
+	"DOCUMENT_CLASSIFICATION",
+	"UNKNOWN_BANK_TEMPLATE",
+	"PAYSLIP_CONFIRMATION",
+	"MISSING_PAY_DATE",
+	"MISSING_TRANSACTION_DATE",
+	"TRANSACTION_FACTS_MISSING",
+	"TRANSFER_CLASSIFICATION",
+	"FINANCIAL_EMAIL_RESOLUTION",
+	"UNKNOWN_MERCHANT",
+	"AMBIGUOUS_CATEGORY",
+	"UNKNOWN_PURPOSE",
+	"MANUAL_CORRECTION",
+	"CONFLICTING_EVIDENCE",
+	"POSSIBLE_DUPLICATE",
+}
+
+// ActiveReasons returns a copy so a caller cannot reorder or truncate the
+// production list the gate reads.
+func ActiveReasons() []string { return append([]string(nil), activeReasons...) }
+
 // Presets are the ReviewDecision contracts for review reasons whose unresolved
 // dimension is fixed by product policy rather than by per-event evidence (PRD
 // §7, §16). Each review-creating path calls the preset instead of hand-rolling a
@@ -84,7 +112,12 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 	case "TRANSFER_CLASSIFICATION":
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"transfer_relationship"}
-		base.AllowedActions = []string{"CLASSIFY_TRANSFER", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
+		// The ordinary completion vocabulary is the classification the shared
+		// classifier accepts (Review Inbox CLASSIFY_TRANSFER, Telegram
+		// OWN_ACCOUNT/HOUSEHOLD_ACCOUNT/EXPENSE/ASSET_PURCHASE). MERGE_EXISTING and
+		// CONFIRM_NEW_TRANSFER belong to the reconciliation chooser, which the surfaces
+		// add only when the case actually carries candidates.
+		base.AllowedActions = []string{"CLASSIFY_TRANSFER", "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
 		base.WhyNotAuto = "the transfer relationship is ambiguous, so the household must classify it"
 	case "FINANCIAL_EMAIL_RESOLUTION":

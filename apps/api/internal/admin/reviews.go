@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 // ReviewOpsSummary, ReviewOpsBreakdown, and ReviewOpsProjections are the
@@ -11,6 +13,39 @@ import (
 // rollout/DoD questions from the Admin surface instead of manual SQL. Nothing
 // here returns financial evidence: amounts, merchants, counterparties, email
 // bodies, document content, and prompt text are never selected.
+
+// telegramCapabilitySQL reports whether a stored ReviewDecision's ordinary
+// allowed_actions are all completable from Telegram (UIRC-04, PRD 7.3). It
+// mirrors the action-level gate in the worker, so a delivered card whose only
+// button lives on Web is not counted as actionable coverage.
+const telegramCapabilitySQL = `jsonb_path_exists(ri.decision,'$.allowedActions[*]') AND NOT EXISTS (
+	SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(ri.decision->'allowedActions')='array' THEN ri.decision->'allowedActions' ELSE '[]'::jsonb END) a(action)
+	WHERE a.action <> 'IGNORE' AND NOT (a.action = ANY($1::text[]))
+)`
+
+// webEscapeByTypeSQL counts Web resolutions of reviews that also had a Telegram
+// path and whose ordinary actions could not all be completed in Telegram. A
+// review that was fully Telegram-capable and was still resolved on Web is a
+// voluntary switch, not a mandatory escape (PRD 7.2).
+var webEscapeByTypeSQL = `SELECT count(*) FROM review_item ri
+	LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true
+	WHERE ri.review_type=$2 AND ri.resolved_at>=$1 AND s.surface='USER'
+	  AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)
+	  AND NOT (` + strings.ReplaceAll(telegramCapabilitySQL, "$1", "$3") + `)`
+
+// telegramCompleteActions is the shared ordinary-action vocabulary with a
+// Telegram terminal or continuation lane.
+var telegramCompleteActions = reviewdomain.TelegramCompleteActions()
+
+// actionableProjectionsSQL counts open reviews whose delivered Telegram card is
+// fully completable in Telegram.
+const actionableProjectionsSQL = `SELECT count(DISTINCT ri.id) FROM review_item ri
+	JOIN review_request rr ON rr.review_item_id=ri.id
+	JOIN review_request_recipient rc ON rc.review_request_id=rr.id
+	LEFT JOIN transaction t ON t.id=ri.transaction_id
+	WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')
+	  AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL
+	  AND ` + telegramCapabilitySQL
 
 // ReviewOpsSummary is GET /api/v1/admin/reviews/summary.
 func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +82,7 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	// Actionable projection: an open review_request whose delivered card carries a
 	// markup (an answerable card), for a still-open item.
-	if err := h.pool.QueryRow(ctx, `SELECT count(DISTINCT ri.id) FROM review_item ri JOIN review_request rr ON rr.review_item_id=ri.id JOIN review_request_recipient rc ON rc.review_request_id=rr.id LEFT JOIN transaction t ON t.id=ri.transaction_id WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL`).Scan(&out.ActionableTelegramProjections); err != nil {
+	if err := h.pool.QueryRow(ctx, actionableProjectionsSQL, telegramCompleteActions).Scan(&out.ActionableTelegramProjections); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -62,9 +97,10 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 		rate := float64(out.ActionableTelegramProjections) / float64(out.EligibleTelegramReviews)
 		out.TelegramActionableCoverageRate = &rate
 	}
-	// Resolutions in range, split by surface, plus latency from review creation to
-	// resolution. Latency uses resolved_at-created_at, the canonical review window.
-	if err := h.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),count(*) FILTER(WHERE resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),count(*) FILTER(WHERE resolved_at IS NOT NULL AND resolved_by_user_id IS NULL),percentile_cont(.5) within group(order by extract(epoch FROM resolved_at-created_at)*1000) FILTER(WHERE resolved_at IS NOT NULL),percentile_cont(.95) within group(order by extract(epoch FROM resolved_at-created_at)*1000) FILTER(WHERE resolved_at IS NOT NULL) FROM review_item WHERE resolved_at>=$1`, start).Scan(&out.ResolvedByTelegram, &out.ResolvedByWeb, &out.ResolvedBySystem, &out.ResolutionLatencyP50Ms, &out.ResolutionLatencyP95Ms); err != nil {
+	// Resolution surface comes from the canonical audit row the surface wrote,
+	// never from the resolver's Telegram identity: one person may resolve from
+	// either channel (UIRC-04). Latency still uses the canonical review window.
+	if err := h.pool.QueryRow(ctx, `SELECT count(DISTINCT ri.id) FILTER(WHERE s.surface='TELEGRAM'),count(DISTINCT ri.id) FILTER(WHERE s.surface='USER'),count(DISTINCT ri.id) FILTER(WHERE s.surface='SYSTEM'),percentile_cont(.5) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL),percentile_cont(.95) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1`, start).Scan(&out.ResolvedByTelegram, &out.ResolvedByWeb, &out.ResolvedBySystem, &out.ResolutionLatencyP50Ms, &out.ResolutionLatencyP95Ms); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -72,16 +108,15 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	// Web escape: an item resolved through the Review Inbox instead of Telegram,
-	// excluding voluntary "view details". Ordinary blockers resolved on Web are
-	// the numerator; all resolutions in range are the denominator.
-	var webEscapes, totalResolved int
-	if err := h.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE resolved_by_user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),count(*) FROM review_item WHERE resolved_at>=$1`, start).Scan(&webEscapes, &totalResolved); err != nil {
+	// Count only required Web switches from a Telegram path. A fully
+	// Telegram-capable review voluntarily completed on Web is not an escape.
+	var webEscapes, telegramEligibleResolved int
+	if err := h.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE s.surface IN ('USER','TELEGRAM')),count(*) FILTER(WHERE s.surface='USER' AND NOT (`+strings.ReplaceAll(telegramCapabilitySQL, "$1", "$2")+`)) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1 AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)`, start, telegramCompleteActions).Scan(&telegramEligibleResolved, &webEscapes); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	if totalResolved > 0 {
-		rate := float64(webEscapes) / float64(totalResolved)
+	if telegramEligibleResolved > 0 {
+		rate := float64(webEscapes) / float64(telegramEligibleResolved)
 		out.WebEscapeRate = &rate
 	}
 	writeJSON(w, 200, out)
@@ -95,12 +130,14 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 		       count(*) FILTER(WHERE ri.created_at>=$1),
 		       count(*) FILTER(WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')),
 		       count(*) FILTER(WHERE ri.created_at>=$1 AND (ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')) AND EXISTS (SELECT 1 FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=ri.household_id AND ti.active)),
-		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
-		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND ri.resolved_by_user_id IS NOT NULL AND EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=ri.resolved_by_user_id AND ti.household_id=ri.household_id)),
-		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND ri.resolved_by_user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=ri.resolved_by_user_id AND ti.household_id=ri.household_id)),
-		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND ri.resolved_by_user_id IS NULL)
+		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND `+strings.ReplaceAll(telegramCapabilitySQL, "$1", "$2")+` AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
+		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='TELEGRAM'),
+		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='USER'),
+		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='SYSTEM'),
+		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface IN ('USER','TELEGRAM') AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id))
 		FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id
-		GROUP BY ri.review_type ORDER BY ri.review_type`, start)
+		LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true
+		GROUP BY ri.review_type ORDER BY ri.review_type`, start, telegramCompleteActions)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -109,8 +146,8 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var rt string
-		var created, open, eligible, projected, resolvedTelegram, resolvedWeb, resolvedSystem int
-		if err := rows.Scan(&rt, &created, &open, &eligible, &projected, &resolvedTelegram, &resolvedWeb, &resolvedSystem); err != nil {
+		var created, open, eligible, projected, resolvedTelegram, resolvedWeb, resolvedSystem, telegramEligibleResolved int
+		if err := rows.Scan(&rt, &created, &open, &eligible, &projected, &resolvedTelegram, &resolvedWeb, &resolvedSystem, &telegramEligibleResolved); err != nil {
 			writeError(w, 500, "ADMIN_QUERY_FAILED")
 			return
 		}
@@ -119,10 +156,16 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 			rate := float64(projected) / float64(eligible)
 			coverage = &rate
 		}
-		resolved := resolvedTelegram + resolvedWeb + resolvedSystem
 		var webEscape *float64
-		if resolved > 0 {
-			rate := float64(resolvedWeb) / float64(resolved)
+		if telegramEligibleResolved > 0 {
+			// Escape only when the review also had a Telegram projection; a
+			// Web-only review is not a mandatory Web escape.
+			var telegramEscapes int
+			if err := h.pool.QueryRow(r.Context(), webEscapeByTypeSQL, start, rt, telegramCompleteActions).Scan(&telegramEscapes); err != nil {
+				writeError(w, 500, "ADMIN_QUERY_FAILED")
+				return
+			}
+			rate := float64(telegramEscapes) / float64(telegramEligibleResolved)
 			webEscape = &rate
 		}
 		var deliveryFailed int

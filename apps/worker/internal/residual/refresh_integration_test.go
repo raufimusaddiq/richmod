@@ -119,7 +119,7 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 		t.Fatal(err)
 	}
 	var notices int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'message_id'='71' AND payload_json->>'text' LIKE '%5000000%'`).Scan(&notices); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'message_id'='71' AND payload_json->>'text' LIKE '%5000000%'`, fmt.Sprint(stamp)).Scan(&notices); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT basis_residual_idr::text FROM cycle_residual_case WHERE id=$1`, caseID).Scan(&refreshed); err != nil {

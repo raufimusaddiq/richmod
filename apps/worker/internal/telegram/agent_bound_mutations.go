@@ -35,7 +35,7 @@ func (p *Processor) agentResolveBoundReview(ctx context.Context, state *agentSta
 		return p.agentResolveBoundTransactionReview(ctx, state, call, args, state.ReviewBinding)
 	case "TRANSFER_RECONCILIATION":
 		return p.agentResolveBoundTransferReconciliation(ctx, state, call, args, state.ReviewBinding)
-		case "WEALTH_OBSERVATION":
+	case "WEALTH_OBSERVATION":
 		return p.agentResolveBoundWealthObservation(ctx, state, call, args, state.ReviewBinding)
 	case "CYCLE_RESIDUAL":
 		bound := *state
@@ -197,9 +197,9 @@ func (p *Processor) agentResolveBoundTransferReconciliation(ctx context.Context,
 		result.Status = "INVALID_REVIEW_ACTION"
 		return result, true, nil
 	}
-	resolved, err := p.agentResolveTransferCaseTx(ctx, state, binding.TargetID, originalSource, accountID, amount, description, purpose, wealthID, at, target, createNew)
+	resolved, err := p.agentResolveTransferCaseTx(ctx, state, binding.TargetID, target, createNew)
 	if err != nil {
-		if strings.Contains(err.Error(), "stale transfer reconciliation binding") {
+		if strings.Contains(err.Error(), "stale transfer reconciliation binding") || errors.Is(err, reviewdomain.ErrTransferCaseUnavailable) {
 			result.Status = "STALE_REVIEW_BINDING"
 			return result, true, nil
 		}
