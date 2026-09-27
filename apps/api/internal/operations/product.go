@@ -62,6 +62,9 @@ type productAggregate struct {
 	AutoConfirmCorrectionRate   float64        `json:"autoConfirmCorrectionRate"`
 	AutoConfirmCorrectionFields map[string]int `json:"autoConfirmCorrectionFields"`
 	AutoConfirmCorrectionSource map[string]int `json:"autoConfirmCorrectionBySource"`
+	KnownFactReasks            int     `json:"knownFactReasks"`
+	ReviewsWithDecision        int     `json:"reviewsWithDecision"`
+	KnownFactReaskRate         float64 `json:"knownFactReaskRate"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
@@ -150,6 +153,22 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 
 	if aggregate.SourceEvents > 0 {
 		aggregate.HumanTouchRate = float64(aggregate.ReviewedEvents) / float64(aggregate.SourceEvents)
+	}
+	// Only populated ReviewDecision contracts support the known-fact re-ask
+	// metric; historical null decisions are excluded from its denominator.
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE EXISTS (
+			SELECT 1 FROM jsonb_array_elements_text(coalesce(ri.decision->'missingFacts','[]'::jsonb)) AS missing(fact)
+			WHERE ri.decision->'knownFacts' ? missing.fact
+			  AND ri.decision->'knownFacts'->missing.fact <> 'null'::jsonb
+		)) FROM review_item ri
+		WHERE ri.household_id=$1 AND ri.created_at >= now()-interval '30 days'
+		  AND jsonb_typeof(ri.decision->'missingFacts')='array'`, householdID).
+		Scan(&aggregate.ReviewsWithDecision, &aggregate.KnownFactReasks); err != nil {
+		return aggregate, err
+	}
+	if aggregate.ReviewsWithDecision > 0 {
+		aggregate.KnownFactReaskRate = float64(aggregate.KnownFactReasks) / float64(aggregate.ReviewsWithDecision)
 	}
 
 	// Every metric below is derived from canonical state plus the append-only
@@ -280,5 +299,6 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	if !telemetryHistoryComplete {
 		aggregate.Coverage = append(aggregate.Coverage, "pre_migration_telemetry_history")
 	}
+	aggregate.Coverage = append(aggregate.Coverage, "validator_induced_review_consequences", "residual_fidelity_ground_truth", "semantic_redecision_accepted_fact_provenance")
 	return aggregate, nil
 }

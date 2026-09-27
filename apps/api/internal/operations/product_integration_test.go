@@ -7,6 +7,49 @@ import (
 	"time"
 )
 
+func TestProductAggregateCountsOnlyKnownFactReasksWithContracts(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	stamp := time.Now().UnixNano()
+	var householdID, otherHousehold, sourceID, otherSourceID string
+	for _, row := range []struct {
+		name string
+		id   *string
+	}{{fmt.Sprintf("SAVR metrics %d", stamp), &householdID}, {fmt.Sprintf("Other SAVR metrics %d", stamp), &otherHousehold}} {
+		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, row.name).Scan(row.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),decode(md5($2),'hex'),'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("savr-metrics-%d", stamp)).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),decode(md5($2),'hex'),'NEEDS_REVIEW') RETURNING id`, otherHousehold, fmt.Sprintf("other-savr-metrics-%d", stamp)).Scan(&otherSourceID); err != nil {
+		t.Fatal(err)
+	}
+	for _, decision := range []string{
+		`{"knownFacts":{"category":"food"},"missingFacts":["category"]}`,
+		`{"knownFacts":{"amount":"100"},"missingFacts":["category"]}`,
+	} {
+		if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3::jsonb)`, householdID, sourceID, decision); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An older review without a contract cannot prove which fact it asked for.
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN')`, householdID, sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',$3::jsonb)`, otherHousehold, otherSourceID, `{"knownFacts":{"category":"food"},"missingFacts":["category"]}`); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, householdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.ReviewsWithDecision != 2 || aggregate.KnownFactReasks != 1 || aggregate.KnownFactReaskRate != .5 {
+		t.Fatalf("known fact re-ask count=%d of %d, rate=%v", aggregate.KnownFactReasks, aggregate.ReviewsWithDecision, aggregate.KnownFactReaskRate)
+	}
+}
+
 func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -91,7 +134,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
 	// A fresh household has no full telemetry window yet.
-	if len(aggregate.Coverage) != 1 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
+	if len(aggregate.Coverage) != 4 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
 		t.Fatalf("unmeasurable section 22 signals must stay named: %+v", aggregate.Coverage)
 	}
 
