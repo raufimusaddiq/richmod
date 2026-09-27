@@ -1538,6 +1538,15 @@ func incomeReviewIntent(value string) string {
 }
 
 // ignoreFinancialEmailFacts resolves a FINANCIAL_EMAIL_FACTS review: the provider
+// ignoreFinancialEmailFactsCallback is the review:ignore button entry for a
+// FINANCIAL_EMAIL_FACTS card. It uses the callback message id to bind the open
+// observation review, so the button completes the card instead of falling
+// through to the generic stale-action reply (SAVR-06).
+func (p *Processor) ignoreFinancialEmailFactsCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
+	return p.ignoreFinancialEmailFacts(ctx, sourceEventID, householdID, update)
+}
+
+// ignoreFinancialEmailFacts resolves a FINANCIAL_EMAIL_FACTS review: the provider
 // email did not support a required financial fact, so no canonical transaction
 // exists and the only bounded action is to acknowledge it. It binds the open
 // observation review by the replied/callback Telegram message, marks the
@@ -1572,10 +1581,10 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 	if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, observationID, householdID); err != nil {
 		return true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',updated_at=now() WHERE id=$1 AND household_id=$2`, itemID, householdID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE',updated_at=now() WHERE id=$1 AND household_id=$2`, itemID, householdID); err != nil {
 		return true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',updated_at=now() WHERE review_item_id=$1 AND status='OPEN'`, itemID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status='OPEN'`, itemID); err != nil {
 		return true, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'IGNORE_FINANCIAL_EMAIL_FACTS','financial_email_observation',$3,jsonb_build_object('review_item_id',$4::uuid))`, householdID, userID, observationID, itemID); err != nil {

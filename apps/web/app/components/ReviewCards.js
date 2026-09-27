@@ -5,7 +5,7 @@ import { useState } from "react";
 import { dateTime, money } from "../lib/format";
 
 const reasons = { AMBIGUOUS_CATEGORY: "Kategori belum pasti", MISSING_TRANSACTION_DATE: "Tanggal transaksi belum ada", TRANSACTION_FACTS_MISSING: "Detail transaksi belum lengkap", POSSIBLE_DUPLICATE: "Kemungkinan duplikat", UNKNOWN_MERCHANT: "Tempat transaksi belum dikenal", UNKNOWN_PURPOSE: "Tujuan belum jelas", TRANSFER_CLASSIFICATION: "Transfer perlu klasifikasi" };
-const reviewTypes = { PAYSLIP_CONFIRMATION: "Konfirmasi slip gaji", MISSING_PAY_DATE: "Tanggal pembayaran belum ada", MISSING_AMOUNT: "Jumlah transaksi belum terlihat", FINANCIAL_EMAIL_RESOLUTION: "Email finansial perlu konfirmasi", TRANSFER_CLASSIFICATION: "Transfer perlu klasifikasi", WEALTH_OBSERVATION_CONFIRMATION: "Observasi kekayaan", CYCLE_RESIDUAL_ALLOCATION: "Alokasi sisa siklus" };
+const reviewTypes = { PAYSLIP_CONFIRMATION: "Konfirmasi slip gaji", MISSING_PAY_DATE: "Tanggal pembayaran belum ada", MISSING_AMOUNT: "Jumlah transaksi belum terlihat", FINANCIAL_EMAIL_RESOLUTION: "Email finansial perlu konfirmasi", FINANCIAL_EMAIL_FACTS: "Bukti email finansial belum pasti", TRANSFER_CLASSIFICATION: "Transfer perlu klasifikasi", WEALTH_OBSERVATION_CONFIRMATION: "Observasi kekayaan", CYCLE_RESIDUAL_ALLOCATION: "Alokasi sisa siklus" };
 const checkboxLabelStyle = { display: "flex", minHeight: 42, alignItems: "center", gap: 8, color: "var(--ink-soft)", cursor: "pointer" };
 const checkboxInputStyle = { width: 16, height: 16, minHeight: 16, padding: 0, margin: 0, flex: "0 0 auto", accentColor: "var(--accent)", boxShadow: "none", cursor: "pointer" };
 

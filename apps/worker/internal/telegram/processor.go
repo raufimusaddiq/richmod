@@ -222,6 +222,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}
+			if handled, err := p.ignoreFinancialEmailFactsCallback(ctx, sourceEventID, householdID, update); handled {
+				return err
+			}
 		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:fe:") || strings.HasPrefix(update.CallbackQuery.Data, "review:fepage:") {
 			if handled, err := p.processFinancialEmailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {

@@ -392,14 +392,8 @@ type cashPlan struct {
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil {
-		// Requirement is about the risky direction (money not provably moved). A
-		// missing amount or date has no cash to be wrong about; keep the generic
-		// classification only for a missing funding account.
-		if v.FundingAccountHint == nil {
-			plan.review = "FINANCIAL_EMAIL_FACTS"
-			plan.unbounded = true
-			return plan, nil
-		}
+		// A structurally incomplete observation cannot be adjudicated, so park it
+		// as a facts residual naming what Go could not trust (SAVR-06).
 		plan.review = "FINANCIAL_EMAIL_FACTS"
 		plan.unbounded = true
 		return plan, nil
@@ -410,7 +404,13 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	// production (ADR-038, PRD §21).
 	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
 	if classifyErr != nil {
-		return plan, classifyErr
+		// A gateway error must not lose the event: park it with the same unbounded
+		// contract the "no plane configured" case uses, so a provider outage never
+		// turns into an auto-confirm or a dropped review (AGENTS.md: deterministic
+		// flows keep working when the AI gateway is unavailable).
+		plan.review = "FINANCIAL_EMAIL_FACTS"
+		plan.unbounded = true
+		return plan, nil
 	}
 	if verified {
 		if residual := classification.cashResidual(); len(residual) > 0 {

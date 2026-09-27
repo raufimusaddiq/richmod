@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // stubVerifier answers the verification bundle from a fixed ruling, and can
@@ -126,6 +127,28 @@ func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 	}
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "transaction_semantics" {
 		t.Fatalf("only the unresolved material fact may be requested: %+v", decision.MissingFacts)
+	}
+}
+
+// 5) No additional intelligence pass: the whole ruling rides in the single
+// An undecided material predicate is a missing fact, not a conflict: nothing
+// disagreed, the plane just could not decide, so the review must request the
+// fact rather than claim an independent-evidence conflict (SAVR-06).
+func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
+	verification := EvidenceVerification{
+		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "UNDECIDED", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "NO"},
+	}
+	fact, conflict, material := verification.materialResidual()
+	if !material || conflict || fact != "amount_idr" {
+		t.Fatalf("an undecided amount must be a bounded missing fact: fact=%q conflict=%v material=%v", fact, conflict, material)
+	}
+	decision := verificationReviewDecision("household", "source", testExtraction(), verification)
+	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "amount_idr" {
+		t.Fatalf("undecided amount must be requested as missing: %+v", decision.MissingFacts)
+	}
+	if decision.DecisionClass == reviewdec.ClassEvidenceConflict {
+		t.Fatalf("an undecided fact must not be labelled an evidence conflict: %+v", decision)
 	}
 }
 

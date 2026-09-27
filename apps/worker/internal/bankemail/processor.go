@@ -435,7 +435,15 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 // (SAVR-06).
 func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification) reviewdec.Decision {
 	fact, conflict, _ := verification.materialResidual()
-	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", []string{fact}, "the email evidence conflicts on a material fact; Go refuses to guess")
+	missing := []string{fact}
+	why := "the email did not support a material transaction fact the household must confirm"
+	if conflict {
+		// Two evidence-supported values disagree: the conflicting fact is known-and-
+		// disputed, not absent, so it is not a missing fact.
+		missing = nil
+		why = "the email evidence conflicts on a material fact; Go refuses to guess"
+	}
+	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", missing, why)
 	decision.PolicyVersion = verification.PolicyVersion
 	decision.Provenance["claim_outcomes"] = verification.ClaimOutcomes
 	decision.AffectedFacts = []string{fact}

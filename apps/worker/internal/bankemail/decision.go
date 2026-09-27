@@ -8,13 +8,20 @@ import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 // independently block an otherwise safe expense (SAVR-06).
 func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok bool) {
 	switch {
-	case v.ClaimOutcomes["amount_supported"] != "YES":
-		// Two evidence-supported amounts disagree: an independent-evidence conflict.
+	case v.ClaimOutcomes["amount_supported"] == "NO":
+		// The email names a different amount: two evidence-supported values disagree.
 		return "amount_idr", true, true
-	case v.ClaimOutcomes["direction_supported"] != "YES":
+	case v.ClaimOutcomes["direction_supported"] == "NO":
 		return "direction", true, true
-	case v.ClaimOutcomes["transaction_observed"] != "YES":
+	case v.ClaimOutcomes["transaction_observed"] == "NO":
 		return "transaction_observed", true, true
+	case v.ClaimOutcomes["amount_supported"] != "YES" || v.ClaimOutcomes["direction_supported"] != "YES" || v.ClaimOutcomes["transaction_observed"] != "YES":
+		// The plane could not decide a material fact; it is missing, not conflicting.
+		for _, fact := range []struct{ key, name string }{{"amount_supported", "amount_idr"}, {"direction_supported", "direction"}, {"transaction_observed", "transaction_observed"}} {
+			if v.ClaimOutcomes[fact.key] != "YES" {
+				return fact.name, false, true
+			}
+		}
 	case !v.AmbiguityDecidedNotAmbiguous || v.MaterialAmbiguity:
 		return "transaction_ambiguity", false, true
 	case v.ClaimOutcomes["semantic_grounded"] != "YES":

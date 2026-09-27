@@ -180,7 +180,14 @@ func (c ObservationClassification) factsMissing() []string {
 // them, and whether a rule (rather than a predicate) ruled. Derived here so no
 // call site can hand-roll a contradicting contract.
 func (c ObservationClassification) reviewFacts(residual []string, unbounded bool) (missing, affected []string, consequence reviewdec.Consequence, provenance map[string]any) {
-	missing = residual
+	// Only a bounded ruling that actually ran can name predicate-level facts. An
+	// unbounded residual has no predicate outcomes, so it must not fabricate the
+	// four failed dimensions a zero classification would appear to carry.
+	if unbounded {
+		missing = c.factsMissing()
+	} else {
+		missing = residual
+	}
 	if len(missing) == 0 {
 		missing = []string{"evidence_support"}
 	}
