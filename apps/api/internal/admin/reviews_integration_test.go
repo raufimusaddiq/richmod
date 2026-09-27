@@ -43,7 +43,7 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	mustExec(pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID))
 	mustExec(pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID))
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("ro-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, sourceID).Scan(&openItem))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&openItem))
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3) RETURNING id`, householdID, sourceID, userID).Scan(&resolvedItem))
 	// The resolution surface is recorded by the surface's own audit row: the
 	// Telegram resolve records actor_type TELEGRAM (UIRC-04).
@@ -271,6 +271,99 @@ func TestReviewOpsSurfaceComesFromTheSharedResolver(t *testing.T) {
 	}
 	if summary.ResolvedByWeb < 1 || summary.ResolvedByTelegram < 1 {
 		t.Fatalf("shared resolver surface not counted: %+v", summary)
+	}
+}
+
+// TestReviewOpsTARCAndWebEscapeUseCompletionCapability pins the two UIRC-04
+// metric definitions: a delivered card whose current decision has an action with
+// no Telegram lane does not increase TARC, and a fully Telegram-capable review
+// voluntarily finished on Web is not a mandatory Web escape.
+func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	_, observerID, householdID, chatID := seedReviewOpsHousehold(t, pool, stamp)
+
+	cardNumber := 0
+	deliveredCard := func(decision string) string {
+		t.Helper()
+		cardNumber++
+		var sourceID, itemID, requestID string
+		if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("tarc-%d-%d", cardNumber, stamp), []byte(fmt.Sprintf("tarc-%d-%d", cardNumber, stamp))).Scan(&sourceID); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb) RETURNING id`, householdID, sourceID, decision).Scan(&itemID); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') RETURNING id`, itemID, householdID).Scan(&requestID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,$3)`, requestID, chatID, stamp+int64(cardNumber)); err != nil {
+			t.Fatal(err)
+		}
+		return itemID
+	}
+
+	// A card whose ordinary action is Telegram-complete counts; one carrying a
+	// Web-only action does not.
+	countActionable := func() int {
+		var n int
+		if err := pool.QueryRow(ctx, actionableProjectionsSQL, telegramCompleteActions).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := countActionable()
+	deliveredCard(`{"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
+	if got := countActionable(); got != before+1 {
+		t.Fatalf("Telegram-complete card did not increase actionable coverage: before=%d after=%d", before, got)
+	}
+	deliveredCard(`{"allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
+	if got := countActionable(); got != before+1 {
+		t.Fatalf("a Web-only ordinary action inflated actionable coverage: %d", got)
+	}
+
+	var baselineEscapes int
+	if err := pool.QueryRow(ctx, webEscapeByTypeSQL, time.Now().Add(-time.Hour), "WEALTH_OBSERVATION_CONFIRMATION", telegramCompleteActions).Scan(&baselineEscapes); err != nil {
+		t.Fatal(err)
+	}
+	// A fully Telegram-capable review resolved on Web is a voluntary switch, so
+	// the per-type escape count must not include it.
+	voluntaryItem := deliveredCard(`{"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2 WHERE id=$1`, voluntaryItem, observerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'USER',$2,'RESOLVE_REVIEW','review_item',$3)`, householdID, observerID, voluntaryItem); err != nil {
+		t.Fatal(err)
+	}
+	var escapes int
+	if err := pool.QueryRow(ctx, webEscapeByTypeSQL, time.Now().Add(-time.Hour), "WEALTH_OBSERVATION_CONFIRMATION", telegramCompleteActions).Scan(&escapes); err != nil {
+		t.Fatal(err)
+	}
+	if escapes != baselineEscapes {
+		t.Fatalf("a voluntary Web switch changed mandatory escapes: before=%d after=%d", baselineEscapes, escapes)
+	}
+	// A Web-only review resolved on Web is the mandatory escape this rate means.
+	forcedItem := deliveredCard(`{"allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2 WHERE id=$1`, forcedItem, observerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'USER',$2,'RESOLVE_REVIEW','review_item',$3)`, householdID, observerID, forcedItem); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, webEscapeByTypeSQL, time.Now().Add(-time.Hour), "WEALTH_OBSERVATION_CONFIRMATION", telegramCompleteActions).Scan(&escapes); err != nil {
+		t.Fatal(err)
+	}
+	if escapes != baselineEscapes+1 {
+		t.Fatalf("a Web-only review did not add one escape: before=%d after=%d", baselineEscapes, escapes)
 	}
 }
 

@@ -12,6 +12,45 @@ import (
 // here returns financial evidence: amounts, merchants, counterparties, email
 // bodies, document content, and prompt text are never selected.
 
+// telegramCapabilitySQL reports whether a stored ReviewDecision's ordinary
+// allowed_actions are all completable from Telegram (UIRC-04, PRD 7.3). It
+// mirrors the action-level gate in the worker, so a delivered card whose only
+// button lives on Web is not counted as actionable coverage.
+const telegramCapabilitySQL = `jsonb_path_exists(ri.decision,'$.allowedActions[*]') AND NOT EXISTS (
+	SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(ri.decision->'allowedActions')='array' THEN ri.decision->'allowedActions' ELSE '[]'::jsonb END) a(action)
+	WHERE a.action <> 'IGNORE' AND NOT (a.action = ANY($1::text[]))
+)`
+
+// webEscapeByTypeSQL counts Web resolutions of reviews that also had a Telegram
+// path and whose ordinary actions could not all be completed in Telegram. A
+// review that was fully Telegram-capable and was still resolved on Web is a
+// voluntary switch, not a mandatory escape (PRD 7.2).
+var webEscapeByTypeSQL = `SELECT count(*) FROM review_item ri
+	LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true
+	WHERE ri.review_type=$2 AND ri.resolved_at>=$1 AND s.surface='USER'
+	  AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)
+	  AND NOT (` + strings.ReplaceAll(telegramCapabilitySQL, "$1", "$3") + `)`
+
+// telegramCompleteActions is the ordinary-action vocabulary with a Telegram
+// terminal or continuation lane, matching the worker's action-level gate.
+var telegramCompleteActions = []string{
+	"CONFIRM_REVIEW", "CLASSIFY_TRANSFER", "ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED",
+	"TRANSACTION_MISSING", "PRIMARY_SALARY", "ORDINARY_INCOME", "SET_PAY_DATE",
+	"COMPLETE_BANK_FACTS", "REPROCESS_DOCUMENT", "SET_FINANCIAL_EMAIL_ENTITIES",
+	"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE",
+	"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE",
+}
+
+// actionableProjectionsSQL counts open reviews whose delivered Telegram card is
+// fully completable in Telegram.
+const actionableProjectionsSQL = `SELECT count(DISTINCT ri.id) FROM review_item ri
+	JOIN review_request rr ON rr.review_item_id=ri.id
+	JOIN review_request_recipient rc ON rc.review_request_id=rr.id
+	LEFT JOIN transaction t ON t.id=ri.transaction_id
+	WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')
+	  AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL
+	  AND ` + telegramCapabilitySQL
+
 // ReviewOpsSummary is GET /api/v1/admin/reviews/summary.
 func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -47,7 +86,7 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	// Actionable projection: an open review_request whose delivered card carries a
 	// markup (an answerable card), for a still-open item.
-	if err := h.pool.QueryRow(ctx, `SELECT count(DISTINCT ri.id) FROM review_item ri JOIN review_request rr ON rr.review_item_id=ri.id JOIN review_request_recipient rc ON rc.review_request_id=rr.id LEFT JOIN transaction t ON t.id=ri.transaction_id WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL`).Scan(&out.ActionableTelegramProjections); err != nil {
+	if err := h.pool.QueryRow(ctx, actionableProjectionsSQL, telegramCompleteActions).Scan(&out.ActionableTelegramProjections); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -73,10 +112,10 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	// Web escape: only reviews that entered Telegram and were completed on Web.
-	// A Web-only review, and voluntary details/wealth navigation, are not escapes.
+	// Count only required Web switches from a Telegram path. A fully
+	// Telegram-capable review voluntarily completed on Web is not an escape.
 	var webEscapes, telegramEligibleResolved int
-	if err := h.pool.QueryRow(ctx, `SELECT count(*),coalesce(sum(CASE WHEN te.telegram_path THEN 1 ELSE 0 END),0) FROM (SELECT ri.id,coalesce(s.surface,'') AS surface,EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id) AS telegram_path FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1) te WHERE te.surface='USER'`, start).Scan(&telegramEligibleResolved, &webEscapes); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE s.surface IN ('USER','TELEGRAM')),count(*) FILTER(WHERE s.surface='USER' AND NOT (`+strings.ReplaceAll(telegramCapabilitySQL, "$1", "$2")+`)) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1 AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)`, start, telegramCompleteActions).Scan(&telegramEligibleResolved, &webEscapes); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -95,13 +134,13 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 		       count(*) FILTER(WHERE ri.created_at>=$1),
 		       count(*) FILTER(WHERE ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')),
 		       count(*) FILTER(WHERE ri.created_at>=$1 AND (ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW')) AND EXISTS (SELECT 1 FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=ri.household_id AND ti.active)),
-		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
+		       count(DISTINCT ri.id) FILTER(WHERE ri.created_at>=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.transaction_id IS NULL OR t.status='NEEDS_REVIEW') AND `+strings.ReplaceAll(telegramCapabilitySQL, "$1", "$2")+` AND EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL)),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='TELEGRAM'),
 		       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='USER'),
 			       count(*) FILTER(WHERE ri.resolved_at>=$1 AND s.surface='SYSTEM')
 		FROM review_item ri LEFT JOIN transaction t ON t.id=ri.transaction_id
 		LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true
-		GROUP BY ri.review_type ORDER BY ri.review_type`, start)
+		GROUP BY ri.review_type ORDER BY ri.review_type`, start, telegramCompleteActions)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -126,7 +165,7 @@ func (h *Handler) ReviewOpsBreakdown(w http.ResponseWriter, r *http.Request) {
 			// Escape only when the review also had a Telegram projection; a
 			// Web-only review is not a mandatory Web escape.
 			var telegramEscapes int
-			if err := h.pool.QueryRow(r.Context(), `SELECT count(*) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.review_type=$2 AND ri.resolved_at>=$1 AND s.surface='USER' AND EXISTS(SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id)`, start, rt).Scan(&telegramEscapes); err != nil {
+			if err := h.pool.QueryRow(r.Context(), webEscapeByTypeSQL, start, rt, telegramCompleteActions).Scan(&telegramEscapes); err != nil {
 				writeError(w, 500, "ADMIN_QUERY_FAILED")
 				return
 			}
