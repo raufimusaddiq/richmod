@@ -73,6 +73,30 @@ func TestPendingBatchConfirmationUsesHumanAuthority(t *testing.T) {
 	}
 }
 
+func TestAgentPendingBatchConfirmationUsesHumanAuthority(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "agent-batch-human-confirm")
+	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Dining','dining')`, f.householdID)
+	mustAgentTest(t, err)
+	at := f.state.Now.Format(time.RFC3339)
+	items := `[{"Type":"EXPENSE","Amount":"50000","Merchant":"makan","CategorySlug":"dining","TransactionAt":"` + at + `"},{"Type":"INCOME","Amount":"90000","Merchant":"bonus","CategorySlug":"","TransactionAt":"` + at + `"}]`
+	_, err = f.pool.Exec(ctx, `INSERT INTO telegram_pending_batch(household_id,telegram_user_id,telegram_chat_id,source_event_id,items_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING')`, f.householdID, f.chatID, f.chatID, f.sourceID, items)
+	mustAgentTest(t, err)
+	p := NewProcessor(f.pool, nil)
+	result, _, err := p.agentFinalizePendingBatch(ctx, f.state, gateway.ToolCall{CallID: "confirm", Name: "confirm_pending_batch"}, true, nil)
+	mustAgentTest(t, err)
+	if result.Status != "CONFIRMED" {
+		t.Fatalf("batch status=%s", result.Status)
+	}
+	var confirmed, decisions, audits int
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'`, f.householdID).Scan(&confirmed))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM judgment_decision WHERE household_id=$1`, f.householdID).Scan(&decisions))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE household_id=$1 AND action='CONFIRM_PENDING_BATCH'`, f.householdID).Scan(&audits))
+	if confirmed != 2 || decisions != 0 || audits != 2 {
+		t.Fatalf("confirmed=%d decisions=%d audits=%d; want 2/0/2", confirmed, decisions, audits)
+	}
+}
+
 // Every Jev-influenced mutation must be explainable from bounded provenance:
 // model version, policy version, question keys, bounded answers, and outcome
 // must be persisted in the same transaction as the canonical write (PRD §15/§16),
