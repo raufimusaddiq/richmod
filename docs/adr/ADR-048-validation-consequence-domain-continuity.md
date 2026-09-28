@@ -298,8 +298,12 @@ with existing structures.
 
 ReviewDecision now carries an optional typed `validationConsequence` and
 `affectedFacts` pair. For receipt line/total mismatch, Go records
-`QUALITY_SIGNAL` targeting `receipt_arithmetic`. With category and date known,
-the existing `RECEIPT_MISMATCH` reason asks no missing semantic fact; the
-household may explicitly accept the printed total or ignore the evidence.
-Canonical amount/category/date validation remains in the shared transaction
-review finalizer. Candidate duplicates still take priority.
+`QUALITY_SIGNAL` targeting `receipt_arithmetic`. When the printed total,
+category, date, and duplicate state are otherwise accepted, the mismatch is
+quality metadata and does not block confirmation (SAVR S08-09): the receipt
+auto-confirms or links evidence to one unambiguous strong match while
+persisting `arithmetic_ok=false` on its proposal and audit. The legacy
+`RECEIPT_MISMATCH` review reason remains only for the receipt kill-switch path
+and historical open rows, where the household may accept the printed total or
+ignore the evidence. Canonical amount/category/date validation remains in the
+shared transaction review finalizer. Candidate duplicates still take priority.

@@ -523,7 +523,10 @@ func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	ctx := context.Background()
 	slug := fixture.categorySlug
 	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
-	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	// Complete facts with a component-arithmetic signal: the switch, not the
+	// quality signal, is what parks this review.
+	value.Subtotal, value.Tax = ptr("50000"), ptr("5000")
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: false}
 	processor := &Processor{pool: fixture.pool}
 	processor.SetReceiptAutoConfirm(false)
 	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
