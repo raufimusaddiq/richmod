@@ -227,7 +227,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 		var schemaErr SchemaError
 		if errors.As(err, &schemaErr) {
-			return p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "INVALID", "NEEDS_REVIEW")
+			// Malformed machine output is repair/retry state, not a household fact
+			// question: the extractor already retried once, so keep the event
+			// recoverable instead of opening a review no person can answer (ADR-048).
+			return p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "INVALID", "REPAIR")
 		}
 		_ = p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "TRANSPORT_FAILED", "RETRY")
 		return err
@@ -558,7 +561,7 @@ func (p *Processor) persistExtractionFailure(ctx context.Context, sourceID, list
 		return err
 	}
 	status := "FAILED"
-	if validation == "INVALID" {
+	if policy == "NEEDS_REVIEW" {
 		status = "NEEDS_REVIEW"
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='bank-email-generic',parser_version=$3 WHERE id=$1`, sourceID, status, ToolSchemaVersion); err != nil {

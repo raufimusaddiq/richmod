@@ -165,6 +165,11 @@ but confidence-only failure cannot create a category residual or human task. If
 there is a real material dimension behind low confidence, name that dimension;
 otherwise canonicalize.
 
+**Resolution (branch `fix/savr-post06-reconciliation`):** `persistReceipt`
+links strong duplicate evidence or confirms a complete new receipt irrespective
+of generic confidence. Category, date, arithmetic, and material duplicate
+guards remain.
+
 ## D2 — Screenshot has the same confidence-only fake residual
 
 `validatedScreenshotRow.autoConfirmable()` requires
@@ -178,6 +183,10 @@ through to `AMBIGUOUS_CATEGORY`.
 
 **Required product correction:** same as receipt. Generic confidence is not a
 human fact.
+
+**Resolution (branch `fix/savr-post06-reconciliation`):** screenshot rows with
+accepted material facts confirm despite low generic confidence; strong
+duplicate evidence still links instead of writing a second transaction.
 
 ## D3 — Provider email can forget a canonical selected account because a prose hint is absent
 
@@ -200,6 +209,11 @@ prose hint materially conflicts with canonical account
 -> exact conflict
 ```
 
+**Resolution (branch `fix/savr-post06-reconciliation`):** a selected active
+household account survives the missing hint; a resolvable contradictory hint
+opens an account-specific evidence-conflict review. Once the household resolves
+that conflict, replay accepts the explicit decision without re-asking.
+
 ## D4 — Provider `evidence_sufficient` is still a bundled gate
 
 The bounded predicate asks whether amount/value, time, **and account hints** are
@@ -214,6 +228,12 @@ movement.
 attempted canonical outcome. Do not add another model call merely to split the
 bundle; derive or ask the minimum bounded material claim set.
 
+**Resolution (branch `fix/savr-post06-reconciliation`):** the
+`evidence_sufficient` predicate now checks the material value/amount and, for a
+cash movement, the transaction time. It no longer requires the prose account
+hint; account canonicalization belongs to Go. Claim-key coverage is unchanged,
+so no extra intelligence pass was added.
+
 ## D5 — Bank schema-invalid state can become pseudo human work
 
 A bank `SchemaError` persists `INVALID / NEEDS_REVIEW` at the source event,
@@ -225,6 +245,11 @@ knowledge.
 **Required product correction:** classify machine/schema/provider failure before
 human review. Create ReviewDecision only when a specific material fact/policy can
 actually be supplied by the household.
+
+**Resolution (branch `fix/savr-post06-reconciliation`):** bank schema output,
+provider verification outage, and unrepairable document output remain failed
+machine/job state, without generating human work. Accepted source evidence is
+retained for operator repair.
 
 ---
 
@@ -247,6 +272,12 @@ Re-audit and define minimum material plausibility before increasing RHICE. Do no
 simply delete duplicate guards.
 
 **Classification:** REAL_PRODUCT_GAP / NEEDS MATERIALITY CONTRACT.
+
+**Resolution (branch `fix/savr-post06-reconciliation`):** receipt/screenshot
+same-amount, same-type candidates remain plausible (and still block) only with an exact
+merchant match within 72 hours or any same-amount transaction within one
+hour. A different-merchant candidate 12–72 hours apart is a query hit, not
+human ambiguity; duplicate safety for the plausible cases is unchanged.
 
 ## A2 — Review projection remains source-origin-coupled
 

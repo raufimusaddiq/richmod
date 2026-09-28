@@ -62,7 +62,8 @@ type validatedScreenshotRow struct {
 
 // autoConfirmable reports the conditions this source can check before writing
 // canonical state without a human (PRD §17, §11.1). An unmatched OUT row needs a
-// decisive bounded category, a printed date, and high extraction confidence;
+// decisive bounded category and a printed date; generic extraction confidence
+// is quality metadata, not an independent semantic veto;
 // the merchant may be absent (PRD §18.1). Incoming rows never auto-confirm
 // because evidence cannot separate income from an own-account transfer yet
 // (PRD §11.5).
@@ -70,7 +71,7 @@ func (row validatedScreenshotRow) autoConfirmable() bool {
 	// A matched row links evidence; a row with candidates it could not resolve is
 	// exactly the duplicate ambiguity PRD 17/10.3 refuses to auto-confirm, so it
 	// must still go to review rather than writing a second CONFIRMED transaction.
-	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown && row.Value.Confidence >= .90
+	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown
 }
 
 func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) error {
@@ -132,13 +133,13 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 			metadata.Model = repairMeta.Model
 		}
 		if issues.has("", repairFailedCode) {
-			return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, fmt.Errorf("screenshot validation issues: %s", issues.String()))
+			return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, fmt.Errorf("screenshot validation issues: %s", issues.String()))
 		}
 		result = patched
 	}
 	rows, err := validateScreenshot(result, receivedAt, categories, documentType)
 	if err != nil {
-		return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, err)
+		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "TRANSACTION_SCREENSHOT", result, result.Confidence, metadata.Model, err)
 	}
 	for index := range rows {
 		if rows[index].Type != "EXPENSE" {
@@ -180,7 +181,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 				}
 			}
 		}
-		if len(strong) == 1 && secondBest <= .80 && rows[index].Value.Confidence >= .90 {
+		if len(strong) == 1 && secondBest <= .80 {
 			match := strong[0]
 			rows[index].Matched = &match
 			usedMatches[match.ID] = true

@@ -46,10 +46,16 @@ the confirmed post-06 drift against the north star:
    hint subpart block an otherwise complete movement; split/derive material
    residuals only as needed, without adding another AI layer;
 5. machine/schema/provider inability must remain retry/repair/infrastructure state
-   unless there is a specific material fact or policy the household can supply;
+   unless there is a specific material fact or policy the household can supply.
+   Malformed document output or failed field repair (receipt, screenshot, or
+   terminal classification) is recorded as `FAILED`/unvalidated extraction;
+   it cannot open a `DOCUMENT_*` review merely to re-run a machine step;
 6. duplicate matching must distinguish a materially plausible duplicate from a
    weak query candidate. Preserve duplicate safety; do not use candidate
-   existence alone as proof that human work is required.
+   existence alone as proof that human work is required. For receipt/screenshot
+   same-amount candidates, an exact merchant within 72 hours or a transaction
+   within one hour remains plausible; a different merchant 12–72 hours apart
+   is only a query hit.
 
 Adjacent UIR defect, tracked separately from SAVR semantics:
 
@@ -391,11 +397,15 @@ undecided material fact;
 ignoring the review settles both the provider-email and Telegram callback
 source events. A
 transfer relationship/purpose residual and a date Go could not parse keep
-`TRANSFER_CLASSIFICATION`. A case the bounded plane could not rule at all (an
-unconfigured plane, a gateway outage, or a structurally incomplete observation)
-does **not** park an IGNORE-only facts card from which the household could never
-recover: it takes the `TRANSFER_CLASSIFICATION` recovery lane so the missing
-amount or relationship can be supplied.
+`TRANSFER_CLASSIFICATION`. A genuinely missing amount, time, or account may
+take a bounded human recovery lane. A provider/schema failure alone stays
+retry/infrastructure state, never `TRANSFER_CLASSIFICATION` review. An
+unconfigured bounded plane alone does not make a complete LLM extraction a
+human question. The provider evidence predicate checks material value and time,
+not a redundant prose account hint after canonical account resolution. A
+resolvable contradictory account hint remains a material evidence conflict:
+`FINANCIAL_EMAIL_RESOLUTION` presents both values; the user's scoped account
+decision closes that conflict on replay without asking again.
 
 Exit:
 
@@ -460,8 +470,6 @@ system-derived policy facts
 
 A boundary is not parity-complete merely because its review residual is exact.
 The residual must also be material.
-
-Re-run the SAVR-00 matrix after SAVR-03..07.
 
 For remaining active source boundaries:
 

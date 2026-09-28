@@ -176,11 +176,11 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			primaryNeedsReview = interpretation.NeedsReview()
 		} else {
 			primaryInterpretationErr = interpretationErr
-			slog.WarnContext(ctx, "document primary interpretation failed; routing to Review", "error_type", fmt.Sprintf("%T", interpretationErr))
+			slog.WarnContext(ctx, "document primary interpretation failed; retrying job", "error_type", fmt.Sprintf("%T", interpretationErr))
 		}
 	}
 	if primaryInterpretationErr != nil {
-		return p.HandleTerminalFailure(ctx, documentID, fmt.Errorf("primary document interpretation failed: %w", primaryInterpretationErr))
+		return fmt.Errorf("primary document interpretation failed: %w", primaryInterpretationErr)
 	}
 	if mode == InterpretationShadow {
 		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
@@ -433,40 +433,17 @@ func (p *Processor) HandleTerminalFailure(ctx context.Context, documentID string
 		return err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1 AND status NOT IN ('EXTRACTED','NEEDS_REVIEW')`, documentID)
+	tag, err := tx.Exec(ctx, `UPDATE document SET status='FAILED',updated_at=now() WHERE id=$1 AND status NOT IN ('EXTRACTED','NEEDS_REVIEW','FAILED')`, documentID)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED',parser_name='cloud-llm-gateway',parser_version='document-classify-v1' WHERE id=$1 AND processing_status NOT IN ('PROCESSED','IGNORED','NEEDS_REVIEW')`, sourceID); err != nil {
 		return err
-	}
-	classification, ok := reviewdec.Preset("DOCUMENT_CLASSIFICATION", "document", documentID)
-	if !ok {
-		return fmt.Errorf("no review decision preset for DOCUMENT_CLASSIFICATION")
-	}
-	classification.WhyNotAuto = "document classification failed: " + truncate(cause)
-	classificationJSON, encodeErr := classification.JSON()
-	if encodeErr != nil {
-		return encodeErr
-	}
-	var classificationItemID string
-	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_CLASSIFICATION','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, documentID, string(classificationJSON)).Scan(&classificationItemID); err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE document_id=$1 AND review_type='DOCUMENT_CLASSIFICATION' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, documentID).Scan(&classificationItemID); err != nil {
-			return err
-		}
 	}
 	if tag.RowsAffected() > 0 {
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DOCUMENT_CLASSIFICATION_FAILED','source_event',$2,jsonb_build_object('document_id',$3::uuid,'error',$4::text))`, householdID, sourceID, documentID, truncate(cause)); err != nil {
 			return err
 		}
-	}
-	// UIR-02: project the classification review as an actionable Telegram card so
-	// the household can resolve or ignore it in chat, not only in the Inbox.
-	if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, classificationItemID); err != nil {
-		return err
 	}
 	return tx.Commit(ctx)
 }

@@ -39,7 +39,7 @@ type ObservationClassification struct {
 
 // ProviderEmailClassificationPolicyVersion marks the thresholds behind these
 // rulings so a stored decision stays reproducible (PRD §18).
-const ProviderEmailClassificationPolicyVersion = "2026-09-jev3"
+const ProviderEmailClassificationPolicyVersion = "2026-09-jev4"
 
 // jeverifier is the seam onto the bounded judgment plane, expressed in the terms
 // this package needs so provider email never imports Telegram policy.
@@ -103,7 +103,7 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 		"observation_type":        {Type: "choice", Instructions: "Choose what this provider email actually describes. Use OTHER_OR_UNCLEAR when the evidence is not enough to decide.", Criteria: judgment.ChoiceCriteria(observationTypeCriteria)},
 		"cash_movement_supported": {Type: "noul", Instructions: "Does the email directly support that real money moved, rather than describing a value change or a notice?"},
 		"wealth_value_supported":  {Type: "noul", Instructions: "Does the email directly state a current holding value?"},
-		"evidence_sufficient":     {Type: "noul", Instructions: "Are the extracted amount or value, time, and account hints fully supported by the email text?"},
+		"evidence_sufficient":     {Type: "noul", Instructions: "Does the email support the extracted amount or value and, for cash movements, transaction time? Do not require account hints: Go resolves canonical accounts independently."},
 		"material_ambiguity":      {Type: "noul", Instructions: "Is this email genuinely ambiguous, for example two plausible amounts, values, or targets?"},
 	}
 	if strings.EqualFold(v.Kind, "CASH_MOVEMENT") || pointerValue(v.MovementType) != "" {

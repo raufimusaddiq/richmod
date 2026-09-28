@@ -277,6 +277,7 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot rows")
 	ctx := context.Background()
 	clear := screenshotDataRow("EXPENSE", "54000", "Indomaret")
+	clear.Value.Confidence = .35 // Complete material facts must not become category review.
 	categoryID := fixture.categoryID
 	clear.CategoryID, clear.CategoryDecided = &categoryID, true
 	incoming := screenshotDataRow("INCOME", "100000", "Teman")

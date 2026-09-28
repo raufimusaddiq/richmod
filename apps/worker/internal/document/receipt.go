@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -13,7 +12,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
@@ -123,7 +121,7 @@ func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error
 			result = patched
 			validated, _ = validateReceiptIssues(result, receivedAt)
 		} else {
-			return p.persistInvalidDocumentExtraction(ctx, documentID, householdID, sourceID, "RECEIPT", result, result.Confidence, metadata.Model, fmt.Errorf("receipt validation issues: %s", issues.String()))
+			return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "RECEIPT", result, result.Confidence, metadata.Model, fmt.Errorf("receipt validation issues: %s", issues.String()))
 		}
 	}
 	return p.persistReceipt(ctx, documentID, householdID, sourceID, result, metadata.Model, validated, categories)
@@ -249,7 +247,7 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 			secondBest = candidate.Score
 		}
 	}
-	if len(strong) == 1 && secondBest <= 0.80 && value.Confidence >= 0.90 && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
+	if len(strong) == 1 && secondBest <= 0.80 && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
 		return p.linkReceipt(ctx, documentID, householdID, sourceID, strong[0], value, model, validation)
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
@@ -275,7 +273,7 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	// complete enough to confirm without asking the user to re-enter anything.
 	// A receipt with no printed date is not confirmed here: upload time is not the
 	// receipt's transaction time (PRD §18.4).
-	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && value.Confidence >= 0.90 && validation.DateKnown && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
+	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
 		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, categoryDecision)
 	}
 	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0, categoryDecision)
@@ -333,7 +331,7 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 	if !dateKnown {
 		return nil, nil
 	}
-	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type=$2 AND t.currency='IDR' AND t.amount=$3::numeric AND t.transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$4::timestamptz))) LIMIT 10`, householdID, transactionType, amount, transactionAt)
+	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type=$2 AND t.currency='IDR' AND t.amount=$3::numeric AND t.transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))`, householdID, transactionType, amount, transactionAt)
 	if err != nil {
 		return nil, err
 	}
@@ -345,13 +343,17 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 		if err := rows.Scan(&candidate.ID, &candidate.Merchant, &hours); err != nil {
 			return nil, err
 		}
-		// Every same-amount, same-direction transaction inside the window is kept,
-		// including the ones that score low because the merchant text differs
-		// (Hermes review on PR #127). Dropping them here hid a plausible duplicate
-		// from the caller's "no candidate matched" guard, which is exactly the
-		// ambiguity the review path exists to resolve (PRD §17).
-		candidate.Score = documentMatchScore(hours, sameMerchant(candidate.Merchant, merchant))
-		result = append(result, candidate)
+		// The amount/window query finds candidates, not proven ambiguity. A
+		// different merchant 12-72h away alone cannot justify human review;
+		// same merchant or near-simultaneous same-amount events still fail closed.
+		merchantMatch := sameMerchant(candidate.Merchant, merchant)
+		if merchantMatch || hours <= 1 {
+			candidate.Score = documentMatchScore(hours, merchantMatch)
+			result = append(result, candidate)
+			if len(result) == 10 {
+				break
+			}
+		}
 	}
 	return result, rows.Err()
 }
@@ -567,7 +569,7 @@ func (p *Processor) documentCategories(ctx context.Context, householdID string) 
 	return result, rows.Err()
 }
 
-func (p *Processor) persistInvalidDocumentExtraction(ctx context.Context, documentID, householdID, sourceID, stage string, value any, confidence float64, model string, cause error) error {
+func (p *Processor) persistInvalidDocumentExtraction(ctx context.Context, documentID, sourceID, stage string, value any, confidence float64, model string, cause error) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -581,34 +583,13 @@ func (p *Processor) persistInvalidDocumentExtraction(ctx context.Context, docume
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,$2,'1',$3::jsonb,$4,$5,false) ON CONFLICT DO NOTHING`, documentID, stage, string(output), storedConfidence, model); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE document SET status='FAILED',updated_at=now() WHERE id=$1`, documentID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='FAILED' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
-	decision, ok := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
-	if !ok {
-		return fmt.Errorf("no review decision preset for DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
-	}
-	decision.WhyNotAuto = "the receipt extraction failed validation"
-	encoded, encodeErr := decision.JSON()
-	if encodeErr != nil {
-		return encodeErr
-	}
-	var reviewItemID string
-	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, documentID, string(encoded)).Scan(&reviewItemID); err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE document_id=$1 AND review_type='DOCUMENT_EXTRACTION_LOW_CONFIDENCE' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, documentID).Scan(&reviewItemID); err != nil {
-			return err
-		}
-	}
-	if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_DOCUMENT_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'stage',$4::text,'reason',$5::text))`, householdID, sourceID, documentID, stage, cause.Error()); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) SELECT household_id,'WORKER','REJECT_DOCUMENT_EXTRACTION','source_event',$1,jsonb_build_object('document_id',$2::uuid,'stage',$3::text,'reason',$4::text) FROM source_event WHERE id=$1`, sourceID, documentID, stage, cause.Error()); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -286,6 +286,10 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=$2,resolved_wealth_account_id=$3,status='PENDING' WHERE id=$1`, cashObservation, account, wealth); err != nil {
 		t.Fatal(err)
 	}
+	// A previously selected canonical account survives an absent source hint.
+	if _, err := pool.Exec(ctx, `UPDATE financial_email_observation SET facts_json=facts_json-'funding_account_hint' WHERE id=$1`, cashObservation); err != nil {
+		t.Fatal(err)
+	}
 	if err := p.Process(ctx, Payload{SourceEventID: source}); err != nil {
 		t.Fatal(err)
 	}
@@ -314,6 +318,71 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 	}
 	if wealthChildren != 1 || wealthReviews != 1 || transactions != 1 {
 		t.Fatalf("wealth children=%d reviews=%d transactions=%d", wealthChildren, wealthReviews, transactions)
+	}
+}
+
+func TestSelectedAccountConflictingSourceHintFailsClosed(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	household, _, account, wealth, source := seedFinancialEmail(t, ctx, pool, time.Now().UnixNano(), "ACTIVE")
+	var other string
+	if err := pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Other Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	at, amount, movement, hint := "2026-09-08T10:00:00+07:00", "3000000", "CONTRIBUTION", "Other Bank"
+	v := observation{Kind: "CASH_MOVEMENT", MovementType: &movement, AmountIDR: &amount, OccurredAt: &at, FundingAccountHint: &hint, Confidence: .99}
+	var observationID string
+	if err := pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status,resolved_account_id,resolved_wealth_account_id) VALUES($1,$2,0,'CASH_MOVEMENT','{}','PENDING',$3,$4) RETURNING id`, household, source, account, wealth).Scan(&observationID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	processor := &Processor{pool: pool}
+	plan, err := processor.planCash(ctx, tx, household, "", observationID, wealth, true, account, wealth, v)
+	if err != nil || plan.review != "FINANCIAL_EMAIL_RESOLUTION" || plan.account != account || plan.accountConflictHint != hint {
+		t.Fatalf("different known source account must conflict: plan=%+v err=%v", plan, err)
+	}
+	if err := processor.resolutionReview(ctx, tx, household, source, observationID, plan.account, wealth, plan.missingEntities, plan.accountConflictHint); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	var reviewID string
+	if err := pool.QueryRow(ctx, `SELECT id,decision FROM review_item WHERE financial_email_observation_id=$1 AND review_type='FINANCIAL_EMAIL_RESOLUTION'`, observationID).Scan(&reviewID, &raw); err != nil {
+		t.Fatal(err)
+	}
+	var decision reviewdec.Decision
+	if err := json.Unmarshal(raw, &decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Consequence != reviewdec.IndependentEvidenceConflict || decision.KnownFacts["funding_account"] != account || len(decision.Conflicting["funding_account"]) != 2 {
+		t.Fatalf("source hint conflict must retain canonical account and both evidence values: %+v", decision)
+	}
+	// A human decision on this exact conflict must end the loop on replay.
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='SET_FINANCIAL_EMAIL_ENTITIES' WHERE id=$1`, reviewID); err != nil {
+		t.Fatal(err)
+	}
+	tx2, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx2.Rollback(ctx)
+	plan, err = processor.planCash(ctx, tx2, household, "", observationID, wealth, true, account, wealth, v)
+	if err != nil || plan.review != "" || plan.purpose != "INVESTMENT_CONTRIBUTION" {
+		t.Fatalf("resolved conflict must progress without re-asking: plan=%+v err=%v", plan, err)
 	}
 }
 
@@ -688,7 +757,7 @@ func TestResolutionReviewPersistsTheResolvedEntity(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	// The evidence settled the bank account but not the provider Wealth Account.
-	if err = (&Processor{pool: pool}).resolutionReview(ctx, tx, household, source, observation, account, "", nil); err != nil {
+	if err = (&Processor{pool: pool}).resolutionReview(ctx, tx, household, source, observation, account, "", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(ctx); err != nil {

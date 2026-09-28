@@ -4,6 +4,8 @@
 
 Accepted — 2026-09-27.
 
+Amended — 2026-09-28: human-review materiality and machine-failure eligibility.
+
 ## Context
 
 Many current validators return a boolean/error that is sufficient for local code

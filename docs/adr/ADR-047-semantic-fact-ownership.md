@@ -4,6 +4,8 @@
 
 Accepted — 2026-09-27.
 
+Amended — 2026-09-28: materiality and source-policy/known-canonical ownership.
+
 ## Context
 
 ADR-045 defines when Richmod should use deterministic logic, Jev, generative

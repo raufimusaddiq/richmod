@@ -176,7 +176,7 @@ func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 			row := decided
 			row.Value.Confidence = .85
 			return row
-		}(), false},
+		}(), true},
 	}
 	for _, testCase := range cases {
 		if got := testCase.row.autoConfirmable(); got != testCase.want {
