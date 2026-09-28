@@ -58,7 +58,10 @@ malformed model output. Receipt and screenshot already used
 extraction and leaves the event for operator repair.
 
 **Change:** the payslip invalid path calls the same shared failure writer.
-The unused payslip-specific review writer was deleted.
+The unused payslip-specific review writer was deleted. The regression invokes
+`ProcessPayslip` with invalid extraction and a failed bounded repair; it asserts
+both `FAILED` states, one unvalidated extraction, zero household reviews, and
+exactly two model calls (extract + one repair).
 
 **Classification:** MACHINE_ONLY_FAILURE_AS_HUMAN_WORK — removed.
 

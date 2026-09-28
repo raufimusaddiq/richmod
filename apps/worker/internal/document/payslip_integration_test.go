@@ -2,11 +2,32 @@ package document
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
+
+type invalidPayslipGateway struct{ calls int }
+
+func (g *invalidPayslipGateway) NativeToolCall(_ context.Context, _ string, _ string, _ any, tools []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	g.calls++
+	if len(tools) != 1 {
+		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected payslip tools")
+	}
+	switch tools[0].Name {
+	case "extract_payslip":
+		return gateway.ToolCall{Name: tools[0].Name, Arguments: json.RawMessage(`{"period":"2026-09","employer":"Employer","gross_pay":null,"allowances":[],"deductions":[],"other_components":[],"net_pay":"invalid","currency":"IDR","pay_date":null,"confidence":0.3}`)}, gateway.Metadata{Model: "test-model"}, nil
+	case "repair_payslip_fields":
+		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("repair unavailable")
+	default:
+		return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("unexpected payslip tool: %s", tools[0].Name)
+	}
+}
 
 // Quality-only concerns cannot manufacture human work; first-salary policy
 // still requires the household, then uses the same salary finalizer.
@@ -98,9 +119,19 @@ func TestPayslipInvalidMachineOutputDoesNotAskHousehold(t *testing.T) {
 	if _, err := f.pool.Exec(ctx, `UPDATE document SET document_type='PAYSLIP' WHERE id=$1`, f.documentID); err != nil {
 		t.Fatal(err)
 	}
-	p := &Processor{pool: f.pool}
-	if err := p.persistInvalidDocumentExtraction(ctx, f.documentID, f.sourceID, "PAYSLIP",
-		payslipExtraction{NetPay: "invalid", Confidence: .3}, .3, "test-model", fmt.Errorf("unrepairable extraction")); err != nil {
+	storage, err := blob.NewLocal(filepath.Join(t.TempDir(), "documents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storageRef string
+	if err := f.pool.QueryRow(ctx, `SELECT a.storage_ref FROM attachment a JOIN document d ON d.attachment_id=a.id WHERE d.id=$1`, f.documentID).Scan(&storageRef); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Put(ctx, storageRef, []byte("img"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	llm := &invalidPayslipGateway{}
+	if err := (&Processor{pool: f.pool, gateway: llm, storage: storage}).ProcessPayslip(ctx, f.documentID); err != nil {
 		t.Fatal(err)
 	}
 	var documentStatus, sourceStatus string
@@ -111,7 +142,7 @@ func TestPayslipInvalidMachineOutputDoesNotAskHousehold(t *testing.T) {
 		FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, f.documentID).Scan(&documentStatus, &sourceStatus, &reviews, &invalid); err != nil {
 		t.Fatal(err)
 	}
-	if documentStatus != "FAILED" || sourceStatus != "FAILED" || reviews != 0 || invalid != 1 {
-		t.Fatalf("machine failure document=%s source=%s reviews=%d evidence=%d", documentStatus, sourceStatus, reviews, invalid)
+	if documentStatus != "FAILED" || sourceStatus != "FAILED" || reviews != 0 || invalid != 1 || llm.calls != 2 {
+		t.Fatalf("machine failure document=%s source=%s reviews=%d evidence=%d modelCalls=%d", documentStatus, sourceStatus, reviews, invalid, llm.calls)
 	}
 }
