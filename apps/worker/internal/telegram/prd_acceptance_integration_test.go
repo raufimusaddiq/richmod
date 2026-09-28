@@ -160,45 +160,63 @@ func TestJevFailureChatWorksButMutationCapabilityIsWithheld(t *testing.T) {
 	}
 	for _, test := range []struct {
 		name, text, reply string
+		engine     judgment.Engine
+		openReview bool
 	}{
-		{"chat", "halo", "Halo! Ada yang bisa kubantu soal keuangan?"},
-		{"conversation", "aku ga bisa chat aja?", "Bisa, kita ngobrol soal keuangan."},
-		{"finance help", "jelasin cara cek kondisi keuangan bulan ini", "Bisa, aku bantu jelaskan kondisi keuanganmu."},
-		{"mutation", "makan siang 25rb hari ini", "Belum dicatat karena layanan keputusan sementara tidak tersedia. Coba lagi sebentar lagi."},
+		{"chat", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdFailingJudgment{}, false},
+		{"conversation", "aku ga bisa chat aja?", "Bisa, kita ngobrol soal keuangan.", prdFailingJudgment{}, false},
+		{"finance help", "jelasin cara cek kondisi keuangan bulan ini", "Bisa, aku bantu jelaskan kondisi keuanganmu.", prdFailingJudgment{}, false},
+		{"mutation", "makan siang 25rb hari ini", "Belum dicatat karena layanan keputusan sementara tidak tersedia. Coba lagi sebentar lagi.", prdFailingJudgment{}, false},
+		{"unclear route", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdRouteJudgment{route: "OTHER_OR_UNCLEAR"}, false},
+		{"unclear with open review", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdRouteJudgment{route: "OTHER_OR_UNCLEAR"}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "ir04-route-failure-"+test.name)
-	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','food-drink')`, f.householdID)
-	mustAgentTest(t, err)
-	f.update.Message.MessageID = 79
-	f.update.Message.Text = test.text
-	payload, err := json.Marshal(f.update)
-	mustAgentTest(t, err)
-	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
-	mustAgentTest(t, err)
+			ctx := context.Background()
+			f := newAgentIntegrationFixture(t, "ir04-route-failure-"+test.name)
+			_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','food-drink')`, f.householdID)
+			mustAgentTest(t, err)
+			if test.openReview {
+				createAgentTransactionReview(t, ctx, f, "70000", 101)
+			}
+			f.update.Message.MessageID = 79
+			f.update.Message.Text = test.text
+			payload, err := json.Marshal(f.update)
+			mustAgentTest(t, err)
+			_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
+			mustAgentTest(t, err)
 
-	agent := &degradedChatGateway{reply: test.reply}
-	p := NewProcessor(f.pool, agent)
-	p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
-	p.SetJudgment(prdFailingJudgment{})
-	if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
-		t.Fatal(err)
-	}
-	if agent.calls != 1 {
-		t.Fatalf("ordinary conversation must reach the agent after Jev failure, calls=%d", agent.calls)
-	}
-	var transactions, reviews int
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&transactions))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, f.householdID).Scan(&reviews))
-	if transactions != 0 || reviews != 0 {
-		t.Fatalf("ordinary conversation after Jev failure wrote state: transactions=%d reviews=%d", transactions, reviews)
-	}
-	var reply string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 ORDER BY created_at DESC LIMIT 1`, fmt.Sprint(f.chatID)).Scan(&reply))
-	if reply != test.reply {
-		t.Fatalf("reply=%q, want %q", reply, test.reply)
-	}
+			agent := &degradedChatGateway{reply: test.reply}
+			p := NewProcessor(f.pool, agent)
+			p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
+			p.SetJudgment(test.engine)
+			if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
+				t.Fatal(err)
+			}
+			if agent.calls != 1 {
+				t.Fatalf("ordinary conversation must reach the agent after Jev failure, calls=%d", agent.calls)
+			}
+			var transactions, reviews int
+			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&transactions))
+			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, f.householdID).Scan(&reviews))
+			wantRows := 0
+			if test.openReview {
+				wantRows = 1
+			}
+			if transactions != wantRows || reviews != wantRows {
+				t.Fatalf("conversation changed financial state: transactions=%d reviews=%d want=%d", transactions, reviews, wantRows)
+			}
+			if test.openReview {
+				var status string
+				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM review_item WHERE household_id=$1 LIMIT 1`, f.householdID).Scan(&status))
+				if status != "OPEN" {
+					t.Fatalf("unrelated chat closed review: %s", status)
+				}
+			}
+			var reply string
+			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 ORDER BY created_at DESC LIMIT 1`, fmt.Sprint(f.chatID)).Scan(&reply))
+			if reply != test.reply {
+				t.Fatalf("reply=%q, want %q", reply, test.reply)
+			}
 		})
 	}
 }
