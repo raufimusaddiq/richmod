@@ -2,6 +2,43 @@ package bankemail
 
 import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 
+// materialResidual names only the bounded predicate that did not clear, and only
+// when it is material to the canonical decision being attempted. Non-material
+// metadata (an uncertain payment mechanism) never reaches here, so it cannot
+// independently block an otherwise safe expense (SAVR-06).
+func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok bool) {
+	if len(v.ClaimOutcomes) == 0 {
+		// No bounded ruling: nothing was evaluated, so no predicate failed. Callers
+		// treat this as no-material-residual rather than defaulting to amount_idr
+		// (SAVR-06, Hermes round 6).
+		return "", false, false
+	}
+	switch {
+	case v.ClaimOutcomes["amount_supported"] == "NO":
+		// The email names a different amount: two evidence-supported values disagree.
+		return "amount_idr", true, true
+	case v.ClaimOutcomes["direction_supported"] == "NO":
+		return "direction", true, true
+	case v.ClaimOutcomes["transaction_observed"] == "NO":
+		return "transaction_observed", true, true
+	case !v.AmbiguityDecidedNotAmbiguous || v.MaterialAmbiguity:
+		return "transaction_ambiguity", false, true
+	case v.ClaimOutcomes["amount_supported"] != "YES" || v.ClaimOutcomes["direction_supported"] != "YES" || v.ClaimOutcomes["transaction_observed"] != "YES":
+		// The plane could not decide a material fact; it is missing, not conflicting.
+		for _, fact := range []struct{ key, name string }{{"amount_supported", "amount_idr"}, {"direction_supported", "direction"}, {"transaction_observed", "transaction_observed"}} {
+			if v.ClaimOutcomes[fact.key] != "YES" {
+				return fact.name, false, true
+			}
+		}
+	case v.ClaimOutcomes["semantic_grounded"] != "YES":
+		// SPEND vs TRANSFER_OR_INTERNAL unresolved: a material residual the
+		// household resolves, not a blind fail-closed (the deterministic policy
+		// still owns which canonical class a resolved case becomes).
+		return "transaction_semantics", false, true
+	}
+	return "", false, false
+}
+
 // reviewPolicyVersion names the policy that actually decided each review type,
 // so the stored contract stays reproducible (PRD §18).
 func reviewPolicyVersion(reviewType string) string {

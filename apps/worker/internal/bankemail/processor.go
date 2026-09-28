@@ -321,13 +321,23 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		_ = p.persistExtractionFailure(ctx, payload.SourceEventID, listenerID, meta.Model, "VERIFICATION_FAILED", "RETRY")
 		return fmt.Errorf("bank email evidence verification unavailable: %w", verifyErr)
 	}
+	// Persist the bounded ruling before any review branch: the audit row is the
+	// only record of what the plane actually claimed, and a verified-but-
+	// unsupported ruling (every SAVR-06 bank residual) is exactly the case the row
+	// exists to explain (SAVR-06, Hermes round 4).
 	if verified {
 		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
 			return persistErr
 		}
 	}
 	if verified && !verification.supported() {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification))
+		fact, conflict, material := verification.materialResidual()
+		if !material {
+			// An unsupported verification without failed material claims is an
+			// inconsistent ruling, not a human fact to fabricate (SAVR-06).
+			return fmt.Errorf("bank email verification has no failed material predicate")
+		}
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
 	}
 	if !verified && extraction.Confidence < 0.80 {
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
@@ -428,44 +438,42 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 	}
 }
 
-// verificationReviewDecision keeps each independently supported fact while
-// targeting only the predicate(s) the bounded evidence check did not clear.
-func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification) reviewdec.Decision {
-	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", nil, "independent bank-email evidence did not support every extracted transaction fact")
+// verificationReviewDecision keeps every independently supported fact and names
+// only the material predicate the bounded evidence check did not clear. A
+// non-material ordering predicate (an uncertain payment mechanism) never appears
+// here because materialResidual drops it, so it cannot add a required human fact
+// (SAVR-06).
+func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification, fact string, conflict bool) reviewdec.Decision {
+	missing := []string{fact}
+	why := "the email did not support a material transaction fact the household must confirm"
+	if conflict {
+		// Two evidence-supported values disagree: the conflicting fact is known-and-
+		// disputed, not absent, so it is not a missing fact.
+		missing = nil
+		why = "the email evidence conflicts on a material fact; Go refuses to guess"
+	}
+	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", missing, why)
 	decision.PolicyVersion = verification.PolicyVersion
 	decision.Provenance["claim_outcomes"] = verification.ClaimOutcomes
-	for _, claim := range []struct{ predicate, fact string }{
-		{"transaction_observed", "transaction_observed"},
-		{"amount_supported", "amount_idr"},
-		{"direction_supported", "direction"},
-		{"channel_supported", "channel"},
-		{"material_ambiguity", "transaction_ambiguity"},
-	} {
-		status := verification.ClaimOutcomes[claim.predicate]
-		if claim.predicate == "material_ambiguity" {
-			if status == "NO" {
-				continue // A decided negative means the source is not ambiguous.
-			}
-		} else if status == "YES" {
-			continue
-		}
-		decision.AffectedFacts = append(decision.AffectedFacts, claim.fact)
-		if value, ok := decision.KnownFacts[claim.fact]; ok {
-			decision.ProposedFacts[claim.fact] = value
-			delete(decision.KnownFacts, claim.fact)
-		}
-		if status == "UNDECIDED" || status == "" {
-			decision.MissingFacts = append(decision.MissingFacts, claim.fact)
-			continue
-		}
-		if claim.predicate == "material_ambiguity" {
-			decision.Consequence = reviewdec.CanonicalAmbiguity
-		} else {
-			decision.Consequence = reviewdec.IndependentEvidenceConflict
-		}
+	decision.AffectedFacts = []string{fact}
+	switch {
+	case conflict:
 		decision.DecisionClass = reviewdec.ClassEvidenceConflict
-	}
-	if decision.Consequence == "" {
+		decision.Consequence = reviewdec.IndependentEvidenceConflict
+		// The disputed value is evidence-supported but contested, so it must not
+		// render as a known fact the household would prefill. Move it to proposed
+		// facts, the same known→proposed move the base decision made (SAVR-06,
+		// Hermes round 5).
+		if disputed, ok := decision.KnownFacts[fact]; ok {
+			decision.ProposedFacts[fact] = disputed
+			delete(decision.KnownFacts, fact)
+		}
+	case fact == "transaction_ambiguity":
+		decision.Consequence = reviewdec.CanonicalAmbiguity
+	default:
+		// transaction_semantics and any other bounded material residual: a
+		// predicate did not clear, so the consequence is the bounded residual the
+		// shared contract names (SAVR-06, Hermes round 4).
 		decision.Consequence = reviewdec.BoundedResidual
 	}
 	return decision
@@ -479,14 +487,14 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 		"transaction_observed": verification.TransactionObserved,
 		"amount_supported":     verification.AmountSupported,
 		"direction_supported":  verification.DirectionSupported,
-		"channel_supported":    verification.ChannelSupported,
+		"semantic_grounded":    verification.SemanticGrounded,
 		"material_ambiguity":   verification.MaterialAmbiguity,
+		"claim_outcomes":       verification.ClaimOutcomes,
 		// Without this an operator reading the row cannot tell "ruled not ambiguous"
 		// from "the plane could not tell", which is the distinction that decides
 		// whether the event may auto-confirm.
 		"ambiguity_decided_not_ambiguous": verification.AmbiguityDecidedNotAmbiguous,
 		"supported":                       verification.supported(),
-		"claim_outcomes":                  verification.ClaimOutcomes,
 		"policy_version":                  verification.PolicyVersion,
 	})
 	if err != nil {

@@ -255,6 +255,59 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 	}
 	return p.insertReviewDecision(ctx, tx, household, id, "TRANSFER_CLASSIFICATION")
 }
+
+// evidenceReview parks a cash case whose bounded evidence claims failed, naming
+// only the unsupported dimensions instead of reusing the human
+// transfer-relationship choice (SAVR-06).
+func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, source, id string, observation observation, classification ObservationClassification) error {
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
+		return err
+	}
+	missing, affected, consequence, provenance := classification.reviewFacts(classification.cashResidual())
+	decision, ok := reviewdec.Preset("FINANCIAL_EMAIL_FACTS", "financial_email_observation", id)
+	if !ok {
+		return fmt.Errorf("no review decision preset for provider evidence residual")
+	}
+	decision.Subject = reviewdec.Subject{Type: "financial_email_observation", ID: id}
+	decision.MissingFacts = missing
+	decision.AffectedFacts = affected
+	decision.Consequence = consequence
+	decision.PolicyVersion = classification.PolicyVersion
+	decision.Provenance = provenance
+	// A residual on `evidence_support` means the email does not fully support
+	// exactly these extracted value facts, so they must not render as recorded
+	// data (Web shows knownFacts as "Tercatat"). Carry them as proposed instead —
+	// the same known→proposed rule the bank lane uses for a disputed value
+	// (SAVR-06, Hermes round 6).
+	valuesUnsupported := containsString(missing, "evidence_support")
+	declare := func(key, value string) {
+		if value == "" {
+			return
+		}
+		if valuesUnsupported {
+			decision.ProposedFacts[key] = value
+			return
+		}
+		decision.KnownFacts[key] = value
+	}
+	if observation.AmountIDR != nil {
+		declare("amount_idr", value(observation.AmountIDR))
+	}
+	if observation.OccurredAt != nil {
+		declare("transaction_at", value(observation.OccurredAt))
+	}
+	if observation.FundingAccountHint != nil {
+		declare("funding_account_hint", value(observation.FundingAccountHint))
+	}
+	if observation.ProviderAccountHint != nil {
+		declare("provider_account_hint", value(observation.ProviderAccountHint))
+	}
+	encoded, err := decision.JSON()
+	if err != nil {
+		return err
+	}
+	return p.projectObservationReview(ctx, tx, household, id, decision.ReasonCode, string(encoded))
+}
 func defaultWealthAccount(ctx context.Context, tx pgx.Tx, household, id string) (string, error) {
 	if strings.TrimSpace(id) == "" {
 		return "", nil
@@ -291,6 +344,9 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	var observationID string
 	date := any(nil)
 	if v.ObservedDate != nil {
+		// An unreadable printed date must not discard the observed value: keep the
+		// wealth observation with a null date so the household can still bind the
+		// account and confirm the value (SAVR-06).
 		if d, err := time.Parse("2006-01-02", value(v.ObservedDate)); err == nil {
 			date = d
 		}
@@ -340,6 +396,7 @@ func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, hous
 type cashPlan struct {
 	account, wealth, amount, purpose, existing, providerReference, review string
 	missingEntities                                                       []string
+	classification                                                        ObservationClassification
 	at                                                                    time.Time
 	candidates                                                            []string
 }
@@ -347,6 +404,11 @@ type cashPlan struct {
 func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
 	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
 	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil {
+		// A structurally incomplete observation cannot be adjudicated and Go
+		// cannot prove a single predicate about it, so park the recovery lane that
+		// lets the household supply the missing amount/relationship. That is the
+		// one residual a human can actually fix, unlike an IGNORE-only facts card
+		// (SAVR-06, Hermes recovery finding).
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
@@ -356,10 +418,30 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 	// production (ADR-038, PRD §21).
 	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
 	if classifyErr != nil {
+		// The bounded plane could not rule (gateway outage). That is infrastructure
+		// state, not a semantic verdict, so the case must still end somewhere a
+		// human can act: park the shared transfer-classification recovery lane that
+		// lets the household supply the missing amount/relationship. Returning the
+		// raw error instead left the observation PENDING with no card once the job
+		// hit max_attempts (SAVR-06, Hermes B2).
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
 	if verified {
+		// Only a ruling that this really is a cash movement can raise the cash-
+		// evidence residual (its facts are cash-evidence dimensions). A ruling of
+		// WEALTH_VALUE/NON_ACTIONABLE on a cash observation is a classification the
+		// household can act on, so it takes the recovery lane rather than an
+		// IGNORE-only card (SAVR-06, Hermes round 5).
+		if !classification.TypeAccepted || classification.ObservationType != "CASH_MOVEMENT" {
+			plan.review = "TRANSFER_CLASSIFICATION"
+			return plan, nil
+		}
+		if residual := classification.cashResidual(); len(residual) > 0 {
+			plan.classification = classification
+			plan.review = "FINANCIAL_EMAIL_FACTS"
+			return plan, nil
+		}
 		if !classification.cashAllowed() {
 			plan.review = "TRANSFER_CLASSIFICATION"
 			return plan, nil
@@ -369,6 +451,9 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			v.MovementType = &movement
 		}
 	} else if v.Confidence < .8 {
+		// No bounded plane ruled and the extractor's own confidence is below the
+		// legacy gate, so nothing proves the movement. Route to the recovery lane
+		// rather than an IGNORE-only facts card the household cannot act on.
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
@@ -526,6 +611,8 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 		}
 	}
 	switch plan.review {
+	case "FINANCIAL_EMAIL_FACTS":
+		return p.evidenceReview(ctx, tx, household, source, id, v, plan.classification)
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth, plan.missingEntities)
 	case "CONFLICTING_EVIDENCE":

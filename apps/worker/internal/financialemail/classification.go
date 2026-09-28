@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // ObservationClassification is the bounded ruling over one already-extracted
@@ -20,6 +21,13 @@ type ObservationClassification struct {
 	WealthSupported    bool
 	EvidenceSufficient bool
 	MaterialAmbiguity  bool
+	// ClaimOutcomes keeps one entry per bounded predicate so the review can name
+	// the exact unresolved/conflicting dimension instead of collapsing every
+	// unsupported case into transfer classification. Noul predicates store
+	// YES/NO/UNDECIDED; choice predicates store the accepted option label when
+	// AcceptChoice passes and UNDECIDED otherwise, so a rejected choice never reads
+	// as a passing predicate (SAVR-06).
+	ClaimOutcomes map[string]string
 	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
 	// question, which is the favourable answer. The middle band means the plane
 	// could not tell, and must fail closed rather than read as approval.
@@ -123,7 +131,106 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 	classification.WealthSupported = noulSupported(result.Answers, "wealth_value_supported")
 	classification.EvidenceSufficient = noulSupported(result.Answers, "evidence_sufficient")
 	classification.MaterialAmbiguity, classification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity")
+	classification.ClaimOutcomes = map[string]string{}
+	for _, key := range []string{"observation_type", "movement_type", "cash_movement_supported", "wealth_value_supported", "evidence_sufficient", "material_ambiguity"} {
+		answer, ok := result.Answers[key]
+		if !ok {
+			classification.ClaimOutcomes[key] = "UNDECIDED"
+			continue
+		}
+		if answer.Type == "choice" {
+			// A choice only clears the gate when AcceptChoice accepts it, exactly
+			// like the booleans below and the ObservationType/MovementType fields
+			// above. Recording the raw label regardless made a rejected choice read
+			// as a passing predicate, so cashResidual() came back empty and the case
+			// fell through to a bogus transfer classification (SAVR-06, Hermes B1).
+			criteria, policy := observationTypeCriteria, classificationPolicy.Type
+			if key == "movement_type" {
+				criteria, policy = movementTypeCriteria, classificationPolicy.Movement
+			}
+			classification.ClaimOutcomes[key] = "UNDECIDED"
+			if judgment.AcceptChoice(answer, judgment.ChoiceCriteria(criteria), policy) {
+				classification.ClaimOutcomes[key] = answer.Choice
+			}
+			continue
+		}
+		// material_ambiguity is an inverted claim read through the Ambiguity policy,
+		// so it must use that same policy here; judging it with Supported would make
+		// a noul in the (Low, High) band read as a decided negative to cashResidual
+		// while the boolean gate still treats it as undecided (SAVR-06).
+		policy := classificationPolicy.Supported
+		if key == "material_ambiguity" {
+			policy = classificationPolicy.Ambiguity
+		}
+		yes, decided := judgment.AcceptNoul(answer, policy)
+		classification.ClaimOutcomes[key] = "UNDECIDED"
+		if decided {
+			classification.ClaimOutcomes[key] = "NO"
+			if yes {
+				classification.ClaimOutcomes[key] = "YES"
+			}
+		}
+	}
 	return classification, true, nil
+}
+
+// cashResidual names only failed cash-evidence dimensions. Movement/purpose
+// remains a transfer classification choice, not a generic evidence failure.
+func (c ObservationClassification) cashResidual() []string {
+	var missing []string
+	c.eachFailedClaim(func(fact string) { missing = append(missing, fact) })
+	return missing
+}
+
+// cashClaimFacts is the single predicate→fact table behind both the residual
+// name and the guarded fallback, so a rejected predicate always names the same
+// fact whichever caller reads it.
+var cashClaimFacts = []struct{ key, fact, expected string }{
+	{"observation_type", "observation_type", "CASH_MOVEMENT"},
+	{"cash_movement_supported", "cash_movement", "YES"},
+	{"evidence_sufficient", "evidence_support", "YES"},
+	{"material_ambiguity", "transaction_ambiguity", "NO"},
+}
+
+// eachFailedClaim reports the fact for every bounded predicate that did not hold.
+func (c ObservationClassification) eachFailedClaim(report func(fact string)) {
+	for _, claim := range cashClaimFacts {
+		if c.ClaimOutcomes[claim.key] != claim.expected {
+			report(claim.fact)
+		}
+	}
+}
+
+// reviewFacts returns the SAVR-06 review contract for this classification: the
+// exact unsupported dimensions, the validator consequence that follows from
+// them, and whether a rule (rather than a predicate) ruled. Derived here so no
+// call site can hand-roll a contradicting contract.
+func (c ObservationClassification) reviewFacts(residual []string) (missing, affected []string, consequence reviewdec.Consequence, provenance map[string]any) {
+	// Only a bounded ruling that actually ran reaches here, so it may name
+	// predicate-level facts. A case with no bounded ruling never parks a facts
+	// residual: it takes the recovery lane instead (SAVR-06).
+	missing = residual
+	if len(missing) == 0 {
+		// Defensive: derive the contract from the actual claim outcomes rather
+		// than fabricating a fact. A rejected observation_type must be named as
+		// such, never as generic evidence_support (SAVR-06, Hermes round 6).
+		c.eachFailedClaim(func(fact string) { missing = append(missing, fact) })
+		if len(missing) == 0 {
+			missing = []string{"evidence_support"}
+		}
+	}
+	affected = append([]string(nil), missing...)
+	consequence = reviewdec.BoundedResidual
+	if containsString(missing, "transaction_ambiguity") {
+		consequence = reviewdec.CanonicalAmbiguity
+	}
+	provenance = map[string]any{"pipeline": "financial-provider-email"}
+	if c.ClaimOutcomes == nil {
+		provenance["claim_outcomes"] = map[string]string{}
+	} else {
+		provenance["claim_outcomes"] = c.ClaimOutcomes
+	}
+	return
 }
 
 // cashAllowed reports whether Go may treat this observation as a real cash

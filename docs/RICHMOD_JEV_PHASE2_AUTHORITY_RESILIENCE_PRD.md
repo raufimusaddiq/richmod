@@ -931,7 +931,7 @@ This reduces:
 arbitrary facts, and the deterministic structural checks still run, but the
 semantic gate is now a bounded verification bundle
 (`bankemail.verifyEvidence`): `transaction_observed`, `amount_supported`,
-`direction_supported`, `channel_supported`, and `material_ambiguity`, all from one
+`direction_supported`, `semantic_grounded`, and `material_ambiguity`, all from one
 minimized state snapshot. A provider failure is reported as infrastructure
 failure (retry/review), never as a passing grade. The extractor's own confidence
 remains only the fallback when no verification plane is configured, so it is no
@@ -962,7 +962,7 @@ Jev verification bundle
   +--> transaction_observed Noul
   +--> amount_supported Noul
   +--> direction_supported Noul
-  +--> channel_supported Noul
+  +--> semantic_grounded Noul
   +--> material_ambiguity Noul
   |
   v

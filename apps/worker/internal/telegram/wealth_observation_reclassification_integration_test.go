@@ -47,8 +47,14 @@ func TestWealthObservationCanBeReclassifiedAsAssetPurchase(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',1,1,1,$3) RETURNING id`, household, []byte(fmt.Sprintf("attachment-%d", stamp)), fmt.Sprintf("reclass-%d", stamp)).Scan(&attachmentID))
 	must(pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION','NEEDS_REVIEW') RETURNING id`, household, imageSource, attachmentID).Scan(&documentID))
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr) VALUES($1,$2,$3,'Bibit','Bibit',3000000) RETURNING id`, household, documentID, wealthID).Scan(&observationID))
+	var reviewItemID, reviewRequestID string
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') RETURNING id`, household, observationID).Scan(&reviewItemID))
+	// The card is delivered with a bound message id; the reply lane now binds the
+	// wealth observation to that message instead of guessing the newest pending
+	// observation in the household (SAVR-06, Hermes).
+	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') RETURNING id`, reviewItemID, household).Scan(&reviewRequestID))
 	must(func() error {
-		_, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN')`, household, observationID)
+		_, err := pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,7)`, reviewRequestID, chatID)
 		return err
 	}())
 	var replySource string
@@ -56,6 +62,9 @@ func TestWealthObservationCanBeReclassifiedAsAssetPurchase(t *testing.T) {
 
 	update := telegramUpdate{}
 	update.Message.From.ID, update.Message.Chat.ID, update.Message.MessageID = chatID, chatID, 1
+	update.Message.ReplyToMessage = &struct {
+		MessageID int64 `json:"message_id"`
+	}{MessageID: 7}
 	handled, err := NewProcessor(pool, nil).resolveNativeSpecialReview(ctx, replySource, household, update, "RECORD_ASSET_PURCHASE", map[string]any{
 		"source_account_hint": "Bank Jago", "wealth_account_hint": "Bibit", "amount_idr": "3000000", "transaction_at": "2026-08-26T08:00:00+07:00",
 	})

@@ -573,6 +573,82 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	return source
 }
 
+// TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite proves SAVR-06 for
+// provider email: a cash observation whose typed evidence predicates failed is
+// parked as FINANCIAL_EMAIL_FACTS with only IGNORE allowed, names the exact
+// unsupported dimension, keeps the accepted amount/date/hint facts, and writes
+// no canonical transaction.
+func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	h, _, _, _, source := seedFinancialEmail(t, ctx, pool, time.Now().UnixNano(), "ACTIVE")
+	var observationID string
+	if err = pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}'::jsonb,'PENDING') RETURNING id`, h, source).Scan(&observationID); err != nil {
+		t.Fatal(err)
+	}
+	amount, at, hint := "3000000", "2026-09-22T10:00:00+07:00", "Jago"
+	v := observation{Kind: "CASH_MOVEMENT", AmountIDR: &amount, OccurredAt: &at, FundingAccountHint: &hint, Confidence: 0.9}
+	classification := ObservationClassification{
+		PolicyVersion: ProviderEmailClassificationPolicyVersion,
+		ClaimOutcomes: map[string]string{"observation_type": "CASH_MOVEMENT", "cash_movement_supported": "YES", "evidence_sufficient": "NO", "material_ambiguity": "NO"},
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = (&Processor{pool: pool}).evidenceReview(ctx, tx, h, source, observationID, v, classification); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, h).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("a facts residual must not write a canonical transaction: %d", count)
+	}
+	var raw []byte
+	if err = pool.QueryRow(ctx, `SELECT decision FROM review_item WHERE financial_email_observation_id=$1 AND review_type='FINANCIAL_EMAIL_FACTS'`, observationID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var decision reviewdec.Decision
+	if err = json.Unmarshal(raw, &decision); err != nil {
+		t.Fatal(err)
+	}
+	if len(decision.AllowedActions) != 1 || decision.AllowedActions[0] != "IGNORE" {
+		t.Fatalf("a facts residual must offer only IGNORE: %v", decision.AllowedActions)
+	}
+	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "evidence_support" {
+		t.Fatalf("the residual must name the exact unsupported dimension: %v", decision.MissingFacts)
+	}
+	// The residual is evidence_support, so the email does not fully support these
+	// value facts: they must be proposed, not recorded as known, or the Web card
+	// would show an unsupported amount as "Tercatat" (SAVR-06, Hermes round 6).
+	if _, known := decision.KnownFacts["amount_idr"]; known {
+		t.Fatalf("an unsupported amount must not be a known fact: %+v", decision.KnownFacts)
+	}
+	if decision.ProposedFacts["amount_idr"] != amount || decision.ProposedFacts["transaction_at"] != at || decision.ProposedFacts["funding_account_hint"] != hint {
+		t.Fatalf("unsupported facts must survive as proposed facts: %+v", decision.ProposedFacts)
+	}
+	var status string
+	if err = pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, observationID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "REVIEW" {
+		t.Fatalf("observation status=%q, want REVIEW", status)
+	}
+}
+
 // The worker is the only writer of a partial resolution, and the Inbox list API
 // reads what is already known from the observation columns. So the column the
 // decision calls known must actually be written, or the card the Inbox renders

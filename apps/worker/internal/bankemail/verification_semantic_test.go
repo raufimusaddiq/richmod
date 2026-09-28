@@ -7,18 +7,18 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// The channel_supported claim must accept ordinary wording that names the
-// payment method, not require a literal vocabulary token. Before this wording
-// change the verifier rejected essentially every Indonesian bank email because
-// 'kartu debit' could not match the token DEBIT_CARD, causing a merchant-less
-// debit-card notification to be stamped UNKNOWN_BANK_TEMPLATE instead of
-// flowing through to the normal UNKNOWN_MERCHANT review.
-func TestChannelSupportedAcceptsIndonesianMethodWord(t *testing.T) {
+// The material semantic_grounded claim must accept ordinary Indonesian wording
+// that clearly describes a spend, without requiring a literal channel token. The
+// old channel_supported claim rejected 'kartu debit' because it could not match
+// the token DEBIT_CARD, stamping a merchant-less debit-card notification
+// UNKNOWN_BANK_TEMPLATE instead of flowing to the normal UNKNOWN_MERCHANT
+// review; SAVR-06 replaced that predicate with the material class ruling.
+func TestSemanticGroundedAcceptsIndonesianMethodWord(t *testing.T) {
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"transaction_observed": noul(0.99),
 		"amount_supported":     noul(0.99),
 		"direction_supported":  noul(0.99),
-		"channel_supported":    noul(0.99),
+		"semantic_grounded":    noul(0.99),
 		"material_ambiguity":   noul(0.02),
 	}}
 	processor := &Processor{verifier: verifier}

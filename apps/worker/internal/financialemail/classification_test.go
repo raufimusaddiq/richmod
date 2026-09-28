@@ -157,11 +157,80 @@ func TestProviderFailureIsInfrastructureNotApproval(t *testing.T) {
 	}
 }
 
+// A provider failure must not strand the observation: planCash has to route the
+// case to a human-actionable recovery lane instead of returning the error and
+// leaving the observation PENDING with no card once the job hits max_attempts
+// (SAVR-06, Hermes B2). The recovery lane is TRANSFER_CLASSIFICATION, which lets
+// the household supply the missing amount/relationship.
+func TestProviderFailureParksARecoveryLaneNotAStrandedObservation(t *testing.T) {
+	processor := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
+	plan, err := processor.planCash(context.Background(), nil, "household", "", "", false, "", "", cashObservation(0.9))
+	if err != nil {
+		t.Fatalf("a provider outage must not surface as an error: %v", err)
+	}
+	if plan.review != "TRANSFER_CLASSIFICATION" {
+		t.Fatalf("a provider outage must park the recovery lane, got review=%q", plan.review)
+	}
+}
+
 // Unconfigured: no ruling is available, so callers keep their deterministic gate
 // and must not read this as approval.
 func TestUnconfiguredVerifierIsNotApproval(t *testing.T) {
 	processor := &Processor{}
 	if _, verified, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9)); err != nil || verified {
 		t.Fatalf("unconfigured verifier must report unverified, verified=%v err=%v", verified, err)
+	}
+}
+
+// material_ambiguity must be judged by the same inverted Ambiguity policy that
+// the boolean gate uses. Reading it with the non-inverted Supported policy made
+// a noul in the (Low, High) band record as a decided "NO" while the gate still
+// treated it as undecided, so cashResidual returned empty and the case borrowed
+// TRANSFER_CLASSIFICATION (SAVR-06, Hermes finding 1).
+func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
+	for _, probability := range []float64{0.10, 0.20} {
+		answers := cashRuling("CONTRIBUTION")
+		answers["material_ambiguity"] = noul(probability)
+		processor := &Processor{verifier: &stubVerifier{answers: answers}}
+		classification, _, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if classification.cashAllowed() {
+			t.Fatalf("undecided ambiguity (noul=%.2f) must fail closed: %+v", probability, classification)
+		}
+		// The same undecided reading must reach the residual so the review names the
+		// real blocker instead of falling through to a transfer classification.
+		if !containsString(classification.cashResidual(), "transaction_ambiguity") {
+			t.Fatalf("undecided ambiguity (noul=%.2f) must produce the transaction_ambiguity residual: %+v", probability, classification.cashResidual())
+		}
+	}
+}
+
+// A choice the plane returned but AcceptChoice rejects (marginal confidence) must
+// record UNDECIDED, not the raw label. Recording the label let a rejected
+// observation_type read as a passing predicate, so cashResidual() came back empty
+// and the case borrowed TRANSFER_CLASSIFICATION (SAVR-06, Hermes B1).
+func TestRejectedChoiceOutcomeIsUndecidedNotPassing(t *testing.T) {
+	answers := cashRuling("CONTRIBUTION")
+	marginal := choice("CASH_MOVEMENT", judgment.ChoiceCriteria(observationTypeCriteria))
+	marginal.Confidence = 0.50 // below classificationPolicy.Type.MinConfidence (0.60)
+	answers["observation_type"] = marginal
+	processor := &Processor{verifier: &stubVerifier{answers: answers}}
+	classification, verified, err := processor.classifyObservation(context.Background(), "req", cashObservation(0.9))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified {
+		t.Fatal("the plane answered, so the ruling must be verified")
+	}
+	if classification.TypeAccepted || classification.cashAllowed() {
+		t.Fatalf("a rejected choice must not authorise: %+v", classification)
+	}
+	if classification.ClaimOutcomes["observation_type"] != "UNDECIDED" {
+		t.Fatalf("a rejected choice must record UNDECIDED, got %q", classification.ClaimOutcomes["observation_type"])
+	}
+	if !containsString(classification.cashResidual(), "observation_type") {
+		t.Fatalf("a rejected observation_type must reach the residual, got %+v", classification.cashResidual())
 	}
 }

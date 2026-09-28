@@ -13,9 +13,10 @@ forced a human into that path.
 1. A new merchant with no learned category always opened a review, even when the
    transaction was otherwise complete.
 2. A single bounded verification ruling could park an ordinary transaction. Jev
-   is probabilistic: on an identical Jago body `channel_supported` flipped
-   roughly one run in five, and one negative ruling was fatal, so a completed
-   debit-card purchase became `UNKNOWN_BANK_TEMPLATE`.
+   is probabilistic: on an identical Jago body the payment-mechanism predicate
+   (then `channel_supported`, since replaced by `semantic_grounded` in SAVR-06)
+   flipped roughly one run in five, and one negative ruling was fatal, so a
+   completed debit-card purchase became `UNKNOWN_BANK_TEMPLATE`.
 
 Lowering thresholds would have hidden both symptoms while accepting worse
 decisions, which the PRD forbids.

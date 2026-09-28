@@ -684,10 +684,16 @@ After extraction + Go structural validation + deterministic reconciliation, add 
 transaction_observed            Noul
 amount_supported                Noul
 direction_supported             Noul
-channel_supported               Noul
+semantic_grounded               Noul
 counterparty_semantics          Choice when bounded
 material_ambiguity              Noul
 ```
+
+SAVR-06 note: `semantic_grounded` replaces the earlier `channel_supported`
+predicate. It rules only whether the wording supports the canonical class
+(ordinary spend versus transfer/internal movement) and is deliberately
+indifferent to the payment mechanism, so an uncertain QR-vs-debit mechanism
+cannot independently block an otherwise safe expense.
 
 For unresolved transfer accounting semantics, use Jev only after deterministic filters.
 

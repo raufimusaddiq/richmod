@@ -14,6 +14,16 @@ test("review cards render the review decision proposal and missing facts", () =>
   assert.match(source, /item\.whyNotAutoConfirm/);
 });
 
+test("proposed values are labelled as a proposal, not as recorded data", () => {
+  // A proposed value is unsupported/contested, so it must not be labelled
+  // "Tercatat" (recorded). The label keys off the row's own proposal state,
+  // never decisionSource, which stays DETERMINISTIC on automated reviews
+  // (SAVR-06, Hermes round 7).
+  assert.match(source, /proposedRow\.length > 0 && <><p className="review-source">Richmod mengusulkan<\/p><dl className="review-proposal">\{proposedRow\.map/);
+  assert.doesNotMatch(source, /decisionSource !== "DETERMINISTIC" \? "Richmod mengusulkan" : "Tercatat"/);
+});
+
+
 test("full editing is gated behind an explicit edit step", () => {
   assert.match(source, /useState\(false\)/);
   assert.match(source, /Ubah detail/);

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // stubVerifier answers the verification bundle from a fixed ruling, and can
@@ -36,7 +37,7 @@ func supportedRuling() map[string]judgment.Answer {
 		"transaction_observed": noul(0.99),
 		"amount_supported":     noul(0.99),
 		"direction_supported":  noul(0.99),
-		"channel_supported":    noul(0.99),
+		"semantic_grounded":    noul(0.99),
 		"material_ambiguity":   noul(0.02),
 	}
 }
@@ -55,6 +56,144 @@ func stringPtrFor(value string) *string { return &value }
 
 func testExtraction() Extraction {
 	return Extraction{Kind: "TRANSACTION", AmountIDR: stringPtrFor("25000"), Direction: stringPtrFor("OUTGOING"), Channel: stringPtrFor("QR"), Merchant: stringPtrFor("Toko"), Confidence: 0.55}
+}
+
+// 1) An undecided QR-vs-debit/merchant payment mechanism is evidence metadata,
+// not a required human fact, so it must not create a review: the material
+// predicates only concern the transaction itself (SAVR-06).
+func TestUndecidedPaymentMechanismDoesNotCreateReview(t *testing.T) {
+	// The extraction channel is irrelevant to the bounded ruling: the verifier
+	// answers the same bundle for every mechanism, so an uncertain QR-vs-debit
+	// distinction cannot appear in the residual. Assert through the real verifier
+	// so a reintroduced channel predicate would fail this test.
+	for _, channel := range []string{"QR", "DEBIT_CARD", "MERCHANT_PAYMENT", ""} {
+		extraction := testExtraction()
+		extraction.Channel = stringPtrFor(channel)
+		verification, verified, err := (&Processor{verifier: &stubVerifier{answers: supportedRuling()}}).verifyEvidence(context.Background(), "src", extraction, TrustedEmail{})
+		if err != nil || !verified || !verification.supported() {
+			t.Fatalf("channel %q must not block an otherwise supported expense: verified=%v v=%+v err=%v", channel, verified, verification, err)
+		}
+		if _, _, material := verification.materialResidual(); material {
+			t.Fatalf("channel %q produced a material residual", channel)
+		}
+	}
+}
+
+// 2) SPEND vs TRANSFER_OR_INTERNAL unresolved is a material residual: the
+// bounded check could not tell whether the money left the household, so a
+// bounded resolution/review is allowed and it names transaction_semantics.
+func TestSpendVsTransferAmbiguityCreatesBoundedResidual(t *testing.T) {
+	verification := EvidenceVerification{
+		TransactionObserved: true, AmountSupported: true, DirectionSupported: true, AmbiguityDecidedNotAmbiguous: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO", "material_ambiguity": "NO"},
+	}
+	fact, conflict, material := verification.materialResidual()
+	if !material || conflict || fact != "transaction_semantics" {
+		t.Fatalf("SPEND-vs-TRANSFER must be a bounded residual on transaction_semantics: fact=%q conflict=%v material=%v", fact, conflict, material)
+	}
+	if verification.supported() {
+		t.Fatal("an unresolved semantic class must not auto-confirm")
+	}
+}
+
+// 3) Two evidence-supported amounts disagree: an independent-evidence conflict
+// that still fails closed and names the material amount fact.
+func TestAmountConflictStillBlocks(t *testing.T) {
+	verification := EvidenceVerification{
+		TransactionObserved: true, AmountSupported: false, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "NO", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "NO"},
+	}
+	fact, conflict, material := verification.materialResidual()
+	if !material || !conflict || fact != "amount_idr" {
+		t.Fatalf("an amount conflict must fail closed on amount_idr: fact=%q conflict=%v material=%v", fact, conflict, material)
+	}
+	if verification.supported() {
+		t.Fatal("an amount conflict must block confirmation")
+	}
+	// The disputed amount is evidence-supported but contested, so it must not
+	// surface as a known fact the Web card would prefill (SAVR-06, Hermes round 5).
+	decision := verificationReviewDecision("household", "source", testExtraction(), verification, "amount_idr", true)
+	if _, known := decision.KnownFacts["amount_idr"]; known {
+		t.Fatalf("a conflicted amount must not stay a known fact: %+v", decision.KnownFacts)
+	}
+	if decision.ProposedFacts["amount_idr"] == nil {
+		t.Fatalf("a conflicted amount must be carried as a proposed fact: %+v", decision.ProposedFacts)
+	}
+	if decision.DecisionClass != reviewdec.ClassEvidenceConflict || decision.Consequence != reviewdec.IndependentEvidenceConflict {
+		t.Fatalf("an amount conflict must keep its conflict class/consequence: %+v", decision)
+	}
+}
+
+// 4) A material failure keeps every accepted fact: the review's known facts
+// still carry the amount, date, direction, channel, and merchant.
+func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
+	dated := testExtraction()
+	stamp := time.Date(2026, 9, 27, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600))
+	dated.TransactionAt = &stamp
+	verification := EvidenceVerification{
+		TransactionObserved: true, AmountSupported: true, DirectionSupported: true, AmbiguityDecidedNotAmbiguous: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO", "material_ambiguity": "NO"},
+	}
+	decision := verificationReviewDecision("household", "source", dated, verification, "transaction_semantics", false)
+	for _, accepted := range []string{"amount_idr", "transaction_at", "direction", "channel", "merchant"} {
+		if _, ok := decision.KnownFacts[accepted]; !ok {
+			t.Fatalf("accepted fact %q must survive a material failure: %+v", accepted, decision.KnownFacts)
+		}
+	}
+	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "transaction_semantics" {
+		t.Fatalf("only the unresolved material fact may be requested: %+v", decision.MissingFacts)
+	}
+}
+
+// An undecided material predicate is a missing fact, not a conflict: nothing
+// disagreed, the plane just could not decide, so the review must request the
+// fact rather than claim an independent-evidence conflict (SAVR-06).
+func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
+	verification := EvidenceVerification{
+		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "UNDECIDED", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "NO"},
+	}
+	fact, conflict, material := verification.materialResidual()
+	if !material || conflict || fact != "amount_idr" {
+		t.Fatalf("an undecided amount must be a bounded missing fact: fact=%q conflict=%v material=%v", fact, conflict, material)
+	}
+	decision := verificationReviewDecision("household", "source", testExtraction(), verification, "amount_idr", false)
+	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "amount_idr" {
+		t.Fatalf("undecided amount must be requested as missing: %+v", decision.MissingFacts)
+	}
+	if decision.DecisionClass == reviewdec.ClassEvidenceConflict {
+		t.Fatalf("an undecided fact must not be labelled an evidence conflict: %+v", decision)
+	}
+}
+
+// 5) No additional intelligence pass: the whole ruling rides in the single
+// bounded bundle Go already sends, so classifying non-material metadata cannot
+// add a second call.
+
+// A material ambiguity outranks an undecided material predicate: when the plane
+// cannot rule out a duplicate/transfer AND could not decide the amount, the
+// review must name the canonical ambiguity rather than collapsing to an amount
+// gap that drops the ambiguity dimension (SAVR-06, Hermes round 7).
+func TestAmbiguityOutranksAnUndecidedMaterialFact(t *testing.T) {
+	verification := EvidenceVerification{
+		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true, MaterialAmbiguity: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "UNDECIDED", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "YES"},
+	}
+	fact, conflict, material := verification.materialResidual()
+	if !material || conflict || fact != "transaction_ambiguity" {
+		t.Fatalf("a material ambiguity must win over an undecided amount: fact=%q conflict=%v material=%v", fact, conflict, material)
+	}
+}
+
+func TestNonMaterialMetadataAddsNoExtraPass(t *testing.T) {
+	verifier := &stubVerifier{answers: supportedRuling()}
+	processor := &Processor{verifier: verifier}
+	if _, _, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{Subject: "QR", Body: "bayar 25000"}); err != nil {
+		t.Fatal(err)
+	}
+	if verifier.calls != 1 {
+		t.Fatalf("verification must stay one bounded bundle, got %d", verifier.calls)
+	}
 }
 
 // The whole point of the bundle: a fully supported ruling is accepted even when
@@ -76,39 +215,10 @@ func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 		t.Fatalf("expected one bounded bundle, got %d", verifier.calls)
 	}
 	// Every claim must ride in the same request: one snapshot, one round trip.
-	for _, claim := range []string{"transaction_observed", "amount_supported", "direction_supported", "channel_supported", "material_ambiguity"} {
+	for _, claim := range []string{"transaction_observed", "amount_supported", "direction_supported", "semantic_grounded", "material_ambiguity"} {
 		if _, ok := verifier.request.Questions[claim]; !ok {
 			t.Fatalf("missing claim %q in %v", claim, verifier.request.Questions)
 		}
-	}
-}
-
-func TestEvidenceVerificationPreservesExactResidual(t *testing.T) {
-	answers := supportedRuling()
-	answers["channel_supported"] = noul(0.01)
-	verification, verified, err := (&Processor{verifier: &stubVerifier{answers: answers}}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
-	if err != nil || !verified || verification.supported() {
-		t.Fatalf("negative evidence must block confirmation: %+v verified=%t err=%v", verification, verified, err)
-	}
-	extraction := testExtraction()
-	date := "2026-09-27T12:00:00+07:00"
-	parsed, err := time.Parse(time.RFC3339, date)
-	if err != nil {
-		t.Fatal(err)
-	}
-	extraction.TransactionAt = &parsed
-	decision := verificationReviewDecision("household", "source", extraction, verification)
-	if len(decision.AffectedFacts) != 1 || decision.AffectedFacts[0] != "channel" || len(decision.MissingFacts) != 0 || decision.ProposedFacts["channel"] != "QR" || decision.KnownFacts["transaction_at"] != timeValue(extraction.TransactionAt) {
-		t.Fatalf("channel conflict must retain known time without inventing a missing fact: %+v", decision)
-	}
-	answers["channel_supported"] = noul(0.5)
-	verification, _, err = (&Processor{verifier: &stubVerifier{answers: answers}}).verifyEvidence(context.Background(), "src", extraction, TrustedEmail{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	decision = verificationReviewDecision("household", "source", extraction, verification)
-	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "channel" || decision.KnownFacts["transaction_at"] != timeValue(extraction.TransactionAt) {
-		t.Fatalf("undecided channel must be the sole residual: %+v", decision)
 	}
 }
 
@@ -123,7 +233,7 @@ func TestMerchantlessCategoryRescueNeedsSupportingText(t *testing.T) {
 
 func TestEvidenceVerificationRejectsUnsupportedClaim(t *testing.T) {
 	answers := supportedRuling()
-	answers["channel_supported"] = noul(0.30)
+	answers["amount_supported"] = noul(0.30)
 	processor := &Processor{verifier: &stubVerifier{answers: answers}}
 	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
 	if err != nil {
@@ -181,7 +291,7 @@ func TestEvidenceVerificationUnconfiguredIsNotApproval(t *testing.T) {
 // doing so would let either draw approve the event and raise the effective bar.
 func TestEvidenceVerificationDoesNotRetryNegativeRuling(t *testing.T) {
 	unsupported := supportedRuling()
-	unsupported["channel_supported"] = noul(0.30)
+	unsupported["amount_supported"] = noul(0.30)
 	verifier := &stubVerifier{answers: unsupported}
 	processor := &Processor{verifier: verifier}
 	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
