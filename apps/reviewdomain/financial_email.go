@@ -202,7 +202,9 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 		return result, err
 	}
 	if cmd.Ignore {
-		_, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID)
+		if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='RESOLVED',updated_at=now() WHERE financial_email_observation_id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, cmd.ObservationID, cmd.HouseholdID); err == nil {
+			_, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END,parser_name='financial-email-reconciliation',parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID)
+		}
 	} else {
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='RECEIVED' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID); err == nil {
 			_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('PROCESS_FINANCIAL_EMAIL',jsonb_build_object('source_event_id',$1::uuid,'financial_source_id',(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)),5)`, sourceID)

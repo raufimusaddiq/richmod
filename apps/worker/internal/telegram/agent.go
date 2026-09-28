@@ -171,14 +171,14 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// route, or out-of-scope route leaves conversation and canonical READ tools
 	// available but withholds every side effect. Exact review replies retain
 	// their server-bound decision capability (PRD #144 + SAVR §10.3).
-	if !judgmentState.ExactReply && (!p.judgmentPlaneConfigured || judgmentState.Route == "" || judgmentState.Route == "OTHER_OR_UNCLEAR" || judgmentState.Route == "OUT_OF_SCOPE") {
+	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
 		generalTools = readOnlyAgentTools(generalTools)
 	}
 	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
-	if !p.judgmentPlaneConfigured || judgmentState.Route == "" || judgmentState.Route == "OTHER_OR_UNCLEAR" || judgmentState.Route == "OUT_OF_SCOPE" {
+	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
 		turnContext["mutation_authority_unavailable"] = true
 	}
 	turnContext["merchant_learning_count"] = merchantCount

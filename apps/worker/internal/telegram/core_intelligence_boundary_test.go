@@ -61,6 +61,15 @@ func TestDegradedPathIsNotKeywordGated(t *testing.T) {
 	}
 }
 
+func TestExactReplyRetainsBoundMutationAuthorityWhenJevUnavailable(t *testing.T) {
+	if mutationAuthorityUnavailable(false, turnAgentContextState{ExactReply: true}) {
+		t.Fatal("an exact server-bound reply must retain its bound tool when Jev is unavailable")
+	}
+	if !mutationAuthorityUnavailable(false, turnAgentContextState{}) {
+		t.Fatal("an unbound turn must lose mutation tools when Jev is unavailable")
+	}
+}
+
 // T12: once a semantic fact is accepted (directAcceptanceDecision) the bounded
 // evaluator is not asked again.
 func TestAcceptedSemanticFactIsNotReclassified(t *testing.T) {

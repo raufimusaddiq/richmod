@@ -413,6 +413,10 @@ type turnAgentContextState struct {
 	Route string
 }
 
+func mutationAuthorityUnavailable(configured bool, state turnAgentContextState) bool {
+	return !state.ExactReply && (!configured || state.Route == "" || state.Route == "OTHER_OR_UNCLEAR" || state.Route == "OUT_OF_SCOPE")
+}
+
 func (s turnAgentContextState) harvestable() bool {
 	return !s.HasPendingWorkflow && !s.ExactReply && s.ActiveReviewCount == 0
 }

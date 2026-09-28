@@ -88,7 +88,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		// user's sentence unclear. Drop to the conversational agent with no
 		// route recorded, so no implicit workflow binding is narrowed and the
 		// capability policy decides what the model may do (SAVR PRD §3.3, ADR-045).
-		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeClarification)
+		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeRejected)
 		return false, nil
 	}
 	lane, knownRoute := laneForRoute(answer.Choice)
@@ -96,7 +96,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		// Choice validation and route-lane coverage are independent guards. A
 		// vocabulary/table mismatch must not cause a guessed action, but it is
 		// also not a reason to terminate the user: drop to the agent unbound.
-		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeClarification)
+		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeRejected)
 		return false, nil
 	}
 	p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeAccepted)
