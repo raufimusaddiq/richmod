@@ -27,6 +27,26 @@ func TestFinancialEmailResolutionIsShared(t *testing.T) {
 	}
 }
 
+// Web IGNORE on a source-backed transfer classification must delegate to
+// ReconcileTransfer, which stamps resolved_at/resolved_by and marks the case
+// DISMISSED ("parked, not reconciled"). The observation-only shortcut in
+// ResolveFinancialEmailReview is for rows with no source_event to reconcile
+// against; letting it swallow source-backed cases wrote RESOLVED with NULL
+// resolved_at/by and broke the historical marker contract (PR #214 blocker).
+func TestWebTransferIgnoreDelegatesToReconcileTransfer(t *testing.T) {
+	path := "../api/internal/review/canonical.go"
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	shortcut := "if in.Action == \"IGNORE\" && kind == \"TRANSFER_CLASSIFICATION\" && financialObservation != nil {"
+	if strings.Contains(text, shortcut) {
+		t.Fatalf("%s lets the observation-only path swallow source-backed transfer cases; "+
+			"the shortcut must require source == nil so ReconcileTransfer owns the case lifecycle", path)
+	}
+}
+
 // Alias keys must fold Unicode compatibility forms the same way every surface
 // does. A full-width hint and its ASCII spelling are the same household alias,
 // so losing NFKC here would persist two keys for one account and break lookup.

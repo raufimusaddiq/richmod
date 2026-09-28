@@ -419,7 +419,9 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if in.Action == "IGNORE" && kind == "TRANSFER_CLASSIFICATION" && financialObservation != nil {
+	if in.Action == "IGNORE" && kind == "TRANSFER_CLASSIFICATION" && source == nil && financialObservation != nil {
+		// Observation-only transfer classification: there is no source_event to reconcile a
+		// transfer against, so the financial-email lifecycle owns the dismissal.
 		_, err = reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"), ActorUserID: p.UserID, ActorType: "USER", Ignore: true})
 		if err != nil || tx.Commit(r.Context()) != nil {
 			writeJSON(w, 409, map[string]string{"error": "financial observation is unavailable"})
