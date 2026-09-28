@@ -555,6 +555,15 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 	if candidates != 11 || overflowStatus != 2 {
 		t.Fatalf("overflow candidates=%d transactions=%d", candidates, overflowStatus)
 	}
+	ignoreSource, ignoreObservation, ignoreReview := newCase("ignore", []string{existing})
+	if res := resolve(ignoreReview, `{"action":"IGNORE","values":{}}`); res.Code != http.StatusNoContent {
+		t.Fatalf("ignore status=%d body=%s", res.Code, res.Body.String())
+	}
+	var ignoredCase, parserName, parserVersion string
+	must(pool.QueryRow(ctx, `SELECT trc.status,se.parser_name,se.parser_version FROM transfer_reconciliation_case trc JOIN source_event se ON se.id=trc.source_event_id WHERE trc.financial_email_observation_id=$1 AND se.id=$2`, ignoreObservation, ignoreSource).Scan(&ignoredCase, &parserName, &parserVersion))
+	if ignoredCase != "RESOLVED" || parserName != "financial-email-reconciliation" || parserVersion != "1" {
+		t.Fatalf("ignored observation lifecycle case=%s parser=%s/%s", ignoredCase, parserName, parserVersion)
+	}
 }
 
 func TestResolveUnknownBankTemplateIgnore(t *testing.T) {

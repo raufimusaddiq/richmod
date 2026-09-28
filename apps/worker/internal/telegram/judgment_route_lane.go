@@ -16,10 +16,6 @@ const (
 	// handles the turn with its full tool surface. Terminating these as unclear
 	// is the defect PRD §8.1 prohibits.
 	laneAgentFallthrough agentRouteLane = "AGENT_FALLTHROUGH"
-	// laneClarification: no safe route; ask a bounded clarification.
-	laneClarification agentRouteLane = "CLARIFICATION"
-	// laneOutOfScope: terminal scoped response for non-finance requests.
-	laneOutOfScope agentRouteLane = "OUT_OF_SCOPE"
 )
 
 // agentRouteLanes is the exhaustive table. Every entry of judgmentRoutes must
@@ -47,9 +43,9 @@ var agentRouteLanes = map[string]agentRouteLane{
 	"SALARY_INTERACTION":            laneWorkflow,
 	"MERCHANT_LEARNING_INTERACTION": laneWorkflow,
 
-	// Terminal scope refusal and bounded clarification.
-	"OUT_OF_SCOPE":     laneOutOfScope,
-	"OTHER_OR_UNCLEAR": laneClarification,
+	// A route not decided cannot terminally classify the user's sentence.
+	"OTHER_OR_UNCLEAR": laneAgentFallthrough,
+	"OUT_OF_SCOPE":     laneAgentFallthrough,
 }
 
 // laneForRoute reports the lane for a decided route. The second return is false

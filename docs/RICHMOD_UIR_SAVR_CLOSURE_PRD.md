@@ -11,6 +11,34 @@
 
 ---
 
+# 2026-09-28 blocking owner-household production finding
+
+**UISC-03 acceptance and UISC-04 freeze remain blocked. Do not start CEU.**
+
+Real owner-household use showed that an undecided Jev Telegram route terminated
+ordinary chat before the conversational agent, and a provider failure routed a
+non-keyword chat message to `NEEDS_REVIEW` via Go keyword NLP. Jago bank
+email extraction failed schema validation twice with `invalid transaction
+time` (exact emitted string not captured). A Bibit provider-email review
+had no transfer reconciliation case; Web Ignore failed and required guarded
+manual DML. The exact reason Bibit entered review was not proven.
+
+The repair is tracked in
+[`docs/audits/CORE-INTELLIGENCE-BOUNDARY-REPAIR.md`](audits/CORE-INTELLIGENCE-BOUNDARY-REPAIR.md).
+It removes semantic Go fallback routing, scopes failed/undecided Jev turns to
+conversation + READ-only capabilities, gives bank extraction one specific
+schema-feedback repair, and routes observation-scoped Ignore through the
+shared observation finalizer. No production success is claimed from tests.
+
+Closure requires real owner-household post-deploy observation: ordinary chat
+answered; unclear route and machine outage create no human review/RHICE;
+canonical reads use READ tools; simple finance fast path call budgets remain
+low; post-auto-confirm material corrections do not rise. Jago and Bibit
+rechecks must record actual observed outcomes; tests alone cannot satisfy
+this gate. Production observation: **PENDING**.
+
+---
+
 # 0. Why this exists
 
 UIR and SAVR are functionally delivered, but the combined post-delivery audit found

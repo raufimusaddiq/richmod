@@ -414,20 +414,6 @@ func TestDegradedToolSurfaceHasNoMutationAuthority(t *testing.T) {
 	}
 }
 
-// A provider outage may only fall through for an obvious READ question.
-func TestReadOnlyFallbackOnlyAllowsReads(t *testing.T) {
-	for _, text := range []string{"pengeluaran bulan ini berapa", "show my cashflow", "cari transaksi pamella"} {
-		if !readOnlyFallbackRequest(text) {
-			t.Fatalf("%q should be allowed to degrade to READ-only", text)
-		}
-	}
-	for _, text := range []string{"catat makan siang 50rb", "transfer 2 juta dari jago ke bibit", "gaji 8 juta hari ini", "iya"} {
-		if readOnlyFallbackRequest(text) {
-			t.Fatalf("%q must not be treated as a read-only fallback", text)
-		}
-	}
-}
-
 // The tool catalog must expose the ReadTool/side-effect classification used by
 // the degraded surface, so a new mutation tool cannot silently bypass it.
 func TestEveryExposedMutationToolIsClassified(t *testing.T) {

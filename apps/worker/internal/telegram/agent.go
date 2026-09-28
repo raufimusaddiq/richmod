@@ -167,10 +167,20 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.ReviewMode,
 		p.judgmentPlaneConfigured,
 	)
+	// Jev owns bounded mutation authorization. A provider failure, undecided
+	// route, or out-of-scope route leaves conversation and canonical READ tools
+	// available but withholds every side effect. Exact review replies retain
+	// their server-bound decision capability (PRD #144 + SAVR §10.3).
+	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
+		generalTools = readOnlyAgentTools(generalTools)
+	}
 	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
+	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
+		turnContext["mutation_authority_unavailable"] = true
+	}
 	turnContext["merchant_learning_count"] = merchantCount
 	if explicitReply && reviewBinding == nil && merchantBinding == nil {
 		turnContext["explicit_reply_unbound"] = true

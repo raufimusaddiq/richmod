@@ -42,6 +42,17 @@ func agentToolClassFor(name string) (agentToolClass, bool) {
 	return "", false
 }
 
+func readOnlyAgentTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition {
+	readOnly := make([]gateway.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		if class, known := agentToolClassFor(tool.Name); known && class == agentToolSideEffect {
+			continue
+		}
+		readOnly = append(readOnly, tool)
+	}
+	return readOnly
+}
+
 func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode, true)
 }

@@ -40,11 +40,12 @@ func (e *Extractor) Extract(ctx context.Context, sourceEventID string, listener 
 	// free of optional fields unless explicitly introduced at gateway config.
 	options := gateway.NativeToolOptions{Required: true}
 	var lastMeta gateway.Metadata
+	var validationErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		prompt := extractionPrompt
 		requestID := sourceEventID
 		if attempt > 0 {
-			prompt = extractionRetryPrompt
+			prompt = extractionRetryPrompt + "\nThe previous tool call failed schema validation: " + validationErr.Error() + ". Repair only that invalid representation; do not invent evidence."
 			requestID = fmt.Sprintf("%s-retry-%d", sourceEventID, attempt)
 		}
 		call, meta, err := e.gateway.NativeToolCall(ctx, requestID, prompt, content, []gateway.ToolDefinition{EmitBankTransactionTool()}, options)
@@ -52,7 +53,8 @@ func (e *Extractor) Extract(ctx context.Context, sourceEventID string, listener 
 		if err != nil {
 			return Extraction{}, meta, err
 		}
-		result, validationErr := ValidateEmitBankTransaction(call)
+		result, err := ValidateEmitBankTransaction(call)
+		validationErr = err
 		if validationErr == nil {
 			return result, meta, nil
 		}
