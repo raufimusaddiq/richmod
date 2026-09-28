@@ -84,6 +84,32 @@ func TestReceiptNearSameAmountCandidateStillBlocks(t *testing.T) {
 	}
 }
 
+func TestReceiptPlausibleCandidateBeyondTenWeakQueryHitsStillBlocks(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt candidate after weak hits")
+	ctx := context.Background()
+	for hour := 2; hour <= 11; hour++ {
+		if _, err := fixture.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,$2,'Other merchant',now())`, fixture.householdID, receiptTime().Add(-time.Duration(hour)*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var merchantID string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Indomaret') RETURNING id`, fixture.householdID).Scan(&merchantID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,$2,$3,now())`, fixture.householdID, receiptTime().Add(-60*time.Hour), merchantID); err != nil {
+		t.Fatal(err)
+	}
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .35}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", receiptValidation{TransactionAt: receiptTime(), DateKnown: true}, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var reviewType string
+	if err := fixture.pool.QueryRow(ctx, `SELECT review_type FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reviewType); err != nil || reviewType != "POSSIBLE_DUPLICATE" {
+		t.Fatalf("plausible duplicate beyond weak query hits must block: review=%q err=%v", reviewType, err)
+	}
+}
+
 func TestReceiptReviewPersistsDecisionWithoutTelegramRecipient(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt review without Telegram")
 	ctx := context.Background()

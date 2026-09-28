@@ -331,7 +331,7 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 	if !dateKnown {
 		return nil, nil
 	}
-	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type=$2 AND t.currency='IDR' AND t.amount=$3::numeric AND t.transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$4::timestamptz))) LIMIT 10`, householdID, transactionType, amount, transactionAt)
+	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type=$2 AND t.currency='IDR' AND t.amount=$3::numeric AND t.transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))`, householdID, transactionType, amount, transactionAt)
 	if err != nil {
 		return nil, err
 	}
@@ -350,6 +350,9 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 		if merchantMatch || hours <= 1 {
 			candidate.Score = documentMatchScore(hours, merchantMatch)
 			result = append(result, candidate)
+			if len(result) == 10 {
+				break
+			}
 		}
 	}
 	return result, rows.Err()
