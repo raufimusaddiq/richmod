@@ -2,6 +2,7 @@ package document
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
@@ -88,5 +89,29 @@ func TestPayslipQualityAndFirstSalaryPolicy(t *testing.T) {
 				t.Fatalf("primary salary cycle jobs=%d", jobs)
 			}
 		})
+	}
+}
+
+func TestPayslipInvalidMachineOutputDoesNotAskHousehold(t *testing.T) {
+	f := seedScreenshotFixture(t, "SAVR08 payslip repair")
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `UPDATE document SET document_type='PAYSLIP' WHERE id=$1`, f.documentID); err != nil {
+		t.Fatal(err)
+	}
+	p := &Processor{pool: f.pool}
+	if err := p.persistInvalidDocumentExtraction(ctx, f.documentID, f.sourceID, "PAYSLIP",
+		payslipExtraction{NetPay: "invalid", Confidence: .3}, .3, "test-model", fmt.Errorf("unrepairable extraction")); err != nil {
+		t.Fatal(err)
+	}
+	var documentStatus, sourceStatus string
+	var reviews, invalid int
+	if err := f.pool.QueryRow(ctx, `SELECT d.status,s.processing_status,
+		(SELECT count(*) FROM review_item WHERE document_id=d.id),
+		(SELECT count(*) FROM document_extraction WHERE document_id=d.id AND stage='PAYSLIP' AND NOT validated)
+		FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, f.documentID).Scan(&documentStatus, &sourceStatus, &reviews, &invalid); err != nil {
+		t.Fatal(err)
+	}
+	if documentStatus != "FAILED" || sourceStatus != "FAILED" || reviews != 0 || invalid != 1 {
+		t.Fatalf("machine failure document=%s source=%s reviews=%d evidence=%d", documentStatus, sourceStatus, reviews, invalid)
 	}
 }

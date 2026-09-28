@@ -24,10 +24,10 @@ Status is based on exit criteria, not PR names.
 | SAVR-04 | ✅ delivered | one shared exact household merchant/category memory path |
 | SAVR-05 | 🟡 materially aligned | batch user authority delivered; current single-record path accepts complete generative results directly and spends Jev only on named residuals; remaining call sites are re-audited in SAVR-08 |
 | SAVR-06 | 🟡 merged, reconciliation required | PR #202 fixed bank payment-mechanism materiality and provider residual fidelity, but post-merge audit still finds cross-source hard-gate debt listed below |
-| SAVR-07 | ⏸ blocked | do not start until this reconciliation gate is accepted |
-| SAVR-08 | ⏳ pending | source-family parity / legacy isolation |
-| SAVR-09 | ⏳ pending | corpus, canary, metrics |
-| SAVR-10 | ⏳ pending | retire obsolete reinterpretation and freeze |
+| SAVR-07 | ✅ delivered (commit `c70864f`) | payslip domain continuity; both paths share `FinalizePayslip` |
+| SAVR-08 | 🟡 audited, fix delivered (this branch) | payslip machine failure fixed; receipt arithmetic review materiality unproven (S08-09); UIR defect S08-08 tracked separately |
+| SAVR-09 | 🟡 corpus-complete, canary blocked | corpus measured; three metrics remain `notYetMeasurable`; deployed canary needs a disposable household + user-approved deployment |
+| SAVR-10 | 🟡 partial | corpus-proven removals done; freeze conditional on the SAVR-09 canary |
 
 # Post-SAVR-06 reconciliation gate
 
@@ -464,6 +464,12 @@ No active payslip path loses salary identity merely because review was required.
 
 # SAVR-08 — source-family parity and legacy isolation
 
+**Audit:** `docs/audits/SAVR-08-source-family-parity.md` (this branch). It
+recorded an unrepairable payslip extraction opening a human review; the payslip
+path now uses the shared failed-extraction writer, like receipt and screenshot.
+It also records an unresolved materiality question for receipt arithmetic
+reviews (S08-09) and an adjacent UIR projection defect (S08-08).
+
 Re-run the SAVR-00 matrix after SAVR-03..07, using **materiality** and
 **minimum-sufficient intelligence** as first-class columns.
 
@@ -506,6 +512,13 @@ No unexplained semantic re-decision remains in active source families.
 
 # SAVR-09 — corpus, canary, and product metrics
 
+**Result (this branch):** corpus measured; the runnable evidence and the metric
+coverage gaps are recorded in `docs/audits/SAVR-09-corpus-and-metrics.md`. The
+deployed canary did **not** run — it needs a disposable household and
+user-approved deployment. Three metrics (`Validator-Induced Human Review Rate`,
+`Residual Fidelity Rate`, `Semantic Re-decision Rate`) stay explicitly
+`notYetMeasurable` rather than reported as zero.
+
 Run the approved regression corpus.
 
 Required:
@@ -541,6 +554,10 @@ SAVR improves interaction/semantic efficiency without worsening correction rate.
 ---
 
 # SAVR-10 — retire obsolete reinterpretation and freeze
+
+**Result (this branch):** corpus-proven removals are documented in
+`docs/audits/SAVR-10-legacy-retirement.md`. The freeze is **partial**: semantics
+in this branch are frozen, but a full freeze waits on the SAVR-09 canary.
 
 Only after corpus/canary evidence:
 

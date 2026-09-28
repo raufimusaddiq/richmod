@@ -122,13 +122,13 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 			metadata.Model = repairMeta.Model
 		}
 		if issues.has("", repairFailedCode) {
-			return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, fmt.Errorf("payslip validation issues: %s", issues.String()))
+			return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "PAYSLIP", result, result.Confidence, metadata.Model, fmt.Errorf("payslip validation issues: %s", issues.String()))
 		}
 		result = patched
 	}
 	transactionAt, arithmeticOK, err := validatePayslip(result)
 	if err != nil {
-		return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, err)
+		return p.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "PAYSLIP", result, result.Confidence, metadata.Model, err)
 	}
 	autoConfirm := result.PayDate != nil
 	period, _ := parsePayslipPeriod(result.Period) // The validator has already accepted this period.
@@ -278,52 +278,6 @@ func wholeMoney(value string, positive bool) (*big.Int, bool) {
 		return nil, false
 	}
 	return amount, true
-}
-
-func (p *Processor) persistInvalidPayslip(ctx context.Context, documentID, householdID, sourceID string, value payslipExtraction, model string, cause error) error {
-	output, _ := json.Marshal(value)
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,false) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW',updated_at=now() WHERE id=$1`, documentID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
-		return err
-	}
-	decision, ok := reviewdec.Preset("DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "document", documentID)
-	if !ok {
-		return fmt.Errorf("no review decision preset for DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
-	}
-	decision.WhyNotAuto = "the payslip extraction failed validation: " + truncate(cause)
-	encoded, encodeErr := decision.JSON()
-	if encodeErr != nil {
-		return encodeErr
-	}
-	var reviewItemID string
-	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,document_id,review_type,status,decision) VALUES($1,$2,'DOCUMENT_EXTRACTION_LOW_CONFIDENCE','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, documentID, string(encoded)).Scan(&reviewItemID); err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE document_id=$1 AND review_type='DOCUMENT_EXTRACTION_LOW_CONFIDENCE' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, documentID).Scan(&reviewItemID); err != nil {
-			return err
-		}
-	}
-	if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','REJECT_PAYSLIP_EXTRACTION','source_event',$2,jsonb_build_object('document_id',$3::uuid,'reason',$4::text))`, householdID, sourceID, documentID, cause.Error()); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID, sourceID string, value payslipExtraction, model string, transactionAt time.Time, period string, autoConfirm, arithmeticOK bool) error {
