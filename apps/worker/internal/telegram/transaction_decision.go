@@ -89,7 +89,11 @@ func (p *Processor) evaluateTransactionSemantics(ctx context.Context, requestID 
 	if hint, ok := state["transaction_type_hint"].(string); ok {
 		typeHint = hint
 	}
-	result, err := p.evaluate(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: transactionQuestions(categories, typeHint)})
+	// The semantic bundle decides direction, amount/date support, ambiguity, and
+	// category together in one call, so nothing was accepted by the bounded plane
+	// before it: an empty accepted set is honest, and a correct answer is not a
+	// re-decision (SAVR closure UISC-02B).
+	result, err := p.evaluateWithAccepted(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: transactionQuestions(categories, typeHint)}, []string{})
 	if err != nil {
 		return TransactionSemanticDecision{}, err
 	}
@@ -128,7 +132,9 @@ func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requ
 		"allowed_category_slugs": categories,
 		"residual_dimensions":    jevDimensions,
 	}
-	result, err := p.evaluate(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: questions})
+	// The only bounded question is a dimension named unresolved by the caller;
+	// accepted dimensions outside this question set do not represent re-decisions.
+	result, err := p.evaluateWithAccepted(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: questions}, []string{})
 	if err != nil {
 		return TransactionSemanticDecision{}, err
 	}

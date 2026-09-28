@@ -445,6 +445,15 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 	decision := partialDecision(household, sourceEventID, extraction, "UNKNOWN_BANK_TEMPLATE", missing, why)
 	decision.PolicyVersion = verification.PolicyVersion
 	decision.Provenance["claim_outcomes"] = verification.ClaimOutcomes
+	accepted := []string{}
+	for _, entry := range []struct{ claim, dimension string }{{"amount_supported", "amount_idr"}, {"direction_supported", "direction"}, {"transaction_observed", "transaction_observed"}} {
+		if verification.ClaimOutcomes[entry.claim] == "YES" {
+			accepted = append(accepted, entry.dimension)
+		}
+	}
+	// Accepted by the bounded evidence check at the validation boundary; a
+	// model-extracted value in knownFacts alone is not proof of acceptance.
+	decision.Provenance["accepted_dimensions_at_validation"] = accepted
 	decision.AffectedFacts = []string{fact}
 	switch {
 	case conflict:

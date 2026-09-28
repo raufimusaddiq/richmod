@@ -61,12 +61,12 @@ func run(logger *slog.Logger) error {
 		if phase.SourceEventID != "" {
 			householdID = nil
 		}
-		if _, err := pool.Exec(phaseCtx, `INSERT INTO intelligence_phase_telemetry(household_id,source_event_id,capability,purpose,semantic_dimensions,answered_dimensions,residual_dimensions,policy_version,model,latency_ms,outcome) VALUES(COALESCE(NULLIF($1::text,'')::uuid,(SELECT household_id FROM source_event WHERE id=NULLIF($2::text,'')::uuid)),NULLIF($2::text,'')::uuid,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''),$10,$11)`, householdID, nullUUID(phase.SourceEventID), phase.Capability, phase.Purpose, phase.Dimensions, phase.AnsweredDimensions, phase.ResidualDimensions, phase.PolicyVersion, phase.Model, phase.DurationMs, phaseOutcome(phase.Status)); err != nil {
+		if _, err := pool.Exec(phaseCtx, `INSERT INTO intelligence_phase_telemetry(household_id,source_event_id,capability,purpose,semantic_dimensions,answered_dimensions,residual_dimensions,policy_version,model,latency_ms,outcome,accepted_dimensions_at_entry) VALUES(COALESCE(NULLIF($1::text,'')::uuid,(SELECT household_id FROM source_event WHERE id=NULLIF($2::text,'')::uuid)),NULLIF($2::text,'')::uuid,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''),$10,$11,$12)`, householdID, nullUUID(phase.SourceEventID), phase.Capability, phase.Purpose, phase.Dimensions, phase.AnsweredDimensions, phase.ResidualDimensions, phase.PolicyVersion, phase.Model, phase.DurationMs, phaseOutcome(phase.Status), phase.AcceptedDimensions); err != nil {
 			logger.Warn("intelligence phase write failed", "task", phase.Purpose, "error", err)
 		}
 	}
 	recordIntelligencePhase := func(callCtx context.Context, metric systemone.Metric) {
-		recordPhase(callCtx, gateway.CallMetric{Capability: "JEV", Purpose: metric.Purpose, PolicyVersion: metric.PolicyVersion, Dimensions: metric.Dimensions, AnsweredDimensions: metric.AnsweredDimensions, SourceEventID: metric.SourceEventID, Model: metric.Model, Status: metric.Status, ErrorClass: metric.ErrorClass, DurationMs: metric.DurationMs})
+		recordPhase(callCtx, gateway.CallMetric{Capability: "JEV", Purpose: metric.Purpose, PolicyVersion: metric.PolicyVersion, Dimensions: metric.Dimensions, AnsweredDimensions: metric.AnsweredDimensions, AcceptedDimensions: metric.AcceptedDimensions, SourceEventID: metric.SourceEventID, Model: metric.Model, Status: metric.Status, ErrorClass: metric.ErrorClass, DurationMs: metric.DurationMs})
 	}
 	recordLLMCall := func(callCtx context.Context, metric gateway.CallMetric) {
 		metricCtx, metricCancel := context.WithTimeout(context.WithoutCancel(callCtx), 2*time.Second)

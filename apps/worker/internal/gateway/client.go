@@ -61,6 +61,7 @@ type CallMetric struct {
 	Dimensions         []string
 	AnsweredDimensions []string
 	ResidualDimensions []string
+	AcceptedDimensions []string
 }
 
 type Recorder func(context.Context, CallMetric)
@@ -74,7 +75,9 @@ func withSourceEvent(ctx context.Context, sourceEventID string) context.Context 
 	return context.WithValue(ctx, sourceEventContextKey{}, sourceEventID)
 }
 
-func WithSourceEvent(ctx context.Context, sourceEventID string) context.Context { return withSourceEvent(ctx, sourceEventID) }
+func WithSourceEvent(ctx context.Context, sourceEventID string) context.Context {
+	return withSourceEvent(ctx, sourceEventID)
+}
 
 func sourceEventFrom(ctx context.Context) string {
 	sourceEventID, _ := ctx.Value(sourceEventContextKey{}).(string)
@@ -109,7 +112,9 @@ type ToolCall struct {
 // NativeToolCall asks the gateway for a native function_call. It never
 // executes a tool; callers must validate and dispatch it in Go.
 func (c *Client) NativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (call ToolCall, metadata Metadata, err error) {
-	if sourceEventFrom(ctx) == "" { ctx = withSourceEvent(ctx, requestID) }
+	if sourceEventFrom(ctx) == "" {
+		ctx = withSourceEvent(ctx, requestID)
+	}
 	started := time.Now()
 	defer func() {
 		metadata.Dimensions = semanticDimensions(call.Arguments)

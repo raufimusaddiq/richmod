@@ -85,7 +85,9 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID stri
 	if len(questions) == 0 {
 		return nil, provenance, nil
 	}
-	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ScreenshotRowCategoryPolicyVersion)
+	// Each row's category question is still open at entry; no category is
+	// accepted before this bounded rescue (SAVR closure UISC-02B).
+	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ScreenshotRowCategoryPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-screenshot-category", judgment.Request{State: state, Questions: questions})
 	if err != nil {
 		return nil, provenance, err

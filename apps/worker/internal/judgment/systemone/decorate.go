@@ -40,6 +40,7 @@ func (e InstrumentedEngine) Evaluate(ctx context.Context, requestID string, inpu
 		PolicyVersion:      phase.PolicyVersion,
 		Dimensions:         questionKeys(input.Questions),
 		AnsweredDimensions: judgment.AnsweredDimensions(input.Questions, result.Answers),
+		AcceptedDimensions: phase.AcceptedDimensions,
 		Model:              result.Model,
 		Status:             status,
 		ErrorClass:         class,

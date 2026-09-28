@@ -22,6 +22,7 @@ type Metric struct {
 	PolicyVersion      string
 	Dimensions         []string
 	AnsweredDimensions []string
+	AcceptedDimensions []string
 	Model              string
 	Status             string
 	ErrorClass         string

@@ -274,6 +274,16 @@ func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, so
 	decision.Consequence = consequence
 	decision.PolicyVersion = classification.PolicyVersion
 	decision.Provenance = provenance
+	accepted := []string{}
+	if classification.TypeAccepted {
+		accepted = append(accepted, "observation_type")
+	}
+	if classification.MovementAccepted {
+		accepted = append(accepted, "movement_type")
+	}
+	// Only independently accepted bounded classifications qualify; raw
+	// extracted values are not accepted facts (SAVR closure UISC-02A).
+	decision.Provenance["accepted_dimensions_at_validation"] = accepted
 	// A residual on `evidence_support` means the email does not fully support
 	// exactly these extracted value facts, so they must not render as recorded
 	// data (Web shows knownFacts as "Tercatat"). Carry them as proposed instead —

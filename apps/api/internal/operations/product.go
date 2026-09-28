@@ -48,9 +48,9 @@ type productAggregate struct {
 	// CONFIRM_REVIEW (web) and its Telegram equivalents. MERGE_EXISTING is a
 	// choice between candidates, not an accepted proposal, so it is excluded.
 	AcceptedWithoutEdit int `json:"reviewAcceptedWithoutEdit"`
-	// Coverage names the section 22 signals that current canonical history cannot
-	// reconstruct. Naming them here keeps a partial RHICE from reading as complete.
-	Coverage []string `json:"notYetMeasurable"`
+	// Permanent coverage gaps are distinct from incomplete historical provenance.
+	Coverage           []string `json:"notYetMeasurable"`
+	CoverageIncomplete []string `json:"coverageIncomplete"`
 	// TimeToResolutionMs is the mean wall-clock time from review open to resolve
 	// for the reviews in the window, read from review_item so every review counts.
 	TimeToResolutionMs          int64          `json:"timeToResolutionMs"`
@@ -62,9 +62,21 @@ type productAggregate struct {
 	AutoConfirmCorrectionRate   float64        `json:"autoConfirmCorrectionRate"`
 	AutoConfirmCorrectionFields map[string]int `json:"autoConfirmCorrectionFields"`
 	AutoConfirmCorrectionSource map[string]int `json:"autoConfirmCorrectionBySource"`
-	KnownFactReasks            int     `json:"knownFactReasks"`
-	ReviewsWithDecision        int     `json:"reviewsWithDecision"`
-	KnownFactReaskRate         float64 `json:"knownFactReaskRate"`
+	KnownFactReasks             int            `json:"knownFactReasks"`
+	ReviewsWithDecision         int            `json:"reviewsWithDecision"`
+	KnownFactReaskRate          float64        `json:"knownFactReaskRate"`
+	ValidatorEligibleReviews    int            `json:"validatorEligibleReviews"`
+	ValidatorInducedReviews     int            `json:"validatorInducedReviews"`
+	ValidatorUnknownReviews     int            `json:"validatorUnknownReviews"`
+	ValidatorInducedRate        float64        `json:"validatorInducedRate"`
+	SemanticEligiblePhases      int            `json:"semanticEligiblePhases"`
+	SemanticReDecisions         int            `json:"semanticReDecisions"`
+	SemanticUnknownPhases       int            `json:"semanticUnknownPhases"`
+	SemanticReDecisionRate      float64        `json:"semanticReDecisionRate"`
+	ResidualEligibleReviews     int            `json:"residualEligibleReviews"`
+	ResidualViolations          int            `json:"residualViolations"`
+	ResidualUnknownReviews      int            `json:"residualUnknownReviews"`
+	ResidualFidelityRate        float64        `json:"residualFidelityRate"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
@@ -169,6 +181,85 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	}
 	if aggregate.ReviewsWithDecision > 0 {
 		aggregate.KnownFactReaskRate = float64(aggregate.KnownFactReasks) / float64(aggregate.ReviewsWithDecision)
+	}
+	// Only bounded validation reviews with explicit entry provenance are eligible;
+	// an extracted known fact alone is not proof that validation accepted it.
+	// Conflicts, canonical ambiguity and human policy are excluded by consequence.
+	if err := h.pool.QueryRow(ctx, `
+		WITH reviews AS (
+		  SELECT decision,
+		    jsonb_typeof(decision#>'{decisionProvenance,accepted_dimensions_at_validation}')='array'
+		      AND jsonb_typeof(decision->'affectedFacts')='array'
+		      AND jsonb_typeof(decision->'missingFacts')='array'
+		      AND decision->>'validationConsequence' IN ('BOUNDED_RESIDUAL','REPRESENTATION_INVALID') AS eligible
+		  FROM review_item WHERE household_id=$1 AND created_at>=now()-interval '30 days'
+		    AND (decision->>'decisionClass'='EVIDENCE_GAP' OR decision IS NULL)
+		)
+		SELECT count(*) FILTER (WHERE eligible),
+		  count(*) FILTER (WHERE eligible AND EXISTS (
+		    SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(decision->'affectedFacts')='array' THEN decision->'affectedFacts' ELSE '[]'::jsonb END) a(fact)
+		    WHERE decision->'missingFacts' ? a.fact
+		      AND decision#>'{decisionProvenance,accepted_dimensions_at_validation}' ? a.fact
+		  )),
+		  count(*) FILTER (WHERE NOT COALESCE(eligible,false))
+		FROM reviews`, householdID).Scan(&aggregate.ValidatorEligibleReviews, &aggregate.ValidatorInducedReviews, &aggregate.ValidatorUnknownReviews); err != nil {
+		return aggregate, err
+	}
+	if aggregate.ValidatorEligibleReviews > 0 {
+		aggregate.ValidatorInducedRate = float64(aggregate.ValidatorInducedReviews) / float64(aggregate.ValidatorEligibleReviews)
+	}
+	// A NULL accepted set is historical/unknown; '{}' is an explicit empty set.
+	// Evidence support and same-event identity checks do not make a semantic
+	// re-decision, even if they mention a previously accepted fact.
+	if err := h.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE accepted_dimensions_at_entry IS NOT NULL),
+		  count(*) FILTER (WHERE accepted_dimensions_at_entry IS NOT NULL AND accepted_dimensions_at_entry && answered_dimensions),
+		  count(*) FILTER (WHERE accepted_dimensions_at_entry IS NULL)
+		FROM intelligence_phase_telemetry
+		WHERE household_id=$1 AND created_at>=now()-interval '30 days'
+		  AND capability='JEV' AND outcome='SUCCEEDED' AND cardinality(answered_dimensions)>0
+		  AND purpose<>'EVIDENCE_SUPPORT'
+		  AND NOT (purpose='OTHER_BOUNDED' AND semantic_dimensions<@ARRAY['same_real_event']::text[])`, householdID).
+		Scan(&aggregate.SemanticEligiblePhases, &aggregate.SemanticReDecisions, &aggregate.SemanticUnknownPhases); err != nil {
+		return aggregate, err
+	}
+	if aggregate.SemanticEligiblePhases > 0 {
+		aggregate.SemanticReDecisionRate = float64(aggregate.SemanticReDecisions) / float64(aggregate.SemanticEligiblePhases)
+	}
+	// Fidelity is a property of the stored contract, not labelled semantic
+	// ground truth. Only complete ReviewDecision contracts enter the denominator;
+	// historical/incomplete decisions remain unknown. Changed fields come from
+	// the existing cross-surface review-turn telemetry, not raw resolution values.
+	if err := h.pool.QueryRow(ctx, `
+		WITH contracts AS (
+		  SELECT ri.id,ri.review_type,ri.status,ri.resolution_action,ri.decision,
+		    jsonb_typeof(ri.decision->'knownFacts')='object'
+		      AND jsonb_typeof(ri.decision->'missingFacts')='array'
+		      AND COALESCE(ri.decision->>'reasonCode','')<>''
+		      AND COALESCE(ri.decision->>'decisionClass','')<>''
+		      AND COALESCE(ri.decision->>'whyNotAutoConfirm','')<>'' AS eligible
+		  FROM review_item ri WHERE ri.household_id=$1 AND ri.created_at>=now()-interval '30 days'
+		), scored AS (
+		 SELECT eligible,
+		   COALESCE(eligible,false) AND (
+		     EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(decision->'missingFacts')='array' THEN decision->'missingFacts' ELSE '[]'::jsonb END) m(fact)
+		       WHERE decision->'knownFacts' ? m.fact AND decision->'knownFacts'->m.fact <> 'null'::jsonb)
+		     OR (decision->>'validationConsequence'='QUALITY_SIGNAL' AND jsonb_array_length(CASE WHEN jsonb_typeof(decision->'missingFacts')='array' THEN decision->'missingFacts' ELSE '[]'::jsonb END)>0)
+		     OR (resolution_action='SET_PAY_DATE' AND NOT (decision->'missingFacts' ? 'transaction_at'))
+		     OR (resolution_action='SET_FINANCIAL_EMAIL_ENTITIES' AND NOT (decision->'missingFacts' ?| ARRAY['funding_account','wealth_account']))
+		     OR (review_type<>'MANUAL_CORRECTION' AND COALESCE(resolution_action,'') NOT IN ('EDIT','CORRECT')
+		       AND EXISTS (SELECT 1 FROM product_telemetry_event e CROSS JOIN LATERAL unnest(e.changed_fields) f(field)
+		         WHERE e.review_item_id=contracts.id AND e.event_type='REVIEW_TURN'
+		           AND NOT (decision->'missingFacts' ? CASE f.field WHEN 'amount_idr' THEN 'amount' WHEN 'account' THEN 'funding_account' ELSE f.field END)))
+		   ) AS violation FROM contracts
+		)
+		SELECT count(*) FILTER (WHERE eligible),count(*) FILTER (WHERE violation),
+		  count(*) FILTER (WHERE NOT COALESCE(eligible,false)) FROM scored`, householdID).
+		Scan(&aggregate.ResidualEligibleReviews, &aggregate.ResidualViolations, &aggregate.ResidualUnknownReviews); err != nil {
+		return aggregate, err
+	}
+	if aggregate.ResidualEligibleReviews > 0 {
+		aggregate.ResidualFidelityRate = float64(aggregate.ResidualEligibleReviews-aggregate.ResidualViolations) / float64(aggregate.ResidualEligibleReviews)
 	}
 
 	// Every metric below is derived from canonical state plus the append-only
@@ -299,6 +390,14 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 	if !telemetryHistoryComplete {
 		aggregate.Coverage = append(aggregate.Coverage, "pre_migration_telemetry_history")
 	}
-	aggregate.Coverage = append(aggregate.Coverage, "validator_induced_review_consequences", "residual_fidelity_ground_truth", "semantic_redecision_accepted_fact_provenance")
+	if aggregate.ValidatorUnknownReviews > 0 {
+		aggregate.CoverageIncomplete = append(aggregate.CoverageIncomplete, "validator_induced_review_provenance")
+	}
+	if aggregate.SemanticUnknownPhases > 0 {
+		aggregate.CoverageIncomplete = append(aggregate.CoverageIncomplete, "semantic_redecision_phase_provenance")
+	}
+	if aggregate.ResidualUnknownReviews > 0 {
+		aggregate.CoverageIncomplete = append(aggregate.CoverageIncomplete, "residual_contract_history")
+	}
 	return aggregate, nil
 }
