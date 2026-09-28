@@ -25,9 +25,9 @@ Status is based on exit criteria, not PR names.
 | SAVR-05 | 🟡 materially aligned | batch user authority delivered; current single-record path accepts complete generative results directly and spends Jev only on named residuals; remaining call sites are re-audited in SAVR-08 |
 | SAVR-06 | 🟡 merged, reconciliation required | PR #202 fixed bank payment-mechanism materiality and provider residual fidelity, but post-merge audit still finds cross-source hard-gate debt listed below |
 | SAVR-07 | ✅ delivered (commit `c70864f`) | payslip domain continuity; both paths share `FinalizePayslip` |
-| SAVR-08 | 🟡 audited, fixes delivered | payslip machine failure fixed; follow-up S08-09 removes receipt component-quality-only review; UIR defect S08-08 tracked separately |
-| SAVR-09 | 🟡 corpus-complete, canary pending | deployed 2026-09-28; three metrics remain `notYetMeasurable`; live canary needs a disposable household |
-| SAVR-10 | 🟡 partial | corpus-proven removals done; freeze conditional on the SAVR-09 canary |
+| SAVR-08 | 🟡 audited, fixes delivered | semantic/source-family fixes delivered; S08-08 email-origin projection is owned by UISC-01 in the final combined closure |
+| SAVR-09 | 🟡 corpus-complete, product observation open | production deployed; UISC-02 completes three observability gaps and the real owner household is the production canary under BDR-005 |
+| SAVR-10 | 🟡 partial | corpus-proven removals done; full freeze waits on the UIR-SAVR Closure Sprint |
 
 # Post-SAVR-06 reconciliation gate
 
