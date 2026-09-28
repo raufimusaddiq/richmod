@@ -1,14 +1,15 @@
 # SAVR-10 — Legacy Reinterpretation Retirement
 
-**Status:** corpus-proven removals complete; freeze is
-*conditional* on the UIR-SAVR closure production observation gate  
+**Status:** corpus-proven removals complete; UISC-01/02 merged (`c5278a4`);
+full freeze conditional on owner-household production observation.
 **Date:** 2026-09-28
 
 SAVR-10 removes only what the corpus proves unreachable. Everything retained
-below has a stated reason. This remains a **partial** freeze until UISC-01/02 and
-the owner-household production observation gate pass. Further reduction must be
-driven by measured real-use evidence, not by synthetic production traffic or
-guessing.
+below has a stated reason. UISC-01 restored household-owned email review
+projection and UISC-02 made the three SAVR closure metrics measurable. The
+**full freeze** remains conditional on real owner-household production
+observation and acceptance. Further reduction must be driven by measured
+real-use evidence, not by synthetic production traffic or guessing.
 
 ---
 
@@ -31,7 +32,7 @@ guessing.
 | Provider `TRANSFER_CLASSIFICATION` recovery lane | still used for missing amount/time/account, undecided movement semantics, or incompatible transfer purpose; see `planCash` |
 | Legacy payslip review rows without document binding | historical open state; `ResolvePayslipProposal` still accepts them behind an explicit match |
 | Legacy `RECEIPT_MISMATCH` reviews | historical open rows and the receipt kill-switch still use this compatibility path; the default complete-facts path no longer produces it |
-| Email-origin review projection via originating chat | open UIR closure defect (S08-08); UISC-01 removes the incorrect source-provenance pre-gate and restores household-owned projection |
+| Email-origin review projection via originating chat | **resolved by UISC-01**; both email producers now project through the universal household-recipient resolver, and the projector skips closed or document-only reviews that cannot be completed in Telegram |
 
 ## 3. Not removed because not proven unreachable
 
@@ -56,13 +57,16 @@ machine failure is not human work
 human input is policy or irreducible fact only
 ```
 
-## 5. Open items before a full freeze
+## 5. Closure status
 
-- UISC-01 household-owned bank/financial-email review projection (closes S08-08);
+- UISC-01 household-owned bank/financial-email review projection — merged
+  (closes S08-08);
 - UISC-02 Operations observability for validator-induced review, Residual
-  Contract Fidelity, and semantic re-decision;
-- owner-household production observation under BDR-005, using normal real usage
-  and no seeded production financial data;
-- final UISC-04 documentation reconciliation.
+  Contract Fidelity, and semantic re-decision — merged, with old rows kept
+  coverage-incomplete rather than zero;
+- UISC-03 owner-household production observation under BDR-005 — **open**,
+  using normal real usage and no seeded production financial data;
+- UISC-04 final docs freeze — **not yet**; it follows UISC-03 evidence and
+  product-owner acceptance.
 
-Next initiative: CEU.
+Next initiative: CEU, only after UISC-03 observation is accepted.
