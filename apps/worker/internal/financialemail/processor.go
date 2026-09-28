@@ -274,17 +274,33 @@ func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, so
 	decision.Consequence = consequence
 	decision.PolicyVersion = classification.PolicyVersion
 	decision.Provenance = provenance
+	// A residual on `evidence_support` means the email does not fully support
+	// exactly these extracted value facts, so they must not render as recorded
+	// data (Web shows knownFacts as "Tercatat"). Carry them as proposed instead —
+	// the same known→proposed rule the bank lane uses for a disputed value
+	// (SAVR-06, Hermes round 6).
+	valuesUnsupported := containsString(missing, "evidence_support")
+	declare := func(key, value string) {
+		if value == "" {
+			return
+		}
+		if valuesUnsupported {
+			decision.ProposedFacts[key] = value
+			return
+		}
+		decision.KnownFacts[key] = value
+	}
 	if observation.AmountIDR != nil {
-		decision.KnownFacts["amount_idr"] = value(observation.AmountIDR)
+		declare("amount_idr", value(observation.AmountIDR))
 	}
 	if observation.OccurredAt != nil {
-		decision.KnownFacts["transaction_at"] = value(observation.OccurredAt)
+		declare("transaction_at", value(observation.OccurredAt))
 	}
 	if observation.FundingAccountHint != nil {
-		decision.KnownFacts["funding_account_hint"] = value(observation.FundingAccountHint)
+		declare("funding_account_hint", value(observation.FundingAccountHint))
 	}
 	if observation.ProviderAccountHint != nil {
-		decision.KnownFacts["provider_account_hint"] = value(observation.ProviderAccountHint)
+		declare("provider_account_hint", value(observation.ProviderAccountHint))
 	}
 	encoded, err := decision.JSON()
 	if err != nil {

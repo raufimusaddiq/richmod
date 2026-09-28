@@ -7,6 +7,12 @@ import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 // metadata (an uncertain payment mechanism) never reaches here, so it cannot
 // independently block an otherwise safe expense (SAVR-06).
 func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok bool) {
+	if len(v.ClaimOutcomes) == 0 {
+		// No bounded ruling: nothing was evaluated, so no predicate failed. Callers
+		// treat this as no-material-residual rather than defaulting to amount_idr
+		// (SAVR-06, Hermes round 6).
+		return "", false, false
+	}
 	switch {
 	case v.ClaimOutcomes["amount_supported"] == "NO":
 		// The email names a different amount: two evidence-supported values disagree.

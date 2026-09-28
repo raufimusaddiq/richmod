@@ -122,6 +122,9 @@ func (d Decision) JSON() ([]byte, error) {
 	if d.KnownFacts == nil {
 		d.KnownFacts = map[string]any{}
 	}
+	if d.ProposedFacts == nil {
+		d.ProposedFacts = map[string]any{}
+	}
 	if d.MissingFacts == nil {
 		d.MissingFacts = []string{}
 	}

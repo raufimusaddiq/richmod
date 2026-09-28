@@ -1597,7 +1597,14 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 	// financialemail's own projection: an email with one APPLIED observation is
 	// PROCESSED even after another observation is ignored, so this lane must not
 	// stamp IGNORED over canonical state already written (SAVR-06, Hermes B3).
+	// It settles the provider email's own event, not `sourceEventID` (the
+	// Telegram callback event); the callback event is settled below like every
+	// sibling lane, or EnsureSourceEventFinal fails on a still-RECEIVED callback
+	// (SAVR-06, Hermes round 6).
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1`, observationSource); err != nil {
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return true, err
 	}
 	if err = enqueueReply(ctx, tx, update, "Bukti email finansial diabaikan."); err != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -272,7 +273,7 @@ func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
 	if verified {
 		t.Fatal("a nil verifier must not report a verified email")
 	}
-	if verification.TransactionObserved || verification.AmountSupported || verification.DirectionSupported || verification.SemanticGrounded || verification.MaterialAmbiguity || verification.AmbiguityDecidedNotAmbiguous || len(verification.ClaimOutcomes) != 0 {
+	if !reflect.DeepEqual(verification, EvidenceVerification{}) {
 		t.Fatalf("a nil verifier must return the zero verification: %+v", verification)
 	}
 }

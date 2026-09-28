@@ -54,7 +54,12 @@ func TestFinancialEmailFactsCallbackCompletesReview(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("facts-cb-%d", stamp), raw).Scan(&callbackSource))
 	_, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, callbackSource, string(raw))
 	must(err)
-	must(NewProcessor(pool, nil).Process(ctx, callbackSource))
+	processor := NewProcessor(pool, nil)
+	must(processor.Process(ctx, callbackSource))
+	// Run the production acknowledgement gate: a lane that leaves the callback
+	// event RECEIVED is rejected here, which is the failure the integration-only
+	// assertion could not see (SAVR-06, Hermes round 6).
+	must(processor.EnsureSourceEventFinal(ctx, callbackSource))
 	var itemStatus, requestStatus, observationStatus string
 	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, itemID).Scan(&itemStatus))
 	must(pool.QueryRow(ctx, `SELECT status FROM review_request WHERE id=$1`, requestID).Scan(&requestStatus))
@@ -65,9 +70,16 @@ func TestFinancialEmailFactsCallbackCompletesReview(t *testing.T) {
 	// The lane must settle the provider email's own source event, not the
 	// Telegram callback event it was loaded from. Before the fix the CASE always
 	// fell to ELSE and the email stayed NEEDS_REVIEW (SAVR-06, Hermes round 5).
-	var emailStatus string
+	var emailStatus, callbackStatus string
 	must(pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceID).Scan(&emailStatus))
+	must(pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, callbackSource).Scan(&callbackStatus))
 	if emailStatus == "NEEDS_REVIEW" {
 		t.Fatalf("the provider email event must settle on ignore, got %s", emailStatus)
+	}
+	// The callback event itself must also leave RECEIVED/PROCESSING, or
+	// EnsureSourceEventFinal rejects the job in production even though the
+	// observation resolved (SAVR-06, Hermes round 6).
+	if callbackStatus == "RECEIVED" || callbackStatus == "PROCESSING" {
+		t.Fatalf("the telegram callback event must settle on ignore, got %s", callbackStatus)
 	}
 }

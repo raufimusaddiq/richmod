@@ -631,8 +631,14 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "evidence_support" {
 		t.Fatalf("the residual must name the exact unsupported dimension: %v", decision.MissingFacts)
 	}
-	if decision.KnownFacts["amount_idr"] != amount || decision.KnownFacts["transaction_at"] != at || decision.KnownFacts["funding_account_hint"] != hint {
-		t.Fatalf("accepted facts must survive the residual: %+v", decision.KnownFacts)
+	// The residual is evidence_support, so the email does not fully support these
+	// value facts: they must be proposed, not recorded as known, or the Web card
+	// would show an unsupported amount as "Tercatat" (SAVR-06, Hermes round 6).
+	if _, known := decision.KnownFacts["amount_idr"]; known {
+		t.Fatalf("an unsupported amount must not be a known fact: %+v", decision.KnownFacts)
+	}
+	if decision.ProposedFacts["amount_idr"] != amount || decision.ProposedFacts["transaction_at"] != at || decision.ProposedFacts["funding_account_hint"] != hint {
+		t.Fatalf("unsupported facts must survive as proposed facts: %+v", decision.ProposedFacts)
 	}
 	var status string
 	if err = pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE id=$1`, observationID).Scan(&status); err != nil {

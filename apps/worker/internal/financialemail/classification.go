@@ -178,17 +178,27 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 // remains a transfer classification choice, not a generic evidence failure.
 func (c ObservationClassification) cashResidual() []string {
 	var missing []string
-	for _, claim := range []struct{ key, fact, expected string }{
-		{"observation_type", "observation_type", "CASH_MOVEMENT"},
-		{"cash_movement_supported", "cash_movement", "YES"},
-		{"evidence_sufficient", "evidence_support", "YES"},
-		{"material_ambiguity", "transaction_ambiguity", "NO"},
-	} {
+	c.eachFailedClaim(func(fact string) { missing = append(missing, fact) })
+	return missing
+}
+
+// cashClaimFacts is the single predicate→fact table behind both the residual
+// name and the guarded fallback, so a rejected predicate always names the same
+// fact whichever caller reads it.
+var cashClaimFacts = []struct{ key, fact, expected string }{
+	{"observation_type", "observation_type", "CASH_MOVEMENT"},
+	{"cash_movement_supported", "cash_movement", "YES"},
+	{"evidence_sufficient", "evidence_support", "YES"},
+	{"material_ambiguity", "transaction_ambiguity", "NO"},
+}
+
+// eachFailedClaim reports the fact for every bounded predicate that did not hold.
+func (c ObservationClassification) eachFailedClaim(report func(fact string)) {
+	for _, claim := range cashClaimFacts {
 		if c.ClaimOutcomes[claim.key] != claim.expected {
-			missing = append(missing, claim.fact)
+			report(claim.fact)
 		}
 	}
-	return missing
 }
 
 // reviewFacts returns the SAVR-06 review contract for this classification: the
@@ -201,7 +211,13 @@ func (c ObservationClassification) reviewFacts(residual []string) (missing, affe
 	// residual: it takes the recovery lane instead (SAVR-06).
 	missing = residual
 	if len(missing) == 0 {
-		missing = []string{"evidence_support"}
+		// Defensive: derive the contract from the actual claim outcomes rather
+		// than fabricating a fact. A rejected observation_type must be named as
+		// such, never as generic evidence_support (SAVR-06, Hermes round 6).
+		c.eachFailedClaim(func(fact string) { missing = append(missing, fact) })
+		if len(missing) == 0 {
+			missing = []string{"evidence_support"}
+		}
 	}
 	affected = append([]string(nil), missing...)
 	consequence = reviewdec.BoundedResidual

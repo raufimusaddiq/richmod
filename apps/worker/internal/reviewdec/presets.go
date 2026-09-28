@@ -47,6 +47,7 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		ReasonCode:     reason,
 		DecisionSource: SourceDeterministic,
 		KnownFacts:     map[string]any{},
+		ProposedFacts:  map[string]any{},
 		MissingFacts:   []string{},
 		Provenance:     map[string]any{},
 		EvidenceRefs:   []EvidenceRef{{Kind: subjectType, ID: subjectID}},
