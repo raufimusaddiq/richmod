@@ -233,3 +233,33 @@ lowers human interaction by weakening correctness.
 
 > **Understand once. Use the minimum sufficient intelligence. Preserve accepted
 > facts. Validate canonical safety. Ask only for a material residual.**
+
+
+---
+
+## 2026-09-28 closure amendment — measurement on the real owner household
+
+This amendment is authoritative for SAVR closure and is defined in
+`docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` / BDR-005.
+
+Richmod currently has one real production household and its product owner is the
+primary user. SAVR production validation therefore uses ordinary real
+owner-household usage rather than requiring a disposable production household or
+synthetic financial traffic.
+
+The business metric previously named **Residual Fidelity Rate** is narrowed for
+the current product stage to **Residual Contract Fidelity**:
+
+> the stored ReviewDecision must ask only for dimensions that are unresolved by
+> its own accepted-fact, consequence, conflict/ambiguity, or human-policy
+> contract, and completion must not require undeclared semantic input.
+
+This supersedes the assumption that SAVR needs a manually labelled semantic
+ground-truth dataset before product closure.
+
+Validator-Induced Human Review Rate and Semantic Re-decision Rate remain required
+business signals. Their missing provenance is an implementation gap to close,
+not a reason to create a new semantic platform.
+
+Historical rows that predate the required provenance are unknown/incomplete, not
+zero.

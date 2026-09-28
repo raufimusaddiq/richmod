@@ -25,6 +25,14 @@ The objective is:
 
 > **Gate status (2026-09-27):** Code product-closed on merged `main@37b8730`; contract tests, CI/CodeQL, Release Images, and deployment health passed. Interactive deployed smoke (UIRC-06) remains deferred: production has one household and the runbook forbids seeding test data into it. See `docs/plans/uir-closure-execution.md`.
 
+> **Post-SAVR amendment (2026-09-28):** the old disposable-household smoke
+> assumption is superseded by BDR-005: the real owner household is the
+> production canary under normal usage. S08-08 also identified one narrow
+> projection defect after UIR closure: email-origin producers can pre-gate the
+> universal projector on Telegram source provenance. The combined
+> `RICHMOD_UIR_SAVR_CLOSURE_PRD.md` is the sole pre-CEU closure gate; it does
+> not reopen UIRC-00..06 feature scope.
+
 This gate exists because SAVR depends on a trustworthy review layer:
 
 ```text

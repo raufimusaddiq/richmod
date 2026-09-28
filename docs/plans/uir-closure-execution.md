@@ -393,3 +393,23 @@ After UIRC-06 passes:
 > stop UIR work and start SAVR-00.
 
 Do not continue cleanup merely because nearby code can be made prettier.
+
+
+---
+
+## 2026-09-28 post-SAVR closure amendment
+
+The historical UIRC-06 interactive smoke deferral used a policy assumption that
+production validation required a disposable household. BDR-005 supersedes that
+assumption for the current personal-product stage.
+
+The real owner household is the production canary through normal usage. Do not
+seed fake financial state merely to replay the old smoke matrix.
+
+A separate post-SAVR defect, S08-08, also reopens one narrow UIR contract point:
+BANK_EMAIL / FINANCIAL_EMAIL review producers can suppress universal Telegram
+projection by requiring originating Telegram source payload. UISC-01 in
+`docs/plans/uir-savr-closure-execution.md` owns that fix.
+
+This amendment does not reopen completed UIRC-00..06 feature work. The combined
+closure sprint is the sole pre-CEU gate.

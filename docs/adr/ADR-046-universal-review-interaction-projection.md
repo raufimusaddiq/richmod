@@ -309,3 +309,37 @@ projection.
 
 ADR-044's proposal-first rendering applies to Telegram as well as Web. The
 ReviewDecision contract is channel-independent.
+
+
+---
+
+## 2026-09-28 amendment — household ownership determines projection recipients
+
+Post-SAVR audit found a producer-level drift in email-origin reviews.
+
+Canonical review ownership is already household-scoped. For projection,
+`source_event` provenance answers where evidence came from; it does not decide
+whether the owning household has an eligible Telegram recipient.
+
+For every review producer:
+
+```text
+review_item / review_request household
+-> active household_member
+-> active telegram_identity
+-> review_request_recipient
+```
+
+is the recipient-authority path.
+
+An originating Telegram chat MAY be supplied as a fallback for a Telegram-origin
+review when normal household recipient resolution yields no eligible recipient.
+It MUST NOT be a prerequisite for projecting BANK_EMAIL, FINANCIAL_EMAIL, or any
+other non-Telegram source.
+
+Producer adapters SHOULD call the universal `ProjectReviewItem` once canonical
+household ownership and an actionable review exist. They MUST NOT pre-gate that
+call by searching the source payload for `message.chat.id`.
+
+This amendment closes the S08-08 projection drift and does not change canonical
+review semantics, recipient authorization, or first-valid-write rules.

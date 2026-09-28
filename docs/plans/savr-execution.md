@@ -25,9 +25,9 @@ Status is based on exit criteria, not PR names.
 | SAVR-05 | 🟡 materially aligned | batch user authority delivered; current single-record path accepts complete generative results directly and spends Jev only on named residuals; remaining call sites are re-audited in SAVR-08 |
 | SAVR-06 | 🟡 merged, reconciliation required | PR #202 fixed bank payment-mechanism materiality and provider residual fidelity, but post-merge audit still finds cross-source hard-gate debt listed below |
 | SAVR-07 | ✅ delivered (commit `c70864f`) | payslip domain continuity; both paths share `FinalizePayslip` |
-| SAVR-08 | 🟡 audited, fixes delivered | payslip machine failure fixed; follow-up S08-09 removes receipt component-quality-only review; UIR defect S08-08 tracked separately |
-| SAVR-09 | 🟡 corpus-complete, canary pending | deployed 2026-09-28; three metrics remain `notYetMeasurable`; live canary needs a disposable household |
-| SAVR-10 | 🟡 partial | corpus-proven removals done; freeze conditional on the SAVR-09 canary |
+| SAVR-08 | 🟡 audited, fixes delivered | semantic/source-family fixes delivered; S08-08 email-origin projection is owned by UISC-01 in the final combined closure |
+| SAVR-09 | 🟡 corpus-complete, product observation open | production deployed; UISC-02 completes three observability gaps and the real owner household is the production canary under BDR-005 |
+| SAVR-10 | 🟡 partial | corpus-proven removals done; full freeze waits on the UIR-SAVR Closure Sprint |
 
 # Post-SAVR-06 reconciliation gate
 
@@ -512,13 +512,11 @@ No unexplained semantic re-decision remains in active source families.
 
 # SAVR-09 — corpus, canary, and product metrics
 
-**Result (this branch):** corpus measured; the runnable evidence and the metric
-coverage gaps are recorded in `docs/audits/SAVR-09-corpus-and-metrics.md`. The
-deployed canary did **not** run — the 2026-09-28 approved production deployment
-still needs a disposable household for the live canary. Three metrics
-(`Validator-Induced Human Review Rate`,
-`Residual Fidelity Rate`, `Semantic Re-decision Rate`) stay explicitly
-`notYetMeasurable` rather than reported as zero.
+**Result:** corpus measured and production deployed. BDR-005 supersedes the
+disposable-household assumption: the real owner household is the production
+observation cohort. UISC-02 must make Validator-Induced Human Review Rate,
+Residual Contract Fidelity, and Semantic Re-decision Rate prospectively
+measurable without fabricating historical zeroes.
 
 Run the approved regression corpus.
 
@@ -556,9 +554,10 @@ SAVR improves interaction/semantic efficiency without worsening correction rate.
 
 # SAVR-10 — retire obsolete reinterpretation and freeze
 
-**Result (this branch):** corpus-proven removals are documented in
-`docs/audits/SAVR-10-legacy-retirement.md`. The freeze is **partial**: semantics
-in this branch are frozen, but a full freeze waits on the SAVR-09 canary.
+**Result:** corpus-proven removals are documented in
+`docs/audits/SAVR-10-legacy-retirement.md`. The freeze is **partial** until the
+UIR-SAVR Closure Sprint closes S08-08, completes observability, and passes
+owner-household production observation.
 
 Only after corpus/canary evidence:
 
@@ -602,6 +601,12 @@ SAVR-02
                               |
                               v
                            SAVR-08 --> SAVR-09 --> SAVR-10
+                                                   |
+                                                   v
+                                      UIR-SAVR CLOSURE
+                                                   |
+                                                   v
+                                                  CEU
 ```
 
 SAVR-03..07 may be separate PRs.
@@ -642,3 +647,14 @@ Tests/corpus:
 Drift guard:
 Known follow-up:
 ```
+
+
+## 2026-09-28 final closure routing
+
+The UIR-SAVR Closure Sprint defined by
+`docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` is the only remaining pre-CEU gate.
+
+It supersedes the disposable-production-household assumption but does not weaken
+the SAVR corpus or canonical correctness requirements. Real owner-household
+usage is the production observation cohort; synthetic edge cases stay in
+disposable test infrastructure.

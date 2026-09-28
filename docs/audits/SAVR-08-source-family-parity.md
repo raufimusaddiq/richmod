@@ -158,3 +158,23 @@ Missing facts and independent conflicts remain fail-closed. Historical open
 Every active source family is classified. S08-09 is fixed in the follow-up
 receipt-materiality branch; UIR email-origin projection (S08-08) remains outside
 SAVR scope. Do not equate this audit with a completed canary.
+
+
+---
+
+## 2026-09-28 closure ownership amendment
+
+S08-08 is no longer an unowned "outside SAVR" follow-up. It is explicitly owned
+by **UISC-01** in `docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md`.
+
+The defect remains classified as UIR projection rather than SAVR semantic
+authority: bank/financial-email reviews already have canonical household
+ownership, but their producer adapters can return before the universal
+`ProjectReviewItem` household-recipient resolver is called.
+
+Closure criterion:
+
+- BANK_EMAIL and FINANCIAL_EMAIL source provenance must not be used as a
+  prerequisite for Telegram delivery;
+- canonical household ownership drives recipient resolution;
+- originating Telegram chat remains fallback only.
