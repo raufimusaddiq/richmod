@@ -29,6 +29,7 @@ be driven by measured canary data, not by guessing.
 | Receipt/screenshot category rescue | bounded residual only; undecided or failure keeps review |
 | Provider `TRANSFER_CLASSIFICATION` recovery lane | still used for missing amount/time/account, undecided movement semantics, or incompatible transfer purpose; see `planCash` |
 | Legacy payslip review rows without document binding | historical open state; `ResolvePayslipProposal` still accepts them behind an explicit match |
+| Legacy `RECEIPT_MISMATCH` reviews | historical open rows and the receipt kill-switch still use this compatibility path; the default complete-facts path no longer produces it |
 | Email-origin review projection via originating chat | compatibility only; household-recipient projection is a UIR defect (SAVR-08 S08-08) |
 
 ## 3. Not removed because not proven unreachable
@@ -61,6 +62,5 @@ human input is policy or irreducible fact only
   (`validator_induced_review_consequences`, `residual_fidelity_ground_truth`,
   `semantic_redecision_accepted_fact_provenance`);
 - the adjacent UIR email-origin projection defect (S08-08), tracked outside SAVR.
-- receipt arithmetic review materiality (S08-09), pending a labelled cohort.
 
 Next initiative: CEU.

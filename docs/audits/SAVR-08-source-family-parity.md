@@ -35,7 +35,7 @@ redundant prose hint, a machine/schema failure — must not raise RHICE.
 | Bank email, schema invalid | REPAIR/FAILED machine state | none | all | — | no extra call; extractor already retried | none — not a household question | operator retry owns it |
 | Financial provider email | CONFIRMED/UNCLASSIFIED movement | amount, time, movement type, account | prose account hint | LLM extract → Go planner; Jev classification when configured | Jev is a material evidence check only | entity binding only when Go cannot resolve | `resolutionGaps` names unresolved entities |
 | Receipt | CONFIRMED expense | amount, printed date, category, arithmetic when available | generic confidence | LLM extract → Go validate; Jev only for an undecided category | category rescue is bounded | none when a category resolves | merchant memory before Jev |
-| Receipt, arithmetic mismatch | review with `RECEIPT_MISMATCH` | amount reliability if printed components disagree | arithmetic signal itself is not a missing fact | — | no | confirm/ignore the proposed expense; see S08-09 | total/date/category stay known |
+| Receipt, arithmetic mismatch | CONFIRMED expense, or evidence link to one strong match | printed total/date/category | component arithmetic is quality metadata | Go uses printed total and persists `arithmetic_ok=false` | no | none when facts complete and no duplicate ambiguity | total/date/category stay known |
 | Screenshot row | CONFIRMED expense/income | amount, date, category, direction | generic confidence | LLM extract → Go validate → merchant memory | Jev only for an unresolved category | amount/date only when genuinely absent | merchant memory |
 | Screenshot row, no amount | review `MISSING_AMOUNT` | amount | everything else | — | no | typed amount | date/category/merchant stay known |
 | Payslip | CONFIRMED income + salary event | net pay, employer, period, pay date | extraction confidence, unreconciled breakdown | LLM extract → Go validate → shared salary finalizer | none | first-source policy or missing pay date only | caption date before validation; owner as salary source user |
@@ -124,18 +124,18 @@ would mix review-delivery scope into a semantic sprint.
 
 **Classification:** TRACKED_SEPARATELY — belongs to UIR, not SAVR-08.
 
-## S08-09 — Receipt arithmetic mismatch still asks the household — OPEN
+## S08-09 — Receipt component arithmetic review — FIXED
 
-`RECEIPT_MISMATCH` retains the printed total, date, and category, correctly
-avoiding a fake category residual. But `receipt.go` still withholds automatic
-confirmation solely on mismatched component arithmetic and opens a bounded
-confirm/ignore card. A conflicting printed breakdown may make the proposed
-total unsafe; this corpus proves the review is labelled accurately, **not**
-that every such mismatch is materially ambiguous. A labelled receipt cohort is
-needed to decide whether the prompt is necessary or just quality-only friction.
+`RECEIPT_MISMATCH` kept the printed total, date, and category but withheld
+confirmation solely because subtotal/tax/service/discount did not add up to
+the total. This is a component quality signal under ADR-048, not new evidence
+that the separately printed total is wrong. `receipt.go` now records
+`arithmetic_ok=false` and confirms the known amount when no plausible duplicate
+exists; one strong existing match links evidence without another review.
+Missing facts and independent conflicts remain fail-closed. Historical open
+`RECEIPT_MISMATCH` reviews remain resolvable for compatibility.
 
-**Classification:** MATERIALITY UNPROVEN — retain fail-closed behavior until
-source evidence demonstrates safe automatic acceptance.
+**Classification:** QUALITY_ONLY_REVIEW — removed for the complete-facts path.
 
 ---
 
@@ -155,7 +155,6 @@ source evidence demonstrates safe automatic acceptance.
 
 # 5. Exit
 
-Every active source family is classified. The receipt-arithmetic prompt still
-needs a measured materiality check (S08-09); the UIR email-origin projection
-defect (S08-08) remains outside SAVR scope. Do not equate this audit with a
-completed canary.
+Every active source family is classified. S08-09 is fixed in the follow-up
+receipt-materiality branch; UIR email-origin projection (S08-08) remains outside
+SAVR scope. Do not equate this audit with a completed canary.

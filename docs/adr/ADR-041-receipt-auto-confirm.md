@@ -75,3 +75,15 @@ must ask for the date rather than spend model calls guessing it.
   a fallback timestamp cannot masquerade as the receipt's own transaction time
   (PRD §18.4); such a receipt still asks only for the date.
 - No new table, service, or dependency.
+
+## SAVR materiality amendment — 2026-09-28
+
+ADR-048 supersedes the confidence and component-arithmetic requirements above
+when the printed total, date, and category are accepted. Generic extraction
+confidence and a mismatched subtotal/tax/service/discount calculation are
+quality signals, not human questions about an otherwise known total. The
+receipt can auto-confirm or link evidence to one strong match while retaining
+`arithmetic_ok=false` on its proposal and audit. Missing date/category, invalid
+amount/currency, genuinely plausible duplicate candidates, and the receipt
+kill switch still block autonomous confirmation as before. A contradictory
+*independent* source total remains a material conflict, not arithmetic quality.
