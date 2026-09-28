@@ -3,6 +3,7 @@ package financialemail
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
@@ -71,11 +72,17 @@ func TestCashMovementAllowedBelowLegacyConfidenceGate(t *testing.T) {
 	if !verified || !classification.cashAllowed() {
 		t.Fatalf("bounded support must authorize: verified=%v classification=%+v", verified, classification)
 	}
+	if verifier.calls != 1 {
+		t.Fatalf("material checks must use one existing bounded pass, got %d", verifier.calls)
+	}
 	if classification.PolicyVersion != ProviderEmailClassificationPolicyVersion {
 		t.Fatalf("policy version=%q", classification.PolicyVersion)
 	}
 	if _, ok := verifier.request.Questions["movement_type"]; !ok {
 		t.Fatalf("cash observations must carry the movement question: %v", verifier.request.Questions)
+	}
+	if question := verifier.request.Questions["evidence_sufficient"].Instructions; strings.Contains(question, "hints fully supported") || !strings.Contains(question, "Do not require account hints") {
+		t.Fatalf("account hint must not be an evidence gate: %q", question)
 	}
 }
 
@@ -157,19 +164,12 @@ func TestProviderFailureIsInfrastructureNotApproval(t *testing.T) {
 	}
 }
 
-// A provider failure must not strand the observation: planCash has to route the
-// case to a human-actionable recovery lane instead of returning the error and
-// leaving the observation PENDING with no card once the job hits max_attempts
-// (SAVR-06, Hermes B2). The recovery lane is TRANSFER_CLASSIFICATION, which lets
-// the household supply the missing amount/relationship.
-func TestProviderFailureParksARecoveryLaneNotAStrandedObservation(t *testing.T) {
+// A provider outage is retry state; it does not become a human review card.
+func TestProviderFailureRemainsInfrastructure(t *testing.T) {
 	processor := &Processor{verifier: &stubVerifier{err: errors.New("gateway down")}}
-	plan, err := processor.planCash(context.Background(), nil, "household", "", "", false, "", "", cashObservation(0.9))
-	if err != nil {
-		t.Fatalf("a provider outage must not surface as an error: %v", err)
-	}
-	if plan.review != "TRANSFER_CLASSIFICATION" {
-		t.Fatalf("a provider outage must park the recovery lane, got review=%q", plan.review)
+	plan, err := processor.planCash(context.Background(), nil, "household", "", "", "", false, "", "", cashObservation(0.9))
+	if err == nil || plan.review != "" {
+		t.Fatalf("provider outage must retry without a human review: plan=%+v err=%v", plan, err)
 	}
 }
 

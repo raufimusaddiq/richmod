@@ -42,11 +42,9 @@ type receiptFixture struct {
 	categoryID, categorySlug string
 }
 
-// Hermes review on PR #127: a same-amount transaction within the window whose
-// merchant text differs scores below the old 0.70 filter. It must still block the
-// auto-confirm, otherwise the receipt becomes a second ledger entry for the same
-// real event (PRD §17: no unresolved duplicate ambiguity).
-func TestReceiptWithWeakSameAmountCandidateStaysInReview(t *testing.T) {
+// PR203: a same-amount query hit with a different merchant 12 hours earlier
+// is not materially plausible duplicate evidence; it must not create review.
+func TestReceiptWithWeakSameAmountCandidateDoesNotBlock(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt weak duplicate")
 	ctx := context.Background()
 	// 12 hours earlier, same amount, different merchant text: 0.45+0.20 = 0.65.
@@ -63,22 +61,26 @@ func TestReceiptWithWeakSameAmountCandidateStaysInReview(t *testing.T) {
 	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
 		t.Fatal(err)
 	}
-	if confirmed != 1 || needsReview != 1 {
-		t.Fatalf("a plausible duplicate must not be auto-confirmed: confirmed=%d needs_review=%d", confirmed, needsReview)
+	if confirmed != 2 || needsReview != 0 {
+		t.Fatalf("a weak query hit must not create duplicate review: confirmed=%d needs_review=%d", confirmed, needsReview)
 	}
-	var reviewType string
-	if err := fixture.pool.QueryRow(ctx, `SELECT review_type FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reviewType); err != nil {
+}
+
+func TestReceiptNearSameAmountCandidateStillBlocks(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt near duplicate")
+	ctx := context.Background()
+	if _, err := fixture.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,$2,'Another merchant',now())`, fixture.householdID, receiptTime().Add(-15*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if reviewType != "POSSIBLE_DUPLICATE" {
-		t.Fatalf("the review must say why: got %s", reviewType)
-	}
-	var amount, transactionAt, transactionType, action string
-	if err := fixture.pool.QueryRow(ctx, `SELECT decision->'knownFacts'->>'amount_idr',decision->'knownFacts'->>'transaction_at',decision->'knownFacts'->>'type',decision->'allowedActions'->>0 FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&amount, &transactionAt, &transactionType, &action); err != nil {
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .35}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
 		t.Fatal(err)
 	}
-	if amount != "57500" || transactionAt != receiptTime().Format(time.RFC3339) || transactionType != "EXPENSE" || action != "MERGE_EXISTING" {
-		t.Fatalf("receipt duplicate decision lost known facts or bounded candidate action: amount=%q time=%q type=%q action=%q", amount, transactionAt, transactionType, action)
+	var reason string
+	if err := fixture.pool.QueryRow(ctx, `SELECT review_type FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')`, fixture.householdID).Scan(&reason); err != nil || reason != "POSSIBLE_DUPLICATE" {
+		t.Fatalf("near same-amount candidate must remain in review: reason=%q err=%v", reason, err)
 	}
 }
 
@@ -218,6 +220,7 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	// Same receipt evidence arrives again as a new document: the transaction the
 	// first upload wrote is the single strong match, so the second upload links to
 	// it rather than adding a ledger row for the same real event.
+	value.Confidence = .35 // Evidence quality cannot create a duplicate review.
 	stamp := time.Now().UnixNano()
 	var secondSource, attachmentID, secondDocument string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING') RETURNING id`, fixture.householdID, fmt.Sprintf("receipt-repeat-%d", stamp), []byte(fmt.Sprintf("receipt-repeat-%d", stamp))).Scan(&secondSource); err != nil {
@@ -250,7 +253,7 @@ func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt auto confirm")
 	ctx := context.Background()
 	slug := fixture.categorySlug
-	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.35}
 	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
 	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
 		t.Fatal(err)

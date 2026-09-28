@@ -129,3 +129,41 @@ func TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling(t *testing.T)
 		t.Fatalf("the audit row must keep the exact predicate outcome: %+v", summary.ClaimOutcomes)
 	}
 }
+
+func TestBankSchemaFailureDoesNotCreateHumanReview(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var household, user, listener, source string
+	stamp := time.Now().UnixNano()
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Schema failure %d", stamp)).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("schema-%d@test.invalid", stamp)).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id) VALUES($1,'Synthetic Bank',$2,$3) RETURNING id`, household, fmt.Sprintf("schema-%d@test.invalid", stamp), user).Scan(&listener); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprintf("schema-%d", stamp), []byte("schema")).Scan(&source); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Processor{pool: pool}).persistExtractionFailure(ctx, source, listener, "stub", "INVALID", "REPAIR"); err != nil {
+		t.Fatal(err)
+	}
+	var status, validation, policy string
+	var reviews int
+	if err := pool.QueryRow(ctx, `SELECT s.processing_status,b.validation_status,b.policy_result,(SELECT count(*) FROM review_item WHERE source_event_id=s.id) FROM source_event s JOIN bank_email_extraction b ON b.source_event_id=s.id WHERE s.id=$1`, source).Scan(&status, &validation, &policy, &reviews); err != nil {
+		t.Fatal(err)
+	}
+	if status != "FAILED" || validation != "INVALID" || policy != "REPAIR" || reviews != 0 {
+		t.Fatalf("schema failure must stay machine state: %s/%s/%s reviews=%d", status, validation, policy, reviews)
+	}
+}

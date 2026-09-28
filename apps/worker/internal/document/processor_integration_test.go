@@ -11,11 +11,9 @@ import (
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
-// TestTerminalTelegramDocumentFailureCreatesReviewAndReply pins the terminal
-// failure path: it writes exactly one open review item and one audit row, does
-// not double-fire on a duplicate callback, and (since UIR-06) projects exactly
-// one actionable card when the source came from Telegram.
-func TestTerminalTelegramDocumentFailureCreatesReviewAndReply(t *testing.T) {
+// Machine-only terminal failures remain observable without making a household
+// review or Telegram task; a repeat callback must not duplicate the audit.
+func TestTerminalTelegramDocumentFailureStaysInfrastructure(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -58,8 +56,18 @@ func TestTerminalTelegramDocumentFailureCreatesReviewAndReply(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT d.status,s.processing_status,(SELECT count(*) FROM review_item WHERE document_id=d.id AND status='OPEN'),(SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'reply_to_message_id'=$2),(SELECT count(*) FROM audit_log WHERE entity_id=s.id AND action='DOCUMENT_CLASSIFICATION_FAILED') FROM document d JOIN source_event s ON s.id=d.source_event_id WHERE d.id=$1`, documentID, fmt.Sprint(stamp)).Scan(&documentStatus, &sourceStatus, &reviews, &replies, &audits); err != nil {
 		t.Fatal(err)
 	}
-	if documentStatus != "NEEDS_REVIEW" || sourceStatus != "NEEDS_REVIEW" || reviews != 1 || replies != 1 || audits != 1 {
+	if documentStatus != "FAILED" || sourceStatus != "FAILED" || reviews != 0 || replies != 0 || audits != 1 {
 		t.Fatalf("document=%s source=%s reviews=%d replies=%d audits=%d", documentStatus, sourceStatus, reviews, replies, audits)
+	}
+	if err := processor.persistInvalidDocumentExtraction(ctx, documentID, sourceID, "RECEIPT", map[string]any{"total": "unknown"}, .2, "stub", fmt.Errorf("schema repair failed")); err != nil {
+		t.Fatal(err)
+	}
+	var invalidExtractions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM document_extraction WHERE document_id=$1 AND NOT validated`, documentID).Scan(&invalidExtractions); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE document_id=$1`, documentID).Scan(&reviews); err != nil || invalidExtractions != 1 || reviews != 0 {
+		t.Fatalf("schema repair failure must retain extraction without human review: extractions=%d reviews=%d err=%v", invalidExtractions, reviews, err)
 	}
 }
 

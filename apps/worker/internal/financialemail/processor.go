@@ -395,15 +395,16 @@ func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, hous
 
 type cashPlan struct {
 	account, wealth, amount, purpose, existing, providerReference, review string
+	accountConflictHint                                                   string
 	missingEntities                                                       []string
 	classification                                                        ObservationClassification
 	at                                                                    time.Time
 	candidates                                                            []string
 }
 
-func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
-	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference)}
-	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || v.FundingAccountHint == nil {
+func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financialSource, observationID, defaultWealth string, defaultWealthConfigured bool, selectedAccount, selectedWealth string, v observation) (cashPlan, error) {
+	plan := cashPlan{amount: value(v.AmountIDR), providerReference: normalizeProviderReference(v.ProviderReference), account: selectedAccount, wealth: selectedWealth}
+	if !positiveWholeMoney(v.AmountIDR) || v.OccurredAt == nil || (v.FundingAccountHint == nil && selectedAccount == "") {
 		// A structurally incomplete observation cannot be adjudicated and Go
 		// cannot prove a single predicate about it, so park the recovery lane that
 		// lets the household supply the missing amount/relationship. That is the
@@ -413,19 +414,13 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 		return plan, nil
 	}
 	// A configured bounded plane rules on whether the email actually supports the
-	// extracted facts. Only when no plane is configured does the extractor's own
-	// confidence remain the gate, and it is never the *sole* authority in
-	// production (ADR-038, PRD §21).
+	// extracted facts. An unconfigured bounded plane cannot invent a confidence-
+	// only human task for otherwise complete source-acceptable extraction.
 	classification, verified, classifyErr := p.classifyObservation(ctx, value(v.ProviderReference)+"-classify-"+value(v.AmountIDR), v)
 	if classifyErr != nil {
-		// The bounded plane could not rule (gateway outage). That is infrastructure
-		// state, not a semantic verdict, so the case must still end somewhere a
-		// human can act: park the shared transfer-classification recovery lane that
-		// lets the household supply the missing amount/relationship. Returning the
-		// raw error instead left the observation PENDING with no card once the job
-		// hit max_attempts (SAVR-06, Hermes B2).
-		plan.review = "TRANSFER_CLASSIFICATION"
-		return plan, nil
+		// A provider outage is retry/infrastructure state, not a question for the
+		// household. The job retains the failure for operator retry (ADR-048).
+		return plan, fmt.Errorf("classify provider observation: %w", classifyErr)
 	}
 	if verified {
 		// Only a ruling that this really is a cash movement can raise the cash-
@@ -450,27 +445,49 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 			movement := classification.MovementType
 			v.MovementType = &movement
 		}
-	} else if v.Confidence < .8 {
-		// No bounded plane ruled and the extractor's own confidence is below the
-		// legacy gate, so nothing proves the movement. Route to the recovery lane
-		// rather than an IGNORE-only facts card the household cannot act on.
-		plan.review = "TRANSFER_CLASSIFICATION"
-		return plan, nil
 	}
 	var err error
 	if plan.at, err = time.Parse(time.RFC3339, *v.OccurredAt); err != nil {
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
-	plan.account = selectedAccount
-	if plan.account == "" {
+	if plan.account != "" {
+		var active bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account WHERE id=$1 AND household_id=$2 AND active)`, plan.account, household).Scan(&active); err != nil {
+			return plan, err
+		}
+		if !active {
+			plan.account = ""
+			plan.review = "FINANCIAL_EMAIL_RESOLUTION"
+			plan.missingEntities = resolutionGaps(plan.account, plan.wealth)
+			return plan, nil
+		}
+		if v.FundingAccountHint != nil {
+			resolved, resolveErr := financialentity.ResolveAccount(ctx, tx, household, *v.FundingAccountHint)
+			if resolveErr != nil {
+				return plan, resolveErr
+			}
+			if resolved.Status == financialentity.Resolved && resolved.ID != plan.account {
+				var userResolved bool
+				if observationID != "" {
+					if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_item WHERE financial_email_observation_id=$1 AND review_type='FINANCIAL_EMAIL_RESOLUTION' AND status='RESOLVED' AND resolution_action='SET_FINANCIAL_EMAIL_ENTITIES' AND decision->>'validationConsequence'='INDEPENDENT_EVIDENCE_CONFLICT')`, observationID).Scan(&userResolved); err != nil {
+						return plan, err
+					}
+				}
+				if !userResolved {
+					plan.review, plan.accountConflictHint = "FINANCIAL_EMAIL_RESOLUTION", *v.FundingAccountHint
+					plan.missingEntities = []string{"funding_account"}
+					return plan, nil
+				}
+			}
+		}
+	} else {
 		plan.account, err = financialentity.Account(ctx, tx, household, *v.FundingAccountHint)
 		if err != nil {
 			return plan, err
 		}
 	}
 	hint := value(v.ProviderAccountHint)
-	plan.wealth = selectedWealth
 	configured, err := defaultWealthAccount(ctx, tx, household, defaultWealth)
 	if err != nil {
 		return plan, err
@@ -586,7 +603,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(resolved_account_id::text,''),COALESCE(resolved_wealth_account_id::text,'') FROM financial_email_observation WHERE id=$1`, id).Scan(&selectedAccount, &selectedWealth); err != nil {
 		return err
 	}
-	plan, err := p.planCash(ctx, tx, household, financialSource, defaultWealth, defaultWealthConfigured, selectedAccount, selectedWealth, v)
+	plan, err := p.planCash(ctx, tx, household, financialSource, id, defaultWealth, defaultWealthConfigured, selectedAccount, selectedWealth, v)
 	if err != nil {
 		return err
 	}
@@ -614,7 +631,7 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	case "FINANCIAL_EMAIL_FACTS":
 		return p.evidenceReview(ctx, tx, household, source, id, v, plan.classification)
 	case "FINANCIAL_EMAIL_RESOLUTION":
-		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth, plan.missingEntities)
+		return p.resolutionReview(ctx, tx, household, source, id, plan.account, plan.wealth, plan.missingEntities, plan.accountConflictHint)
 	case "CONFLICTING_EVIDENCE":
 		return p.conflictingReferenceReview(ctx, tx, household, source, id)
 	case "TRANSFER_RECONCILIATION":
@@ -647,7 +664,7 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 // on the observation -- the columns are the single source of truth the list API
 // and the resolver agree on -- and records only the unresolved dimension as
 // missing, so the Inbox asks for the one fact still open (13.4, 20.1).
-func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string, missingEntities []string) error {
+func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, source, id, account, wealth string, missingEntities []string, conflictHint string) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW',resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,updated_at=now() WHERE id=$1`, id, account, wealth); err != nil {
 		return err
 	}
@@ -661,7 +678,7 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 	if wealth != "" {
 		known["wealth_account"] = wealth
 	}
-	encoded, err := reviewdec.Decision{
+	decision := reviewdec.Decision{
 		Version:         reviewdec.Version,
 		Subject:         reviewdec.Subject{Type: "financial_email_observation", ID: id},
 		SourceEventID:   source,
@@ -676,7 +693,15 @@ func (p *Processor) resolutionReview(ctx context.Context, tx pgx.Tx, household, 
 		WhyNotAuto:      "an entity the evidence identifies only in prose must be bound by the household",
 		AllowedActions:  []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"},
 		InteractionMode: reviewdec.ModeBoundedChoice,
-	}.JSON()
+	}
+	if conflictHint != "" {
+		decision.DecisionClass = reviewdec.ClassEvidenceConflict
+		decision.Consequence = reviewdec.IndependentEvidenceConflict
+		decision.AffectedFacts = []string{"funding_account"}
+		decision.Conflicting = map[string][]reviewdec.EvidenceValue{"funding_account": {{Value: account, Evidence: "selected canonical account"}, {Value: conflictHint, Evidence: "provider email hint"}}}
+		decision.WhyNotAuto = "the provider email points to a different funding account than the canonical account already selected"
+	}
+	encoded, err := decision.JSON()
 	if err != nil {
 		return err
 	}
@@ -801,7 +826,7 @@ func (p *Processor) ProcessPreview(ctx context.Context, payload PreviewPayload) 
 		item := map[string]any{"kind": v.Kind, "confidence": v.Confidence, "wouldMutate": false}
 		switch v.Kind {
 		case "CASH_MOVEMENT":
-			plan, planErr := p.planCash(ctx, tx, household, sourceID, defaultWealth, defaultWealthConfigured, "", "", v)
+			plan, planErr := p.planCash(ctx, tx, household, sourceID, "", defaultWealth, defaultWealthConfigured, "", "", v)
 			if planErr != nil {
 				return planErr
 			}
