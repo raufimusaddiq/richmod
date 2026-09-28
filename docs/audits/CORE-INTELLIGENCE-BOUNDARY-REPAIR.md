@@ -95,10 +95,11 @@ read-only production replay. We cannot prove that it was unambiguous or
 accepted; only that both extraction attempts failed the strict schema with
 `invalid transaction time`. Silently broadening Go's date parsing, or
 converting a malformed printed timestamp to received-at, would be guessing.
-The existing retry's generic prompt does not tell the model *which* canonical
-representation it violated. Repair feedback should name the failing field,
-ask for RFC3339 with timezone or null only when genuinely absent, then
-preserve repair status if the second attempt remains invalid.
+The retry prompt now carries the exact schema failure for the failing field
+(`extractor.go` repair prompt; `validator_repair_test.go` asserts the repair
+attempt receives "invalid transaction time"). It asks for RFC3339 with a
+timezone offset, and a second invalid attempt still lands in repair status
+rather than being converted to received-at.
 
 ---
 
