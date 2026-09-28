@@ -5,7 +5,68 @@
 **Architecture:** ADR-047, ADR-048  
 **Audit:** `docs/audits/SAVR-00-semantic-authority-boundaries.md`  
 **Drift gate:** `docs/SAVR_DRIFT_GUARD_CHECKLIST.md`  
-**Baseline:** `main@ffb29a15f13bef32fa8da0d840be75e3501fd928`
+**Initial baseline:** `main@ffb29a15f13bef32fa8da0d840be75e3501fd928`  
+**Post-SAVR-06 reconciliation baseline:** `main@904ff1acf6bdd8954d49728d7cc2623b5eee8d45`  
+**Reconciliation audit:** `docs/audits/SAVR-06-reconciliation-audit.md`
+
+---
+
+# Sprint status after SAVR-06 merge
+
+Status is based on exit criteria, not PR names.
+
+| Sprint | Status | Reconciliation note |
+| --- | --- | --- |
+| SAVR-00 | ✅ baseline complete | preserve original audit as historical evidence |
+| SAVR-01 | 🟡 partial | telemetry arrays + known-fact re-ask metric delivered; remaining metric coverage is still explicitly incomplete |
+| SAVR-02 | 🟡 partial | consequence vocabulary and migrated receipt consequence delivered; not every active validator is consequence-aware yet |
+| SAVR-03 | ✅ scoped delivery | screenshot missing amount + payslip representation delivered |
+| SAVR-04 | ✅ delivered | one shared exact household merchant/category memory path |
+| SAVR-05 | 🟡 materially aligned | batch user authority delivered; current single-record path accepts complete generative results directly and spends Jev only on named residuals; remaining call sites are re-audited in SAVR-08 |
+| SAVR-06 | 🟡 merged, reconciliation required | PR #202 fixed bank payment-mechanism materiality and provider residual fidelity, but post-merge audit still finds cross-source hard-gate debt listed below |
+| SAVR-07 | ⏸ blocked | do not start until this reconciliation gate is accepted |
+| SAVR-08 | ⏳ pending | source-family parity / legacy isolation |
+| SAVR-09 | ⏳ pending | corpus, canary, metrics |
+| SAVR-10 | ⏳ pending | retire obsolete reinterpretation and freeze |
+
+# Post-SAVR-06 reconciliation gate
+
+This is a **gate**, not a new product initiative.
+
+Before SAVR-07 implementation starts, the next implementation work must reconcile
+the confirmed post-06 drift against the north star:
+
+1. receipt: generic extraction confidence must not be the sole reason a
+   fully-known amount/date/category expense falls into a fake category review;
+2. screenshot: same rule — a confidence-only miss cannot manufacture
+   `AMBIGUOUS_CATEGORY` when the material facts are already accepted;
+3. provider email: an already selected/resolved canonical account must supersede
+   a redundant missing `FundingAccountHint`;
+4. provider email: bundled `evidence_sufficient` must not let a non-material
+   hint subpart block an otherwise complete movement; split/derive material
+   residuals only as needed, without adding another AI layer;
+5. machine/schema/provider inability must remain retry/repair/infrastructure state
+   unless there is a specific material fact or policy the household can supply;
+6. duplicate matching must distinguish a materially plausible duplicate from a
+   weak query candidate. Preserve duplicate safety; do not use candidate
+   existence alone as proof that human work is required.
+
+Adjacent UIR defect, tracked separately from SAVR semantics:
+
+- email-origin canonical reviews must not be Inbox-only merely because the source
+  was not Telegram. Projection policy belongs to UIR and should use the
+  household's eligible Telegram recipient where configured.
+
+Healthy behavior that this gate MUST NOT regress:
+
+- bank `EMAIL_RECEIVED_AT` is an intentional canonical timestamp fallback when
+  the email has no better transaction time;
+- QR/debit-card/payment-mechanism uncertainty is non-material for an otherwise
+  clear `SPENDING_ONLY` expense;
+- complete Telegram generative transaction extraction may proceed without a Jev
+  replay;
+- exact merchant memory avoids model/human escalation;
+- explicit user batch confirmation is not sent through a second semantic vote.
 
 ---
 
@@ -344,6 +405,10 @@ ReviewDecision missing facts match the actual blockers for migrated cases.
 
 # SAVR-07 — payslip domain continuity and finalizer parity
 
+**Start condition:** the Post-SAVR-06 reconciliation gate above is accepted and
+its implementation corrections are merged. Do not carry known confidence-only,
+hint-only, or machine-failure review patterns into the salary finalizer.
+
 This is the most important domain migration.
 
 Required architecture:
@@ -359,6 +424,8 @@ payslip evidence
 Required behaviors:
 
 - arithmetic mismatch does not convert payslip to generic MANUAL_CORRECTION;
+- generic payslip confidence is not, by itself, a human-review reason once the
+  material salary facts have satisfied their source contract;
 - accepted amount/date/employer/period survive;
 - first-primary-source choice remains human policy;
 - existing primary + known pay date does not re-ask classification/date;
@@ -375,6 +442,24 @@ No active payslip path loses salary identity merely because review was required.
 ---
 
 # SAVR-08 — source-family parity and legacy isolation
+
+Re-run the SAVR-00 matrix after SAVR-03..07, using **materiality** and
+**minimum-sufficient intelligence** as first-class columns.
+
+For every boundary, additionally record:
+
+```text
+attempted canonical outcome
+material semantic dimensions
+non-material metadata/quality dimensions
+minimum sufficient intelligence path
+why each additional AI call exists
+why each human input exists
+system-derived policy facts
+```
+
+A boundary is not parity-complete merely because its review residual is exact.
+The residual must also be material.
 
 Re-run the SAVR-00 matrix after SAVR-03..07.
 
@@ -468,11 +553,18 @@ SAVR-02
    |                          |
    +--------> SAVR-04 --------+
    |                          |
-   +--------> SAVR-05 --------+--> SAVR-08 --> SAVR-09 --> SAVR-10
+   +--------> SAVR-05 --------+
    |                          |
    +--------> SAVR-06 --------+
-   |                          |
-   +--------> SAVR-07 --------+
+                              |
+                              v
+                  POST-SAVR-06 RECONCILIATION
+                              |
+                              v
+                           SAVR-07
+                              |
+                              v
+                           SAVR-08 --> SAVR-09 --> SAVR-10
 ```
 
 SAVR-03..07 may be separate PRs.
@@ -490,7 +582,11 @@ Every implementation task must report:
 Task:
 Baseline main SHA:
 Source/domain:
+Attempted canonical outcome:
 Semantic dimensions:
+Material semantic dimensions:
+Non-material dimensions:
+Minimum sufficient intelligence path:
 Owner before:
 Owner after:
 Canonical guards retained:
@@ -499,7 +595,11 @@ Known facts preserved:
 Residual before:
 Residual after:
 Model calls before/after:
+Why every additional model call exists:
 Human inputs before/after:
+Why every human input exists:
+System-derived policy facts:
+Could the same canonical outcome be reached without this review:
 Domain finalizer:
 Tests/corpus:
 Drift guard:
