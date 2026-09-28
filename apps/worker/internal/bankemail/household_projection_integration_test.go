@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 
 func TestBankEmailReviewProjectsToHouseholdWithoutTelegramSource(t *testing.T) {
@@ -65,5 +66,51 @@ func TestBankEmailReviewProjectsToHouseholdWithoutTelegramSource(t *testing.T) {
 	}
 	if requests != 1 || recipients != 1 || sends != 1 {
 		t.Fatalf("projection requests=%d recipients=%d sends=%d; want 1/1/1", requests, recipients, sends)
+	}
+	var item string
+	if err = pool.QueryRow(ctx, `SELECT id FROM review_item WHERE source_event_id=$1`, source).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE' WHERE id=$1`, item); err != nil {
+		t.Fatal(err)
+	}
+	// A closed canonical review must never be re-projected, even if its
+	// projection request is already closed too.
+	if _, err = pool.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1`, item); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if err = workerTelegram.ProjectReviewItem(ctx, tx, household, item, 0, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_request WHERE review_item_id=$1`, item).Scan(&requests); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 {
+		t.Fatalf("resolved review re-projected: requests=%d", requests)
+	}
+
+	// The bank's low-confidence review shares a reason with document reviews,
+	// but it has no document_id. The document callback cannot resolve it.
+	var incomplete string
+	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprintf("bank-incomplete-%d", stamp), []byte("bank-incomplete")).Scan(&incomplete); err != nil {
+		t.Fatal(err)
+	}
+	if err = processor.reviewIncompleteExtraction(ctx, household, incomplete, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, incomplete, Extraction{}, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_at"}, "test")); err != nil {
+		t.Fatal(err)
+	}
+	var inboxReview, deadCards int
+	if err = pool.QueryRow(ctx, `SELECT count(*),(SELECT count(*) FROM review_request WHERE review_item_id IN (SELECT id FROM review_item WHERE source_event_id=$1)) FROM review_item WHERE source_event_id=$1`, incomplete).Scan(&inboxReview, &deadCards); err != nil {
+		t.Fatal(err)
+	}
+	if inboxReview != 1 || deadCards != 0 {
+		t.Fatalf("bank incomplete review=%d dead Telegram cards=%d; want 1/0", inboxReview, deadCards)
 	}
 }

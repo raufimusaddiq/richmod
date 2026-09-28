@@ -48,6 +48,11 @@ payload is no longer a projection gate. Disposable PostgreSQL tests assert one
 recipient/send job on retry for both source families; production delivery remains
 subject to UISC-03 observation.
 
+The universal projector also checks that the item is still open and, for
+document-review actions, has a real document binding. Bank emails with the
+legacy `DOCUMENT_EXTRACTION_LOW_CONFIDENCE` reason remain Inbox-actionable but
+are not sent a document-only Telegram card that cannot complete the review.
+
 ### Bank email
 
 Remove the source-origin Telegram requirement before universal projection.

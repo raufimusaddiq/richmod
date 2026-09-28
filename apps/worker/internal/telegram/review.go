@@ -2488,9 +2488,18 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 // delivered message is reused; an existing request without a message is
 // rendered now.
 func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID string, replyTo int64, message string, originatingChatID int64) error {
-	var reviewID, reviewType, transactionID string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),review_type FROM review_item WHERE id=$1`, itemID).Scan(&transactionID, &reviewType); err != nil {
+	var reviewID, reviewType, transactionID, documentID, status string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),review_type,COALESCE(document_id::text,''),status FROM review_item WHERE id=$1 AND household_id=$2`, itemID, householdID).Scan(&transactionID, &reviewType, &documentID, &status); err != nil {
 		return err
+	}
+	if status != "OPEN" && status != "PENDING_SEND" {
+		return nil
+	}
+	// The document action handler requires an actual document binding. Bank
+	// emails may reuse the extraction-failure reason but have no document;
+	// those reviews remain actionable in the Web Inbox, not in Telegram.
+	if (reviewType == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" || reviewType == "DOCUMENT_CLASSIFICATION") && documentID == "" {
+		return nil
 	}
 	// Fail closed: never send a card whose buttons cannot complete the review.
 	if !TelegramCompletableReviewType(reviewType) {
