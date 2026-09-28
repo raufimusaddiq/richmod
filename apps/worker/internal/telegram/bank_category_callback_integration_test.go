@@ -25,7 +25,12 @@ func TestBankCategoryCallbackPreservesProposalDate(t *testing.T) {
 	stamp := time.Now().UnixNano()
 	chatID := stamp
 	var household, user, category, bankSource, proposal, transaction, item, request string
-	must := func(err error) { t.Helper(); if err != nil { t.Fatal(err) } }
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Bank callback %d", stamp)).Scan(&household))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("bank-callback-%d@example.test", stamp)).Scan(&user))
 	_, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user)

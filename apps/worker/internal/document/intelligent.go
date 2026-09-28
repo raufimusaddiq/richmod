@@ -103,11 +103,6 @@ const (
 
 var documentQualities = map[DocumentQuality]struct{}{QualityClear: {}, QualityDegraded: {}, QualityUnreadable: {}}
 
-// reviewFloor is the deterministic W3 review threshold for document quality and
-// critical-field confidence. It is deliberately separate from the legacy 0.80
-// classification gate.
-const reviewFloor = 0.80
-
 type ObservationStatus string
 
 const (
@@ -369,19 +364,10 @@ func criticalFieldNames(tool string) []string {
 	return names
 }
 
-// NeedsReview applies the Architect's W3 floor to classification and critical
-// fields. It is advisory metadata only; callers must route low-confidence or
-// uncertain interpretations to Review, never to canonical mutation.
+// NeedsReview reports explicit source uncertainty. Model self-scores are kept
+// for audit/telemetry but cannot independently create human work.
 func (value Interpretation) NeedsReview() bool {
-	if value.DocumentTypeConf < reviewFloor || value.Quality != QualityClear || len(value.MissingFields) != 0 || len(value.AmbiguousFields) != 0 {
-		return true
-	}
-	for _, name := range value.CriticalFields {
-		if value.FieldConfidence[name] < reviewFloor {
-			return true
-		}
-	}
-	return false
+	return value.Quality != QualityClear || len(value.MissingFields) != 0 || len(value.AmbiguousFields) != 0
 }
 
 // interpretWithPrompt sends the text context once as system instructions and

@@ -342,9 +342,6 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
 	}
-	if !verified && extraction.Confidence < 0.80 {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
-	}
 	var alreadyPersisted bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
 		return nil

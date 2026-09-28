@@ -162,31 +162,16 @@ func TestGenerativeConfidenceCannotAuthorizeMutation(t *testing.T) {
 	}
 }
 
-// A self-graded high generative confidence must be routed through the bounded
-// evaluator instead of skipping straight to confirmation.
-func TestSelfReportedGenerativeConfidenceForcesJudgment(t *testing.T) {
+// A self-reported confidence score cannot force a redundant bounded replay.
+func TestSelfReportedGenerativeConfidenceDoesNotForceJudgment(t *testing.T) {
 	engine := &stubJudgmentEngine{answers: transactionBundle("EXPENSE", true, true, false, "dining"), categoryChoice: "dining"}
 	processor := &Processor{judgment: engine}
 	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "bayar kopi", validatedExtraction{Type: "EXPENSE", Amount: "25000", CategorySlug: "dining", Confidence: 0.99, CategoryConfidence: 0.99}, []string{"dining"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if engine.calls != 1 {
-		t.Fatalf("self-reported confidence must still require one bounded judgment, calls=%d", engine.calls)
-	}
-	categoryQuestion, exists := engine.request.Questions["category"]
-	if !exists {
-		t.Fatalf("evaluator must ask for the category it needs; questions=%v", engine.request.Questions)
-	}
-	criteria, ok := categoryQuestion.Criteria.(map[string]any)
-	if !ok || criteria["dining"] == nil {
-		t.Fatalf("category criteria must expose the loaded active slugs: %v", categoryQuestion.Criteria)
-	}
-	if categories := stateStringSlice(engine.request.State, "allowed_category_slugs"); len(categories) != 1 || categories[0] != "dining" {
-		t.Fatalf("evaluator must pass the already-loaded categories through state: %v", engine.request.State)
-	}
-	if _, exists := engine.request.Questions["material_ambiguity"]; !exists {
-		t.Fatalf("evaluator must ask for material ambiguity; questions=%v", engine.request.Questions)
+	if engine.calls != 0 {
+		t.Fatalf("self-reported confidence must not create a replay, calls=%d", engine.calls)
 	}
 	if !decision.decisionAllowed() {
 		t.Fatalf("bounded judgment should authorize the confirmation: %+v questions=%v answers=%v", decision, engine.request.Questions, engine.answers)
@@ -343,7 +328,7 @@ func TestInitialJudgmentRequestBundlesSpeculativeTransaction(t *testing.T) {
 		t.Fatal("expected a harvestable candidate")
 	}
 	request := processor.initialJudgmentRequest("catat makan siang 50rb hari ini", &turnAgentContextState{Categories: []string{"dining", "transport"}}, candidate)
-	for _, key := range []string{"route", "period", "transaction_type", "amount_support", "date_support", "material_ambiguity", "category"} {
+	for _, key := range []string{"route", "period", "transaction_type", "amount_support", "date_support", "date_reference", "material_ambiguity", "category"} {
 		if _, exists := request.Questions[key]; !exists {
 			t.Fatalf("initial bundle missing question %q", key)
 		}

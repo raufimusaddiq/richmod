@@ -42,6 +42,7 @@ var agentRouteLanes = map[string]agentRouteLane{
 	"REVIEW_INTERACTION":            laneWorkflow,
 	"SALARY_INTERACTION":            laneWorkflow,
 	"MERCHANT_LEARNING_INTERACTION": laneWorkflow,
+	"PENDING_BATCH_INTERACTION":     laneWorkflow,
 
 	// A route not decided cannot terminally classify the user's sentence.
 	"OTHER_OR_UNCLEAR": laneAgentFallthrough,

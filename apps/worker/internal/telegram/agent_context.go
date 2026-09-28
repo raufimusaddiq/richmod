@@ -85,7 +85,7 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 	defer rows.Close()
 	type recent struct {
 		ID, Type, Status, Amount, Merchant, CategorySlug, Description string
-		At                                                           time.Time
+		At                                                            time.Time
 	}
 	var loaded []recent
 	for rows.Next() {
@@ -114,10 +114,10 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 	out := make([]map[string]any, 0, len(loaded))
 	for i, r := range loaded {
 		out = append(out, map[string]any{
-			"ref":            refs[i].Ref,
-			"type":           r.Type,
-			"status":         r.Status,
-			"amount_idr":     r.Amount,
+			"ref":        refs[i].Ref,
+			"type":       r.Type,
+			"status":     r.Status,
+			"amount_idr": r.Amount,
 			// Merchant and description are user-controlled ledger text, so they are
 			// wrapped in the same untrusted-data boundary as the current message to
 			// keep stored free text from reading as agent instructions.

@@ -265,7 +265,7 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 		}
 		var categoryID *string
 		categoryDecided := false
-		if row.Direction == "OUT" && row.CategorySlug != nil && row.CategoryConfidence >= .90 {
+		if row.Direction == "OUT" && row.CategorySlug != nil {
 			if id, ok := categoryIDs[*row.CategorySlug]; ok {
 				value := id
 				categoryID = &value

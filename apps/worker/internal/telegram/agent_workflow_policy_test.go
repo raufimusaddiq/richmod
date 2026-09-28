@@ -65,6 +65,17 @@ func TestExplicitReviewReplyExposesOnlyBoundReviewMutation(t *testing.T) {
 	}
 }
 
+func TestPendingBatchDoesNotOwnUnrelatedAgentTurn(t *testing.T) {
+	tools := AgentFinanceTools([]string{"dining"}, false, true, false, "", false, false, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil, "NEEDS_GENERATIVE_AGENT")
+	if scope != agentWorkflowGeneral {
+		t.Fatalf("scope=%s; unrelated conversation must keep general scope", scope)
+	}
+	if writes := sideEffectNames(filtered); writes["pending_batch_decision"] || !writes["record_transaction"] {
+		t.Fatalf("unrelated conversation got wrong mutation catalog: %v", writes)
+	}
+}
+
 func TestExplicitMerchantReplyExposesOnlyMerchantMutation(t *testing.T) {
 	var update telegramUpdate
 	update.Message.ReplyToMessage = &struct {
@@ -112,7 +123,7 @@ func TestPendingCorrectionOutranksOtherImplicitWrites(t *testing.T) {
 func TestPendingBatchOutranksUniqueReview(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, false, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "PENDING_BATCH_INTERACTION")
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowPendingBatch {
 		t.Fatalf("scope=%s", scope)

@@ -230,7 +230,10 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		if v.ObservedDate != nil && strings.TrimSpace(*v.ObservedDate) != "" {
 			d, e := time.Parse("2006-01-02", *v.ObservedDate)
 			if e != nil {
-				return p.review(ctx, tx, household, source, id)
+				// A malformed model date is a representation defect, not a
+				// transfer-relationship question. Ask the model to repair instead
+				// of minting an unrelated human review.
+				return fmt.Errorf("financial email wealth observation invalid observed_date %q", *v.ObservedDate)
 			}
 			date = &d
 		}
@@ -238,10 +241,19 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		if err = tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,$2,'',$3,$4,$5,$6) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id`, household, wealth, hint, *v.ValueIDR, date, id).Scan(&observationID); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
+		// A structurally valid, uniquely account-bound observation with no
+		// conflict is complete evidence: apply it without human confirmation.
+		// The wealth account is still bound from unfiltered evidence when the
+		// funding-account ambiguity is genuine (see planCash), which parks that
+		// case in review before reaching here. No manually confirmed snapshot is
+		// written; the observation is recorded and marked applied.
+		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='APPLIED' WHERE id=$1`, id, observationID); err != nil {
 			return err
 		}
-		return p.wealthObservationReview(ctx, tx, household, id, observationID, wealth, hint, *v.ValueIDR)
+		if _, err = tx.Exec(ctx, `UPDATE wealth_observation SET status='APPLIED',updated_at=now() WHERE id=$1`, observationID); err != nil {
+			return err
+		}
+		return nil
 	case "CASH_MOVEMENT":
 		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v)
 	default:
@@ -617,11 +629,8 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	if err != nil {
 		return err
 	}
-	// PRD §20: Go has already narrowed by household, account, amount, direction,
-	// and a 24h window. When exactly one candidate survives, ask the bounded plane
-	// whether it is the same real event before spending a human review on it.
-	// More than one survivor stays ambiguous and goes to Review; a ruling of "no"
-	// or an undecided middle leaves the review in place.
+	// Go narrows by household, account, amount, direction, and a 24h window. A
+	// bounded Jev choice can resolve up to ten survivors without exposing IDs.
 	if plan.canReconcileSemantically() {
 		var candidateType, candidatePurpose, candidateAt string
 		if err = tx.QueryRow(ctx, `SELECT type,COALESCE(purpose,''),transaction_at::text FROM transaction WHERE id=$1`, plan.candidates[0]).Scan(&candidateType, &candidatePurpose, &candidateAt); err != nil {
@@ -633,6 +642,26 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 		}
 		if answer.SameEvent {
 			plan.existing = plan.candidates[0]
+			plan.candidates = nil
+			plan.review = ""
+		}
+	}
+	if plan.canReconcileCandidates() {
+		facts := make([]string, 0, len(plan.candidates))
+		for _, candidateID := range plan.candidates {
+			var typ, purpose, at, description string
+			if err = tx.QueryRow(ctx, `SELECT type,COALESCE(purpose,''),transaction_at::text,COALESCE(description,counterparty_name,'') FROM transaction WHERE id=$1 AND household_id=$2 AND account_id=$3 AND status<>'VOIDED'`, candidateID, household, plan.account).Scan(&typ, &purpose, &at, &description); err != nil {
+				return err
+			}
+			fact, _ := json.Marshal(map[string]string{"type": typ, "purpose": purpose, "transaction_at": at, "description": description, "amount_idr": plan.amount})
+			facts = append(facts, string(fact))
+		}
+		choice, choiceErr := p.reconcileCandidates(ctx, "financial-email-candidates:"+id, plan.amount, plan.at.Format(time.RFC3339), "Financial provider email", facts)
+		if choiceErr != nil {
+			return choiceErr
+		}
+		if choice.Index > 0 {
+			plan.existing = plan.candidates[choice.Index-1]
 			plan.candidates = nil
 			plan.review = ""
 		}

@@ -14,6 +14,7 @@ type failingThenRepairGateway struct {
 	calls    int
 	repairPS string
 }
+
 func (g *failingThenRepairGateway) NativeToolCall(_ context.Context, _ string, systemPrompt string, _ any, _ []gateway.ToolDefinition, _ ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	g.calls++
 	if g.calls == 1 {

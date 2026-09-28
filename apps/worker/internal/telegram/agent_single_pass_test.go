@@ -71,31 +71,22 @@ func TestCategoryResidualAsksOnlyTheCategoryDimension(t *testing.T) {
 	}
 }
 
-// Missing date is not a semantic question. Jev must not be asked to guess it,
-// and the decision must stay unresolved so Go asks the user for that one fact.
-func TestMissingDateIsNotSentToJudgment(t *testing.T) {
+// An absent model date remains structurally unresolved; a model-resolved typed
+// date is accepted without Go re-parsing the original language.
+func TestTypedSemanticDateDoesNotNeedLexicalProof(t *testing.T) {
 	engine := &stubJudgmentEngine{categoryChoice: "dining"}
 	processor := &Processor{judgment: engine}
-	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Warung Bu Tini", CategorySlug: "dining", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()), TimePrecision: "OBSERVED_AT_PROCESSING"}
-	state := newRecordState("warung bu tini 25rb")
-	state.Route = "NEEDS_GENERATIVE_AGENT"
+	value := validatedExtraction{Type: "EXPENSE", Amount: "25000", Merchant: "Kopi", CategorySlug: "dining", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation())}
+	state := newRecordState("barusan beli kopi 25k")
 	decision, err := processor.semanticDecisionForRecord(context.Background(), state, value, []string{"dining", "transport"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.decisionAllowed() {
-		t.Fatalf("a missing date must not authorize confirmation, got %+v", decision)
+	if !decision.decisionAllowed() {
+		t.Fatalf("accepted typed date must survive lexical mismatch, got %+v", decision)
 	}
 	if engine.calls != 0 {
-		t.Fatalf("Jev must not be used to guess a missing date, calls=%d", engine.calls)
-	}
-	if !contains(state.ResidualDimensions, "transaction_at") {
-		t.Fatalf("missing user date must persist as a residual, got %v", state.ResidualDimensions)
-	}
-	for _, question := range engine.request.Questions {
-		if question.Type == "noul" {
-			t.Fatalf("a missing date must not be guessed by any model question, got %v", engine.request.Questions)
-		}
+		t.Fatalf("complete typed semantic fact must not be replayed, calls=%d", engine.calls)
 	}
 }
 

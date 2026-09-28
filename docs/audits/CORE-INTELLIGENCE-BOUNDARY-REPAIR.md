@@ -182,3 +182,60 @@ or seeded financial data was used.
 **Closure gate:** Telegram observation is partial; UISC-03 acceptance and
 UISC-04 freeze remain blocked until remaining production checks and email
 observation are recorded. Do not start CEU.
+
+---
+
+# 7. Phase 2 — core intelligence boundary completion
+
+**Baseline re-audit:** `main@d41296169224393f460ca0e8ede20dd97203d94e`
+(PR #215 atop PR #214). PR #214's Telegram/email changes were present.
+
+## 7.1 Corrected classification
+
+| Decision | Previous classification | Corrected classification | Phase-2 action |
+| --- | --- | --- | --- |
+| `userTextSupportsDate()` re-read after typed semantic extraction | `EXACT_DETERMINISTIC_KNOWLEDGE` | `SEMANTIC_INTERPRETATION` | Removed as semantic acceptance authority. Typed date structure/provenance remains validated; Go no longer asks whether raw wording matches a phrase table. |
+| model numeric confidence thresholds for document/receipt/screenshot/category decisions | confidence treated as acceptance policy | `SEMANTIC_INTERPRETATION` when it vetoes a complete semantic result | Removed threshold vetoes; retain range/schema checks and telemetry. |
+| category query failure converted to empty categories | empty semantic state | `MACHINE_FAILURE` | Removed `categoriesOrEmpty`; propagate database errors. |
+
+Reason: exact phrase recognition is not exact knowledge of a natural-language
+date. The intelligence layer owns the meaning; Go owns timestamp representation,
+timezone validity, and canonical safety. Regression tests cover unrecognized
+phrases and invalid typed timestamps without date substitution.
+
+## 7.2 Phase-2 changes and evidence
+
+- Telegram harvest retains amount/text candidates only; Jev owns date/category
+  meaning. An undecided bounded transaction falls through to generative
+  extraction; decisive Jev-only fast path and PR #144 call budget remain.
+- Pending-batch tools are exposed only for the matching bounded interaction
+  route; unrelated conversation leaves the pending batch intact.
+- Document semantic confidence thresholds no longer create review by themselves.
+- Receipt category provider failure retries as machine failure, not human review;
+  screenshot category confidence is not an acceptance veto.
+- Complete uniquely account-bound provider-email wealth observations are marked
+  `APPLIED` without review. Malformed representation errors retry/fail as machine
+  errors, not as `TRANSFER_CLASSIFICATION`.
+- Complete uniquely account-bound document wealth observations are marked
+  `APPLIED` without a review item. Unresolved account binding remains a genuine
+  household entity residual. No manually confirmed wealth snapshot is created.
+- Reconciliation with 2–10 deterministic survivors can ask Jev to select among
+  anonymous candidates; canonical UUIDs stay private to Go.
+
+Disposable PostgreSQL integration tests passed for Telegram, document,
+financial-email, and bank-email packages; unit tests and `go vet` passed for the
+affected packages. These are implementation checks, not merge/deploy/production
+closure evidence.
+
+## 7.3 Remaining findings
+
+- `telegram/review.go:transferReviewIntent()` still uses keyword matching on a
+  bound transfer-review reply. This is `SEMANTIC_INTERPRETATION`, not canonical
+  safety. It remains because the reply path currently lacks a reusable typed
+  Jev decision step; it must be addressed before declaring the invariant
+  complete.
+- Document wealth observations with unresolved account hints still require
+  human entity resolution. This is retained canonical household binding, not
+  semantic confirmation of already-complete evidence.
+- Real owner-household observation remains pending. No UISC-03/UISC-04 closure,
+  deploy, or roadmap work is implied by these code/test changes.

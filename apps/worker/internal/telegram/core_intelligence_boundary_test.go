@@ -89,6 +89,29 @@ func TestAcceptedSemanticFactIsNotReclassified(t *testing.T) {
 	}
 }
 
+func TestLanguageVariantsDoNotChangeAcceptedTypedDate(t *testing.T) {
+	for _, text := range []string{"barusan beli kopi 25k", "tadi pagi sarapan 30rb", "pas siang makan 40 ribu", "last night spent 80k"} {
+		engine := &stubJudgmentEngine{err: errors.New("accepted date must not be replayed")}
+		p := &Processor{judgment: engine}
+		state := newRecordState(text)
+		value := validatedExtraction{Type: "EXPENSE", Amount: "25000", CategorySlug: "dining", DateProvenance: "USER_STATED", TransactionAt: time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation())}
+		decision, err := p.semanticDecisionForRecord(context.Background(), state, value, []string{"dining"}, false)
+		if err != nil || !decision.decisionAllowed() || engine.calls != 0 {
+			t.Fatalf("text=%q decision=%+v calls=%d err=%v", text, decision, engine.calls, err)
+		}
+	}
+}
+
+func TestUnrepresentableTypedDateIsRejectedWithoutSubstitution(t *testing.T) {
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation())
+	_, err := nativeValidatedExtraction(map[string]any{
+		"type": "EXPENSE", "amount_idr": "25000", "date_reference": "EXPLICIT", "explicit_date": "2026-02-30",
+	}, now)
+	if err == nil {
+		t.Fatal("an unrepresentable model date must fail exact canonical validation")
+	}
+}
+
 // T13: an accepted semantic fact with an inactive canonical category is
 // rejected/downgraded by Go, not silently replaced with a guess.
 func TestAcceptedFactWithInvalidCanonicalEntityIsRejectedNotGuessed(t *testing.T) {

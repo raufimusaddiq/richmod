@@ -93,3 +93,30 @@ func TestCanReconcileSemanticallyRequiresExactlyOneCandidate(t *testing.T) {
 		})
 	}
 }
+
+func TestCandidateChoiceUsesAnonymousBoundedOptions(t *testing.T) {
+	answer := judgment.Answer{Type: "choice", Choice: "CANDIDATE_2", HasConfidence: true, Confidence: .99, Distribution: map[string]float64{"CANDIDATE_1": .01, "CANDIDATE_2": .98, "NONE_OR_UNCLEAR": .01}}
+	verifier := &stubVerifier{answers: map[string]judgment.Answer{"same_real_event": answer}}
+	got, err := (&Processor{verifier: verifier}).reconcileCandidates(context.Background(), "request", "25000", "2026-09-28T10:00:00+07:00", "email", []string{"candidate facts 1", "candidate facts 2"})
+	if err != nil || got.Index != 2 {
+		t.Fatalf("choice=%+v err=%v", got, err)
+	}
+	state := verifier.request.State.(map[string]any)
+	if _, exists := state["candidate_2"]; !exists {
+		t.Fatal("candidate facts not sent")
+	}
+	if len(state) != 5 {
+		t.Fatalf("unexpected model-visible candidate state: %#v", state)
+	}
+}
+
+func TestCandidateReconciliationKeepsNoneAndCapsCandidateSet(t *testing.T) {
+	verifier := &stubVerifier{answers: map[string]judgment.Answer{"same_real_event": {Type: "choice", Choice: "NONE_OR_UNCLEAR", HasConfidence: true, Confidence: .99, Distribution: map[string]float64{"CANDIDATE_1": .01, "NONE_OR_UNCLEAR": .99}}}}
+	got, err := (&Processor{verifier: verifier}).reconcileCandidates(context.Background(), "request", "1", "at", "email", []string{"one"})
+	if err != nil || got.Index != 0 {
+		t.Fatalf("NONE choice=%+v err=%v", got, err)
+	}
+	if _, err := (&Processor{verifier: verifier}).reconcileCandidates(context.Background(), "request", "1", "at", "email", make([]string, 11)); err != nil {
+		t.Fatalf("over-limit candidates must remain reviewable without provider call: %v", err)
+	}
+}

@@ -81,16 +81,16 @@ func TestBoundedJudgmentWorkflowsOnlyHandleFactFreeChoices(t *testing.T) {
 
 func TestHarvestSimpleTransaction(t *testing.T) {
 	tests := []struct {
-		text, amount, date, explicit, merchant string
+		text, amount string
 	}{
-		{text: "catat makan siang 50rb hari ini", amount: "50000", date: "TODAY", merchant: "makan siang"},
-		{text: "jajan gorengan 5k", amount: "5000", date: "TODAY", merchant: "jajan gorengan"},
-		{text: "beli reksa dana 3 juta kemarin", amount: "3000000", date: "YESTERDAY", merchant: "beli reksa dana"},
-		{text: "gaji 8.000.000 tanggal 2026-09-21", amount: "8000000", date: "EXPLICIT", explicit: "2026-09-21", merchant: "gaji tanggal"},
+		{text: "catat makan siang 50rb hari ini", amount: "50000"},
+		{text: "jajan gorengan 5k", amount: "5000"},
+		{text: "beli reksa dana 3 juta kemarin", amount: "3000000"},
+		{text: "barusan beli kopi 25k", amount: "25000"},
 	}
 	for _, test := range tests {
 		got, ok := harvestSimpleTransaction(test.text)
-		if !ok || got.Amount != test.amount || got.DateRef != test.date || got.ExplicitDate != test.explicit || got.Merchant != test.merchant {
+		if !ok || got.Amount != test.amount || got.Text != test.text {
 			t.Fatalf("harvestSimpleTransaction(%q) = %#v, %v", test.text, got, ok)
 		}
 	}

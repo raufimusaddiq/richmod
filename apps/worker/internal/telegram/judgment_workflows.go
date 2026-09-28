@@ -26,7 +26,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		}
 		return true, p.finishPendingAction(ctx, state.HouseholdID, state.Update, state.SourceEventID, choice == "CONFIRM")
 	}
-	if state.HasPendingBatch {
+	if state.HasPendingBatch && state.Route == "PENDING_BATCH_INTERACTION" {
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskPendingBatch, text, "pending_batch", "Choose one bounded action for the pending transaction batch.", map[string]any{"CONFIRM": "record every pending item", "CANCEL": "discard the batch", "UPDATE": "change one or more pending items", "DEFER": "decide later, keep the batch", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
 			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan aksi batch dengan aman. Balas iya, batal, atau jelaskan item yang ingin diubah.")
@@ -147,21 +147,11 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task 
 	return answer.Choice, true, nil
 }
 
-// categoriesOrEmpty never fails a transaction turn on a category query error:
-// the decision simply cannot authorize a category, so Go falls back to review.
-func (p *Processor) categoriesOrEmpty(ctx context.Context, householdID string) []string {
-	categories, err := p.categorySlugs(ctx, householdID)
-	if err != nil {
-		return nil
-	}
-	return categories
-}
-
 type simpleTransactionCandidate struct {
-	Amount       string
-	DateRef      string
-	ExplicitDate string
-	Merchant     string
+	// Amount is an exact syntactic candidate only. Date and merchant meaning is
+	// never established here; intelligence owns it (SAVR §9).
+	Amount string
+	Text   string
 }
 
 // judgmentSupported reports a decided, affirmative Noul (the harvested candidate

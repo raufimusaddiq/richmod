@@ -668,7 +668,7 @@ func (p *Processor) classifyTransferReply(ctx context.Context, sourceEventID, ho
 				break
 			}
 		}
-		if categoryID == "" || extracted.Ambiguous || extracted.Confidence < 0.90 {
+		if categoryID == "" || extracted.Ambiguous {
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Ini pengeluaran. Balas lagi dengan tujuan atau kategori yang lebih jelas, misalnya: renovasi rumah.")
 		}
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "EXPENSE", "CONFIRMED", "EXPENSE", "Transfer dicatat sebagai pengeluaran.", categoryID)

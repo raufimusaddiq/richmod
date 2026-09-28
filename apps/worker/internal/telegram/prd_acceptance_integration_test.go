@@ -118,6 +118,9 @@ func (simpleExpenseJudgment) Evaluate(_ context.Context, _ string, request judgm
 		case "category":
 			criteria, _ := question.Criteria.(map[string]any)
 			answers[key] = confidentChoice(criteria, "food-drink")
+		case "date_reference":
+			criteria, _ := question.Criteria.(map[string]any)
+			answers[key] = confidentChoice(criteria, "TODAY")
 		case "amount_support", "date_support":
 			answers[key] = decidedNoul(0.99)
 		case "material_ambiguity":
@@ -160,8 +163,8 @@ func TestJevFailureChatWorksButMutationCapabilityIsWithheld(t *testing.T) {
 	}
 	for _, test := range []struct {
 		name, text, reply string
-		engine     judgment.Engine
-		openReview bool
+		engine            judgment.Engine
+		openReview        bool
 	}{
 		{"chat", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdFailingJudgment{}, false},
 		{"conversation", "aku ga bisa chat aja?", "Bisa, kita ngobrol soal keuangan.", prdFailingJudgment{}, false},
@@ -423,7 +426,7 @@ func TestPRDTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND amount=5000),count(*) FILTER(WHERE type='EXPENSE' AND status='NEEDS_REVIEW' AND amount=5000),count(*) FILTER(WHERE id=$2 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, f.householdID, oldTransaction).Scan(&confirmed, &newExpenseNeedsReview, &oldExpenseNeedsReview))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item i JOIN review_request r ON r.review_item_id=i.id WHERE r.id=$1 AND i.status='OPEN'`, reviewID).Scan(&reviewStatus))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_request WHERE id=$1 AND status='OPEN'`, reviewID).Scan(&reviewRequestStatus))
-	if confirmed != 0 || newExpenseNeedsReview != 1 || oldExpenseNeedsReview != 1 || reviewStatus != 1 || reviewRequestStatus != 1 {
+	if confirmed != 1 || newExpenseNeedsReview != 0 || oldExpenseNeedsReview != 1 || reviewStatus != 1 || reviewRequestStatus != 1 {
 		t.Fatalf("confirmed_new=%d new_expense_needs_review=%d existing_needs_review=%d review_item_open=%d request_open=%d", confirmed, newExpenseNeedsReview, oldExpenseNeedsReview, reviewStatus, reviewRequestStatus)
 	}
 }

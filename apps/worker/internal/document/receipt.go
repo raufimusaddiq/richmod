@@ -259,10 +259,13 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	if !p.receiptAutoConfirmOff && categoryID == nil && len(candidates) == 0 && validation.DateKnown {
 		// The category is the only bounded residual left. One Jev rescue can turn
 		// a category-only review into a confirmed expense; undecided or failure
-		// keeps the review. A missing date is never rescued here.
+		// keeps the review. A provider outage, though, is infrastructure state:
+		// retry the job instead of creating a human task for a machine failure.
 		if id, provenance := p.receiptCategoryRescue(ctx, sourceID, value, categories); provenance.Decided {
 			categoryID = &id
 			categoryDecision = provenance
+		} else if provenance.ProviderFailed {
+			return fmt.Errorf("receipt category rescue provider failure: %w", errReceiptCategoryProviderUnavailable)
 		} else {
 			categoryDecision = provenance
 		}
@@ -540,7 +543,7 @@ func (p *Processor) receiptCategory(ctx context.Context, householdID string, val
 	if match, err := merchantmemory.Lookup(ctx, p.pool, householdID, value.Merchant); err == nil && match != nil {
 		return &match.CategoryID
 	}
-	if value.CategorySlug == nil || value.CategoryConfidence < 0.90 {
+	if value.CategorySlug == nil {
 		return nil
 	}
 	for _, category := range categories {

@@ -246,7 +246,7 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	// Same receipt evidence arrives again as a new document: the transaction the
 	// first upload wrote is the single strong match, so the second upload links to
 	// it rather than adding a ledger row for the same real event.
-	value.Confidence = .35 // Evidence quality cannot create a duplicate review.
+	value.Confidence = .35  // Evidence quality cannot create a duplicate review.
 	value.Tax = ptr("5000") // Component arithmetic quality cannot duplicate it either.
 	validation.ArithmeticOK = false
 	stamp := time.Now().UnixNano()
@@ -440,22 +440,22 @@ func TestReceiptCategoryUndecidedStaysInCategoryReview(t *testing.T) {
 	}
 }
 
-func TestReceiptCategoryProviderFailureKeepsReview(t *testing.T) {
+func TestReceiptCategoryProviderFailureRetriesWithoutReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt category provider failure")
 	ctx := context.Background()
 	verifier := &stubReceiptFailureVerifier{}
 	value := receiptExtraction{Merchant: "Warung Bu Tini", Total: "25000", Currency: "IDR", Confidence: 0.95}
 	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true}
 	processor := &Processor{pool: fixture.pool, verifier: verifier}
-	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: "second-category", Slug: "food-and-drink"}}); err != nil {
+	if err := processor.persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: "second-category", Slug: "food-and-drink"}}); err == nil {
+		t.Fatal("a provider outage must surface as a retryable error, not a review")
+	}
+	var transactions int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE t.household_id=$1 AND e.source_event_id=$2`, fixture.householdID, fixture.sourceID).Scan(&transactions); err != nil {
 		t.Fatal(err)
 	}
-	var status, outcome string
-	if err := fixture.pool.QueryRow(ctx, `SELECT t.status,d.outcome FROM transaction t JOIN judgment_decision d ON d.source_event_id=$1 AND d.task='RECEIPT_CATEGORY' WHERE t.household_id=$2`, fixture.sourceID, fixture.householdID).Scan(&status, &outcome); err != nil {
-		t.Fatal(err)
-	}
-	if status != "NEEDS_REVIEW" || outcome != "PROVIDER_FAILURE" {
-		t.Fatalf("provider failure must preserve review: status=%s outcome=%s", status, outcome)
+	if transactions != 0 {
+		t.Fatalf("provider outage must not write a canonical row: transactions=%d", transactions)
 	}
 }
 
