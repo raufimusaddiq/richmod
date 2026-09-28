@@ -1557,11 +1557,15 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 		return true, err
 	}
 	defer tx.Rollback(ctx)
-	var itemID, observationID string
+	var itemID, observationID, observationSource string
 	// Bind inside the transaction with the open-liveness guards its siblings use
 	// (unexpired request, FOR UPDATE) so an expired card cannot still resolve and
 	// two concurrent taps cannot both commit (SAVR-06).
-	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_FACTS' AND ri.financial_email_observation_id IS NOT NULL AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, replyID).Scan(&itemID, &observationID)
+	// Select the observation's own source_event_id: `sourceEventID` is the
+	// Telegram callback event, whose id never matches the observation's
+	// source_event_id, so settling it left the provider email stuck at
+	// NEEDS_REVIEW (SAVR-06, Hermes round 5).
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ri.financial_email_observation_id::text,fo.source_event_id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN review_item ri ON ri.id=r.review_item_id JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_FACTS' AND ri.financial_email_observation_id IS NOT NULL AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, replyID).Scan(&itemID, &observationID, &observationSource)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -1593,7 +1597,7 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 	// financialemail's own projection: an email with one APPLIED observation is
 	// PROCESSED even after another observation is ignored, so this lane must not
 	// stamp IGNORED over canonical state already written (SAVR-06, Hermes B3).
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1`, sourceEventID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1`, observationSource); err != nil {
 		return true, err
 	}
 	if err = enqueueReply(ctx, tx, update, "Bukti email finansial diabaikan."); err != nil {

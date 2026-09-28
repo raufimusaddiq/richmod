@@ -13,7 +13,7 @@ import (
 // the token DEBIT_CARD, stamping a merchant-less debit-card notification
 // UNKNOWN_BANK_TEMPLATE instead of flowing to the normal UNKNOWN_MERCHANT
 // review; SAVR-06 replaced that predicate with the material class ruling.
-func TestChannelSupportedAcceptsIndonesianMethodWord(t *testing.T) {
+func TestSemanticGroundedAcceptsIndonesianMethodWord(t *testing.T) {
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"transaction_observed": noul(0.99),
 		"amount_supported":     noul(0.99),

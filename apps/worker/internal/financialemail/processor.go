@@ -412,6 +412,15 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 		return plan, nil
 	}
 	if verified {
+		// Only a ruling that this really is a cash movement can raise the cash-
+		// evidence residual (its facts are cash-evidence dimensions). A ruling of
+		// WEALTH_VALUE/NON_ACTIONABLE on a cash observation is a classification the
+		// household can act on, so it takes the recovery lane rather than an
+		// IGNORE-only card (SAVR-06, Hermes round 5).
+		if !classification.TypeAccepted || classification.ObservationType != "CASH_MOVEMENT" {
+			plan.review = "TRANSFER_CLASSIFICATION"
+			return plan, nil
+		}
 		if residual := classification.cashResidual(); len(residual) > 0 {
 			plan.classification = classification
 			plan.review = "FINANCIAL_EMAIL_FACTS"

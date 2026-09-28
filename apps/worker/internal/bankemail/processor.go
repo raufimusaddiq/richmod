@@ -455,6 +455,14 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 	case conflict:
 		decision.DecisionClass = reviewdec.ClassEvidenceConflict
 		decision.Consequence = reviewdec.IndependentEvidenceConflict
+		// The disputed value is evidence-supported but contested, so it must not
+		// render as a known fact the household would prefill. Move it to proposed
+		// facts, the same known→proposed move the base decision made (SAVR-06,
+		// Hermes round 5).
+		if disputed, ok := decision.KnownFacts[fact]; ok {
+			decision.ProposedFacts[fact] = disputed
+			delete(decision.KnownFacts, fact)
+		}
 	case fact == "transaction_ambiguity":
 		decision.Consequence = reviewdec.CanonicalAmbiguity
 	default:

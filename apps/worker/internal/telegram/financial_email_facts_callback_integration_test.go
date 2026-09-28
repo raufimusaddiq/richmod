@@ -62,4 +62,12 @@ func TestFinancialEmailFactsCallbackCompletesReview(t *testing.T) {
 	if itemStatus != "RESOLVED" || requestStatus != "RESOLVED" || observationStatus != "IGNORED" {
 		t.Fatalf("the facts card must complete on review:ignore: item=%s request=%s observation=%s", itemStatus, requestStatus, observationStatus)
 	}
+	// The lane must settle the provider email's own source event, not the
+	// Telegram callback event it was loaded from. Before the fix the CASE always
+	// fell to ELSE and the email stayed NEEDS_REVIEW (SAVR-06, Hermes round 5).
+	var emailStatus string
+	must(pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceID).Scan(&emailStatus))
+	if emailStatus == "NEEDS_REVIEW" {
+		t.Fatalf("the provider email event must settle on ignore, got %s", emailStatus)
+	}
 }

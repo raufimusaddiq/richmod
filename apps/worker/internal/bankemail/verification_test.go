@@ -110,6 +110,18 @@ func TestAmountConflictStillBlocks(t *testing.T) {
 	if verification.supported() {
 		t.Fatal("an amount conflict must block confirmation")
 	}
+	// The disputed amount is evidence-supported but contested, so it must not
+	// surface as a known fact the Web card would prefill (SAVR-06, Hermes round 5).
+	decision := verificationReviewDecision("household", "source", testExtraction(), verification)
+	if _, known := decision.KnownFacts["amount_idr"]; known {
+		t.Fatalf("a conflicted amount must not stay a known fact: %+v", decision.KnownFacts)
+	}
+	if decision.ProposedFacts["amount_idr"] == nil {
+		t.Fatalf("a conflicted amount must be carried as a proposed fact: %+v", decision.ProposedFacts)
+	}
+	if decision.DecisionClass != reviewdec.ClassEvidenceConflict || decision.Consequence != reviewdec.IndependentEvidenceConflict {
+		t.Fatalf("an amount conflict must keep its conflict class/consequence: %+v", decision)
+	}
 }
 
 // 4) A material failure keeps every accepted fact: the review's known facts
