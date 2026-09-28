@@ -160,15 +160,25 @@ Environment. Observed after the run:
 - migrations already at version `72` (`goose: no migrations to run`);
 - `GET /healthz` and `GET /readyz` both returned HTTP `200`.
 
-**Owner-household observation: PENDING (real traffic only).**
-UISC-03 checks require natural owner-household use after this deploy:
-ordinary Telegram chat answers naturally with no keyword-gated fallback and no
-review from route uncertainty or provider outage; email-origin review
-projection reaches the household recipient; Operations reports new metrics
-without inventing history; no SAVR regression adds unnecessary human work;
-kill-switch rollback stays available. No synthetic or seeded financial data is
-used. Source families not naturally encountered are recorded as
-`PRODUCTION_UNOBSERVED` rather than blocking forever.
+**Owner-household observation: PARTIAL.** Aggregate-only checks on 2026-09-29,
+after deployment, observed eight Telegram user turns, seven completed
+`PROCESS_TELEGRAM_TEXT` jobs and seven successful send jobs. Of the six
+post-deploy undecided route outcomes, all six used `JEV_THEN_GENERATIVE`;
+two decisive routes used `JEV_ONLY`. One native READ call
+(`query_spending`) occurred. There were zero post-deploy review items,
+zero `judgment_decision` rows, no "belum cukup jelas" / unavailable-service
+canned response, and zero RHICE product telemetry events. One generative call
+timed out; its job retried and succeeded, without creating review work. Health
+and readiness returned HTTP 200; worker logs had no persistent error.
 
-**Closure gate:** UISC-03 acceptance and UISC-04 freeze remain blocked until
-the observation above is recorded. Do not start CEU.
+This verifies real ordinary Telegram fallthrough, a canonical READ tool, and
+no human work from route uncertainty in the observed turns. It does **not**
+prove provider outage behavior, Jev-authorized mutation failure, fast-path
+call-budget comparison, correction-rate stability, or email behavior. No
+post-deploy email event was observed, so the Jago/Bibit production rechecks and
+email-origin review projection remain `PRODUCTION_UNOBSERVED`. No synthetic
+or seeded financial data was used.
+
+**Closure gate:** Telegram observation is partial; UISC-03 acceptance and
+UISC-04 freeze remain blocked until remaining production checks and email
+observation are recorded. Do not start CEU.
