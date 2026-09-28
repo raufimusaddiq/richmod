@@ -109,7 +109,10 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 	if strings.EqualFold(v.Kind, "CASH_MOVEMENT") || pointerValue(v.MovementType) != "" {
 		questions["movement_type"] = judgment.Question{Type: "choice", Instructions: "Choose the movement this email describes. Use OTHER_OR_UNCLEAR when the wording does not support one.", Criteria: judgment.ChoiceCriteria(movementTypeCriteria)}
 	}
-	ctx = judgment.WithPhaseMetadata(ctx, "EVIDENCE_SUPPORT", ProviderEmailClassificationPolicyVersion)
+	// This is an evidence check over extracted prose, not a re-decision of a
+	// semantic dimension, so the accepted set is explicitly empty. It must never
+	// read as a semantic re-decision (SAVR closure UISC-02B).
+	ctx = judgment.WithPhaseMetadata(ctx, "EVIDENCE_SUPPORT", ProviderEmailClassificationPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, requestID, judgment.Request{State: state, Questions: questions})
 	if err != nil {
 		return ObservationClassification{}, false, err

@@ -133,8 +133,10 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.ExplicitInputs != 0 || aggregate.TypedFields != 0 {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
-	// A fresh household has no full telemetry window yet.
-	if len(aggregate.Coverage) != 4 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
+	// A fresh household has no full telemetry window yet. The three SAVR closure
+	// metrics are now measured, so only the historical-window gap remains a
+	// permanent coverage name; unknown per-metric history is reported separately.
+	if len(aggregate.Coverage) != 1 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
 		t.Fatalf("unmeasurable section 22 signals must stay named: %+v", aggregate.Coverage)
 	}
 

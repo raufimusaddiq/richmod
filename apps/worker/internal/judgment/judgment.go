@@ -176,10 +176,17 @@ type sourceEventContextKey struct{}
 type PhaseMetadata struct {
 	Purpose       string
 	PolicyVersion string
+	// Nil is unknown (including historical phases); an explicit empty slice
+	// means the caller knows no semantic dimensions were accepted at entry.
+	AcceptedDimensions []string
 }
 
-func WithPhaseMetadata(ctx context.Context, purpose, policyVersion string) context.Context {
-	return context.WithValue(ctx, phaseContextKey{}, PhaseMetadata{Purpose: purpose, PolicyVersion: policyVersion})
+func WithPhaseMetadata(ctx context.Context, purpose, policyVersion string, accepted ...[]string) context.Context {
+	phase := PhaseMetadata{Purpose: purpose, PolicyVersion: policyVersion}
+	if len(accepted) != 0 {
+		phase.AcceptedDimensions = accepted[0]
+	}
+	return context.WithValue(ctx, phaseContextKey{}, phase)
 }
 
 func PhaseMetadataFromContext(ctx context.Context) PhaseMetadata {

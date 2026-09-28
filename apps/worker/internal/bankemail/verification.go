@@ -116,7 +116,9 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 	if counterparty != "" {
 		state["counterparty"] = "<untrusted_counterparty>" + counterparty + "</untrusted_counterparty>"
 	}
-	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", BankEmailVerificationPolicyVersion)
+	// Category is the single open semantic dimension; this phase does not
+	// re-decide an already accepted category (SAVR closure UISC-02B).
+	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", BankEmailVerificationPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
 		State: state,
 		Questions: map[string]judgment.Question{

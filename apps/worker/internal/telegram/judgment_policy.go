@@ -230,13 +230,21 @@ func metricCtx(ctx context.Context) context.Context {
 // through this wrapper so latency, status, and error class are recorded per
 // decision task without touching prompt or answer content (PRD §17).
 func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID string, request judgment.Request) (judgment.Result, error) {
+	return p.evaluateWithAccepted(ctx, task, requestID, request, nil)
+}
+
+// evaluateWithAccepted is evaluate for a phase that knows which semantic
+// dimensions were already accepted at entry (nil = unknown/uninstrumented). It
+// exists so the semantic-re-decision metric can be derived honestly instead of
+// inferring acceptance from the answer set (SAVR closure UISC-02B).
+func (p *Processor) evaluateWithAccepted(ctx context.Context, task judgmentTask, requestID string, request judgment.Request, accepted []string) (judgment.Result, error) {
 	purpose := phasePurpose(string(task))
 	if task == judgmentTaskTransaction && len(request.Questions) == 1 {
 		if _, ok := request.Questions["category"]; ok {
 			purpose = "RESIDUAL_CATEGORY"
 		}
 	}
-	ctx = judgment.WithPhaseMetadata(ctx, purpose, judgmentPolicyVersion)
+	ctx = judgment.WithPhaseMetadata(ctx, purpose, judgmentPolicyVersion, accepted)
 	started := time.Now()
 	if p.judgment == nil {
 		// Unconfigured judgment plane. Callers own the fail-closed policy; this
