@@ -58,7 +58,7 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// chooser is the whole interaction; merchant enrichment is optional.
 		return "AWAITING_CATEGORY", context, "category"
 	case contains(decision.MissingFacts, "transfer_relationship"):
-		return "AWAITING_DETAIL", context, "transfer"
+		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "transfer"
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
 	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):

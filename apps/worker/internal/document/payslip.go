@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/big"
 	"regexp"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
@@ -130,7 +130,7 @@ func (p *Processor) ProcessPayslip(ctx context.Context, documentID string) error
 	if err != nil {
 		return p.persistInvalidPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, err)
 	}
-	autoConfirm := result.Confidence >= 0.95 && result.PayDate != nil && arithmeticOK
+	autoConfirm := result.PayDate != nil
 	period, _ := parsePayslipPeriod(result.Period) // The validator has already accepted this period.
 	return p.persistPayslip(ctx, documentID, householdID, sourceID, result, metadata.Model, transactionAt, period.Format("2006-01"), autoConfirm, arithmeticOK)
 }
@@ -333,54 +333,25 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return err
 	}
 	defer tx.Rollback(ctx)
-	status, proposalStatus, documentStatus, sourceStatus := "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW"
-	payDate := transactionAt.In(jakarta()).Format("2006-01-02")
 	var hasPrimary bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, householdID).Scan(&hasPrimary); err != nil {
 		return err
 	}
-	reviewWithoutTransaction := !hasPrimary || value.PayDate == nil
 	reviewType := "PAYSLIP_CONFIRMATION"
 	if value.PayDate == nil {
 		reviewType = "MISSING_PAY_DATE"
-	}
-	if autoConfirm {
-		status, proposalStatus, documentStatus, sourceStatus = "CONFIRMED", "ACCEPTED", "EXTRACTED", "PROCESSED"
-	}
-	if reviewWithoutTransaction {
-		status, proposalStatus, documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW"
-	}
-	var salaryEventID string
-	if autoConfirm {
-		normalized := strings.ToLower(strings.Join(strings.Fields(value.Employer), " "))
-		var duplicate bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND se.payroll_period=$2::date AND ss.normalized_employer=$3 AND se.status='CONFIRMED')`, householdID, period+"-01", normalized).Scan(&duplicate); err != nil {
-			return err
-		}
-		if duplicate {
-			if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, documentID); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='payslip-deduplicated',parser_version='1' WHERE id=$1`, sourceID); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DEDUP_PAYSLIP_SALARY','source_event',$2,jsonb_build_object('period',$3::text,'employer',$4::text))`, householdID, sourceID, value.Period, value.Employer); err != nil {
-				return err
-			}
-			return tx.Commit(ctx)
-		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'PAYSLIP','1',$2::jsonb,$3,$4,true) ON CONFLICT DO NOTHING`, documentID, string(output), value.Confidence, model); err != nil {
 		return err
 	}
 	var proposalID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,counterparty_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',$3,'IDR',$4,NULLIF($5,''),'Penghasilan dari slip gaji',$6,$7,jsonb_build_object('document_id',$8::uuid,'period',$9::text,'period_raw',$10::text,'arithmetic_ok',$11::boolean)) RETURNING id`, householdID, sourceID, value.NetPay, transactionAt, value.Employer, value.Confidence, proposalStatus, documentID, period, value.Period, arithmeticOK).Scan(&proposalID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,counterparty_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'INCOME',$3,'IDR',$4,NULLIF($5,''),'Penghasilan dari slip gaji',$6,'NEEDS_REVIEW',jsonb_build_object('document_id',$7::uuid,'period',$8::text,'period_raw',$9::text,'arithmetic_ok',$10::boolean)) RETURNING id`, householdID, sourceID, value.NetPay, transactionAt, value.Employer, value.Confidence, documentID, period, value.Period, arithmeticOK).Scan(&proposalID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return err
 	}
-	if reviewWithoutTransaction {
+	if !hasPrimary || value.PayDate == nil {
 		decision, ok := reviewdec.Preset(reviewType, "proposal", proposalID)
 		if !ok {
 			return fmt.Errorf("no review decision preset for %s", reviewType)
@@ -392,10 +363,14 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		if value.Period != "" {
 			decision.KnownFacts["payroll_period"] = value.Period
 		}
+		if value.PayDate != nil {
+			decision.KnownFacts["transaction_at"] = transactionAt.Format(time.RFC3339)
+		}
+		decision.Provenance["arithmeticOK"] = arithmeticOK
 		decision = configurePayslipReviewDecision(decision, reviewType, hasPrimary)
-		encoded, encodeErr := decision.JSON()
-		if encodeErr != nil {
-			return encodeErr
+		encoded, err := decision.JSON()
+		if err != nil {
+			return err
 		}
 		var reviewItemID string
 		if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,proposal_id,source_event_id,document_id,review_type,status,decision) VALUES($1,$2,$3,$4,$5,'OPEN',$6::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, proposalID, sourceID, documentID, reviewType, string(encoded)).Scan(&reviewItemID); err != nil {
@@ -420,91 +395,13 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		}
 		return tx.Commit(ctx)
 	}
-	var transactionID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,'INCOME',$2,$3,'IDR',$4,'Penghasilan dari slip gaji',NULLIF($5,''),$6,$6,CASE WHEN $2='CONFIRMED' THEN now() END,CASE WHEN $2='CONFIRMED' AND $7 THEN now() END) RETURNING id`, householdID, status, value.NetPay, transactionAt, value.Employer, value.Confidence, autoConfirm && !reviewWithoutTransaction).Scan(&transactionID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid))`, transactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE document SET status=$2,updated_at=now() WHERE id=$1`, documentID, documentStatus); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceID, sourceStatus); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_PAYSLIP','transaction',$2,jsonb_build_object('status',$3::text,'document_id',$4::uuid,'deductions_posted_as_expense',false))`, householdID, transactionID, documentStatus, documentID); err != nil {
-		return err
-	}
-	if autoConfirm {
-		normalized := strings.ToLower(strings.Join(strings.Fields(value.Employer), " "))
-		var sourceType string
-		var telegramUser, telegramChat int64
-		_ = tx.QueryRow(ctx, `SELECT source_type,COALESCE((payload_json->'message'->'from'->>'id')::bigint,0),COALESCE((payload_json->'message'->'chat'->>'id')::bigint,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1`, sourceID).Scan(&sourceType, &telegramUser, &telegramChat)
-		var hasPrimary bool
-		_ = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, householdID).Scan(&hasPrimary)
-		if sourceType == "TELEGRAM_IMAGE" && !hasPrimary && telegramUser != 0 && telegramChat != 0 {
-			msg := "🧾 Slip gaji terbaca\n\nPenerbit: " + value.Employer + "\nGaji bersih: Rp" + workerTelegram.FormatIDR(value.NetPay) + "\n\nPilih: jadikan gaji utama, catat sebagai pemasukan biasa, atau abaikan."
-			_, _ = tx.Exec(ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date) VALUES($1,$2,$3,$4,$5,$6::date,$7::date)`, householdID, telegramUser, telegramChat, transactionID, value.Employer, period+"-01", payDate)
-			_, _ = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text',$2::text))`, telegramChat, msg)
-		}
-		if sourceType == "TELEGRAM_IMAGE" && !hasPrimary && telegramUser != 0 && telegramChat != 0 {
-			return tx.Commit(ctx)
-		}
-		var salarySourceID string
-		if err := tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) SELECT $1,hm.user_id,$2,$3,NOT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary) FROM household_member hm WHERE hm.household_id=$1 AND hm.role='OWNER' ORDER BY hm.created_at LIMIT 1 ON CONFLICT (household_id,normalized_employer) WHERE active DO UPDATE SET employer=excluded.employer,updated_at=now() RETURNING id`, householdID, value.Employer, normalized).Scan(&salarySourceID); err != nil {
-			return err
-		}
-		err = tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,$5,'IDR',$6,'CONFIRMED',$7) ON CONFLICT (salary_source_id,payroll_period) DO NOTHING RETURNING id`, salarySourceID, householdID, period+"-01", payDate, value.NetPay, transactionID, sourceID).Scan(&salaryEventID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			var canonicalTransactionID string
-			if err = tx.QueryRow(ctx, `SELECT id::text,transaction_id::text FROM salary_event WHERE salary_source_id=$1 AND payroll_period=$2::date AND status='CONFIRMED' FOR UPDATE`, salarySourceID, period+"-01").Scan(&salaryEventID, &canonicalTransactionID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `DELETE FROM transaction_evidence WHERE transaction_id=$1`, transactionID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `DELETE FROM transaction WHERE id=$1`, transactionID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',metadata_json=metadata_json||jsonb_build_object('duplicate_of_transaction_id',$2::uuid),updated_at=now() WHERE id=$1`, proposalID, canonicalTransactionID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'duplicate',true)) ON CONFLICT DO NOTHING`, canonicalTransactionID, sourceID, value.Confidence, proposalID, documentID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `DELETE FROM audit_log WHERE entity_type='transaction' AND entity_id=$1 AND action='CREATE_FROM_PAYSLIP'`, transactionID); err != nil {
-				return err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DEDUP_PAYSLIP_SALARY','source_event',$2,jsonb_build_object('period',$3::text,'employer',$4::text,'canonical_transaction_id',$5::uuid))`, householdID, sourceID, value.Period, value.Employer, canonicalTransactionID); err != nil {
-				return err
-			}
-			return tx.Commit(ctx)
-		}
-		if err != nil {
-			return err
-		}
-	}
 	if !autoConfirm {
-		var chatID int64
-		if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err == nil {
-			message := "🟡 Slip gaji perlu ditinjau\n\nPenerbit: " + value.Employer + "\nGaji bersih: Rp" + workerTelegram.FormatIDR(value.NetPay) + "\n\nBalas pesan ini untuk menjelaskan transaksi ini."
-			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, "MANUAL_CORRECTION", chatID, 0, message); err != nil {
-				return err
-			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
+		return fmt.Errorf("payslip needs material review")
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if _, err := reviewdomain.FinalizePayslip(ctx, tx, reviewdomain.PayslipFinalization{HouseholdID: householdID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, Choice: "HOUSEHOLD_POLICY", Auto: true}); err != nil {
 		return err
 	}
-	if autoConfirm && salaryEventID != "" {
-		if _, enqueueErr := p.pool.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5 WHERE EXISTS(SELECT 1 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.id=$2 AND se.household_id=$1 AND se.status='CONFIRMED' AND ss.active AND ss.is_primary) ON CONFLICT DO NOTHING`, householdID, salaryEventID); enqueueErr != nil {
-			slog.ErrorContext(ctx, "salary committed but residual review enqueue failed", "salary_event_id", salaryEventID, "household_id", householdID, "error", enqueueErr)
-		}
-	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType string, hasPrimary bool) reviewdec.Decision {

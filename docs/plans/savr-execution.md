@@ -421,6 +421,17 @@ hint-only, or machine-failure review patterns into the salary finalizer.
 
 This is the most important domain migration.
 
+Implementation slice (2026-09-28): an accepted payslip with a known pay date
+and an existing primary salary uses the same Go salary finalizer as a resolved
+payslip review. Generic extraction confidence and an unreconciled payroll
+breakdown are quality signals, not human work. Missing date and first-source
+policy stay exact payslip reviews; accepted amount, employer, period, and date
+survive the review. The salary finalizer writes one income transaction, payslip
+evidence, salary source/event, cycle job for a primary salary, and audit in one
+database transaction; duplicate period/employer evidence enriches the existing
+salary transaction only if amount and pay date also agree. A material conflict
+fails closed. Generic MANUAL_CORRECTION is not used for this lane.
+
 Required architecture:
 
 ```text

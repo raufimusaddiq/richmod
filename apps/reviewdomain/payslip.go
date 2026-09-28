@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,119 @@ type PayslipCommand struct {
 type PayslipResult struct {
 	TransactionID string
 	Choice        string
+}
+
+// FinalizePayslip records the same transaction, evidence, salary event and
+// cycle effect for an autonomous slip and a household-resolved slip.
+type PayslipFinalization struct {
+	HouseholdID, UserID, ProposalID, SourceEventID, DocumentID, Choice string
+	Auto                                                               bool
+}
+
+func FinalizePayslip(ctx context.Context, tx pgx.Tx, cmd PayslipFinalization) (PayslipResult, error) {
+	var out PayslipResult
+	if cmd.Choice != "HOUSEHOLD_POLICY" && cmd.Choice != "PRIMARY_SALARY" && cmd.Choice != "ORDINARY_INCOME" {
+		return out, ErrPayslipReviewInvalid
+	}
+	var amount, employer, period, currency, proposedType, status, documentType, metadataDocumentID string
+	var at time.Time
+	var confidence float64
+	if err := tx.QueryRow(ctx, `SELECT p.amount::text,COALESCE(p.counterparty_raw,''),COALESCE(p.metadata_json->>'period',''),p.transaction_at,p.confidence,p.currency,p.proposed_type,p.proposal_status,COALESCE(d.document_type,''),COALESCE(p.metadata_json->>'document_id','')
+		FROM transaction_proposal p JOIN source_event s ON s.id=p.source_event_id AND s.household_id=p.household_id
+		LEFT JOIN document d ON d.id=$4::uuid AND d.household_id=p.household_id AND d.source_event_id=p.source_event_id
+		WHERE p.id=$1 AND p.household_id=$2 AND p.source_event_id=$3 FOR UPDATE OF p`, cmd.ProposalID, cmd.HouseholdID, cmd.SourceEventID, nullableUUID(cmd.DocumentID)).Scan(&amount, &employer, &period, &at, &confidence, &currency, &proposedType, &status, &documentType, &metadataDocumentID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return out, ErrPayslipReviewInvalid
+		}
+		return out, err
+	}
+	if status != "NEEDS_REVIEW" || proposedType != "INCOME" || currency != "IDR" || employer == "" || period == "" || at.IsZero() || (cmd.DocumentID != "" && documentType != "PAYSLIP") || (metadataDocumentID != "" && metadataDocumentID != cmd.DocumentID) {
+		return out, ErrPayslipReviewInvalid
+	}
+	// ponytail: one household salary lock; per-employer locks if salary throughput grows.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text),0)`, cmd.HouseholdID); err != nil {
+		return out, err
+	}
+	var hasPrimary bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM salary_source WHERE household_id=$1 AND active AND is_primary)`, cmd.HouseholdID).Scan(&hasPrimary); err != nil {
+		return out, err
+	}
+	if (cmd.Choice == "HOUSEHOLD_POLICY" && !hasPrimary) || (cmd.Choice == "PRIMARY_SALARY" && hasPrimary) {
+		return out, ErrPayslipReviewInvalid
+	}
+	if cmd.Choice != "ORDINARY_INCOME" {
+		normalized := strings.ToLower(cleanText(employer, 160))
+		var existing string
+		var sameFacts bool
+		err := tx.QueryRow(ctx, `SELECT se.transaction_id::text,(se.net_pay=$4::numeric AND se.pay_date=($5::timestamptz AT TIME ZONE 'Asia/Jakarta')::date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND se.payroll_period=$2::date AND ss.normalized_employer=$3 AND se.status='CONFIRMED'`, cmd.HouseholdID, period+"-01", normalized, amount, at).Scan(&existing, &sameFacts)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return out, err
+		}
+		if existing != "" {
+			// A different amount or pay date is a material independent-evidence
+			// conflict, never a safe deduplication.
+			if !sameFacts {
+				return out, ErrPayslipReviewInvalid
+			}
+			out.TransactionID, out.Choice = existing, cmd.Choice
+			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_strip_nulls(jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'duplicate',true))) ON CONFLICT DO NOTHING`, existing, cmd.SourceEventID, confidence, cmd.ProposalID, nullableUUID(cmd.DocumentID)); err != nil {
+				return out, err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='REJECTED',metadata_json=metadata_json||jsonb_build_object('duplicate_of_transaction_id',$2::uuid),updated_at=now() WHERE id=$1`, cmd.ProposalID, existing); err != nil {
+				return out, err
+			}
+			if err := completePayslipSource(ctx, tx, cmd); err != nil {
+				return out, err
+			}
+			_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','DEDUP_PAYSLIP_SALARY','source_event',$2,jsonb_build_object('period',$3::text,'employer',$4::text,'canonical_transaction_id',$5::uuid))`, cmd.HouseholdID, cmd.SourceEventID, period, employer, existing)
+			return out, err
+		}
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at,auto_confirmed_at)
+		VALUES($1,'INCOME','CONFIRMED',$2,'IDR',$3,'Penghasilan dari slip gaji',NULLIF($4,''),$5,$5,$6,now(),CASE WHEN $7 THEN now() END) RETURNING id`, cmd.HouseholdID, amount, at, employer, confidence, nullableUUID(cmd.UserID), cmd.Auto).Scan(&out.TransactionID); err != nil {
+		return out, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',$3,jsonb_strip_nulls(jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid)))`, out.TransactionID, cmd.SourceEventID, confidence, cmd.ProposalID, nullableUUID(cmd.DocumentID)); err != nil {
+		return out, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',updated_at=now() WHERE id=$1`, cmd.ProposalID); err != nil {
+		return out, err
+	}
+	if err := completePayslipSource(ctx, tx, cmd); err != nil {
+		return out, err
+	}
+	out.Choice = cmd.Choice
+	if cmd.Choice != "ORDINARY_INCOME" {
+		salary, err := RecordSalaryEvent(ctx, tx, SalaryCommand{HouseholdID: cmd.HouseholdID, UserID: cmd.UserID, Employer: employer, Period: period, PayDate: at, NetPay: amount, Transaction: out.TransactionID, SourceEvent: cmd.SourceEventID, MakePrimary: cmd.Choice == "PRIMARY_SALARY"})
+		if err != nil {
+			return PayslipResult{}, err
+		}
+		if salary.SalaryEventID == "" {
+			return PayslipResult{}, ErrPayslipReviewInvalid
+		}
+		if salary.Primary {
+			if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5) ON CONFLICT DO NOTHING`, cmd.HouseholdID, salary.SalaryEventID); err != nil {
+				return PayslipResult{}, err
+			}
+		}
+	}
+	actor := "USER"
+	if cmd.Auto {
+		actor = "WORKER"
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'CREATE_FROM_PAYSLIP','transaction',$4,jsonb_build_object('document_id',$5::uuid,'deductions_posted_as_expense',false))`, cmd.HouseholdID, actor, nullableUUID(cmd.UserID), out.TransactionID, nullableUUID(cmd.DocumentID))
+	return out, err
+}
+
+func completePayslipSource(ctx context.Context, tx pgx.Tx, cmd PayslipFinalization) error {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1 AND household_id=$2`, cmd.SourceEventID, cmd.HouseholdID); err != nil {
+		return err
+	}
+	if cmd.DocumentID != "" {
+		_, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1 AND household_id=$2 AND source_event_id=$3 AND document_type='PAYSLIP'`, cmd.DocumentID, cmd.HouseholdID, cmd.SourceEventID)
+		return err
+	}
+	return nil
 }
 
 // ResolvePayslipProposal owns the canonical proposal-to-income mutation. Surface
@@ -124,54 +238,14 @@ func ResolvePayslipProposal(ctx context.Context, tx pgx.Tx, cmd PayslipCommand) 
 	} else {
 		return out, ErrPayslipReviewInvalid
 	}
-	var amount, employer, period string
-	var at time.Time
-	if err := tx.QueryRow(ctx, `SELECT amount::text,COALESCE(counterparty_raw,''),COALESCE(metadata_json->>'period',''),transaction_at
-		FROM transaction_proposal WHERE id=$1 AND household_id=$2 AND proposal_status='NEEDS_REVIEW' FOR UPDATE`, cmd.ProposalID, cmd.HouseholdID).Scan(&amount, &employer, &period, &at); err != nil {
-		return out, ErrPayslipReviewInvalid
-	}
 	if cmd.PayDate != nil {
-		at = *cmd.PayDate
-	}
-	if cmd.Action == "SET_PAY_DATE" && cmd.PayDate == nil {
-		return out, ErrPayslipReviewInvalid
-	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2,updated_at=now() WHERE id=$1`, cmd.ProposalID, at); err != nil {
-		return out, err
-	}
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,counterparty_name,created_by_user_id,confirmed_at)
-		VALUES($1,'INCOME','CONFIRMED',$2,'IDR',$3,'Penghasilan dari slip gaji',NULLIF($4,''),$5,now()) RETURNING id`, cmd.HouseholdID, amount, at, employer, cmd.UserID).Scan(&out.TransactionID); err != nil {
-		return out, err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'PAYSLIP_IMAGE',jsonb_strip_nulls(jsonb_build_object('proposal_id',$3::uuid,'document_id',$4::uuid)))`, out.TransactionID, cmd.SourceEventID, cmd.ProposalID, nullableUUID(cmd.DocumentID)); err != nil {
-		return out, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET proposal_status='ACCEPTED',updated_at=now() WHERE id=$1`, cmd.ProposalID); err != nil {
-		return out, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, cmd.SourceEventID); err != nil {
-		return out, err
-	}
-	if cmd.DocumentID != "" {
-		if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, cmd.DocumentID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ProposalID, *cmd.PayDate, cmd.HouseholdID); err != nil {
 			return out, err
 		}
 	}
-	out.Choice = cmd.Choice
-	if out.Choice == "PRIMARY_SALARY" || out.Choice == "HOUSEHOLD_POLICY" {
-		salary, err := RecordSalaryEvent(ctx, tx, SalaryCommand{HouseholdID: cmd.HouseholdID, UserID: cmd.UserID, Employer: employer, Period: period, PayDate: at, NetPay: amount, Transaction: out.TransactionID, SourceEvent: cmd.SourceEventID, MakePrimary: out.Choice == "PRIMARY_SALARY"})
-		if err != nil {
-			return PayslipResult{}, err
-		}
-		// A confirmed primary/household-policy salary opens cycle residual
-		// reconciliation. Enqueued in the same tx so it commits with the salary and
-		// every surface (Web and both Telegram lanes) gets it from one place; the
-		// worker catch-up sweep repairs a lost enqueue if this ever fails.
-		if salary.SalaryEventID != "" {
-			if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5) ON CONFLICT DO NOTHING`, cmd.HouseholdID, salary.SalaryEventID); err != nil {
-				return PayslipResult{}, err
-			}
-		}
+	out, err := FinalizePayslip(ctx, tx, PayslipFinalization{HouseholdID: cmd.HouseholdID, UserID: cmd.UserID, ProposalID: cmd.ProposalID, SourceEventID: cmd.SourceEventID, DocumentID: cmd.DocumentID, Choice: cmd.Choice})
+	if err != nil {
+		return PayslipResult{}, err
 	}
 	resolutionValues := []byte(`{}`)
 	if cmd.Action == "SET_PAY_DATE" {
