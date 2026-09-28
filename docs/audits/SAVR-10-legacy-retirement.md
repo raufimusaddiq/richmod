@@ -57,7 +57,7 @@ human input is policy or irreducible fact only
 
 ## 5. Open items before a full freeze
 
-- SAVR-09 deployed canary (disposable household + user-approved deployment);
+- SAVR-09 live canary in a disposable household (deployment approved and completed 2026-09-28);
 - the three Operations coverage gaps
   (`validator_induced_review_consequences`, `residual_fidelity_ground_truth`,
   `semantic_redecision_accepted_fact_provenance`);

@@ -26,7 +26,7 @@ Status is based on exit criteria, not PR names.
 | SAVR-06 | 🟡 merged, reconciliation required | PR #202 fixed bank payment-mechanism materiality and provider residual fidelity, but post-merge audit still finds cross-source hard-gate debt listed below |
 | SAVR-07 | ✅ delivered (commit `c70864f`) | payslip domain continuity; both paths share `FinalizePayslip` |
 | SAVR-08 | 🟡 audited, fixes delivered | payslip machine failure fixed; follow-up S08-09 removes receipt component-quality-only review; UIR defect S08-08 tracked separately |
-| SAVR-09 | 🟡 corpus-complete, canary blocked | corpus measured; three metrics remain `notYetMeasurable`; deployed canary needs a disposable household + user-approved deployment |
+| SAVR-09 | 🟡 corpus-complete, canary pending | deployed 2026-09-28; three metrics remain `notYetMeasurable`; live canary needs a disposable household |
 | SAVR-10 | 🟡 partial | corpus-proven removals done; freeze conditional on the SAVR-09 canary |
 
 # Post-SAVR-06 reconciliation gate
@@ -514,8 +514,9 @@ No unexplained semantic re-decision remains in active source families.
 
 **Result (this branch):** corpus measured; the runnable evidence and the metric
 coverage gaps are recorded in `docs/audits/SAVR-09-corpus-and-metrics.md`. The
-deployed canary did **not** run — it needs a disposable household and
-user-approved deployment. Three metrics (`Validator-Induced Human Review Rate`,
+deployed canary did **not** run — the 2026-09-28 approved production deployment
+still needs a disposable household for the live canary. Three metrics
+(`Validator-Induced Human Review Rate`,
 `Residual Fidelity Rate`, `Semantic Re-decision Rate`) stay explicitly
 `notYetMeasurable` rather than reported as zero.
 

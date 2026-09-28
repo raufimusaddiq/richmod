@@ -1,8 +1,8 @@
 # SAVR-09 — Corpus, Canary, and Product Metrics
 
-**Status:** corpus measured on this branch; **canary not run — blocked on a
-disposable household and user-approved deployment**  
-**Date:** 2026-09-28  
+**Status:** corpus measured; production deployed at `64a6195` on 2026-09-28;
+**canary not run — disposable household still needed**
+**Date:** 2026-09-28
 **Method:** disposable PostgreSQL 17.4, goose to migration 71, then
 `go test ./...` and `go vet ./...` in `apps/api` and `apps/worker`.
 
@@ -60,9 +60,9 @@ reported as zero. No new telemetry table was added: the existing
 `product_telemetry_event`, `judgment_decision`, and
 `intelligence_phase_telemetry` are the sources.
 
-**Not claimed:** a deployed before/after canary. No production run occurred, so
-"SAVR improves interaction/semantic efficiency without worsening correction
-rate" is *not* proven by this document. What the corpus proves is narrower: the
+**Not claimed:** a deployed before/after canary. Deployment alone does not prove
+that SAVR improves interaction/semantic efficiency without worsening correction
+rate. What the corpus proves is narrower: the
 changed paths no longer create human work for machine-only failures, and known
 facts survive validation.
 
@@ -72,13 +72,12 @@ facts survive validation.
 
 The SAVR-09 exit criterion (a measured before/after correction-rate canary)
 requires a deployed build against a **disposable household** with live
-Telegram/email traffic. The sprint runbook forbids seeding test financial data
-into the single production household, and deployment needs explicit user
-approval, so the canary is recorded as an open, blocked exit item rather than
-claimed.
+Telegram/email traffic. Production was deployed with user approval on
+2026-09-28; the canary remains open until a separate household and traffic
+are available. Do not seed test financial data into the real household.
 
 Four existing kill switches let any bounded auto-confirm behavior be reverted
-without a deploy (all off by default and staying off):
+without a deploy (all on by default; only an explicit negative value disables one):
 
 | Switch | Governs |
 | --- | --- |
