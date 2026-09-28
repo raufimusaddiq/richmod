@@ -1,7 +1,7 @@
 # SAVR-09 — Corpus, Canary, and Product Metrics
 
 **Status:** corpus measured; production deployed at `64a6195` on 2026-09-28;
-**canary not run — disposable household still needed**
+**product observation open — the real owner household is the canary**
 
 **Date:** 2026-09-28
 **Method:** disposable PostgreSQL 17.4, goose to migration 71, then
@@ -52,14 +52,15 @@ the only authoritative list.
 | Known Fact Re-ask Rate | Measured — from ReviewDecision `knownFacts`/`missingFacts`; only contracts carrying `missingFacts` are counted |
 | Calls per event | Counts available from `intelligence_phase_telemetry` (`passes` and `events` in Operations); no explicit derived rate field |
 | Auto-confirm correction rate | Measured — `autoConfirmCorrectionRate` from `product_telemetry_event` `AUTO_CONFIRM_CORRECTION` turns joined to auto-confirmed transactions |
-| Validator-Induced Human Review Rate | **Coverage gap** — Operations `notYetMeasurable` (`validator_induced_review_consequences`); needs accepted-fact ↔ consequence provenance no writer records yet |
-| Residual Fidelity Rate | **Coverage gap** — `notYetMeasurable` (`residual_fidelity_ground_truth`); needs a labelled ground-truth residual set, not derivable from canonical state alone |
-| Semantic Re-decision Rate | **Coverage gap** — `notYetMeasurable` (`semantic_redecision_accepted_fact_provenance`); needs accepted-fact provenance across layers |
+| Validator-Induced Human Review Rate | **Closure instrumentation gap** — accepted-dimension ↔ validation-consequence provenance must become queryable for eligible new rows |
+| Residual Contract Fidelity | **Closure instrumentation gap** — supersedes labelled-ground-truth Residual Fidelity; derive structurally from ReviewDecision + resolution contract |
+| Semantic Re-decision Rate | **Closure instrumentation gap** — intelligence phases must expose accepted-at-entry or equivalent re-decision provenance |
 
-The three coverage gaps are surfaced by the Operations aggregate rather than
-reported as zero. No new telemetry table was added: the existing
-`product_telemetry_event`, `judgment_decision`, and
-`intelligence_phase_telemetry` are the sources.
+The three closure gaps remain surfaced rather than reported as zero until
+UISC-02 lands. Existing `ReviewDecision`, `product_telemetry_event`,
+`judgment_decision`, and `intelligence_phase_telemetry` are the preferred
+sources. Historical rows without new provenance remain coverage-incomplete and
+must not be coerced to zero.
 
 **Not claimed:** a deployed before/after canary. Deployment alone does not prove
 that SAVR improves interaction/semantic efficiency without worsening correction
@@ -69,15 +70,29 @@ facts survive validation.
 
 ---
 
-## 3. Canary — not run
+## 3. Production observation gate — owner household is the canary
 
-The SAVR-09 exit criterion (a measured before/after correction-rate canary)
-requires a deployed build against a **disposable household** with live
-Telegram/email traffic. Production was deployed with user approval on
-2026-09-28; the canary remains open until a separate household and traffic
-are available. Do not seed test financial data into the real household.
+The previous disposable-household requirement is superseded by
+`docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` / BDR-005.
 
-Four existing kill switches let any bounded auto-confirm behavior be reverted
+Richmod is currently a personal production system with one real household. The
+production observation cohort is therefore the actual owner household using the
+product normally.
+
+Rules:
+
+- do not seed fake transactions, fake emails, fake members, or synthetic
+  financial state into production;
+- continue normal Telegram/email/document usage;
+- use real review/correction history and Operations metrics as product evidence;
+- use disposable PostgreSQL/integration fixtures for deterministic edge-case
+  testing;
+- source families that do not naturally occur may be marked
+  `PRODUCTION_UNOBSERVED` when their corpus remains green;
+- newly instrumented metrics are measured prospectively when historical
+  provenance cannot be reconstructed honestly.
+
+Four existing kill switches let bounded auto-confirm behavior be reverted
 without a deploy (all on by default; set one to `0`, `false`, `off`, `no`, or
 `disabled` to disable it):
 
@@ -88,8 +103,7 @@ without a deploy (all on by default; set one to `0`, `false`, `off`, `no`, or
 | `RICHMOD_AUTOCONFIRM_BANK_CATEGORY` | bank category auto-confirm |
 | `RICHMOD_AUTOCONFIRM_TELEGRAM` | post-generative Telegram auto-confirm |
 
-Unified document interpretation stays off. A canary must use these switches and
-a disposable household; it must not touch production financial data.
+Unified document interpretation stays off unless separately approved.
 
 ---
 
@@ -97,7 +111,8 @@ a disposable household; it must not touch production financial data.
 
 Corpus regressions pass, and no SAVR change worsened a correction path measured
 so far: the SAVR-07 payslip lane keeps duplicate/conflict safety, SAVR-08
-removed a machine-only review, and the follow-up S08-09 fix treats a complete
-receipt's component mismatch as quality metadata. **Open exit items:** the
-deployed canary and the three coverage gaps above. SAVR-09 is therefore
-*corpus-complete*, not *product-complete*.
+removed a machine-only review, and S08-09 treats a complete receipt's component
+mismatch as quality metadata. **Open exit items:** UISC-02 observability
+instrumentation plus owner-household production observation. SAVR-09 remains
+*corpus-complete*, not *product-complete*, until the combined closure gate is
+accepted.
