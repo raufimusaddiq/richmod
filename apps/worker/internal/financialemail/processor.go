@@ -390,7 +390,7 @@ func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, hous
 			return err
 		}
 	}
-	return p.projectReviewItem(ctx, tx, household, reviewItemID)
+	return workerTelegram.ProjectReviewItem(ctx, tx, household, reviewItemID, 0, "", 0)
 }
 
 type cashPlan struct {
@@ -749,33 +749,7 @@ func (p *Processor) projectObservationReview(ctx context.Context, tx pgx.Tx, hou
 			return err
 		}
 	}
-	return p.projectReviewItem(ctx, tx, household, itemID)
-}
-
-// projectReviewItem resolves the originating Telegram chat for this source event
-// (when any) and creates the universal projection. Non-Telegram sources keep the
-// Inbox-only behavior because no live chat can bind the reply.
-func (p *Processor) projectReviewItem(ctx context.Context, tx pgx.Tx, household, itemID string) error {
-	var itemSource, observationSource string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.source_event_id::text,''),COALESCE(fo.source_event_id::text,'')
-		FROM review_item ri
-		LEFT JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id
-		WHERE ri.id=$1`, itemID).Scan(&itemSource, &observationSource); err != nil {
-		return err
-	}
-	sourceID := itemSource
-	if observationSource != "" {
-		sourceID = observationSource
-	}
-	if sourceID == "" {
-		return nil
-	}
-	var telegramChat int64
-	_ = tx.QueryRow(ctx, `SELECT COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_IMAGE','TELEGRAM_TEXT','TELEGRAM_DOCUMENT')`, sourceID).Scan(&telegramChat)
-	if telegramChat == 0 {
-		return nil
-	}
-	return workerTelegram.ProjectReviewItem(ctx, tx, household, itemID, 0, "", telegramChat)
+	return workerTelegram.ProjectReviewItem(ctx, tx, household, itemID, 0, "", 0)
 }
 func value(v *string) string {
 	if v == nil {

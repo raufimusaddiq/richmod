@@ -378,23 +378,10 @@ func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, s
 			return err
 		}
 	}
-	if err = p.projectSourceReview(ctx, tx, household, sourceEventID, itemID); err != nil {
+	if err = workerTelegram.ProjectReviewItem(ctx, tx, household, itemID, 0, "", 0); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
-}
-
-// projectSourceReview gives a source-event review (unknown bank template,
-// incomplete extraction, low confidence) the shared Telegram projection
-// (UIR-02) when the source originated in Telegram. Non-Telegram bank email keeps
-// the Inbox-only path because there is no chat to bind a reply to.
-func (p *Processor) projectSourceReview(ctx context.Context, tx pgx.Tx, household, sourceEventID, itemID string) error {
-	var chatID int64
-	_ = tx.QueryRow(ctx, `SELECT COALESCE((p.payload_json->'message'->'chat'->>'id')::bigint,0) FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_TEXT','TELEGRAM_IMAGE','TELEGRAM_DOCUMENT')`, sourceEventID).Scan(&chatID)
-	if chatID == 0 {
-		return nil
-	}
-	return workerTelegram.ProjectReviewItem(ctx, tx, household, itemID, 0, "", chatID)
 }
 
 // partialDecision builds the ReviewDecision for a bank email that could not be
