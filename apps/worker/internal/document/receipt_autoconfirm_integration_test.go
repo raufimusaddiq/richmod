@@ -247,6 +247,8 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	// first upload wrote is the single strong match, so the second upload links to
 	// it rather than adding a ledger row for the same real event.
 	value.Confidence = .35 // Evidence quality cannot create a duplicate review.
+	value.Tax = ptr("5000") // Component arithmetic quality cannot duplicate it either.
+	validation.ArithmeticOK = false
 	stamp := time.Now().UnixNano()
 	var secondSource, attachmentID, secondDocument string
 	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING') RETURNING id`, fixture.householdID, fmt.Sprintf("receipt-repeat-%d", stamp), []byte(fmt.Sprintf("receipt-repeat-%d", stamp))).Scan(&secondSource); err != nil {
@@ -270,6 +272,10 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 	}
 	if evidence != 2 {
 		t.Fatalf("both receipts must link as evidence on the matched transaction, got %d", evidence)
+	}
+	var arithmeticOK bool
+	if err := fixture.pool.QueryRow(ctx, `SELECT (metadata_json->>'arithmetic_ok')::boolean FROM transaction_proposal WHERE source_event_id=$1`, secondSource).Scan(&arithmeticOK); err != nil || arithmeticOK {
+		t.Fatalf("linked receipt must retain its arithmetic quality signal: ok=%t err=%v", arithmeticOK, err)
 	}
 }
 
@@ -301,9 +307,9 @@ func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 	}
 }
 
-// R4/R5: a receipt that cannot resolve the category must still go to review and
-// must not be confirmed on a guess.
-func TestReceiptArithmeticMismatchPreservesKnownFactsAndExactQualitySignal(t *testing.T) {
+// Component arithmetic is a quality signal, not a second vote over a printed
+// total. Known category/date and no duplicate make this a confirmed expense.
+func TestReceiptArithmeticMismatchConfirmsPrintedTotalWithoutReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt mismatch")
 	ctx := context.Background()
 	slug := fixture.categorySlug
@@ -316,13 +322,18 @@ func TestReceiptArithmeticMismatchPreservesKnownFactsAndExactQualitySignal(t *te
 	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
 		t.Fatal(err)
 	}
-	var reviewType, consequence, amount, category, transactionAt string
-	var missing []string
-	if err := fixture.pool.QueryRow(ctx, `SELECT review_type,decision->>'validationConsequence',decision->'knownFacts'->>'amount_idr',decision->'knownFacts'->>'category',decision->'knownFacts'->>'transaction_at',ARRAY(SELECT jsonb_array_elements_text(decision->'missingFacts')) FROM review_item WHERE household_id=$1`, fixture.householdID).Scan(&reviewType, &consequence, &amount, &category, &transactionAt, &missing); err != nil {
+	var amount, category string
+	var transactionAt time.Time
+	var arithmeticOK bool
+	var reviews int
+	if err := fixture.pool.QueryRow(ctx, `SELECT t.amount::text,t.category_id::text,t.transaction_at,(p.metadata_json->>'arithmetic_ok')::boolean,
+		(SELECT count(*) FROM review_item WHERE household_id=$1)
+		FROM transaction t JOIN transaction_proposal p ON p.household_id=t.household_id
+		WHERE t.household_id=$1 AND t.status='CONFIRMED' AND p.proposal_status='ACCEPTED'`, fixture.householdID).Scan(&amount, &category, &transactionAt, &arithmeticOK, &reviews); err != nil {
 		t.Fatal(err)
 	}
-	if reviewType != "RECEIPT_MISMATCH" || consequence != "QUALITY_SIGNAL" || amount != "57500" || category != fixture.categoryID || transactionAt != receiptTime().Format(time.RFC3339) || len(missing) != 0 {
-		t.Fatalf("mismatch re-asked known facts: %s %s amount=%s category=%s date=%s missing=%v", reviewType, consequence, amount, category, transactionAt, missing)
+	if amount != "57500" || category != fixture.categoryID || !transactionAt.Equal(receiptTime()) || arithmeticOK || reviews != 0 {
+		t.Fatalf("printed facts must confirm without review; amount=%s category=%s date=%s arithmetic_ok=%t reviews=%d", amount, category, transactionAt, arithmeticOK, reviews)
 	}
 }
 

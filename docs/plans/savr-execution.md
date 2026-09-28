@@ -25,7 +25,7 @@ Status is based on exit criteria, not PR names.
 | SAVR-05 | 🟡 materially aligned | batch user authority delivered; current single-record path accepts complete generative results directly and spends Jev only on named residuals; remaining call sites are re-audited in SAVR-08 |
 | SAVR-06 | 🟡 merged, reconciliation required | PR #202 fixed bank payment-mechanism materiality and provider residual fidelity, but post-merge audit still finds cross-source hard-gate debt listed below |
 | SAVR-07 | ✅ delivered (commit `c70864f`) | payslip domain continuity; both paths share `FinalizePayslip` |
-| SAVR-08 | 🟡 audited, fix delivered (this branch) | payslip machine failure fixed; receipt arithmetic review materiality unproven (S08-09); UIR defect S08-08 tracked separately |
+| SAVR-08 | 🟡 audited, fixes delivered | payslip machine failure fixed; follow-up S08-09 removes receipt component-quality-only review; UIR defect S08-08 tracked separately |
 | SAVR-09 | 🟡 corpus-complete, canary blocked | corpus measured; three metrics remain `notYetMeasurable`; deployed canary needs a disposable household + user-approved deployment |
 | SAVR-10 | 🟡 partial | corpus-proven removals done; freeze conditional on the SAVR-09 canary |
 
@@ -467,8 +467,8 @@ No active payslip path loses salary identity merely because review was required.
 **Audit:** `docs/audits/SAVR-08-source-family-parity.md` (this branch). It
 recorded an unrepairable payslip extraction opening a human review; the payslip
 path now uses the shared failed-extraction writer, like receipt and screenshot.
-It also records an unresolved materiality question for receipt arithmetic
-reviews (S08-09) and an adjacent UIR projection defect (S08-08).
+The S08-09 receipt arithmetic quality review is removed in the follow-up
+branch; the adjacent UIR projection defect (S08-08) remains open.
 
 Re-run the SAVR-00 matrix after SAVR-03..07, using **materiality** and
 **minimum-sufficient intelligence** as first-class columns.

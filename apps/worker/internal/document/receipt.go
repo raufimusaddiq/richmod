@@ -247,7 +247,7 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 			secondBest = candidate.Score
 		}
 	}
-	if len(strong) == 1 && secondBest <= 0.80 && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
+	if len(strong) == 1 && secondBest <= 0.80 {
 		return p.linkReceipt(ctx, documentID, householdID, sourceID, strong[0], value, model, validation)
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
@@ -269,11 +269,11 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	}
 	// A clear new receipt must not become a review merely because no existing
 	// transaction matched (PRD §10, example D). With no candidate ambiguity, a
-	// category resolved, a printed date, and consistent arithmetic, the facts are
-	// complete enough to confirm without asking the user to re-enter anything.
+	// category resolved, and a printed date, the facts are complete enough to
+	// confirm. Component arithmetic is quality metadata, not a missing total.
 	// A receipt with no printed date is not confirmed here: upload time is not the
 	// receipt's transaction time (PRD §18.4).
-	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown && (!validation.ArithmeticAvailable || validation.ArithmeticOK) {
+	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown {
 		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, categoryDecision)
 	}
 	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0, categoryDecision)

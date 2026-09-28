@@ -28,7 +28,7 @@ the only authoritative list.
 | Screenshot missing amount | `TestScreenshotMissingAmountReviewFinalizesWithoutSentinel`, `TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount` | pass |
 | Screenshot clear rows need no review | `TestScreenshotBatchWithOnlyClearRowsNeedsNoReview` | pass |
 | Cross-source merchant memory | `TestLoadMerchantMemoryRequiresOneUnambiguousNormalizedRule`, `TestBankEmailB1LearnedMerchantConfirmsWithoutReview`, `TestBankEmailB1LearnedMerchantCreatesNoReviewWork` | pass |
-| Receipt arithmetic quality | `TestReceiptArithmeticMismatchPreservesKnownFactsAndExactQualitySignal` | pass |
+| Receipt arithmetic quality | `TestReceiptArithmeticMismatchConfirmsPrintedTotalWithoutReview`, `TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate` (follow-up branch) | pass |
 | Bank single-predicate disagreement | `TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling`, `TestEvidenceVerificationSupportsLowExtractorConfidence`, `TestBankEmailB5UndecidedAmbiguityDoesNotAuthorize` | pass |
 | Bank schema failure is not human work | `TestBankSchemaFailureDoesNotCreateHumanReview` | pass |
 | Bank `EMAIL_RECEIVED_AT` fallback | `TestApplyEmailReceivedTimeFallback` (worker policy) | pass |
@@ -95,7 +95,8 @@ a disposable household; it must not touch production financial data.
 ## 4. Exit
 
 Corpus regressions pass, and no SAVR change worsened a correction path measured
-so far: the SAVR-07 payslip lane keeps duplicate/conflict safety, and SAVR-08
-removed a machine-only review instead of adding one. **Open exit items:** the
+so far: the SAVR-07 payslip lane keeps duplicate/conflict safety, SAVR-08
+removed a machine-only review, and the follow-up S08-09 fix treats a complete
+receipt's component mismatch as quality metadata. **Open exit items:** the
 deployed canary and the three coverage gaps above. SAVR-09 is therefore
 *corpus-complete*, not *product-complete*.
