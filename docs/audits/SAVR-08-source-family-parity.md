@@ -113,7 +113,7 @@ them, so the NOT NULL contract holds without a schema change.
 
 **Classification:** HEALTHY.
 
-## S08-08 — Email-origin review projection — ADJACENT UIR DEFECT (open)
+## S08-08 — Email-origin review projection — CLOSED IN MAIN (UISC-01)
 
 Bank and provider-email projection helpers still derive Telegram delivery only
 from Telegram-origin source payloads, so an email-origin review can stay
@@ -167,10 +167,11 @@ SAVR scope. Do not equate this audit with a completed canary.
 S08-08 is no longer an unowned "outside SAVR" follow-up. It is explicitly owned
 by **UISC-01** in `docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md`.
 
-The defect remains classified as UIR projection rather than SAVR semantic
-authority: bank/financial-email reviews already have canonical household
-ownership, but their producer adapters can return before the universal
-`ProjectReviewItem` household-recipient resolver is called.
+The defect is classified as UIR projection rather than SAVR semantic authority:
+bank/financial-email reviews already have canonical household ownership.
+UISC-01 removed their source-payload pre-gates in `main@1b70dd7` and the shared
+projector now rejects stale and document-unbound cards (`main@a142537`).
+Production observation of a naturally occurring email review remains UISC-03.
 
 Closure criterion:
 

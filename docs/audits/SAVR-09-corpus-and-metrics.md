@@ -1,10 +1,10 @@
 # SAVR-09 — Corpus, Canary, and Product Metrics
 
-**Status:** corpus measured; production deployed at `64a6195` on 2026-09-28;
+**Status:** corpus measured; UISC-01/02 merged into `main@c5278a4`;
 **product observation open — the real owner household is the canary**
 
 **Date:** 2026-09-28
-**Method:** disposable PostgreSQL 17.4, goose to migration 71, then
+**Method:** disposable PostgreSQL 17.4, goose to migration 72, then
 `go test ./...` and `go vet ./...` in `apps/api` and `apps/worker`.
 
 Integration tests skip when `TEST_DATABASE_URL` is absent, so a bare module run
@@ -112,7 +112,11 @@ Unified document interpretation stays off unless separately approved.
 Corpus regressions pass, and no SAVR change worsened a correction path measured
 so far: the SAVR-07 payslip lane keeps duplicate/conflict safety, SAVR-08
 removed a machine-only review, and S08-09 treats a complete receipt's component
-mismatch as quality metadata. **Open exit items:** UISC-02 observability
-instrumentation plus owner-household production observation. SAVR-09 remains
+mismatch as quality metadata. UISC-02 observability instrumentation is merged
+at `c5278a4` and the three metrics are now prospectively measurable: validator-
+induced review, semantic re-decision, and Residual Contract Fidelity. Historical
+rows lacking required provenance remain unknown/coverage-incomplete, never
+synthetic zero. **Open exit item:** owner-household production observation and
+product-owner acceptance. SAVR-09 remains
 *corpus-complete*, not *product-complete*, until the combined closure gate is
 accepted.
