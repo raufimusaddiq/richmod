@@ -206,6 +206,15 @@ finalizer after resolution.
 
 Fixing one period regex is not finalization parity.
 
+SAVR-07 implementation: a clear payslip with an existing primary salary and a
+known pay date is finalized without a confidence/arithmetic review. First
+salary source and missing pay date remain domain-specific policy/evidence
+reviews. Autonomous and reviewed completions call the same salary finalizer;
+the source, evidence, income transaction, salary event and primary-cycle job
+commit together. A duplicate period/employer links evidence to the existing
+transaction only when amount and pay date agree; material disagreement fails
+closed rather than creating a second income.
+
 ## Representation requirement
 
 Unknown/missing values must be representable explicitly at extraction/domain
