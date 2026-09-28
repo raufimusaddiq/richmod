@@ -141,3 +141,34 @@ No new table, keyword list, router, or framework (SAVR PRD §16).
 
 See regression tests for the Telegram route, capability boundary, existing
 single-pass budgets, review binding, and the bank-email schema repair.
+
+---
+
+# 6. Deployment and observation status
+
+**Implementation:** PR #214 merged to `main` as `f702085`
+(`--merge` commit) after Hermes `APPROVE` on `cfba8ea`; CI and
+`Release Images` succeeded for `f702085`.
+
+**Production:** `Deploy Production` run
+[36456564122](https://github.com/raufimusaddiq/richmod/actions/runs/36456564122)
+deployed `f702085` with human approval of the GitHub `production`
+Environment. Observed after the run:
+
+- `api`, `worker`, `web` containers run
+  `ghcr.io/raufimusaddiq/richmod-*:sha-f70208537746a0725750dee53d68f78f55d4b127`;
+- migrations already at version `72` (`goose: no migrations to run`);
+- `GET /healthz` and `GET /readyz` both returned HTTP `200`.
+
+**Owner-household observation: PENDING (real traffic only).**
+UISC-03 checks require natural owner-household use after this deploy:
+ordinary Telegram chat answers naturally with no keyword-gated fallback and no
+review from route uncertainty or provider outage; email-origin review
+projection reaches the household recipient; Operations reports new metrics
+without inventing history; no SAVR regression adds unnecessary human work;
+kill-switch rollback stays available. No synthetic or seeded financial data is
+used. Source families not naturally encountered are recorded as
+`PRODUCTION_UNOBSERVED` rather than blocking forever.
+
+**Closure gate:** UISC-03 acceptance and UISC-04 freeze remain blocked until
+the observation above is recorded. Do not start CEU.
