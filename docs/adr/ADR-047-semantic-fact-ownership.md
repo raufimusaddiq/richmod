@@ -30,6 +30,10 @@ JEV
 USER
 ```
 
+`DETERMINISTIC_KNOWLEDGE` includes explicit source/domain policy-derived facts.
+A separate owner class is not required merely because provenance is
+system-derived.
+
 A downstream layer may consume an accepted fact but cannot silently become a
 second owner.
 
@@ -41,6 +45,9 @@ contract.
 Examples:
 
 - exact active merchant alias maps merchant → category;
+- bank-email source policy derives `transaction_at` from
+  `source_event.received_at` when no printed transaction time exists, retaining
+  `EMAIL_RECEIVED_AT` provenance;
 - generative vision extraction produced a printed net-pay value that passed
   shape/source checks;
 - Jev made a decisive bounded category choice among active categories;
@@ -49,6 +56,15 @@ Examples:
 Acceptance does not mean the canonical write is automatically allowed.
 
 Go still performs canonical guards.
+
+Acceptance also does not require the fact to be source-observed. An explicit
+source-policy-derived fact can be accepted when the policy owns that dimension.
+Its provenance must stay distinct from source evidence, but it is not demoted to
+missing merely because it is derived.
+
+Known canonical state also outranks a redundant missing source hint. A later hint
+may create a material conflict if it disagrees; absence alone is not an owner
+handoff.
 
 ## Boundary contract
 
@@ -123,11 +139,12 @@ ADR-045 remains authoritative.
 
 Post-generative Jev is valid only for:
 
-- a still-unresolved bounded dimension; or
-- independent evidence verification.
+- a still-unresolved **material** bounded dimension; or
+- independent evidence verification that can change the canonical outcome.
 
 SAVR does not ban multi-model workflows. It bans redundant ownership of the same
-semantic claim.
+semantic claim. A source-acceptable LLM result with all material dimensions
+resolved does not require Jev merely for consensus.
 
 ## ReviewDecision interaction
 

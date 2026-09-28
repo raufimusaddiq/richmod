@@ -48,7 +48,13 @@ behaves as if it forgot it.
 
 ## Decision
 
-Richmod will use **single semantic ownership per fact/dimension**.
+Richmod will use **single semantic ownership per fact/dimension** and **minimum
+sufficient intelligence**.
+
+A source/domain may reach semantic sufficiency through Go-only deterministic
+knowledge, Jev-only bounded judgment, LLM-only arbitrary understanding, an
+LLM→Jev residual handoff, or explicit user authority. Repeated model consensus is
+not the default.
 
 Once a source-specific acceptance contract accepts a semantic fact, downstream
 code may:
@@ -61,6 +67,19 @@ code may:
 
 Downstream code may not silently re-understand the same semantic dimension.
 
+## Human-effort materiality
+
+Only uncertainty that can change the attempted canonical financial outcome,
+satisfy a hard canonical invariant, resolve a material evidence conflict, or
+obtain irreducible household policy may increase RHICE.
+
+A precise residual that cannot change the outcome is still unnecessary human
+work.
+
+Generic confidence, payment-mechanism metadata, redundant source hints, and
+other quality/provenance dimensions stay non-blocking after material semantic
+sufficiency unless a source contract proves they affect the canonical result.
+
 ## User authority
 
 An explicit user confirmation or correction is semantic authority unless:
@@ -71,6 +90,19 @@ An explicit user confirmation or correction is semantic authority unless:
 - new independent evidence creates a material conflict.
 
 Jev is not an approval committee over explicit user intent.
+
+## System-derived policy authority
+
+A deterministic source policy may establish a canonical fact when no better
+source-observed fact exists.
+
+Example: a bank email with no printed transaction timestamp uses the email
+`received_at` as canonical `transaction_at` with
+`EMAIL_RECEIVED_AT` provenance. This is not missing data and must not create a
+human time question.
+
+Policy-derived facts remain auditable and must never be presented as if the
+source printed them.
 
 ## Deterministic authority
 
@@ -166,6 +198,23 @@ Rejected.
 A validator may be reporting representation or quality debt rather than missing
 user knowledge.
 
+### Hard-gate every uncertain signal
+
+Rejected.
+
+Correctness means blocking material unresolved risk, not blocking every
+non-material metadata or confidence uncertainty. Turning QR-vs-card mechanism,
+generic confidence, or redundant source hints into required human work violates
+the minimum-interaction north star.
+
+### Treat machine inability as a human task
+
+Rejected.
+
+Malformed model/schema output, provider outage, or parser/representation failure
+stays retry/repair/infrastructure state unless a material fact or policy genuinely
+requires the household.
+
 ## Business metrics
 
 SAVR success is measured by:
@@ -182,5 +231,5 @@ lowers human interaction by weakening correctness.
 
 ## Product invariant
 
-> **Understand once. Preserve accepted facts. Validate canonical safety. Ask only
-> for the true residual.**
+> **Understand once. Use the minimum sufficient intelligence. Preserve accepted
+> facts. Validate canonical safety. Ask only for a material residual.**

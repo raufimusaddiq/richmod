@@ -102,13 +102,17 @@ wrong.
 Examples:
 
 - receipt line arithmetic differs from authoritative total;
-- payslip breakdown cannot be reconciled while printed net pay remains clear.
+- payslip breakdown cannot be reconciled while printed net pay remains clear;
+- generic extraction/model confidence after all material facts are otherwise
+  accepted.
 
 Action:
 
 - preserve authoritative facts;
 - block only the capability the quality signal actually makes unsafe;
-- do not invent unrelated missing facts.
+- do not invent unrelated missing facts;
+- do not create human review merely because a generic confidence threshold was
+  missed.
 
 ### HUMAN_POLICY
 
@@ -141,6 +145,15 @@ Action:
 Review residuals derive from consequences, not from a generic review-type
 fallback.
 
+Residual derivation has two gates:
+
+```text
+1. what is unresolved/conflicting?
+2. can resolving it change the attempted canonical outcome?
+```
+
+Only a YES at both gates may create a blocking residual.
+
 If a receipt has:
 
 ```text
@@ -151,6 +164,12 @@ arithmetic quality signal
 ```
 
 then `category` is not a residual.
+
+Likewise, a generic confidence miss with accepted amount/date/category is a
+quality signal, not permission to manufacture `AMBIGUOUS_CATEGORY`.
+
+A query candidate is not automatically `CANONICAL_AMBIGUITY`; the candidate
+must first satisfy the source/domain's material plausibility contract.
 
 ## Domain continuity
 
@@ -192,6 +211,33 @@ boundaries.
 
 Sentinel values that later fail canonical validation are prohibited when the
 source can genuinely omit the field.
+
+## Human-review eligibility
+
+A typed consequence is necessary but not sufficient to create human work.
+
+Before projecting ReviewDecision, the producer must identify the exact human
+action that can change the canonical result.
+
+```text
+machine/provider/schema failure only
+-> retry / repair / infrastructure state
+
+non-material quality/provenance uncertainty
+-> telemetry / provenance
+-> no review
+
+material bounded residual
+-> Jev when eligible
+-> human only if still unresolved
+
+material household policy
+-> human
+```
+
+An IGNORE-only review is not automatically valid merely because its reason is
+precise. It must represent a meaningful household acknowledgement/policy action,
+not a garbage-collection lane for machine uncertainty.
 
 ## Review system interaction
 
