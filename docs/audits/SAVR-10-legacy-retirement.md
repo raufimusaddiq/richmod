@@ -1,13 +1,14 @@
 # SAVR-10 — Legacy Reinterpretation Retirement
 
-**Status:** corpus-proven removals complete on this branch; freeze is
-*conditional* on the SAVR-09 canary  
+**Status:** corpus-proven removals complete; freeze is
+*conditional* on the UIR-SAVR closure production observation gate  
 **Date:** 2026-09-28
 
 SAVR-10 removes only what the corpus proves unreachable. Everything retained
-below has a stated reason. Because the deployed canary has not run, this is a
-**partial** freeze: the semantics below are frozen, but further reduction should
-be driven by measured canary data, not by guessing.
+below has a stated reason. This remains a **partial** freeze until UISC-01/02 and
+the owner-household production observation gate pass. Further reduction must be
+driven by measured real-use evidence, not by synthetic production traffic or
+guessing.
 
 ---
 
@@ -30,7 +31,7 @@ be driven by measured canary data, not by guessing.
 | Provider `TRANSFER_CLASSIFICATION` recovery lane | still used for missing amount/time/account, undecided movement semantics, or incompatible transfer purpose; see `planCash` |
 | Legacy payslip review rows without document binding | historical open state; `ResolvePayslipProposal` still accepts them behind an explicit match |
 | Legacy `RECEIPT_MISMATCH` reviews | historical open rows and the receipt kill-switch still use this compatibility path; the default complete-facts path no longer produces it |
-| Email-origin review projection via originating chat | compatibility only; household-recipient projection is a UIR defect (SAVR-08 S08-08) |
+| Email-origin review projection via originating chat | open UIR closure defect (S08-08); UISC-01 removes the incorrect source-provenance pre-gate and restores household-owned projection |
 
 ## 3. Not removed because not proven unreachable
 
@@ -57,10 +58,11 @@ human input is policy or irreducible fact only
 
 ## 5. Open items before a full freeze
 
-- SAVR-09 live canary in a disposable household (deployment approved and completed 2026-09-28);
-- the three Operations coverage gaps
-  (`validator_induced_review_consequences`, `residual_fidelity_ground_truth`,
-  `semantic_redecision_accepted_fact_provenance`);
-- the adjacent UIR email-origin projection defect (S08-08), tracked outside SAVR.
+- UISC-01 household-owned bank/financial-email review projection (closes S08-08);
+- UISC-02 Operations observability for validator-induced review, Residual
+  Contract Fidelity, and semantic re-decision;
+- owner-household production observation under BDR-005, using normal real usage
+  and no seeded production financial data;
+- final UISC-04 documentation reconciliation.
 
 Next initiative: CEU.
