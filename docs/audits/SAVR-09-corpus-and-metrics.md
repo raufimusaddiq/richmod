@@ -2,6 +2,7 @@
 
 **Status:** corpus measured; production deployed at `64a6195` on 2026-09-28;
 **canary not run — disposable household still needed**
+
 **Date:** 2026-09-28
 **Method:** disposable PostgreSQL 17.4, goose to migration 71, then
 `go test ./...` and `go vet ./...` in `apps/api` and `apps/worker`.
@@ -77,7 +78,8 @@ Telegram/email traffic. Production was deployed with user approval on
 are available. Do not seed test financial data into the real household.
 
 Four existing kill switches let any bounded auto-confirm behavior be reverted
-without a deploy (all on by default; only an explicit negative value disables one):
+without a deploy (all on by default; set one to `0`, `false`, `off`, `no`, or
+`disabled` to disable it):
 
 | Switch | Governs |
 | --- | --- |
