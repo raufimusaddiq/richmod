@@ -151,7 +151,7 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEmailCommand) (FinancialEmailResult, error) {
 	var result FinancialEmailResult
 	var sourceID string
-	err := tx.QueryRow(ctx, `SELECT fo.source_event_id::text FROM review_item ri JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id AND fo.household_id=ri.household_id WHERE ri.id=$1 AND ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='FINANCIAL_EMAIL_RESOLUTION' AND fo.id=$3 AND fo.status='REVIEW' FOR UPDATE OF ri,fo`, cmd.ReviewItemID, cmd.HouseholdID, cmd.ObservationID).Scan(&sourceID)
+	err := tx.QueryRow(ctx, `SELECT fo.source_event_id::text FROM review_item ri JOIN financial_email_observation fo ON fo.id=ri.financial_email_observation_id AND fo.household_id=ri.household_id WHERE ri.id=$1 AND ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND') AND (ri.review_type='FINANCIAL_EMAIL_RESOLUTION' OR ($4::boolean AND ri.review_type='TRANSFER_CLASSIFICATION')) AND fo.id=$3 AND fo.status='REVIEW' FOR UPDATE OF ri,fo`, cmd.ReviewItemID, cmd.HouseholdID, cmd.ObservationID, cmd.Ignore).Scan(&sourceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrFinancialObservationUnavailable
 	}

@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"regexp"
 	"strings"
@@ -76,22 +77,27 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	request := p.initialJudgmentRequest(text, state, candidate)
 	result, err := p.evaluate(ctx, judgmentTaskRoute, sourceID, request)
 	if err != nil {
-		// Provider failure is not semantic uncertainty (PRD §9). READs may still
-		// degrade to a generative READ-only turn; mutation lanes must not.
+		// Provider failure is infrastructure state, not user uncertainty.
+		// The agent retains conversation and READ tools, not mutation authority.
 		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeProviderFailure)
-		return p.degradeWithoutJudgment(ctx, sourceID, householdID, update, text, now, state)
+		return false, nil
 	}
 	answer, ok := result.Answers["route"]
 	if !ok || !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentRouteCriteria), judgmentPolicy.Route) || !contains(judgmentRoutes, answer.Choice) {
+		// A failed/undecided bounded route is not permission to declare the
+		// user's sentence unclear. Drop to the conversational agent with no
+		// route recorded, so no implicit workflow binding is narrowed and the
+		// capability policy decides what the model may do (SAVR PRD §3.3, ADR-045).
 		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeClarification)
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
+		return false, nil
 	}
 	lane, knownRoute := laneForRoute(answer.Choice)
 	if !knownRoute {
 		// Choice validation and route-lane coverage are independent guards. A
-		// vocabulary/table mismatch must not cause a guessed action.
+		// vocabulary/table mismatch must not cause a guessed action, but it is
+		// also not a reason to terminate the user: drop to the agent unbound.
 		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeClarification)
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba sebutkan arus kas, pengeluaran, tabungan, atau wealth.")
+		return false, nil
 	}
 	p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeAccepted)
 	// Record the decided route for the caller: implicit workflow bindings are
@@ -104,6 +110,9 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		var periodOK bool
 		period, periodOK = p.resolveJudgmentPeriod(ctx, householdID, now, result.Answers["period"])
 		if !periodOK {
+			// The period is a semantic dimension the bounded route left
+			// unresolved. The aggregate READ tools compute exact ranges, so let
+			// the conversational agent serve the read instead of terminating.
 			return false, nil
 		}
 	}
@@ -120,8 +129,6 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		return true, p.replyWealth(ctx, sourceID, householdID, update)
 	case "REVIEW_INTERACTION":
 		return true, p.replyReviews(ctx, sourceID, householdID, update)
-	case "OUT_OF_SCOPE":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.")
 	default:
 		// Any decided route that the fast path does not terminally own — including
 		// CREATE_TRANSFER, SEARCH_TRANSACTIONS, CORRECT_TRANSACTION, FINANCE_HELP,
@@ -133,14 +140,9 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		switch lane {
 		case laneAgentFallthrough, laneWorkflow:
 			return false, nil
-		case laneClarification:
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Permintaannya belum cukup jelas. Coba jelaskan lagi dengan lebih spesifik.")
-		case laneOutOfScope:
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.")
 		default:
-			// A FAST_PATH_TERMINAL route reaching the default is a wiring defect:
-			// fast-path-owned routes must be handled explicitly above. Fail closed.
-			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Permintaan ini belum bisa diproses dengan aman. Coba lagi.")
+			// Wiring defects are machine failures, never human reviews.
+			return true, fmt.Errorf("unhandled fast-path route %q", answer.Choice)
 		}
 	}
 }
@@ -168,34 +170,6 @@ func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextS
 		}
 	}
 	return judgment.Request{State: statePayload, Questions: questions}
-}
-
-// judgmentUnavailableReason is the explicit product state used when the initial
-// bounded call fails. It distinguishes infrastructure failure from semantic
-// uncertainty for telemetry and for the user-facing response.
-const judgmentUnavailableReason = "JUDGMENT_UNAVAILABLE"
-
-// degradeWithoutJudgment handles a provider failure on the initial call. READs
-// fall through to the generative agent with a READ-only tool surface; mutation
-// requests never reach a mutation tool, so no hidden LLM authority appears.
-func (p *Processor) degradeWithoutJudgment(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state *turnAgentContextState) (bool, error) {
-	if !readOnlyFallbackRequest(text) {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Permintaan ini belum dicatat karena layanan keputusan sedang tidak tersedia. Coba lagi sebentar lagi.")
-	}
-	return false, nil
-}
-
-// readOnlyFallbackRequest reports whether a message is clearly a read-only
-// finance question. Anything else (including every mutation wording) fails
-// closed while the judgment plane is unavailable.
-func readOnlyFallbackRequest(text string) bool {
-	lower := strings.ToLower(strings.TrimSpace(text))
-	for _, token := range []string{"berapa", "total", "lihat", "tampilkan", "tunjukkan", "cari", "list", "tren", "insight", "net worth", "tabungan", "pengeluaran", "pemasukan", "arus kas", "how much", "show", "list", "find", "summary"} {
-		if strings.Contains(lower, token) {
-			return true
-		}
-	}
-	return false
 }
 
 // finishJudgmentSimpleTransaction consumes transaction answers that were

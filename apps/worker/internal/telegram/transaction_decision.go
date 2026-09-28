@@ -202,9 +202,10 @@ func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentS
 		// to guess which fact the extractor meant.
 		return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
 	}
-	if len(missing) == 0 && value.Type == "EXPENSE" && strings.TrimSpace(value.CategorySlug) != "" {
-		// A generative category that is not in Go's active household candidate set
-		// is invalid, not a new semantic question for the model to grade.
+	if value.Type == "EXPENSE" && strings.TrimSpace(value.CategorySlug) != "" && !categoryKnown {
+		// A nonempty model-selected slug is an accepted semantic value, not an
+		// open category residual. If it is not an active household canonical ID,
+		// reject that exact operation; Jev must not replace it with a Go guess.
 		return TransactionSemanticDecision{}, nil
 	}
 	if len(missing) == 0 {

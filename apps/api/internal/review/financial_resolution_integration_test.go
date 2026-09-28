@@ -164,6 +164,27 @@ func TestFinancialResolutionIgnoreLifecycle(t *testing.T) {
 	}
 }
 
+// A financial-email classification review can exist without a transfer
+// reconciliation case. Ignore must resolve its observation, request and audit
+// through the shared finalizer instead of trying the case-only transfer path.
+func TestFinancialEmailClassificationWithoutTransferCaseCanBeIgnored(t *testing.T) {
+	fixture := seedFinancialResolutionValues(t, true)
+	ctx := context.Background()
+	if _, err := fixture.pool.Exec(ctx, `UPDATE review_item SET review_type='TRANSFER_CLASSIFICATION',decision=jsonb_set(decision,'{reasonCode}','"TRANSFER_CLASSIFICATION"'::jsonb) WHERE id=$1`, fixture.review); err != nil {
+		t.Fatal(err)
+	}
+	if w := fixture.resolve(t, `{"action":"IGNORE","values":{}}`); w.Code != http.StatusNoContent {
+		t.Fatalf("ignore must resolve observation-scoped classification: %d %s", w.Code, w.Body.String())
+	}
+	var observation, review, source string
+	if err := fixture.pool.QueryRow(ctx, `SELECT fo.status,ri.status,se.processing_status FROM financial_email_observation fo JOIN review_item ri ON ri.financial_email_observation_id=fo.id JOIN source_event se ON se.id=fo.source_event_id WHERE ri.id=$1`, fixture.review).Scan(&observation, &review, &source); err != nil {
+		t.Fatal(err)
+	}
+	if observation != "IGNORED" || review != "RESOLVED" || source != "IGNORED" {
+		t.Fatalf("observation=%s review=%s source=%s", observation, review, source)
+	}
+}
+
 func (f financialResolutionFixture) resolve(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+f.review+"/resolve", bytes.NewBufferString(body))

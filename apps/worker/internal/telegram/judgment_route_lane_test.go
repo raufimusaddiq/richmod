@@ -17,8 +17,8 @@ func TestEveryServerOwnedRouteMapsToExactlyOneLane(t *testing.T) {
 		"MERCHANT_LEARNING_INTERACTION": laneWorkflow,
 		"FINANCE_HELP":                  laneAgentFallthrough,
 		"NEEDS_GENERATIVE_AGENT":        laneAgentFallthrough,
-		"OUT_OF_SCOPE":                  laneOutOfScope,
-		"OTHER_OR_UNCLEAR":              laneClarification,
+		"OUT_OF_SCOPE":                  laneAgentFallthrough,
+		"OTHER_OR_UNCLEAR":              laneAgentFallthrough,
 	}
 
 	if len(judgmentRoutes) != len(want) {
@@ -49,24 +49,17 @@ func TestEveryServerOwnedRouteMapsToExactlyOneLane(t *testing.T) {
 	}
 }
 
-func TestAgentRoutesFallThroughAndOnlyUnclearOrOutOfScopeTerminate(t *testing.T) {
+func TestAgentRoutesFallThroughWhenBoundedRouteIsNotUseful(t *testing.T) {
 	for route, lane := range agentRouteLanes {
 		switch lane {
 		case laneAgentFallthrough, laneWorkflow:
-			if route == "OTHER_OR_UNCLEAR" || route == "OUT_OF_SCOPE" {
-				t.Errorf("terminal route %q incorrectly falls through", route)
-			}
-		case laneClarification, laneOutOfScope:
-			if route != "OTHER_OR_UNCLEAR" && route != "OUT_OF_SCOPE" {
-				t.Errorf("valid route %q terminates instead of falling through", route)
-			}
 		case laneFastPathTerminal:
 			// Explicitly owned by tryJudgmentFastPath.
 		default:
 			t.Errorf("route %q has invalid lane %q", route, lane)
 		}
 	}
-	for _, route := range []string{"CREATE_TRANSFER", "SEARCH_TRANSACTIONS", "CORRECT_TRANSACTION", "FINANCE_HELP", "NEEDS_GENERATIVE_AGENT"} {
+	for _, route := range []string{"CREATE_TRANSFER", "SEARCH_TRANSACTIONS", "CORRECT_TRANSACTION", "FINANCE_HELP", "NEEDS_GENERATIVE_AGENT", "OTHER_OR_UNCLEAR", "OUT_OF_SCOPE"} {
 		if lane, _ := laneForRoute(route); lane != laneAgentFallthrough {
 			t.Errorf("%s lane=%q, want %q", route, lane, laneAgentFallthrough)
 		}
