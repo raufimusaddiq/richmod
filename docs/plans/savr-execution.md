@@ -323,6 +323,10 @@ a cash movement whose typed evidence failed parks as the new
 dimension (`observation_type`, `cash_movement`, `evidence_support`,
 `transaction_ambiguity`) with only `IGNORE` allowed — no canonical write. A
 failed `evidence_support` claim keeps extracted values as proposed, not known;
+the Inbox labels proposed values independently of the decision source, so an
+unsupported value cannot appear as recorded data. Bank evidence conflicts
+remain higher priority than ambiguity, and ambiguity higher priority than an
+undecided material fact;
 ignoring the review settles both the provider-email and Telegram callback
 source events. A
 transfer relationship/purpose residual and a date Go could not parse keep

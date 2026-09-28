@@ -112,7 +112,7 @@ func TestAmountConflictStillBlocks(t *testing.T) {
 	}
 	// The disputed amount is evidence-supported but contested, so it must not
 	// surface as a known fact the Web card would prefill (SAVR-06, Hermes round 5).
-	decision := verificationReviewDecision("household", "source", testExtraction(), verification)
+	decision := verificationReviewDecision("household", "source", testExtraction(), verification, "amount_idr", true)
 	if _, known := decision.KnownFacts["amount_idr"]; known {
 		t.Fatalf("a conflicted amount must not stay a known fact: %+v", decision.KnownFacts)
 	}
@@ -134,10 +134,10 @@ func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 		TransactionObserved: true, AmountSupported: true, DirectionSupported: true, AmbiguityDecidedNotAmbiguous: true,
 		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO", "material_ambiguity": "NO"},
 	}
-	decision := verificationReviewDecision("household", "source", dated, verification)
-	for _, fact := range []string{"amount_idr", "transaction_at", "direction", "channel", "merchant"} {
-		if _, ok := decision.KnownFacts[fact]; !ok {
-			t.Fatalf("accepted fact %q must survive a material failure: %+v", fact, decision.KnownFacts)
+	decision := verificationReviewDecision("household", "source", dated, verification, "transaction_semantics", false)
+	for _, accepted := range []string{"amount_idr", "transaction_at", "direction", "channel", "merchant"} {
+		if _, ok := decision.KnownFacts[accepted]; !ok {
+			t.Fatalf("accepted fact %q must survive a material failure: %+v", accepted, decision.KnownFacts)
 		}
 	}
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "transaction_semantics" {
@@ -157,7 +157,7 @@ func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 	if !material || conflict || fact != "amount_idr" {
 		t.Fatalf("an undecided amount must be a bounded missing fact: fact=%q conflict=%v material=%v", fact, conflict, material)
 	}
-	decision := verificationReviewDecision("household", "source", testExtraction(), verification)
+	decision := verificationReviewDecision("household", "source", testExtraction(), verification, "amount_idr", false)
 	if len(decision.MissingFacts) != 1 || decision.MissingFacts[0] != "amount_idr" {
 		t.Fatalf("undecided amount must be requested as missing: %+v", decision.MissingFacts)
 	}
@@ -169,6 +169,22 @@ func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 // 5) No additional intelligence pass: the whole ruling rides in the single
 // bounded bundle Go already sends, so classifying non-material metadata cannot
 // add a second call.
+
+// A material ambiguity outranks an undecided material predicate: when the plane
+// cannot rule out a duplicate/transfer AND could not decide the amount, the
+// review must name the canonical ambiguity rather than collapsing to an amount
+// gap that drops the ambiguity dimension (SAVR-06, Hermes round 7).
+func TestAmbiguityOutranksAnUndecidedMaterialFact(t *testing.T) {
+	verification := EvidenceVerification{
+		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true, MaterialAmbiguity: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "UNDECIDED", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "YES"},
+	}
+	fact, conflict, material := verification.materialResidual()
+	if !material || conflict || fact != "transaction_ambiguity" {
+		t.Fatalf("a material ambiguity must win over an undecided amount: fact=%q conflict=%v material=%v", fact, conflict, material)
+	}
+}
+
 func TestNonMaterialMetadataAddsNoExtraPass(t *testing.T) {
 	verifier := &stubVerifier{answers: supportedRuling()}
 	processor := &Processor{verifier: verifier}

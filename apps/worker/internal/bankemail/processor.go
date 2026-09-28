@@ -331,7 +331,13 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 	}
 	if verified && !verification.supported() {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification))
+		fact, conflict, material := verification.materialResidual()
+		if !material {
+			// An unsupported verification without failed material claims is an
+			// inconsistent ruling, not a human fact to fabricate (SAVR-06).
+			return fmt.Errorf("bank email verification has no failed material predicate")
+		}
+		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
 	}
 	if !verified && extraction.Confidence < 0.80 {
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
@@ -437,8 +443,7 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 // non-material ordering predicate (an uncertain payment mechanism) never appears
 // here because materialResidual drops it, so it cannot add a required human fact
 // (SAVR-06).
-func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification) reviewdec.Decision {
-	fact, conflict, _ := verification.materialResidual()
+func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification, fact string, conflict bool) reviewdec.Decision {
 	missing := []string{fact}
 	why := "the email did not support a material transaction fact the household must confirm"
 	if conflict {

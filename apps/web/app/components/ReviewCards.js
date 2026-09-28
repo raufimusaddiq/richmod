@@ -19,11 +19,10 @@ export default function ReviewCards({ items, categories, accounts = [], wealthAc
 // stored ReviewDecision decides which inputs a card may require (PRD §13.4).
 function ProposalFacts({ item, known, missing }) {
   const text = value => value === undefined || value === null || value === "" ? null : String(value);
-  const agent = item.decision?.decisionSource && item.decision.decisionSource !== "DETERMINISTIC" ? "Richmod mengusulkan" : "Tercatat";
   const knownRow = known.filter(([, value]) => text(value));
   const proposedFacts = item.proposedFacts || {};
   const proposedRow = Object.entries(proposedFacts).filter(([, value]) => text(value));
-  return <>{(knownRow.length || proposedRow.length) && <dl className="review-proposal">{[...knownRow, ...proposedRow.map(([key, value]) => [key, value])].map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{text(value)}</dd></div>)}</dl>}{item.whyNotAutoConfirm && <p className="review-why"><b>Kenapa perlu kamu:</b> {item.whyNotAutoConfirm}</p>}{proposedRow.length > 0 && <p className="review-source">{agent}</p>}{missing.length > 0 && <p className="review-missing">Yang belum pasti: {missing.map(label).join(", ")}</p>}</>;
+  return <>{knownRow.length > 0 && <dl className="review-proposal">{knownRow.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{text(value)}</dd></div>)}</dl>}{proposedRow.length > 0 && <><p className="review-source">Richmod mengusulkan</p><dl className="review-proposal">{proposedRow.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{text(value)}</dd></div>)}</dl></>}{item.whyNotAutoConfirm && <p className="review-why"><b>Kenapa perlu kamu:</b> {item.whyNotAutoConfirm}</p>}{missing.length > 0 && <p className="review-missing">Yang belum pasti: {missing.map(label).join(", ")}</p>}</>;
 }
 
 const fieldLabels = { amount_idr: "Jumlah", amount: "Jumlah", transaction_at: "Waktu", direction: "Arah", merchant: "Merchant", category: "Kategori", categorySlug: "Kategori", funding_account: "Rekening sumber", wealth_account: "Wealth Account", wealthAccountId: "Wealth Account", transfer_relationship: "Jenis transfer", duplicate_relationship: "Hubungan duplikat", transaction_semantics: "Jenis transaksi", evidence_support: "Dukungan bukti", observation_type: "Jenis observasi", cash_movement: "Pergerakan dana", transaction_ambiguity: "Ambiguitas transaksi", resolvedAccountId: "Rekening sumber", resolvedWealthAccountId: "Wealth Account" };
