@@ -35,7 +35,11 @@ answered; unclear route and machine outage create no human review/RHICE;
 canonical reads use READ tools; simple finance fast path call budgets remain
 low; post-auto-confirm material corrections do not rise. Jago and Bibit
 rechecks must record actual observed outcomes; tests alone cannot satisfy
-this gate. Production observation: **PENDING**.
+this gate. Production observation: **PENDING** — repair deployed to production
+as `f702085` (Deploy Production run 36456564122, approved); `/healthz` and
+`/readyz` returned 200 and the running images are
+`sha-f70208537746a0725750dee53d68f78f55d4b127`. Natural owner-household
+traffic has not yet been observed against these checks.
 
 ---
 
