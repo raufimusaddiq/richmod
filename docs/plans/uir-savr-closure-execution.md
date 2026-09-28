@@ -41,6 +41,13 @@ Exit: assumptions are current.
 
 ## UISC-01 — email-origin household projection
 
+Implementation: both email producers call the existing `telegram.ProjectReviewItem`
+with the canonical household and `originatingChatID=0`; household membership and
+active Telegram identity remain the recipient authority. Non-Telegram source
+payload is no longer a projection gate. Disposable PostgreSQL tests assert one
+recipient/send job on retry for both source families; production delivery remains
+subject to UISC-03 observation.
+
 ### Bank email
 
 Remove the source-origin Telegram requirement before universal projection.
