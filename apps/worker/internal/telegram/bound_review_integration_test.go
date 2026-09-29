@@ -22,7 +22,7 @@ func (boundReviewGateway) NativeToolCall(context.Context, string, string, any, [
 type clearPurchaseGateway struct{}
 
 func (clearPurchaseGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
-	return gateway.ToolCall{Name: "record_transaction", Arguments: json.RawMessage(`{"type":"EXPENSE","amount_idr":"9000","merchant":"Indomaret","category_slug":"makanan-minuman","description":"Beli es krim","note":null,"date_reference":"TODAY","explicit_date":null,"local_time":null,"confidence":0.98,"category_confidence":0.88}`)}, gateway.Metadata{Model: "test"}, nil
+	return gateway.ToolCall{Name: "record_transaction", Arguments: json.RawMessage(`{"type":"EXPENSE","amount_idr":"9000","merchant":"Indomaret","category_slug":"makanan-minuman","description":"Beli es krim","note":null,"date_reference":"TODAY","date_provenance":"USER_STATED","explicit_date":null,"local_time":null,"confidence":0.98,"category_confidence":0.88}`)}, gateway.Metadata{Model: "test"}, nil
 }
 
 // The legacy deterministic Process path still uses the full bundle. IR-04

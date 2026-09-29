@@ -23,7 +23,7 @@ func TestValidateScreenshotKeepsRowsIndependent(t *testing.T) {
 	}
 }
 
-func TestUnacceptedVisionCategoriesRemainResidual(t *testing.T) {
+func TestScreenshotCategoryConfidenceIsNotAuthority(t *testing.T) {
 	date := "2026-08-25T10:00:00+07:00"
 	for _, test := range []struct {
 		name       string
@@ -36,8 +36,9 @@ func TestUnacceptedVisionCategoriesRemainResidual(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			rows, err := validateScreenshot(screenshotExtraction{Confidence: .95, Transactions: []screenshotRow{{Direction: "OUT", Amount: ptr("1000"), Currency: "IDR", TransactionAt: &date, CategorySlug: test.slug, CategoryConfidence: test.confidence, Confidence: .95}}}, time.Now().In(jakarta()), []categoryOption{{ID: "food-id", Slug: "food-dining"}}, "")
-			if err != nil || len(rows) != 1 || rows[0].CategoryDecided {
-				t.Fatalf("category must remain residual: rows=%+v err=%v", rows, err)
+			wantDecided := test.slug != nil && *test.slug == "food-dining"
+			if err != nil || len(rows) != 1 || rows[0].CategoryDecided != wantDecided {
+				t.Fatalf("category confidence must not decide active slug validity: rows=%+v err=%v", rows, err)
 			}
 		})
 	}

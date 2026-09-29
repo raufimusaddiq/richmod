@@ -96,7 +96,7 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	dayEnd := dayStart.AddDate(0, 0, 1)
 	type candidate struct {
 		id, kind, status, purpose, existingWealth string
-		at                                      time.Time
+		at                                        time.Time
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT id::text,type,status,COALESCE(purpose,''),COALESCE(related_wealth_account_id::text,''),transaction_at

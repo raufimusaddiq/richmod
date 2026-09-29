@@ -15,6 +15,7 @@ func TestEveryServerOwnedRouteMapsToExactlyOneLane(t *testing.T) {
 		"REVIEW_INTERACTION":            laneWorkflow,
 		"SALARY_INTERACTION":            laneWorkflow,
 		"MERCHANT_LEARNING_INTERACTION": laneWorkflow,
+		"PENDING_BATCH_INTERACTION":     laneWorkflow,
 		"FINANCE_HELP":                  laneAgentFallthrough,
 		"NEEDS_GENERATIVE_AGENT":        laneAgentFallthrough,
 		"OUT_OF_SCOPE":                  laneAgentFallthrough,

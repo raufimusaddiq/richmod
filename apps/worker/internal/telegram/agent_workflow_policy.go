@@ -59,7 +59,7 @@ func applyAgentWorkflowToolPolicy(
 			allowed["confirm_pending_action"] = true
 			allowed["cancel_pending_action"] = true
 			scope = agentWorkflowPendingAction
-		case available("pending_batch_decision"):
+		case available("pending_batch_decision") && route == "PENDING_BATCH_INTERACTION":
 			allowed["pending_batch_decision"] = true
 			scope = agentWorkflowPendingBatch
 		// Implicit bindings are inferred from chat state alone, so they must not
@@ -75,12 +75,15 @@ func applyAgentWorkflowToolPolicy(
 			allowed["resolve_salary_choice"] = true
 			scope = agentWorkflowSalaryChoice
 		default:
-			return tools, agentWorkflowGeneral
+			return withoutPendingBatchTools(tools), agentWorkflowGeneral
 		}
 	}
 
 	filtered := make([]gateway.ToolDefinition, 0, len(tools))
 	for _, tool := range tools {
+		if pendingBatchTool(tool.Name) && route != "PENDING_BATCH_INTERACTION" {
+			continue
+		}
 		class, known := agentToolClassFor(tool.Name)
 		if !known || class == agentToolRead {
 			filtered = append(filtered, tool)
@@ -91,4 +94,24 @@ func applyAgentWorkflowToolPolicy(
 		}
 	}
 	return filtered, scope
+}
+
+func pendingBatchTool(name string) bool {
+	switch name {
+	case "pending_batch_decision", "confirm_pending_batch", "cancel_pending_batch", "update_pending_batch":
+		return true
+	default:
+		return false
+	}
+}
+
+func withoutPendingBatchTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition {
+	out := make([]gateway.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		if pendingBatchTool(tool.Name) {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
 }

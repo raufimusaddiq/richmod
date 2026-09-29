@@ -24,6 +24,7 @@ var judgmentRoutes = []string{
 	"REVIEW_INTERACTION",
 	"SALARY_INTERACTION",
 	"MERCHANT_LEARNING_INTERACTION",
+	"PENDING_BATCH_INTERACTION",
 	"FINANCE_HELP",
 	"NEEDS_GENERATIVE_AGENT",
 	"OUT_OF_SCOPE",
@@ -44,6 +45,7 @@ var judgmentRouteCriteria = map[string]string{
 	"REVIEW_INTERACTION":            "list or act on review items",
 	"SALARY_INTERACTION":            "answer a pending payslip choice",
 	"MERCHANT_LEARNING_INTERACTION": "answer a merchant rule confirmation",
+	"PENDING_BATCH_INTERACTION":     "confirm, cancel, or update the pending transaction batch",
 	"FINANCE_HELP":                  "examples of what Richmod can do",
 	"NEEDS_GENERATIVE_AGENT":        "arbitrary extraction, reasoning, or prose is required",
 	"OUT_OF_SCOPE":                  "not a household finance request",
@@ -118,7 +120,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	}
 	switch answer.Choice {
 	case "CREATE_TRANSACTION":
-		return p.finishJudgmentSimpleTransaction(ctx, sourceID, householdID, update, text, now, result, candidate)
+		return p.finishJudgmentSimpleTransaction(ctx, sourceID, householdID, update, now, result, candidate, state.Categories)
 	case "READ_SPENDING":
 		return true, p.replySpending(ctx, sourceID, householdID, update, period)
 	case "READ_CASHFLOW":
@@ -163,11 +165,10 @@ func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextS
 	}
 	if candidate.Amount != "" {
 		statePayload["amount_candidates"] = []string{candidate.Amount}
-		statePayload["date_reference"] = candidate.DateRef
-		statePayload["merchant"] = candidate.Merchant
 		for key, question := range transactionQuestions(state.Categories, "") {
 			questions[key] = question
 		}
+		questions["date_reference"] = judgment.Question{Type: "choice", Instructions: "Choose the date the transaction happened: TODAY, YESTERDAY, or EXPLICIT when the user gave a calendar date. Use OTHER_OR_UNCLEAR when the user gave no date at all.", Criteria: judgment.ChoiceCriteria(judgmentDateReferenceCriteria)}
 	}
 	return judgment.Request{State: statePayload, Questions: questions}
 }
@@ -175,21 +176,25 @@ func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextS
 // finishJudgmentSimpleTransaction consumes transaction answers that were
 // returned by the initial bundle. It performs no second System One call and no
 // generative call (PRD §10).
-func (p *Processor) finishJudgmentSimpleTransaction(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, result judgment.Result, candidate simpleTransactionCandidate) (bool, error) {
+func (p *Processor) finishJudgmentSimpleTransaction(ctx context.Context, sourceID, householdID string, update telegramUpdate, now time.Time, result judgment.Result, candidate simpleTransactionCandidate, categories []string) (bool, error) {
 	if candidate.Amount == "" {
 		return false, nil
 	}
-	decision := transactionDecisionFromAnswers(result, candidate, p.categoriesOrEmpty(ctx, householdID))
+	decision := transactionDecisionFromAnswers(result, candidate, categories)
 	if !decision.decisionAllowed() {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Transaksi ini belum bisa dicatat otomatis. Coba sebutkan nominal, waktu, dan jenisnya lebih jelas.")
+		return false, nil
 	}
-	resolved, err := resolveTransactionTime(now, &candidate.DateRef, stringPtr(candidate.ExplicitDate), nil)
+	// EXPLICIT is unreachable here: the harvest path never supplies an exact
+	// calendar date, so the bounded answer cannot be EXPLICIT (date_support stays
+	// false). A future harvested date would clear that in one place rather than
+	// leaving a contradictory branch behind.
+	resolved, err := resolveTransactionTime(now, &decision.DateReference, nil, nil)
 	if err != nil {
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Waktu transaksi belum jelas.")
+		return false, nil
 	}
 	return true, p.persistTransaction(ctx, sourceID, householdID, update, validatedExtraction{
 		Type: decision.TransactionType, Amount: candidate.Amount, TransactionAt: resolved.At,
-		Merchant: candidate.Merchant, Description: candidate.Merchant, CategorySlug: decision.CategorySlug,
+		Description: candidate.Text, CategorySlug: decision.CategorySlug,
 		TimePrecision: resolved.Precision, TimePeriod: resolved.Period,
 	}, gateway.Metadata{Model: result.Model}, decision)
 }
@@ -235,6 +240,10 @@ func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTran
 	decision.RouteAccepted = true
 	decision.AmountSupported = noulSupported(result.Answers, "amount_support", judgmentPolicy.AmountSupport)
 	decision.DateSupported = noulSupported(result.Answers, "date_support", judgmentPolicy.DateSupport)
+	if answer, ok := result.Answers["date_reference"]; ok && answer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(answer, judgment.ChoiceCriteria(judgmentDateReferenceCriteria), judgmentPolicy.Transaction) {
+		decision.DateReference = answer.Choice
+		decision.DateSupported = answer.Choice == "TODAY" || answer.Choice == "YESTERDAY"
+	}
 	decision.MaterialAmbiguity, decision.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity", judgmentPolicy.Ambiguity)
 	if decision.TransactionType == "EXPENSE" && len(categories) > 0 {
 		if categoryAnswer, exists := result.Answers["category"]; exists && categoryAnswer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(categoryAnswer, judgment.CategoryCriteria(categories), judgmentPolicy.Category) && contains(categories, categoryAnswer.Choice) {
@@ -274,26 +283,9 @@ func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 	if len(value.String()) > 20 {
 		return simpleTransactionCandidate{}, false
 	}
-	dateRef, explicit := "TODAY", ""
-	lower := strings.ToLower(text)
-	if strings.Contains(lower, "kemarin") || strings.Contains(lower, "yesterday") {
-		dateRef = "YESTERDAY"
-	}
-	if date := simpleDatePattern.FindStringSubmatch(text); len(date) == 2 {
-		dateRef, explicit = "EXPLICIT", date[1]
-	}
-	merchant := simpleMerchant(text, matches[0][0], dateRef, explicit)
-	return simpleTransactionCandidate{Amount: value.String(), DateRef: dateRef, ExplicitDate: explicit, Merchant: merchant}, true
-}
-
-func simpleMerchant(text, amountToken, dateRef, explicitDate string) string {
-	value := strings.TrimSpace(strings.Replace(text, amountToken, " ", 1))
-	if explicitDate != "" {
-		value = strings.Replace(value, explicitDate, " ", 1)
-	}
-	for _, phrase := range []string{"hari ini", "kemarin", "today", "yesterday", "catat", "tambah", "simpan", "pengeluaran", "pemasukan", "expense", "income"} {
-		value = strings.Replace(strings.ToLower(value), phrase, " ", 1)
-	}
-	value = strings.Join(strings.Fields(value), " ")
-	return clean(value, 160)
+	// Go owns the exact syntactic amount candidate and nothing else. Date and
+	// merchant wording is intelligence-owned: the same bundle asks Jev whether the
+	// resolved date is supported from the raw text, and a model-authored typed
+	// date is validated structurally rather than by Go re-reading the sentence.
+	return simpleTransactionCandidate{Amount: value.String(), Text: text}, true
 }

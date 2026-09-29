@@ -28,6 +28,7 @@ For a clearly named purchased item or service, choose the best matching allowed 
 For queries, extract bounded Jakarta date periods and search words only; never calculate totals in the model. Use CURRENT_CYCLE for “sejak gajian terakhir” or “siklus ini”, and PREVIOUS_CYCLE for “siklus sebelumnya”; Go resolves exact boundaries from confirmed primary salary events.
 For corrections, use recent context to identify the target with search_text and include only explicitly requested fields. Date/time follow-ups such as “kemarin” or “sore kemarin” must use the correction_date_reference/correction_local_time fields.
 When a user gives a named time of day, preserve the stated date and set local_time to the canonical Indonesian period: PAGI, SIANG, SORE, or MALAM. Use HH:MM only when the user supplied an exact clock time. Never replace an explicitly stated past date with today.
+For date provenance, set date_reference only when the user explicitly stated a date or relative date, and set date_provenance=USER_STATED only in that case. If the user did not state when the event happened, set date_reference=null and date_provenance=NOT_USER_STATED; never infer or default a date and call it user-stated.
 When one message clearly contains multiple income/expense entries, use intent BATCH_CREATE and put every entry in items; do not collapse them into one amount. Batch entries require one explicit user confirmation before any are recorded.
 Set ambiguous=true whenever the intended action, target, language, or amount is uncertain.
 The output is data for deterministic Go validation; it is never permission to mutate the ledger.`
@@ -987,6 +988,7 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 	description, _ := args["description"].(string)
 	note, _ := args["note"].(string)
 	dateReference, _ := args["date_reference"].(string)
+	dateSource, _ := args["date_provenance"].(string)
 	ambiguous, _ := args["ambiguous"].(bool)
 	explicitDate, _ := args["explicit_date"].(string)
 	localTime, _ := args["local_time"].(string)
@@ -995,24 +997,29 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 	if typ != "INCOME" && typ != "EXPENSE" {
 		return validatedExtraction{}, fmt.Errorf("type")
 	}
+	if (dateSource != "" && dateSource != "USER_STATED" && dateSource != "NOT_USER_STATED") || (dateSource == "USER_STATED" && dateReference == "") {
+		return validatedExtraction{}, fmt.Errorf("date provenance")
+	}
+	if dateReference != "" && dateSource == "" {
+		return validatedExtraction{}, fmt.Errorf("date provenance missing")
+	}
 	value, ok := new(big.Int).SetString(amount, 10)
 	if !ok || value.Sign() <= 0 || value.String() != amount {
 		return validatedExtraction{}, fmt.Errorf("amount")
 	}
-	resolved, err := resolveTransactionTime(now, stringPtr(dateReference), stringPtr(explicitDate), stringPtr(localTime))
+	var dateReferencePtr *string
+	if dateReference != "" {
+		dateReferencePtr = &dateReference
+	}
+	resolved, err := resolveTransactionTime(now, dateReferencePtr, stringPtr(explicitDate), stringPtr(localTime))
 	if err != nil {
 		return validatedExtraction{}, err
 	}
-	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, DateProvenance: dateProvenance(dateReference), Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, Ambiguous: ambiguous, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
-}
-
-func dateProvenance(reference string) string {
-	switch reference {
-	case "TODAY", "YESTERDAY", "EXPLICIT":
-		return "USER_STATED"
-	default:
-		return "MISSING"
+	provenance := "MISSING"
+	if dateSource == "USER_STATED" {
+		provenance = "USER_STATED"
 	}
+	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, DateProvenance: provenance, Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, Ambiguous: ambiguous, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
 }
 
 func (p *Processor) finishPendingAction(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
@@ -1327,8 +1334,9 @@ func extractionSchema() map[string]any {
 		"intent":   map[string]any{"type": "string", "enum": []string{"ADD_EXPENSE", "ADD_INCOME", "BATCH_CREATE", "CORRECT_TRANSACTION", "SEARCH_TRANSACTIONS", "GET_SPENDING", "GET_CASHFLOW", "GET_INSIGHTS", "GET_REVIEW_ITEMS", "UPLOAD_FINANCIAL_DOCUMENT", "HELP", "NON_FINANCE", "UNKNOWN"}},
 		"amount":   nullableString, "currency": nullableString, "merchant": nullableString,
 		"category_slug": nullableString, "description": nullableString, "note": nullableString,
-		"date_reference": map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}},
-		"explicit_date":  nullableString, "local_time": nullableString,
+		"date_reference":  map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}},
+		"date_provenance": map[string]any{"type": []string{"string", "null"}, "enum": []any{"USER_STATED", "NOT_USER_STATED", nil}},
+		"explicit_date":   nullableString, "local_time": nullableString,
 		"confidence":          map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 		"category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 		"ambiguous":           map[string]any{"type": "boolean"}, "response_message": map[string]any{"type": "string"},

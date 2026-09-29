@@ -46,6 +46,7 @@ func TestNativeExtractionPreservesExplicitDateWithApproximateMorning(t *testing.
 		"description":         "Beli bensin",
 		"note":                nil,
 		"date_reference":      "EXPLICIT",
+		"date_provenance":     "USER_STATED",
 		"explicit_date":       "2026-09-06",
 		"local_time":          "PAGI",
 		"confidence":          0.99,
@@ -60,6 +61,28 @@ func TestNativeExtractionPreservesExplicitDateWithApproximateMorning(t *testing.
 	}
 	if validated.TimePrecision != "APPROXIMATE" || validated.TimePeriod != "PAGI" {
 		t.Fatalf("time metadata = %q, %q", validated.TimePrecision, validated.TimePeriod)
+	}
+}
+
+func TestNativeExtractionDoesNotPromoteModelDateToUserStatement(t *testing.T) {
+	now := time.Date(2026, time.September, 7, 17, 37, 0, 0, jakartaLocation())
+	base := map[string]any{
+		"type": "EXPENSE", "amount_idr": "46000", "date_reference": "TODAY",
+		"explicit_date": nil, "local_time": nil, "date_provenance": "NOT_USER_STATED",
+	}
+	value, err := nativeValidatedExtraction(base, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value.DateProvenance == "USER_STATED" {
+		t.Fatal("model date was promoted to user-stated provenance")
+	}
+	if _, ok := directAcceptanceDecision(value, nil, now); ok {
+		t.Fatal("non-user-stated date passed canonical acceptance")
+	}
+	delete(base, "date_provenance")
+	if _, err := nativeValidatedExtraction(base, now); err == nil {
+		t.Fatal("date without provenance was accepted")
 	}
 }
 

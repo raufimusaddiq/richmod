@@ -182,3 +182,95 @@ or seeded financial data was used.
 **Closure gate:** Telegram observation is partial; UISC-03 acceptance and
 UISC-04 freeze remain blocked until remaining production checks and email
 observation are recorded. Do not start CEU.
+
+---
+
+# 7. Phase 2 — core intelligence boundary completion
+
+**Baseline re-audit:** `main@d41296169224393f460ca0e8ede20dd97203d94e`
+(PR #215 atop PR #214). PR #214's Telegram/email changes were present.
+
+## 7.1 Corrected classification
+
+| Decision | Previous classification | Corrected classification | Phase-2 action |
+| --- | --- | --- | --- |
+| `userTextSupportsDate()` re-read after typed semantic extraction | `EXACT_DETERMINISTIC_KNOWLEDGE` | `SEMANTIC_INTERPRETATION` | Removed as semantic acceptance authority. Typed date structure/provenance remains validated; Go no longer asks whether raw wording matches a phrase table. |
+| model numeric confidence thresholds for document/receipt/screenshot/category decisions | confidence treated as acceptance policy | `SEMANTIC_INTERPRETATION` when it vetoes a complete semantic result | Removed threshold vetoes; retain range/schema checks and telemetry. |
+| category query failure converted to empty categories | empty semantic state | `MACHINE_FAILURE` | Removed `categoriesOrEmpty`; propagate database errors. |
+
+Reason: exact phrase recognition is not exact knowledge of a natural-language
+date. The intelligence layer owns the meaning; Go owns timestamp representation,
+timezone validity, and canonical safety. Regression tests cover unrecognized
+phrases and invalid typed timestamps without date substitution.
+
+## 7.2 Phase-2 changes and evidence
+
+- Telegram harvest retains amount/text candidates only; Jev owns date/category
+  meaning. An undecided bounded transaction falls through to generative
+  extraction; decisive Jev-only fast path and PR #144 call budget remain.
+- Pending-batch tools are exposed only for the matching bounded interaction
+  route; unrelated conversation leaves the pending batch intact.
+- Document semantic confidence thresholds no longer create review by themselves.
+- Receipt category provider failure retries as machine failure, not human review;
+  screenshot category confidence is not an acceptance veto.
+- Complete uniquely account-bound provider-email wealth observations remain
+  `PENDING` with a `WEALTH_OBSERVATION_CONFIRMATION` review until the existing
+  snapshot flow consumes them. Malformed representation errors retry/fail as
+  machine errors, not as `TRANSFER_CLASSIFICATION`.
+- Document wealth observations remain `PENDING` with a
+  `WEALTH_OBSERVATION_CONFIRMATION` review until the existing snapshot flow
+  consumes them, including when account binding is unique; the current consumer
+  creates snapshot items only through that review flow.
+- Reconciliation with 2–10 deterministic survivors can ask Jev to select among
+  anonymous candidates; canonical UUIDs stay private to Go.
+
+Disposable PostgreSQL integration tests passed for Telegram, document,
+financial-email, and bank-email packages; unit tests and `go vet` passed for the
+affected packages. These are implementation checks, not merge/deploy/production
+closure evidence.
+
+## 7.3 Remaining findings
+
+- `telegram/review.go:transferReviewIntent()` still uses keyword matching on a
+  bound transfer-review reply. This is `SEMANTIC_INTERPRETATION`, not canonical
+  safety. It remains because the reply path currently lacks a reusable typed
+  Jev decision step; it must be addressed before declaring the invariant
+  complete.
+- Document wealth observations with unresolved account hints still require
+  human entity resolution. This is retained canonical household binding, not
+  semantic confirmation of already-complete evidence.
+- Real owner-household observation remains pending. No UISC-03/UISC-04 closure,
+  deploy, or roadmap work is implied by these code/test changes.
+
+## 7.4 Independent review findings and corrections
+
+Hermes review of PR #218 identified three blockers and one prompt mismatch. The
+fixes are recorded here rather than rewriting the original audit history:
+
+- Fast-path harvest had dropped the original transaction wording from the
+  canonical description. It now preserves the raw user turn as `description`;
+  Go does not guess a merchant by parsing leftover language.
+- The generative transaction tool had a required date reference that forced a
+  model to emit TODAY/YESTERDAY/EXPLICIT, and Go inferred `USER_STATED` from
+  that enum. `date_reference` is now optional and an explicit `date_provenance`
+  field determines whether the date can satisfy canonical acceptance. Missing
+  or `NOT_USER_STATED` provenance cannot auto-confirm. Go validates the typed
+  provenance/value structure; it does not reparse the user sentence.
+- Bank email with no Jev verifier could let deterministic policy auto-confirm
+  from the extractor's own result. Such an unverified auto-confirm is now
+  downgraded to its existing material review path; extractor confidence alone
+  cannot authorize canonical state.
+- Pending-batch prompt now matches actual server-owned tool availability: use
+  the tool only when present for the bound pending-batch interaction; otherwise
+  answer normally and leave the batch untouched.
+- Fixed native argument decoding to recognize the new typed `date_provenance`
+  field (the strict decoder rejected it before the validator could run).
+
+Hermes review also noted legacy `document_extraction.validated` is constant true
+on the classification path and that missing Jev route call budgets differ from
+explicit-date generative transactions. These are telemetry/optimization notes,
+not blockers to canonical safety; no extra refactor was added.
+
+Worker internal tests/vet and API internal tests pass with the disposable
+PostgreSQL environment after these fixes. PR CI/review must rerun on the new
+head.

@@ -3,6 +3,7 @@ package document
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,10 @@ import (
 // a stored decision stays reproducible (PRD §21). It reuses the same decisive
 // answer policy as the screenshot row rescue and the Telegram category rescue.
 const ReceiptCategoryPolicyVersion = "2026-09-receipt-category1"
+
+// errReceiptCategoryProviderUnavailable distinguishes a machine outage from an
+// undecided semantic answer, so the caller retries instead of minting a review.
+var errReceiptCategoryProviderUnavailable = errors.New("receipt category judgment provider unavailable")
 
 var receiptCategoryPolicy = judgment.ChoicePolicy{MinTop: 0.85, MinMargin: 0.20, MinConfidence: 0.60}
 

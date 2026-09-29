@@ -170,8 +170,8 @@ func TestW3QualityContractDecodesFailClosedAndRoutesReview(t *testing.T) {
 	}
 	low := value
 	low.FieldConfidence = map[string]float64{"total": 0.79, "merchant": 0.9, "transaction_at": 0.9}
-	if !low.NeedsReview() {
-		t.Fatal("low critical-field confidence must route to review")
+	if low.NeedsReview() {
+		t.Fatal("numeric self-confidence alone must not route to review")
 	}
 	degraded := value
 	degraded.Quality = QualityDegraded

@@ -222,9 +222,10 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			slog.WarnContext(ctx, "document shadow comparison persistence failed", "error_type", fmt.Sprintf("%T", err))
 		}
 	}
-	validated := result.Confidence >= 0.80
+	// Confidence is stored for audit/telemetry, not used as semantic authority.
+	validated := true
 	documentStatus, sourceStatus := "CLASSIFIED", "PROCESSED"
-	if !validated || result.DocumentType == "OTHER_FINANCIAL_DOCUMENT" {
+	if result.DocumentType == "OTHER_FINANCIAL_DOCUMENT" {
 		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
 	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" && validated {
@@ -260,6 +261,9 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction (document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES ($1,'CLASSIFICATION','1',$2::jsonb,$3,$4,$5) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(output), result.Confidence, metadata.Model, validated); err != nil {
 		return err
 	}
+	if observation != nil {
+		documentStatus, sourceStatus = "EXTRACTED", "PROCESSED"
+	}
 	if _, err := tx.Exec(ctx, `UPDATE document SET document_type=$2,status=$3,updated_at=now() WHERE id=$1`, documentID, result.DocumentType, documentStatus); err != nil {
 		return err
 	}
@@ -275,6 +279,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'WEALTH_OBSERVATION','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(observationOutput), observation.Confidence, observationMetadata.Model); err != nil {
 			return err
 		}
+		// Keep observations pending until the existing snapshot flow consumes them.
 		if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW' WHERE id=$1`, documentID); err != nil {
 			return err
 		}
@@ -282,7 +287,8 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			return err
 		}
 		var observationID string
-		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10) ON CONFLICT(document_id) DO UPDATE SET updated_at=now() RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate).Scan(&observationID); err != nil {
+		observationStatus := "PENDING"
+		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date,status) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10,$11) ON CONFLICT(document_id) DO UPDATE SET updated_at=now(),status=EXCLUDED.status RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate, observationStatus).Scan(&observationID); err != nil {
 			return err
 		}
 		decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
@@ -312,9 +318,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 				return err
 			}
 		}
-		// UIR-02: the wealth observation is a review subject of its own, so give
-		// it the same actionable Telegram projection as a transaction review
-		// instead of a fire-and-forget notice the user cannot resolve in chat.
+		// UIR-02: keep the observation actionable in both Inbox and Telegram.
 		if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
 			return err
 		}

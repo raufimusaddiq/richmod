@@ -92,7 +92,12 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	// The conversational record_transaction tool is another canonical mutation
 	// boundary, so it consumes the same semantic decision object as every other
 	// path instead of grading the generative extraction itself (ADR-038).
-	allowedCategories, _ := p.categorySlugs(ctx, state.HouseholdID)
+	// A category query failure is infrastructure state, not an empty household
+	// category set: retry the job instead of downgrading a valid record to review.
+	allowedCategories, err := p.categorySlugs(ctx, state.HouseholdID)
+	if err != nil {
+		return result, true, err
+	}
 	exactCategory := false
 	if value.CategorySlug != "" {
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id WHERE ma.household_id=$1 AND ma.auto_apply AND ma.created_from_user_confirmation AND c.slug=$2)`, state.HouseholdID, value.CategorySlug).Scan(&exactCategory); err != nil {

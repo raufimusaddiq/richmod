@@ -23,7 +23,7 @@ func (prdAgentGateway) NativeToolCall(context.Context, string, string, any, []ga
 func (prdAgentGateway) AgentTurn(_ context.Context, _ string, request gateway.AgentRequest) (gateway.AgentResponse, error) {
 	for _, tool := range request.Tools {
 		if tool.Name == "record_transaction" {
-			args := json.RawMessage(`{"type":"EXPENSE","amount_idr":"5000","merchant":"Gorengan","category_slug":"food-drink","description":"jajan gorengan","note":null,"date_reference":"TODAY","explicit_date":null,"local_time":null,"ambiguous":false,"confidence":0.99,"category_confidence":0.99}`)
+			args := json.RawMessage(`{"type":"EXPENSE","amount_idr":"5000","merchant":"Gorengan","category_slug":"food-drink","description":"jajan gorengan","note":null,"date_reference":"TODAY","date_provenance":"USER_STATED","explicit_date":null,"local_time":null,"ambiguous":false,"confidence":0.99,"category_confidence":0.99}`)
 			return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "prd-expense", Name: "record_transaction", Arguments: args}}}, nil
 		}
 	}
@@ -52,7 +52,7 @@ func (g *ir04AgentGateway) AgentTurn(_ context.Context, _ string, request gatewa
 		args := map[string]any{
 			"type": "EXPENSE", "amount_idr": g.amount, "merchant": g.merchant,
 			"category_slug": g.category, "description": g.merchant, "note": nil,
-			"date_reference": g.dateRef, "explicit_date": nil, "local_time": g.localTime,
+			"date_reference": g.dateRef, "date_provenance": "USER_STATED", "explicit_date": nil, "local_time": g.localTime,
 			"ambiguous": false, "confidence": 0.91, "category_confidence": 0.91,
 		}
 		encoded, _ := json.Marshal(args)
@@ -118,6 +118,9 @@ func (simpleExpenseJudgment) Evaluate(_ context.Context, _ string, request judgm
 		case "category":
 			criteria, _ := question.Criteria.(map[string]any)
 			answers[key] = confidentChoice(criteria, "food-drink")
+		case "date_reference":
+			criteria, _ := question.Criteria.(map[string]any)
+			answers[key] = confidentChoice(criteria, "TODAY")
 		case "amount_support", "date_support":
 			answers[key] = decidedNoul(0.99)
 		case "material_ambiguity":
@@ -160,8 +163,8 @@ func TestJevFailureChatWorksButMutationCapabilityIsWithheld(t *testing.T) {
 	}
 	for _, test := range []struct {
 		name, text, reply string
-		engine     judgment.Engine
-		openReview bool
+		engine            judgment.Engine
+		openReview        bool
 	}{
 		{"chat", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdFailingJudgment{}, false},
 		{"conversation", "aku ga bisa chat aja?", "Bisa, kita ngobrol soal keuangan.", prdFailingJudgment{}, false},
@@ -295,13 +298,13 @@ func TestPRDTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing
 	if err := p.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
-	var status, gotCategory, sourceStatus string
+	var status, gotCategory, sourceStatus, description string
 	var reviews int
-	if err := f.pool.QueryRow(ctx, `SELECT t.status,t.category_id::text,s.processing_status,(SELECT count(*) FROM review_request WHERE transaction_id=t.id) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN source_event s ON s.id=e.source_event_id WHERE t.household_id=$1 AND t.amount=5000 AND t.type='EXPENSE'`, f.householdID).Scan(&status, &gotCategory, &sourceStatus, &reviews); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT t.status,t.category_id::text,s.processing_status,COALESCE(t.description,''),(SELECT count(*) FROM review_request WHERE transaction_id=t.id) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN source_event s ON s.id=e.source_event_id WHERE t.household_id=$1 AND t.amount=5000 AND t.type='EXPENSE'`, f.householdID).Scan(&status, &gotCategory, &sourceStatus, &description, &reviews); err != nil {
 		t.Fatal(err)
 	}
-	if status != "CONFIRMED" || gotCategory != categoryID || sourceStatus != "PROCESSED" || reviews != 0 {
-		t.Fatalf("status=%s category=%s source=%s reviews=%d", status, gotCategory, sourceStatus, reviews)
+	if status != "CONFIRMED" || gotCategory != categoryID || sourceStatus != "PROCESSED" || reviews != 0 || description == "" {
+		t.Fatalf("status=%s category=%s source=%s reviews=%d description=%q", status, gotCategory, sourceStatus, reviews, description)
 	}
 }
 
@@ -423,7 +426,7 @@ func TestPRDTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND amount=5000),count(*) FILTER(WHERE type='EXPENSE' AND status='NEEDS_REVIEW' AND amount=5000),count(*) FILTER(WHERE id=$2 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, f.householdID, oldTransaction).Scan(&confirmed, &newExpenseNeedsReview, &oldExpenseNeedsReview))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item i JOIN review_request r ON r.review_item_id=i.id WHERE r.id=$1 AND i.status='OPEN'`, reviewID).Scan(&reviewStatus))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_request WHERE id=$1 AND status='OPEN'`, reviewID).Scan(&reviewRequestStatus))
-	if confirmed != 0 || newExpenseNeedsReview != 1 || oldExpenseNeedsReview != 1 || reviewStatus != 1 || reviewRequestStatus != 1 {
+	if confirmed != 1 || newExpenseNeedsReview != 0 || oldExpenseNeedsReview != 1 || reviewStatus != 1 || reviewRequestStatus != 1 {
 		t.Fatalf("confirmed_new=%d new_expense_needs_review=%d existing_needs_review=%d review_item_open=%d request_open=%d", confirmed, newExpenseNeedsReview, oldExpenseNeedsReview, reviewStatus, reviewRequestStatus)
 	}
 }

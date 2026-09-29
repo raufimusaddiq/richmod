@@ -64,6 +64,27 @@ func applyCategoryAutoConfirmSwitch(result PolicyResult, enabled bool) PolicyRes
 	return result
 }
 
+// applyVerificationGate denies auto-confirm unless a bounded plane independently
+// verified the semantics. Leaving the review type the policy chose
+// (UNKNOWN_MERCHANT/AMBIGUOUS_CATEGORY/TRANSFER_CLASSIFICATION) names the real
+// residual instead of inventing one.
+func applyVerificationGate(result PolicyResult, verified bool) PolicyResult {
+	if verified || !result.AutoConfirm {
+		return result
+	}
+	result.AutoConfirm = false
+	if result.Status == "" || result.Status == "CONFIRMED" {
+		result.Status = "NEEDS_REVIEW"
+	}
+	if result.ReviewType == "" {
+		result.ReviewType = "DOCUMENT_EXTRACTION_LOW_CONFIDENCE"
+	}
+	if result.Description == "" {
+		result.Description = "Ekstraksi belum diverifikasi oleh bidang semantik."
+	}
+	return result
+}
+
 type Payload struct {
 	SourceEventID  string  `json:"source_event_id"`
 	Shadow         bool    `json:"shadow"`
@@ -342,9 +363,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
 	}
-	if !verified && extraction.Confidence < 0.80 {
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", partialDecision(household, payload.SourceEventID, extraction, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"transaction_semantics"}, "extraction confidence was below the confirmation threshold and semantic verification was unavailable"))
-	}
+	// The deterministic policy may only auto-confirm when a bounded plane
+	// independently verified the semantics. With no verifier the extractor's own
+	// confidence cannot authorize ledger money.
+	result = applyVerificationGate(result, verified)
 	var alreadyPersisted bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
 		return nil

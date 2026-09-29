@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ type TransactionSemanticDecision struct {
 	CategoryAccepted  bool
 	AmountSupported   bool
 	DateSupported     bool
+	DateReference     string
 	MaterialAmbiguity bool
 	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
 	// question, which is the favourable answer. The middle band means the plane
@@ -79,6 +81,18 @@ func transactionQuestions(categories []string, typeHint string) map[string]judgm
 		questions["category"] = judgment.Question{Type: "choice", Instructions: "Choose the best active expense category for this purchased item. Use OTHER_OR_UNCLEAR only when no category is safe.", Criteria: judgment.CategoryCriteria(categories)}
 	}
 	return questions
+}
+
+var judgmentDateReferenceCriteria = map[string]string{
+	"TODAY":            "the transaction happened today",
+	"YESTERDAY":        "the transaction happened yesterday",
+	"EXPLICIT":         "the user stated a calendar date",
+	"OTHER_OR_UNCLEAR": "no transaction date was stated",
+}
+
+var judgmentPurchaseLabelCriteria = map[string]string{
+	"SUPPORTED":        "the user's wording names the purchased item or merchant",
+	"OTHER_OR_UNCLEAR": "no purchase wording was stated",
 }
 
 // evaluateTransactionSemantics is the one evaluator used after arbitrary
@@ -172,7 +186,7 @@ func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requ
 // Batch confirmation stays on resolveTransactionDecision because that path is an
 // explicit human confirmation, not an autonomous extraction.
 func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
-	if direct, ok := directAcceptanceDecision(value, categories, state.Now, state.Update.Message.Text); ok {
+	if direct, ok := directAcceptanceDecision(value, categories, state.Now); ok {
 		if p.postGenerativeAutoConfirmOff {
 			return TransactionSemanticDecision{DecisionSource: direct.DecisionSource, PolicyVersion: direct.PolicyVersion}, nil
 		}
@@ -184,18 +198,11 @@ func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentS
 	}
 	if p.judgment == nil {
 		state.ResidualDimensions = unresolvedTransactionDimensions(value.Type, strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug))
-		if !userTextSupportsDate(state.Update.Message.Text, value.TransactionAt, state.Now) {
-			state.ResidualDimensions = appendIfMissing(state.ResidualDimensions, "transaction_at")
-		}
 		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeJudgmentUnavailable)
 		return TransactionSemanticDecision{DecisionSource: "JUDGMENT_UNAVAILABLE", PolicyVersion: judgmentPolicy.Version}, nil
 	}
 	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)
-	dateSupported := userTextSupportsDate(state.Update.Message.Text, value.TransactionAt, state.Now)
 	missing := unresolvedTransactionDimensions(value.Type, categoryKnown)
-	if !dateSupported {
-		missing = append([]string{"transaction_at"}, missing...)
-	}
 	if value.Ambiguous {
 		// The extractor declared unresolved ambiguity without naming a safe
 		// bounded dimension. Preserve the facts for minimal review; do not ask Jev
@@ -215,12 +222,6 @@ func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentS
 		state.ResidualDimensions = missing
 	}
 	jevDimensions := unresolvedTransactionDimensions(value.Type, categoryKnown)
-	if !dateSupported {
-		// Date provenance is a user fact, not an eligible semantic rescue.
-		// Preserve the residual for review without sending a category judgment
-		// that could accidentally imply the whole transaction is accepted.
-		return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
-	}
 	if len(jevDimensions) > 0 {
 		if trace := turnTraceFrom(ctx); trace != nil {
 			trace.recordResidual(jevDimensions)
@@ -234,13 +235,6 @@ func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentS
 	return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
 }
 
-func appendIfMissing(values []string, target string) []string {
-	if contains(values, target) {
-		return values
-	}
-	return append(values, target)
-}
-
 func removeString(values []string, target string) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
@@ -249,6 +243,13 @@ func removeString(values []string, target string) []string {
 		}
 	}
 	return result
+}
+
+func appendIfMissing(values []string, target string) []string {
+	if contains(values, target) {
+		return values
+	}
+	return append(values, target)
 }
 
 func noulSupported(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) bool {
@@ -273,11 +274,8 @@ func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy jud
 // already-narrowed fact-free proposal skip Jev; everything else must be ruled
 // on by the one shared evaluator.
 func (p *Processor) resolveTransactionDecision(ctx context.Context, sourceEventID, householdID, userText string, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
-	if value.Confidence < 0 || value.Confidence > 1 || value.Confidence > judgmentPolicy.Ambiguity.High {
-		// A generative model may not grade its own answer into mutation authority
-		// (PRD §6). A high self-reported confidence is therefore treated as material
-		// ambiguity and must be re-decided by the bounded evaluator.
-		value.Ambiguous = true
+	if value.Confidence < 0 || value.Confidence > 1 {
+		return TransactionSemanticDecision{}, fmt.Errorf("invalid extraction confidence")
 	}
 	if exactCategory && !value.Ambiguous {
 		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeAccepted)
@@ -311,7 +309,7 @@ func (p *Processor) resolveTransactionDecision(ctx context.Context, sourceEventI
 // checks the ADR requires before a generative result may continue (ADR-045
 // "Deterministic validation"). It returns false when any dimension is genuinely
 // unresolved, which is exactly when the bounded evaluator still earns its call.
-func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time, userText string) (TransactionSemanticDecision, bool) {
+func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time) (TransactionSemanticDecision, bool) {
 	// Schema/type and amount format are re-asserted here rather than trusted,
 	// because this function is the gate that skips the model.
 	if value.Type != "INCOME" && value.Type != "EXPENSE" {
@@ -324,7 +322,7 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 	// Date provenance must be explicit. OBSERVED_AT_PROCESSING means the caller
 	// fell back to processing time, which is not an observed transaction time and
 	// must never be canonicalized as one (PRD §9).
-	if !acceptableDateProvenance(value.DateProvenance) || value.TransactionAt.IsZero() || now.IsZero() || !userTextSupportsDate(userText, value.TransactionAt, now) {
+	if !acceptableDateProvenance(value.DateProvenance) || value.TransactionAt.IsZero() || now.IsZero() {
 		return TransactionSemanticDecision{}, false
 	}
 	// Confidence is intentionally not a canonical gate. It cannot authorize an
@@ -364,35 +362,6 @@ func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {
 // evidence or an explicit user statement, rather than the processing fallback.
 func acceptableDateProvenance(provenance string) bool {
 	return provenance == "USER_STATED"
-}
-
-// userTextSupportsDate ties the model's constrained date reference back to the
-// source event. TODAY/YESTERDAY and explicit ISO dates are accepted only when
-// the user actually supplied that date signal; the model cannot manufacture a
-// missing date to pass the canonical gate.
-func userTextSupportsDate(userText string, at, now time.Time) bool {
-	if strings.TrimSpace(userText) == "" || at.IsZero() {
-		return false
-	}
-	text := strings.ToLower(userText)
-	localDate := at.In(jakartaLocation()).Format("2006-01-02")
-	if explicit := simpleDatePattern.FindString(text); explicit != "" {
-		return explicit == localDate
-	}
-	if strings.Contains(text, "kemarin") || strings.Contains(text, "yesterday") {
-		return at.In(jakartaLocation()).Format("2006-01-02") == now.In(jakartaLocation()).AddDate(0, 0, -1).Format("2006-01-02")
-	}
-	if strings.Contains(text, "hari ini") || strings.Contains(text, "today") {
-		return at.In(jakartaLocation()).Format("2006-01-02") == now.In(jakartaLocation()).Format("2006-01-02")
-	}
-	// Older relative dates are only accepted when the user explicitly used a
-	// supported phrase; missing date evidence remains missing.
-	for phrase, offset := range map[string]int{"dua hari lalu": -2, "2 hari lalu": -2, "three days ago": -3, "3 hari lalu": -3, "seminggu lalu": -7, "last week": -7} {
-		if strings.Contains(text, phrase) {
-			return at.In(jakartaLocation()).Format("2006-01-02") == now.In(jakartaLocation()).AddDate(0, 0, offset).Format("2006-01-02")
-		}
-	}
-	return false
 }
 
 // turnAgentContextState is the loaded server state shared by the initial
