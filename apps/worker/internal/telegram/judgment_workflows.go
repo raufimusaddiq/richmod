@@ -95,12 +95,6 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 	return false, nil
 }
 
-func exactReviewNeedsFreeform(state *agentState) bool {
-	return state != nil && state.ReviewBinding != nil && state.ReviewBinding.Kind == "TRANSACTION" &&
-		state.Update.Message.ReplyToMessage != nil && state.Update.Message.ReplyToMessage.MessageID != 0 &&
-		state.ReviewBinding.ConversationState == "AWAITING_CATEGORY"
-}
-
 func boundedReviewAction(action string) bool {
 	switch action {
 	case "CONFIRM", "IGNORE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED", "PRIMARY_SALARY", "ORDINARY_INCOME":

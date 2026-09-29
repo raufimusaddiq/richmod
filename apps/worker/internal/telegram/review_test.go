@@ -138,10 +138,25 @@ func TestFormatIDRSupportsNegativeCashflow(t *testing.T) {
 }
 
 func TestTransferReviewCallbacksMapDirectlyToCanonicalActions(t *testing.T) {
-	tests := map[string]string{"review:own": "OWN_ACCOUNT", "review:household": "HOUSEHOLD_ACCOUNT", "review:investment": "INVESTMENT_ACCOUNT", "review:ignore": "IGNORE", "review:expense": "EXPENSE", "review:unknown": ""}
+	tests := map[string]string{"review:own": "OWN_ACCOUNT", "review:household": "HOUSEHOLD_ACCOUNT", "review:investment": "INVESTMENT_ACCOUNT", "review:ignore": "IGNORE", "review:expense": "EXPENSE", "review:asset": "ASSET_PURCHASE", "review:unknown": ""}
 	for callback, want := range tests {
 		if got := transferReviewCallbackAction(callback); got != want {
 			t.Fatalf("%q = %q, want %q", callback, got, want)
 		}
+	}
+}
+
+func TestPayslipReviewSchemaAcceptsCanonicalPayDateWithoutCategoryOptions(t *testing.T) {
+	schema := reviewSchema(nil, false)
+	properties := schema["properties"].(map[string]any)
+	if _, ok := properties["pay_date"]; !ok {
+		t.Fatal("pay_date missing from schema")
+	}
+	if _, ok := properties["category_slug"]; ok {
+		t.Fatal("empty category enum must be omitted")
+	}
+	required := schema["required"].([]string)
+	if !contains(required, "pay_date") {
+		t.Fatalf("required=%v", required)
 	}
 }

@@ -22,8 +22,8 @@ type Processor struct {
 	pool      *pgxpool.Pool
 	extractor *Extractor
 	// verifier scores the already-extracted facts against the original email
-	// through the bounded judgment plane. It is optional: a nil verifier keeps the
-	// deterministic structural gate and never silently invents semantic approval
+	// through the bounded judgment plane. Production requires LLM_MODEL_JUDGMENT:
+	// nil verifier is a machine retry, never a review or semantic approval
 	// (PRD §20).
 	verifier jeverifier
 	// categoryAutoConfirmOff is this source's PRD §33 operational kill-switch,
