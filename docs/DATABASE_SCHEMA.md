@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00072_savr_closure_phase_provenance.sql`.
+forward migration set through `db/migrations/00073_accepted_wealth_observations.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -147,6 +147,7 @@ erDiagram
 | `document` | Evidence document derived from a source event and attachment. | One source event per document; links `attachment`. |
 | `document_page` | Page/image record for a multi-page document. | `document_id → document`; ordered page content. |
 | `document_extraction` | Structured extraction attempt/result. | `document_id → document`; extraction state, facts, and model metadata. `stage` values include `CLASSIFICATION`, per-family extraction stages, `INTERPRETATION_SHADOW` (redacted shadow classification), and `INTERPRETATION_SHADOW_METRIC` (redacted agreement/counter/error-class/latency row). Primary interpretation is disabled pending its rollout gate, so no `INTERPRETATION_PRIMARY` rows are written. |
+| `wealth_observation` | Accepted per-account evidence or unresolved wealth residual; distinct from complete snapshots. | Household-scoped; optional resolved Wealth Account; `ACCEPTED` is visible account-level evidence, `PENDING` requires residual resolution, `APPLIED` means consumed by a complete snapshot, `DISMISSED` means rejected. Accepted observations do not affect snapshot totals. |
 | `bank_email_listener` | Household-scoped bank-email listener configuration. | References household/account; fixed spending-only policy in application behavior. |
 | `bank_email_event` | Bank-email processing record. | References listener and source event; message ID is the provider-neutral identifier. |
 | `bank_email_extraction` | Bank-email extraction result. | Shares the bank-email source-event identity; supports deterministic validation/review. |

@@ -322,19 +322,18 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 
 func strPtr(value string) *string { return &value }
 
-func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID string, update telegramUpdate, sourceID, text string) (bool, error) {
-	a := strings.ToLower(strings.TrimSpace(text))
-	choice := ""
-	if strings.Contains(a, "gaji utama") || a == "primary" {
-		choice = "PRIMARY"
-	}
-	if strings.Contains(a, "pemasukan biasa") || a == "ordinary" {
-		choice = "ORDINARY"
-	}
-	if a == "abaikan" || a == "ignore" {
-		choice = "IGNORED"
-	}
-	if choice == "" {
+type salaryChoice string
+
+const (
+	salaryChoicePrimary  salaryChoice = "PRIMARY"
+	salaryChoiceOrdinary salaryChoice = "ORDINARY"
+	salaryChoiceIgnore   salaryChoice = "IGNORE"
+)
+
+func salaryChoiceFromJudgment(choice string) salaryChoice { return salaryChoice(choice) }
+
+func (p *Processor) executePendingSalaryChoice(ctx context.Context, householdID string, update telegramUpdate, sourceID string, choice salaryChoice) (bool, error) {
+	if choice != salaryChoicePrimary && choice != salaryChoiceOrdinary && choice != salaryChoiceIgnore {
 		return false, nil
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -350,7 +349,7 @@ func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID 
 	if err != nil {
 		return true, err
 	}
-	if choice == "IGNORED" {
+	if choice == salaryChoiceIgnore {
 		_, err = tx.Exec(ctx, `UPDATE transaction SET status='VOIDED',updated_at=now() WHERE id=$1 AND household_id=$2`, tid, householdID)
 		if err == nil {
 			_, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE id=$1`, id)
@@ -358,17 +357,17 @@ func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID 
 	} else {
 		norm := strings.ToLower(strings.Join(strings.Fields(employer), " "))
 		var sid string
-		err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4) ON CONFLICT(household_id,normalized_employer) WHERE active DO UPDATE SET is_primary=excluded.is_primary RETURNING id`, householdID, employer, norm, choice == "PRIMARY").Scan(&sid)
+		err = tx.QueryRow(ctx, `INSERT INTO salary_source(household_id,employer,normalized_employer,is_primary) VALUES($1,$2,$3,$4) ON CONFLICT(household_id,normalized_employer) WHERE active DO UPDATE SET is_primary=excluded.is_primary RETURNING id`, householdID, employer, norm, choice == salaryChoicePrimary).Scan(&sid)
 		if err == nil {
 			var salaryEventID string
 			// currency must be listed: the SELECT supplies the 'IDR' literal between
 			// net_pay and transaction_id, so omitting it misaligns every later value.
 			err = tx.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,currency,transaction_id,status,source_event_id) SELECT $1,$2,$3::date,$4::date,t.amount,'IDR',t.id,'CONFIRMED',$5 FROM transaction t WHERE t.id=$6 AND t.household_id=$2 ON CONFLICT (salary_source_id,payroll_period) DO UPDATE SET transaction_id=EXCLUDED.transaction_id RETURNING id`, sid, householdID, period, payDate, sourceID, tid).Scan(&salaryEventID)
-			if err == nil && choice == "PRIMARY" {
+			if err == nil && choice == salaryChoicePrimary {
 				_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) VALUES('GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',$1::uuid,'end_salary_event_id',$2::uuid),5) ON CONFLICT DO NOTHING`, householdID, salaryEventID)
 			}
 			if err == nil {
-				_, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status=$2,resolved_at=now() WHERE id=$1`, id, choice)
+				_, err = tx.Exec(ctx, `UPDATE salary_pending_choice SET status=$2,resolved_at=now() WHERE id=$1`, id, string(choice))
 			}
 		}
 	}
@@ -379,10 +378,10 @@ func (p *Processor) processPendingSalaryChoice(ctx context.Context, householdID 
 		return true, err
 	}
 	msg := "Gaji disimpan sebagai pemasukan biasa."
-	if choice == "PRIMARY" {
+	if choice == salaryChoicePrimary {
 		msg = "Gaji utama disimpan dan menjadi acuan siklus keuangan."
 	}
-	if choice == "IGNORED" {
+	if choice == salaryChoiceIgnore {
 		msg = "Slip gaji diabaikan."
 	}
 	if err = enqueueReply(ctx, tx, update, msg); err != nil {
@@ -451,11 +450,8 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		return true, p.resolveNativeReview(ctx, sourceID, householdID, update, args)
 	case "resolve_salary_choice":
 		choice, _ := args["choice"].(string)
-		if choice == "IGNORE" {
-			choice = "ignore"
-		}
 		return true, func() error {
-			_, err := p.processPendingSalaryChoice(ctx, householdID, update, sourceID, strings.ToLower(choice))
+			_, err := p.executePendingSalaryChoice(ctx, householdID, update, sourceID, salaryChoiceFromJudgment(choice))
 			return err
 		}()
 	case "resolve_merchant_learning":
@@ -674,9 +670,9 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		}
 		return true, tx.Commit(ctx)
 	case "confirm_edit":
-		return p.processPendingEdit(ctx, householdID, update, sourceID, "yes")
+		return p.processPendingEdit(ctx, householdID, update, sourceID, true)
 	case "cancel_edit":
-		return p.processPendingEdit(ctx, householdID, update, sourceID, "no")
+		return p.processPendingEdit(ctx, householdID, update, sourceID, false)
 	default:
 		return false, nil
 	}
@@ -724,13 +720,7 @@ func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, u
 	return true, tx.Commit(ctx)
 }
 
-func (p *Processor) processPendingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID, text string) (bool, error) {
-	answer := strings.ToLower(strings.TrimSpace(text))
-	confirm := answer == "yes" || answer == "ya" || answer == "y" || answer == "confirm" || answer == "konfirmasi"
-	cancel := answer == "no" || answer == "tidak" || answer == "n" || answer == "batal" || answer == "cancel"
-	if !confirm && !cancel {
-		return false, nil
-	}
+func (p *Processor) processPendingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) (bool, error) {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return true, err
@@ -856,13 +846,7 @@ func (p *Processor) offerBatch(ctx context.Context, householdID string, update t
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) processPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID, text string) (bool, error) {
-	a := strings.ToLower(strings.TrimSpace(text))
-	confirm := a == "yes" || a == "ya" || a == "y" || a == "confirm" || a == "konfirmasi"
-	cancel := a == "no" || a == "tidak" || a == "n" || a == "batal" || a == "cancel"
-	if !confirm && !cancel {
-		return false, nil
-	}
+func (p *Processor) processPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) (bool, error) {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return true, err
@@ -1023,11 +1007,7 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 }
 
 func (p *Processor) finishPendingAction(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
-	text := "no"
-	if confirm {
-		text = "yes"
-	}
-	_, err := p.processPendingEdit(ctx, householdID, update, sourceID, text)
+	_, err := p.processPendingEdit(ctx, householdID, update, sourceID, confirm)
 	return err
 }
 
@@ -1075,11 +1055,7 @@ func (p *Processor) stageNativeCorrection(ctx context.Context, sourceID, househo
 }
 
 func (p *Processor) finishPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
-	text := "no"
-	if confirm {
-		text = "yes"
-	}
-	_, err := p.processPendingBatch(ctx, householdID, update, sourceID, text)
+	_, err := p.processPendingBatch(ctx, householdID, update, sourceID, confirm)
 	return err
 }
 

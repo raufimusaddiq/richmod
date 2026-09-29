@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
@@ -58,7 +59,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 		must(err)
 		return sourceID
 	}
-	processor := NewProcessor(pool, boundReviewGateway{})
+	processor := NewProcessor(pool, payslipDateGateway{})
 	callback := callbackUpdate(chatID, 61, "review:salary:primary")
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callback)))
 	var state, requestStatus, itemStatus string
@@ -101,6 +102,12 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	if residualJobs != 1 {
 		t.Fatalf("telegram payslip confirmation enqueued %d cycle residual jobs, want 1", residualJobs)
 	}
+}
+
+type payslipDateGateway struct{}
+
+func (payslipDateGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"","description":"","note":"","confidence":0,"ambiguous":false,"pay_date":"2026-09-25"}`)}, gateway.Metadata{}, nil
 }
 
 // TestTelegramDocumentReviewResolvesWithoutWeb proves the UIR-06 close for the

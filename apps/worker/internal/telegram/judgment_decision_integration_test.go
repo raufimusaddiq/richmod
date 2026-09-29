@@ -20,7 +20,7 @@ func TestPendingBatchConfirmationRejectsMissingCategory(t *testing.T) {
 	mustAgentTest(t, err)
 
 	processor := NewProcessor(f.pool, nil)
-	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, "ya")
+	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, true)
 	mustAgentTest(t, err)
 	if !handled {
 		t.Fatal("confirming a pending batch must be handled")
@@ -55,7 +55,7 @@ func TestPendingBatchConfirmationUsesHumanAuthority(t *testing.T) {
 	mustAgentTest(t, err)
 
 	processor := NewProcessor(f.pool, nil)
-	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, "ya")
+	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, true)
 	mustAgentTest(t, err)
 	if !handled {
 		t.Fatal("confirming a pending batch must be handled")

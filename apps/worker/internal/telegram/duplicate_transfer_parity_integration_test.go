@@ -92,9 +92,8 @@ func TestStaleReviewCallbackPersistsReply(t *testing.T) {
 	}
 }
 
-// A TRANSFER_CLASSIFICATION review on an expense must offer the transfer chooser
-// from a bound reply, and the chooser buttons must resolve it without leaving
-// Telegram.
+// Free-text transfer meaning uses typed intelligence; callbacks map directly to
+// canonical actions.
 func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -140,17 +139,12 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	if err = NewProcessor(pool, boundReviewGateway{}).Process(ctx, sourceID); err != nil {
 		t.Fatal(err)
 	}
-	var markupRaw string
-	must(pool.QueryRow(ctx, `SELECT COALESCE(payload_json->>'reply_markup','') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND created_at > now() - interval '1 minute' ORDER BY created_at DESC LIMIT 1`).Scan(&markupRaw))
-	if markupRaw == "" {
-		t.Fatalf("transfer review did not offer a chooser markup: %q", markupRaw)
+	var transferType, transferStatus string
+	must(pool.QueryRow(ctx, `SELECT type,status FROM transaction WHERE id=$1`, transactionID).Scan(&transferType, &transferStatus))
+	if transferType != "UNCLASSIFIED" || transferStatus != "NEEDS_REVIEW" {
+		t.Fatalf("free text must not mutate without typed intelligence: type=%s status=%s", transferType, transferStatus)
 	}
-	for _, want := range []string{"review:expense", "review:own", "review:household", "review:asset", "review:investment", "review:ignore"} {
-		if !strings.Contains(markupRaw, want) {
-			t.Fatalf("transfer chooser missing %s: %q", want, markupRaw)
-		}
-	}
-	// Now click "rekening sendiri" and expect the review to resolve as a transfer.
+	// The exact callback action resolves the bound review without phrase parsing.
 	cbUpdate := callbackUpdate(chatID, 61, "review:own")
 	cbRaw, _ := json.Marshal(cbUpdate)
 	var cbSourceID string

@@ -311,13 +311,13 @@ func TestFinancialEmailMixedObservationReprocessingIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT status FROM financial_email_observation WHERE source_event_id=$1 AND ordinal=1`, source).Scan(&wealthObservationStatus); err != nil {
 		t.Fatal(err)
 	}
-	// Wealth remains pending until the snapshot flow consumes it; the cash leg
-	// still parks its own review.
-	if wealthChildren != 1 || wealthReviews != 1 || transactions != 1 {
+	// A uniquely resolved wealth account observation is accepted without routine
+	// human confirmation; the cash leg still parks its own review.
+	if wealthChildren != 1 || wealthReviews != 0 || transactions != 1 {
 		t.Fatalf("wealth children=%d reviews=%d transactions=%d", wealthChildren, wealthReviews, transactions)
 	}
-	if wealthStatus != "PENDING" || wealthObservationStatus != "REVIEW" {
-		t.Fatalf("wealth observation status=%s financial observation status=%s, want PENDING/REVIEW", wealthStatus, wealthObservationStatus)
+	if wealthStatus != "ACCEPTED" || wealthObservationStatus != "APPLIED" {
+		t.Fatalf("wealth observation status=%s financial observation status=%s, want ACCEPTED/APPLIED", wealthStatus, wealthObservationStatus)
 	}
 }
 

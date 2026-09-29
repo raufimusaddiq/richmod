@@ -10,27 +10,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func TestParseReviewPayDate(t *testing.T) {
-	if got := parseReviewPayDate("BENAR, gaji masuk tanggal 24 agustus 2026"); got != "2026-08-24" {
-		t.Fatalf("pay date = %q", got)
-	}
-	if got := parseReviewPayDate("25 September 2026"); got != "2026-09-25" {
-		t.Fatalf("unprefixed pay date = %q", got)
-	}
-	if got := parseReviewPayDate("tanggal 25 November 2026"); got != "2026-11-25" {
-		t.Fatalf("English month = %q", got)
-	}
-	if got := parseReviewPayDate("BENAR, gunakan tanggal 31 februari 2026"); got != "" {
-		t.Fatalf("invalid pay date = %q", got)
-	}
-	if got := parseLabeledReviewPayDate("penghasilan 25 September 2026"); got != "" {
-		t.Fatalf("generic income reply inferred an unlabelled date: %q", got)
-	}
-	if got := parseLabeledReviewPayDate("penghasilan dibayar tanggal 25 September 2026"); got != "2026-09-25" {
-		t.Fatalf("generic income reply missed a labelled date: %q", got)
-	}
-}
-
 // IR-02: Telegram must request exactly the stored residual fact and must not
 // treat an internal received-at timestamp as the supplied transaction date.
 func TestResidualConfirmationBlockersRequestOnlyMissingFacts(t *testing.T) {
@@ -158,39 +137,11 @@ func TestFormatIDRSupportsNegativeCashflow(t *testing.T) {
 	}
 }
 
-func TestIncomeReviewIntentIsDeterministic(t *testing.T) {
-	if got := incomeReviewIntent("ini transfer sendiri"); got != "REJECT" {
-		t.Fatalf("expected rejection, got %q", got)
-	}
-	if got := incomeReviewIntent("ya, ini penghasilan"); got != "CONFIRM" {
-		t.Fatalf("expected confirmation, got %q", got)
-	}
-	if got := incomeReviewIntent("mungkin dari teman"); got != "" {
-		t.Fatalf("ambiguous reply must remain open, got %q", got)
-	}
-}
-
-func TestTransferReviewIntentIsDeterministic(t *testing.T) {
-	tests := map[string]string{"rekeningku sendiri": "OWN_ACCOUNT", "transfer ke istri": "HOUSEHOLD_ACCOUNT", "masuk RDN investasi": "INVESTMENT_ACCOUNT", "abaikan saja": "IGNORE", "buat bayar tukang renovasi": "EXPENSE", "tidak yakin": ""}
-	for input, want := range tests {
-		if got := transferReviewIntent(input); got != want {
-			t.Fatalf("%q = %q, want %q", input, got, want)
-		}
-	}
-}
-
-func TestMerchantRememberIntentRequiresExplicitReply(t *testing.T) {
-	tests := map[string]string{
-		"ingat merchant": "REMEMBER",
-		"ya ingat":       "REMEMBER",
-		"tidak":          "DECLINE",
-		"sekali saja":    "DECLINE",
-		"oke":            "",
-		"mungkin":        "",
-	}
-	for input, want := range tests {
-		if got := merchantRememberIntent(input); got != want {
-			t.Fatalf("%q = %q, want %q", input, got, want)
+func TestTransferReviewCallbacksMapDirectlyToCanonicalActions(t *testing.T) {
+	tests := map[string]string{"review:own": "OWN_ACCOUNT", "review:household": "HOUSEHOLD_ACCOUNT", "review:investment": "INVESTMENT_ACCOUNT", "review:ignore": "IGNORE", "review:expense": "EXPENSE", "review:unknown": ""}
+	for callback, want := range tests {
+		if got := transferReviewCallbackAction(callback); got != want {
+			t.Fatalf("%q = %q, want %q", callback, got, want)
 		}
 	}
 }

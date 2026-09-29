@@ -7,7 +7,7 @@ import { ErrorNotice, Skeleton } from "../components/Feedback";
 import { money, dateTime } from "../lib/format";
 import { NetWorthHistoryChart } from "../components/Charts";
 
-const empty = { accounts: [], snapshots: [], latest: null, previous: null, summary: null, currentCycle: null, cycleRecaps: [], observation: null };
+const empty = { accounts: [], snapshots: [], latest: null, previous: null, summary: null, currentCycle: null, cycleRecaps: [], observation: null, observations: [] };
 const wealthTypeLabel = { BANK: "Bank", CASH: "Tunai", EWALLET: "Dompet digital", MUTUAL_FUND: "Reksa dana", GOLD: "Emas", BROKERAGE: "Rekening efek", DEPOSIT: "Deposito", CRYPTO: "Kripto", LOAN: "Pinjaman", OTHER: "Lainnya" };
 const usageRoleLabel = { TRANSACTIONAL: "Transaksional", SAVINGS: "Tabungan", INVESTMENT: "Investasi", OTHER: "Lainnya" };
 const reviewStatusLabel = { CURRENT: "Perlu direkonsiliasi", RESOLVED: "Sudah direkonsiliasi", STALE: "Perlu diperbarui", LEFT_UNALLOCATED: "Dibiarkan belum dialokasikan", NO_LONGER_APPLICABLE: "Tidak berlaku", NOT_REVIEWED: "Belum ditinjau" };
@@ -58,12 +58,12 @@ export default function WealthPage() {
     setLoading(true); setError("");
     try {
       const observationId = new URLSearchParams(window.location.search).get("observationId");
-      const [accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse, observationResponse] = await Promise.all([
-        fetch("/api/v1/wealth/accounts"), fetch("/api/v1/wealth/summary"), fetch("/api/v1/wealth/snapshots/latest"), fetch("/api/v1/wealth/history"), fetch("/api/v1/wealth/current-cycle-savings"), fetch("/api/v1/wealth/cycle-recaps"), observationId ? fetch(`/api/v1/wealth/observations/${observationId}`) : Promise.resolve(null),
+      const [accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse, observationResponse, observationsResponse] = await Promise.all([
+        fetch("/api/v1/wealth/accounts"), fetch("/api/v1/wealth/summary"), fetch("/api/v1/wealth/snapshots/latest"), fetch("/api/v1/wealth/history"), fetch("/api/v1/wealth/current-cycle-savings"), fetch("/api/v1/wealth/cycle-recaps"), observationId ? fetch(`/api/v1/wealth/observations/${observationId}`) : Promise.resolve(null), fetch("/api/v1/wealth/observations"),
       ]);
-      if (![accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse].every(response => response.ok) || observationResponse && !observationResponse.ok) throw new Error();
-      const [accounts, summary, latest, snapshots, currentCycle, cycleRecaps, observation] = await Promise.all([accountsResponse.json(), summaryResponse.json(), latestResponse.json(), historyResponse.json(), currentCycleResponse.json(), cycleRecapsResponse.json(), observationResponse ? observationResponse.json() : null]);
-      setData({ ...empty, accounts: Array.isArray(accounts) ? accounts : [], snapshots: Array.isArray(snapshots) ? snapshots : [], latest: latest || summary?.latest || null, previous: summary?.previous || null, summary, currentCycle, cycleRecaps: Array.isArray(cycleRecaps) ? cycleRecaps : [], observation });
+      if (![accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse, observationsResponse].every(response => response.ok) || observationResponse && !observationResponse.ok) throw new Error();
+      const [accounts, summary, latest, snapshots, currentCycle, cycleRecaps, observation, observations] = await Promise.all([accountsResponse.json(), summaryResponse.json(), latestResponse.json(), historyResponse.json(), currentCycleResponse.json(), cycleRecapsResponse.json(), observationResponse ? observationResponse.json() : null, observationsResponse.json()]);
+      setData({ ...empty, accounts: Array.isArray(accounts) ? accounts : [], snapshots: Array.isArray(snapshots) ? snapshots : [], latest: latest || summary?.latest || null, previous: summary?.previous || null, summary, currentCycle, cycleRecaps: Array.isArray(cycleRecaps) ? cycleRecaps : [], observation, observations: Array.isArray(observations) ? observations : [] });
     } catch { setError("Data kekayaan belum dapat dimuat. Coba lagi."); } finally { setLoading(false); }
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
@@ -165,6 +165,7 @@ export default function WealthPage() {
             <div className="wealth-snapshot-actions"><p>Menyimpan catatan lengkap untuk semua akun aktif.</p><button disabled={working || !data.accounts.length}>{working ? "Menyimpan…" : "Simpan catatan lengkap"}</button></div>
           </form>}
         </section>
+        {data.observations.length > 0 && <section className="surface wealth-records"><div className="section-title"><div><span className="eyebrow">OBSERVASI PER AKUN</span><h2>Bukti saldo yang diterima</h2><p className="section-copy">Observasi ini terikat ke akun, tetapi bukan snapshot lengkap dan tidak dihitung ke total kekayaan bersih.</p></div></div><div className="wealth-history">{data.observations.map(item => <article className="wealth-history-row" key={item.id}><span>{item.name}{item.observedDate ? ` · ${shortDate(item.observedDate)}` : ""}</span><strong>{money(item.observedValueIdr)}</strong><small>Diterima {dateTime(item.createdAt)}</small></article>)}</div></section>}
 
         {data.cycleRecaps.length > 0 && <section className="surface wealth-records"><div className="section-title"><div><span className="eyebrow">SIKLUS TABUNGAN</span><h2>Rekap siklus tertutup</h2></div></div><div className="wealth-cycle-history">{data.cycleRecaps.map(cycle => <article className="wealth-cycle-row" key={`${cycle.cycleStart}-${cycle.cycleEnd}`}><header><div><span>{shortDate(cycle.cycleStart)} – {shortDate(cycle.cycleEnd)}</span><small className={`wealth-review-status status-${String(cycle.residualReviewStatus || "").toLowerCase()}`}>{reviewStatusLabel[cycle.residualReviewStatus] || cycle.residualReviewStatus}</small></div><strong>Surplus {money(cycle.cashflowSurplus)}</strong></header><dl><div><dt>Dialokasikan</dt><dd>{money(cycle.savingsAllocated)}</dd></div><div><dt>Belum dialokasikan</dt><dd>{money(cycle.rawResidual)}</dd></div><div><dt>Tujuan tabungan</dt><dd>{(cycle.savingsByDestination || []).map(item => `${item.name} ${money(item.amountIdr)}`).join(" · ") || "Belum ada"}</dd></div></dl></article>)}</div></section>}
 

@@ -2,11 +2,17 @@ package bankemail
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
+
+// errVerifierUnconfigured marks a missing bounded verification plane. Semantic
+// verification is mandatory for the bank source contract, so this is a machine
+// retry state, never a household question.
+var errVerifierUnconfigured = errors.New("bank email evidence verifier is not configured")
 
 // EvidenceVerification is the bounded ruling over one already-extracted bank
 // notification. It is the bank-email analogue of the Telegram transaction
@@ -185,7 +191,9 @@ var verificationClaims = []struct {
 // Negative rulings therefore park the email for review immediately.
 func (p *Processor) verifyEvidence(ctx context.Context, sourceEventID string, extraction Extraction, email TrustedEmail) (EvidenceVerification, bool, error) {
 	if p.verifier == nil {
-		return EvidenceVerification{}, false, nil
+		// Verification is mandatory for this source contract. An unconfigured
+		// plane is an infrastructure state to retry, never a household review.
+		return EvidenceVerification{}, false, errVerifierUnconfigured
 	}
 	verification, verified, err := p.verifyEvidenceOnce(ctx, sourceEventID, extraction, email)
 	if err == nil {
