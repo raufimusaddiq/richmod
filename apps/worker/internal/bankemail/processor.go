@@ -489,8 +489,6 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 			decision.ProposedFacts[fact] = disputed
 			delete(decision.KnownFacts, fact)
 		}
-	case fact == "transaction_ambiguity":
-		decision.Consequence = reviewdec.CanonicalAmbiguity
 	default:
 		// transaction_semantics and any other bounded material residual: a
 		// predicate did not clear, so the consequence is the bounded residual the
@@ -509,14 +507,9 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 		"amount_supported":     verification.AmountSupported,
 		"direction_supported":  verification.DirectionSupported,
 		"semantic_grounded":    verification.SemanticGrounded,
-		"material_ambiguity":   verification.MaterialAmbiguity,
 		"claim_outcomes":       verification.ClaimOutcomes,
-		// Without this an operator reading the row cannot tell "ruled not ambiguous"
-		// from "the plane could not tell", which is the distinction that decides
-		// whether the event may auto-confirm.
-		"ambiguity_decided_not_ambiguous": verification.AmbiguityDecidedNotAmbiguous,
-		"supported":                       verification.supported(),
-		"policy_version":                  verification.PolicyVersion,
+		"supported":            verification.supported(),
+		"policy_version":       verification.PolicyVersion,
 	})
 	if err != nil {
 		return err

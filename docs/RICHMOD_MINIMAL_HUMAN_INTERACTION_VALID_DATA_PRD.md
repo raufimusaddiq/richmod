@@ -800,7 +800,11 @@ Keep bounded evidence verification for:
 - amount_supported
 - direction_supported
 - semantic_grounded
-- material_ambiguity
+
+`material_ambiguity` was removed from this bundle on 2026-09-29 (policy
+`2026-09-jev4`). Certifying the absence of ambiguity is open-ended rather than a
+bounded decision, so an undecided answer re-created human review for already
+complete emails. See `docs/audits/CORE-INTELLIGENCE-BOUNDARY-REPAIR.md` §7.5.
 
 Preserve PR #120 semantics:
 

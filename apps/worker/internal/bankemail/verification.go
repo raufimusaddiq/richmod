@@ -22,20 +22,12 @@ type EvidenceVerification struct {
 	// payment mechanism (QR vs DEBIT_CARD vs MERCHANT_PAYMENT) is evidence
 	// metadata, not a required human fact, so an uncertain mechanism must not
 	// independently block an otherwise safe expense (SAVR-06).
-	SemanticGrounded  bool
-	MaterialAmbiguity bool
+	SemanticGrounded bool
 
 	// ClaimOutcomes keeps YES/NO/UNDECIDED per bounded predicate so a review can
 	// name the exact material predicate that did not clear, independently of the
 	// booleans used by the canonical auto-confirm guard (SAVR-06).
 	ClaimOutcomes map[string]string
-
-	// AmbiguityDecidedNotAmbiguous records that the ambiguity question resolved to
-	// a decided *negative*. It is tracked separately because material_ambiguity is
-	// the one claim where a decided negative is the favourable answer, so
-	// MaterialAmbiguity alone cannot distinguish "ruled not ambiguous" from "the
-	// model could not tell" (PRD 17, 20).
-	AmbiguityDecidedNotAmbiguous bool
 
 	Model         string
 	PolicyVersion string
@@ -44,14 +36,14 @@ type EvidenceVerification struct {
 // supported reports whether every bounded claim was decided in the extractor's
 // favour. Anything undecided fails closed.
 //
-// The ambiguity claim is inverted relative to the others: a decided *negative*
-// is what clears it. An answer in the undecided middle band means the bounded
-// plane could not tell whether the email was ambiguous about the transaction, and
-// that must hold the event for review rather than open the auto-confirm path
-// (PRD 17). Reading it as "not ambiguous" is fail-open, which is what this
-// previously did.
+// The bundle checks only concrete source support (a real transaction, the stated
+// amount, the money direction, and the canonical class). It deliberately does not
+// ask the plane to certify a negative such as "this email is not ambiguous": that
+// is not bounded, so an undecided answer would only re-create a human review for a
+// complete email (PRD §3.2: a source-acceptable extraction proceeds to Go; SAVR
+// never requires LLM -> Jev by default).
 func (v EvidenceVerification) supported() bool {
-	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.SemanticGrounded && v.AmbiguityDecidedNotAmbiguous
+	return v.TransactionObserved && v.AmountSupported && v.DirectionSupported && v.SemanticGrounded
 }
 
 // jeverifier is the seam onto the bounded judgment plane. It is defined here, in
@@ -62,7 +54,7 @@ type jeverifier interface {
 
 // BankEmailVerificationPolicyVersion marks the thresholds that ruled on these
 // verifications, so a stored decision stays reproducible (PRD §18).
-const BankEmailVerificationPolicyVersion = "2026-09-jev3"
+const BankEmailVerificationPolicyVersion = "2026-09-jev4"
 
 // evidenceVerificationPolicy is the bank-email slice of the shared threshold
 // policy. A Noul here answers "does the email itself support this claim?".
@@ -71,13 +63,11 @@ var evidenceVerificationPolicy = struct {
 	Direction judgment.NoulPolicy
 	Semantic  judgment.NoulPolicy
 	Observed  judgment.NoulPolicy
-	Ambiguity judgment.NoulPolicy
 }{
 	Amount:    judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Direction: judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Semantic:  judgment.NoulPolicy{High: 0.85, Low: 0.15},
 	Observed:  judgment.NoulPolicy{High: 0.85, Low: 0.15},
-	Ambiguity: judgment.NoulPolicy{High: 0.15, Low: 0.05},
 }
 
 // bankCategoryPolicy is the bounded-choice strictness for the new-merchant
@@ -181,7 +171,6 @@ var verificationClaims = []struct {
 	{"amount_supported", "Is the extracted amount the amount this email states for its transaction? Answer yes when the email names that amount for the transaction; other numbers elsewhere in the email, such as a customer-service phone number, an OTP validity window, or a phone/SIM digit string, do not count as a competing transaction amount.", evidenceVerificationPolicy.Amount},
 	{"direction_supported", "Does the email's wording support the extracted money direction (INCOMING or OUTGOING)? Answer yes when ordinary wording implies it, for example a debit-card or payment notification for OUTGOING and a transfer-received notice for INCOMING. Answer no only when the email suggests the opposite direction or none at all.", evidenceVerificationPolicy.Direction},
 	{"semantic_grounded", "Does the email's wording support the canonical class Go will act on: an ordinary outgoing spend at a merchant, or movement of money to or from the customer's own accounts (transfer, internal transfer, RDN investment)? Answer yes when the wording clearly supports one of these. The exact payment mechanism (QR, debit card, merchant payment, ATM) does NOT matter here and must not lower the answer; answer no only when the wording suggests no real movement of money at all.", evidenceVerificationPolicy.Semantic},
-	{"material_ambiguity", "Is this notification genuinely ambiguous about the transaction itself, for example two plausible transaction amounts, or two plausible transaction dates? Routine email boilerplate is not ambiguity: a security footer like 'if this was not you, lock your card', a support phone number, or a link to view your history does not make the transaction ambiguous.", evidenceVerificationPolicy.Ambiguity},
 }
 
 // verifyEvidence asks one bounded bundle about an already-extracted bank email.
@@ -240,14 +229,12 @@ func (p *Processor) verifyEvidenceOnce(ctx context.Context, requestID string, ex
 	verification.AmountSupported = noulClaimed(result.Answers, "amount_supported", evidenceVerificationPolicy.Amount)
 	verification.DirectionSupported = noulClaimed(result.Answers, "direction_supported", evidenceVerificationPolicy.Direction)
 	verification.SemanticGrounded = noulClaimed(result.Answers, "semantic_grounded", evidenceVerificationPolicy.Semantic)
-	verification.MaterialAmbiguity, verification.AmbiguityDecidedNotAmbiguous = ambiguityVerdict(result.Answers, "material_ambiguity", evidenceVerificationPolicy.Ambiguity)
 	verification.ClaimOutcomes = make(map[string]string, len(verificationClaims))
 	policies := map[string]judgment.NoulPolicy{
 		"transaction_observed": evidenceVerificationPolicy.Observed,
 		"amount_supported":     evidenceVerificationPolicy.Amount,
 		"direction_supported":  evidenceVerificationPolicy.Direction,
 		"semantic_grounded":    evidenceVerificationPolicy.Semantic,
-		"material_ambiguity":   evidenceVerificationPolicy.Ambiguity,
 	}
 	for _, claim := range verificationClaims {
 		status := "UNDECIDED"
@@ -274,18 +261,6 @@ func noulClaimed(answers map[string]judgment.Answer, key string, policy judgment
 	}
 	claimed, decided := judgment.AcceptNoul(answer, policy)
 	return claimed && decided
-}
-
-// ambiguityVerdict reads the inverted claim. It returns (isAmbiguous,
-// decidedNotAmbiguous) so a caller can require an affirmative not-ambiguous
-// ruling instead of treating an undecided answer as approval.
-func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) (bool, bool) {
-	answer, ok := answers[key]
-	if !ok {
-		return false, false
-	}
-	ambiguous, decided := judgment.AcceptNoul(answer, policy)
-	return ambiguous, decided && !ambiguous
 }
 
 func pointerValue(value *string) string {
