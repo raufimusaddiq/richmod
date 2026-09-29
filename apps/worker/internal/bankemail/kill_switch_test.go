@@ -79,3 +79,11 @@ func TestCategoryAutoConfirmDefaultsOn(t *testing.T) {
 		t.Fatal("a zero-value Processor must keep auto-confirm on")
 	}
 }
+
+func TestUnverifiedPolicyCannotAutoConfirm(t *testing.T) {
+	policy := PolicyResult{Status: "CONFIRMED", AutoConfirm: true, ReviewType: "UNKNOWN_MERCHANT"}
+	got := applyVerificationGate(policy, false)
+	if got.AutoConfirm || got.Status != "NEEDS_REVIEW" || got.ReviewType != "UNKNOWN_MERCHANT" {
+		t.Fatalf("unverified policy must remain review with its actual residual: %+v", got)
+	}
+}

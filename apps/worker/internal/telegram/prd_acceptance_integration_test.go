@@ -298,13 +298,13 @@ func TestPRDTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing
 	if err := p.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
-	var status, gotCategory, sourceStatus string
+	var status, gotCategory, sourceStatus, description string
 	var reviews int
-	if err := f.pool.QueryRow(ctx, `SELECT t.status,t.category_id::text,s.processing_status,(SELECT count(*) FROM review_request WHERE transaction_id=t.id) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN source_event s ON s.id=e.source_event_id WHERE t.household_id=$1 AND t.amount=5000 AND t.type='EXPENSE'`, f.householdID).Scan(&status, &gotCategory, &sourceStatus, &reviews); err != nil {
+	if err := f.pool.QueryRow(ctx, `SELECT t.status,t.category_id::text,s.processing_status,COALESCE(t.description,''),(SELECT count(*) FROM review_request WHERE transaction_id=t.id) FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id JOIN source_event s ON s.id=e.source_event_id WHERE t.household_id=$1 AND t.amount=5000 AND t.type='EXPENSE'`, f.householdID).Scan(&status, &gotCategory, &sourceStatus, &description, &reviews); err != nil {
 		t.Fatal(err)
 	}
-	if status != "CONFIRMED" || gotCategory != categoryID || sourceStatus != "PROCESSED" || reviews != 0 {
-		t.Fatalf("status=%s category=%s source=%s reviews=%d", status, gotCategory, sourceStatus, reviews)
+	if status != "CONFIRMED" || gotCategory != categoryID || sourceStatus != "PROCESSED" || reviews != 0 || description == "" {
+		t.Fatalf("status=%s category=%s source=%s reviews=%d description=%q", status, gotCategory, sourceStatus, reviews, description)
 	}
 }
 
