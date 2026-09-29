@@ -648,12 +648,18 @@ func (p *Processor) applyTransferReviewCallback(ctx context.Context, sourceEvent
 
 func transferReviewCallbackAction(callback string) string {
 	switch callback {
-	case "review:own": return "OWN_ACCOUNT"
-	case "review:household": return "HOUSEHOLD_ACCOUNT"
-	case "review:investment": return "INVESTMENT_ACCOUNT"
-	case "review:ignore": return "IGNORE"
-	case "review:expense": return "EXPENSE"
-	default: return ""
+	case "review:own":
+		return "OWN_ACCOUNT"
+	case "review:household":
+		return "HOUSEHOLD_ACCOUNT"
+	case "review:investment":
+		return "INVESTMENT_ACCOUNT"
+	case "review:ignore":
+		return "IGNORE"
+	case "review:expense":
+		return "EXPENSE"
+	default:
+		return ""
 	}
 }
 
@@ -1481,12 +1487,12 @@ func (p *Processor) processInvestmentCallback(ctx context.Context, sourceEventID
 
 func (p *Processor) incomeReviewChoice(ctx context.Context, sourceEventID, text string) (string, error) {
 	criteria := map[string]string{
-		"CONFIRM": "the transaction is household income",
-		"REJECT": "the transaction is not income, such as an own-account transfer",
+		"CONFIRM":          "the transaction is household income",
+		"REJECT":           "the transaction is not income, such as an own-account transfer",
 		"OTHER_OR_UNCLEAR": "the message does not answer this bounded choice",
 	}
 	result, err := p.evaluate(ctx, judgmentTaskReviewAction, sourceEventID, judgment.Request{
-		State: map[string]any{"user_text": "<untrusted_user_message>" + text + "</untrusted_user_message>", "bound_workflow": "INCOME_REVIEW"},
+		State:     map[string]any{"user_text": "<untrusted_user_message>" + text + "</untrusted_user_message>", "bound_workflow": "INCOME_REVIEW"},
 		Questions: map[string]judgment.Question{"income_action": {Type: "choice", Instructions: "Choose whether this exact bound transaction review is household income. Do not infer missing financial facts.", Criteria: judgment.ChoiceCriteria(criteria)}},
 	})
 	if err != nil {

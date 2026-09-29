@@ -78,15 +78,9 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok {
-			if exactReviewNeedsFreeform(state) {
-				return false, nil
-			}
 			return false, nil
 		}
 		if choice == "OTHER_OR_UNCLEAR" {
-			if exactReviewNeedsFreeform(state) {
-				return false, nil
-			}
 			return false, nil
 		}
 		if !boundedReviewAction(choice) {
