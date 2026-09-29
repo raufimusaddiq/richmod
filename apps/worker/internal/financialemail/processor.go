@@ -241,19 +241,11 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 		if err = tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,$2,'',$3,$4,$5,$6) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id`, household, wealth, hint, *v.ValueIDR, date, id).Scan(&observationID); err != nil {
 			return err
 		}
-		// A structurally valid, uniquely account-bound observation with no
-		// conflict is complete evidence: apply it without human confirmation.
-		// The wealth account is still bound from unfiltered evidence when the
-		// funding-account ambiguity is genuine (see planCash), which parks that
-		// case in review before reaching here. No manually confirmed snapshot is
-		// written; the observation is recorded and marked applied.
-		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='APPLIED' WHERE id=$1`, id, observationID); err != nil {
+		// Keep the observation pending until the existing snapshot flow consumes it.
+		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE wealth_observation SET status='APPLIED',updated_at=now() WHERE id=$1`, observationID); err != nil {
-			return err
-		}
-		return nil
+		return p.wealthObservationReview(ctx, tx, household, id, observationID, wealth, hint, *v.ValueIDR)
 	case "CASH_MOVEMENT":
 		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v)
 	default:

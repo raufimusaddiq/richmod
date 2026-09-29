@@ -279,62 +279,48 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'WEALTH_OBSERVATION','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(observationOutput), observation.Confidence, observationMetadata.Model); err != nil {
 			return err
 		}
-		// A structurally valid Wealth observation whose account resolves uniquely
-		// inside the household is complete evidence. Apply it without human
-		// confirmation; the wealth_observation row is an applied observation, not a
-		// manually confirmed wealth_snapshot. An ambiguous/unresolved account keeps
-		// the existing resolution residual below.
-		needsReview := resolvedWealthID == ""
-		if needsReview {
-			if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW' WHERE id=$1`, documentID); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
-				return err
-			}
+		// Keep observations pending until the existing snapshot flow consumes them.
+		if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW' WHERE id=$1`, documentID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
+			return err
 		}
 		var observationID string
-		observationStatus := "APPLIED"
-		if needsReview {
-			observationStatus = "PENDING"
-		}
+		observationStatus := "PENDING"
 		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date,status) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10,$11) ON CONFLICT(document_id) DO UPDATE SET updated_at=now(),status=EXCLUDED.status RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate, observationStatus).Scan(&observationID); err != nil {
 			return err
 		}
-		if needsReview {
-			decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
-			if !ok {
-				return fmt.Errorf("no review decision preset for WEALTH_OBSERVATION_CONFIRMATION")
-			}
-			decision.KnownFacts["observed_value_idr"] = observation.ObservedValueIDR
-			if observation.Institution != "" {
-				decision.KnownFacts["institution"] = strings.TrimSpace(observation.Institution)
-			}
-			if observation.AccountHint != "" {
-				decision.KnownFacts["account_hint"] = strings.TrimSpace(observation.AccountHint)
-			}
-			if resolvedWealthID != "" {
-				decision.KnownFacts["wealth_account"] = resolvedWealthID
-			}
-			encoded, encodeErr := decision.JSON()
-			if encodeErr != nil {
-				return encodeErr
-			}
-			var reviewItemID string
-			if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, observationID, string(encoded)).Scan(&reviewItemID); err != nil {
-				if !errors.Is(err, pgx.ErrNoRows) {
-					return err
-				}
-				if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE wealth_observation_id=$1 AND review_type='WEALTH_OBSERVATION_CONFIRMATION' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, observationID).Scan(&reviewItemID); err != nil {
-					return err
-				}
-			}
-			// UIR-02: the wealth observation is a review subject of its own, so give
-			// it the same actionable Telegram projection as a transaction review
-			// instead of a fire-and-forget notice the user cannot resolve in chat.
-			if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
+		decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
+		if !ok {
+			return fmt.Errorf("no review decision preset for WEALTH_OBSERVATION_CONFIRMATION")
+		}
+		decision.KnownFacts["observed_value_idr"] = observation.ObservedValueIDR
+		if observation.Institution != "" {
+			decision.KnownFacts["institution"] = strings.TrimSpace(observation.Institution)
+		}
+		if observation.AccountHint != "" {
+			decision.KnownFacts["account_hint"] = strings.TrimSpace(observation.AccountHint)
+		}
+		if resolvedWealthID != "" {
+			decision.KnownFacts["wealth_account"] = resolvedWealthID
+		}
+		encoded, encodeErr := decision.JSON()
+		if encodeErr != nil {
+			return encodeErr
+		}
+		var reviewItemID string
+		if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, observationID, string(encoded)).Scan(&reviewItemID); err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
 				return err
 			}
+			if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE wealth_observation_id=$1 AND review_type='WEALTH_OBSERVATION_CONFIRMATION' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, observationID).Scan(&reviewItemID); err != nil {
+				return err
+			}
+		}
+		// UIR-02: keep the observation actionable in both Inbox and Telegram.
+		if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
+			return err
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','CLASSIFY_DOCUMENT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'confidence',$5::numeric,'validated',$6::boolean))`, householdID, sourceID, documentID, result.DocumentType, result.Confidence, validated); err != nil {

@@ -213,12 +213,14 @@ phrases and invalid typed timestamps without date substitution.
 - Document semantic confidence thresholds no longer create review by themselves.
 - Receipt category provider failure retries as machine failure, not human review;
   screenshot category confidence is not an acceptance veto.
-- Complete uniquely account-bound provider-email wealth observations are marked
-  `APPLIED` without review. Malformed representation errors retry/fail as machine
-  errors, not as `TRANSFER_CLASSIFICATION`.
-- Complete uniquely account-bound document wealth observations are marked
-  `APPLIED` without a review item. Unresolved account binding remains a genuine
-  household entity residual. No manually confirmed wealth snapshot is created.
+- Complete uniquely account-bound provider-email wealth observations remain
+  `PENDING` with a `WEALTH_OBSERVATION_CONFIRMATION` review until the existing
+  snapshot flow consumes them. Malformed representation errors retry/fail as
+  machine errors, not as `TRANSFER_CLASSIFICATION`.
+- Document wealth observations remain `PENDING` with a
+  `WEALTH_OBSERVATION_CONFIRMATION` review until the existing snapshot flow
+  consumes them, including when account binding is unique; the current consumer
+  creates snapshot items only through that review flow.
 - Reconciliation with 2–10 deterministic survivors can ask Jev to select among
   anonymous candidates; canonical UUIDs stay private to Go.
 
