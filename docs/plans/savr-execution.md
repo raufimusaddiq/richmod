@@ -360,15 +360,16 @@ receipt review outcomes remain for SAVR-08 source-family audit.
   conflict still fails closed.
 
 Implemented slice: the bounded bundle rules on `transaction_observed`,
-`amount_supported`, `direction_supported`, `semantic_grounded`, and
-`material_ambiguity` — the old `channel_supported` claim is replaced by
+`amount_supported`, `direction_supported`, and `semantic_grounded` — the old
+`channel_supported` claim is replaced by
 `semantic_grounded`, which asks only whether the email supports the canonical
 class (ordinary spend versus transfer/internal movement) and is explicitly
-indifferent to the mechanism. A failed material predicate records
-`claim_outcomes` on `bank_email_evidence_verification` and builds the review
-with the exact affected/missing fact (`amount_idr`/`direction`/
-`transaction_observed` as an `INDEPENDENT_EVIDENCE_CONFLICT`;
-`transaction_ambiguity` as `CANONICAL_AMBIGUITY`; `transaction_semantics` as a
+indifferent to the mechanism. `material_ambiguity` was removed on 2026-09-29:
+certifying the absence of ambiguity is open-ended, so an undecided answer parked
+complete emails for review. A failed material predicate records `claim_outcomes`
+on `bank_email_evidence_verification` and builds the review with the exact
+affected/missing fact (`amount_idr`/`direction`/`transaction_observed` as an
+`INDEPENDENT_EVIDENCE_CONFLICT`; `transaction_semantics` as a
 `BOUNDED_RESIDUAL`), preserving amount, date, direction, channel, and merchant.
 
 Implementation slice: store all bounded predicate outcomes (YES/NO/UNDECIDED)
