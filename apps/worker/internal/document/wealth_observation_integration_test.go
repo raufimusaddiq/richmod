@@ -88,7 +88,50 @@ func TestWealthObservationAppliesWithoutReviewWhenAccountResolves(t *testing.T) 
 	if err = pool.QueryRow(ctx, `SELECT status FROM document WHERE id=$1`, documentID).Scan(&documentStatus); err != nil {
 		t.Fatal(err)
 	}
-	if observationStatus != "PENDING" || resolvedAccount != wealthAccountID || reviews != 1 || documentStatus != "NEEDS_REVIEW" {
+	if observationStatus != "ACCEPTED" || resolvedAccount != wealthAccountID || reviews != 0 || documentStatus != "CLASSIFIED" {
 		t.Fatalf("status=%s account=%s/%s reviews=%d document=%s", observationStatus, resolvedAccount, wealthAccountID, reviews, documentStatus)
+	}
+}
+
+func TestUnresolvedWealthObservationCreatesOnlyAccountResolutionReview(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	householdID, documentID, _ := seedWealthDocument(t, ctx, pool, stamp)
+	defer pool.Exec(ctx, `DELETE FROM household WHERE id=$1`, householdID)
+	if _, err = pool.Exec(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Bibit Cash','Bibit','ASSET','BANK','SAVINGS')`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	storage, err := blob.NewLocal(filepath.Join(t.TempDir(), "documents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = storage.Put(ctx, fmt.Sprintf("test/wealth-%d.jpg", stamp), []byte("img"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	// "Bibit" is shared by two active accounts, so this is a real unresolved-account
+	// residual rather than a machine-null hint.
+	gw := &wealthDocumentGateway{extraction: json.RawMessage(`{"institution":"Provider","account_hint":"Bibit","observed_value_idr":"42700000","quantity":null,"unit":null,"unit_price_idr":null,"observed_date":null,"confidence":0.5}`)}
+	if err = (&Processor{pool: pool, gateway: gw, storage: storage}).Process(ctx, documentID); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err = pool.QueryRow(ctx, `SELECT status FROM wealth_observation WHERE document_id=$1`, documentID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	var reviews int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE wealth_observation_id=(SELECT id FROM wealth_observation WHERE document_id=$1) AND review_type='WEALTH_OBSERVATION_CONFIRMATION' AND status IN ('OPEN','PENDING_SEND')`, documentID).Scan(&reviews); err != nil {
+		t.Fatal(err)
+	}
+	if status != "PENDING" || reviews != 1 {
+		t.Fatalf("status=%s reviews=%d; want one account-resolution review", status, reviews)
 	}
 }

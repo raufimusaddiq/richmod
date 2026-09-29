@@ -16,24 +16,29 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 	if p.judgment == nil {
 		return false, nil
 	}
-	if state.HasPendingAction {
+	if state.HasPendingAction && state.Route == "PENDING_ACTION_INTERACTION" {
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskPendingAction, text, "pending_action", "Choose the user's bounded response to the pending correction.", map[string]any{"CONFIRM": "save the pending correction", "CANCEL": "discard the pending correction", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
-			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan konfirmasi ini dengan aman. Balas iya untuk simpan atau tidak untuk batal.")
+			// Machine failure is not semantic uncertainty: leave the pending
+			// correction untouched and let the turn fall through to the
+			// conversational agent instead of asking the household to re-state it.
+			return false, nil
 		}
 		if !ok || choice == "OTHER_OR_UNCLEAR" {
-			return true, p.finishAgentText(ctx, state, "Balas iya untuk menyimpan perubahan, atau tidak untuk membatalkannya.")
+			// A bounded answer that does not address the correction means this turn
+			// was not about it: keep it pending, keep answering the user.
+			return false, nil
 		}
 		return true, p.finishPendingAction(ctx, state.HouseholdID, state.Update, state.SourceEventID, choice == "CONFIRM")
 	}
 	if state.HasPendingBatch && state.Route == "PENDING_BATCH_INTERACTION" {
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskPendingBatch, text, "pending_batch", "Choose one bounded action for the pending transaction batch.", map[string]any{"CONFIRM": "record every pending item", "CANCEL": "discard the batch", "UPDATE": "change one or more pending items", "DEFER": "decide later, keep the batch", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
-			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan aksi batch dengan aman. Balas iya, batal, atau jelaskan item yang ingin diubah.")
+			return false, nil
 		}
 		switch {
 		case !ok || choice == "OTHER_OR_UNCLEAR", choice == "DEFER":
-			return true, p.finishAgentText(ctx, state, "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau gunakan pesan baru untuk mengubah item.")
+			return false, nil
 		case choice == "CONFIRM":
 			return true, p.finishPendingBatch(ctx, state.HouseholdID, state.Update, state.SourceEventID, true)
 		case choice == "UPDATE":
@@ -46,25 +51,25 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 			return true, p.finishPendingBatch(ctx, state.HouseholdID, state.Update, state.SourceEventID, false)
 		}
 	}
-	if state.HasSalaryChoice {
+	if state.HasSalaryChoice && state.Route == "SALARY_INTERACTION" {
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskSalaryChoice, text, "salary_choice", "Choose how to classify the pending payslip.", map[string]any{"PRIMARY": "the primary salary cycle income", "ORDINARY": "ordinary non-salary income", "IGNORE": "not household income", "OTHER_OR_UNCLEAR": "no bounded choice"})
 		if err != nil {
-			return true, p.finishAgentText(ctx, state, "Pilihan slip gaji belum cukup jelas. Pilih gaji utama, pemasukan biasa, atau abaikan.")
+			// Machine failure: keep the salary choice pending, answer normally.
+			return false, nil
 		}
 		if !ok || choice == "OTHER_OR_UNCLEAR" {
-			return true, p.finishAgentText(ctx, state, "Pilih gaji utama, pemasukan biasa, atau abaikan.")
+			return false, nil
 		}
-		_, err = p.processPendingSalaryChoice(ctx, state.HouseholdID, state.Update, state.SourceEventID, strings.ToLower(choice))
+		_, err = p.executePendingSalaryChoice(ctx, state.HouseholdID, state.Update, state.SourceEventID, salaryChoiceFromJudgment(choice))
 		return true, err
 	}
 	if state.MerchantLearningBinding != nil {
 		criteria := map[string]any{"REMEMBER": "consent to remember this merchant category rule", "SKIP": "do not remember the rule", "OTHER_OR_UNCLEAR": "not an answer to this confirmation"}
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskMerchantLearning, text, "merchant_learning", "Choose the user's bounded response to the pending merchant-category confirmation. Use OTHER_OR_UNCLEAR when the message is not answering this confirmation.", criteria)
-		if err != nil || !ok {
-			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
-		}
-		if choice == "OTHER_OR_UNCLEAR" {
-			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
+		if err != nil || !ok || choice == "OTHER_OR_UNCLEAR" {
+			// Provider failure or an unrelated message: never re-ask the same
+			// question, never convert machine failure into human work.
+			return false, nil
 		}
 		return true, p.resolveNativeMerchantLearning(ctx, state.SourceEventID, state.HouseholdID, state.Update, map[string]any{"remember": choice == "REMEMBER"})
 	}
@@ -73,16 +78,10 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok {
-			if exactReviewNeedsFreeform(state) {
-				return false, nil
-			}
-			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
+			return false, nil
 		}
 		if choice == "OTHER_OR_UNCLEAR" {
-			if exactReviewNeedsFreeform(state) {
-				return false, nil
-			}
-			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
+			return false, nil
 		}
 		if !boundedReviewAction(choice) {
 			return false, nil
@@ -94,12 +93,6 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, p.finishAgentText(ctx, state, agentMutationFallback(result))
 	}
 	return false, nil
-}
-
-func exactReviewNeedsFreeform(state *agentState) bool {
-	return state != nil && state.ReviewBinding != nil && state.ReviewBinding.Kind == "TRANSACTION" &&
-		state.Update.Message.ReplyToMessage != nil && state.Update.Message.ReplyToMessage.MessageID != 0 &&
-		state.ReviewBinding.ConversationState == "AWAITING_CATEGORY"
 }
 
 func boundedReviewAction(action string) bool {

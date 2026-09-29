@@ -113,3 +113,56 @@ func TestActiveFinancialSourceBlocksWealthDeactivation(t *testing.T) {
 		t.Fatalf("active=%v err=%v", active, err)
 	}
 }
+
+// Accepted per-account observations are readable evidence and never become a
+// synthetic complete snapshot or change snapshot-derived totals (T24/T25).
+func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	var household, user, account string
+	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("wealth-accepted-%d", stamp)).Scan(&household); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("wealth-accepted-%d@example.test", stamp)).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Bibit Reksadana','ASSET','MUTUAL_FUND','INVESTMENT') RETURNING id`, household).Scan(&account); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO wealth_observation(household_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,status) VALUES($1,$2,'Bibit','Reksadana',42700000,'2026-09-01','ACCEPTED')`, household, account); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/wealth/observations", nil)
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, HouseholdID: household, HouseholdRole: "OWNER", HasHousehold: true}))
+	w := httptest.NewRecorder()
+	NewHandler(pool).Observations(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var items []map[string]any
+	if err = json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0]["wealthAccountId"] != account || items[0]["observedValueIdr"] != "42700000" {
+		t.Fatalf("items=%v", items)
+	}
+	var snapshots int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM wealth_snapshot WHERE household_id=$1`, household).Scan(&snapshots); err != nil {
+		t.Fatal(err)
+	}
+	if snapshots != 0 {
+		t.Fatalf("accepted observation created %d snapshots; want 0", snapshots)
+	}
+}

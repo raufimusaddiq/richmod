@@ -295,3 +295,50 @@ not blockers to canonical safety; no extra refactor was added.
 Worker internal tests/vet and API internal tests pass with the disposable
 PostgreSQL environment after these fixes. PR CI/review must rerun on the new
 head.
+
+---
+
+# 8. Final pass from verified main (2026-09-29)
+
+**Baseline:** `832083661c2882fe868136716bef453c5fb97137` (fetched `origin/main`;
+PR #218 and #219 present).
+
+## 8.1 Corrected active-path authorities
+
+| Decision | Previous authority | Corrected authority | Evidence/change |
+| --- | --- | --- | --- |
+| Pending correction/salary turn ownership | Durable row presence | Jev route or exact server binding | Route-gated `PENDING_ACTION_INTERACTION` / `SALARY_INTERACTION`; unrelated turns retain pending rows and ordinary tools. |
+| Salary resolution | Go string keyword classifier | Typed `PRIMARY` / `ORDINARY` / `IGNORE` enum | Raw string parser removed; executor accepts enum only. |
+| Transfer review | Go keyword/prefix NLP and callback phrase round-trip | Typed bounded action; callback ID maps directly | `transferReviewIntent` / `classifyTransferReply` deleted; free text falls through to typed agent. |
+| Payslip date/period | Caption regex/month dictionary and natural-language period parser | Generative typed date/provenance; canonical `YYYY-MM` period | Go validates ISO date, canonical month, range, and payroll compatibility only. |
+| Bank verifier absence | unverified result downgraded to review | Machine retry when the verifier is mandatory | `errVerifierUnconfigured`; no semantic review from configuration failure. PR #219 ambiguity veto stays removed. |
+| Wealth observation | Resolved observation required confirmation; `APPLIED` implied snapshot | `ACCEPTED` per-account evidence, separately readable | Migration 00073; unresolved account stays residual review; accepted evidence never implies a complete snapshot. |
+| Document extraction `validated` | Could be read as semantic acceptance | Extraction-accepted-for-downstream flag only | UI states “Diterima” / “Ditolak / perlu ditinjau”; schema reference records the legacy meaning. |
+| Pending edit/batch executor | Raw yes/no phrase list inside a helper | Typed boolean from the server-owned capability or bounded route | `processPendingEdit` / `processPendingBatch` accept booleans; callbacks and Jev own the meaning. |
+
+Retained Go code adjacent to language is exact structure or normalization, not
+semantic classification: amount syntax in `harvestSimpleTransaction`; RFC3339 /
+ISO parsing and exact enum validation; callback prefixes and callback IDs; the
+bound bank-facts amount-plus-timestamp form; and error-string matching used only
+for telemetry. No active raw-language semantic keyword parser remains in the
+canonical financial paths.
+
+## 8.2 Wealth observation product state
+
+`ACCEPTED` means one account-bound observation was accepted as evidence. It is
+readable from `GET /api/v1/wealth/observations` and never creates a
+`wealth_snapshot`, enters snapshot totals, or implies evidence for another
+account. `PENDING` remains unresolved account binding plus review. `APPLIED`
+remains snapshot consumption. This preserves complete-snapshot invariants while
+removing routine confirmation for unique, structurally valid, semantically
+sufficient evidence.
+
+## 8.3 Verification and closure
+
+Disposable PostgreSQL worker suites for telegram, document, financial-email,
+and bank-email pass after the final changes. The disposable database was at
+schema 72 and migration 00073's check-constraint change was applied manually for
+test execution because no Goose CLI is available in the Go image; migration
+application itself therefore still needs CI confirmation. API verification,
+Hermes review, merge, and deploy are not yet claimed. UISC-03 remains
+`PRODUCTION_UNOBSERVED`; UISC-04 remains blocked. No CEU work started.

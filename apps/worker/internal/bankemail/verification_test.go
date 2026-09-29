@@ -259,12 +259,12 @@ func TestEvidenceVerificationProviderFailureIsInfrastructure(t *testing.T) {
 	}
 }
 
-// With no configured verifier the caller keeps the deterministic structural gate
-// and must never read this as "verified" approval.
-func TestEvidenceVerificationUnconfiguredIsNotApproval(t *testing.T) {
+// With no configured verifier, verification is unavailable: the caller must
+// treat the event as machine retry work and must never read it as approval.
+func TestEvidenceVerificationUnconfiguredIsMachineFailure(t *testing.T) {
 	processor := &Processor{}
-	if _, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{}); err != nil || verified {
-		t.Fatalf("unconfigured verifier must report unverified, verified=%v err=%v", verified, err)
+	if _, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{}); err == nil || verified {
+		t.Fatalf("unconfigured verifier must be a machine failure, verified=%v err=%v", verified, err)
 	}
 }
 

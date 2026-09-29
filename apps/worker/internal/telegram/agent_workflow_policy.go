@@ -51,11 +51,11 @@ func applyAgentWorkflowToolPolicy(
 			scope = agentWorkflowExactMerchant
 		}
 	} else {
-		// Pending correction/batch states are exact chat+user scoped workflows and
-		// outrank implicit review selection. After those, unique server-bound
-		// reviews and other durable confirmation workflows outrank general writes.
+		// Durable state is context, not turn ownership. Pending correction, batch,
+		// salary, review, and merchant workflows narrow capabilities only when
+		// Jev routes this turn to that interaction.
 		switch {
-		case available("confirm_pending_action") || available("cancel_pending_action"):
+		case (available("confirm_pending_action") || available("cancel_pending_action")) && route == "PENDING_ACTION_INTERACTION":
 			allowed["confirm_pending_action"] = true
 			allowed["cancel_pending_action"] = true
 			scope = agentWorkflowPendingAction
@@ -71,11 +71,14 @@ func applyAgentWorkflowToolPolicy(
 		case merchantBinding != nil && route == "MERCHANT_LEARNING_INTERACTION":
 			allowed["resolve_merchant_learning"] = true
 			scope = agentWorkflowMerchantLearning
-		case available("resolve_salary_choice"):
+		case available("resolve_salary_choice") && route == "SALARY_INTERACTION":
 			allowed["resolve_salary_choice"] = true
 			scope = agentWorkflowSalaryChoice
 		default:
-			return withoutPendingBatchTools(tools), agentWorkflowGeneral
+			// No durable workflow owns this turn. Keep READ and ordinary
+			// side-effect tools, but withhold every server-owned workflow
+			// mutation so pending state cannot be resolved out of route.
+			return withoutWorkflowTools(tools), agentWorkflowGeneral
 		}
 	}
 
@@ -105,10 +108,21 @@ func pendingBatchTool(name string) bool {
 	}
 }
 
-func withoutPendingBatchTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition {
+func workflowBoundTool(name string) bool {
+	switch name {
+	case "confirm_pending_action", "cancel_pending_action", "pending_batch_decision", "resolve_review",
+		"confirm_pending_batch", "cancel_pending_batch", "update_pending_batch",
+		"resolve_salary_choice", "resolve_merchant_learning":
+		return true
+	default:
+		return false
+	}
+}
+
+func withoutWorkflowTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition {
 	out := make([]gateway.ToolDefinition, 0, len(tools))
 	for _, tool := range tools {
-		if pendingBatchTool(tool.Name) {
+		if workflowBoundTool(tool.Name) {
 			continue
 		}
 		out = append(out, tool)

@@ -194,6 +194,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/wealth/summary", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Summary)))
 	mux.Handle("GET /api/v1/wealth/history", authHandler.RequireSession(http.HandlerFunc(wealthHandler.History)))
 	mux.Handle("GET /api/v1/wealth/observations/{id}", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Observation)))
+	mux.Handle("GET /api/v1/wealth/observations", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Observations)))
 	mux.Handle("GET /api/v1/wealth/cycle-recaps", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CycleRecaps)))
 	mux.Handle("GET /api/v1/wealth/current-cycle-savings", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CurrentCycleSavings)))
 	mux.Handle("GET /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.List)))

@@ -238,14 +238,14 @@ func (p *Processor) persist(ctx context.Context, tx pgx.Tx, household, source, f
 			date = &d
 		}
 		var observationID string
-		if err = tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id) VALUES($1,NULL,$2,'',$3,$4,$5,$6) ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now() RETURNING id`, household, wealth, hint, *v.ValueIDR, date, id).Scan(&observationID); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,observed_date,financial_email_observation_id,status) VALUES($1,NULL,$2,'',$3,$4,$5,$6,'ACCEPTED') ON CONFLICT(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL DO UPDATE SET updated_at=now(),status='ACCEPTED' RETURNING id`, household, wealth, hint, *v.ValueIDR, date, id).Scan(&observationID); err != nil {
 			return err
 		}
-		// Keep the observation pending until the existing snapshot flow consumes it.
-		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='REVIEW' WHERE id=$1`, id, observationID); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE financial_email_observation SET wealth_observation_id=$2,status='APPLIED' WHERE id=$1`, id, observationID); err != nil {
 			return err
 		}
-		return p.wealthObservationReview(ctx, tx, household, id, observationID, wealth, hint, *v.ValueIDR)
+		_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','ACCEPT_WEALTH_OBSERVATION','wealth_observation',$2,jsonb_build_object('resolved_wealth_account_id',$3::uuid,'observed_value_idr',$4::text,'financial_email_observation_id',$5::uuid))`, household, observationID, wealth, *v.ValueIDR, id)
+		return err
 	case "CASH_MOVEMENT":
 		return p.cash(ctx, tx, household, source, financialSource, id, defaultWealth, defaultWealthConfigured, v)
 	default:
@@ -375,9 +375,9 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	return p.wealthObservationReview(ctx, tx, household, id, observationID, "", hint, *v.ValueIDR)
 }
 
-// wealthObservationReview parks a Financial Email wealth value as a review that
-// carries the PRD §7 contract, so the Inbox offers the snapshot flow and the
-// observed value without re-asking for it.
+// wealthObservationReview parks only an unresolved Financial Email wealth value.
+// A uniquely bound account observation is accepted directly (see the resolved
+// caller above), so routine human confirmation is not required.
 func (p *Processor) wealthObservationReview(ctx context.Context, tx pgx.Tx, household, financialObservationID, wealthObservationID, resolvedWealthID, hint, valueIDR string) error {
 	decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "financial_email_observation", financialObservationID)
 	if !ok {

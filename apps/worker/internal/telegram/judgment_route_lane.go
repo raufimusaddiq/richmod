@@ -40,6 +40,7 @@ var agentRouteLanes = map[string]agentRouteLane{
 	// Route-gated workflows are bound by applyAgentWorkflowToolPolicy after this
 	// route has been decided.
 	"REVIEW_INTERACTION":            laneWorkflow,
+	"PENDING_ACTION_INTERACTION":    laneWorkflow,
 	"SALARY_INTERACTION":            laneWorkflow,
 	"MERCHANT_LEARNING_INTERACTION": laneWorkflow,
 	"PENDING_BATCH_INTERACTION":     laneWorkflow,

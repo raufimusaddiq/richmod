@@ -80,8 +80,7 @@ func TestTelegramMerchantLearningUsesSeparateExplicitReply(t *testing.T) {
 	// question the user never answers cannot strand it. The optional question is
 	// tracked by conversation state only.
 	update.Message.MessageID = 24
-	update.Message.Text = "ingat merchant"
-	if err := processor.rememberMerchantReply(ctx, rememberSourceID, householdID, reviewID, transactionID, update); err != nil {
+	if err := processor.applyMerchantLearningChoice(ctx, rememberSourceID, householdID, reviewID, transactionID, update, true); err != nil {
 		t.Fatal(err)
 	}
 	var autoApply bool

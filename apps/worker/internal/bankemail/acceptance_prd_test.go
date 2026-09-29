@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -226,15 +225,10 @@ func TestBankEmailB6ProviderFailureIsNotApproval(t *testing.T) {
 	}
 
 	unconfigured := NewProcessor(nil, nil)
-	verification, verified, err := unconfigured.verifyEvidence(nil, "source", Extraction{}, TrustedEmail{})
-	if err != nil {
-		t.Fatalf("a nil verifier is the disabled case, not a failure: %v", err)
-	}
-	if verified {
-		t.Fatal("a nil verifier must not report a verified email")
-	}
-	if !reflect.DeepEqual(verification, EvidenceVerification{}) {
-		t.Fatalf("a nil verifier must return the zero verification: %+v", verification)
+	// Verification is mandatory for this source contract: a missing plane is a
+	// machine retry state, never a household review and never approval.
+	if _, verified, err := unconfigured.verifyEvidence(nil, "source", Extraction{}, TrustedEmail{}); err == nil || verified {
+		t.Fatalf("a nil verifier must be a machine failure, verified=%v err=%v", verified, err)
 	}
 }
 

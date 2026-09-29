@@ -280,7 +280,7 @@ func (h *Handler) Observation(w http.ResponseWriter, r *http.Request) {
 	}
 	var id, accountID, institution, hint, value string
 	var quantity, unit, unitPrice, observedDate *string
-	err := h.pool.QueryRow(r.Context(), `SELECT id::text,COALESCE(resolved_wealth_account_id::text,''),institution,account_hint,observed_value_idr::text,quantity::text,unit,unit_price_idr::text,observed_date::text FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status='PENDING'`, r.PathValue("id"), p.HouseholdID).Scan(&id, &accountID, &institution, &hint, &value, &quantity, &unit, &unitPrice, &observedDate)
+	err := h.pool.QueryRow(r.Context(), `SELECT id::text,COALESCE(resolved_wealth_account_id::text,''),institution,account_hint,observed_value_idr::text,quantity::text,unit,unit_price_idr::text,observed_date::text FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status IN ('PENDING','ACCEPTED')`, r.PathValue("id"), p.HouseholdID).Scan(&id, &accountID, &institution, &hint, &value, &quantity, &unit, &unitPrice, &observedDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		fail(w, 404, "wealth observation not found")
 		return
@@ -290,6 +290,38 @@ func (h *Handler) Observation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOut(w, 200, map[string]any{"id": id, "resolvedWealthAccountId": accountID, "institution": institution, "accountHint": hint, "observedValueIdr": value, "quantity": quantity, "unit": unit, "unitPriceIdr": unitPrice, "observedDate": observedDate})
+}
+
+// Observations returns accepted per-account observations. They are canonical
+// current-account evidence but never a synthetic snapshot: snapshot totals stay
+// derived from complete wealth snapshots only.
+func (h *Handler) Observations(w http.ResponseWriter, r *http.Request) {
+	p, ok := principal(w, r)
+	if !ok {
+		return
+	}
+	rows, err := h.pool.Query(r.Context(), `SELECT o.id::text,o.resolved_wealth_account_id::text,a.name,o.observed_value_idr::text,o.quantity::text,o.unit,o.unit_price_idr::text,o.observed_date::text,o.created_at FROM wealth_observation o JOIN wealth_account a ON a.id=o.resolved_wealth_account_id WHERE o.household_id=$1 AND o.status='ACCEPTED' AND a.active ORDER BY o.created_at DESC,o.id DESC LIMIT 50`, p.HouseholdID)
+	if err != nil {
+		fail(w, 500, "unable to load wealth observations")
+		return
+	}
+	defer rows.Close()
+	out := make([]map[string]any, 0)
+	for rows.Next() {
+		var id, accountID, name, value string
+		var quantity, unit, unitPrice, observedDate *string
+		var createdAt time.Time
+		if rows.Scan(&id, &accountID, &name, &value, &quantity, &unit, &unitPrice, &observedDate, &createdAt) != nil {
+			fail(w, 500, "unable to load wealth observations")
+			return
+		}
+		out = append(out, map[string]any{"id": id, "wealthAccountId": accountID, "name": name, "observedValueIdr": value, "quantity": quantity, "unit": unit, "unitPriceIdr": unitPrice, "observedDate": observedDate, "createdAt": createdAt})
+	}
+	if rows.Err() != nil {
+		fail(w, 500, "unable to load wealth observations")
+		return
+	}
+	jsonOut(w, 200, out)
 }
 
 func (h *Handler) CorrectSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -779,7 +811,7 @@ func completeSnapshotSet(r *http.Request, tx pgx.Tx, snapshotID string, items []
 
 func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observationID string, items []itemInput) bool {
 	var accountID, value, financialObservationID string
-	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text,COALESCE(financial_email_observation_id::text,'') FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status='PENDING' FOR UPDATE`, observationID, householdID).Scan(&accountID, &value, &financialObservationID); err != nil {
+	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text,COALESCE(financial_email_observation_id::text,'') FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status IN ('PENDING','ACCEPTED') FOR UPDATE`, observationID, householdID).Scan(&accountID, &value, &financialObservationID); err != nil {
 		return false
 	}
 	matched := false
