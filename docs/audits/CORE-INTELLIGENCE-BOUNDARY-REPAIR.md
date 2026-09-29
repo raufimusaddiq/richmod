@@ -342,3 +342,56 @@ test execution because no Goose CLI is available in the Go image; migration
 application itself therefore still needs CI confirmation. API verification,
 Hermes review, merge, and deploy are not yet claimed. UISC-03 remains
 `PRODUCTION_UNOBSERVED`; UISC-04 remains blocked. No CEU work started.
+
+---
+
+# 9. Post-PR #222 core boundary follow-up (2026-09-30)
+
+**Baseline:** `main@58570fee3be26408656d0f0c7d33045f79bd3d80`.
+
+## 9.1 Review type and binding kind are separate
+
+`agentReviewBindingPublic` publishes `review_type = ReviewBinding.ReviewType`
+and `review_mode = ReviewBinding.Kind`. `Kind` remains the structural target /
+executor dispatch (`TRANSACTION`, `WEALTH_OBSERVATION`,
+`TRANSFER_RECONCILIATION`, `CYCLE_RESIDUAL`). The semantic tool schema and Jev
+action vocabulary now use `ReviewType`, so a `TRANSACTION` bound to
+`TRANSFER_CLASSIFICATION` exposes only `EXPENSE`, `OWN_ACCOUNT_TRANSFER`,
+`HOUSEHOLD_TRANSFER`, `INVESTMENT_TRANSFER`, `ASSET_PURCHASE`, and `IGNORE`.
+`agentResolveBoundReview` still dispatches by Kind and canonical mutation
+revalidates household ownership, active account/category, binding, and domain
+invariants.
+
+Jev can finish finite argument-free actions (`IGNORE`, own/household/investment
+transfer, salary choices, and other existing allowed finite actions). Actions
+requiring arbitrary values (`EXPENSE` category, asset-purchase Wealth hint, pay
+date, bank facts) fall through to the generative native tool. Jev does not
+consume the freeform value or force a second user turn.
+
+## 9.2 Bank category machine failures
+
+`resolveNewMerchantCategory` now returns canonical category ID/provenance plus
+an error. Active-category query and Jev/provider errors propagate through
+`Process`; they do not become empty semantic answers or create household review
+work. Successful `OTHER_OR_UNCLEAR` / policy-undecided results remain
+category-only residuals. A decisive offered slug still resolves to its active
+household category ID and follows the existing confirm path. Zero active
+categories remain a domain state with no offered bounded choice, not a DB error.
+
+## 9.3 Regression evidence
+
+- Telegram exact transfer review: `Kind=TRANSACTION`,
+  `ReviewType=TRANSFER_CLASSIFICATION`, freeform “aku masukin ke emas” reaches
+  `resolve_review` with `ASSET_PURCHASE` and `wealth_account_hint`; only the
+  active same-household canonical Wealth Account is applied. Wrong-household
+  duplicate hints remain unused.
+- Exact transfer review typed `EXPENSE` + `category_slug` resolves only an
+  active category in the bound household; an invalid slug leaves the review
+  untouched. No phrase parser is used.
+- Bank category provider failure, database failure, semantic undecision, and
+  decisive category paths are separately tested.
+- `go vet ./internal/telegram ./internal/bankemail` and uncached
+  `go test ./internal/...` pass on disposable PostgreSQL after applying the
+  existing migration 00073 constraint to that disposable database.
+- No migration or schema change was needed. PR review, merge, deploy, and
+  owner-household production canary remain pending.

@@ -180,6 +180,9 @@ func agentReviewBindingPublic(binding *agentReviewBinding) map[string]any {
 	}
 	out := map[string]any{
 		"review_type": binding.ReviewType,
+		// review_mode is the bound canonical subject/executor (binding.Kind) and
+		// stays separate from the semantic action vocabulary, which is keyed by
+		// review_type. Conflating them exposed generic actions for a typed review.
 		"review_mode": binding.Kind,
 		"amount_idr":  binding.AmountIDR,
 		"description": binding.Label,
