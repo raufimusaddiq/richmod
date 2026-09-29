@@ -87,16 +87,27 @@ const bankCategoryQuestion = "Choose the best active expense category for this p
 // active categories for a new merchant, then returns the canonical category ID
 // only when the answer is decisive and the chosen slug is one Go offered. It is
 // the deterministic Go half of PRD §9.3: the model picks a slug, Go resolves the
-// ID, and an undecided or ambiguous answer returns "" so the caller keeps its
-// category-only review. A provider failure also returns "" rather than guessing.
-func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventID, householdID string, extraction Extraction) (string, categoryProvenance) {
+// ID, and an undecided answer leaves the caller's category-only review intact.
+// Machine failure is NOT semantic uncertainty: a provider or database error is
+// returned so the job stays retryable and no household review is created.
+func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventID, householdID string, extraction Extraction) (string, categoryProvenance, error) {
 	merchant, description, counterparty := strings.TrimSpace(value(extraction.Merchant)), strings.TrimSpace(value(extraction.Description)), strings.TrimSpace(value(extraction.Counterparty))
-	if p.verifier == nil || (merchant == "" && description == "" && counterparty == "") {
-		return "", categoryProvenance{}
+	if merchant == "" && description == "" && counterparty == "" {
+		// No usable evidence can support a category question; the existing
+		// category residual stands without a machine decision.
+		return "", categoryProvenance{}, nil
+	}
+	if p.verifier == nil {
+		return "", categoryProvenance{}, errVerifierUnconfigured
 	}
 	categories, err := p.activeExpenseCategories(ctx, householdID)
-	if err != nil || len(categories) == 0 {
-		return "", categoryProvenance{}
+	if err != nil {
+		return "", categoryProvenance{}, err
+	}
+	if len(categories) == 0 {
+		// Domain state: this household asserts no active expense categories, so
+		// there is no bounded choice to make. Not a machine failure.
+		return "", categoryProvenance{}, nil
 	}
 	slugs := make([]string, 0, len(categories))
 	for _, category := range categories {
@@ -122,18 +133,18 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 		},
 	})
 	if err != nil {
-		return "", categoryProvenance{}
+		return "", categoryProvenance{}, err
 	}
 	answer, ok := result.Answers["category"]
 	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, judgment.CategoryCriteria(slugs), bankCategoryPolicy) {
-		return "", categoryProvenance{}
+		return "", categoryProvenance{}, nil
 	}
 	for _, category := range categories {
 		if category.Slug == answer.Choice {
-			return category.ID, categoryProvenance{Model: result.Model, PolicyVersion: BankEmailVerificationPolicyVersion, Slug: answer.Choice, Accepted: true}
+			return category.ID, categoryProvenance{Model: result.Model, PolicyVersion: BankEmailVerificationPolicyVersion, Slug: answer.Choice, Accepted: true}, nil
 		}
 	}
-	return "", categoryProvenance{}
+	return "", categoryProvenance{}, nil
 }
 
 // categoryProvenance is the bounded answer that authorised a Jev-chosen

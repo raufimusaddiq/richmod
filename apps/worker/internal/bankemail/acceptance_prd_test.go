@@ -83,16 +83,20 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 	processor := &Processor{pool: pool, verifier: verifier}
 	// The decisive answer must turn the category review into a confirmation with no
 	// review left behind, not merely resolve an id.
-	decided := processor.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
+	decided, err := processor.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != foodID {
 		t.Fatalf("a decisive category must confirm with no review: %+v", decided)
 	}
 
-	// A provider failure must leave the review in place rather than guess.
+	// A provider failure is a machine failure, not a semantic verdict: it must
+	// surface as a retryable error so no category review reaches the household.
 	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
-	kept := undecided.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
-	if kept.ReviewType != "AMBIGUOUS_CATEGORY" || kept.Status != "NEEDS_REVIEW" || kept.AutoConfirm {
-		t.Fatalf("a provider failure must keep the category review: %+v", kept)
+	kept, err := undecided.applyCategoryDecision(ctx, "se-1", householdID, outgoingCard("54000", "Warung Baru"), result)
+	if err == nil {
+		t.Fatalf("a provider failure must propagate as a retryable machine error, got kept=%+v", kept)
 	}
 }
 
@@ -166,7 +170,10 @@ func TestBankEmailMerchantlessCategoryRescueConfirmsWithoutMerchant(t *testing.T
 		"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"})),
 	}}
 	processor := &Processor{pool: pool, verifier: verifier}
-	decided := processor.applyCategoryDecision(ctx, "se-1", householdID, extraction, result)
+	decided, err := processor.applyCategoryDecision(ctx, "se-1", householdID, extraction, result)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != categoryID {
 		t.Fatalf("a decisive merchant-less category must confirm: %+v", decided)
 	}
@@ -179,9 +186,9 @@ func TestBankEmailMerchantlessCategoryRescueConfirmsWithoutMerchant(t *testing.T
 	}
 
 	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
-	kept := undecided.applyCategoryDecision(ctx, "se-1", householdID, extraction, result)
-	if kept.Status != "NEEDS_REVIEW" || kept.ReviewType != "UNKNOWN_MERCHANT" || kept.AutoConfirm {
-		t.Fatalf("a provider failure must keep the existing merchant/category review: %+v", kept)
+	kept, err := undecided.applyCategoryDecision(ctx, "se-1", householdID, extraction, result)
+	if err == nil || kept.AutoConfirm {
+		t.Fatalf("a provider failure must stay a retryable machine error, never confirm or review: err=%v kept=%+v", err, kept)
 	}
 }
 

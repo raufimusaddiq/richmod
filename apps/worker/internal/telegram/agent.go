@@ -201,6 +201,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasPendingAction: contextState.HasPendingAction,
 		HasPendingBatch:  contextState.HasPendingBatch,
 		HasSalaryChoice:  contextState.HasSalaryChoice,
+		ReviewType:       contextState.ReviewType,
 		ReviewMode:       contextState.ReviewMode,
 	}
 	// An implicit binding is attached only when the route says this turn is that

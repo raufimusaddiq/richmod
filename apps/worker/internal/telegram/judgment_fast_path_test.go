@@ -71,11 +71,17 @@ func TestBoundedJudgmentWorkflowsOnlyHandleFactFreeChoices(t *testing.T) {
 	// A pending-batch UPDATE needs arbitrary replacement values, so Jev must not
 	// own it: the bounded handler reports "not handled" and the generative
 	// update_pending_batch path keeps its server-bound validation.
-	if boundedReviewAction("UPDATE") {
+	if isReviewAction("TRANSFER_CLASSIFICATION", "UPDATE") {
 		t.Fatal("UPDATE is not a bounded review action")
 	}
-	if !boundedReviewAction("CONFIRM") || !boundedReviewAction("IGNORE") {
+	if !isReviewAction("AMBIGUOUS_CATEGORY", "CONFIRM") || !isReviewAction("TRANSFER_CLASSIFICATION", "IGNORE") {
 		t.Fatal("fact-free review actions must stay bounded")
+	}
+	if reviewActionNeedsArguments("CONFIRM") || reviewActionNeedsArguments("IGNORE") {
+		t.Fatal("fact-free actions must not require generative argument extraction")
+	}
+	if !reviewActionNeedsArguments("ASSET_PURCHASE") || !reviewActionNeedsArguments("EXPENSE") {
+		t.Fatal("argument-bearing actions must defer to generative extraction")
 	}
 }
 

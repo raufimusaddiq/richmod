@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -74,7 +75,9 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		return true, p.resolveNativeMerchantLearning(ctx, state.SourceEventID, state.HouseholdID, state.Update, map[string]any{"remember": choice == "REMEMBER"})
 	}
 	if state.ReviewBinding != nil {
-		allowed := reviewActionsForType(state.ReviewMode)
+		// Semantic action vocabulary comes from the review type, never the
+		// binding kind (what canonical subject is bound).
+		allowed := reviewActionsForType(state.ReviewType)
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok {
@@ -83,7 +86,16 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		if choice == "OTHER_OR_UNCLEAR" {
 			return false, nil
 		}
-		if !boundedReviewAction(choice) {
+		if !isReviewAction(state.ReviewType, choice) {
+			return false, nil
+		}
+		if reviewActionNeedsArguments(choice) {
+			// The action is already decided. Hand the generative extraction tool
+			// only this action so the remaining freeform value (category, Wealth
+			// hint, pay date, bank facts) is extracted, not re-decided, and the
+			// user is never asked to restate it.
+			state.TurnContext["bounded_review_action"] = choice
+			narrowReviewActionTool(state.Tools, choice)
 			return false, nil
 		}
 		result, _, err := p.agentResolveBoundReview(ctx, state, gateway.ToolCall{CallID: "jev-review", Name: "resolve_review"}, map[string]any{"action": choice})
@@ -95,9 +107,37 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 	return false, nil
 }
 
-func boundedReviewAction(action string) bool {
+// isReviewAction accepts only a semantic action the bound review type offers.
+// The binding kind never widens this vocabulary.
+func isReviewAction(reviewType, action string) bool {
+	return slices.Contains(reviewActionsForType(reviewType), action)
+}
+
+// narrowReviewActionTool restricts the resolve_review action enum to the single
+// Jev-decided action so a generative extraction call can only supply the
+// missing argument, never choose a different semantic meaning.
+func narrowReviewActionTool(tools []gateway.ToolDefinition, action string) {
+	for index := range tools {
+		if tools[index].Name != "resolve_review" {
+			continue
+		}
+		properties, ok := tools[index].Parameters["properties"].(map[string]any)
+		if !ok {
+			return
+		}
+		actionSchema, ok := properties["action"].(map[string]any)
+		if !ok {
+			return
+		}
+		actionSchema["enum"] = []string{action}
+	}
+}
+
+// reviewActionNeedsArguments keeps freeform facts in the user's turn: Jev may
+// route the action, but the typed native tool extracts its required values.
+func reviewActionNeedsArguments(action string) bool {
 	switch action {
-	case "CONFIRM", "IGNORE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED", "PRIMARY_SALARY", "ORDINARY_INCOME":
+	case "EXPENSE", "ASSET_PURCHASE", "SET_PAY_DATE", "COMPLETE_BANK_FACTS":
 		return true
 	default:
 		return false

@@ -282,7 +282,10 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// The kill-switch also disables the bounded category path, so the switch
 	// cannot be re-opened by the very decision it exists to gate.
 	if !payload.Shadow && !p.categoryAutoConfirmOff {
-		result = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
+		result, err = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
+		if err != nil {
+			return err
+		}
 	}
 	status := result.Status
 	if status == "" {
@@ -521,17 +524,20 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 // applyCategoryDecision lets a new merchant confirm without a review when the
 // bounded plane decides its category (PRD 9.3). The bounded question is answered
 // by the same plane that rules on the rest of the event, Go resolves the
-// canonical ID, and an undecided answer or provider failure leaves the policy
-// result untouched so the category-only review still applies. It is a pure
-// function of the resolver so the confirm-no-review half is testable without a
-// full email fixture.
-func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) PolicyResult {
+// canonical ID, and a genuinely undecided answer leaves the policy result
+// untouched so the category-only review still applies. A machine failure
+// (provider or category DB error) is NOT semantic uncertainty: it is returned so
+// the job becomes retryable and no category review reaches the household.
+func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) (PolicyResult, error) {
 	if result.ReviewType != "AMBIGUOUS_CATEGORY" && result.ReviewType != "UNKNOWN_MERCHANT" {
-		return result
+		return result, nil
 	}
-	categoryID, provenance := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
+	categoryID, provenance, err := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
+	if err != nil {
+		return result, err
+	}
 	if categoryID == "" {
-		return result
+		return result, nil
 	}
 	result.CategoryID, result.AutoConfirm = categoryID, true
 	result.Status, result.ReviewType = "CONFIRMED", ""
@@ -539,7 +545,7 @@ func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, ho
 	// the review-flavoured placeholder as its ledger description (Hermes #133).
 	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
 	result.CategoryProvenance = &provenance
-	return result
+	return result, nil
 }
 
 func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time) bool {
