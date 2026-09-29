@@ -5,15 +5,18 @@ at `2026-09-30`; product behavior and database schema unchanged.
 
 ## Disposition
 
-- **Telegram legacy text: retained.** `cmd/worker/main.go` routes normal
-  `PROCESS_TELEGRAM_TEXT` to `ProcessAgent`, callbacks to `Process`. However,
-  `ProcessAgent` delegates callbacks to `Process`; existing package integration
-  tests also invoke `Process` with `TELEGRAM_TEXT`. No complete proof excludes
-  replay/admin/internal direct invocation. P0-A deletion and entrypoint split
-  are therefore unsafe.
-- **`review.go`: not split in this pass.** The proposed ownership boundaries
-  overlap shared orchestration and helpers. A move-only change still needs a
-  dedicated mechanical diff and parity gate; no behavioral cleanup bundled.
+- **Telegram legacy text: retained.** Production routes normal
+  `PROCESS_TELEGRAM_TEXT` to `ProcessAgent`; `Process` is still used by direct
+  integration tests that exercise legacy text-bound replies. Those tests expose
+  real behavior not fully covered by the active agent path (bound dates, missing
+  amounts, and transfer replies). Deletion would change behavior; no P0-A code
+  removed.
+- **`review.go`: mechanically split.** Moved workflow functions into
+  `review_binding.go`, `review_bank.go`, `review_payslip.go`,
+  `review_transfer.go`, `review_duplicate.go`, `review_email.go`, and
+  `review_native.go`. Compared all 80 original function bodies against the
+  baseline: all present and byte-identical. `review.go` fell from 2,999 to
+  1,033 lines. Telegram tests and build/vet pass.
 - **Document interpretation: retained.** Running production worker has
   `RICHMOD_DOCUMENT_INTERPRETATION` empty; deployed data has no shadow stages.
   State is **LEGACY**. But ADR-037 explicitly preserves the staged rollout
@@ -36,4 +39,5 @@ confirmation/review, and errors. The migration removes no call and changes no
 SQL canonical semantics. Existing bank-email tests remain as regression coverage.
 
 No product behavior changes. No model calls added or removed on the active path.
-No schema changes. Telegram and document rollout paths intentionally deferred.
+No schema changes. Telegram legacy orchestration and document rollout paths
+intentionally deferred.

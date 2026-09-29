@@ -10,14 +10,10 @@ import (
 // operation; no adapter may keep its own salary_source/salary_event mutation SQL.
 func TestTelegramConfirmLanesUseSharedSalaryRecording(t *testing.T) {
 	for _, path := range []string{
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 		"../worker/internal/telegram/agent_review_mutations.go",
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(source)
+		text := string(mustReadPaths(t, path))
 		if !strings.Contains(text, "reviewdomain.RecordSalaryEvent") && !strings.Contains(text, "RecordSalaryEvent(") {
 			t.Fatalf("%s does not call the shared salary operation", path)
 		}
@@ -45,14 +41,10 @@ func TestWebPayslipResolutionUsesSharedProposalTransition(t *testing.T) {
 // change cannot drift between Web and Telegram.
 func TestDocumentPromotionIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 		"../worker/internal/telegram/agent_review_mutations.go",
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(source)
+		text := string(mustReadPaths(t, path))
 		if !strings.Contains(text, "PromoteEvidenceDocuments") {
 			t.Fatalf("%s does not call the shared document promotion", path)
 		}

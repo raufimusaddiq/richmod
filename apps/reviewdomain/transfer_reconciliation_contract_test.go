@@ -42,7 +42,7 @@ func TestTransferIgnoreBypassesTheCandidateCap(t *testing.T) {
 func TestTransferAdaptersDelegateReconciliation(t *testing.T) {
 	adapters := map[string]string{
 		"../api/internal/review/canonical.go":                       "reviewdomain.ReconcileTransfer",
-		"../worker/internal/telegram/review.go":                     "reviewdomain.ReconcileTransfer",
+		"../worker/internal/telegram/review_native.go":              "reviewdomain.ReconcileTransfer",
 		"../worker/internal/telegram/agent_review_mutations.go":     "reviewdomain.ReconcileTransfer",
 		"../worker/internal/telegram/agent_review_binding_guard.go": "reviewdomain.ReconcileTransfer",
 	}

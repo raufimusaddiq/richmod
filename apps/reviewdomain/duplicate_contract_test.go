@@ -1,7 +1,6 @@
 package reviewdomain
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -11,13 +10,9 @@ import (
 func TestDuplicateMergeIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/handler.go",
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(source)
+		text := string(mustReadPaths(t, path))
 		if !strings.Contains(text, "reviewdomain.MergeDuplicateReview") {
 			t.Fatalf("%s does not call the shared duplicate merge operation", path)
 		}

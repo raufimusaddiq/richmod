@@ -1,7 +1,6 @@
 package reviewdomain
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -11,13 +10,10 @@ import (
 func TestCycleResidualIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/canonical.go",
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 		"../worker/internal/telegram/agent_review_mutations.go",
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		source := mustReadPaths(t, path)
 		text := string(source)
 		if !strings.Contains(text, "ApplyCycleResidual") {
 			t.Fatalf("%s does not call the shared cycle residual operation", path)
