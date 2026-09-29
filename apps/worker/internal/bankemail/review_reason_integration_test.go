@@ -110,7 +110,7 @@ func TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling(t *testing.T)
 	}
 	verification := EvidenceVerification{
 		PolicyVersion: BankEmailVerificationPolicyVersion,
-		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO", "material_ambiguity": "NO"},
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO"},
 	}
 	if err = (&Processor{pool: pool}).persistEvidenceVerification(ctx, sourceEventID, listenerID, "stub", verification); err != nil {
 		t.Fatal(err)

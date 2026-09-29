@@ -215,46 +215,6 @@ func TestBankEmailB4MerchantValueIsNullable(t *testing.T) {
 	}
 }
 
-// B5 - two plausible transaction amounts. This asserts the property the case is
-// named for: an undecided ambiguity ruling must not authorise a write, while a
-// decided not-ambiguous ruling must. The ambiguity claim is inverted, so the two
-// bands have to be separated by the verdict helper rather than by AcceptNoul
-// alone; asserting only `if noulClaimed(...)` would pass either way and prove
-// nothing (Hermes review).
-func TestBankEmailB5UndecidedAmbiguityDoesNotAuthorize(t *testing.T) {
-	// 0.10 sits between Low 0.05 and High 0.15: the plane could not tell whether
-	// the email was ambiguous, which is exactly the two-amount case.
-	answers := supportedRuling()
-	answers["material_ambiguity"] = noul(0.10)
-	verification, verified, err := (&Processor{verifier: &stubVerifier{answers: answers}}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !verified {
-		t.Fatal("the bundle was answered, so it is verified")
-	}
-	if verification.MaterialAmbiguity {
-		t.Fatalf("an undecided answer is not an affirmative ambiguous ruling: %+v", verification)
-	}
-	if verification.AmbiguityDecidedNotAmbiguous {
-		t.Fatalf("an undecided answer must not read as decided-not-ambiguous: %+v", verification)
-	}
-	if verification.supported() {
-		t.Fatalf("an undecided ambiguity ruling must not authorize: %+v", verification)
-	}
-}
-
-// B5, other half: only an affirmative not-ambiguous ruling clears the gate.
-func TestBankEmailB5DecidedNotAmbiguousAuthorizes(t *testing.T) {
-	verification, verified, err := (&Processor{verifier: &stubVerifier{answers: supportedRuling()}}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !verified || !verification.AmbiguityDecidedNotAmbiguous || !verification.supported() {
-		t.Fatalf("a decided not-ambiguous ruling must authorize: %+v", verification)
-	}
-}
-
 // B6 - provider failure is an infrastructure event, never a semantic verdict.
 // The caller must be able to tell "no ruling" from "ruled safe": a failure is
 // surfaced as an error, and an unconfigured verifier is the disabled case that

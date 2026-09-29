@@ -19,7 +19,6 @@ func TestSemanticGroundedAcceptsIndonesianMethodWord(t *testing.T) {
 		"amount_supported":     noul(0.99),
 		"direction_supported":  noul(0.99),
 		"semantic_grounded":    noul(0.99),
-		"material_ambiguity":   noul(0.02),
 	}}
 	processor := &Processor{verifier: verifier}
 	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: stringPtrFor("23600"), Direction: stringPtrFor("OUTGOING"), Channel: stringPtrFor("DEBIT_CARD"), Confidence: 0.99}

@@ -21,8 +21,6 @@ func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok
 		return "direction", true, true
 	case v.ClaimOutcomes["transaction_observed"] == "NO":
 		return "transaction_observed", true, true
-	case !v.AmbiguityDecidedNotAmbiguous || v.MaterialAmbiguity:
-		return "transaction_ambiguity", false, true
 	case v.ClaimOutcomes["amount_supported"] != "YES" || v.ClaimOutcomes["direction_supported"] != "YES" || v.ClaimOutcomes["transaction_observed"] != "YES":
 		// The plane could not decide a material fact; it is missing, not conflicting.
 		for _, fact := range []struct{ key, name string }{{"amount_supported", "amount_idr"}, {"direction_supported", "direction"}, {"transaction_observed", "transaction_observed"}} {

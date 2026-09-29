@@ -38,7 +38,6 @@ func supportedRuling() map[string]judgment.Answer {
 		"amount_supported":     noul(0.99),
 		"direction_supported":  noul(0.99),
 		"semantic_grounded":    noul(0.99),
-		"material_ambiguity":   noul(0.02),
 	}
 }
 
@@ -84,8 +83,8 @@ func TestUndecidedPaymentMechanismDoesNotCreateReview(t *testing.T) {
 // bounded resolution/review is allowed and it names transaction_semantics.
 func TestSpendVsTransferAmbiguityCreatesBoundedResidual(t *testing.T) {
 	verification := EvidenceVerification{
-		TransactionObserved: true, AmountSupported: true, DirectionSupported: true, AmbiguityDecidedNotAmbiguous: true,
-		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO", "material_ambiguity": "NO"},
+		TransactionObserved: true, AmountSupported: true, DirectionSupported: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO"},
 	}
 	fact, conflict, material := verification.materialResidual()
 	if !material || conflict || fact != "transaction_semantics" {
@@ -100,8 +99,8 @@ func TestSpendVsTransferAmbiguityCreatesBoundedResidual(t *testing.T) {
 // that still fails closed and names the material amount fact.
 func TestAmountConflictStillBlocks(t *testing.T) {
 	verification := EvidenceVerification{
-		TransactionObserved: true, AmountSupported: false, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true,
-		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "NO", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "NO"},
+		TransactionObserved: true, AmountSupported: false, DirectionSupported: true, SemanticGrounded: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "NO", "direction_supported": "YES", "semantic_grounded": "YES"},
 	}
 	fact, conflict, material := verification.materialResidual()
 	if !material || !conflict || fact != "amount_idr" {
@@ -131,8 +130,8 @@ func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 	stamp := time.Date(2026, 9, 27, 12, 0, 0, 0, time.FixedZone("WIB", 7*3600))
 	dated.TransactionAt = &stamp
 	verification := EvidenceVerification{
-		TransactionObserved: true, AmountSupported: true, DirectionSupported: true, AmbiguityDecidedNotAmbiguous: true,
-		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO", "material_ambiguity": "NO"},
+		TransactionObserved: true, AmountSupported: true, DirectionSupported: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "YES", "direction_supported": "YES", "semantic_grounded": "NO"},
 	}
 	decision := verificationReviewDecision("household", "source", dated, verification, "transaction_semantics", false)
 	for _, accepted := range []string{"amount_idr", "transaction_at", "direction", "channel", "merchant"} {
@@ -150,8 +149,8 @@ func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 // fact rather than claim an independent-evidence conflict (SAVR-06).
 func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 	verification := EvidenceVerification{
-		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true,
-		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "UNDECIDED", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "NO"},
+		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true,
+		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "UNDECIDED", "direction_supported": "YES", "semantic_grounded": "YES"},
 	}
 	fact, conflict, material := verification.materialResidual()
 	if !material || conflict || fact != "amount_idr" {
@@ -169,22 +168,6 @@ func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 // 5) No additional intelligence pass: the whole ruling rides in the single
 // bounded bundle Go already sends, so classifying non-material metadata cannot
 // add a second call.
-
-// A material ambiguity outranks an undecided material predicate: when the plane
-// cannot rule out a duplicate/transfer AND could not decide the amount, the
-// review must name the canonical ambiguity rather than collapsing to an amount
-// gap that drops the ambiguity dimension (SAVR-06, Hermes round 7).
-func TestAmbiguityOutranksAnUndecidedMaterialFact(t *testing.T) {
-	verification := EvidenceVerification{
-		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true, AmbiguityDecidedNotAmbiguous: true, MaterialAmbiguity: true,
-		ClaimOutcomes: map[string]string{"transaction_observed": "YES", "amount_supported": "UNDECIDED", "direction_supported": "YES", "semantic_grounded": "YES", "material_ambiguity": "YES"},
-	}
-	fact, conflict, material := verification.materialResidual()
-	if !material || conflict || fact != "transaction_ambiguity" {
-		t.Fatalf("a material ambiguity must win over an undecided amount: fact=%q conflict=%v material=%v", fact, conflict, material)
-	}
-}
-
 func TestNonMaterialMetadataAddsNoExtraPass(t *testing.T) {
 	verifier := &stubVerifier{answers: supportedRuling()}
 	processor := &Processor{verifier: verifier}
@@ -215,10 +198,23 @@ func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 		t.Fatalf("expected one bounded bundle, got %d", verifier.calls)
 	}
 	// Every claim must ride in the same request: one snapshot, one round trip.
-	for _, claim := range []string{"transaction_observed", "amount_supported", "direction_supported", "semantic_grounded", "material_ambiguity"} {
+	for _, claim := range []string{"transaction_observed", "amount_supported", "direction_supported", "semantic_grounded"} {
 		if _, ok := verifier.request.Questions[claim]; !ok {
 			t.Fatalf("missing claim %q in %v", claim, verifier.request.Questions)
 		}
+	}
+}
+
+func TestAmbiguityIsNotAskedOrRequiredForSupportedEvidence(t *testing.T) {
+	answers := supportedRuling()
+	answers["material_ambiguity"] = noul(0.10) // ignored legacy answer
+	verifier := &stubVerifier{answers: answers}
+	verification, verified, err := (&Processor{verifier: verifier}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
+	if err != nil || !verified || !verification.supported() {
+		t.Fatalf("complete source-supported facts should pass without an ambiguity vote: verified=%v v=%+v err=%v", verified, verification, err)
+	}
+	if _, asked := verifier.request.Questions["material_ambiguity"]; asked {
+		t.Fatal("bank-email verifier must not ask Jev to certify absence of ambiguity")
 	}
 }
 
@@ -241,21 +237,6 @@ func TestEvidenceVerificationRejectsUnsupportedClaim(t *testing.T) {
 	}
 	if !verified || verification.supported() {
 		t.Fatalf("undecided claim must fail closed: %+v", verification)
-	}
-}
-
-// A high self-reported ambiguity must block even when every other claim is fine,
-// which is the same fail-closed direction the Telegram plane uses.
-func TestEvidenceVerificationRejectsMaterialAmbiguity(t *testing.T) {
-	answers := supportedRuling()
-	answers["material_ambiguity"] = noul(0.95)
-	processor := &Processor{verifier: &stubVerifier{answers: answers}}
-	verification, _, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !verification.MaterialAmbiguity || verification.supported() {
-		t.Fatalf("ambiguous evidence must not be supported: %+v", verification)
 	}
 }
 
@@ -333,42 +314,4 @@ func (f *flakyVerifier) Evaluate(_ context.Context, _ string, _ judgment.Request
 	}
 	answers := supportedRuling()
 	return judgment.Result{Model: "flaky", Answers: answers}, nil
-}
-
-// Regression: the ambiguity claim is inverted, so a decided negative is the
-// favourable answer. An undecided middle-band answer to "is this ambiguous?"
-// must NOT be read as "not ambiguous" — that is fail-open, and it is what let a
-// genuinely ambiguous email auto-confirm (Hermes review of the PRD 25 tests).
-func TestEvidenceVerificationUndecidedAmbiguityFailsClosed(t *testing.T) {
-	// 0.10 sits between Low 0.05 and High 0.15: the plane could not tell.
-	answers := supportedRuling()
-	answers["material_ambiguity"] = noul(0.10)
-	processor := &Processor{verifier: &stubVerifier{answers: answers}}
-	verification, verified, err := processor.verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !verified {
-		t.Fatal("the bundle was answered, so it is verified")
-	}
-	if verification.MaterialAmbiguity {
-		t.Fatalf("an undecided answer is not an affirmative ambiguous ruling: %+v", verification)
-	}
-	if verification.AmbiguityDecidedNotAmbiguous {
-		t.Fatalf("an undecided answer must not be recorded as decided-not-ambiguous: %+v", verification)
-	}
-	if verification.supported() {
-		t.Fatalf("an undecided ambiguity ruling must fail closed, not authorize: %+v", verification)
-	}
-}
-
-// The other half: a decided "not ambiguous" (at or below Low) is what clears it.
-func TestEvidenceVerificationDecidedNotAmbiguousAuthorizes(t *testing.T) {
-	verification, verified, err := (&Processor{verifier: &stubVerifier{answers: supportedRuling()}}).verifyEvidence(context.Background(), "src", testExtraction(), TrustedEmail{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !verified || !verification.AmbiguityDecidedNotAmbiguous || !verification.supported() {
-		t.Fatalf("a decided not-ambiguous ruling must authorize: %+v", verification)
-	}
 }

@@ -244,6 +244,27 @@ closure evidence.
 
 ## 7.4 Independent review findings and corrections
 
+### 7.5 Owner-household bank-email review (2026-09-29)
+
+The Jago payment email contained a structurally valid extraction with amount,
+direction, merchant, timestamp, and reference. The bank verifier nevertheless
+created `UNKNOWN_BANK_TEMPLATE` because Jev returned `UNDECIDED` for
+`material_ambiguity`, a negative-certification question. This contradicted SAVR
+PRD §3.2: a source-acceptable extraction may proceed directly to Go, and
+`LLM -> Jev` is not a mandatory default.
+
+Correction: remove `material_ambiguity` from the bank-email Jev bundle and
+confirmation gate. Retain the bounded checks for transaction existence, amount,
+direction, and canonical semantic class; concrete unsupported facts and
+independent conflicts still block or create an exact residual. The regression
+test proves an undecided legacy ambiguity answer is neither asked nor required.
+
+Previous classification: `material_ambiguity` was treated as a bounded semantic
+decision and its undecided result as canonical ambiguity. Corrected classification:
+open-ended negative certification / redundant semantic veto; remove from this
+path. Go still enforces amount representation, timestamp validity, household
+scoping, idempotency, and canonical state invariants.
+
 Hermes review of PR #218 identified three blockers and one prompt mismatch. The
 fixes are recorded here rather than rewriting the original audit history:
 
