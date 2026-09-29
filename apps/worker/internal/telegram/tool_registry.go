@@ -17,7 +17,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 	stringType := map[string]any{"type": "string"}
 	nullString := map[string]any{"type": []string{"string", "null"}}
 	localTime := map[string]any{"type": []string{"string", "null"}, "description": "Exact local HH:MM, or PAGI, SIANG, SORE, MALAM when the user named a time of day."}
-	dateRef := map[string]any{"type": "string", "enum": []string{"TODAY", "YESTERDAY", "EXPLICIT"}}
+	dateRef := map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}}
 	period := map[string]any{"type": "string", "enum": []string{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CURRENT_CYCLE", "PREVIOUS_CYCLE", "CUSTOM"}}
 	category := map[string]any{"type": []string{"string", "null"}}
 	if len(categories) > 0 {
@@ -28,7 +28,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		}
 		category["enum"] = values
 	}
-	entry := objectSchema(map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount_idr": stringType, "merchant": nullString, "category_slug": category, "description": nullString, "note": nullString, "date_reference": dateRef, "explicit_date": nullString, "local_time": localTime, "ambiguous": map[string]any{"type": "boolean"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, []string{"type", "amount_idr", "merchant", "category_slug", "description", "note", "date_reference", "explicit_date", "local_time", "ambiguous", "confidence", "category_confidence"})
+	entry := objectSchema(map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount_idr": stringType, "merchant": nullString, "category_slug": category, "description": nullString, "note": nullString, "date_reference": dateRef, "date_provenance": map[string]any{"type": []string{"string", "null"}, "enum": []any{"USER_STATED", "NOT_USER_STATED", nil}}, "explicit_date": nullString, "local_time": localTime, "ambiguous": map[string]any{"type": "boolean"}, "confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}, "category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1}}, []string{"type", "amount_idr", "merchant", "category_slug", "description", "note", "date_reference", "date_provenance", "explicit_date", "local_time", "ambiguous", "confidence", "category_confidence"})
 	periodProps := map[string]any{"period": period, "from_date": nullString, "to_date": nullString}
 	tools := []gateway.ToolDefinition{
 		{Name: "record_transaction", Description: "Record one observed household IDR income or expense intent. For a clearly named purchased item or service, select the best matching allowed category. Preserve explicit past dates; use PAGI, SIANG, SORE, or MALAM for a named time of day. Go validates and persists.", Parameters: entry},
@@ -218,6 +218,7 @@ type createArgs struct {
 	Description        *string `json:"description"`
 	Note               *string `json:"note"`
 	DateReference      string  `json:"date_reference"`
+	DateProvenance     *string `json:"date_provenance"`
 	ExplicitDate       *string `json:"explicit_date"`
 	LocalTime          *string `json:"local_time"`
 	Ambiguous          bool    `json:"ambiguous"`
@@ -298,8 +299,11 @@ func validateCreate(v createArgs) error {
 	if !ok || n.Sign() <= 0 || n.String() != v.Amount {
 		return fmt.Errorf("amount")
 	}
-	if v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT" {
+	if v.DateReference != "" && v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT" {
 		return fmt.Errorf("date_reference")
+	}
+	if v.DateProvenance != nil && *v.DateProvenance != "USER_STATED" && *v.DateProvenance != "NOT_USER_STATED" {
+		return fmt.Errorf("date_provenance")
 	}
 	if v.Confidence < 0 || v.Confidence > 1 || v.CategoryConfidence < 0 || v.CategoryConfidence > 1 {
 		return fmt.Errorf("confidence")

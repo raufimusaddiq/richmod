@@ -149,7 +149,9 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task 
 
 type simpleTransactionCandidate struct {
 	// Amount is an exact syntactic candidate only. Date and merchant meaning is
-	// never established here; intelligence owns it (SAVR §9).
+	// never established here; intelligence owns it (SAVR §9). Text is the raw
+	// turn, carried only so Jev can judge whether a purchase label is supported;
+	// Go writes it as merchant/description only after that bounded ruling.
 	Amount string
 	Text   string
 }

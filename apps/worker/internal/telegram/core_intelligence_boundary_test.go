@@ -105,7 +105,7 @@ func TestLanguageVariantsDoNotChangeAcceptedTypedDate(t *testing.T) {
 func TestUnrepresentableTypedDateIsRejectedWithoutSubstitution(t *testing.T) {
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation())
 	_, err := nativeValidatedExtraction(map[string]any{
-		"type": "EXPENSE", "amount_idr": "25000", "date_reference": "EXPLICIT", "explicit_date": "2026-02-30",
+		"type": "EXPENSE", "amount_idr": "25000", "date_reference": "EXPLICIT", "date_provenance": "USER_STATED", "explicit_date": "2026-02-30",
 	}, now)
 	if err == nil {
 		t.Fatal("an unrepresentable model date must fail exact canonical validation")

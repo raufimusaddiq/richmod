@@ -90,6 +90,11 @@ var judgmentDateReferenceCriteria = map[string]string{
 	"OTHER_OR_UNCLEAR": "no transaction date was stated",
 }
 
+var judgmentPurchaseLabelCriteria = map[string]string{
+	"SUPPORTED":        "the user's wording names the purchased item or merchant",
+	"OTHER_OR_UNCLEAR": "no purchase wording was stated",
+}
+
 // evaluateTransactionSemantics is the one evaluator used after arbitrary
 // extraction. It calls the same builder and mapper as the harvested fast path,
 // so both channels consume identical policy (PRD §5).

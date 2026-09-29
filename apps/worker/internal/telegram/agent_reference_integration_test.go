@@ -30,6 +30,7 @@ func recordAgentTransactionForRefTest(t *testing.T, ctx context.Context, f agent
 		"description":         "makan",
 		"note":                nil,
 		"date_reference":      "TODAY",
+		"date_provenance":     "USER_STATED",
 		"explicit_date":       nil,
 		"local_time":          "12:30",
 		"ambiguous":           false,

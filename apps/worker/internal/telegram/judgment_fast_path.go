@@ -184,16 +184,17 @@ func (p *Processor) finishJudgmentSimpleTransaction(ctx context.Context, sourceI
 	if !decision.decisionAllowed() {
 		return false, nil
 	}
-	if decision.DateReference == "EXPLICIT" {
-		return false, nil
-	}
+	// EXPLICIT is unreachable here: the harvest path never supplies an exact
+	// calendar date, so the bounded answer cannot be EXPLICIT (date_support stays
+	// false). A future harvested date would clear that in one place rather than
+	// leaving a contradictory branch behind.
 	resolved, err := resolveTransactionTime(now, &decision.DateReference, nil, nil)
 	if err != nil {
 		return false, nil
 	}
 	return true, p.persistTransaction(ctx, sourceID, householdID, update, validatedExtraction{
 		Type: decision.TransactionType, Amount: candidate.Amount, TransactionAt: resolved.At,
-		CategorySlug:  decision.CategorySlug,
+		Description: candidate.Text, CategorySlug: decision.CategorySlug,
 		TimePrecision: resolved.Precision, TimePeriod: resolved.Period,
 	}, gateway.Metadata{Model: result.Model}, decision)
 }

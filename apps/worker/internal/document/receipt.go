@@ -484,9 +484,6 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 		return err
 	}
 	decisionOutcome := "REVIEW"
-	if categoryDecision.ProviderFailed {
-		decisionOutcome = "PROVIDER_FAILURE"
-	}
 	if err := recordReceiptCategoryDecision(ctx, tx, householdID, sourceID, categoryDecision, decisionOutcome); err != nil {
 		return err
 	}

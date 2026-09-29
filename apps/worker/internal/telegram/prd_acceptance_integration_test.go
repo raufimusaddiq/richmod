@@ -23,7 +23,7 @@ func (prdAgentGateway) NativeToolCall(context.Context, string, string, any, []ga
 func (prdAgentGateway) AgentTurn(_ context.Context, _ string, request gateway.AgentRequest) (gateway.AgentResponse, error) {
 	for _, tool := range request.Tools {
 		if tool.Name == "record_transaction" {
-			args := json.RawMessage(`{"type":"EXPENSE","amount_idr":"5000","merchant":"Gorengan","category_slug":"food-drink","description":"jajan gorengan","note":null,"date_reference":"TODAY","explicit_date":null,"local_time":null,"ambiguous":false,"confidence":0.99,"category_confidence":0.99}`)
+			args := json.RawMessage(`{"type":"EXPENSE","amount_idr":"5000","merchant":"Gorengan","category_slug":"food-drink","description":"jajan gorengan","note":null,"date_reference":"TODAY","date_provenance":"USER_STATED","explicit_date":null,"local_time":null,"ambiguous":false,"confidence":0.99,"category_confidence":0.99}`)
 			return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "prd-expense", Name: "record_transaction", Arguments: args}}}, nil
 		}
 	}
@@ -52,7 +52,7 @@ func (g *ir04AgentGateway) AgentTurn(_ context.Context, _ string, request gatewa
 		args := map[string]any{
 			"type": "EXPENSE", "amount_idr": g.amount, "merchant": g.merchant,
 			"category_slug": g.category, "description": g.merchant, "note": nil,
-			"date_reference": g.dateRef, "explicit_date": nil, "local_time": g.localTime,
+			"date_reference": g.dateRef, "date_provenance": "USER_STATED", "explicit_date": nil, "local_time": g.localTime,
 			"ambiguous": false, "confidence": 0.91, "category_confidence": 0.91,
 		}
 		encoded, _ := json.Marshal(args)

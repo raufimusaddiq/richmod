@@ -342,6 +342,24 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		}
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
 	}
+	// The deterministic policy may only auto-confirm when a bounded plane
+	// independently verified the semantics. With no verifier the extractor's own
+	// confidence cannot authorize ledger money, and the deterministic merchant/
+	// account rules can still be parked for review instead. Leaving the review
+	// type the policy chose (UNKNOWN_MERCHANT/AMBIGUOUS_CATEGORY/
+	// TRANSFER_CLASSIFICATION) names the real residual rather than inventing one.
+	if !verified && result.AutoConfirm {
+		result.AutoConfirm = false
+		if result.Status == "" || result.Status == "CONFIRMED" {
+			result.Status = "NEEDS_REVIEW"
+		}
+		if result.ReviewType == "" {
+			result.ReviewType = "DOCUMENT_EXTRACTION_LOW_CONFIDENCE"
+		}
+		if result.Description == "" {
+			result.Description = "Ekstraksi belum diverifikasi oleh bidang semantik."
+		}
+	}
 	var alreadyPersisted bool
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
 		return nil

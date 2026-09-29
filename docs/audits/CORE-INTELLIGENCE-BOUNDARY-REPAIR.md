@@ -239,3 +239,36 @@ closure evidence.
   semantic confirmation of already-complete evidence.
 - Real owner-household observation remains pending. No UISC-03/UISC-04 closure,
   deploy, or roadmap work is implied by these code/test changes.
+
+## 7.4 Independent review findings and corrections
+
+Hermes review of PR #218 identified three blockers and one prompt mismatch. The
+fixes are recorded here rather than rewriting the original audit history:
+
+- Fast-path harvest had dropped the original transaction wording from the
+  canonical description. It now preserves the raw user turn as `description`;
+  Go does not guess a merchant by parsing leftover language.
+- The generative transaction tool had a required date reference that forced a
+  model to emit TODAY/YESTERDAY/EXPLICIT, and Go inferred `USER_STATED` from
+  that enum. `date_reference` is now optional and an explicit `date_provenance`
+  field determines whether the date can satisfy canonical acceptance. Missing
+  or `NOT_USER_STATED` provenance cannot auto-confirm. Go validates the typed
+  provenance/value structure; it does not reparse the user sentence.
+- Bank email with no Jev verifier could let deterministic policy auto-confirm
+  from the extractor's own result. Such an unverified auto-confirm is now
+  downgraded to its existing material review path; extractor confidence alone
+  cannot authorize canonical state.
+- Pending-batch prompt now matches actual server-owned tool availability: use
+  the tool only when present for the bound pending-batch interaction; otherwise
+  answer normally and leave the batch untouched.
+- Fixed native argument decoding to recognize the new typed `date_provenance`
+  field (the strict decoder rejected it before the validator could run).
+
+Hermes review also noted legacy `document_extraction.validated` is constant true
+on the classification path and that missing Jev route call budgets differ from
+explicit-date generative transactions. These are telemetry/optimization notes,
+not blockers to canonical safety; no extra refactor was added.
+
+Worker internal tests/vet and API internal tests pass with the disposable
+PostgreSQL environment after these fixes. PR CI/review must rerun on the new
+head.
