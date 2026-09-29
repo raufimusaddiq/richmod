@@ -67,6 +67,12 @@ Use [the disposable test matrix](disposable-test-matrix.md) for the exact
 isolated PostgreSQL, Go, web, Compose, image-build, Playwright, and reclaim
 commands.
 
+**Host capacity gate.** Before running any test or build on a shared host,
+check RAM, CPU, and disk (`free -m`, `df -h /`, `uptime`). If the host cannot
+safely absorb the load, or the check is uncertain, do not run it locally --
+delegate it to CI instead. Never risk starving or killing a shared server for
+a local build.
+
 | Change | Minimum verification |
 | --- | --- |
 | Go API | `go test ./...` and `go vet ./...` in `apps/api` |
