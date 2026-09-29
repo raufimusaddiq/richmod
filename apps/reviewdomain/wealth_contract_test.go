@@ -1,7 +1,6 @@
 package reviewdomain
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -11,15 +10,11 @@ import (
 func TestWealthObservationIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/canonical.go",
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 		"../worker/internal/telegram/agent_bound_mutations.go",
 		"../worker/internal/telegram/agent_wealth_asset_purchase_tx.go",
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(source)
+		text := string(mustReadPaths(t, path))
 		if !strings.Contains(text, "DismissWealthObservation") && !strings.Contains(text, "ResolveWealthObservation") {
 			t.Fatalf("%s does not call a shared wealth observation operation", path)
 		}
@@ -32,15 +27,11 @@ func TestWealthObservationIsSharedAcrossSurfaces(t *testing.T) {
 // The reclassification evidence update is shared too.
 func TestWealthReclassifyIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 		"../worker/internal/telegram/agent_bound_mutations.go",
 		"../worker/internal/telegram/agent_wealth_asset_purchase_tx.go",
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(source)
+		text := string(mustReadPaths(t, path))
 		if !strings.Contains(text, "ReclassifyWealthEvidence") {
 			t.Fatalf("%s does not call the shared wealth evidence reclassification", path)
 		}

@@ -2,6 +2,7 @@ package reviewdomain
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,12 +36,9 @@ func TestBankFactValuesRejectUnqueueableFacts(t *testing.T) {
 func TestConfirmIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/handler.go",
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		source := mustReadPaths(t, path)
 		if !strings.Contains(string(source), "reviewdomain.ConfirmTransactionReview") {
 			t.Fatalf("%s does not call the shared confirm operation", path)
 		}
@@ -56,10 +54,7 @@ func TestConfirmSupportsPartialResolution(t *testing.T) {
 	if !strings.Contains(string(mustRead(t, "./confirm.go")), "if !cmd.ResolveReview {") {
 		t.Fatal("shared confirm lost its partial-resolution path")
 	}
-	telegram, err := os.ReadFile("../worker/internal/telegram/review.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	telegram := mustReadPaths(t, telegramReviewSourceGlob)
 	if !strings.Contains(string(telegram), "reviewID, userID, \"TELEGRAM_MERCHANT_DECISION\"") {
 		t.Fatal("merchant-learning reply no longer completes the already-confirmed transaction review")
 	}
@@ -72,4 +67,37 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return source
+}
+
+// telegramReviewSourceGlob is the Telegram review adapter, split across focused
+// files by workflow; the cross-surface guards scan the whole package slice.
+const telegramReviewSourceGlob = "../worker/internal/telegram/review*.go"
+
+func mustReadPaths(t *testing.T, glob string) []byte {
+	t.Helper()
+	pattern := glob
+	if strings.Contains(glob, "*") {
+		pattern = "../worker/internal/telegram/review*.go"
+	}
+	if !strings.Contains(pattern, "*") {
+		body, err := os.ReadFile(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body []byte
+	for _, path := range paths {
+		part, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		body = append(body, part...)
+		body = append(body, '\n')
+	}
+	return body
 }
