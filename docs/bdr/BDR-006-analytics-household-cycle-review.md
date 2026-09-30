@@ -83,26 +83,45 @@ LLM opinion
 
 ## Native-tool AI decision
 
-Generative AI in Analytics is allowed only when it uses Richmod's native-tool pattern.
+Generative AI in Analytics follows a **tool-first** model.
 
-The business reason is trust, not implementation style.
+The business rule is:
 
-A model that returns unconstrained prose can easily produce:
+> If the model needs financial data or state, give it a native Richmod tool. Do not ask it to manufacture structured JSON for Go to parse.
 
-- filler;
-- advice;
-- unsupported causal language;
-- invented importance;
-- inconsistent output shape;
-- untraceable claims.
+Native tools are the machine interface. Their arguments are strict and server-owned, and their results come from deterministic Go/SQL logic.
 
-Therefore:
+The final household-facing explanation may be natural free-form prose because that prose is not authoritative state and is never parsed into ledger mutations, materiality, arithmetic, or household decisions.
 
-> Any generative Analytics output must be returned through a required, strict, server-owned native tool schema and every visible finding must bind to deterministic evidence references.
+This preserves the correct separation:
 
-The model is not allowed to become the owner of financial numbers, baselines, materiality, household policy, or canonical state.
+~~~text
+Go / SQL
+= facts, arithmetic, authorization, state
 
-If native tool execution fails, Analytics degrades to deterministic output. It does not fall back to unconstrained prose.
+native tools
+= safe data/action interface
+
+LLM
+= open-ended reasoning + conversational explanation
+~~~
+
+The following is explicitly rejected:
+
+~~~text
+prompt model to return JSON
+-> unmarshal JSON in Go
+-> treat fields as the product contract
+~~~
+
+Also rejected:
+
+~~~text
+avoid LLM reasoning
+-> encode semantic understanding in Go regex/keywords/switch templates
+~~~
+
+If a native data tool or the model fails, Analytics degrades to its deterministic charts and facts. Go does not imitate the missing analysis with canned "AI" prose.
 
 ## No-advice decision
 
