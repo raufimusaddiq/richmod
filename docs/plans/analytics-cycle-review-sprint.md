@@ -63,6 +63,107 @@ Preserve useful current chart behavior unless the PRD explicitly replaces its an
 
 ---
 
+# Sprint 0 — Native Rendering Runtime Convergence
+
+## Why this prerequisite exists
+
+The repository's current Telegram conversational runtime still allows raw
+display-only assistant text with zero tool calls. ADR-030 now defines the target
+native rendering boundary, but this docs PR does not pretend the runtime has
+already migrated.
+
+Before implementing new Analytics conversational/agent behavior, converge the
+existing conversational runtime so the repo-wide rule is real rather than
+aspirational.
+
+## Goal
+
+Migrate final model-authored conversational prose to a native display-only
+RENDER/respond tool without changing the language quality or financial authority
+model.
+
+## Required behavior
+
+Current:
+
+~~~text
+model
+-> raw final assistant text
+-> Telegram
+~~~
+
+Target:
+
+~~~text
+model
+-> respond_to_user / render_response {
+     message: "<natural free-form prose>"
+   }
+-> Go validates tool envelope
+-> Telegram
+~~~
+
+The `message` remains ordinary natural language. Do not decompose it into a
+large structured DTO.
+
+## Scope
+
+At minimum:
+
+- add one allow-listed display-only render/respond tool;
+- expose it in conversational phases where final prose is valid;
+- require provider-native tool output for those phases;
+- preserve bounded READ batches;
+- preserve exactly-one SIDE EFFECT semantics;
+- preserve server-owned binding/authorization/mutation rules;
+- reject raw final assistant text after migration;
+- keep literal deterministic status/error acknowledgements only where no model
+  semantic reasoning is needed;
+- do not introduce keyword/regex/template semantic fallbacks.
+
+## Prompt/runtime alignment
+
+Update `apps/worker/internal/telegram/agent_prompt.go` so it no longer says
+ordinary zero-tool assistant text is valid after this migration.
+
+Update gateway/orchestrator tests so the implementation, ADR-030, ADR-033, and
+`AGENTS.md` all describe the same runtime.
+
+## Native-only guard
+
+Extend `scripts/check_native_only_llm.sh` or add an equivalent focused check so
+future code cannot silently reintroduce:
+
+- raw model final text as the production response contract;
+- Structured/JSON-in-text output parsing;
+- direct provider bypass;
+- Go semantic fallbacks near the migrated conversational lane.
+
+## Verification
+
+Minimum:
+
+~~~text
+cd apps/worker
+go test ./...
+go vet ./...
+
+scripts/check_native_only_llm.sh
+~~~
+
+## Sprint 0 DoD
+
+- [ ] Telegram final model-authored prose uses native RENDER/respond tool.
+- [ ] The render message remains natural free-form text.
+- [ ] Raw zero-tool final assistant text is rejected after migration.
+- [ ] READ batching still works.
+- [ ] SIDE EFFECT behavior remains exactly one mutation per turn.
+- [ ] No Go keyword/regex/switch/template semantic fallback is added.
+- [ ] Prompt, tests, ADR-030, ADR-033, and runtime agree.
+- [ ] Native-only guard covers the migrated path.
+
+---
+
 # Sprint 1 — Deterministic Cycle Analysis Facts
 
 ## Goal
@@ -733,12 +834,16 @@ Do not deploy unless explicitly requested and the production Environment approva
 # Suggested PR sequence
 
 ~~~text
+PR 0: native rendering runtime convergence
 PR A: deterministic cycle analysis facts
-PR B: tool-first analytics agent + native rendering
+PR B: tool-first analytics agent
 PR C: /analytics full UI revamp
 PR D: meeting mode + cycle decisions
 PR E: hardening + telemetry + docs cleanup
 ~~~
+
+Do not start new Analytics LLM/agent implementation before PR 0 converges the
+existing conversational runtime to the native rendering boundary.
 
 Do not merge PR B before PR A's contract is stable.
 
