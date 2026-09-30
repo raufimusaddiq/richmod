@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
-import { cycleCommentary, cycleFacts } from "../tests/fixtures/cycle-review.mjs";
+import { cycleCommentary, cycleFacts, stableCycleFacts } from "../tests/fixtures/cycle-review.mjs";
 
 const port = "3210";
 const base = `http://127.0.0.1:${port}`;
@@ -23,13 +23,14 @@ try {
   await mkdir(output, { recursive: true });
   await waitForServer();
   browser = await chromium.launch();
-  for (const [name, width, height] of [["desktop", 1440, 900], ["tablet", 1024, 768], ["mobile", 390, 844], ["small-mobile", 320, 740]]) {
+  for (const [name, width, height] of [["desktop", 1440, 1050], ["tablet", 1024, 768], ["mobile", 390, 844], ["small-mobile", 320, 740]]) {
     const page = await browser.newPage({ viewport: { width, height }, locale: "id-ID", timezoneId: "Asia/Jakarta", reducedMotion: "reduce" });
     const errors = [];
     const requests = [];
     let aiAvailable = true;
     let invalidFacts = false;
     let noSalary = false;
+    let stable = false;
     let salaryCalls = 0;
     let failDecisionSave = false;
     const notes = new Map([["2026-07-26", [{ id: "77777777-7777-4777-8777-777777777777", cycleStart: "2026-07-26", body: "Jaga lebih banyak kas likuid.", author: "Dina", authorUserId: "synthetic-user", createdAt: "2026-08-26T10:00:00+07:00" }]]]);
@@ -43,7 +44,7 @@ try {
       else if (url.pathname === "/api/v1/reviews") body = [];
       else if (url.pathname === "/api/v1/analytics/cycle-review") {
         salaryCalls++;
-        body = cycleFacts(url.searchParams.get("cycle_start") || undefined);
+        body = stable ? stableCycleFacts() : cycleFacts(url.searchParams.get("cycle_start") || undefined);
         if (invalidFacts) status = 503;
         if (noSalary) {
           body.period = { ...body.period, kind: "CALENDAR_MONTH", start: "2026-09-01", state: "ACTIVE", end: "2026-10-01", measuredUntil: "2026-09-07" }; body.cycles = [];
@@ -67,7 +68,7 @@ try {
         body = { status: "REVOKED" };
       } else if (url.pathname === "/api/v1/insights") {
         status = aiAvailable ? 200 : 503;
-        body = [{ ...cycleCommentary, historical: true, text: "Historical advice should never display." }, { ...cycleCommentary }];
+        body = [{ ...cycleCommentary, historical: true, text: "Historical advice should never display." }, stable ? { ...cycleCommentary, text: "Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", metrics: { period_kind: "SALARY_CYCLE", period_start: "2026-08-26" } } : { ...cycleCommentary }];
       } else if (url.pathname === "/api/v1/insights/generate") {
         status = aiAvailable ? 202 : 503;
         body = { id: cycleCommentary.id };
@@ -97,6 +98,7 @@ try {
     assert.equal(salaryCalls, 1, "explicit cycle uses one facts request");
     assert.equal(await page.getByText("Historical advice should never display.").count(), 0);
     await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
+    if (name === "desktop") await page.screenshot({ path: new URL("readme-analytics.png", output).pathname, fullPage: false, animations: "disabled" });
     assert.equal(await page.locator("#changes tbody tr").count(), 3);
     assert.equal(await page.locator("#changes tbody tr").nth(1).locator("td").nth(2).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1350000n), "previous outlier does not hide recent median");
     const groceries = page.getByRole("button", { name: "Belanja rumah", exact: true });
@@ -216,6 +218,13 @@ try {
     await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
     await page.getByText("Belum ada gaji utama terkonfirmasi untuk menentukan siklus", { exact: true }).waitFor();
     assert.equal(requests.filter(request => request.path.startsWith("/api/v1/insights")).length, 0);
+    noSalary = false; aiAvailable = true; stable = true;
+    await page.goto(`${base}/analytics?view=cycle&cycle=2026-08-26`, { waitUntil: "networkidle" });
+    await page.getByText("Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", { exact: true }).waitFor();
+    assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(0n));
+    assert.equal(await page.locator(".insight-text p").count(), 1, "stable commentary is not expanded into filler");
+    assert.equal(await page.locator("#changes tbody tr").count(), 1);
+    assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0, "stable review never auto-generates commentary");
     assert.deepEqual(errors, [], `${name} runtime errors`);
     await page.close();
   }

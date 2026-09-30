@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -32,5 +33,9 @@ func (h *Handler) CycleReview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate cycle review"})
 		return
 	}
+	// Counts successful facts loads, not unique visitors or meeting completion.
+	// No household IDs, amounts, dates, names or source/decision text in logs.
+	slog.InfoContext(r.Context(), "CYCLE_REVIEW_OPENED", "version", facts.Version, "period_kind", facts.Period.Kind, "period_state", facts.Period.State)
+	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, 200, facts)
 }

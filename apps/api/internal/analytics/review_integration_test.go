@@ -97,6 +97,9 @@ func (f reviewFixture) review(t *testing.T, query string) cycleReview {
 	if w.Code != 200 {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
+	if w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatal("financial facts must not be cached as immutable closed-cycle data")
+	}
 	var facts cycleReview
 	if err := json.Unmarshal(w.Body.Bytes(), &facts); err != nil {
 		t.Fatal(err)
@@ -106,6 +109,7 @@ func (f reviewFixture) review(t *testing.T, query string) cycleReview {
 
 func TestCycleReviewRefundBaselinesDriversWealthAndIsolation(t *testing.T) {
 	f := cycleReviewFixture(t)
+	output := captureProductEvents(t)
 	for _, date := range []string{"2026-05-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
 		f.anchor(t, date)
 	}
@@ -159,6 +163,7 @@ func TestCycleReviewRefundBaselinesDriversWealthAndIsolation(t *testing.T) {
 	if isolated.Cashflow != facts.Cashflow || isolated.Wealth.Current.ID != facts.Wealth.Current.ID {
 		t.Fatal("another household changed financial facts")
 	}
+	assertProductEvents(t, output, "CYCLE_REVIEW_OPENED", 2, "version", "period_kind", "period_state")
 }
 
 func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
@@ -222,6 +227,7 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 
 func TestCycleReviewAuthAndInvalidSelection(t *testing.T) {
 	f := cycleReviewFixture(t)
+	output := captureProductEvents(t)
 	f.anchor(t, "2026-09-01")
 	h := NewHandler(f.pool)
 	for _, item := range []struct {
@@ -238,5 +244,27 @@ func TestCycleReviewAuthAndInvalidSelection(t *testing.T) {
 		if w.Code != item.status {
 			t.Fatalf("query=%s got=%d want=%d body=%s", item.query, w.Code, item.status, w.Body.String())
 		}
+	}
+	assertProductEvents(t, output, "CYCLE_REVIEW_OPENED", 0)
+}
+
+func TestClosedCycleRecomputesAfterHistoricalCorrection(t *testing.T) {
+	f := cycleReviewFixture(t)
+	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
+		f.anchor(t, date)
+	}
+	previous := f.transaction(t, "2026-07-05", "EXPENSE", "CONFIRMED", "1000", true)
+	current := f.transaction(t, "2026-08-05", "EXPENSE", "CONFIRMED", "1500", true)
+	before := f.review(t, "?cycle_start=2026-08-01")
+	if before.Cashflow.Expense != "1500" || *before.Comparison.Expense.Previous != "1000" {
+		t.Fatalf("initial facts=%+v", before.Comparison)
+	}
+	// Synthetic correction only; canonical historical records are not deleted.
+	if _, err := f.pool.Exec(context.Background(), `UPDATE transaction SET amount=amount+500 WHERE id=$1 OR id=$2`, previous, current); err != nil {
+		t.Fatal(err)
+	}
+	after := f.review(t, "?cycle_start=2026-08-01")
+	if after.Period.State != "CLOSED" || after.Cashflow.Expense != "2000" || *after.Comparison.Expense.Previous != "1500" || after.Categories[0].Amount != "2000" {
+		t.Fatal("closed-cycle correction did not invalidate totals/baseline/drivers")
 	}
 }

@@ -16,6 +16,13 @@ at `apps/web/scripts/capture-readme.mjs` and uses fixed synthetic API fixtures.
 It never connects to production, sends credentials, reads `finance.env`, or
 uses a real browser session.
 
+Analytics capture uses `tests/fixtures/cycle-review.mjs`, shared with the
+synthetic browser regression suite. It waits for the deterministic **Posisi
+siklus** heading instead of merely the authenticated shell; the old advice
+fixture is retired. CI's `cycle-review-screenshots` artifact also contains
+`readme-analytics.png` (1440×1050) from the verified current page. That generated
+asset can replace `docs/assets/analytics.png` without a host-local build.
+
 The logo, `docs/assets/richmod-logo.svg`, is a source-controlled SVG. It is not
 part of the browser capture.
 

@@ -1,8 +1,11 @@
 package insight
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
 func TestPendingInsightRemainsIdempotent(t *testing.T) {
@@ -17,5 +20,15 @@ func TestPendingInsightRemainsIdempotent(t *testing.T) {
 	}
 	if insightPromptVersion != "cycle-analyst-v3" || !strings.Contains(existingInsightQuery, "prompt_version=$5") {
 		t.Fatal("successful cached insights must match the current prompt version")
+	}
+}
+
+func TestListRejectsInvalidCycleBeforeDatabase(t *testing.T) {
+	r := httptest.NewRequest("GET", "/api/v1/insights?cycle_start=bad", nil)
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: "u", HouseholdID: "h", HasHousehold: true}))
+	w := httptest.NewRecorder()
+	NewHandler(nil).List(w, r)
+	if w.Code != 400 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }

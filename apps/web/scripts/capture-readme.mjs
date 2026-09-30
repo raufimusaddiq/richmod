@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { cycleFacts, cycleCommentary } from "../tests/fixtures/cycle-review.mjs";
 
 const baseURL = process.env.RICHMOD_SCREENSHOT_URL || "http://127.0.0.1:3000";
 const outputDirectory = fileURLToPath(new URL("../../../docs/assets/", import.meta.url));
@@ -40,6 +41,8 @@ const wealthPrevious = { id: "snapshot-1", observedAt: "2026-08-06T10:00:00+07:0
 const responses = new Map([
   ["/api/v1/auth/me", user],
   ["/api/v1/analytics/overview", { periodKind: "CURRENT_CYCLE", income: "18500000", expense: "2094500", netCashflow: "16405500", savingsAllocated: "6500000", unallocatedSurplus: "9905500", reviewCount: 2 }],
+  ["/api/v1/analytics/cycle-review", cycleFacts()],
+  ["/api/v1/analytics/cycle-decisions", { items: [], previous: [], previousCycleStart: "2026-08-26" }],
   ["/api/v1/analytics/cycle", { kind: "CURRENT_CYCLE", start: "1 Sep 2026", end: "30 Sep 2026" }],
   ["/api/v1/analytics/cycle/daily", { configured: true, daily, salary: "18500000", spent: "2094500", remaining: "16405500", daysElapsed: 6, daysTotal: 30, cycleStart: "2026-09-01", cycleEnd: "2026-09-30" }],
   ["/api/v1/analytics/categories", categories], ["/api/v1/analytics/cashflow", daily],
@@ -48,7 +51,7 @@ const responses = new Map([
   ["/api/v1/analytics/members", [{ name: "Dimas", amount: "1320000" }, { name: "Maya", amount: "774500" }]],
   ["/api/v1/transactions", transactions], ["/api/v1/reviews", reviews], ["/api/v1/integration-actions", actions], ["/api/v1/categories", categories],
   ["/api/v1/wealth/accounts", wealthAccounts], ["/api/v1/wealth/summary", { latest: wealthLatest, previous: wealthPrevious, netWorthChangeIdr: "4850000", confirmedCashflowIdr: "3410000", valuationAndOtherChangeIdr: "1440000" }], ["/api/v1/wealth/snapshots/latest", wealthLatest], ["/api/v1/wealth/history", [wealthLatest, wealthPrevious]], ["/api/v1/wealth/current-cycle-savings", { periodKind: "CURRENT_CYCLE", periodStart: "2026-09-01", periodEnd: "2026-09-30", savingsAllocated: "6500000", savingsByDestination: [{ wealthAccountId: "wealth-rdn", name: "Dana investasi", amountIdr: "6500000" }] }], ["/api/v1/wealth/cycle-recaps", []],
-  ["/api/v1/insights", [{ id: "insight-1", status: "SUCCEEDED", text: "Pengeluaran enam hari pertama masih terkendali terhadap pemasukan siklus ini. Makan di luar menjadi kategori terbesar; tetapkan batas mingguan agar ruang untuk kebutuhan rutin tetap terjaga.", dataCompleteness: 0.94, completedAt: "2026-09-06T04:15:00Z", metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01" } }]],
+  ["/api/v1/insights", [cycleCommentary]],
 ]);
 
 await mkdir(outputDirectory, { recursive: true });
@@ -75,6 +78,7 @@ for (const [path, file, selector, isAuthenticated] of [
   authenticated = isAuthenticated;
   await page.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
   await page.locator(selector).waitFor();
+  if (file === "analytics.png") await page.getByRole("heading", { name: "Posisi siklus", exact: true }).waitFor();
   await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important}html{scroll-behavior:auto!important}" });
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: `${outputDirectory}/${file}`, fullPage: false });

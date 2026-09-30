@@ -34,11 +34,15 @@ Forward financial notifications, send a message or image through Telegram, or up
 | --- | --- | --- |
 | ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod household Wealth](docs/assets/wealth.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
 
-![Richmod household analytics](docs/assets/analytics.png)
+![Richmod household cycle review](docs/assets/analytics.png)
 
 Screenshots use synthetic household data. No production financial data is included.
 For reproducible capture, verification, and disposable cleanup, see the
 [README visual showcase runbook](docs/runbooks/readme-showcase.md).
+
+Analytics follows the [cycle-review UI contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md).
+Older Analytics insight and chart-refinement documents remain historical records,
+not current implementation guidance.
 
 ## Why Richmod
 
@@ -56,7 +60,7 @@ Richmod is deliberately conservative around money. PostgreSQL is the source of t
 | 💬 **Telegram Assistant** | Ask finance questions, record transactions, send evidence, make corrections, and resolve reviews conversationally. |
 | 📄 **Document Understanding** | Process receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories through one evidence pipeline. |
 | 🧠 **Human-in-the-loop** | Ambiguous facts never silently become ledger entries. Richmod routes uncertainty to the Review Inbox for an explicit decision. |
-| 📊 **Deterministic Analytics** | Explore cashflow, spending, categories, merchants, members, and salary-cycle views from confirmed financial state. |
+| 📊 **Deterministic Analytics** | Review salary-cycle outcomes, previous/recent-median comparisons, merchant and transaction drivers, savings, Wealth, and loose ends. Optional tool-first discussion; explicit household decisions; full review remains usable without AI. |
 | 🧾 **Wealth snapshots** | Track household assets and liabilities as dated observations, connect salary-cycle savings to their destination, and review Net Worth over time. |
 | 🔎 **Evidence + Audit History** | Preserve source evidence and the decisions it supports so financial state stays explainable and auditable. |
 

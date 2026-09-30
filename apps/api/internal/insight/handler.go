@@ -31,7 +31,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `SELECT id,to_char(period,'YYYY-MM'),status,input_metrics_json,gateway_route,model,prompt_version,generated_text,confidence::text,data_completeness::text,created_at,completed_at FROM insight WHERE household_id=$1 ORDER BY created_at DESC LIMIT 12`, household)
+	start := r.URL.Query().Get("cycle_start")
+	if start != "" {
+		if _, err := time.Parse("2006-01-02", start); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "cycle_start must be YYYY-MM-DD"})
+			return
+		}
+	}
+	// Keep audit snapshots/transcripts in PostgreSQL, not the presentation payload.
+	// Filter before LIMIT so older selected cycles remain reachable.
+	rows, err := h.pool.Query(r.Context(), `SELECT id,to_char(period,'YYYY-MM'),status,input_metrics_json-'facts_snapshot'-'tool_reads',gateway_route,model,prompt_version,generated_text,confidence::text,data_completeness::text,created_at,completed_at FROM insight WHERE household_id=$1 AND ($2='' OR input_metrics_json->>'period_start'=$2) ORDER BY created_at DESC LIMIT 12`, household, start)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list insights"})
 		return
@@ -54,6 +63,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to list insights"})
 		return
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, 200, result)
 }
 
