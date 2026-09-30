@@ -3,6 +3,7 @@
 **Status:** Proposed product contract for implementation
 **Target:** latest `main` at implementation time
 **Primary surface:** `/analytics`
+**Reusable consumers:** Telegram conversational agent may call the same analytical READ tools
 **Product owner intent:** make captured household financial data useful for an end-of-cycle meeting, not merely visible
 **Supersedes where conflicting:** `docs/RICHMOD_ANALYTICS_LLM_INSIGHT_UI_CODEX.md` and older analytics insight/checklist guidance
 
@@ -14,7 +15,11 @@ Once the ledger is trustworthy, Analytics must complete the second half of that 
 
 > Turn trusted household financial state into a review that two household members can use to understand the cycle, discuss meaningful changes, and record their own decisions.
 
-Analytics is not a budgeting coach, an investment adviser, or an AI chat surface.
+Analytics is not a budgeting coach, an investment adviser, or a separate chat product.
+
+The analytical capabilities behind it should be reusable by the existing Telegram
+conversational agent. A household member asking an analytical question in Telegram
+must not trigger a second, channel-specific analysis implementation.
 
 The target household job is:
 
@@ -549,20 +554,60 @@ Go must not replace the model with:
 
 Go should expose facts and enforce invariants. The model should perform open-ended interpretation and conversational explanation.
 
-### 8.5 Bounded tool loop
+### 8.5 Shared analytical tool surface
 
-Analytics may require more than one read-only tool call to answer a useful question.
+The analytical READ tools are channel-neutral capabilities, not Web-only helpers.
+
+They should be reusable by:
+
+- the optional AI-assisted analysis inside `/analytics`;
+- the existing Telegram conversational agent when a user asks analytical questions.
+
+Example Telegram turn:
+
+~~~text
+User:
+"kenapa pengeluaran cycle ini lebih tinggi?"
+
+Telegram conversational model
+-> get_cycle_overview
+-> get_cycle_changes
+-> get_category_drivers(category_ref)
+-> natural Telegram response
+~~~
+
+The Telegram response follows the existing Telegram conversational contract
+(ADR-033). This PR does not change Telegram's final-response protocol.
+
+The important invariant is shared financial intelligence:
+
+~~~text
+same deterministic calculations
++ same analytical READ tools
++ different presentation channel
+~~~
+
+not:
+
+~~~text
+Web analytics logic
++
+separate Telegram analytics logic
+~~~
+
+### 8.6 Bounded tool loop
+
+Analysis may require more than one read-only tool call to answer a useful question.
 
 The orchestration must be bounded and side-effect safe.
 
-For cycle analysis:
-
 - read-only analytical tool calls may be chained within a bounded turn;
-- financial mutations are not part of the analysis loop;
-- a side-effecting action, if later introduced, must use an explicit tool and remain Go-authorized;
+- financial mutations are not part of the analytical READ tool surface;
+- a side-effecting action, if later introduced, stays under the owning channel's
+  existing authorization/mutation contract;
 - the model must not gain arbitrary database exploration.
 
-### 8.6 No recommendation contract
+### 8.7 No recommendation contract
 
 The current insight schema's mandatory recommendation paragraph is intentionally removed from the target product.
 
@@ -576,7 +621,7 @@ Not allowed:
 
 > "You should reduce groceries next month."
 
-### 8.7 No forced insight
+### 8.8 No forced insight
 
 Do not make Go invent a "no insight" decision with arbitrary semantic thresholds.
 The generative analyst may conclude there is nothing noteworthy. A bounded Jev
@@ -586,7 +631,7 @@ useful.
 The application also does not need to invoke AI when the user has not requested
 or entered an AI-assisted review surface.
 
-### 8.8 Failure isolation
+### 8.9 Failure isolation
 
 If an analytical tool fails, the gateway is unavailable, or the model cannot complete the analysis:
 
@@ -735,6 +780,26 @@ Open Review Inbox
 
 The AI never generates arbitrary URLs or canonical IDs.
 
+### 14.1 Telegram analytical questions
+
+The same analytical READ tools should answer conversational questions such as:
+
+- "bulan ini paling naik di mana?"
+- "kenapa expense cycle ini lebih besar?"
+- "dibanding 3 cycle terakhir gimana?"
+- "surplus cycle ini larinya ke mana?"
+- "net worth naiknya karena nabung atau valuasi?"
+
+Rules:
+
+- Telegram does not reimplement baseline/delta/reconciliation math;
+- Telegram uses the shared analytical READ tools;
+- the model decides which facts it needs and may perform dependent reads within
+  the existing bounded conversational loop;
+- the final Telegram reply remains normal conversational text under ADR-033;
+- no new Telegram-specific Go keyword/regex/switch analysis is introduced;
+- no Telegram UI redesign is part of this initiative.
+
 ## 15. Data quality behavior
 
 Current `data_completeness` may be reused but should not be presented as a magical AI certainty metric.
@@ -867,12 +932,13 @@ Expected:
 - [ ] Objective change metrics and drivers are computed server-side; open-ended noteworthiness is not hard-coded into Go.
 - [ ] Savings and Wealth are integrated into cycle review.
 - [ ] Data-quality blockers are concrete.
-- [ ] AI is optional and tool-first: financial data comes from native tools and final natural prose is emitted through a native rendering/respond tool.
+- [ ] AI is optional and tool-first: financial data comes from shared native analytical READ tools; each consumer follows its existing presentation contract.
 - [ ] No generative recommendation/advice field remains in the target contract.
 - [ ] A stable cycle can result in a concise model-rendered no-noteworthy analysis without Go semantic heuristics or forced filler.
 - [ ] Every numeric/financial claim can be traced to deterministic analytical data/tool results.
 - [ ] Displayed amounts/percentages come from deterministic facts.
 - [ ] AI failure leaves a complete deterministic experience.
+- [ ] Telegram analytical questions reuse the same READ tools instead of duplicating analysis logic.
 - [ ] Closed-cycle meeting mode exists.
 - [ ] Household decisions are explicit human-authored state.
 - [ ] Desktop, tablet, and mobile remain usable.
