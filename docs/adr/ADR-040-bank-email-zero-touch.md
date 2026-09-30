@@ -68,6 +68,21 @@ required when they protect different correctness properties.
 
 ## Consequences
 
+### Amendment — debit-card merchant-first review (2026-09-30)
+
+Debit-card notifications with no merchant now collect the merchant name before
+category selection. Their stored review decision names `merchant` and `category`;
+Telegram starts in `AWAITING_MERCHANT`. No category inference is attempted from
+a merchant-less debit-card notification. Other channels retain the existing
+bounded category opportunity.
+
+An exactly bound free-text reply matching a household-confirmed, auto-applicable
+merchant alias reuses that alias's active category without a model call or a
+second category question. Unknown names are saved through the active agent review
+path, then category selection remains explicit. Saving the merchant updates the
+review decision so later category confirmation does not re-request it. Ambiguous,
+inactive, unconfirmed, or cross-household aliases never authorize confirmation.
+
 - A decisive category requires zero human input (PRD §9 exit criterion).
 - An ordinary new-merchant expense no longer becomes a review unless the
   category decision is genuinely undecided.

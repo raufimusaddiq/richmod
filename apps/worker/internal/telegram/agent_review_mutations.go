@@ -125,6 +125,15 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		return result, true, err
 	}
 	defer tx.Rollback(ctx)
+	var lockedID string
+	err = tx.QueryRow(ctx, `SELECT r.id FROM review_request r JOIN transaction t ON t.id=r.transaction_id JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.id=$1 AND r.household_id=$2 AND t.household_id=$2 AND t.id=$3 AND r.status='OPEN' AND r.expires_at>now() AND t.status='NEEDS_REVIEW' AND c.state=$4 AND rr.telegram_chat_id=$5 AND ($6::bigint=0 OR rr.telegram_message_id=$6) FOR UPDATE OF r,t,c`, review.reviewID, state.HouseholdID, review.transactionID, review.conversationState, state.Update.Message.Chat.ID, review.messageID).Scan(&lockedID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		result.Status = "STALE_REVIEW_BINDING"
+		return result, true, nil
+	}
+	if err != nil {
+		return result, true, err
+	}
 	var userID string
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
@@ -148,6 +157,9 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 			return result, true, err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, value); err != nil {
+			return result, true, err
+		}
+		if err = recordReviewMerchantFact(ctx, tx, state.HouseholdID, review.reviewID, value); err != nil {
 			return result, true, err
 		}
 	} else {
@@ -193,6 +205,13 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
 		return result, true, err
+	}
+	if field == "merchant" && review.messageID != 0 {
+		original := state.Update
+		original.Message.MessageID = review.messageID
+		if err = enqueueReviewUpdateWithMarkup(ctx, tx, review.reviewID, original, "Merchant disimpan. Pilih kategori pengeluaran (halaman 1):", reviewActionMarkupPage(ctx, tx, review.reviewID, review.reviewType, 0)); err != nil {
+			return result, true, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, true, err
@@ -304,6 +323,12 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		return err
 	}
 	askRemember := merchantID != nil && categoryID != ""
+	if askRemember {
+		// Recall is already consented to; do not ask to learn the same rule again.
+		if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id AND c.household_id=ma.household_id AND c.active WHERE ma.household_id=$1 AND ma.normalized_merchant_id=$2 AND ma.default_category_id=$3 AND ma.auto_apply AND ma.created_from_user_confirmation)`, state.HouseholdID, *merchantID, categoryID).Scan(&askRemember); err != nil {
+			return err
+		}
+	}
 	if askRemember {
 		// The review item completes now, not on the optional merchant answer: a
 		// follow-up question the user may never send must not strand the review

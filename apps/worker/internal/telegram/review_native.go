@@ -416,7 +416,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 // Indonesian guidance the inline Telegram path returned, so a user can correct
 // the same way regardless of which lane reached the operation.
 func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {
-	if state == "AWAITING_MERCHANT" {
+	if state == "AWAITING_MERCHANT" || (reviewType == "UNKNOWN_MERCHANT" && merchantID == "" && strings.TrimSpace(merchant) != "") {
 		return "merchant", clean(strings.TrimSpace(merchant), 500), true
 	}
 	if state == "AWAITING_DATE" {

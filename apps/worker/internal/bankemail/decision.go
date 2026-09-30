@@ -1,6 +1,10 @@
 package bankemail
 
-import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+import (
+	"strings"
+
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+)
 
 // materialResidual names only the bounded predicate that did not clear, and only
 // when it is material to the canonical decision being attempted. Non-material
@@ -99,6 +103,9 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	case "UNKNOWN_MERCHANT":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
 		decision.MissingFacts = []string{"category"}
+		if value(extraction.Channel) == "DEBIT_CARD" && strings.TrimSpace(value(extraction.Merchant)) == "" {
+			decision.MissingFacts = []string{"merchant", "category"}
+		}
 		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
 	case "TRANSFER_CLASSIFICATION":

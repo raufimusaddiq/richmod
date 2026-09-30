@@ -69,6 +69,8 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 	// dropped.
 	case contains(decision.MissingFacts, "transaction_at"):
 		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction(decision)), "reply"
+	case contains(decision.MissingFacts, "merchant"):
+		return "AWAITING_MERCHANT", reviewDetailMessage("Nama merchant belum tersedia", context, "Balas pesan ini dengan nama merchant."), "reply"
 	case requiresBoundReply(decision):
 		title := promptTitle(decision)
 		return "AWAITING_DETAIL", reviewDetailMessage(title, context, replyInstruction(decision)), "reply"

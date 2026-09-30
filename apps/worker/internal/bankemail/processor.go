@@ -508,6 +508,11 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 // (provider or category DB error) is NOT semantic uncertainty: it is returned so
 // the job becomes retryable and no category review reaches the household.
 func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) (PolicyResult, error) {
+	// A debit-card notification without a merchant asks for that fact first;
+	// user-confirmed merchant memory can then resolve the category deterministically.
+	if value(extraction.Channel) == "DEBIT_CARD" && strings.TrimSpace(value(extraction.Merchant)) == "" {
+		return result, nil
+	}
 	if result.ReviewType != "AMBIGUOUS_CATEGORY" && result.ReviewType != "UNKNOWN_MERCHANT" {
 		return result, nil
 	}
@@ -629,21 +634,9 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
-			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
+			decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
+			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message, decision); err != nil {
 				return err
-			}
-			// Persist the PRD §7 contract on the review that line above just created,
-			// so the Inbox can show only the unresolved facts. The decision must be
-			// written after the review exists —
-			// updating first matched zero rows and was silently dropped.
-			encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON()
-			if encodeErr != nil {
-				return encodeErr
-			}
-			if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
-				return execErr
-			} else if tag.RowsAffected() == 0 {
-				return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
 			}
 		}
 	}

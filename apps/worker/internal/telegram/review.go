@@ -551,6 +551,13 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 }
 
 // duplicateIntentMarkup is the initial duplicate prompt: the exact candidate list is offered when the user opens the review, so creation only needs the two terminal intents.
+// recordReviewMerchantFact advances the stored residual contract in the same
+// transaction as the user-supplied merchant; other unresolved facts stay open.
+func recordReviewMerchantFact(ctx context.Context, tx pgx.Tx, householdID, reviewID, value string) error {
+	_, err := tx.Exec(ctx, `UPDATE review_item ri SET decision=jsonb_set(jsonb_set(ri.decision,'{missingFacts}',COALESCE(ri.decision->'missingFacts','[]'::jsonb)-'merchant'),'{knownFacts}',COALESCE(ri.decision->'knownFacts','{}'::jsonb)||jsonb_build_object('merchant',$3::text)),updated_at=now() FROM review_request r WHERE r.id=$1 AND r.household_id=$2 AND ri.id=r.review_item_id AND ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND')`, reviewID, householdID, value)
+	return err
+}
+
 func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, field string) error {
 	value := clean(strings.TrimSpace(update.Message.Text), 500)
 	if value == "" {
@@ -584,6 +591,9 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 			return err
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
+			return err
+		}
+		if err = recordReviewMerchantFact(ctx, tx, householdID, reviewID, value); err != nil {
 			return err
 		}
 	} else if field == "transaction_at" {
