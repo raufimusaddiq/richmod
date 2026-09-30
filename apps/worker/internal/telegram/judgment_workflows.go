@@ -14,6 +14,19 @@ import (
 // It deliberately handles only choices that need no extra free-form facts;
 // everything else stays on the conversational extraction path.
 func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentState, text string) (bool, error) {
+	if state.ReviewBinding != nil && state.ReviewBinding.Kind == "TRANSACTION" && (state.ReviewBinding.ConversationState == "AWAITING_MERCHANT" || (state.ReviewBinding.ReviewType == "UNKNOWN_MERCHANT" && state.ReviewBinding.MerchantID == "")) {
+		match, err := merchantmemory.Lookup(ctx, p.pool, state.HouseholdID, text)
+		if err != nil {
+			return true, err
+		}
+		if match != nil {
+			result, _, err := p.agentResolveBoundReview(ctx, state, gateway.ToolCall{Name: "resolve_review", CallID: "merchant-memory"}, map[string]any{"action": "CONFIRM", "merchant": text})
+			if err != nil {
+				return true, err
+			}
+			return true, p.finishAgentText(ctx, state, agentMutationFallback(result))
+		}
+	}
 	if p.judgment == nil {
 		return false, nil
 	}
@@ -89,7 +102,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		if !isReviewAction(state.ReviewType, choice) {
 			return false, nil
 		}
-		if reviewActionNeedsArguments(choice) {
+		if reviewActionNeedsArguments(choice) || (choice == "CONFIRM" && state.ReviewBinding.ConversationState == "AWAITING_MERCHANT") {
 			// The action is already decided. Hand the generative extraction tool
 			// only this action so the remaining freeform value (category, Wealth
 			// hint, pay date, bank facts) is extracted, not re-decided, and the

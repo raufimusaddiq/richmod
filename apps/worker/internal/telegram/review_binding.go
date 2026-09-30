@@ -64,7 +64,7 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 // deterministic bank policy locally and hands a completed transaction to the
 // shared confirm path. A reply that leaves a required fact missing re-asks for it
 // instead of guessing.
-func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string) error {
+func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string, decisions ...reviewdec.Decision) error {
 	// reviewID is the review_request id (the handle every later enqueue uses);
 	// itemID is the review_item row the ReviewDecision contract lives on. They are
 	// different rows, so the decision write must target itemID or it silently
@@ -80,6 +80,9 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	decision, err := telegramReviewDecision(ctx, tx, transactionID, reviewType)
 	if err != nil {
 		return err
+	}
+	if len(decisions) > 0 {
+		decision = decisions[0]
 	}
 	if decision.ReasonCode != "" {
 		encoded, err := decision.JSON()
