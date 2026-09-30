@@ -32,10 +32,16 @@ Do not treat an initial design document as permanently authoritative.
 - Exact deterministic facts, arithmetic, authorization, binding, and reconciliation stay in Go.
 - AI model output is untrusted and must pass deterministic validation before DB mutation.
 - AI models must never directly access or mutate the database.
-- Generative AI product paths must use native tool calling with required, strict,
-  server-owned tool schemas. Free-form model prose must not be used as a product
-  contract or persisted semantic result. If prose is needed, it must be returned
-  inside validated native-tool arguments. Any exception requires an explicit ADR.
+- When generative AI needs financial data, state, or an action, expose provider-native
+  tools with strict server-owned argument schemas. Do not ask the model to emit JSON or
+  structured text for application parsing; tool arguments and tool results are the
+  machine contract.
+- Natural assistant prose is allowed for user-facing conversation and analysis when no
+  financial mutation or machine decision depends on parsing that prose. Never parse
+  free-form model text into canonical financial state.
+- Go owns facts, validation, authorization, arithmetic, binding, and state transitions;
+  do not replace model reasoning or conversational generation with keyword parsing,
+  regex semantics, switch-based narratives, or template-generated "AI" analysis.
 - Prefer System One/Jev over a generative LLM when the required result is a bounded semantic choice, predicate, or score.
 - Use generative models only when arbitrary extraction, vision, open-ended reasoning, or prose is required.
 - Preserve source events/evidence; dedup links evidence instead of deleting it.
