@@ -32,16 +32,26 @@ Do not treat an initial design document as permanently authoritative.
 - Exact deterministic facts, arithmetic, authorization, binding, and reconciliation stay in Go.
 - AI model output is untrusted and must pass deterministic validation before DB mutation.
 - AI models must never directly access or mutate the database.
-- When generative AI needs financial data, state, or an action, expose provider-native
-  tools with strict server-owned argument schemas. Do not ask the model to emit JSON or
-  structured text for application parsing; tool arguments and tool results are the
-  machine contract.
-- Natural assistant prose is allowed for user-facing conversation and analysis when no
-  financial mutation or machine decision depends on parsing that prose. Never parse
-  free-form model text into canonical financial state.
-- Go owns facts, validation, authorization, arithmetic, binding, and state transitions;
-  do not replace model reasoning or conversational generation with keyword parsing,
-  regex semantics, switch-based narratives, or template-generated "AI" analysis.
+- All production LLM interactions use provider-native tools as the machine contract.
+  This does not prohibit natural conversational prose: when prose is needed, the model
+  returns it inside a native response/rendering tool whose free-form message is forwarded
+  to the user and is never parsed back into financial state.
+- When the model needs financial data, state, or an action, expose provider-native tools
+  with strict server-owned argument schemas and authoritative Go-owned results. Do not
+  ask the model to emit JSON, JSON-schema text, or other structured prose for application
+  parsing; tool arguments and tool results are the structured contract.
+- Go owns facts, validation, authorization, arithmetic, exact binding, reconciliation,
+  and state transitions. Go must not replace model reasoning or conversational generation
+  with keyword parsing, regex semantics, switch-based narrative logic, hard-coded semantic
+  heuristics, or template-generated "AI" analysis.
+- Before adding a Go branch that must understand what a human sentence means, decide what
+  is noteworthy, infer an open-ended semantic interpretation, or write an analytical
+  narrative, stop and verify that the responsibility belongs to Jev or generative
+  intelligence instead. Fixed protocol validation, exact deterministic policy, and
+  literal status/error acknowledgements are allowed; semantic imitation is not.
+- A model/gateway failure must not silently fall back to Go-based NLP or canned analytical
+  reasoning. Fail/defer/review safely while preserving deterministic product functions.
+- Any exception to these intelligence-boundary rules requires an explicit ADR.
 - Prefer System One/Jev over a generative LLM when the required result is a bounded semantic choice, predicate, or score.
 - Use generative models only when arbitrary extraction, vision, open-ended reasoning, or prose is required.
 - Preserve source events/evidence; dedup links evidence instead of deleting it.
