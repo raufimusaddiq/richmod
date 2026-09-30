@@ -26,10 +26,15 @@ tools with strict server-owned argument schemas and authoritative deterministic
 results. Richmod must not ask the model to manufacture a JSON/structured-output
 payload merely so Go can parse it.
 
-After tool use, the model may return natural user-facing prose. That prose is
-non-authoritative and must never be parsed into ledger mutations, financial facts,
-materiality, or household decisions.
+After tool use, the model returns natural user-facing prose through a native
+display/rendering tool. The rendering tool carries free-form language; it is not a
+JSON-analysis DTO. The message is non-authoritative and must never be parsed into
+ledger mutations, financial facts, analytical significance, or household decisions.
 
 If a tool call fails, deterministic Analytics remains available. Do not replace the
-failed tool with regex/keyword inference or by asking the model to guess the missing
-financial data.
+failed tool with regex/keyword inference, narrative switch cases, canned analysis,
+or by asking the model to guess missing financial data.
+
+Go computes financial measurements. Open-ended "what is noteworthy?" and analytical
+narrative remain intelligence responsibilities; they must not drift into deterministic
+pseudo-NLP simply because Go owns the ledger.
