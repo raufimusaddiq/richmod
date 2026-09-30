@@ -274,6 +274,7 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 		return nil
 	}
 	if current.ID == previous.ID {
+		facts.block("WEALTH_SNAPSHOT_UNCHANGED", 1, nil, "/wealth")
 		return nil
 	}
 	var income, expense, refund string

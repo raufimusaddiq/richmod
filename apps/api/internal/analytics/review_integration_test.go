@@ -185,6 +185,28 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 	if active.Comparison.Mode != "ELAPSED_DAYS" || active.Comparison.EligibleCycles != 1 || *active.Comparison.Expense.Previous != "1000" || active.Comparison.Median3Available {
 		t.Fatalf("elapsed comparison=%+v", active.Comparison)
 	}
+	for _, cycle := range active.Cycles {
+		if cycle.Start == "2026-08-01" && (cycle.MeasuredUntil != "2026-08-11" || active.Comparison.Previous == nil || cycle.MeasuredUntil != active.Comparison.Previous.MeasuredUntil) {
+			t.Fatalf("cycle list cutoff=%+v previous=%+v", cycle, active.Comparison.Previous)
+		}
+	}
+	var unchangedSnapshot string
+	if err := f.pool.QueryRow(context.Background(), `INSERT INTO wealth_snapshot(household_id,observed_at,created_by_user_id) VALUES($1,'2026-09-04T08:00:00+07:00',$2) RETURNING id`, f.household, f.user).Scan(&unchangedSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(context.Background(), `INSERT INTO wealth_snapshot_item(snapshot_id,wealth_account_id,value_idr,source) VALUES($1,$2,40000000,'MANUAL')`, unchangedSnapshot, f.account); err != nil {
+		t.Fatal(err)
+	}
+	unchanged := f.review(t, "?cycle_start=2026-09-01")
+	unchangedFound := false
+	for _, blocker := range unchanged.Quality {
+		if blocker.Kind == "WEALTH_SNAPSHOT_UNCHANGED" {
+			unchangedFound = true
+		}
+	}
+	if !unchangedFound {
+		t.Fatalf("unchanged snapshot blocker missing: %+v", unchanged.Quality)
+	}
 	f.transaction(t, "2026-09-08", "EXPENSE", "CONFIRMED", "2500", false)
 	quality := f.review(t, "")
 	found := false
