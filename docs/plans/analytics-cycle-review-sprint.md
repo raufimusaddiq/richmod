@@ -96,15 +96,15 @@ Implement server-owned computation for:
 - previous-three-completed-cycle median when enough history exists;
 - category current/baseline/delta;
 - contribution of each category to total expense change;
-- top merchant drivers per material category;
-- top transaction drivers per material category;
+- top merchant drivers per category/change slice;
+- top transaction drivers per category/change slice;
 - member/shared attribution;
 - Wealth current/previous snapshot context;
 - Wealth change;
 - confirmed-cashflow contribution;
 - valuation/other residual;
 - concrete data-quality blockers;
-- versioned materiality candidates.
+- objective change metrics suitable for tool-driven analysis.
 
 ## Baseline implementation
 
@@ -123,27 +123,24 @@ Tests must cover:
 - transfers excluded;
 - unresolved transactions excluded according to canonical Analytics policy.
 
-## Materiality
+## Analytical significance ownership
 
-Introduce a versioned policy, for example:
+Do not add a Go "materiality engine" whose real job is to imitate an analyst.
 
-~~~text
-cycle-materiality-v1
-~~~
+Sprint 1 computes objective measurements only:
 
-Do not encode significance rules only in prompts.
+- absolute/relative deltas;
+- recent baselines;
+- contribution to total change;
+- share of spending;
+- merchant/transaction concentration;
+- data-quality facts.
 
-The first implementation may use a simple explicit rule set, but it must combine absolute impact with contextual change so tiny values do not become "important" from percentage alone.
+Those facts may be sorted and bounded for query efficiency.
 
-Return why a candidate qualified using bounded reason codes, for example:
-
-~~~text
-LARGE_ABSOLUTE_DELTA
-HIGH_CONTRIBUTION_TO_TOTAL_CHANGE
-HIGH_SHARE_OF_CYCLE
-NOVEL_LARGE_TRANSACTION
-CONCENTRATED_DRIVER
-~~~
+Open-ended "what is noteworthy?" belongs to the intelligence layer in Sprint 2.
+Use Jev only if a relevance question is genuinely bounded. Do not accumulate
+thresholds, keywords, or switch cases in Go to decide what a human should discuss.
 
 ## Data quality
 
@@ -184,146 +181,167 @@ If new SQL integration behavior is added, use disposable PostgreSQL tests.
 - [ ] one deterministic cycle-review API exists;
 - [ ] browser does not need to derive authoritative deltas/medians;
 - [ ] baseline availability is explicit;
-- [ ] materiality policy is versioned;
-- [ ] material candidate reason codes exist;
+- [ ] objective change metrics are available without semantic Go heuristics;
+- [ ] no open-ended noteworthiness decision is hard-coded into Go;
 - [ ] data-quality blockers are concrete;
 - [ ] no AI changes are required to use the endpoint;
 - [ ] drift guard sections A, B, C, D, and H pass.
 
 ---
 
-# Sprint 2 — Structured Native-Tool Analysis Contract
+# Sprint 2 — Tool-First Analytics Agent and Native Rendering
 
 ## Goal
 
-Replace generic narrative-generation behavior with structured, evidence-bound cycle findings.
+Replace the current "supply aggregate JSON -> request structured narrative JSON"
+pattern with a bounded tool-using analyst.
+
+The model obtains financial facts through native Richmod tools, reasons over the
+authoritative results, and returns natural prose through a native rendering tool.
 
 ## Architecture gate
 
-Before materially changing the existing ADR-015 behavior, update or supersede the relevant ADR in the same PR if required by the final implementation.
+Update ADR-015/ADR-030/ADR-033 as needed so the implementation matches the current
+repo-wide native-tool contract.
 
-Do not bypass the architecture-document requirement.
-
-## Native-tool rule
-
-Generative Analytics must use:
+## Required interaction model
 
 ~~~text
-LiteRouter
--> existing gateway
--> NativeToolCall
--> Required: true
--> strict server-owned schema
+model phase
+-> required provider-native tool call
+
+READ tool
+-> Go validates arguments
+-> Go returns authoritative deterministic facts
+-> next bounded model phase
+
+RENDER tool
+-> { message: "<natural prose>", supporting_refs?: [...] }
+-> Go validates the envelope/references
+-> Go displays message
+-> message is never parsed back into finance state
 ~~~
 
-No free-form fallback.
+Do not prompt the model to return JSON or a JSON-schema "analysis object."
 
-## Fact packet
+## Analytics read tools
 
-Create an approved AI packet from Sprint 1 facts.
-
-It must contain:
-
-- semantic fact refs;
-- material candidates;
-- bounded comparison metadata;
-- data-quality state.
-
-It must not contain:
-
-- raw transaction rows;
-- raw evidence;
-- source payloads;
-- canonical transaction/account UUIDs;
-- email addresses;
-- Telegram messages;
-- household secrets.
-
-Driver facts may be aggregated and labeled with safe display names where already suitable for household presentation.
-
-## Output tool
-
-Implement a strict tool such as:
+Expose a small semantic tool catalog over Sprint 1 facts. Candidate tools:
 
 ~~~text
-write_cycle_analysis
+get_cycle_overview
+get_cycle_changes
+get_category_drivers
+get_merchant_drivers
+get_supporting_transactions
+get_savings_reconciliation
+get_wealth_reconciliation
+get_cycle_data_quality
 ~~~
 
-Required output fields:
+The exact catalog may change after code inspection.
+
+Rules:
+
+- tools are read-only in this analysis loop;
+- schemas are strict and server-owned;
+- results contain authoritative facts, not pre-written narratives;
+- no raw SQL or arbitrary DB exploration;
+- no provider credentials;
+- avoid model-facing canonical IDs where server-scoped refs work.
+
+## Rendering tool
+
+Provide one native display-only tool, e.g.:
 
 ~~~text
-headline
-findings[]
-no_material_finding
-data_quality_note
+render_cycle_analysis
 ~~~
 
-Each finding:
+Minimal conceptual arguments:
 
 ~~~text
-kind
-title
-interpretation
-evidence_refs[]
-discussion_question
+message: free-form string
+supporting_refs: optional bounded list of server-issued fact refs
 ~~~
 
-No `recommendation` field.
+The `message` is intentionally natural language. Do not decompose prose into a
+large DTO just so Go can reconstruct the response.
 
-## Validation
+Go validates the envelope and supporting refs, then forwards the message. Go does
+not inspect the wording to recover semantic state.
 
-Worker validation must reject:
+## Bounded multi-phase loop
 
-- wrong tool name;
-- missing required tool call;
-- unknown fields;
-- invalid enum;
-- too many findings;
-- text beyond limits;
-- evidence ref not present in packet;
-- finding with no evidence;
-- duplicate unsupported refs;
-- malformed output.
+Analytics may need dependent reads.
 
-If output validation fails:
+Extend/reuse the conversational native-tool orchestration so a turn can perform a
+small number of bounded READ phases before RENDER.
 
-~~~text
-deterministic Analytics survives
-AI analysis state = failed/unavailable
-no free-form retry
-~~~
+Every LLM phase still returns provider-native tools. Raw final assistant text is
+invalid in production.
 
-## No-material path
+Explicitly test:
 
-If Sprint 1 materiality yields no useful candidates:
+- maximum phases;
+- maximum read calls;
+- unknown/unexposed tool rejection;
+- no side-effect tool in Analytics analysis loop;
+- final RENDER required for model-written prose.
 
-- do not call the generative model;
-- persist/return deterministic no-material state;
-- record that generation was skipped.
+## Semantic ownership
 
-## Jev
+Go owns:
 
-If current bounded verifier is useful for a genuinely bounded selection question, it may remain only when it answers a distinct residual/selection question.
+- calculations;
+- exact period boundaries;
+- authorization;
+- data quality facts;
+- tool execution;
+- canonical state.
 
-Do not use Jev and the generative model to repeat the same "is this important?" decision.
+Generative intelligence owns:
 
-Follow BDR-001 semantic ownership.
+- open-ended noteworthiness;
+- synthesis across several returned facts;
+- analytical explanation;
+- natural meeting language.
+
+Jev may own a genuinely bounded semantic relevance decision.
+
+Go must not replace these with keyword parsing, regexes, arbitrary threshold
+trees, switch-based narrative selection, or canned "AI" templates.
+
+## Stable/no-noteworthy cycle
+
+The model is allowed to use the rendering tool to say concisely that nothing
+noteworthy stands out.
+
+Do not require N findings.
+
+Do not implement a Go semantic fallback whose purpose is to manufacture a stable
+cycle conclusion.
 
 ## Persistence
 
-Prefer structured persisted output.
+If commentary is persisted:
 
-If schema changes:
+- store the rendered message as non-authoritative text;
+- optionally store validated supporting refs and tool/model/policy metadata;
+- never parse the message later into finance state;
+- keep deterministic analytical facts separately queryable;
+- preserve old insight rows through an explicit compatibility path.
 
-- add forward-only migration;
-- update `docs/DATABASE_SCHEMA.md`;
-- preserve existing insight rows;
-- define compatibility/read behavior for old rows;
-- do not rewrite historical output silently.
+Do not introduce JSON model-output persistence just to make prose machine-readable.
 
 ## Native-only enforcement
 
-Extend `scripts/check_native_only_llm.sh` or equivalent repository checks so Analytics worker/API generative paths cannot regress to direct/free-form LLM calls.
+Extend `scripts/check_native_only_llm.sh` or equivalent checks to catch:
+
+- Structured/JSON-in-text LLM contracts;
+- raw final model text in production conversational/Analytics paths;
+- direct provider calls outside LiteRouter;
+- Go regex/keyword semantic fallbacks introduced next to LLM paths where practical.
 
 ## Verification
 
@@ -341,30 +359,31 @@ go vet ./...
 scripts/check_native_only_llm.sh
 ~~~
 
-Apply any migration to disposable PostgreSQL.
-
 ## Required tests
 
-- native tool is required;
-- correct tool name accepted;
-- prose outside/without tool call rejected by gateway/contract;
-- unsupported evidence ref rejected;
-- empty evidence rejected;
-- no material candidate skips generative call;
-- AI gateway failure leaves deterministic analysis intact;
-- old persisted insight compatibility path behaves explicitly;
-- no recommendation field exists in new structured contract.
+- every model phase uses native tools;
+- READ tool arguments are strictly decoded;
+- unknown/unexposed READ tools fail;
+- natural response is emitted through RENDER;
+- raw final assistant text is rejected;
+- RENDER message is not parsed into finance state;
+- supporting refs, when supplied, must be server-issued/valid;
+- dependent READ -> READ -> RENDER works within bounds;
+- no side effect is available in the analysis loop;
+- provider failure does not trigger regex/keyword/template analysis in Go;
+- stable cycle can produce a concise no-noteworthy RENDER response;
+- no recommendation/advice contract is required.
 
 ## Sprint 2 DoD
 
-- [ ] AI contract is structured;
-- [ ] all AI findings are evidence-bound;
-- [ ] no free-form Analytics model output path exists;
-- [ ] no material finding skips model generation;
-- [ ] AI failure is isolated;
-- [ ] persisted schema/audit state is valid;
-- [ ] native-only guard passes;
-- [ ] drift guard sections E, F, G, and H pass.
+- [ ] financial data reaches the model only through approved native tools/context required by those tools;
+- [ ] no "return this JSON schema" analysis contract remains;
+- [ ] all LLM phases use provider-native tools;
+- [ ] final natural prose uses a native rendering tool;
+- [ ] Go does not parse final prose;
+- [ ] open-ended analysis is not reimplemented as Go heuristics;
+- [ ] AI failure is isolated from deterministic Analytics;
+- [ ] native-only and anti-Go drift guards pass.
 
 ---
 
@@ -422,7 +441,9 @@ Do not add a chart merely because data exists.
 
 ## What changed
 
-Create a high-signal visual/table hybrid for material categories.
+Create a high-signal visual/table hybrid for objective category changes. The
+model may explain which changes are actually noteworthy; the UI does not need a
+Go-authored semantic label for every row.
 
 Each item shows:
 
@@ -473,14 +494,19 @@ Do not present an AI-generated trust score.
 
 ## Discussion points
 
-Render structured findings, not one large paragraph.
+Render concise model-written analysis from the native rendering tool alongside
+deterministic supporting data.
 
-Each finding includes deterministic evidence and a "Why?" or supporting-data affordance.
+Do not require the model to produce a structured findings DTO.
+
+The deterministic page owns "Why?" / supporting-data drill-down. If the rendering
+tool includes server-issued supporting refs, use them only to focus that existing
+deterministic UI.
 
 If AI is unavailable:
 
-- render deterministic material candidates;
-- omit generated interpretation/discussion wording;
+- keep objective change metrics, charts, and supporting data;
+- omit model-written interpretation/discussion wording;
 - meeting remains coherent.
 
 ## UI language
@@ -516,7 +542,7 @@ Use synthetic fixture data for any screenshots/browser testing.
 - [ ] What changed and Drivers are first-class;
 - [ ] Savings/Wealth context appears;
 - [ ] data-quality actions appear;
-- [ ] structured AI findings render with supporting evidence;
+- [ ] native-rendered AI commentary appears alongside deterministic supporting evidence;
 - [ ] AI-disabled state is complete;
 - [ ] responsive and keyboard-usable;
 - [ ] drift guard sections I and J pass.
@@ -651,7 +677,7 @@ Examples:
 ~~~text
 CYCLE_REVIEW_OPENED
 CYCLE_REVIEW_COMPLETED
-ANALYSIS_GENERATION_SKIPPED_NO_MATERIAL_SIGNAL
+ANALYSIS_RENDERED_NO_NOTEWORTHY_CHANGE
 ANALYSIS_GENERATION_FAILED
 FINDING_DRILLDOWN_OPENED
 CYCLE_DECISION_SAVED
@@ -708,7 +734,7 @@ Do not deploy unless explicitly requested and the production Environment approva
 
 ~~~text
 PR A: deterministic cycle analysis facts
-PR B: structured native-tool cycle analysis
+PR B: tool-first analytics agent + native rendering
 PR C: /analytics full UI revamp
 PR D: meeting mode + cycle decisions
 PR E: hardening + telemetry + docs cleanup
@@ -716,7 +742,8 @@ PR E: hardening + telemetry + docs cleanup
 
 Do not merge PR B before PR A's contract is stable.
 
-Do not build PR C against mock AI prose. Use the structured contract from PR B or a typed fixture that exactly mirrors it.
+Do not build PR C against a fake structured LLM DTO. Use the native READ/RENDER
+contract from PR B and deterministic API fixtures for financial data.
 
 Do not start PR D by adding goals/budgets/recurring features. Those are separate product initiatives.
 
