@@ -964,6 +964,29 @@ button.wealth-history-row small { color: var(--accent); font-size: 11px; font-we
 .cycle-review .review-table-wrap caption { max-width: 74ch; }
 .cycle-review .insight-card { margin-bottom: var(--space-4); }
 .cycle-review .review-context, .cycle-review .review-values, .cycle-review .review-attribution, .cycle-review .review-destinations { background: var(--surface); }
+.cycle-review[data-meeting-step]:not([data-meeting-step="position"]) > #position,
+.cycle-review[data-meeting-step]:not([data-meeting-step="spending-shape"]) > #spending-shape,
+.cycle-review[data-meeting-step]:not([data-meeting-step="changes"]) > #changes,
+.cycle-review[data-meeting-step]:not([data-meeting-step="drivers"]) > #drivers,
+.cycle-review[data-meeting-step]:not([data-meeting-step="savings-wealth"]) > #savings-wealth,
+.cycle-review[data-meeting-step]:not([data-meeting-step="quality"]) > #quality,
+.cycle-review[data-meeting-step]:not([data-meeting-step="discussion"]) > #discussion,
+.cycle-review[data-meeting-step]:not([data-meeting-step="decisions"]) > #decisions,
+.cycle-review[data-meeting-step] > #destinations,
+.cycle-review[data-meeting-step] > #household { display: none; }
+.meeting-controls { margin-bottom: var(--space-6); }
+.meeting-controls ol { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0; list-style: none; }
+.meeting-controls button, .decision-form button, .decision-list button { min-height: 44px; }
+.meeting-controls [aria-current="step"] { background: var(--accent-soft); color: var(--accent); }
+.meeting-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.decision-form { display: grid; max-width: 70ch; gap: var(--space-2); margin-top: var(--space-6); }
+.decision-form textarea { width: 100%; resize: vertical; min-height: 120px; font-size: var(--text-lg); }
+.decision-form button { justify-self: start; }
+.decision-list { list-style: none; padding: 0; }
+.decision-list li { padding: var(--space-4) 0; border-bottom: 1px solid var(--line); }
+.decision-list p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.decision-list small { display: block; color: var(--muted); margin-bottom: var(--space-2); }
+.previous-decisions { margin-bottom: var(--space-6); }
 @media (max-width: 900px) {
   .cycle-review .cycle-outcome > div:nth-child(even) { border-left: 0; }
 }

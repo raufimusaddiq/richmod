@@ -39,6 +39,7 @@ export function transactionHref(period, filters = {}) {
   const query = new URLSearchParams({ from: period.start, to: inclusiveEnd(period.measuredUntil), status: "CONFIRMED", type: "SPENDING" });
   for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
   query.set("cycle", period.start);
+  if (period.reviewStep) query.set("review", period.reviewStep);
   return `/transactions?${query}`;
 }
 
@@ -50,6 +51,7 @@ export function readReviewSelection(search) {
     range: ["3", "6", "12"].includes(params.get("range")) ? params.get("range") : "6",
     from: params.get("from") || "", to: params.get("to") || "",
     category: params.get("category") || "",
+    step: reviewSteps.some(([id]) => id === params.get("review")) ? params.get("review") : "",
   };
 }
 
@@ -61,9 +63,17 @@ export function selectionHref(selection) {
   } else {
     if (selection.cycle) params.set("cycle", selection.cycle);
     if (selection.category) params.set("category", selection.category);
+    if (reviewSteps.some(([id]) => id === selection.step)) params.set("review", selection.step);
   }
   return `/analytics?${params}`;
 }
+
+export const reviewSteps = [
+  ["position", "Posisi siklus"], ["spending-shape", "Pola pengeluaran"],
+  ["changes", "Perubahan"], ["drivers", "Bukti pendukung"],
+  ["savings-wealth", "Tabungan & kekayaan"], ["quality", "Tindak lanjut"],
+  ["discussion", "Pembahasan"], ["decisions", "Keputusan"],
+];
 
 export const qualityCopy = {
   OPEN_REVIEWS: ["tinjauan belum selesai", "Buka Inbox"],

@@ -42,11 +42,21 @@ test("drill-down URLs carry deterministic cycle boundaries with exclusive end", 
 });
 
 test("URL state is explicit and round-trips view, cycle, and range", () => {
-  assert.deepEqual(readReviewSelection(""), { view: "cycle", cycle: "", range: "6", from: "", to: "", category: "" });
+  assert.deepEqual(readReviewSelection(""), { view: "cycle", cycle: "", range: "6", from: "", to: "", category: "", step: "" });
   assert.equal(readReviewSelection("view=calendar&range=12").range, "12");
   assert.equal(readReviewSelection("view=calendar&range=5").range, "6");
   assert.equal(selectionHref({ view: "cycle", cycle: "2026-08-26", category: "cat-2", range: "6" }), "/analytics?view=cycle&cycle=2026-08-26&category=cat-2");
   assert.equal(selectionHref({ view: "calendar", range: "3", from: "2026-05", to: "2026-07" }), "/analytics?view=calendar&range=3&from=2026-05&to=2026-07");
+});
+
+test("meeting step round-trips; ledger preserves step and cycle on return", () => {
+  const selection = readReviewSelection("cycle=2026-08-26&review=drivers&category=cat-2");
+  assert.equal(selection.step, "drivers");
+  assert.equal(selectionHref(selection), "/analytics?view=cycle&cycle=2026-08-26&category=cat-2&review=drivers");
+  assert.equal(readReviewSelection("review=unknown").step, "");
+  const query = new URLSearchParams(transactionHref({ start: "2026-08-26", measuredUntil: "2026-09-01", reviewStep: "drivers" }).split("?")[1]);
+  assert.equal(query.get("review"), "drivers");
+  assert.match(text("app/transactions/page.js"), /step: query.get\("review"\)/);
 });
 
 test("review page renders deterministic sections, native chart, and AI-disabled path", () => {

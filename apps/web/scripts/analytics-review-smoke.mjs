@@ -31,6 +31,8 @@ try {
     let invalidFacts = false;
     let noSalary = false;
     let salaryCalls = 0;
+    let failDecisionSave = false;
+    const notes = new Map([["2026-07-26", [{ id: "77777777-7777-4777-8777-777777777777", cycleStart: "2026-07-26", body: "Jaga lebih banyak kas likuid.", author: "Dina", authorUserId: "synthetic-user", createdAt: "2026-08-26T10:00:00+07:00" }]]]);
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/api/v1/**", async route => {
       const url = new URL(route.request().url());
@@ -47,6 +49,22 @@ try {
           body.period = { ...body.period, kind: "CALENDAR_MONTH", start: "2026-09-01", state: "ACTIVE", end: "2026-10-01", measuredUntil: "2026-09-07" }; body.cycles = [];
           body.dataQuality.push({ kind: "MISSING_SALARY_ANCHOR", count: 1, impact: "ANALYSIS_PARTIAL", action: "/settings" });
         }
+      } else if (url.pathname === "/api/v1/analytics/cycle-decisions") {
+        if (route.request().method() === "POST") {
+          const input = route.request().postDataJSON();
+          assert.deepEqual(Object.keys(input).sort(), ["body", "cycleStart"]);
+          status = failDecisionSave ? 503 : 201;
+          body = { ...input, id: "88888888-8888-4888-8888-888888888888", author: "Rafi", authorUserId: "synthetic-user", createdAt: "2026-09-06T12:00:00+07:00" };
+          if (!failDecisionSave) notes.set(input.cycleStart, [...(notes.get(input.cycleStart) || []), body]);
+        } else {
+          const start = url.searchParams.get("cycle_start");
+          const previous = cycleFacts(start).comparison.previous.start;
+          body = { items: notes.get(start) || [], previous: notes.get(previous) || [], previousCycleStart: previous };
+        }
+      } else if (url.pathname.endsWith("/revoke")) {
+        const id = url.pathname.split("/").at(-2);
+        for (const [start, items] of notes) notes.set(start, items.filter(item => item.id !== id));
+        body = { status: "REVOKED" };
       } else if (url.pathname === "/api/v1/insights") {
         status = aiAvailable ? 200 : 503;
         body = [{ ...cycleCommentary, historical: true, text: "Historical advice should never display." }, { ...cycleCommentary }];
@@ -74,6 +92,8 @@ try {
     await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
     assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(7800000n));
     assert.equal(requests.filter(request => request.method === "POST").length, 0, "opening review never invokes generation");
+    assert.equal(await page.getByRole("button", { name: "Tinjau siklus ini", exact: true }).count(), 0, "active cycle cannot enter closed-cycle meeting");
+    assert.equal(await page.getByRole("button", { name: "Simpan keputusan", exact: true }).count(), 0, "active cycle has no save action");
     assert.equal(salaryCalls, 1, "explicit cycle uses one facts request");
     assert.equal(await page.getByText("Historical advice should never display.").count(), 0);
     await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
@@ -125,6 +145,60 @@ try {
     assert.equal(requests.filter(request => request.method === "POST").length, 0);
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).count(), 1);
     await page.screenshot({ path: new URL(`${name}-closed-ai-unavailable.png`, output).pathname, fullPage: true });
+
+    // A complete, URL-bound closed-cycle meeting works without AI. Typing does
+    // not write; explicit failed save preserves the draft for retry.
+    await page.getByRole("button", { name: "Tinjau siklus ini", exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.id === "position-title");
+    assert.equal(new URL(page.url()).searchParams.get("review"), "position");
+    assert.equal(await page.locator("#position h2").evaluate(element => element === document.activeElement), true);
+    assert.equal(await page.locator("#changes").isVisible(), false);
+    const nav = page.getByRole("navigation", { name: "Langkah tinjauan siklus" });
+    assert.equal(await nav.getByRole("button").count(), 8);
+    await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
+    await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
+    await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
+    await page.getByRole("button", { name: "Belanja rumah", exact: true }).click();
+    assert.equal(new URL(page.url()).searchParams.get("review"), "drivers");
+    const meetingLedger = page.getByRole("link", { name: "Lihat transaksi Belanja rumah dalam periode ini" });
+    assert.equal(new URL(await meetingLedger.getAttribute("href"), base).searchParams.get("review"), "drivers");
+    await meetingLedger.click();
+    const returnLink = page.getByRole("link", { name: "Kembali ke tinjauan siklus", exact: true });
+    await returnLink.waitFor();
+    assert.equal(new URL(await returnLink.getAttribute("href"), base).searchParams.get("review"), "drivers");
+    await returnLink.click();
+    await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
+    for (const [button, section] of [["5. Tabungan & kekayaan", "savings-wealth"], ["6. Tindak lanjut", "quality"], ["7. Pembahasan", "discussion"], ["8. Keputusan", "decisions"]]) {
+      await page.getByRole("navigation", { name: "Langkah tinjauan siklus" }).getByRole("button", { name: button, exact: true }).click();
+      await page.locator(`#${section}`).waitFor({ state: "visible" });
+      assert.equal(await page.locator(`#${section}`).isVisible(), true);
+      assert.equal(new URL(page.url()).searchParams.get("review"), section);
+    }
+    await page.getByText("Jaga lebih banyak kas likuid.", { exact: true }).waitFor();
+    const draft = "Simpan lebih banyak kas untuk kebutuhan keluarga.";
+    await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).fill(draft);
+    assert.equal(requests.filter(request => request.method === "POST").length, 0, "no automatic decision write or AI generation during meeting");
+    await page.getByRole("button", { name: "Langkah sebelumnya", exact: true }).click();
+    await page.getByRole("button", { name: "Langkah berikutnya", exact: true }).click();
+    assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), draft);
+    failDecisionSave = true;
+    await page.getByRole("button", { name: "Simpan keputusan", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "Keputusan belum dapat disimpan" }).waitFor();
+    assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), draft);
+    failDecisionSave = false;
+    await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).press("Control+Enter");
+    await page.locator("#decisions .decision-list").getByText(draft, { exact: true }).waitFor();
+    assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), "");
+    assert.equal(requests.filter(request => request.path === "/api/v1/analytics/cycle-decisions" && request.method === "POST").length, 2, "only explicit save and explicit retry");
+    assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} meeting has no overflow`);
+    await page.screenshot({ path: new URL(`${name}-meeting-decisions.png`, output).pathname, fullPage: true, animations: "disabled" });
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "Batalkan keputusan", exact: true }).click();
+    await page.getByText("Keputusan dibatalkan. Riwayat tetap tersimpan.", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Selesai meninjau", exact: true }).click();
+    assert.equal(new URL(page.url()).searchParams.has("review"), false);
+    assert.equal(await page.locator("#position").isVisible(), true);
 
     await page.getByRole("button", { name: "Kalender", exact: true }).click();
     await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
