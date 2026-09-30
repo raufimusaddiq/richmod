@@ -4,10 +4,13 @@
 
 Accepted — 2026-09-01. Amended — 2026-09-30.
 
-ADR-033 still governs bounded multi-phase conversational orchestration, but its
-raw final-text response shape is superseded by this amendment: production LLM
-responses use provider-native tools as the machine boundary, including a native
-rendering tool for user-facing prose.
+This ADR defines the target native-tool boundary for production LLM interactions.
+
+The existing Telegram conversational runtime remains a documented legacy exception
+under ADR-033: it may still finish with raw display-only assistant text today.
+That exception is migration debt, not an accepted pattern for new work. It must not
+be copied or expanded, and any material change to that lane must migrate it to a
+native rendering tool first or in the same change.
 
 ## Decision
 
@@ -20,12 +23,15 @@ strictly decodes tool arguments, validates domain rules, and owns every state
 mutation.
 
 Conversational lanes may use multiple bounded model phases and validated READ
-tool calls as defined by ADR-033. However, a conversational model does not finish
-with raw assistant text. When it wants to speak to the user it calls a
+tool calls as defined by ADR-033. The target response shape finishes through a
 server-owned rendering tool such as `respond_to_user`. The rendering tool may
 carry a free-form `message` string (and bounded supporting references where
 useful). Go validates the tool envelope and forwards the message; it does not
 parse the prose back into semantic or financial state.
+
+Until the existing Telegram lane is migrated, its raw final display-only text
+remains the sole enumerated runtime exception. This does not weaken the target
+contract for Analytics or other new/changed generative paths.
 
 This is intentionally different from asking the model to "return JSON".
 Structured data belongs in native tool arguments/results. Natural language
@@ -41,8 +47,10 @@ side-effect tool call in that response and remains Go-owned.
 
 - Strict extraction/classification and other single-result workflows continue
   to use the one-native-call contract.
-- Conversational prose remains fully natural, but LLM-authored prose is emitted
-  through a native rendering tool and is never parsed into a financial mutation.
+- Conversational prose remains fully natural. New/changed conversational paths
+  emit it through a native rendering tool and never parse it into a financial
+  mutation. Existing Telegram raw final text remains temporary migration debt
+  under ADR-033.
 - Unknown, unavailable, malformed, or unsafe conversational tool sets still fail
   closed under ADR-033.
 - Gateway telemetry records call kind and selected tool names without financial
