@@ -8,7 +8,10 @@ Source contract:
 
 - docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
 - docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md
+- docs/adr/ADR-030-native-only-model-tool-contract.md
+- docs/adr/ADR-033-bounded-natural-conversational-agent.md
 - docs/adr/ADR-045-single-intelligence-pass-routing.md
+- docs/adr/ADR-047-semantic-fact-ownership.md
 
 A failed item blocks completion unless the PR explicitly documents why the item
 does not apply.
@@ -41,6 +44,33 @@ does not apply.
       repeating the same semantic dimension?
 - [ ] Can multiple residual bounded questions share one safe batched request?
 - [ ] Are already-resolved items excluded from residual batch calls?
+
+---
+
+## B2. Native-tool and anti-Go semantic boundary
+
+- [ ] Does every production LLM phase use provider-native tools as its machine contract?
+- [ ] When the model needs data/state/action, is that capability exposed as a bounded native tool instead of stuffing expected JSON into the prompt?
+- [ ] Is model-authored user-facing prose returned through a native RENDER/respond tool?
+- [ ] Is the render message free-form language that Go forwards rather than semantically parses?
+- [ ] Is JSON/JSON-schema text embedded in model prose absent from production contracts?
+- [ ] Is raw final model text absent from production LLM response shapes?
+- [ ] Did the change avoid new keyword/substr/regex parsing of ordinary user language?
+- [ ] Did the change avoid semantic switch/case branches that imitate model reasoning?
+- [ ] Did the change avoid template-generated analysis presented as intelligence?
+- [ ] Did the change avoid arbitrary deterministic thresholds whose real purpose is an open-ended "what is noteworthy?" judgment?
+- [ ] On provider failure, does semantic ownership remain with intelligence/human review rather than silently moving into Go?
+- [ ] Are fixed Go messages limited to literal protocol/status/error acknowledgements where no semantic reasoning is required?
+
+Mandatory decision test before adding a semantic Go branch:
+
+> If the code needs to understand what a human sentence means, decide what is
+> noteworthy, or write an analytical narrative, stop and verify whether Jev or
+> generative intelligence owns that responsibility.
+
+Go remains authoritative for exact facts, arithmetic, validation, authorization,
+binding, reconciliation, and state transitions. That authority is not permission
+to turn Go into an NLP or analysis engine.
 
 ---
 
@@ -205,10 +235,10 @@ If this occurs, explain the independent correctness claim. Otherwise it is drift
 Before completion, answer:
 
 1. What human interaction did this change remove or preserve?
-2. What intelligence call did this change remove, add, or preserve?
+2. What intelligence call did this change remove, add, or preserve, and does every LLM phase still use native tools?
 3. Why is every remaining human interaction necessary?
 4. Why is every remaining model interaction necessary?
 5. What exact residual uncertainty remains when auto-confirm is blocked?
-6. What test prevents the old drift from returning?
+6. What test prevents the old drift from returning, including Go semantic fallbacks and JSON-in-text LLM contracts?
 
 If any answer is vague, the task is not ready.
