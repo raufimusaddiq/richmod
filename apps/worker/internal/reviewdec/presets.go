@@ -148,8 +148,9 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"category"}
 		if reason == "UNKNOWN_MERCHANT" {
+			base.MissingFacts = []string{"merchant", "category"}
 			base.KnownFacts["merchant"] = nil
-			base.WhyNotAuto = "merchant is not present in the evidence; category still requires a human decision"
+			base.WhyNotAuto = "merchant is not present in the evidence; collect it before resolving the category"
 		} else {
 			base.WhyNotAuto = "the category is not supported strongly enough to confirm"
 		}

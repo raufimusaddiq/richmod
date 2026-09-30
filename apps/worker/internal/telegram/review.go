@@ -501,6 +501,12 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		}
 		return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 	}
+	if data == "review:asset" {
+		if err = tx.Commit(ctx); err != nil {
+			return true, err
+		}
+		return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
+	}
 	var message string
 	var markup *InlineKeyboardMarkup
 	state := "AWAITING_DETAIL"

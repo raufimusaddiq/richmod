@@ -508,12 +508,8 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 // (provider or category DB error) is NOT semantic uncertainty: it is returned so
 // the job becomes retryable and no category review reaches the household.
 func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) (PolicyResult, error) {
-	// A debit-card notification without a merchant asks for that fact first;
-	// user-confirmed merchant memory can then resolve the category deterministically.
-	if value(extraction.Channel) == "DEBIT_CARD" && strings.TrimSpace(value(extraction.Merchant)) == "" {
-		return result, nil
-	}
-	if result.ReviewType != "AMBIGUOUS_CATEGORY" && result.ReviewType != "UNKNOWN_MERCHANT" {
+	// Collect an unknown merchant before category inference, regardless of channel.
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
 		return result, nil
 	}
 	categoryID, provenance, err := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)

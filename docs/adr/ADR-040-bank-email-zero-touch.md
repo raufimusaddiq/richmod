@@ -68,13 +68,14 @@ required when they protect different correctness properties.
 
 ## Consequences
 
-### Amendment — debit-card merchant-first review (2026-09-30)
+### Amendment — channel-independent merchant-first review (2026-09-30)
 
-Debit-card notifications with no merchant now collect the merchant name before
-category selection. Their stored review decision names `merchant` and `category`;
-Telegram starts in `AWAITING_MERCHANT`. No category inference is attempted from
-a merchant-less debit-card notification. Other channels retain the existing
-bounded category opportunity.
+`UNKNOWN_MERCHANT` reviews collect the merchant name before category selection,
+regardless of payment channel or producer. Their stored review decision names
+`merchant` and `category`; Telegram starts in `AWAITING_MERCHANT`. Bank email
+does not attempt category inference while the policy is `UNKNOWN_MERCHANT`.
+This supersedes the merchant-optional category opportunity above. Reviews with
+a known merchant (`AMBIGUOUS_CATEGORY`) retain bounded category inference.
 
 An exactly bound free-text reply matching a household-confirmed, auto-applicable
 merchant alias reuses that alias's active category without a model call or a
@@ -86,11 +87,15 @@ inactive, unconfirmed, or cross-household aliases never authorize confirmation.
 - A decisive category requires zero human input (PRD §9 exit criterion).
 - An ordinary new-merchant expense no longer becomes a review unless the
   category decision is genuinely undecided.
-- Reviews that do exist carry the PRD §7 contract with `missing_facts:
-  ["category"]`, so the Inbox cannot ask for facts Richmod already knows.
+- Category reviews carry `missing_facts: ["category"]`; unknown-merchant
+  reviews carry `["merchant", "category"]`. Known facts are never re-requested.
 - Telegram category callbacks honor that stored contract even when merchant is
   NULL. Receipt duplicate reviews expose candidate merge, confirm-as-new, and
   ignore choices; transfer-only actions remain unavailable there.
+- The merchant prompt keeps its `Beli aset` and `Abaikan` buttons (ADR-036),
+  matching the category chooser it replaced, so a missing-merchant card can
+  still be reclassified as an asset purchase. A reply still binds to the
+  merchant field unless the asset button is tapped.
 - Rare flaky negatives cost one extra bounded call instead of a review.
 - Provider-specific behaviour is unchanged and still absent: classification is
   generic over the household category set.

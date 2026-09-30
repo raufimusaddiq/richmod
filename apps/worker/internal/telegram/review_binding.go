@@ -116,6 +116,9 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	case "reply":
 		markup = requiredFieldReplyMarkup()
+		if state == "AWAITING_MERCHANT" && reviewType == "UNKNOWN_MERCHANT" && decision.Subject.Type == "transaction" {
+			markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Beli aset", CallbackData: "review:asset"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
+		}
 	case "duplicate":
 		markup = duplicateIntentMarkup()
 	case "salary":

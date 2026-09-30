@@ -1,14 +1,13 @@
 package bankemail
 
 import (
-	"context"
 	"testing"
 	"time"
 )
 
-// Debit-card notifications collect the missing merchant first; amount/time
-// remain known and are never requested again.
-func TestDebitCardUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
+// An unknown merchant is collected first on any channel; amount/time remain
+// known and are never requested again.
+func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 	amount, direction, channel := "54000", "OUTGOING", "DEBIT_CARD"
 	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
 	if len(d.MissingFacts) != 2 || d.MissingFacts[0] != "merchant" || d.MissingFacts[1] != "category" {
@@ -29,24 +28,6 @@ func TestDebitCardUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 				t.Fatalf("known fact %s must never be requested again", fact)
 			}
 		}
-	}
-}
-
-func TestDebitCardMissingMerchantSkipsCategoryInference(t *testing.T) {
-	channel := "DEBIT_CARD"
-	p := &Processor{}
-	result := PolicyResult{Type: "EXPENSE", Status: "NEEDS_REVIEW", ReviewType: "UNKNOWN_MERCHANT"}
-	got, err := p.applyCategoryDecision(context.Background(), "source", "household", Extraction{Channel: &channel}, result)
-	if err != nil || got.ReviewType != "UNKNOWN_MERCHANT" || got.AutoConfirm {
-		t.Fatalf("missing debit-card merchant must stay in review: %+v %v", got, err)
-	}
-}
-
-func TestOtherChannelUnknownMerchantRemainsCategoryOnly(t *testing.T) {
-	channel := "QR"
-	d := transactionReviewDecision("h", "s", Extraction{Channel: &channel}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
-	if len(d.MissingFacts) != 1 || d.MissingFacts[0] != "category" {
-		t.Fatalf("unrelated channel behavior changed: %v", d.MissingFacts)
 	}
 }
 

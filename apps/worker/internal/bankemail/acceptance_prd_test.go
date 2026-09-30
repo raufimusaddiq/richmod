@@ -135,60 +135,27 @@ func TestBankEmailB4MissingMerchantDoesNotBecomeUnknownPurpose(t *testing.T) {
 		t.Fatalf("valid facts with no merchant must stay an expense: %+v", result)
 	}
 	if result.ReviewType != "UNKNOWN_MERCHANT" {
-		t.Fatalf("missing merchant must keep its review contract until category rescue: %+v", result)
+		t.Fatalf("missing merchant must keep its merchant-first review contract: %+v", result)
 	}
 }
 
-// IR-07: absence of a merchant is not itself a canonical requirement, so the
-// bounded plane still resolves the category from the other supported evidence,
-// and the merchant stays NULL (no fabrication).
-func TestBankEmailMerchantlessCategoryRescueConfirmsWithoutMerchant(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-
-	var householdID, categoryID string
-	if err := pool.QueryRow(ctx, "INSERT INTO household(name) VALUES($1) RETURNING id", fmt.Sprintf("IR07 %d", time.Now().UnixNano())).Scan(&householdID); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman') RETURNING id", householdID).Scan(&categoryID); err != nil {
-		t.Fatal(err)
-	}
-
-	channel, direction := "QR", "OUTGOING"
-	description := "Pembayaran makan siang di kantin"
-	extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction, Description: &description}
-	result := EvaluateBankEmail(spendingListener(), extraction, nil)
-	verifier := &stubVerifier{answers: map[string]judgment.Answer{
-		"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"})),
-	}}
-	processor := &Processor{pool: pool, verifier: verifier}
-	decided, err := processor.applyCategoryDecision(ctx, "se-1", householdID, extraction, result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decided.Status != "CONFIRMED" || !decided.AutoConfirm || decided.ReviewType != "" || decided.CategoryID != categoryID {
-		t.Fatalf("a decisive merchant-less category must confirm: %+v", decided)
-	}
-	if extraction.Merchant != nil {
-		t.Fatalf("the rescue must not fabricate a merchant: %q", *extraction.Merchant)
-	}
-	state, ok := verifier.request.State.(map[string]any)
-	if !ok || verifier.calls != 1 || state["merchant"] != nil || state["description"] == nil {
-		t.Fatalf("merchant-less rescue must use only supplied evidence: calls=%d state=%v", verifier.calls, verifier.request.State)
-	}
-
-	undecided := &Processor{pool: pool, verifier: &stubVerifier{err: errors.New("provider down")}}
-	kept, err := undecided.applyCategoryDecision(ctx, "se-1", householdID, extraction, result)
-	if err == nil || kept.AutoConfirm {
-		t.Fatalf("a provider failure must stay a retryable machine error, never confirm or review: err=%v kept=%+v", err, kept)
+// UNKNOWN_MERCHANT collects the name before category inference on every channel.
+func TestBankEmailMerchantlessExpenseCollectsMerchantBeforeCategory(t *testing.T) {
+	for _, channel := range []string{"DEBIT_CARD", "MERCHANT_PAYMENT", "QR", "ATM", "BANK_FEE", "OTHER"} {
+		t.Run(channel, func(t *testing.T) {
+			direction, description := "OUTGOING", "Pembayaran makan siang di kantin"
+			extraction := Extraction{Kind: "TRANSACTION", AmountIDR: ptr("25000"), TransactionAt: timePtr(), Channel: &channel, Direction: &direction, Description: &description}
+			result := EvaluateBankEmail(spendingListener(), extraction, nil)
+			verifier := &stubVerifier{err: errors.New("must not call category inference")}
+			kept, err := (&Processor{verifier: verifier}).applyCategoryDecision(context.Background(), "source", "household", extraction, result)
+			if err != nil || kept.Status != "NEEDS_REVIEW" || kept.ReviewType != "UNKNOWN_MERCHANT" || kept.AutoConfirm || verifier.calls != 0 {
+				t.Fatalf("merchant must precede category: result=%+v calls=%d err=%v", kept, verifier.calls, err)
+			}
+			decision := transactionReviewDecision("household", "source", extraction, kept, "transaction")
+			if len(decision.MissingFacts) != 2 || decision.MissingFacts[0] != "merchant" || decision.MissingFacts[1] != "category" {
+				t.Fatalf("merchant-first contract=%v", decision.MissingFacts)
+			}
+		})
 	}
 }
 

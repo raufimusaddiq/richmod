@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type merchantReplyGateway struct {
@@ -43,11 +42,9 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 				mustAgentTest(t, err)
 			}
 			mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,created_by_user_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,'IDR',now(),$2) RETURNING id`, f.householdID, f.userID).Scan(&transactionID))
-			decision, _ := reviewdec.Preset("UNKNOWN_MERCHANT", "transaction", transactionID)
-			decision.MissingFacts = []string{"merchant", "category"}
 			tx, err := f.pool.Begin(ctx)
 			mustAgentTest(t, err)
-			mustAgentTest(t, EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_MERCHANT", f.chatID, 0, "Nominal: Rp54.000", decision))
+			mustAgentTest(t, EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_MERCHANT", f.chatID, 0, "Nominal: Rp54.000"))
 			mustAgentTest(t, tx.Commit(ctx))
 			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 			var conversation string
@@ -60,14 +57,32 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 				mustAgentTest(t, err)
 			}
 			var prompt string
-			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1 LIMIT 1`, reviewID).Scan(&prompt))
+			var markup string
+			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text',COALESCE(payload_json->>'reply_markup','') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1 LIMIT 1`, reviewID).Scan(&prompt, &markup))
 			if !strings.Contains(prompt, "nama merchant") {
 				t.Fatalf("initial prompt=%q", prompt)
+			}
+			if !strings.Contains(markup, "review:asset") || !strings.Contains(markup, "Beli aset") || !strings.Contains(markup, "review:ignore") {
+				t.Fatalf("merchant prompt must keep Beli aset and Abaikan: %q", markup)
 			}
 			model := &merchantReplyGateway{}
 			p := NewProcessor(f.pool, model)
 			p.SetJudgment(eagerEngine{})
 			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99))
+			if mode == "remembered" {
+				// "Beli aset" is a deterministic callback, so it arrives on the
+				// callback lane, not the free-text agent lane.
+				asset := callbackUpdate(f.chatID, 99, "review:asset")
+				assetRaw, marshalErr := json.Marshal(asset)
+				mustAgentTest(t, marshalErr)
+				mustAgentTest(t, p.Process(ctx, f.seedSourceEvent(ctx, t, "asset-callback", assetRaw)))
+				var assetState string
+				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&assetState))
+				if assetState != "AWAITING_CONFIRMATION" {
+					t.Fatalf("Beli aset must ask for the Wealth Account, state=%s", assetState)
+				}
+				return
+			}
 			f.update.Message.Text = "New Cafe"
 			if mode == "remembered" || mode == "legacy-card" {
 				f.update.Message.Text = "  NEW   CAFE  "
