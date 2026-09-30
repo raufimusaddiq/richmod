@@ -95,3 +95,13 @@ test("the asset-purchase affordance is reachable without a dead switch", () => {
   assert.match(source, /\{item\.type === "EXPENSE" && <form onSubmit=\{assetPurchase\}>/);
   assert.doesNotMatch(source, /setAsset/);
 });
+
+test("merchant input allows learned-category recall without a forced category pick", () => {
+  assert.match(source, /const merchantRecallAllowed = missing\.merchant && !categoryRequired/);
+  assert.match(source, /required=\{item\.type === "EXPENSE" && !merchantRecallAllowed\}/);
+  assert.match(source, /Gunakan kategori merchant tersimpan/);
+  assert.match(source, /result\?\.missingFacts\?\.includes\("category"\)/);
+  assert.match(source, /setCategoryRequired\(true\)/);
+  assert.match(source, /element\.elements\.categoryId\?\.focus\(\)/);
+  assert.match(source, /Kategori merchant belum dipelajari\. Pilih kategori\./);
+});

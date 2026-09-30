@@ -74,6 +74,100 @@ func TestConfirmOnlyLearnsMerchantWhenExplicitlyRequested(t *testing.T) {
 	}
 }
 
+// The Inbox may confirm on a merchant name alone when a household-confirmed
+// alias already resolves the category: the merchant answer is the whole input,
+// so no second category question is asked (ADR-040).
+func TestConfirmRecallsLearnedMerchantCategory(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	stamp := time.Now().UnixNano()
+	householdID, userID, categoryID := seedTransferReviewOwner(t, pool, stamp)
+	var merchantID string
+	if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, householdID, "Kopi Kenangan").Scan(&merchantID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO merchant_alias(household_id,raw_name,normalized_merchant_id,default_category_id,auto_apply,created_from_user_confirmation) VALUES($1,'Kopi Kenangan',$2,$3,true,true)`, householdID, merchantID, categoryID); err != nil {
+		t.Fatal(err)
+	}
+	otherHousehold, otherUser, _ := seedTransferReviewOwner(t, pool, stamp+1)
+	var explicitCategory string
+	if err := pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, householdID).Scan(&explicitCategory); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"learned", "unknown", "disabled", "unconfirmed", "inactive", "cross-household", "explicit", "missing-date"} {
+		t.Run(mode, func(t *testing.T) {
+			if _, err := pool.Exec(ctx, `UPDATE merchant_alias SET auto_apply=$2,created_from_user_confirmation=$3 WHERE household_id=$1`, householdID, mode != "disabled", mode != "unconfirmed"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx, `UPDATE category SET active=$2 WHERE id=$1`, categoryID, mode != "inactive"); err != nil {
+				t.Fatal(err)
+			}
+			reviewHousehold, reviewUser := householdID, userID
+			if mode == "cross-household" {
+				reviewHousehold, reviewUser = otherHousehold, otherUser
+			}
+			var transactionID string
+			if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',25000,now()) RETURNING id`, reviewHousehold).Scan(&transactionID); err != nil {
+				t.Fatal(err)
+			}
+			missing := `"merchant","category"`
+			if mode == "missing-date" {
+				missing += `,"transaction_at"`
+			}
+			decision := `{"version":1,"reasonCode":"UNKNOWN_MERCHANT","missingFacts":[` + missing + `],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}`
+			if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN',$3::jsonb)`, reviewHousehold, transactionID, decision); err != nil {
+				t.Fatal(err)
+			}
+			body := `{"merchantName":"  kOPI   kenangan  "}`
+			wantCode, wantCategory := http.StatusBadRequest, categoryID
+			switch mode {
+			case "learned":
+				wantCode = http.StatusNoContent
+			case "explicit":
+				body = fmt.Sprintf(`{"merchantName":"Kopi Kenangan","categoryId":%q}`, explicitCategory)
+				wantCode, wantCategory = http.StatusNoContent, explicitCategory
+			case "unknown":
+				body = `{"merchantName":"Unknown Cafe"}`
+			case "missing-date":
+				wantCode = http.StatusConflict
+			}
+			principal := auth.Principal{UserID: reviewUser, Memberships: []auth.Membership{{HouseholdID: reviewHousehold, Role: "OWNER"}}}
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/confirm", bytes.NewBufferString(body))
+			request.SetPathValue("id", transactionID)
+			request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+			response := httptest.NewRecorder()
+			NewHandler(pool).Confirm(response, request)
+			if response.Code != wantCode {
+				t.Fatalf("status=%d want=%d body=%s", response.Code, wantCode, response.Body.String())
+			}
+			if wantCode == http.StatusBadRequest && !bytes.Contains(response.Body.Bytes(), []byte(`"missingFacts":["category"]`)) {
+				t.Fatalf("recall miss must identify the category input: %s", response.Body.String())
+			}
+			var status string
+			var storedCategory *string
+			if err := pool.QueryRow(ctx, `SELECT status,category_id FROM transaction WHERE id=$1`, transactionID).Scan(&status, &storedCategory); err != nil {
+				t.Fatal(err)
+			}
+			if wantCode == http.StatusNoContent {
+				if status != "CONFIRMED" || storedCategory == nil || *storedCategory != wantCategory {
+					t.Fatalf("status=%s category=%v want=%s", status, storedCategory, wantCategory)
+				}
+			} else if status != "NEEDS_REVIEW" || storedCategory != nil {
+				t.Fatalf("rejected confirm mutated transaction: status=%s category=%v", status, storedCategory)
+			}
+		})
+	}
+}
+
 func TestBankReviewAllowsCategoryOnlyConfirmation(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
