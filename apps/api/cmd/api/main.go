@@ -179,6 +179,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
 	mux.Handle("POST /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
 	mux.Handle("GET /api/v1/analytics/cycle", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cycle)))
+	mux.Handle("GET /api/v1/analytics/cycle-review", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.CycleReview)))
 	mux.Handle("GET /api/v1/analytics/cycle/daily", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.CycleDaily)))
 	mux.Handle("GET /api/v1/analytics/categories", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Categories)))
 	mux.Handle("GET /api/v1/analytics/merchants", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Merchants)))

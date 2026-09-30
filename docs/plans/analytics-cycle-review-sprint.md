@@ -65,6 +65,10 @@ Preserve useful current chart behavior unless the PRD explicitly replaces its an
 
 # Sprint 1 — Deterministic Cycle Analysis Facts
 
+Implementation contract: [Cycle-review facts API](../ANALYTICS_CYCLE_REVIEW_API.md).
+This endpoint is the Sprint 1 fact layer only; UI/AI/meeting work below remains
+pending until its own implementation and verification gates pass.
+
 ## Goal
 
 Build the server-owned analytical fact layer before changing AI prose or doing the full UI redesign.
