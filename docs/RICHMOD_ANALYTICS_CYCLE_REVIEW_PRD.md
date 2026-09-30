@@ -153,33 +153,33 @@ previous: 0.80m
 
 The useful conclusion is not "Dining increased 75%." It is that Dining increased versus the immediately previous cycle while remaining close to its recent baseline.
 
-### 5.4 Materiality before prose
+### 5.4 Measurements are deterministic; significance is semantic
 
-Richmod must compute candidate significance before generative prose is requested.
-
-A candidate may consider deterministic dimensions such as:
+Go/SQL must compute objective analytical measurements such as:
 
 - absolute delta;
 - relative delta;
 - share of total expense;
 - contribution to total expense change;
-- novelty against recent completed cycles;
-- concentration in top merchants/transactions;
+- recent-cycle baselines;
+- merchant/transaction concentration;
 - data completeness.
 
-Exact thresholds are implementation policy and must be tested. Do not bury thresholds in prompts.
+Those measurements may be sorted or bounded deterministically for performance and UI.
 
-Small changes should be omitted.
+But "is this worth discussing?" is not automatically a Go rule.
 
-### 5.5 No finding is a valid result
+Open-ended analytical significance belongs to generative intelligence. A genuinely
+bounded relevance predicate may use Jev. Do not encode product intelligence as a
+growing set of amount thresholds, keyword branches, or switch-based "insight"
+selection rules just to avoid an intelligence call.
 
-If no candidate is materially useful:
+### 5.5 No noteworthy finding is a valid analysis
 
-~~~text
-No material change detected against the available recent baseline.
-~~~
+The model may conclude that the cycle contains no meaningful change worth
+discussing and say so concisely.
 
-Do not call a generative model merely to fill a card.
+Richmod must not force filler observations merely because an AI area exists.
 
 ## 6. Analytics information architecture
 
@@ -266,7 +266,9 @@ Relative delta when denominator is meaningful
 Contribution to total spending change
 ~~~
 
-The page should emphasize material changes, not list every category.
+The page should prioritize objectively large/relevant change metrics and let the
+analysis layer explain which ones are actually worth discussing. Do not require
+the browser or Go templates to author that semantic conclusion.
 
 A user can expand/drill down to the transactions and merchants that support the change.
 
@@ -343,7 +345,8 @@ Do not collapse these into an opaque AI "confidence score."
 
 This is the primary AI-assisted surface.
 
-It must contain at most a small number of material findings.
+It should contain only a small number of findings the intelligence layer judges
+worth discussing from authoritative tool results.
 
 Each finding contains:
 
@@ -368,7 +371,9 @@ Discussion
 Was this a change in household needs that you expect to continue?
 ~~~
 
-The amount and percentage rendering is deterministic UI output from evidence references, not model-authored numbers.
+The amount and percentage rendering remains deterministic UI output. The model
+may refer to those numbers in its prose only after obtaining them from native
+tools.
 
 ### 6.11 Section 10 — Household decisions
 
@@ -414,7 +419,7 @@ savings
 wealth_change
 review_state
 comparison_baselines
-material_candidates
+change_metrics
 ~~~
 
 ### 7.1 Fact references
@@ -492,10 +497,14 @@ model
 -> native read-only tool call
 -> deterministic Go result
 -> optional additional native read-only tool call
--> natural assistant prose
+-> native render/respond tool {
+     message: "<natural free-form prose>"
+   }
 ~~~
 
-The final prose may be free-form because it is not a machine contract and is never parsed back into financial state.
+The final language remains free-form. Only the provider boundary is structured:
+the message is carried by a native rendering tool and is never parsed back into
+financial state.
 
 ### 8.2 Native tool schemas remain strict
 
@@ -518,12 +527,14 @@ Go/SQL owns:
 - period boundaries;
 - baselines;
 - rankings;
-- materiality;
+- objective change measurements and ordering;
 - authorization;
 - Wealth/cashflow reconciliation;
 - drill-down targets.
 
-The model may decide which available read-only tool to call and how to explain the returned facts.
+The model may decide which available read-only tool to call, what is noteworthy
+to discuss, and how to explain the returned facts. If the relevance question is
+genuinely bounded, Jev may own that bounded judgment instead.
 
 If the model states a number in prose, that number must already exist in authoritative tool results. UI-critical numbers should still render from deterministic data rather than trusting copied prose.
 
@@ -565,9 +576,15 @@ Not allowed:
 
 > "You should reduce groceries next month."
 
-### 8.7 Skip AI when it adds no value
+### 8.7 No forced insight
 
-If deterministic materiality shows no meaningful candidate, the page can render the stable-cycle result without invoking a model merely to fill space.
+Do not make Go invent a "no insight" decision with arbitrary semantic thresholds.
+The generative analyst may conclude there is nothing noteworthy. A bounded Jev
+preflight may be used only if the question is genuinely bounded and independently
+useful.
+
+The application also does not need to invoke AI when the user has not requested
+or entered an AI-assisted review surface.
 
 ### 8.8 Failure isolation
 
@@ -598,25 +615,32 @@ The model may refer to these facts conversationally, but Richmod does not need t
 
 "Why?" / "Supporting data" is driven by the deterministic analytical model, not by a JSON payload authored by the LLM.
 
-## 10. Materiality policy
+## 10. Analytical significance policy
 
-The exact policy belongs in Go and tests.
+Financial measurements remain deterministic; analytical significance does not
+automatically belong to Go.
 
-A candidate should not become material solely because of a large relative percentage on a tiny denominator.
+Allowed deterministic work:
 
-At minimum consider:
+- calculate deltas, shares, medians, and contribution;
+- sort by objective magnitude;
+- enforce query/result limits;
+- exclude invalid/incomplete canonical data according to explicit finance policy;
+- expose data-quality state.
 
-- absolute IDR delta;
-- relative delta;
-- contribution to total cycle change;
-- share of cycle spending;
-- historical availability;
-- transaction/merchant concentration;
-- whether the comparison baseline is meaningful.
+Intelligence-owned work:
 
-The materiality policy must have an explicit version.
+- decide which combination of facts is worth discussing;
+- distinguish an interesting pattern from ordinary noise when that requires
+  contextual judgment;
+- synthesize why several facts matter together;
+- write the household-facing analytical narrative.
 
-Do not tune it silently in prompt text.
+Use Jev when the relevance decision is truly bounded. Use generative intelligence
+when it requires open-ended context/reasoning.
+
+Do not create a pseudo-intelligence layer in Go from accumulating thresholds,
+keywords, regexes, or narrative switch cases.
 
 ## 11. Baseline policy
 
@@ -839,10 +863,10 @@ Expected:
 - [ ] `/analytics` is useful as a closed-cycle household review.
 - [ ] Existing useful charts remain and have clear analytical jobs.
 - [ ] Current/previous/recent-baseline context is deterministic.
-- [ ] Material changes and their drivers are computed server-side.
+- [ ] Objective change metrics and drivers are computed server-side; open-ended noteworthiness is not hard-coded into Go.
 - [ ] Savings and Wealth are integrated into cycle review.
 - [ ] Data-quality blockers are concrete.
-- [ ] AI is optional and tool-first: financial data comes from native tools, while final explanatory prose may remain natural.
+- [ ] AI is optional and tool-first: financial data comes from native tools and final natural prose is emitted through a native rendering/respond tool.
 - [ ] No generative recommendation/advice field remains in the target contract.
 - [ ] No material candidate can result in no AI call.
 - [ ] Every numeric/financial claim can be traced to deterministic analytical data/tool results.
