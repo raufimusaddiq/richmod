@@ -116,6 +116,11 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	case "reply":
 		markup = requiredFieldReplyMarkup()
+		if state == "AWAITING_MERCHANT" {
+			// The original category-first card offered Beli aset here; a merchant-first
+			// review must not lose that escape hatch (ADR-036).
+			markup = merchantReviewMarkup()
+		}
 	case "duplicate":
 		markup = duplicateIntentMarkup()
 	case "salary":

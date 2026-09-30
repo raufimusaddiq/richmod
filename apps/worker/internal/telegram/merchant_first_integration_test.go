@@ -57,9 +57,13 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 				mustAgentTest(t, err)
 			}
 			var prompt string
-			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1 LIMIT 1`, reviewID).Scan(&prompt))
+			var markup string
+			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text',COALESCE(payload_json->>'reply_markup','') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1 LIMIT 1`, reviewID).Scan(&prompt, &markup))
 			if !strings.Contains(prompt, "nama merchant") {
 				t.Fatalf("initial prompt=%q", prompt)
+			}
+			if !strings.Contains(markup, "review:asset") || !strings.Contains(markup, "Beli aset") || !strings.Contains(markup, "review:ignore") {
+				t.Fatalf("merchant prompt must keep Beli aset and Abaikan: %q", markup)
 			}
 			model := &merchantReplyGateway{}
 			p := NewProcessor(f.pool, model)

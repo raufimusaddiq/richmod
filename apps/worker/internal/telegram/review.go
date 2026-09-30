@@ -314,6 +314,9 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, p.offerDuplicateChoices(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 	}
 	if reviewState == "AWAITING_MERCHANT" {
+		if update.CallbackQuery != nil && update.CallbackQuery.Data == "review:asset" {
+			return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
+		}
 		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
 	}
 	if reviewState == "AWAITING_DETAIL" {
@@ -880,6 +883,12 @@ func TelegramCompletableReviewType(reviewType string) bool {
 // document. The resolver owns both, so the button can always finish the review.
 func requiredFieldReplyMarkup() *InlineKeyboardMarkup {
 	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+}
+
+// merchantReviewMarkup keeps the reply-to-merchant prompt usable as an asset
+// purchase, matching the original category chooser's escape hatch.
+func merchantReviewMarkup() *InlineKeyboardMarkup {
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Beli aset", CallbackData: "review:asset"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 }
 
 func salaryPolicyMarkup(actions []string) *InlineKeyboardMarkup {
