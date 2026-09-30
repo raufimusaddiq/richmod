@@ -84,6 +84,13 @@ path, then category selection remains explicit. Saving the merchant updates the
 review decision so later category confirmation does not re-request it. Ambiguous,
 inactive, unconfirmed, or cross-household aliases never authorize confirmation.
 
+Web Review Inbox confirmation also accepts a merchant name without a category
+when the same exact household-confirmed alias resolves an active category. Its
+category picker allows this attempt when merchant is missing; unmatched names
+still require an explicit category. An explicitly selected category wins. Other
+missing facts still block confirmation. Ingestion auto-confirm policies and
+Financial Provider Email resolution are unchanged.
+
 - A decisive category requires zero human input (PRD §9 exit criterion).
 - An ordinary new-merchant expense no longer becomes a review unless the
   category decision is genuinely undecided.

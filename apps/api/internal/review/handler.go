@@ -350,6 +350,7 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	categoryID := currentCategory
+	categorySupplied := input.CategoryID != nil
 	if input.CategoryID != nil {
 		if err := reviewdomain.ValidateCategoryForHousehold(r.Context(), tx, household, *input.CategoryID); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid household category"})
@@ -357,11 +358,23 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		}
 		categoryID = input.CategoryID
 	}
+	// Recall only when no category was chosen; explicit user choices win.
+	if kind == "EXPENSE" && categoryID == nil && strings.TrimSpace(clean(input.MerchantName, 160)) != "" {
+		learned, err := reviewdomain.LearnedMerchantCategory(r.Context(), tx, household, clean(input.MerchantName, 160))
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
+			return
+		}
+		if learned != "" {
+			categoryID = &learned
+			categorySupplied = true
+		}
+	}
 	if kind == "EXPENSE" && categoryID == nil {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 		return
 	}
-	if blocked := confirmationBlockers(storedDecisionJSON, suppliedAt != nil, input.CategoryID != nil, strings.TrimSpace(clean(input.MerchantName, 160)) != ""); len(blocked) > 0 {
+	if blocked := confirmationBlockers(storedDecisionJSON, suppliedAt != nil, categorySupplied, strings.TrimSpace(clean(input.MerchantName, 160)) != ""); len(blocked) > 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": blocked})
 		return
 	}
@@ -372,11 +385,11 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	merchantName := clean(input.MerchantName, 160)
 	result, err := reviewdomain.ConfirmTransactionReview(r.Context(), tx, reviewdomain.ConfirmCommand{
 		HouseholdID: household, ActorUserID: p.UserID, TransactionID: id,
-		Action: "CONFIRM_REVIEW", CategorySupplied: input.CategoryID != nil,
+		Action: "CONFIRM_REVIEW", CategorySupplied: categorySupplied,
 		CategoryID: stringValue(categoryID), Description: clean(input.Description, 500),
 		Note: clean(input.Note, 1000), MerchantName: merchantName,
 		RememberMerchant: input.RememberMerchant, TransactionAt: suppliedAt,
-		Blocked:       confirmationBlockers(storedDecisionJSON, suppliedAt != nil, input.CategoryID != nil, merchantName != ""),
+		Blocked:       confirmationBlockers(storedDecisionJSON, suppliedAt != nil, categorySupplied, merchantName != ""),
 		ResolveReview: true,
 	})
 	if errors.Is(err, reviewdomain.ErrMissingCategory) {
