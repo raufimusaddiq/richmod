@@ -1,8 +1,8 @@
 # Analytics Cycle Review — Codex Sprint Plan
 
-**Status:** implementation execution plan  
-**Source contract:** `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`  
-**Business decision:** `docs/bdr/BDR-006-analytics-household-cycle-review.md`  
+**Status:** implementation execution plan
+**Source contract:** `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`
+**Business decision:** `docs/bdr/BDR-006-analytics-household-cycle-review.md`
 **Drift gate:** `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`
 
 ## 0. How Codex must execute this plan
