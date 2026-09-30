@@ -27,13 +27,38 @@ Not emitted, with reasons:
 
 ## Performance
 
-- `cycle-review-v1` already computes all section facts in one read-only
-  repeatable-read transaction with a bounded number of statements; per-statistics
-  cycle measures are loaded once, so baselines are not recalculated per row.
+- `cycle-review-v1` computes all section facts in one read-only repeatable-read
+  transaction: two period reads, one grouped measure read for the selected cycle
+  plus up to three baselines, one bounded transaction-driver read, one quality
+  read, one Wealth snapshot read, and optionally one observation-interval cashflow
+  read. Six or seven SELECTs, excluding transaction control, independent of the
+  number of categories/merchants. The time-window scans still scale with ledger
+  size; this is a query-count review, not a production latency benchmark.
 - The insight list no longer ships `input_metrics_json->'facts_snapshot'` or
   `tool_reads`, and it filters by `cycle_start` before `LIMIT 12`.
 - AI rate is unchanged: generation stays explicit and rate-limited by the
   existing hourly cache in `handler.go`.
+- Web requests one facts payload, then selected-cycle commentary; decisions load
+  independently. Category/meeting navigation reuses facts without recalculation.
+  Browser regression asserts one facts request across category selection and no
+  automatic generation. No new cache or infrastructure is introduced.
+
+## Verification
+
+- `TestCycleReviewRefundBaselinesDriversWealthAndIsolation`: successful-open event
+  count and field allow-list, with monetary/identity data excluded.
+- `TestCycleDecisionsExplicitSaveAuditAndHouseholdIsolation`: exactly two saved
+  events after successful writes; denied/revoked/inactive-member writes add none.
+- `TestDecisionInputFailsBeforeDatabase` and
+  `TestCycleReviewAuthAndInvalidSelection`: failures emit no success event.
+- `TestClosedCycleRecomputesAfterHistoricalCorrection`: current and prior amounts
+  corrected in a disposable fixture; closed facts, baselines and drivers reload.
+- `TestGenerateCycleInsightUsesTrueSalaryAnchor`: older selected cycle survives
+  fourteen newer records; audit payload is absent from HTTP, preserved in DB,
+  cross-household list stays empty.
+- Synthetic browser suite: stable/no-filler, previous-cycle outlier/recent median,
+  category increase, large supporting transaction/refund, open-review blockers,
+  Wealth movement, AI available/unavailable, full meeting and explicit decisions.
 
 ## Invalidation
 

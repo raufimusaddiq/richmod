@@ -97,7 +97,7 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=input_metrics_json || '{"facts_snapshot":{"private":"fixture"},"tool_reads":[{"private":"fixture"}]}'::jsonb WHERE id=$1`, generated["id"]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,created_at) SELECT $1,'2026-09-01','SUCCEEDED','{"period_start":"2026-09-01","period_kind":"SALARY_CYCLE"}', 'cycle-analyst-v3',1,now()+n*interval '1 minute' FROM generate_series(1,14) n`, householdID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,created_at,requested_by_user_id) SELECT $1,'2026-09-01','SUCCEEDED','{"period_start":"2026-09-01","period_kind":"SALARY_CYCLE"}', 'cycle-analyst-v3',1,now()+n*interval '1 minute',$2 FROM generate_series(1,14) n`, householdID, userID); err != nil {
 		t.Fatal(err)
 	}
 	listRequest := httptest.NewRequest("GET", "/api/v1/insights?cycle_start=2026-08-24", nil)
