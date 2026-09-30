@@ -145,11 +145,16 @@ Richmod should not surface every change.
 
 A small percentage movement on a small amount does not deserve a meeting topic merely because it exists.
 
-Materiality is a product policy owned by deterministic backend logic and versioned explicitly.
+Go owns the measurements that make significance assessable: amounts, deltas,
+baselines, shares, contribution, concentration, and data quality.
 
-The AI cannot decide significance from raw numbers without a bounded candidate set.
+Open-ended "what is actually worth discussing?" is an intelligence responsibility,
+not a growing Go threshold/switch system. Generative intelligence may judge
+noteworthiness from authoritative native-tool results. Jev may own a relevance
+decision only when the question is genuinely bounded.
 
-This prevents the product from generating a monthly list of technically true but useless observations.
+This prevents two opposite failures: AI filler on one side and hard-coded
+pseudo-intelligence in Go on the other.
 
 ## Baseline decision
 
@@ -173,7 +178,9 @@ No material finding is a successful product result.
 
 If a cycle is stable, Richmod should say that concisely or simply show deterministic context.
 
-The application must not call a model solely because an AI card exists.
+The model may return a concise "nothing noteworthy" analysis through the native
+rendering tool. The application must not force a fixed number of observations
+solely because an AI card exists.
 
 This is a deliberate anti-slop policy.
 
@@ -245,11 +252,14 @@ Viable as a safe fallback but not the full target.
 
 Charts and deterministic analysis must stand alone, but native-tool AI can add value by turning material findings into concise human discussion language.
 
-### Alternative E — Deterministic analysis + native-tool evidence-bound interpretation
+### Alternative E — Deterministic facts + native-tool analytical reasoning
 
 Accepted.
 
-It preserves financial authority while making the cycle review substantially more useful.
+Go/SQL expose authoritative finance facts and calculations through native tools.
+The model performs open-ended analytical reasoning and natural explanation, then
+emits that prose through a native rendering tool. This preserves financial
+authority without turning Go into the analyst.
 
 ## Success criteria
 
@@ -273,11 +283,13 @@ charts remain deterministic
 +
 numbers remain deterministic
 +
-materiality remains deterministic
+semantic significance remains intelligence-owned
 +
-AI is native-tool-only
+all LLM phases use native tools
 +
-AI findings are evidence-bound
+final prose uses a native rendering tool
++
+analysis is grounded in authoritative tool results
 +
 household decisions remain human
 ~~~
@@ -290,12 +302,28 @@ more AI text
 better Analytics
 ~~~
 
+## Anti-Go semantic boundary
+
+This decision explicitly rejects Go as a substitute intelligence layer.
+
+Go may implement exact financial rules and deterministic calculations. It must
+not implement open-ended semantic understanding with keyword matching, regexes,
+narrative switch cases, canned "insight" templates, or arbitrary thresholds
+whose real purpose is to decide what a human would find noteworthy.
+
+If a new Go branch needs to understand a human sentence, decide what is worth
+discussing, or write analytical narrative, the implementer must stop and verify
+whether Jev or generative intelligence owns that responsibility.
+
+A model/provider outage does not transfer semantic ownership to Go. Deterministic
+product functionality may remain available; semantic analysis may be unavailable.
+
 ## Revisit triggers
 
 Revisit this BDR if:
 
 - households consistently use a different period than salary cycle for reviews;
-- deterministic materiality suppresses genuinely useful findings;
+- the chosen intelligence routing for noteworthiness suppresses genuinely useful findings;
 - evidence-bound AI adds no measurable utility over deterministic explanations;
 - the Wealth/cashflow model changes materially;
 - the product intentionally expands into advice, which would require a separate explicit product and safety decision.
