@@ -21,15 +21,20 @@ failures never alter financial state, and all requests/completions are audited.
 
 ## Tool-first amendment — 2026-09-30
 
-When Analytics needs financial data, the model must use Richmod native read-only
-tools with strict server-owned argument schemas and authoritative deterministic
-results. Richmod must not ask the model to manufacture a JSON/structured-output
-payload merely so Go can parse it.
+When an Analytics model needs financial data, it must use Richmod native read-only
+analytical tools with strict server-owned argument schemas and authoritative
+deterministic results. Those READ tools should also be reusable by the existing
+Telegram conversational agent for analytical questions.
 
-After tool use, the model returns natural user-facing prose through a native
-display/rendering tool. The rendering tool carries free-form language; it is not a
-JSON-analysis DTO. The message is non-authoritative and must never be parsed into
-ledger mutations, financial facts, analytical significance, or household decisions.
+Richmod must not ask the model to manufacture a JSON/structured-output payload
+merely so Go can parse it.
+
+For the Web Analytics AI surface, user-facing prose is non-authoritative and must
+never be parsed into ledger mutations, financial facts, analytical significance,
+or household decisions.
+
+Telegram reuse follows ADR-033's existing conversational response contract. This
+Analytics ADR does not redefine Telegram's final-response protocol.
 
 If a tool call fails, deterministic Analytics remains available. Do not replace the
 failed tool with regex/keyword inference, narrative switch cases, canned analysis,
