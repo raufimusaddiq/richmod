@@ -201,8 +201,10 @@ existing Telegram conversational agent. Presentation remains channel-specific.
 
 ## Architecture gate
 
-Update ADR-015/ADR-030/ADR-033 as needed so the implementation matches the current
-repo-wide native-tool contract.
+Update ADR-015 if the Analytics implementation contract changes. ADR-030 and
+ADR-033 are context for existing model/tool behavior; do not amend Telegram's
+conversation protocol in this Analytics initiative unless Telegram behavior itself
+is intentionally changed in a separate scoped decision.
 
 ## Required interaction model
 
@@ -266,8 +268,8 @@ No Telegram response-protocol migration is required by this Analytics initiative
 
 Analytics may need dependent reads.
 
-Extend/reuse the conversational native-tool orchestration so a turn can perform a
-small number of bounded READ phases before RENDER.
+Extend/reuse bounded tool orchestration so a turn can perform a small number of
+dependent analytical READ phases before the owning channel produces its response.
 
 Analytical data access must use native READ tools. Final response handling follows
 the owning channel's existing contract.
@@ -303,7 +305,7 @@ Expected behavior:
 - final reply is natural Telegram prose;
 - no Telegram-specific SQL fork;
 - no keyword/regex/switch analysis logic;
-- no duplicate baseline/materiality calculation in Telegram code.
+- no duplicate baseline/change-metric calculation in Telegram code.
 
 ## Semantic ownership
 
@@ -330,8 +332,7 @@ trees, switch-based narrative selection, or canned "AI" templates.
 
 ## Stable/no-noteworthy cycle
 
-The model is allowed to use the rendering tool to say concisely that nothing
-noteworthy stands out.
+The model is allowed to say concisely that nothing noteworthy stands out.
 
 Do not require N findings.
 
@@ -342,7 +343,7 @@ cycle conclusion.
 
 If commentary is persisted:
 
-- store the rendered message as non-authoritative text;
+- store any generated commentary as non-authoritative text;
 - optionally store validated supporting refs and tool/model/policy metadata;
 - never parse the message later into finance state;
 - keep deterministic analytical facts separately queryable;
@@ -355,7 +356,7 @@ Do not introduce JSON model-output persistence just to make prose machine-readab
 Extend `scripts/check_native_only_llm.sh` or equivalent checks to catch:
 
 - Structured/JSON-in-text LLM contracts;
-- raw final model text in production conversational/Analytics paths;
+- JSON/structured-text analysis contracts parsed by Go;
 - direct provider calls outside LiteRouter;
 - Go regex/keyword semantic fallbacks introduced next to LLM paths where practical.
 
@@ -758,8 +759,8 @@ PR E: hardening + telemetry + docs cleanup
 
 Do not merge PR B before PR A's contract is stable.
 
-Do not build PR C against a fake structured LLM DTO. Use the native READ/RENDER
-contract from PR B and deterministic API fixtures for financial data.
+Do not build PR C against a fake structured LLM DTO. Use the shared analytical
+READ-tool contract from PR B and deterministic API fixtures for financial data.
 
 Do not start PR D by adding goals/budgets/recurring features. Those are separate product initiatives.
 
