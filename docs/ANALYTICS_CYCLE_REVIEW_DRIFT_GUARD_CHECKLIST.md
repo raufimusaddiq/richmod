@@ -136,18 +136,15 @@ Go pre-decides the answer
 
 ---
 
-## G. Rendering/output boundary
+## G. Output/presentation boundary
 
-- [ ] Does model-written analysis finish through a native rendering/respond tool?
-- [ ] Is the render tool display-only?
-- [ ] Is its prose field intentionally free-form?
-- [ ] Does Go validate the tool envelope but avoid NLP-parsing the message?
-- [ ] If supporting refs are accepted, are they bounded and server-issued?
 - [ ] Are UI-critical amounts rendered from deterministic data/tool results?
-- [ ] Is the final prose never parsed into a transaction, decision, category, amount, materiality flag, or household state?
-- [ ] Is there no mandatory recommendation/advice field?
-- [ ] Can the render message simply say that nothing noteworthy stands out?
-- [ ] Does a failed render/model phase leave deterministic Analytics available?
+- [ ] Is model prose never parsed into a transaction, decision, category, amount, significance flag, or household state?
+- [ ] Is there no mandatory recommendation/advice DTO?
+- [ ] Can the model say naturally that nothing noteworthy stands out?
+- [ ] Does failed AI analysis leave deterministic Web Analytics available?
+- [ ] Does Telegram analytical output follow the existing ADR-033 conversational response contract?
+- [ ] Does this Analytics initiative avoid changing Telegram response protocol?
 
 Hard prohibition:
 
@@ -281,12 +278,11 @@ When decision-log functionality is touched:
 - [ ] Material category increase and driver contribution are tested.
 - [ ] Tiny denominator is exposed with correct deterministic context and does not require a hard-coded Go "importance" conclusion.
 - [ ] Incomplete data suppresses unsupported analysis.
-- [ ] Every LLM phase requires native tools.
-- [ ] Wrong/unexposed tool name fails.
-- [ ] Unknown tool-argument fields fail.
-- [ ] Raw final assistant text fails.
-- [ ] Native RENDER with natural prose succeeds.
-- [ ] Supporting refs, when used, are validated.
+- [ ] Analytical financial retrieval uses native READ tools.
+- [ ] Wrong/unexposed analytical tool name fails.
+- [ ] Unknown analytical tool-argument fields fail.
+- [ ] Web Analytics AI path does not parse JSON-in-text output.
+- [ ] Telegram can reuse the analytical READ tools under ADR-033.
 - [ ] AI gateway failure leaves deterministic Analytics intact.
 - [ ] No structured recommendation/advice DTO is required for the rendered response.
 - [ ] No regex/keyword/switch/template semantic fallback is introduced in Go.
@@ -321,12 +317,12 @@ Before requesting final approval, the implementation PR must answer:
 2. Which displayed facts are new, and where are they computed?
 3. What comparison baseline is used and why?
 4. Which layer decides what is noteworthy, and why is that not hidden in Go heuristics?
-5. What native READ tools can the model use?
-6. What native RENDER/respond tool carries the final natural prose?
+5. What native analytical READ tools can the model use?
+6. Which consumers reuse those tools (Web and Telegram)?
 7. What data is available through tools, and what is intentionally withheld?
-8. How can the user inspect the deterministic facts behind the rendered analysis?
+8. How can the user inspect the deterministic facts behind the analysis?
 9. What happens when the model is unavailable?
-10. What prevents JSON-in-text contracts, raw final model text, or Go semantic fallbacks from returning later?
+10. What prevents JSON-in-text contracts, duplicate channel-specific analysis, or Go semantic fallbacks from returning later?
 11. What test proves a stable cycle does not generate filler?
 12. What test prevents a misleading previous-cycle comparison?
 13. What part of the page remains useful without AI?
@@ -354,3 +350,15 @@ not:
 more charts
 + more AI text
 ~~~
+
+
+---
+
+## R. Telegram analytical reuse
+
+- [ ] Can Telegram answer cycle-analysis questions using the same analytical READ tools?
+- [ ] Is there no Telegram-specific duplicate SQL/baseline/delta implementation?
+- [ ] Are dependent reads handled through the existing ADR-033 bounded conversational loop?
+- [ ] Does final Telegram prose remain natural and follow ADR-033?
+- [ ] Did this PR avoid unrelated Telegram UI/response-protocol redesign?
+- [ ] Are tests present for representative analytical questions in Telegram?
