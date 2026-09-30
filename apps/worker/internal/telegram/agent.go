@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -203,6 +204,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasSalaryChoice:  contextState.HasSalaryChoice,
 		ReviewType:       contextState.ReviewType,
 		ReviewMode:       contextState.ReviewMode,
+		Analytics:        analyticscore.NewSession(p.pool, householdID, now),
 	}
 	// An implicit binding is attached only when the route says this turn is that
 	// interaction. Chat state alone never gets to own the turn (ADR-038

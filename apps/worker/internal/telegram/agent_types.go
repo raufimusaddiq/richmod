@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -88,4 +89,8 @@ type agentState struct {
 	ReviewBindingCount      int
 	MerchantLearningBinding *agentMerchantLearningBinding
 	MerchantLearningCount   int
+
+	// Analytics is the request-scoped shared cycle-review READ session over the
+	// same deterministic fact engine as the analytics API. It never mutates.
+	Analytics *analyticscore.Session
 }

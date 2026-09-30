@@ -3,7 +3,6 @@ package analytics
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
 )
 
 type monthlyValue struct {
@@ -276,7 +276,5 @@ func analyticsHousehold(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 func add(left, right string) string {
-	a, _ := new(big.Int).SetString(left, 10)
-	b, _ := new(big.Int).SetString(right, 10)
-	return new(big.Int).Add(a, b).String()
+	return financialmath.Add(left, right)
 }

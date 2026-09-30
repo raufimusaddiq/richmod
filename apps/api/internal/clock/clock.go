@@ -1,21 +1,12 @@
-// Package clock defines the household operating timezone used by all finance logic.
+// Package clock preserves the API timezone interface over the shared clock.
 package clock
 
 import (
 	"time"
-	_ "time/tzdata"
+
+	shared "github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
 )
 
-const HouseholdTimezone = "Asia/Jakarta"
+const HouseholdTimezone = shared.HouseholdTimezone
 
-func HouseholdLocation() *time.Location {
-	return jakarta
-}
-
-var jakarta = func() *time.Location {
-	location, err := time.LoadLocation(HouseholdTimezone)
-	if err != nil {
-		panic(err)
-	}
-	return location
-}()
+func HouseholdLocation() *time.Location { return shared.HouseholdLocation() }

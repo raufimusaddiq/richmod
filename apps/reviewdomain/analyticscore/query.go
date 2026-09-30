@@ -1,12 +1,12 @@
-package analytics
+package analyticscore
 
 import (
 	"context"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/financialmath"
 )
 
 func reviewPeriods(ctx context.Context, tx pgx.Tx, household string, now time.Time) ([]reviewPeriod, bool, error) {
@@ -38,7 +38,7 @@ func reviewPeriods(ctx context.Context, tx pgx.Tx, household string, now time.Ti
 	return out, configured, rows.Err()
 }
 
-func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measures []cycleMeasure, facts *cycleReview) error {
+func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measures []cycleMeasure, facts *Facts) error {
 	starts, ends := []string{}, []string{}
 	for _, m := range measures {
 		starts = append(starts, m.period.Start)
@@ -75,14 +75,14 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 		m := &measures[idx]
 		switch typ {
 		case "INCOME":
-			m.cash.Income = add(m.cash.Income, amount)
+			m.cash.Income = financialmath.Add(m.cash.Income, amount)
 		case "EXPENSE":
-			m.cash.GrossExpense = add(m.cash.GrossExpense, amount)
+			m.cash.GrossExpense = financialmath.Add(m.cash.GrossExpense, amount)
 		case "REFUND":
-			m.cash.Refund = add(m.cash.Refund, amount)
+			m.cash.Refund = financialmath.Add(m.cash.Refund, amount)
 		case "TRANSFER":
 			if purpose == "SAVINGS_TRANSFER" || purpose == "INVESTMENT_CONTRIBUTION" || purpose == "ASSET_PURCHASE" {
-				m.cash.Allocated = add(m.cash.Allocated, amount)
+				m.cash.Allocated = financialmath.Add(m.cash.Allocated, amount)
 				if idx == 0 {
 					accumulate(destinations, aid, aid, aname, amount, count)
 				}
@@ -99,11 +99,11 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 			if typ == "REFUND" {
 				key = "refund"
 			}
-			daily[day][key] = add(daily[day][key], amount)
+			daily[day][key] = financialmath.Add(daily[day][key], amount)
 		}
 		if typ == "EXPENSE" || typ == "REFUND" {
 			if typ == "REFUND" {
-				amount = subtract("0", amount)
+				amount = financialmath.Subtract("0", amount)
 			}
 			accumulate(m.categories, cid, cid, cname, amount, count)
 			merchantKey := mid + ":" + mname
@@ -137,9 +137,9 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 			return err
 		}
 		v["expense"], v["netCashflow"] = cash.NetExpense, cash.Surplus
-		cumulative = add(cumulative, cash.NetExpense)
+		cumulative = financialmath.Add(cumulative, cash.NetExpense)
 		v["cumulativeExpense"] = cumulative
-		total = add(total, cash.NetExpense)
+		total = financialmath.Add(total, cash.NetExpense)
 		if cash.NetExpense == "0" {
 			facts.SpendingShape.ZeroDays++
 		}
@@ -160,12 +160,12 @@ func accumulate(values map[string]reviewValue, key, id, name, amount string, cou
 	if !ok {
 		v = reviewValue{ID: id, Name: name, Amount: "0"}
 	}
-	v.Amount = add(v.Amount, amount)
+	v.Amount = financialmath.Add(v.Amount, amount)
 	v.Count += count
 	values[key] = v
 }
 
-func loadReviewTransactions(ctx context.Context, tx pgx.Tx, household string, facts *cycleReview) error {
+func loadReviewTransactions(ctx context.Context, tx pgx.Tx, household string, facts *Facts) error {
 	rows, err := tx.Query(ctx, `WITH ranked AS (
 		SELECT t.id,t.transaction_at,t.type,t.amount,t.category_id,COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui') merchant,
 		row_number() OVER(PARTITION BY t.category_id ORDER BY t.amount DESC,t.transaction_at DESC,t.id) AS rank
@@ -194,7 +194,7 @@ func loadReviewTransactions(ctx context.Context, tx pgx.Tx, household string, fa
 	return rows.Err()
 }
 
-func loadReviewQuality(ctx context.Context, tx pgx.Tx, household string, facts *cycleReview) error {
+func loadReviewQuality(ctx context.Context, tx pgx.Tx, household string, facts *Facts) error {
 	var open, uncategorized, processing int
 	var amount string
 	err := tx.QueryRow(ctx, `WITH bounds AS (SELECT ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AS lo,($3::date::timestamp AT TIME ZONE 'Asia/Jakarta') AS hi), unresolved AS (
@@ -222,7 +222,7 @@ func loadReviewQuality(ctx context.Context, tx pgx.Tx, household string, facts *
 	return nil
 }
 
-func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time.Time, facts *cycleReview) error {
+func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time.Time, facts *Facts) error {
 	// Snapshot reconciliation is for the actual observation interval, not an
 	// invented cycle-end balance. Future observations never enter a past review.
 	end, _ := time.ParseInLocation("2006-01-02", facts.Period.MeasuredUntil, clock.HouseholdLocation())
@@ -246,7 +246,7 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 		if err := rows.Scan(&kind, &v.ID, &v.At, &v.NetWorth, &v.accounts); err != nil {
 			return err
 		}
-		v.AgeDays = calendarDays(v.At.In(clock.HouseholdLocation()), end.In(clock.HouseholdLocation()))
+		v.AgeDays = daysBetween(v.At.In(clock.HouseholdLocation()).Format("2006-01-02"), end.In(clock.HouseholdLocation()).Format("2006-01-02"))
 		if kind == "current" {
 			facts.Wealth.Current = v
 		} else {
@@ -286,9 +286,9 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	if err != nil {
 		return err
 	}
-	facts.Wealth.Change = valuePointer(subtract(current.NetWorth, previous.NetWorth))
+	facts.Wealth.Change = valuePointer(financialmath.Subtract(current.NetWorth, previous.NetWorth))
 	facts.Wealth.Cashflow = &cash.Surplus
-	facts.Wealth.Other = valuePointer(subtract(*facts.Wealth.Change, cash.Surplus))
+	facts.Wealth.Other = valuePointer(financialmath.Subtract(*facts.Wealth.Change, cash.Surplus))
 	return nil
 }
 

@@ -1,4 +1,4 @@
-package analytics
+package analyticscore
 
 import (
 	"encoding/json"
@@ -52,7 +52,7 @@ func TestCashChangeUsesOnlyCompletedEligibleHistory(t *testing.T) {
 }
 
 func TestReviewDoesNotAuthorSemanticConclusions(t *testing.T) {
-	payload, err := json.Marshal(cycleReview{})
+	payload, err := json.Marshal(Facts{})
 	if err != nil {
 		t.Fatal(err)
 	}
