@@ -187,7 +187,7 @@ try {
     assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), draft);
     failDecisionSave = false;
     await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).press("Control+Enter");
-    await page.getByText(draft, { exact: true }).waitFor();
+    await page.locator("#decisions .decision-list").getByText(draft, { exact: true }).waitFor();
     assert.equal(await page.getByLabel("Keputusan untuk siklus ini", { exact: true }).inputValue(), "");
     assert.equal(requests.filter(request => request.path === "/api/v1/analytics/cycle-decisions" && request.method === "POST").length, 2, "only explicit save and explicit retry");
     assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0);
