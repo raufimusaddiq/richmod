@@ -63,107 +63,6 @@ Preserve useful current chart behavior unless the PRD explicitly replaces its an
 
 ---
 
-# Sprint 0 — Native Rendering Runtime Convergence
-
-## Why this prerequisite exists
-
-The repository's current Telegram conversational runtime still allows raw
-display-only assistant text with zero tool calls. ADR-030 now defines the target
-native rendering boundary, but this docs PR does not pretend the runtime has
-already migrated.
-
-Before implementing new Analytics conversational/agent behavior, converge the
-existing conversational runtime so the repo-wide rule is real rather than
-aspirational.
-
-## Goal
-
-Migrate final model-authored conversational prose to a native display-only
-RENDER/respond tool without changing the language quality or financial authority
-model.
-
-## Required behavior
-
-Current:
-
-~~~text
-model
--> raw final assistant text
--> Telegram
-~~~
-
-Target:
-
-~~~text
-model
--> respond_to_user / render_response {
-     message: "<natural free-form prose>"
-   }
--> Go validates tool envelope
--> Telegram
-~~~
-
-The `message` remains ordinary natural language. Do not decompose it into a
-large structured DTO.
-
-## Scope
-
-At minimum:
-
-- add one allow-listed display-only render/respond tool;
-- expose it in conversational phases where final prose is valid;
-- require provider-native tool output for those phases;
-- preserve bounded READ batches;
-- preserve exactly-one SIDE EFFECT semantics;
-- preserve server-owned binding/authorization/mutation rules;
-- reject raw final assistant text after migration;
-- keep literal deterministic status/error acknowledgements only where no model
-  semantic reasoning is needed;
-- do not introduce keyword/regex/template semantic fallbacks.
-
-## Prompt/runtime alignment
-
-Update `apps/worker/internal/telegram/agent_prompt.go` so it no longer says
-ordinary zero-tool assistant text is valid after this migration.
-
-Update gateway/orchestrator tests so the implementation, ADR-030, ADR-033, and
-`AGENTS.md` all describe the same runtime.
-
-## Native-only guard
-
-Extend `scripts/check_native_only_llm.sh` or add an equivalent focused check so
-future code cannot silently reintroduce:
-
-- raw model final text as the production response contract;
-- Structured/JSON-in-text output parsing;
-- direct provider bypass;
-- Go semantic fallbacks near the migrated conversational lane.
-
-## Verification
-
-Minimum:
-
-~~~text
-cd apps/worker
-go test ./...
-go vet ./...
-
-scripts/check_native_only_llm.sh
-~~~
-
-## Sprint 0 DoD
-
-- [ ] Telegram final model-authored prose uses native RENDER/respond tool.
-- [ ] The render message remains natural free-form text.
-- [ ] Raw zero-tool final assistant text is rejected after migration.
-- [ ] READ batching still works.
-- [ ] SIDE EFFECT behavior remains exactly one mutation per turn.
-- [ ] No Go keyword/regex/switch/template semantic fallback is added.
-- [ ] Prompt, tests, ADR-030, ADR-033, and runtime agree.
-- [ ] Native-only guard covers the migrated path.
-
----
-
 # Sprint 1 — Deterministic Cycle Analysis Facts
 
 ## Goal
@@ -290,15 +189,15 @@ If new SQL integration behavior is added, use disposable PostgreSQL tests.
 
 ---
 
-# Sprint 2 — Tool-First Analytics Agent and Native Rendering
+# Sprint 2 — Shared Analytical READ Tools + Tool-First Analytics AI
 
 ## Goal
 
 Replace the current "supply aggregate JSON -> request structured narrative JSON"
-pattern with a bounded tool-using analyst.
+pattern with shared analytical READ tools and a bounded tool-using analyst.
 
-The model obtains financial facts through native Richmod tools, reasons over the
-authoritative results, and returns natural prose through a native rendering tool.
+The same READ tools must be reusable by both the Web Analytics AI path and the
+existing Telegram conversational agent. Presentation remains channel-specific.
 
 ## Architecture gate
 
@@ -307,23 +206,23 @@ repo-wide native-tool contract.
 
 ## Required interaction model
 
-~~~text
-model phase
--> required provider-native tool call
+The analytical data contract is the native READ tool surface:
 
-READ tool
+~~~text
+model
+-> analytical READ tool
 -> Go validates arguments
 -> Go returns authoritative deterministic facts
--> next bounded model phase
-
-RENDER tool
--> { message: "<natural prose>", supporting_refs?: [...] }
--> Go validates the envelope/references
--> Go displays message
--> message is never parsed back into finance state
+-> model may request more analytical READs
+-> channel-specific natural response
 ~~~
 
-Do not prompt the model to return JSON or a JSON-schema "analysis object."
+For the Web Analytics AI surface, use the Analytics output/render contract chosen
+for that implementation. For Telegram, keep the existing ADR-033 conversational
+response contract.
+
+Do not prompt the model to return JSON or a JSON-schema "analysis object" for Go
+to parse.
 
 ## Analytics read tools
 
@@ -351,26 +250,17 @@ Rules:
 - no provider credentials;
 - avoid model-facing canonical IDs where server-scoped refs work.
 
-## Rendering tool
+## Channel presentation
 
-Provide one native display-only tool, e.g.:
+Do not couple shared analytical tools to one output protocol.
 
-~~~text
-render_cycle_analysis
-~~~
+Web and Telegram both consume the same authoritative analytical READ tools.
 
-Minimal conceptual arguments:
+- Web may render charts/data directly and optionally add AI-written commentary.
+- Telegram's existing conversational agent may use the READ tools and answer in
+  ordinary conversational text under ADR-033.
 
-~~~text
-message: free-form string
-supporting_refs: optional bounded list of server-issued fact refs
-~~~
-
-The `message` is intentionally natural language. Do not decompose prose into a
-large DTO just so Go can reconstruct the response.
-
-Go validates the envelope and supporting refs, then forwards the message. Go does
-not inspect the wording to recover semantic state.
+No Telegram response-protocol migration is required by this Analytics initiative.
 
 ## Bounded multi-phase loop
 
@@ -379,8 +269,8 @@ Analytics may need dependent reads.
 Extend/reuse the conversational native-tool orchestration so a turn can perform a
 small number of bounded READ phases before RENDER.
 
-Every LLM phase still returns provider-native tools. Raw final assistant text is
-invalid in production.
+Analytical data access must use native READ tools. Final response handling follows
+the owning channel's existing contract.
 
 Explicitly test:
 
@@ -388,7 +278,32 @@ Explicitly test:
 - maximum read calls;
 - unknown/unexposed tool rejection;
 - no side-effect tool in Analytics analysis loop;
-- final RENDER required for model-written prose.
+- Telegram analytical turns remain compatible with ADR-033 final response behavior.
+
+## Telegram reuse
+
+Register the shared analytical READ tools in the existing Telegram conversational
+tool catalog where appropriate.
+
+At minimum test these question classes:
+
+~~~text
+"bulan ini paling naik di mana?"
+"kenapa expense cycle ini lebih besar?"
+"dibanding 3 cycle terakhir gimana?"
+"surplus cycle ini larinya ke mana?"
+"net worth naik karena cashflow atau valuasi?"
+~~~
+
+Expected behavior:
+
+- Telegram model selects analytical READ tools;
+- Go returns the same authoritative calculations used by Web;
+- dependent reads are allowed within existing ADR-033 limits;
+- final reply is natural Telegram prose;
+- no Telegram-specific SQL fork;
+- no keyword/regex/switch analysis logic;
+- no duplicate baseline/materiality calculation in Telegram code.
 
 ## Semantic ownership
 
@@ -462,29 +377,29 @@ scripts/check_native_only_llm.sh
 
 ## Required tests
 
-- every model phase uses native tools;
+- analytical data access uses native READ tools;
 - READ tool arguments are strictly decoded;
 - unknown/unexposed READ tools fail;
-- natural response is emitted through RENDER;
-- raw final assistant text is rejected;
-- RENDER message is not parsed into finance state;
-- supporting refs, when supplied, must be server-issued/valid;
-- dependent READ -> READ -> RENDER works within bounds;
-- no side effect is available in the analysis loop;
+- no JSON-in-text analysis contract is parsed by Go;
+- dependent analytical READs work within channel bounds;
+- no side effect is available in the Analytics analysis loop;
+- Telegram can call the shared analytical READ tools through its existing agent;
+- Telegram final response remains compatible with ADR-033;
 - provider failure does not trigger regex/keyword/template analysis in Go;
-- stable cycle can produce a concise no-noteworthy RENDER response;
+- stable cycle can produce concise natural analysis without forced filler;
 - no recommendation/advice contract is required.
 
 ## Sprint 2 DoD
 
-- [ ] financial data reaches the model only through approved native tools/context required by those tools;
+- [ ] analytical financial data reaches models through approved native READ tools;
 - [ ] no "return this JSON schema" analysis contract remains;
-- [ ] all LLM phases use provider-native tools;
-- [ ] final natural prose uses a native rendering tool;
-- [ ] Go does not parse final prose;
+- [ ] Web and Telegram reuse the same analytical tool implementations;
+- [ ] Telegram analytical questions work through the existing conversational agent;
+- [ ] no channel-specific duplicate financial analysis logic exists;
+- [ ] Go does not parse model prose into finance state;
 - [ ] open-ended analysis is not reimplemented as Go heuristics;
 - [ ] AI failure is isolated from deterministic Analytics;
-- [ ] native-only and anti-Go drift guards pass.
+- [ ] analytics drift guards pass.
 
 ---
 
@@ -834,16 +749,12 @@ Do not deploy unless explicitly requested and the production Environment approva
 # Suggested PR sequence
 
 ~~~text
-PR 0: native rendering runtime convergence
 PR A: deterministic cycle analysis facts
-PR B: tool-first analytics agent
+PR B: shared analytical READ tools + tool-first analytics AI + Telegram reuse
 PR C: /analytics full UI revamp
 PR D: meeting mode + cycle decisions
 PR E: hardening + telemetry + docs cleanup
 ~~~
-
-Do not start new Analytics LLM/agent implementation before PR 0 converges the
-existing conversational runtime to the native rendering boundary.
 
 Do not merge PR B before PR A's contract is stable.
 
