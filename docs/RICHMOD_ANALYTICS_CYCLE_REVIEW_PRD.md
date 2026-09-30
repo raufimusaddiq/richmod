@@ -72,14 +72,17 @@ No displayed number may originate from generative text.
 
 The AI layer must:
 
-- receive only approved structured analytical facts;
-- use native tools only;
-- produce structured findings, not unconstrained prose;
-- bind every finding to evidence references;
+- use Richmod-native read-only tools whenever it needs financial data or state;
+- never be prompted to manufacture JSON/structured output for Go to parse;
+- receive authoritative facts through tool results, not direct database access;
+- be free to write natural user-facing analysis after it has the facts;
+- never make free-form prose the source of financial state, arithmetic, materiality, or mutation;
 - be allowed to return no material finding;
 - never invent causes;
 - never shame, score, rank, or judge household members;
 - never produce investment, credit, tax, legal, or prescriptive financial advice.
+
+Structured data belongs in tool arguments/results and deterministic UI APIs. Natural language belongs to the model.
 
 ### P1 — Make the page usable as a household meeting
 
@@ -457,125 +460,143 @@ Go/SQL owns:
 
 Browser JavaScript may format and render values but must not become the authoritative source of new financial calculations.
 
-## 8. Native-tool AI contract
+## 8. Tool-first AI contract
 
 This is mandatory.
 
-### 8.1 No free-form generative path
+### 8.1 Tools are for data and actions, not for forcing JSON-shaped answers
 
-Any generative AI used by Analytics MUST use LiteRouter through the existing gateway and MUST use native tool calling with required tool choice and a strict server-owned JSON schema.
+When the model needs household financial data, Richmod exposes native provider tools with strict server-owned argument schemas.
 
-Conceptually:
+Examples:
 
-~~~go
-gateway.NativeToolCall(
-    ctx,
-    correlationID,
-    prompt,
-    approvedFacts,
-    tools,
-    gateway.NativeToolOptions{Required: true},
-)
+~~~text
+get_cycle_overview
+get_material_changes
+get_category_drivers
+get_merchant_drivers
+get_supporting_transactions
+get_savings_reconciliation
+get_wealth_reconciliation
+get_data_quality
 ~~~
+
+The exact catalog may differ after implementation inspection, but the semantic rule is fixed:
+
+> If the model needs data, give it a tool. Do not ask it to return a structured JSON analysis for Go to parse.
+
+A typical analysis turn is:
+
+~~~text
+model
+-> native read-only tool call
+-> deterministic Go result
+-> optional additional native read-only tool call
+-> natural assistant prose
+~~~
+
+The final prose may be free-form because it is not a machine contract and is never parsed back into financial state.
+
+### 8.2 Native tool schemas remain strict
+
+Tool inputs are machine contracts and must be strict, server-owned, bounded, and validated.
 
 Prohibited:
 
-- browser -> model;
-- direct provider calls;
-- plain free-form chat completion used as product output;
-- model response text persisted without strict tool-argument validation;
-- prompts containing raw transaction rows or raw evidence.
+- browser -> provider direct calls;
+- raw SQL/database access from the model;
+- prompting "return JSON matching this schema" as the Analytics output contract;
+- parsing final assistant prose to decide a financial mutation;
+- regex/keyword/switch logic that tries to reconstruct model reasoning;
+- exposing arbitrary canonical UUIDs when the server can bind the target itself.
 
-If prose is needed, prose is returned inside validated native tool arguments.
+### 8.3 Tool results are authoritative; prose is explanatory
 
-### 8.2 Recommended output tool
+Go/SQL owns:
 
-Replace the generic "write a summary + recommendation" product contract with a structured tool such as:
+- amounts;
+- period boundaries;
+- baselines;
+- rankings;
+- materiality;
+- authorization;
+- Wealth/cashflow reconciliation;
+- drill-down targets.
 
-~~~text
-write_cycle_analysis
-~~~
+The model may decide which available read-only tool to call and how to explain the returned facts.
 
-Suggested schema:
+If the model states a number in prose, that number must already exist in authoritative tool results. UI-critical numbers should still render from deterministic data rather than trusting copied prose.
 
-~~~json
-{
-  "headline": "string",
-  "findings": [
-    {
-      "kind": "SPENDING_CHANGE | CONCENTRATION | CASHFLOW | SAVINGS | WEALTH | DATA_QUALITY",
-      "title": "string",
-      "interpretation": "string",
-      "evidence_refs": ["string"],
-      "discussion_question": "string"
-    }
-  ],
-  "no_material_finding": false,
-  "data_quality_note": "string"
-}
-~~~
+### 8.4 Do not make Go the analyst/copywriter
 
-Schema requirements:
+Go must not replace the model with:
 
-- `additionalProperties=false`;
-- bounded finding count;
-- bounded text lengths;
-- `evidence_refs` required for each finding;
-- every evidence ref must exist in the approved fact packet;
-- unsupported refs reject the result;
-- unknown enums reject the result.
+- keyword intent parsing;
+- regex-based semantic understanding;
+- switch-based analytical conclusions;
+- canned narrative templates pretending to be AI analysis.
 
-### 8.3 Model does not own displayed numbers
+Go should expose facts and enforce invariants. The model should perform open-ended interpretation and conversational explanation.
 
-The model should not be relied on to restate monetary values or percentages.
+### 8.5 Bounded tool loop
 
-The UI renders evidence values from deterministic facts.
+Analytics may require more than one read-only tool call to answer a useful question.
 
-The model supplies interpretation and neutral discussion wording.
+The orchestration must be bounded and side-effect safe.
 
-### 8.4 No recommendation field
+For cycle analysis:
 
-The current insight schema's mandatory recommendation paragraph is intentionally removed from the target product contract.
+- read-only analytical tool calls may be chained within a bounded turn;
+- financial mutations are not part of the analysis loop;
+- a side-effecting action, if later introduced, must use an explicit tool and remain Go-authorized;
+- the model must not gain arbitrary database exploration.
 
-Analytics should support household discussion, not tell the household what financial action to take.
+### 8.6 No recommendation contract
 
-Allowed:
+The current insight schema's mandatory recommendation paragraph is intentionally removed from the target product.
 
-> "Groceries explains most of the increase. Was this a change in household needs that you expect to continue?"
+Analytics supports household discussion, not prescriptive advice.
+
+Allowed natural response:
+
+> "Groceries explains most of the increase against the recent baseline. The largest drivers were Pamella and Superindo. Was this a change in household needs that you expect to continue?"
 
 Not allowed:
 
 > "You should reduce groceries next month."
 
-### 8.5 Skip the model when there is nothing useful to interpret
+### 8.7 Skip AI when it adds no value
 
-If deterministic materiality selection finds no useful candidates, persist/render a deterministic no-material-change state and do not pay for generative prose.
+If deterministic materiality shows no meaningful candidate, the page can render the stable-cycle result without invoking a model merely to fill space.
 
-### 8.6 AI failure isolation
+### 8.8 Failure isolation
 
-Native tool call failure, malformed arguments, unsupported evidence references, timeout, or gateway outage must:
+If an analytical tool fails, the gateway is unavailable, or the model cannot complete the analysis:
 
-- never break deterministic Analytics;
-- never remove charts;
-- never create fallback free-form prose;
-- degrade to deterministic findings/context.
+- deterministic Analytics still renders;
+- charts and computed comparisons remain available;
+- Go does not guess what the model would have said;
+- there is no regex/template fallback masquerading as AI;
+- there is no structured-JSON retry contract.
 
-## 9. Evidence-backed finding validation
+## 9. Explainability and supporting data
 
-Before an AI finding becomes visible:
+The deterministic page owns the inspectable evidence behind the review.
 
-1. validate tool name;
-2. decode with unknown fields rejected;
-3. validate enum values and text bounds;
-4. validate every evidence ref against the packet;
-5. enforce finding count;
-6. reject duplicate/empty evidence sets;
-7. ensure the selected finding kind is compatible with its evidence types;
-8. persist structured output separately from authoritative finance state.
+AI prose is supplemental.
 
-A finding must be inspectable in the UI.
+For every material topic shown in the review, the UI should already be able to expose:
 
-"Why?" / "Supporting data" expands to the deterministic facts and transaction drill-down.
+- current value;
+- comparison baseline;
+- delta;
+- driver categories/merchants/transactions;
+- data-quality context;
+- deterministic drill-down.
+
+The model may refer to these facts conversationally, but Richmod does not need to parse evidence references out of the prose to make the underlying review explainable.
+
+"Why?" / "Supporting data" is driven by the deterministic analytical model, not by a JSON payload authored by the LLM.
 
 ## 10. Materiality policy
 
@@ -708,20 +729,18 @@ A composite completeness value may remain operational metadata.
 
 ## 16. Persistence
 
-Persisted AI analysis should become structured.
+Persisted AI commentary, if retained, may remain natural text because it is non-authoritative.
 
-Implementation may:
+Do not add structured JSON persistence merely to make model prose machine-readable.
 
-- extend `insight` with structured JSON and policy version; or
-- introduce a dedicated cycle-analysis record if cleaner.
-
-Whichever is chosen:
+Whichever persistence design is chosen:
 
 - no authoritative amount is stored only inside model prose;
-- input fact snapshot remains auditable;
-- output tool arguments are validated;
-- prompt/tool/policy version is recorded;
-- household scope remains mandatory.
+- deterministic analytical facts remain separately queryable/auditable;
+- native tool calls and their bounded results remain the factual interface;
+- prompt/tool/policy version may be recorded for observability;
+- household scope remains mandatory;
+- final prose is never parsed to mutate financial state.
 
 Schema changes require a new forward migration and update to `docs/DATABASE_SCHEMA.md`.
 
@@ -823,10 +842,10 @@ Expected:
 - [ ] Material changes and their drivers are computed server-side.
 - [ ] Savings and Wealth are integrated into cycle review.
 - [ ] Data-quality blockers are concrete.
-- [ ] AI is optional, native-tool-only, structured, and evidence-bound.
+- [ ] AI is optional and tool-first: financial data comes from native tools, while final explanatory prose may remain natural.
 - [ ] No generative recommendation/advice field remains in the target contract.
 - [ ] No material candidate can result in no AI call.
-- [ ] Every AI finding has valid evidence refs.
+- [ ] Every numeric/financial claim can be traced to deterministic analytical data/tool results.
 - [ ] Displayed amounts/percentages come from deterministic facts.
 - [ ] AI failure leaves a complete deterministic experience.
 - [ ] Closed-cycle meeting mode exists.
