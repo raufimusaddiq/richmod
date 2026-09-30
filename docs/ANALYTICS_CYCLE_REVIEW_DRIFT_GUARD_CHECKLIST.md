@@ -44,7 +44,7 @@ without a clearer household decision/review job
 - [ ] Are category and merchant deltas server-owned?
 - [ ] Is contribution-to-change server-owned?
 - [ ] Are rankings and top drivers server-owned?
-- [ ] Is materiality decided by versioned backend policy?
+- [ ] Are explicit deterministic product rules versioned where applicable, while open-ended analytical significance remains intelligence-owned?
 - [ ] Is data-quality state server-owned?
 - [ ] Are Wealth reconciliation values server-owned?
 - [ ] Does browser JavaScript only render/format rather than invent authoritative finance calculations?
