@@ -1,3 +1,13 @@
+> **SUPERSEDED FOR NEW ANALYTICS WORK — 2026-09-30**
+>
+> This document is historical implementation guidance. For new Analytics work,
+> follow `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`,
+> `docs/bdr/BDR-006-analytics-household-cycle-review.md`, ADR-030/ADR-033 as
+> amended, and `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`.
+> In particular, do not restore a "prompt for structured JSON narrative" contract:
+> financial data is obtained through native tools and model-written prose is emitted
+> through a native rendering/respond tool.
+
 # Analytics LLM Insight UI — Completion Checklist
 
 Execution record for `RICHMOD_ANALYTICS_LLM_INSIGHT_UI_CODEX.md`.
