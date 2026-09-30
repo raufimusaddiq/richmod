@@ -56,7 +56,7 @@ func (f reviewFixture) anchor(t *testing.T, date string) {
 	t.Helper()
 	ctx := context.Background()
 	var event, transaction string
-	if err := f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'SYSTEM',$2,($2::date::timestamp AT TIME ZONE 'Asia/Jakarta'),decode(md5($2),'hex'),'PROCESSED') RETURNING id`, f.household, date).Scan(&event); err != nil {
+	if err := f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'SYSTEM',$2::text,($2::text::date::timestamp AT TIME ZONE 'Asia/Jakarta'),decode(md5($2::text),'hex'),'PROCESSED') RETURNING id`, f.household, date).Scan(&event); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at,created_by_user_id) VALUES($1,'INCOME','CONFIRMED',10000000,($2::date::timestamp AT TIME ZONE 'Asia/Jakarta'),now(),$3) RETURNING id`, f.household, date, f.user).Scan(&transaction); err != nil {
