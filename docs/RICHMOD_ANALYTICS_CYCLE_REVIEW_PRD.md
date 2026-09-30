@@ -76,7 +76,7 @@ The AI layer must:
 - never be prompted to manufacture JSON/structured output for Go to parse;
 - receive authoritative facts through tool results, not direct database access;
 - be free to write natural user-facing analysis after it has the facts;
-- never make free-form prose the source of financial state, arithmetic, materiality, or mutation;
+- never make free-form prose the source of financial state, arithmetic, canonical mutation, or deterministic measurements;
 - be allowed to return no material finding;
 - never invent causes;
 - never shame, score, rank, or judge household members;
@@ -459,7 +459,7 @@ Go/SQL owns:
 - concentration;
 - transaction selection;
 - merchant/category/member attribution;
-- materiality candidate calculation;
+- objective change metric calculation and deterministic sorting;
 - data completeness;
 - drill-down query binding.
 
@@ -788,14 +788,15 @@ Model telemetry should record protocol/tool/policy/model/latency/status, not raw
 
 ### A — Stable cycle
 
-Facts show no material deviation.
+Objective facts show little movement against recent context.
 
 Expected:
 
-- charts render;
-- deterministic no-material-change state;
-- generative model is not called;
-- no filler paragraph.
+- charts and deterministic comparisons render;
+- if AI analysis is requested/run, the model may conclude through the native
+  rendering tool that nothing noteworthy stands out;
+- no fixed number of findings is required;
+- no filler paragraph and no Go-authored pseudo-analysis.
 
 ### B — Previous cycle low, current normal
 
@@ -868,7 +869,7 @@ Expected:
 - [ ] Data-quality blockers are concrete.
 - [ ] AI is optional and tool-first: financial data comes from native tools and final natural prose is emitted through a native rendering/respond tool.
 - [ ] No generative recommendation/advice field remains in the target contract.
-- [ ] No material candidate can result in no AI call.
+- [ ] A stable cycle can result in a concise model-rendered no-noteworthy analysis without Go semantic heuristics or forced filler.
 - [ ] Every numeric/financial claim can be traced to deterministic analytical data/tool results.
 - [ ] Displayed amounts/percentages come from deterministic facts.
 - [ ] AI failure leaves a complete deterministic experience.
