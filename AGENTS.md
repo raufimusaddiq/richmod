@@ -32,10 +32,15 @@ Do not treat an initial design document as permanently authoritative.
 - Exact deterministic facts, arithmetic, authorization, binding, and reconciliation stay in Go.
 - AI model output is untrusted and must pass deterministic validation before DB mutation.
 - AI models must never directly access or mutate the database.
-- All production LLM interactions use provider-native tools as the machine contract.
-  This does not prohibit natural conversational prose: when prose is needed, the model
-  returns it inside a native response/rendering tool whose free-form message is forwarded
-  to the user and is never parsed back into financial state.
+- Target architecture: production LLM interactions use provider-native tools as the
+  machine contract. New or materially changed generative product paths must follow this
+  rule. Natural conversational prose remains allowed inside a native response/rendering
+  tool whose free-form message is forwarded to the user and is never parsed back into
+  financial state.
+- The existing Telegram conversational lane currently has one documented legacy exception:
+  it may finish with raw display-only assistant text under ADR-033. That exception must not
+  be copied, expanded, or used as precedent. Any material change to that lane must migrate
+  it to the native rendering contract or land the migration first.
 - When the model needs financial data, state, or an action, expose provider-native tools
   with strict server-owned argument schemas and authoritative Go-owned results. Do not
   ask the model to emit JSON, JSON-schema text, or other structured prose for application
