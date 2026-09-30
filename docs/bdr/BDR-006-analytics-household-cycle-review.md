@@ -204,6 +204,38 @@ The model does not generate drill-down URLs.
 
 A finding that cannot be explained this way should not be shown.
 
+## Cross-channel analytical reuse
+
+The analytical engine is a Richmod capability, not a page-local feature.
+
+The same deterministic calculations and analytical READ tools used by `/analytics`
+should be reusable by the existing Telegram conversational agent.
+
+A Telegram question such as:
+
+> "Kenapa pengeluaran cycle ini naik?"
+
+should cause the conversational model to retrieve the same authoritative cycle
+facts/drivers that support the Web review, then explain them naturally.
+
+This BDR does not change Telegram's conversational response protocol. ADR-033
+remains authoritative for that channel.
+
+Rejected:
+
+~~~text
+Web has one analysis service
+Telegram has separate Go rules / SQL / thresholds for the same question
+~~~
+
+Accepted:
+
+~~~text
+shared analytical facts + tools
+-> Web presentation
+-> Telegram conversational presentation
+~~~
+
 ## Household-member decision
 
 Member attribution is useful for understanding who initiated a transaction, but Analytics must not turn attribution into household scoring.
