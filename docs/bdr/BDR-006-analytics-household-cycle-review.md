@@ -91,7 +91,10 @@ The business rule is:
 
 Native tools are the machine interface. Their arguments are strict and server-owned, and their results come from deterministic Go/SQL logic.
 
-The final household-facing explanation may be natural free-form prose because that prose is not authoritative state and is never parsed into ledger mutations, materiality, arithmetic, or household decisions.
+The final household-facing explanation remains natural free-form prose, but it is
+carried inside a native rendering/respond tool. Go forwards the message and never
+parses it into ledger mutations, analytical significance, arithmetic, or household
+decisions.
 
 This preserves the correct separation:
 
@@ -139,7 +142,7 @@ Rejected:
 
 The household decides. Richmod provides evidence and context.
 
-## Materiality decision
+## Analytical significance decision
 
 Richmod should not surface every change.
 
