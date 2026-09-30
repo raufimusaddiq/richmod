@@ -3,7 +3,6 @@ package insight
 import (
 	"encoding/json"
 	"errors"
-	"math/big"
 	"net/http"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 )
 
 type Handler struct {
@@ -19,43 +18,14 @@ type Handler struct {
 	now  func() time.Time
 }
 
-const insightPromptVersion = "finance-insight-v2"
+const insightPromptVersion = "cycle-analyst-v3"
 
 const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND (status='PENDING' OR (status='SUCCEEDED' AND prompt_version=$5 AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 
-type categoryChange struct {
-	Category              string `json:"category"`
-	Current               string `json:"current"`
-	PreviousThreeMonthAvg string `json:"previous_three_month_average"`
-	Change                string `json:"change_vs_three_month_average"`
-}
-type distribution struct {
-	Name   string `json:"name"`
-	Amount string `json:"amount"`
-}
-
-type facts struct {
-	Period               string           `json:"period"`
-	PeriodKind           string           `json:"period_kind"`
-	PeriodStart          string           `json:"period_start"`
-	PeriodEnd            string           `json:"period_end"`
-	PeriodOpen           bool             `json:"period_open"`
-	Currency             string           `json:"currency"`
-	Income               string           `json:"income"`
-	Expense              string           `json:"expense"`
-	NetCashflow          string           `json:"net_cashflow"`
-	SavingsRate          *string          `json:"savings_rate"`
-	CategoryChanges      []categoryChange `json:"category_changes"`
-	OpenReviewCount      int              `json:"open_review_count"`
-	DataCompleteness     string           `json:"data_completeness"`
-	MerchantDistribution []distribution   `json:"merchant_distribution"`
-	MemberDistribution   []distribution   `json:"member_distribution"`
-	PreviousExpense      string           `json:"previous_expense"`
-	PreviousNetCashflow  string           `json:"previous_net_cashflow"`
-}
-
+// List preserves historical insight rows verbatim. historical explicitly marks
+// the retired recommendation/aggregate contract; new commentary is natural text.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	_, household, ok := principal(w, r)
 	if !ok {
@@ -67,7 +37,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	result := make([]map[string]any, 0)
+	result := []map[string]any{}
 	for rows.Next() {
 		var id, period, status, prompt, completeness string
 		var metrics json.RawMessage
@@ -78,7 +48,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"error": "unable to list insights"})
 			return
 		}
-		result = append(result, map[string]any{"id": id, "period": period, "status": status, "metrics": metrics, "gatewayRoute": route, "model": model, "promptVersion": prompt, "text": text, "confidence": confidence, "dataCompleteness": completeness, "createdAt": created, "completedAt": completed})
+		result = append(result, map[string]any{"id": id, "period": period, "status": status, "metrics": metrics, "gatewayRoute": route, "model": model, "promptVersion": prompt, "historical": prompt != insightPromptVersion, "text": text, "confidence": confidence, "dataCompleteness": completeness, "createdAt": created, "completedAt": completed})
+	}
+	if err := rows.Err(); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to list insights"})
+		return
 	}
 	writeJSON(w, 200, result)
 }
@@ -88,23 +62,37 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	local := h.now().In(clock.HouseholdLocation())
-	period := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
-	periodKind := "CALENDAR_MONTH"
-	if r.URL.Query().Get("period") == "cycle" {
-		var anchored *time.Time
-		if err := h.pool.QueryRow(r.Context(), `SELECT max(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date <= $2::date`, household, local.Format("2006-01-02")).Scan(&anchored); err == nil && anchored != nil {
-			period = *anchored
-			periodKind = "CURRENT_CYCLE"
+	if period := r.URL.Query().Get("period"); period != "" && period != "cycle" {
+		writeJSON(w, 400, map[string]string{"error": "commentary supports salary cycles only"})
+		return
+	}
+	start := r.URL.Query().Get("cycle_start")
+	if start != "" {
+		if _, err := time.Parse("2006-01-02", start); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "cycle_start must be YYYY-MM-DD"})
+			return
 		}
 	}
-	metrics, err := h.buildFacts(r, household, period, periodKind)
+	facts, err := analyticscore.Load(r.Context(), h.pool, household, start, h.now())
+	if errors.Is(err, analyticscore.ErrCycleNotFound) {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to build deterministic insight facts"})
 		return
 	}
+	if facts.Period.Kind != "SALARY_CYCLE" {
+		writeJSON(w, 409, map[string]string{"error": "confirmed salary cycle required"})
+		return
+	}
+	kind := "SALARY_CYCLE"
+	if facts.Period.State == "ACTIVE" {
+		kind = "CURRENT_CYCLE"
+	}
+	period := facts.Period.Start
 	var existing string
-	err = h.pool.QueryRow(r.Context(), existingInsightQuery, household, period, metrics.PeriodKind, metrics.PeriodStart, insightPromptVersion).Scan(&existing)
+	err = h.pool.QueryRow(r.Context(), existingInsightQuery, household, period, kind, period, insightPromptVersion).Scan(&existing)
 	if err == nil {
 		writeJSON(w, 200, map[string]string{"id": existing, "status": "EXISTING"})
 		return
@@ -113,15 +101,23 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to check insight rate limit"})
 		return
 	}
-	raw, _ := json.Marshal(metrics)
+
+	// The snapshot is server-side audit evidence only. Models retrieve financial
+	// data through shared native READ tools, never this preloaded JSON.
+	raw, err := json.Marshal(map[string]any{"period_kind": kind, "period_start": period, "period_end": facts.Period.MeasuredUntil, "period_open": facts.Period.State == "ACTIVE", "facts_snapshot": facts})
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to serialize insight facts"})
+		return
+	}
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to request insight"})
 		return
 	}
 	defer tx.Rollback(r.Context())
+	completeness := facts.Completeness()
 	var id string
-	if err := tx.QueryRow(r.Context(), `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,$2,'PENDING',$3::jsonb,$4,$5,$6) RETURNING id`, household, period, string(raw), insightPromptVersion, metrics.DataCompleteness, p.UserID).Scan(&id); err != nil {
+	if err := tx.QueryRow(r.Context(), `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,$2::date,'PENDING',$3::jsonb,$4,$5,$6) RETURNING id`, household, period, string(raw), insightPromptVersion, completeness, p.UserID).Scan(&id); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			writeJSON(w, 409, map[string]string{"error": "an insight is already being generated"})
@@ -134,133 +130,15 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to enqueue insight"})
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'REQUEST_INSIGHT','insight',$3,jsonb_build_object('period',$4::date,'period_start',$5::date,'period_kind',$6::text,'data_completeness',$7::numeric))`, household, p.UserID, id, period, metrics.PeriodStart, metrics.PeriodKind, metrics.DataCompleteness); err != nil || tx.Commit(r.Context()) != nil {
+	if _, err := tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'REQUEST_INSIGHT','insight',$3,jsonb_build_object('period',$4::date,'period_start',$4::date,'period_kind',$5::text,'data_completeness',$6::numeric,'prompt_version',$7::text))`, household, p.UserID, id, period, kind, completeness, insightPromptVersion); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to enqueue insight"})
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to enqueue insight"})
 		return
 	}
 	writeJSON(w, 202, map[string]string{"id": id, "status": "PENDING"})
-}
-
-func (h *Handler) buildFacts(r *http.Request, household string, period time.Time, periodKind string) (facts, error) {
-	end := period.AddDate(0, 1, 0)
-	if periodKind == "CURRENT_CYCLE" {
-		var next *time.Time
-		_ = h.pool.QueryRow(r.Context(), `SELECT min(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date>$2::date`, household, period.Format("2006-01-02")).Scan(&next)
-		if next != nil {
-			end = *next
-		} else {
-			local := h.now().In(clock.HouseholdLocation())
-			end = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation())
-		}
-	}
-	// Keep the three-month baseline for category trend calculations, but use the
-	// actual preceding salary anchor for cycle-to-cycle comparison.
-	previousStart := period.AddDate(0, -3, 0)
-	previousPeriodStart := period.AddDate(0, -1, 0)
-	if periodKind == "CURRENT_CYCLE" {
-		previousStart = period.Add(-end.Sub(period))
-		var prior *time.Time
-		_ = h.pool.QueryRow(r.Context(), `SELECT max(se.pay_date) FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date<$2::date`, household, period.Format("2006-01-02")).Scan(&prior)
-		if prior != nil {
-			previousPeriodStart = *prior
-		} else {
-			previousPeriodStart = previousStart
-		}
-	}
-	var income, expense, categorizedExpense string
-	var reviews int
-	err := h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3 THEN amount WHEN type='REFUND' AND status='CONFIRMED' AND transaction_at>=$2 AND transaction_at<$3 THEN -amount ELSE 0 END),0)::text,COALESCE(sum(amount) FILTER(WHERE type='EXPENSE' AND status='CONFIRMED' AND category_id IS NOT NULL AND transaction_at>=$2 AND transaction_at<$3),0)::text,(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, household, period, end).Scan(&income, &expense, &categorizedExpense, &reviews)
-	if err != nil {
-		return facts{}, err
-	}
-	changes := make([]categoryChange, 0)
-	rows, err := h.pool.Query(r.Context(), `SELECT c.name,COALESCE(sum(t.amount) FILTER(WHERE t.transaction_at>=$2 AND t.transaction_at<$3),0)::text,trunc(COALESCE(sum(t.amount) FILTER(WHERE t.transaction_at>=$4 AND t.transaction_at<$2),0)/3)::text FROM category c LEFT JOIN transaction t ON t.category_id=c.id AND t.household_id=$1 AND t.type='EXPENSE' AND t.status='CONFIRMED' WHERE c.household_id=$1 GROUP BY c.id,c.name HAVING COALESCE(sum(t.amount),0)>0 ORDER BY COALESCE(sum(t.amount) FILTER(WHERE t.transaction_at>=$2 AND t.transaction_at<$3),0) DESC LIMIT 10`, household, period, end, previousStart)
-	if err != nil {
-		return facts{}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var value categoryChange
-		if err := rows.Scan(&value.Category, &value.Current, &value.PreviousThreeMonthAvg); err != nil {
-			return facts{}, err
-		}
-		value.Change = changeRatio(value.Current, value.PreviousThreeMonthAvg)
-		changes = append(changes, value)
-	}
-	completeness := completenessRatio(categorizedExpense, expense, reviews)
-	var previousIncome, previousExpense string
-	_ = r.Context()
-	_ = h.pool.QueryRow(r.Context(), `SELECT COALESCE(sum(amount) FILTER(WHERE type='INCOME'),0)::text,COALESCE(sum(CASE WHEN type='EXPENSE' THEN amount WHEN type='REFUND' THEN -amount ELSE 0 END),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND transaction_at >= $2 AND transaction_at < $3`, household, previousPeriodStart, period).Scan(&previousIncome, &previousExpense)
-	merchants := make([]distribution, 0)
-	merchantRows, _ := h.pool.Query(r.Context(), `SELECT COALESCE(NULLIF(counterparty_name,''),description,'Tidak diketahui'),sum(amount)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='EXPENSE' AND transaction_at >= $2 AND transaction_at < $3 GROUP BY 1 ORDER BY sum(amount) DESC LIMIT 10`, household, period, end)
-	if merchantRows != nil {
-		defer merchantRows.Close()
-		for merchantRows.Next() {
-			var d distribution
-			if merchantRows.Scan(&d.Name, &d.Amount) == nil {
-				merchants = append(merchants, d)
-			}
-		}
-	}
-	members := make([]distribution, 0)
-	memberRows, _ := h.pool.Query(r.Context(), `SELECT COALESCE(u.display_name,'Anggota'),sum(t.amount)::text FROM transaction t LEFT JOIN "user" u ON u.id=t.created_by_user_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type='EXPENSE' AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY 1 ORDER BY sum(t.amount) DESC`, household, period, end)
-	if memberRows != nil {
-		defer memberRows.Close()
-		for memberRows.Next() {
-			var d distribution
-			if memberRows.Scan(&d.Name, &d.Amount) == nil {
-				members = append(members, d)
-			}
-		}
-	}
-	result := facts{Period: period.Format("2006-01"), PeriodKind: periodKind, PeriodStart: period.Format("2006-01-02"), PeriodEnd: end.Format("2006-01-02"), PeriodOpen: periodKind == "CURRENT_CYCLE" && end.After(h.now().In(clock.HouseholdLocation())), Currency: "IDR", Income: income, Expense: expense, NetCashflow: subtract(income, expense), CategoryChanges: changes, OpenReviewCount: reviews, DataCompleteness: completeness, MerchantDistribution: merchants, MemberDistribution: members, PreviousExpense: previousExpense, PreviousNetCashflow: subtract(previousIncome, previousExpense)}
-	if value, ok := divide(result.NetCashflow, income); ok {
-		result.SavingsRate = &value
-	}
-	return result, rows.Err()
-}
-
-func completenessRatio(categorized, expense string, reviews int) string {
-	expenseValue, _ := new(big.Int).SetString(expense, 10)
-	if expenseValue.Sign() <= 0 {
-		if reviews == 0 {
-			return "1.0000"
-		}
-		return "0.5000"
-	}
-	categoryValue, _ := new(big.Int).SetString(categorized, 10)
-	base := new(big.Rat).SetFrac(categoryValue, expenseValue)
-	if reviews > 0 {
-		base.Mul(base, new(big.Rat).SetFrac64(9, 10))
-	}
-	if base.Cmp(big.NewRat(1, 1)) > 0 {
-		base.SetInt64(1)
-	}
-	return base.FloatString(4)
-}
-
-func changeRatio(current, average string) string {
-	avg, _ := new(big.Int).SetString(average, 10)
-	if avg.Sign() <= 0 {
-		return "unavailable"
-	}
-	cur, _ := new(big.Int).SetString(current, 10)
-	return new(big.Rat).SetFrac(new(big.Int).Sub(cur, avg), avg).FloatString(4)
-}
-
-func subtract(left, right string) string {
-	a, _ := new(big.Int).SetString(left, 10)
-	b, _ := new(big.Int).SetString(right, 10)
-	return new(big.Int).Sub(a, b).String()
-}
-
-func divide(left, right string) (string, bool) {
-	a, _ := new(big.Int).SetString(left, 10)
-	b, _ := new(big.Int).SetString(right, 10)
-	if b.Sign() <= 0 {
-		return "", false
-	}
-	return new(big.Rat).SetFrac(a, b).FloatString(4), true
 }
 
 func principal(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {

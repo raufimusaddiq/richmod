@@ -2,7 +2,6 @@ package analytics
 
 import (
 	"encoding/json"
-	"math/big"
 	"net/http"
 	"time"
 
@@ -55,17 +54,10 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"period": period.Start.Format("2006-01-02"), "periodKind": period.Kind, "periodStart": period.Start.Format("2006-01-02"), "periodEnd": period.End.Format("2006-01-02"), "currency": "IDR", "income": income, "expense": expense, "netCashflow": net, "savingsRate": savings, "savingsAllocated": savingsAllocated, "savingsAllocationRate": savingsAllocationRate, "unallocatedSurplus": unallocatedSurplus, "reviewCount": review})
 }
 func subtract(a, b string) string {
-	x, _ := new(big.Int).SetString(a, 10)
-	y, _ := new(big.Int).SetString(b, 10)
-	return new(big.Int).Sub(x, y).String()
+	return financialmath.Subtract(a, b)
 }
 func ratio(n, d string) (string, bool) {
-	num, _ := new(big.Int).SetString(n, 10)
-	den, _ := new(big.Int).SetString(d, 10)
-	if den.Sign() <= 0 {
-		return "", false
-	}
-	return new(big.Rat).SetFrac(num, den).FloatString(4), true
+	return financialmath.Ratio(n, d)
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")

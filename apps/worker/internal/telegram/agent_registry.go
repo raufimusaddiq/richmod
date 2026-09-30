@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -22,6 +23,14 @@ var agentReadTools = map[string]struct{}{
 	"query_wealth": {}, "list_wealth_accounts": {}, "search_transactions": {},
 	"list_review_items": {}, "get_finance_insight": {},
 	"get_category_breakdown": {}, "get_largest_transactions": {}, "get_transaction_details": {},
+}
+
+// The shared analytical READ catalog is a channel-neutral capability. Telegram
+// reuses the exact tool set and fact engine as the analytics API (BDR-006).
+func init() {
+	for _, tool := range analyticscore.Tools() {
+		agentReadTools[tool.Name] = struct{}{}
+	}
 }
 
 var agentSideEffectTools = map[string]struct{}{

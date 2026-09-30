@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -59,6 +60,11 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 	if hasMerchantLearning {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_merchant_learning", Description: "Confirm whether to remember this merchant category rule.", Parameters: objectSchema(map[string]any{"remember": map[string]any{"type": "boolean"}}, []string{"remember"})})
 	}
+	// Shared analytical READ tools over the same deterministic fact engine as the
+	// analytics API. Read-only; channel-neutral (BDR-006).
+	for _, tool := range analyticscore.Tools() {
+		tools = append(tools, gateway.ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
+	}
 	return tools
 }
 
@@ -107,6 +113,13 @@ func objectSchema(properties map[string]any, required []string) map[string]any {
 }
 
 func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
+	if analyticscore.IsRead(call.Name) {
+		args, err := analyticscore.DecodeArgs(call.Name, call.Arguments)
+		if err != nil {
+			return nil, err
+		}
+		return remarshal(args), nil
+	}
 	var target any
 	switch call.Name {
 	case "record_transaction":

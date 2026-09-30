@@ -1,4 +1,4 @@
-package analytics
+package analyticscore
 
 import (
 	"encoding/json"
@@ -52,7 +52,7 @@ func TestCashChangeUsesOnlyCompletedEligibleHistory(t *testing.T) {
 }
 
 func TestReviewDoesNotAuthorSemanticConclusions(t *testing.T) {
-	payload, err := json.Marshal(cycleReview{})
+	payload, err := json.Marshal(Facts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,5 +60,24 @@ func TestReviewDoesNotAuthorSemanticConclusions(t *testing.T) {
 		if strings.Contains(strings.ToLower(string(payload)), forbidden) {
 			t.Fatalf("deterministic facts must not carry semantic field %q", forbidden)
 		}
+	}
+}
+
+func TestCompletenessUsesGrossExpenseAndReviewCoverage(t *testing.T) {
+	f := Facts{Cashflow: reviewCashflow{GrossExpense: "1000000", Refund: "500000"}, Quality: []reviewBlocker{{Kind: "UNCATEGORIZED_EXPENSE", Amount: valuePointer("250000")}}}
+	if got := f.Completeness(); got != "0.7500" {
+		t.Fatalf("coverage=%s", got)
+	}
+	f.Quality = append(f.Quality, reviewBlocker{Kind: "OPEN_REVIEWS", Count: 2})
+	if got := f.Completeness(); got != "0.6750" {
+		t.Fatalf("review-adjusted coverage=%s", got)
+	}
+	f.Cashflow.GrossExpense = "0"
+	if f.Completeness() != "0.5000" {
+		t.Fatal("empty cycle with reviews must not claim completeness")
+	}
+	f.Quality = nil
+	if f.Completeness() != "1.0000" {
+		t.Fatal("empty complete cycle coverage")
 	}
 }

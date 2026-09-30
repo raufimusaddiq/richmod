@@ -85,9 +85,11 @@ includes `cycle-review-v1` and generation time. It is recomputed, not cached:
 historical canonical corrections are visible on the next read. No new schema,
 financial mutation, provider call, or production-data repair is involved.
 
-The existing Analytics page is unchanged in Sprint 1. Shared model-facing READ
-tools, Web UI wiring, meeting mode, and decision persistence belong to subsequent
-scoped sprints; the API's canonical IDs must not be forwarded to models.
+The engine now lives in `apps/reviewdomain/analyticscore`. The API is a thin
+authorized adapter; [shared native analytical READ tools](ANALYTICS_SHARED_READ_TOOLS.md)
+use the same calculations and explicit model-safe projections. API canonical
+IDs remain server/browser-only. Full Web UI, meeting mode, and decision
+persistence belong to subsequent scoped sprints.
 
 ## Verification
 

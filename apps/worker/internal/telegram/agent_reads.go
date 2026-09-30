@@ -7,11 +7,20 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any, refPrefix string) (agentToolResult, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolRead, Status: "OK"}
+	if analyticscore.IsRead(call.Name) {
+		facts, err := state.Analytics.Read(ctx, call.Name, call.Arguments)
+		if err != nil {
+			return result, err
+		}
+		result.Facts = facts
+		return result, nil
+	}
 
 	switch call.Name {
 	case "query_spending":

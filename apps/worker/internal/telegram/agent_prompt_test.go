@@ -6,7 +6,7 @@ import (
 )
 
 func TestConversationalAgentPromptTargetsTelegramReplies(t *testing.T) {
-	for _, phrase := range []string{"directly inside Telegram", "only the user-facing message", "no JSON", "default to Indonesian", "<untrusted_ledger_text>"} {
+	for _, phrase := range []string{"directly inside Telegram", "only the user-facing message", "no JSON", "default to Indonesian", "<untrusted_ledger_text>", "get_cycle_overview", "category_ref", "prescriptive financial advice"} {
 		if !strings.Contains(conversationalAgentPrompt, phrase) {
 			t.Fatalf("prompt missing %q", phrase)
 		}
