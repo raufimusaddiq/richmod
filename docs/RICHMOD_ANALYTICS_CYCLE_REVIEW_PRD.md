@@ -1,6 +1,6 @@
 # Richmod Analytics Cycle Review PRD
 
-**Status:** Proposed product contract for implementation
+**Status:** Current product contract; Sprints 1–4 implemented, Sprint 5 hardening in progress
 **Target:** latest `main` at implementation time
 **Primary surface:** `/analytics`
 **Reusable consumers:** Telegram conversational agent may call the same analytical READ tools

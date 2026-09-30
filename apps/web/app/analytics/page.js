@@ -75,10 +75,11 @@ function AnalyticsReview() {
   const cycleStart = facts?.period?.kind === "SALARY_CYCLE" ? facts.period.start : "";
   const cycleEnd = facts?.period?.measuredUntil || "";
   const loadInsights = useCallback(async signal => {
-    const response = await fetch("/api/v1/insights", { signal, cache: "no-store" });
+    const query = new URLSearchParams({ cycle_start: cycleStart });
+    const response = await fetch(`/api/v1/insights?${query}`, { signal, cache: "no-store" });
     if (!response.ok) throw new Error("load");
     return response.json();
-  }, []);
+  }, [cycleStart]);
 
   useEffect(() => {
     insightAbort.current?.abort();

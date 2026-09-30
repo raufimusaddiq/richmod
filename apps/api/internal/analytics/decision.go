@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
@@ -70,6 +71,9 @@ func (h *Handler) CreateDecision(w http.ResponseWriter, r *http.Request) {
 		decisionError(w, err)
 		return
 	}
+	// createDecision has committed before this acknowledgement. Canonical text
+	// and authorship remain only in cycle_decision, never generic telemetry.
+	slog.InfoContext(r.Context(), "CYCLE_DECISION_SAVED")
 	writeJSON(w, 201, created)
 }
 

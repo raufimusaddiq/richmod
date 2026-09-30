@@ -63,7 +63,8 @@ test("review page renders deterministic sections, native chart, and AI-disabled 
   const page = text("app/analytics/page.js");
   for (const section of ["position", "spending-shape", "changes", "drivers", "destinations", "household", "savings-wealth", "quality", "discussion"]) assert.match(page, new RegExp(`id="${section}"`));
   assert.match(page, /analytics\/cycle-review/);
-  assert.match(page, /fetch\("\/api\/v1\/insights"/);
+  assert.match(page, /fetch\(`\/api\/v1\/insights\?\$\{query\}/);
+  assert.match(page, /cycle_start: cycleStart/);
   assert.match(page, /generate\?\${query}|insights\/generate\?\${query}/);
   assert.match(page, /window\.history\.pushState/);
   assert.match(page, /Suspense/);

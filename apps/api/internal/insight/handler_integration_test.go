@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,5 +91,47 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	handler.Generate(retryFailed, request)
 	if retryFailed.Code != http.StatusAccepted {
 		t.Fatalf("failed retry status=%d body=%s", retryFailed.Code, retryFailed.Body.String())
+	}
+	// More than twelve newer rows must not hide the selected older cycle. Large
+	// audit records stay stored, but are excluded from the browser projection.
+	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=input_metrics_json || '{"facts_snapshot":{"private":"fixture"},"tool_reads":[{"private":"fixture"}]}'::jsonb WHERE id=$1`, generated["id"]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,created_at) SELECT $1,'2026-09-01','SUCCEEDED','{"period_start":"2026-09-01","period_kind":"SALARY_CYCLE"}', 'cycle-analyst-v3',1,now()+n*interval '1 minute' FROM generate_series(1,14) n`, householdID); err != nil {
+		t.Fatal(err)
+	}
+	listRequest := httptest.NewRequest("GET", "/api/v1/insights?cycle_start=2026-08-24", nil)
+	listRequest = listRequest.WithContext(auth.ContextWithPrincipal(listRequest.Context(), principal))
+	listed := httptest.NewRecorder()
+	handler.List(listed, listRequest)
+	if listed.Code != 200 || listed.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("list status=%d cache=%s", listed.Code, listed.Header().Get("Cache-Control"))
+	}
+	var items []struct {
+		ID      string         `json:"id"`
+		Metrics map[string]any `json:"metrics"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &items); err != nil || len(items) != 2 {
+		t.Fatalf("older cycle count=%d err=%v", len(items), err)
+	}
+	for _, item := range items {
+		if item.Metrics["period_start"] != "2026-08-24" || item.Metrics["facts_snapshot"] != nil || item.Metrics["tool_reads"] != nil {
+			t.Fatal("presentation leaked audit data or another cycle")
+		}
+	}
+	var preserved bool
+	if err := pool.QueryRow(ctx, `SELECT input_metrics_json ? 'facts_snapshot' AND input_metrics_json ? 'tool_reads' FROM insight WHERE id=$1`, generated["id"]).Scan(&preserved); err != nil || !preserved {
+		t.Fatalf("audit preservation=%t err=%v", preserved, err)
+	}
+	var otherHousehold string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Other synthetic household') RETURNING id`).Scan(&otherHousehold); err != nil {
+		t.Fatal(err)
+	}
+	foreign := auth.Principal{HouseholdID: otherHousehold, HasHousehold: true}
+	listRequest = listRequest.WithContext(auth.ContextWithPrincipal(listRequest.Context(), foreign))
+	isolated := httptest.NewRecorder()
+	handler.List(isolated, listRequest)
+	if isolated.Code != 200 || strings.TrimSpace(isolated.Body.String()) != "[]" {
+		t.Fatalf("foreign list status=%d body=%s", isolated.Code, isolated.Body.String())
 	}
 }

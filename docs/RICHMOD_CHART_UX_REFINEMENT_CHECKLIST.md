@@ -1,3 +1,13 @@
+> **HISTORICAL — 2026-09-30**
+>
+> Superseded for new Analytics work. The current contract is
+> `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`,
+> `docs/bdr/BDR-006-analytics-household-cycle-review.md`,
+> `docs/ANALYTICS_CYCLE_REVIEW_UI.md` and
+> `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`. Kept as an execution
+> record; do not restore the point-in-time page composition it describes.
+
+
 # Richmod Chart UX Refinement — Implementation Checklist
 
 This checklist tracks implementation of

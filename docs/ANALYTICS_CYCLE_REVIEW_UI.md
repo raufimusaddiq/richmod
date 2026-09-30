@@ -129,6 +129,30 @@ drivers, savings, Wealth and quality actions intact. No confidence/quality score
 recommendation DTO or prose-to-finance parsing is added. The existing server
 completeness gate remains authoritative.
 
+## Telemetry and invalidation
+
+Bounded product events are emitted through structured logs, never a new
+schema: `CYCLE_REVIEW_OPENED` (one line per successful facts load, with
+`version`, `period_kind`, `period_state`) and `CYCLE_DECISION_SAVED` (one line
+per committed human-authored decision). Amounts, dates, household/decision IDs,
+names and decision text are absent by construction; the canonical
+`cycle_decision` and `transaction` rows remain the only owners of that data. No
+event is emitted for opening the page without a confirmed facts load or for
+`ANALYSIS_RENDERED_NO_NOTEWORTHY_CHANGE`, which lives in model text and would be
+duplicated or unparseable. See `docs/ANALYTICS_CYCLE_REVIEW_TELEMETRY.md`.
+
+Closed cycles are **not** assumed immutable. `/api/v1/analytics/cycle-review` and
+`/api/v1/insights` set `private, no-store`, and the web fetch sends
+`cache: no-store`, so a corrected historical transaction or re-confirmed review
+is reflected on the next load instead of serving stale closed-cycle facts. The
+insight list is now filtered by `cycle_start` before its `LIMIT`, so older
+selected cycles remain reachable once commentary exists for newer cycles, and
+the audit snapshot/transcript are stripped from the presentation payload.
+
+Persisted commentary is dated snapshot-based text, not automatically regenerated
+by HTTP no-store. Its existing one-hour generation reuse remains unchanged;
+canonical corrections update current facts on reload, not past model prose.
+
 ## Verification
 
 - `npm test`: formatting/null baselines, date boundaries, URL selection,

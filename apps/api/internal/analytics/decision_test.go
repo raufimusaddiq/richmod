@@ -30,6 +30,7 @@ func decisionRequest(h *Handler, p auth.Principal, method, query, payload, id st
 }
 
 func TestDecisionInputFailsBeforeDatabase(t *testing.T) {
+	output := captureProductEvents(t)
 	h := NewHandler(nil)
 	p := auth.Principal{UserID: "u", HouseholdID: "h", HasHousehold: true}
 	for _, body := range []string{`{}`, `{"cycleStart":"2026-08-01","body":" "}`, `{"cycleStart":"bad","body":"note"}`, `{"cycleStart":"2026-08-01","body":"note","householdId":"another"}`, `{"cycleStart":"2026-08-01","body":"note","authorUserId":"another"}`, `{"cycleStart":"2026-08-01","body":"note"} {}`, `{"cycleStart":"2026-08-01","body":"note\u0000"}`} {
@@ -56,10 +57,12 @@ func TestDecisionInputFailsBeforeDatabase(t *testing.T) {
 			t.Fatalf("auth status=%d", w.Code)
 		}
 	}
+	assertProductEvents(t, output, "CYCLE_DECISION_SAVED", 0)
 }
 
 func TestCycleDecisionsExplicitSaveAuditAndHouseholdIsolation(t *testing.T) {
 	f, other := cycleReviewFixture(t), cycleReviewFixture(t)
+	output := captureProductEvents(t)
 	for _, fixture := range []reviewFixture{f, other} {
 		for _, start := range []string{"2026-07-01", "2026-08-01", "2026-09-01"} {
 			fixture.anchor(t, start)
@@ -169,4 +172,5 @@ func TestCycleDecisionsExplicitSaveAuditAndHouseholdIsolation(t *testing.T) {
 	if w := decisionRequest(h, p, "POST", "", `{"cycleStart":"2026-08-01","body":"Stale membership"}`, ""); w.Code != 404 {
 		t.Fatalf("inactive membership=%d body=%s", w.Code, w.Body.String())
 	}
+	assertProductEvents(t, output, "CYCLE_DECISION_SAVED", 2)
 }

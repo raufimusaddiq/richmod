@@ -42,3 +42,18 @@ export const cycleCommentary = {
   text: "Belanja rumah menyumbang setengah selisih pengeluaran dari siklus sebelumnya. Makan di luar lebih tinggi dari siklus sebelumnya, tetapi dekat dengan median tiga siklus. Bukti merchant dan transaksi dapat diperiksa sebelum dibahas bersama.",
   metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01" }, completedAt: "2026-09-06T12:00:00+07:00",
 };
+
+export function stableCycleFacts() {
+  const facts = cycleFacts("2026-08-26");
+  const category = { ...facts.categoryChanges[0], amount: "1400000", previous: "1400000", median3: "1400000", deltaVsPrevious: "0", deltaVsMedian3: "0", relativeDeltaVsPrevious: "0", relativeDeltaVsMedian3: "0", shareOfExpense: "1", contributionToExpenseChange: null, count: 6, merchants: [], transactions: [] };
+  facts.categoryChanges = [category];
+  facts.comparison.expense = { ...category, id: "", name: "" };
+  facts.cashflow = { income: "1400000", grossExpense: "1400000", refund: "0", expense: "1400000", netCashflow: "0", savingsAllocated: "0", unallocatedSurplus: "0" };
+  facts.daily = facts.daily.map((day, index) => ({ ...day, expense: index < 4 ? "200000" : "300000", grossExpense: index < 4 ? "200000" : "300000", refund: "0", income: index === 0 ? "1400000" : "0" }));
+  facts.spendingShape = { days: 6, averageDailyExpense: "233333.33", peakDay: facts.daily[4].period, peakExpense: "300000", peakShareOfExpense: "0.2143", zeroSpendDays: 0 };
+  facts.merchantDrivers = []; facts.memberAttribution = [{ name: "Shared / unattributed", amount: "1400000", count: 6 }]; facts.savingsDestinations = [];
+  facts.wealth.current.netWorth = facts.wealth.previous.netWorth;
+  facts.wealth.netWorthChange = "0"; facts.wealth.confirmedCashflow = "0"; facts.wealth.valuationAndOtherChange = "0";
+  facts.dataQuality = [];
+  return facts;
+}

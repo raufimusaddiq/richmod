@@ -70,3 +70,18 @@ whether a change is worth discussing. Concrete blockers remain authoritative.
 Go computes financial measurements. Open-ended "what is noteworthy?" and analytical
 narrative remain intelligence responsibilities; they must not drift into deterministic
 pseudo-NLP simply because Go owns the ledger.
+
+## Hardening amendment — 2026-09-30
+
+`GET /api/v1/insights?cycle_start=YYYY-MM-DD` filters the household's commentary
+before the existing 12-row limit; omit the selector for the legacy recent list.
+Malformed dates fail before a database read. The presentation payload omits
+`facts_snapshot` and `tool_reads`; their PostgreSQL audit values are preserved.
+Facts and commentary HTTP reads are `private, no-store`. Persisted commentary
+still describes its timestamped snapshot, not newly corrected historical facts;
+the existing explicit generation/hourly reuse policy is unchanged.
+
+Cycle-review usage emits bounded, non-identifying log events, not financial
+writes or new persistence. Definitions, privacy boundaries, query budget and
+invalidation are recorded in
+[the hardening note](../ANALYTICS_CYCLE_REVIEW_TELEMETRY.md).
