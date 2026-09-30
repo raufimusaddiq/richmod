@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type merchantReplyGateway struct {
@@ -43,11 +42,9 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 				mustAgentTest(t, err)
 			}
 			mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,created_by_user_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',54000,'IDR',now(),$2) RETURNING id`, f.householdID, f.userID).Scan(&transactionID))
-			decision, _ := reviewdec.Preset("UNKNOWN_MERCHANT", "transaction", transactionID)
-			decision.MissingFacts = []string{"merchant", "category"}
 			tx, err := f.pool.Begin(ctx)
 			mustAgentTest(t, err)
-			mustAgentTest(t, EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_MERCHANT", f.chatID, 0, "Nominal: Rp54.000", decision))
+			mustAgentTest(t, EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_MERCHANT", f.chatID, 0, "Nominal: Rp54.000"))
 			mustAgentTest(t, tx.Commit(ctx))
 			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 			var conversation string
