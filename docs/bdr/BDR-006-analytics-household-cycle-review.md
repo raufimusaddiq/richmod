@@ -1,0 +1,284 @@
+# BDR-006: Analytics as the Household Cycle Review
+
+## Record type
+
+Business Decision Record.
+
+## Status
+
+Proposed product decision — 2026-09-30.
+
+## Decision owner
+
+Product Design.
+
+## Related documents
+
+- `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`
+- `docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`
+- `docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md`
+- `docs/adr/ADR-015-aggregate-only-llm-insights.md`
+- `docs/INTELLIGENCE_ROUTING_DRIFT_GUARD_CHECKLIST.md`
+
+## Business problem
+
+Richmod has become effective at turning evidence into trusted household financial records, but the value after capture is still under-realized.
+
+The current Analytics surface exposes correct charts, rankings, and a generated narrative. That is useful for inspection, but it is not yet the product a household can rely on when a salary cycle ends and two members want to review their finances together.
+
+The failure mode is subtle:
+
+~~~text
+good capture
++ correct ledger
++ many charts
++ generic AI summary
+!= useful household financial review
+~~~
+
+The household should not have to translate dashboards into its own review process every month.
+
+## Product decision
+
+Richmod Analytics will be designed primarily as a **household cycle review**, not as a generic dashboard and not as an AI advice surface.
+
+For a completed salary cycle, Analytics must help the household answer:
+
+1. What happened?
+2. What materially changed?
+3. What drove the change?
+4. Is the change actually unusual against recent history?
+5. Where did the surplus go?
+6. How did Wealth change?
+7. Is the data complete enough to trust the review?
+8. What is worth discussing?
+9. What does the household itself want to remember or decide?
+
+Charts remain a core part of the product. The decision is not "replace charts with AI." The decision is:
+
+> Charts show the facts. Deterministic analysis explains the movement. Optional AI makes the already-supported findings easier to discuss.
+
+## Product hierarchy
+
+The accepted hierarchy is:
+
+~~~text
+trusted household state
+-> deterministic cycle analysis
+-> deterministic visual explanation
+-> optional evidence-bound AI interpretation
+-> household discussion
+-> household-authored decisions
+~~~
+
+The reverse hierarchy is rejected.
+
+In particular, the product must not become:
+
+~~~text
+LLM opinion
+-> chart decoration
+-> household follows recommendation
+~~~
+
+## Native-tool AI decision
+
+Generative AI in Analytics is allowed only when it uses Richmod's native-tool pattern.
+
+The business reason is trust, not implementation style.
+
+A model that returns unconstrained prose can easily produce:
+
+- filler;
+- advice;
+- unsupported causal language;
+- invented importance;
+- inconsistent output shape;
+- untraceable claims.
+
+Therefore:
+
+> Any generative Analytics output must be returned through a required, strict, server-owned native tool schema and every visible finding must bind to deterministic evidence references.
+
+The model is not allowed to become the owner of financial numbers, baselines, materiality, household policy, or canonical state.
+
+If native tool execution fails, Analytics degrades to deterministic output. It does not fall back to unconstrained prose.
+
+## No-advice decision
+
+The target output is **discussion support**, not recommendation.
+
+The previous generic insight contract required a recommendation paragraph. That is no longer the desired product behavior for the cycle-review experience.
+
+Accepted:
+
+> "Groceries contributed most of the increase against the recent baseline. Was this a change in household needs that you expect to continue?"
+
+Rejected:
+
+> "Reduce grocery spending by 15% next month."
+
+The household decides. Richmod provides evidence and context.
+
+## Materiality decision
+
+Richmod should not surface every change.
+
+A small percentage movement on a small amount does not deserve a meeting topic merely because it exists.
+
+Materiality is a product policy owned by deterministic backend logic and versioned explicitly.
+
+The AI cannot decide significance from raw numbers without a bounded candidate set.
+
+This prevents the product from generating a monthly list of technically true but useless observations.
+
+## Baseline decision
+
+The immediately previous cycle is useful but insufficient.
+
+Where history permits, Analytics must provide recent-baseline context, especially a previous-three-completed-cycle median.
+
+This prevents false drama such as:
+
+~~~text
+Dining +75% vs previous cycle
+~~~
+
+when the current amount is actually normal against recent history.
+
+The product prefers a truthful nuanced statement over a more dramatic percentage.
+
+## "No insight" decision
+
+No material finding is a successful product result.
+
+If a cycle is stable, Richmod should say that concisely or simply show deterministic context.
+
+The application must not call a model solely because an AI card exists.
+
+This is a deliberate anti-slop policy.
+
+## Explainability decision
+
+Any AI-assisted finding must support a household-level "Why?" action.
+
+That expansion shows deterministic evidence:
+
+- current value;
+- baseline;
+- delta;
+- driver categories/merchants/transactions;
+- data-quality context;
+- links to the relevant Richmod records.
+
+The model does not generate drill-down URLs.
+
+A finding that cannot be explained this way should not be shown.
+
+## Household-member decision
+
+Member attribution is useful for understanding who initiated a transaction, but Analytics must not turn attribution into household scoring.
+
+Rejected product behavior includes:
+
+- "best spender";
+- "worst spender";
+- responsibility scores;
+- behavioral rankings;
+- shaming language;
+- AI judgments about one member's habits.
+
+Member data is descriptive and household-scoped.
+
+## Household decisions
+
+A cycle review should be able to end with explicit household-authored notes or decisions.
+
+These decisions are a separate product concept from transactions, categories, reviews, and Wealth observations.
+
+They may be shown in future cycle reviews as context.
+
+Richmod must not infer that a later financial change was caused by a prior decision unless that causal relationship is actually established.
+
+## Alternatives considered
+
+### Alternative A — Keep current charts and polish the AI paragraph
+
+Rejected.
+
+This improves appearance but not product utility. The underlying insight input remains too shallow and the output remains difficult to verify.
+
+### Alternative B — Replace Analytics with an AI chat
+
+Rejected.
+
+It hides the deterministic financial model, weakens repeatability, and turns a household review into prompt-writing.
+
+### Alternative C — Let the LLM analyze raw transactions
+
+Rejected.
+
+It violates Richmod's privacy and authority model, makes arithmetic/relevance probabilistic, and makes claims harder to audit.
+
+### Alternative D — Deterministic charts only, no AI
+
+Viable as a safe fallback but not the full target.
+
+Charts and deterministic analysis must stand alone, but native-tool AI can add value by turning material findings into concise human discussion language.
+
+### Alternative E — Deterministic analysis + native-tool evidence-bound interpretation
+
+Accepted.
+
+It preserves financial authority while making the cycle review substantially more useful.
+
+## Success criteria
+
+This decision is successful when a household can open one completed cycle and, without manually constructing its own spreadsheet review:
+
+- understand the financial outcome;
+- identify the few changes that actually mattered;
+- inspect why they mattered;
+- distinguish noise from a recent baseline;
+- understand savings and Wealth movement;
+- see unresolved data-quality blockers;
+- discuss neutral evidence-backed prompts;
+- record its own conclusions.
+
+AI availability is not a prerequisite for completing that review.
+
+## Product invariants
+
+~~~text
+charts remain deterministic
++
+numbers remain deterministic
++
+materiality remains deterministic
++
+AI is native-tool-only
++
+AI findings are evidence-bound
++
+household decisions remain human
+~~~
+
+not:
+
+~~~text
+more AI text
+=
+better Analytics
+~~~
+
+## Revisit triggers
+
+Revisit this BDR if:
+
+- households consistently use a different period than salary cycle for reviews;
+- deterministic materiality suppresses genuinely useful findings;
+- evidence-bound AI adds no measurable utility over deterministic explanations;
+- the Wealth/cashflow model changes materially;
+- the product intentionally expands into advice, which would require a separate explicit product and safety decision.
+
+Any revisit must preserve Richmod's financial correctness and explainability constraints.
