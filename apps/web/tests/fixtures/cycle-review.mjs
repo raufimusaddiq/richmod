@@ -18,7 +18,7 @@ export function cycleFacts(start = "2026-09-01") {
   const daily = amounts.map((expense, index) => {
     const date = new Date(`${period.start}T00:00:00Z`);
     date.setUTCDate(date.getUTCDate() + index);
-    return { period: date.toISOString().slice(0, 10), expense, grossExpense: expense, refund: "0", income: index ? "0" : "12000000" };
+    return { period: date.toISOString().slice(0, 10), expense, grossExpense: index ? expense : "1200000", refund: index ? "0" : "300000", income: index ? "0" : "12000000" };
   });
   return {
     version: "cycle-review-v1", generatedAt: "2026-09-06T12:00:00+07:00", period,

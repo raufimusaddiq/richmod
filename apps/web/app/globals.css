@@ -963,6 +963,7 @@ button.wealth-history-row small { color: var(--accent); font-size: 11px; font-we
 .cycle-review .change-button:active:not(:disabled) { transform: none; }
 .cycle-review .review-table-wrap caption { max-width: 74ch; }
 .cycle-review .insight-card { margin-bottom: var(--space-4); }
+.cycle-review .review-context, .cycle-review .review-values, .cycle-review .review-attribution, .cycle-review .review-destinations { background: var(--surface); }
 @media (max-width: 900px) {
   .cycle-review .cycle-outcome > div:nth-child(even) { border-left: 0; }
 }

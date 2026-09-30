@@ -44,7 +44,7 @@ try {
         body = cycleFacts(url.searchParams.get("cycle_start") || undefined);
         if (invalidFacts) status = 503;
         if (noSalary) {
-          body.period.kind = "CALENDAR_MONTH"; body.cycles = [];
+          body.period = { ...body.period, kind: "CALENDAR_MONTH", start: "2026-09-01", state: "ACTIVE", end: "2026-10-01", measuredUntil: "2026-09-07" }; body.cycles = [];
           body.dataQuality.push({ kind: "MISSING_SALARY_ANCHOR", count: 1, impact: "ANALYSIS_PARTIAL", action: "/settings" });
         }
       } else if (url.pathname === "/api/v1/insights") {
@@ -61,7 +61,13 @@ try {
         body = [{ period: "2026-08", netSpending: "2800000" }, { period: "2026-09", netSpending: "4200000" }];
       } else if (url.pathname === "/api/v1/analytics/merchants") body = cycleFacts().merchantDrivers;
       else if (url.pathname === "/api/v1/analytics/members") body = cycleFacts().memberAttribution;
-      else if (url.pathname === "/api/v1/transactions") body = [];
+      else if (url.pathname.startsWith("/api/v1/transactions")) {
+        const transactions = cycleFacts(url.searchParams.get("cycle") || undefined).categoryChanges[0].transactions.map(item => ({ ...item, merchantName: item.merchant, categoryName: "Belanja rumah", status: "CONFIRMED" }));
+        const exact = url.searchParams.get("id");
+        if (url.pathname === "/api/v1/transactions") body = exact ? transactions.filter(item => item.id === exact) : transactions;
+        else if (/\/evidence$|\/audit$/.test(url.pathname)) body = [];
+        else body = transactions.find(item => url.pathname.endsWith(item.id)) || transactions[0];
+      }
       await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
     });
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
@@ -86,6 +92,15 @@ try {
     assert.equal(merchantHref.searchParams.get("merchantId"), "22222222-2222-4222-8222-222222222222");
     assert.equal(merchantHref.searchParams.get("to"), "2026-09-06");
     assert.equal(merchantHref.searchParams.get("type"), "SPENDING");
+    const transaction = page.locator("#category-drivers").getByRole("link", { name: "Buka transaksi", exact: true }).first();
+    const transactionLink = new URL(await transaction.getAttribute("href"), base);
+    assert.equal(transactionLink.searchParams.get("id"), "33333333-3333-4333-8333-333333333333");
+    await transaction.click();
+    await page.getByRole("dialog", { name: "Detail transaksi", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Pasar Keluarga", exact: true }).waitFor();
+    assert.equal(await page.locator(".transaction-row").count(), 1, "evidence link scopes the ledger to one row");
+    await page.goBack({ waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
     const ledger = page.getByRole("link", { name: "Lihat transaksi Belanja rumah dalam periode ini" });
     await ledger.click();
     await page.getByRole("link", { name: "Kembali ke tinjauan siklus" }).waitFor();
@@ -94,6 +109,10 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} review has no page overflow`);
     await page.screenshot({ path: new URL(`${name}.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await page.locator(".cycle-spending-chart .recharts-bar-rectangle").first().hover();
+    await page.locator(".chart-tooltip").waitFor();
+    assert.match(await page.locator(".chart-tooltip").textContent(), /Pengeluaran bersih.*Rp.*Refund.*Rp/);
+    await page.screenshot({ path: new URL(`${name}-tooltip.png`, output).pathname, fullPage: true, animations: "disabled" });
 
     // Selected closed cycle, no AI: full deterministic review and supporting
     // data remain usable. No automatic retries or synthesis request.

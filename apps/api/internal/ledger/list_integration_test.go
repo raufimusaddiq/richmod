@@ -89,6 +89,7 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAMELLA DUA') RETURNING id`, foreignHousehold).Scan(&foreignMerchant); err != nil {
 		t.Fatal(err)
 	}
+	var drilldownIDs []string
 	for _, row := range []struct{ household, merchant, category, typ, status, at string }{
 		{householdID, merchantID, categoryID, "EXPENSE", "CONFIRMED", "2026-08-26T00:00:00+07:00"},
 		{householdID, merchantID, categoryID, "REFUND", "CONFIRMED", "2026-09-24T23:59:59+07:00"},
@@ -100,14 +101,22 @@ func TestTransactionListFiltersAndProvenance(t *testing.T) {
 		{householdID, "", "", "EXPENSE", "CONFIRMED", "2026-09-10T08:00:00+07:00"},
 		{foreignHousehold, foreignMerchant, "", "EXPENSE", "CONFIRMED", "2026-09-10T08:00:00+07:00"},
 	} {
-		if _, err = pool.Exec(ctx, `INSERT INTO transaction(household_id,merchant_id,category_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,$4,$5,1000,$6::timestamptz,CASE WHEN $5='CONFIRMED' THEN now() END)`, row.household, row.merchant, row.category, row.typ, row.status, row.at); err != nil {
+		var id string
+		if err = pool.QueryRow(ctx, `INSERT INTO transaction(household_id,merchant_id,category_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,$4,$5,1000,$6::timestamptz,CASE WHEN $5='CONFIRMED' THEN now() END) RETURNING id`, row.household, row.merchant, row.category, row.typ, row.status, row.at).Scan(&id); err != nil {
 			t.Fatal(err)
 		}
+		drilldownIDs = append(drilldownIDs, id)
 	}
-	for _, check := range []struct{ filter string; count int }{
+	for _, check := range []struct {
+		filter string
+		count int
+	}{
 		{"merchantId=" + merchantID + "&categoryId=" + categoryID, 2},
 		{"categoryId=uncategorized", 1},
 		{"merchantId=" + foreignMerchant, 0},
+		{"id=" + drilldownIDs[0], 1},
+		{"id=" + drilldownIDs[7] + "&categoryId=uncategorized", 1},
+		{"id=" + drilldownIDs[8], 0},
 	} {
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?from=2026-08-26&to=2026-09-24&type=SPENDING&status=CONFIRMED&"+check.filter, nil)
 		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), principal))

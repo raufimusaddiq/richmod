@@ -36,7 +36,7 @@ func TestTransactionFiltersValidateQueryParameters(t *testing.T) {
 	if filters.End.Sub(*filters.Start).Hours() != 31*24 {
 		t.Fatalf("exclusive end date = %s", filters.End)
 	}
-	for _, raw := range []string{"type=CRYPTO", "status=DELETED", "source=UNKNOWN", "from=25-08-2026", "from=2026-09-01&to=2026-08-01", "merchantId=not-a-uuid"} {
+	for _, raw := range []string{"type=CRYPTO", "status=DELETED", "source=UNKNOWN", "from=25-08-2026", "from=2026-09-01&to=2026-08-01", "merchantId=not-a-uuid", "id=not-a-uuid"} {
 		if _, err := transactionFiltersFromRequest(httptest.NewRequest("GET", "/?"+raw, nil)); err == nil {
 			t.Fatalf("invalid query accepted: %s", raw)
 		}

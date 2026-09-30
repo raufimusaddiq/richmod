@@ -58,6 +58,8 @@ The household-scoped ledger list adds:
 - `merchantId=<uuid>`: validated exact canonical merchant binding, not a
   substring name search.
 - `categoryId=uncategorized`: null category binding.
+- `id=<uuid>`: exact household-scoped evidence transaction binding, also used
+  by the existing detail drawer.
 
 Existing transaction filters, pagination and authorization remain intact.
 The ledger preserves the cycle context and offers a return link; merchant
