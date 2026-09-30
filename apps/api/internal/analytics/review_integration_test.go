@@ -191,7 +191,7 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 		}
 	}
 	var unchangedSnapshot string
-	if err := f.pool.QueryRow(context.Background(), `INSERT INTO wealth_snapshot(household_id,observed_at,created_by_user_id) VALUES($1,'2026-09-04T08:00:00+07:00',$2) RETURNING id`, f.household, f.user).Scan(&unchangedSnapshot); err != nil {
+	if err := f.pool.QueryRow(context.Background(), `INSERT INTO wealth_snapshot(household_id,observed_at,created_by_user_id) VALUES($1,'2026-08-31T08:00:00+07:00',$2) RETURNING id`, f.household, f.user).Scan(&unchangedSnapshot); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(context.Background(), `INSERT INTO wealth_snapshot_item(snapshot_id,wealth_account_id,value_idr,source) VALUES($1,$2,40000000,'MANUAL')`, unchangedSnapshot, f.account); err != nil {
@@ -204,7 +204,7 @@ func TestCycleReviewHistoryAvailabilityAndActiveElapsedDays(t *testing.T) {
 			unchangedFound = true
 		}
 	}
-	if !unchangedFound {
+	if !unchangedFound || unchanged.Wealth.Current.ID != unchangedSnapshot || unchanged.Wealth.Previous.ID != unchangedSnapshot || unchanged.Wealth.Change != nil || unchanged.Wealth.Cashflow != nil || unchanged.Wealth.Other != nil {
 		t.Fatalf("unchanged snapshot blocker missing: %+v", unchanged.Quality)
 	}
 	f.transaction(t, "2026-09-08", "EXPENSE", "CONFIRMED", "2500", false)

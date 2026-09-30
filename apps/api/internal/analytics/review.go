@@ -200,7 +200,7 @@ func (h *Handler) loadCycleReview(ctx context.Context, household, selected strin
 	if facts.Period.State == "ACTIVE" {
 		facts.Comparison.Mode = "ELAPSED_DAYS"
 	}
-	for _, p := range periods[index+1:] {
+	for offset, p := range periods[index+1:] {
 		if p.State != "CLOSED" {
 			continue
 		}
@@ -211,13 +211,7 @@ func (h *Handler) loadCycleReview(ctx context.Context, household, selected strin
 			}
 			start, _ := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
 			p.MeasuredUntil = start.AddDate(0, 0, elapsed).Format("2006-01-02")
-			// Keep the listed historical cycle consistent with the elapsed
-			// comparison cutoff consumers already receive in the comparison.
-			for i := range facts.Cycles {
-				if facts.Cycles[i].Start == p.Start {
-					facts.Cycles[i].MeasuredUntil = p.MeasuredUntil
-				}
-			}
+			facts.Cycles[index+1+offset].MeasuredUntil = p.MeasuredUntil
 		}
 		measures = append(measures, newCycleMeasure(p))
 		if len(measures) == 4 {

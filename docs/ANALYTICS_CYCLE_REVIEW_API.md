@@ -33,6 +33,9 @@ Active cycles use the same elapsed-day prefix of completed cycles; a historical
 cycle shorter than that prefix is ineligible. `comparison.mode` distinguishes
 `FULL_CYCLE` from `ELAPSED_DAYS`. The comparison periods expose their measured
 cutoff, including when it is before their full cycle end.
+When an active review uses a historical elapsed-day prefix, that cycle's
+`cycles[]` entry exposes the same measured cutoff as `comparison.previous`.
+Its full exclusive `end` remains unchanged.
 
 `median3Available` is true only with three eligible completed cycles. Missing
 categories/merchants within an available comparison cycle contribute zero, not
@@ -69,8 +72,10 @@ an inferred savings transfer.
 Concrete blockers include open/pending reviews (deduplicated against unresolved
 transactions), uncategorized confirmed expense with amount, incomplete source
 processing, missing salary anchor, missing snapshots, observations preceding the
-cycle, and changed Wealth account sets. Source-only loose ends are scoped by
-receipt time when no transaction/proposal date is available. No arbitrary
+cycle, and changed Wealth account sets. An identical current/previous observation
+produces `WEALTH_SNAPSHOT_UNCHANGED`; movement stays unavailable rather than
+implying a zero change. Source-only loose ends are scoped by receipt time when no
+transaction/proposal date is available. No arbitrary
 "stale after N days" threshold, AI confidence score, or semantic label is added.
 
 ## Consistency and consumers
