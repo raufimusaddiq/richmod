@@ -10,11 +10,11 @@
 
 # Richmod — Restore LLM-Powered Analytics Insight in Web
 
-**Document type:** Codex implementation plan + UX specification + reference snippets  
-**Repository:** `raufimusaddiq/richmod`  
-**Target:** latest `main` at implementation time  
-**Scope:** expose the existing aggregate-only LLM insight capability in `/analytics` without changing deterministic chart ownership  
-**Stack:** Go + Next.js + React + JavaScript + Recharts  
+**Document type:** Codex implementation plan + UX specification + reference snippets
+**Repository:** `raufimusaddiq/richmod`
+**Target:** latest `main` at implementation time
+**Scope:** expose the existing aggregate-only LLM insight capability in `/analytics` without changing deterministic chart ownership
+**Stack:** Go + Next.js + React + JavaScript + Recharts
 **Status:** implementation requested
 
 > This is **not** a new LLM architecture.
