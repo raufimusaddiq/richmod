@@ -73,8 +73,9 @@ records without making their point-in-time UI requirements current again.
 
 - Local web tests: 74 passed; diff whitespace and native-only guard passed.
 - Initial Sprint 5 CI: frontend/browser, containers, secrets and CodeQL passed.
-  Backend found a new fixture's missing required author; fixed without weakening
-  assertions. Automatic review reported the same blocker, now addressed.
+  Backend found a new fixture's missing required author, then its missing
+  completion timestamp for `SUCCEEDED`; both fixed without weakening assertions
+  or database constraints. Automatic review reported the author blocker.
 - Exact-head full CI and automatic review: required before merge.
 - Exact merged main CI and four immutable release images: required before reclaim.
 - Deployment: not requested. No production data, restart or environment approval
