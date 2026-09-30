@@ -1,6 +1,6 @@
 # Household cycle-review UI
 
-Sprint 3 of [the execution plan](plans/analytics-cycle-review-sprint.md).
+Sprints 3–4 of [the execution plan](plans/analytics-cycle-review-sprint.md).
 The source contract remains the [cycle-review PRD](RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md).
 
 ## Selection and data
@@ -41,8 +41,58 @@ state, never zero-valued financial facts or another cycle's stale result.
 9. Concrete quality blockers and Inbox, transaction, settings or Wealth actions.
 10. Optional non-authoritative cycle commentary alongside supporting-data links.
 
-Focused meeting mode and explicitly persisted household decisions remain Sprint 4,
-not a fabricated browser-only decision log in this sprint.
+11. Human-authored decisions for the selected closed cycle, plus the immediate
+    previous completed cycle's decisions as descriptive context. Decisions are
+    not AI output or evidence of a causal effect on current finances.
+
+## Focused meeting mode
+
+Closed salary cycles expose **Tinjau siklus ini**. The same page/sections form
+eight steps: position, spending shape, changes, drivers, savings/Wealth, loose
+ends, discussion, decisions. The `review` query parameter stores the active step
+(`position`, `spending-shape`, `changes`, `drivers`, `savings-wealth`, `quality`,
+`discussion`, `decisions`). Invalid steps are ignored. Meeting controls only
+activate when authoritative period state is `SALARY_CYCLE` + `CLOSED`.
+
+The active heading receives keyboard focus. Native step buttons, Back/Next,
+and a return-to-full-review action remain available. Progress is presentation
+state, not a persisted completion or financial claim. Choosing a category in
+the Changes step opens Drivers; transaction links and the ledger's return link
+retain `cycle`, category, and `review`. Other navigation can use browser Back.
+Category/household distribution remains in the full review, not duplicated into
+the focused sequence. Charts and evidence remain unchanged; model unavailability
+does not block any meeting step or decision save.
+
+## Explicit household decisions
+
+`GET /api/v1/analytics/cycle-decisions?cycle_start=YYYY-MM-DD` returns selected
+cycle notes, its server-resolved immediate previous completed cycle's notes,
+and `previousCycleStart`. It never accepts a household or author override.
+Active cycles can read prior context but cannot create new decisions.
+
+`POST /api/v1/analytics/cycle-decisions` accepts only `cycleStart` and `body`.
+The service validates the exact date, confirms a closed salary cycle through
+the shared facts engine, trims text, rejects empty/NUL/over-2000-character
+text, and rechecks active membership at the write boundary. Payloads are limited
+to 16 KiB; unknown fields and trailing JSON are rejected.
+
+Any active household member can save or explicitly revoke a shared decision:
+`POST /api/v1/analytics/cycle-decisions/{id}/revoke`. Wrong-household IDs return
+404. Revocation is an audited soft delete; a repeated revoke returns 404 with
+no second mutation/audit. Original text and authorship remain in PostgreSQL.
+Notes cannot be edited in place: revoke an old note and save a replacement.
+
+Migration `00074_cycle_decision.sql` introduces the separate household-scoped
+entity, author, cycle start and timestamps. Creation/revocation commit with the
+existing `audit_log` in the same transaction. No decision text is copied into
+generic telemetry or audit payload JSON. No AI tool can create/revoke decisions.
+Transactions, balances and Wealth observations are never changed by notes.
+
+Saving requires the named button or Ctrl/Cmd+Enter. Nothing auto-saves; typing
+never requests a model turn. Success waits for the server; failures keep the
+draft and instruct users to check the list before retrying an uncertain save.
+Drafts stay in page memory per cycle, survive step/selector changes, and warn
+before leaving/reloading; there is no browser-storage or background draft write.
 
 ## Drill-down
 
@@ -92,4 +142,13 @@ completeness gate remains authoritative.
 - Screenshots use only synthetic fixtures at 1440, 1024, 390 and 320px widths;
   CI publishes them as `cycle-review-screenshots` for visual inspection.
 
-No schema migration, provider change, deployment, restart or production DML.
+Sprint 4 verification adds malformed/oversized/unknown-field input cases,
+closed-cycle validation, prior context, author/audit binding, cross-household
+read/revoke denial, inactive-member write denial, retained soft revocation,
+and no financial-row creation. Synthetic browser checks cover all eight steps
+without AI, keyboard save, failed-save draft retention, explicit retry/revoke,
+meeting drill-down/return, no automatic POST and all four viewport widths.
+
+No provider change, deployment, restart or production DML. Migration verification
+uses a disposable PostgreSQL database; production application follows the runbook
+only after a separately requested and approved deployment.

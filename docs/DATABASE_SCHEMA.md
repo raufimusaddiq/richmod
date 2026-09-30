@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00073_accepted_wealth_observations.sql`.
+forward migration set through `db/migrations/00074_cycle_decision.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -101,6 +101,8 @@ erDiagram
     HOUSEHOLD ||--o{ PRODUCT_TELEMETRY_EVENT : records
     TRANSACTION ||--o{ PRODUCT_TELEMETRY_EVENT : measures
     REVIEW_ITEM ||--o{ PRODUCT_TELEMETRY_EVENT : measures
+    HOUSEHOLD ||--o{ CYCLE_DECISION : records
+    USER ||--o{ CYCLE_DECISION : authors
     TRANSACTION ||--o{ TELEGRAM_PENDING_ACTION : may_be_edited_by
     CATEGORY ||--o{ TELEGRAM_PENDING_ACTION : proposed_category
 ```
@@ -182,6 +184,7 @@ erDiagram
 | `product_telemetry_event` | Append-only PRD §22.2/§22.3 product event (review turn, auto-confirm correction). | Household-scoped; optional `source_event_id`, `transaction_id`, `review_item_id`. Stores bounded `action`, decision policy/source, an allow-listed `changed_fields` array of field names, and a `bounded_choices` counter — never a financial value, prompt, or user text. Written by triggers in the same transaction as the canonical write; `payDate` on a payslip review is normalized to `transaction_at` for RHICE. |
 | `bank_email_evidence_verification` | Bounded verification ruling for one bank-email extraction. | One row per `source_event_id`; records the `bank_email_verification_policy_version`, the gateway model, and bounded boolean claims (observed, amount, direction, channel, ambiguity). Additive audit only — it writes no canonical financial state and never stores the email body. |
 | `insight` | Generated household analytics narrative. | Household/time-period scoped; non-authoritative product output. |
+| `cycle_decision` | Explicit human-authored note for a closed salary-cycle review. | `household_id → household`; `created_by_user_id → user`; `cycle_start DATE`, body (1–2000 characters), `created_at TIMESTAMPTZ`, nullable `deleted_at`. Indexed by household/cycle/creation time. Go validates the selected closed salary cycle and active membership; creation/revocation and `audit_log` append commit atomically. No transaction/Wealth reference or financial mutation. Notes are immutable; correction means explicitly revoking and adding a new note. Revocation retains the body/author/date and hides it from active lists. Down migration refuses to drop a nonempty table. |
 | `audit_log` | Household financial/audit trail. | Household/user optional; typed entity ID is polymorphic. |
 | `platform_audit_log` | Platform-admin audit trail. | `actor_user_id → user`; typed entity ID is polymorphic. |
 | `integration_action` | Setup/integration action surfaced in Inbox. | Household-scoped; optional email-ingress delivery and resolving user. |
