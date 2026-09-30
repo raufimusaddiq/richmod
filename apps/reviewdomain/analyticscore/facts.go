@@ -124,6 +124,44 @@ type Facts struct {
 	Quality      []reviewBlocker  `json:"dataQuality"`
 }
 
+// Completeness retains ADR-015's coverage gate, using gross confirmed expense
+// so refunds cannot inflate category coverage. Open reviews apply the existing
+// 0.90 coverage factor; this measures data quality, never noteworthiness.
+func (f Facts) Completeness() string {
+	gross, _ := new(big.Int).SetString(f.Cashflow.GrossExpense, 10)
+	if gross == nil {
+		return "0.0000"
+	}
+	uncategorized := "0"
+	reviews := 0
+	for _, b := range f.Quality {
+		if b.Kind == "OPEN_REVIEWS" {
+			reviews += b.Count
+		}
+		if b.Kind == "UNCATEGORIZED_EXPENSE" && b.Amount != nil {
+			uncategorized = *b.Amount
+		}
+	}
+	if gross.Sign() <= 0 {
+		if reviews > 0 {
+			return "0.5000"
+		}
+		return "1.0000"
+	}
+	covered, _ := new(big.Int).SetString(financialmath.Subtract(gross.String(), uncategorized), 10)
+	ratio := new(big.Rat).SetFrac(covered, gross)
+	if reviews > 0 {
+		ratio.Mul(ratio, big.NewRat(9, 10))
+	}
+	if ratio.Sign() < 0 {
+		ratio.SetInt64(0)
+	}
+	if ratio.Cmp(big.NewRat(1, 1)) > 0 {
+		ratio.SetInt64(1)
+	}
+	return ratio.FloatString(4)
+}
+
 type cycleMeasure struct {
 	period                reviewPeriod
 	cash                  reviewCashflow

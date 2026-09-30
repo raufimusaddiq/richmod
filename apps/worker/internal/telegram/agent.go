@@ -397,6 +397,9 @@ func agentToolAvailable(tools []gateway.ToolDefinition, name string) bool {
 }
 
 func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState, calls []validatedAgentCall) ([]agentToolResult, error) {
+	if state.Analytics == nil {
+		state.Analytics = analyticscore.NewSession(p.pool, state.HouseholdID, state.Now)
+	}
 	results := make([]agentToolResult, len(calls))
 	errs := make([]error, len(calls))
 	var wg sync.WaitGroup

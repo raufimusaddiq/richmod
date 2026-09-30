@@ -151,7 +151,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 		s.facts[f.Period.Start] = f
 	}
 	periodKey := f.Period.Start
-	result := map[string]any{"period": f.Period, "facts_version": f.Version, "generated_at": f.GeneratedAt}
+	result := map[string]any{"period": f.Period, "facts_version": f.Version, "generated_at": f.GeneratedAt, "data_completeness": f.Completeness()}
 	var category *reviewCategory
 	if args.CategoryRef != nil {
 		index, exists := s.issued[periodKey][*args.CategoryRef]

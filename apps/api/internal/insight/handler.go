@@ -62,6 +62,10 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if period := r.URL.Query().Get("period"); period != "" && period != "cycle" {
+		writeJSON(w, 400, map[string]string{"error": "commentary supports salary cycles only"})
+		return
+	}
 	start := r.URL.Query().Get("cycle_start")
 	if start != "" {
 		if _, err := time.Parse("2006-01-02", start); err != nil {

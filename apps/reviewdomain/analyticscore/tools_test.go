@@ -39,7 +39,7 @@ func TestAnalyticalArgsAreStrictAndReadOnly(t *testing.T) {
 }
 
 func toolFixture() *Session {
-	f := Facts{Version: "cycle-review-v1", Period: reviewPeriod{Start: "2026-08-01", State: "CLOSED"}, Cashflow: reviewCashflow{Expense: "1400000"},
+	f := Facts{Version: "cycle-review-v1", Period: reviewPeriod{Start: "2026-08-01", State: "CLOSED"}, Cashflow: reviewCashflow{Expense: "1400000", GrossExpense: "1400000"},
 		Categories: []reviewCategory{{reviewChange: reviewChange{reviewValue: reviewValue{ID: "canonical-category", Name: "Dining", Amount: "1400000"}, Median: valuePointer("1350000")},
 			Merchants:    []reviewChange{{reviewValue: reviewValue{ID: "canonical-merchant", Name: "Fixture cafe", Amount: "1400000"}}},
 			Transactions: []reviewTransaction{{ID: "canonical-transaction", Amount: "1400000", Type: "EXPENSE", Merchant: "Fixture cafe"}}}},
