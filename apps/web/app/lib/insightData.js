@@ -19,7 +19,7 @@ export function selectCycleInsight(insights = [], cycle = {}) {
   return insights
     .filter(item => {
       const metrics = metricsOf(item);
-      return metrics.period_kind === "CURRENT_CYCLE" && metrics.period_start === start;
+      return item.historical !== true && ["CURRENT_CYCLE", "SALARY_CYCLE"].includes(metrics.period_kind) && metrics.period_start === start;
     })
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0] || null;
 }

@@ -69,15 +69,17 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		WHERE t.household_id=$1
 		  AND ($2::timestamptz IS NULL OR t.transaction_at >= $2)
 		  AND ($3::timestamptz IS NULL OR t.transaction_at < $3)
-		  AND ($4='' OR t.type=$4)
-		  AND ($5='' OR t.category_id::text=$5)
+		  AND ($4='' OR t.type=$4 OR ($4='SPENDING' AND t.type IN ('EXPENSE','REFUND')))
+		  AND ($5='' OR t.category_id::text=$5 OR ($5='uncategorized' AND t.category_id IS NULL))
 		  AND ($6='' OR t.created_by_user_id::text=$6)
 		  AND ($7='' OR t.status=$7)
 		  AND ($8='' OR t.account_id::text=$8)
 		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND s2.source_type=$9))
 		  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
+		  AND ($14='' OR t.merchant_id::text=$14)
+		  AND ($15='' OR t.id::text=$15)
 		  AND ($12::timestamptz IS NULL OR (t.transaction_at,t.id) < ($12,NULLIF($13,'')::uuid))
-		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID)
+		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $11`, household, filters.Start, filters.End, filters.Type, filters.CategoryID, filters.MemberID, filters.Status, filters.AccountID, filters.Source, filters.Search, filters.Limit+1, filters.CursorAt, filters.CursorID, filters.MerchantID, filters.TransactionID)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list transactions"})
 		return
@@ -108,6 +110,7 @@ type transactionFilters struct {
 	Start, End                         *time.Time
 	Type, CategoryID, MemberID, Status string
 	AccountID, Source, Search          string
+	MerchantID, TransactionID          string
 	CursorAt                           *time.Time
 	CursorID                           string
 	Limit                              int
@@ -119,6 +122,8 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 		Type: strings.TrimSpace(query.Get("type")), CategoryID: strings.TrimSpace(query.Get("categoryId")),
 		MemberID: strings.TrimSpace(query.Get("memberId")), Status: strings.TrimSpace(query.Get("status")),
 		AccountID: strings.TrimSpace(query.Get("accountId")), Source: strings.TrimSpace(query.Get("source")),
+		MerchantID: strings.TrimSpace(query.Get("merchantId")),
+		TransactionID: strings.TrimSpace(query.Get("id")),
 		Search: strings.TrimSpace(query.Get("q")),
 		Limit:  250,
 	}
@@ -147,8 +152,14 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 		}
 		result.CursorAt, result.CursorID = &at, parts[1]
 	}
-	if result.Type != "" && !oneOf(result.Type, "INCOME", "EXPENSE", "TRANSFER", "REFUND", "ADJUSTMENT", "UNCLASSIFIED") {
+	if result.Type != "" && !oneOf(result.Type, "INCOME", "EXPENSE", "TRANSFER", "REFUND", "ADJUSTMENT", "UNCLASSIFIED", "SPENDING") {
 		return result, errors.New("invalid transaction type")
+	}
+	if result.MerchantID != "" && uuid.Validate(result.MerchantID) != nil {
+		return result, errors.New("invalid merchant ID")
+	}
+	if result.TransactionID != "" && uuid.Validate(result.TransactionID) != nil {
+		return result, errors.New("invalid transaction ID")
 	}
 	if result.Status != "" && !oneOf(result.Status, "PENDING", "CONFIRMED", "NEEDS_REVIEW", "VOIDED") {
 		return result, errors.New("invalid transaction status")

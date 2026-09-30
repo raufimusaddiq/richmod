@@ -21,6 +21,14 @@ test("insight quality accepts API strings", () => {
   assert.deepEqual(insightQuality({ dataCompleteness: "0.96" }), { value: 0.96, label: "Tinggi" });
 });
 
+test("closed-cycle commentary shares cycle binding but excludes historical advice", () => {
+  const cycle = { start: "2026-08-26" };
+  const legacy = { id: "legacy", historical: true, createdAt: "2026-09-06T12:00:00Z", metrics: { period_kind: "SALARY_CYCLE", period_start: cycle.start } };
+  const current = { id: "current", historical: false, status: "SUCCEEDED", createdAt: "2026-09-05T12:00:00Z", metrics: { period_kind: "SALARY_CYCLE", period_start: cycle.start } };
+  assert.equal(selectCycleInsight([legacy, current], cycle).id, "current");
+  assert.equal(selectCycleInsight([legacy], cycle), null);
+});
+
 test("polling stops on success and failure", async () => {
   let calls = 0;
   const succeeded = await pollInsight({ insightId: "current", attempts: 3, wait: async () => {}, load: async () => { calls += 1; return [{ id: "current", status: calls === 2 ? "SUCCEEDED" : "PENDING" }]; } });

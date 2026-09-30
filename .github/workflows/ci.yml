@@ -109,6 +109,19 @@ jobs:
       - name: Test web
         working-directory: apps/web
         run: npm test
+      - name: Install browser for synthetic cycle-review checks
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Verify cycle-review UI with synthetic data
+        working-directory: apps/web
+        run: node scripts/analytics-review-smoke.mjs
+      - name: Upload synthetic cycle-review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-review-screenshots
+          path: apps/web/test-results/cycle-review
+          if-no-files-found: ignore
 
   containers:
     runs-on: ubuntu-latest

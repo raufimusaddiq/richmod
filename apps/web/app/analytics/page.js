@@ -1,103 +1,316 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 import { CategoryRankingChart, CycleSpendingPatternChart, MonthlyCashflowChart } from "../components/Charts";
+import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
 import useAuth from "../components/useAuth";
-import { cycleProgressLabel, dayLabel, deriveCycleSpendingMetrics, elapsedDaily } from "../lib/chartData";
-import { money } from "../lib/format";
+import { dayLabel } from "../lib/chartData";
+import { amountLabel, changeWidth, cycleLabel, qualityCopy, ratioLabel, readReviewSelection, selectionHref, signedMoney, transactionHref } from "../lib/cycleReview";
+import { dateTime, money, typeLabel } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
 
-const emptyCycle = { daily: [], salary: "0", spent: "0", remaining: "0", daysElapsed: 0, daysTotal: 0 };
-
 export default function AnalyticsPage() {
+  return <Suspense fallback={<main className="loading" role="status">Memuat…</main>}><AnalyticsReview/></Suspense>;
+}
+
+function AnalyticsReview() {
   const user = useAuth();
-  const [range, setRange] = useState("6");
-  const [mode, setMode] = useState("cycle");
-  const [data, setData] = useState({ cashflow: [], spending: [], categories: [], merchants: [], members: [] });
-  const [dailyCycle, setDailyCycle] = useState(emptyCycle);
+  const params = useSearchParams();
+  const selection = readReviewSelection(params.toString());
+  const [facts, setFacts] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
   const [insight, setInsight] = useState(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [insightError, setInsightError] = useState("");
   const insightAbort = useRef(null);
 
-  const load = useCallback(async query => {
-    const suffix = query || `period=${mode === "cycle" ? "current_cycle" : "calendar"}&range=${range}`;
-    const responses = await Promise.all(["cashflow", "spending", "categories", "merchants", "members"].map(name => fetch(`/api/v1/analytics/${name}?${suffix}`)));
-    const dailyResponse = await fetch("/api/v1/analytics/cycle/daily");
-    if (responses.some(item => !item.ok)) {
-      setError("Analisis belum dapat dimuat untuk periode ini.");
-      return;
-    }
-    const [cashflow, spending, categories, merchants, members] = await Promise.all(responses.map(item => item.json()));
-    const cycle = dailyResponse.ok ? await dailyResponse.json() : emptyCycle;
-    setDailyCycle(cycle || emptyCycle);
-    if (mode === "cycle") {
-      const daily = elapsedDaily(cycle?.daily || [], cycle?.daysElapsed);
-      setData({ cashflow: daily, spending: daily.map(item => ({ period: item.period, expense: item.expense, refund: "0", netSpending: item.expense })), categories, merchants, members });
-    } else setData({ cashflow, spending, categories, merchants, members });
-    setError("");
-  }, [range, mode]);
+  function navigate(change) {
+    window.history.pushState(null, "", selectionHref({ ...selection, ...change }));
+  }
 
-  useEffect(() => { if (user) load(); }, [user, load]);
   useEffect(() => {
-    if (!user || mode !== "cycle") { insightAbort.current?.abort(); setInsight(null); setInsightLoading(false); setInsightError(""); return undefined; }
+    if (!user || selection.view !== "cycle") return;
     const controller = new AbortController();
-    insightAbort.current?.abort(); insightAbort.current = controller;
-    setInsight(null); setInsightError("");
-    const loadList = async signal => { const response = await fetch("/api/v1/insights", { signal }); if (!response.ok) throw new Error("load"); return response.json(); };
-    loadList(controller.signal).then(async items => {
-      const selected = selectCycleInsight(items, dailyCycle);
+    setLoading(true); setError(""); setFacts(null);
+    const query = new URLSearchParams();
+    if (selection.cycle) query.set("cycle_start", selection.cycle);
+    fetch(`/api/v1/analytics/cycle-review?${query}`, { signal: controller.signal, cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) throw new Error(response.status === 404 ? "Siklus ini tidak ditemukan. Pilih siklus berjalan." : "Tinjauan siklus belum dapat dimuat. Coba lagi.");
+        const result = await response.json();
+        if (result?.version !== "cycle-review-v1" || !result.period || !result.cashflow || !result.spendingShape || !result.comparison?.expense || !result.wealth || !["daily", "cycles", "categoryChanges", "merchantDrivers", "memberAttribution", "savingsDestinations", "dataQuality"].every(key => Array.isArray(result[key]))) throw new Error("Data tinjauan belum dapat dibaca. Coba lagi.");
+        if (controller.signal.aborted) return;
+        setFacts(result);
+        if (!selection.cycle && result.period.kind === "SALARY_CYCLE") {
+          window.history.replaceState(null, "", selectionHref({ ...readReviewSelection(window.location.search), cycle: result.period.start }));
+        }
+      })
+      .catch(err => { if (err.name !== "AbortError") setError(err.message || "Koneksi terputus saat memuat tinjauan."); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [user, selection.view, selection.cycle, reload]);
+
+  const cycleStart = facts?.period?.kind === "SALARY_CYCLE" ? facts.period.start : "";
+  const cycleEnd = facts?.period?.measuredUntil || "";
+  const loadInsights = useCallback(async signal => {
+    const response = await fetch("/api/v1/insights", { signal, cache: "no-store" });
+    if (!response.ok) throw new Error("load");
+    return response.json();
+  }, []);
+
+  useEffect(() => {
+    insightAbort.current?.abort();
+    setInsight(null); setInsightError(""); setInsightLoading(false);
+    if (!user || selection.view !== "cycle" || !cycleStart) return;
+    const controller = new AbortController();
+    insightAbort.current = controller;
+    loadInsights(controller.signal).then(async items => {
+      const selected = selectCycleInsight(items, { start: cycleStart, measuredUntil: cycleEnd });
       if (controller.signal.aborted) return;
       setInsight(selected);
-      if (selected?.status === "PENDING") await pollInsight({ insightId: selected.id, load: loadList, onUpdate: setInsight, signal: controller.signal });
-    }).catch(error => { if (error.name !== "AbortError") setInsightError(error.message === "insight polling timeout" ? "Analisis belum selesai. Coba perbarui lagi." : "Analisis Richmod belum dapat dimuat."); });
+      if (selected?.status === "PENDING") await pollInsight({ insightId: selected.id, load: loadInsights, onUpdate: setInsight, signal: controller.signal });
+    }).catch(err => {
+      if (err.name !== "AbortError") setInsightError(err.message === "insight polling timeout" ? "Pembahasan belum selesai. Periksa lagi nanti." : "Pembahasan belum dapat dimuat.");
+    });
     return () => controller.abort();
-  }, [user, mode, dailyCycle.cycleStart]);
+  }, [user, selection.view, cycleStart, cycleEnd, loadInsights]);
 
-  const generateInsight = useCallback(async () => {
-    if (!dailyCycle.cycleStart) return;
+  async function generateInsight() {
+    if (!cycleStart || insightLoading) return;
     insightAbort.current?.abort();
     const controller = new AbortController();
     insightAbort.current = controller;
     setInsightLoading(true); setInsightError("");
     try {
-      const response = await fetch("/api/v1/insights/generate?period=cycle", { method: "POST", signal: controller.signal });
+      const query = new URLSearchParams({ period: "cycle", cycle_start: cycleStart });
+      const response = await fetch(`/api/v1/insights/generate?${query}`, { method: "POST", signal: controller.signal });
       if (!response.ok) throw new Error("generate");
       const requested = await response.json();
-      await pollInsight({ insightId: requested.id, signal: controller.signal, onUpdate: setInsight, load: async signal => { const listResponse = await fetch("/api/v1/insights", { signal }); if (!listResponse.ok) throw new Error("poll"); return listResponse.json(); } });
-    } catch (error) {
-      if (error.name !== "AbortError") setInsightError(error.message === "insight polling timeout" ? "Analisis belum selesai. Coba perbarui lagi." : "Analisis Richmod belum dapat dibuat.");
+      await pollInsight({ insightId: requested.id, signal: controller.signal, onUpdate: setInsight, load: loadInsights });
+    } catch (err) {
+      if (err.name !== "AbortError") setInsightError(err.message === "insight polling timeout" ? "Pembahasan belum selesai. Periksa lagi nanti." : "Pembahasan belum dapat dibuat. Data dan bukti tetap tersedia.");
     } finally { if (!controller.signal.aborted) setInsightLoading(false); }
-  }, [dailyCycle.cycleStart]);
-
+  }
   useEffect(() => () => insightAbort.current?.abort(), []);
-  function select(value) { setRange(value); }
-  function custom(event) { event.preventDefault(); const form = new FormData(event.currentTarget); load(`period=custom&from=${form.get("from")}&to=${form.get("to")}`); }
+
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
-
-  const cycleMetrics = deriveCycleSpendingMetrics(dailyCycle);
-  const totalIncome = data.cashflow.reduce((sum, item) => sum + Number(item.income || 0), 0);
-  const totalExpense = data.cashflow.reduce((sum, item) => sum + Number(item.expense || 0), 0);
-  const totalRefund = data.spending.reduce((sum, item) => sum + Number(item.refund || 0), 0);
-  const totalNet = mode === "calendar" ? data.cashflow.reduce((sum, item) => sum + Number(item.netCashflow || 0), 0) : totalIncome - totalExpense;
-
-  const cycleKpis = [["Rata-rata / hari", money(String(Math.round(cycleMetrics.average)))], ["Hari tertinggi", cycleMetrics.peak.period ? `${dayLabel(cycleMetrics.peak.period)} · ${money(String(Math.round(cycleMetrics.peak.expenseValue)))}` : "—"], ["Hari tanpa pengeluaran", `${cycleMetrics.zeroSpendDays} hari`], ["Hari siklus", cycleProgressLabel(cycleMetrics.daysElapsed)]];
-  const calendarKpis = [["Total Pemasukan", money(String(totalIncome))], ["Total Pengeluaran", money(String(totalExpense))], ["Arus Kas Bersih", money(String(totalNet))], ["Pengembalian Dana", money(String(totalRefund))]];
-  const kpis = mode === "cycle" ? cycleKpis : calendarKpis;
-
-  return <AppShell user={user} eyebrow="ANALISIS" title="Pola Keuangan Rumah Tangga"><div className="analytics-flow">
-    <div className="range-controls"><div className="range-control-group"><button className={mode === "cycle" ? "active" : "secondary"} onClick={() => setMode("cycle")}>Siklus Gaji</button><button className={mode === "calendar" ? "active" : "secondary"} onClick={() => setMode("calendar")}>Kalender</button>{mode === "calendar" && ["3", "6", "12"].map(value => <button className={range === value ? "active" : "secondary"} key={value} onClick={() => select(value)}>{value} Bulan</button>)}</div>{mode === "calendar" && <form className="custom-range" onSubmit={custom}><input name="from" type="month" required aria-label="Bulan mulai"/><span aria-hidden="true">—</span><input name="to" type="month" required aria-label="Bulan selesai"/><button className="secondary">Kustom</button></form>}</div>
-    {error && <p className="notice error">{error}</p>}
-    <section className="analytics-kpis">{kpis.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
-    <section className="surface analytics-chart"><div className="section-title"><div><span className="eyebrow">{mode === "cycle" ? "SIKLUS GAJI · HARIAN" : "TREND BULANAN"}</span><h2>{mode === "cycle" ? "Pola pengeluaran siklus ini" : "Pemasukan vs pengeluaran"}</h2></div></div>{mode === "cycle" ? <CycleSpendingPatternChart items={data.cashflow} spent={dailyCycle.spent} daysElapsed={dailyCycle.daysElapsed} height={310}/> : <MonthlyCashflowChart items={data.cashflow} height={340}/>}</section>
-    <InsightCard insight={insight} loading={insightLoading} error={insightError} unsupported={mode === "calendar"} canGenerate={Boolean(dailyCycle.cycleStart)} onGenerate={generateInsight}/>
-    <section className="analytics-detail-layout"><article className="surface analytics-category-panel"><div className="section-title"><h2>Peringkat kategori</h2></div><CategoryRankingChart items={data.categories}/></article><div className="analytics-detail-side"><Ranked title="Tempat transaksi" items={data.merchants}/><Ranked title="Kontribusi anggota" items={data.members}/></div></section>
-    {mode === "calendar" && <div className="analytics-calendar-detail"><Ranked title="Pengeluaran bulanan setelah refund" items={data.spending.map(item => ({ name: item.period, amount: item.netSpending }))}/></div>}
-  </div>
+  const selectedCategory = selection.category ? facts?.categoryChanges.find(item => (item.id || "uncategorized") === selection.category) : null;
+  return <AppShell user={user} eyebrow="Analisis" title="Tinjauan keuangan rumah tangga">
+    <div className="analytics-flow cycle-review">
+      <div className="range-controls">
+        <div className="range-control-group" aria-label="Tampilan analisis">
+          <button type="button" aria-pressed={selection.view === "cycle"} className={selection.view === "cycle" ? "active" : "secondary"} onClick={() => navigate({ view: "cycle" })}>Siklus Gaji</button>
+          <button type="button" aria-pressed={selection.view === "calendar"} className={selection.view === "calendar" ? "active" : "secondary"} onClick={() => navigate({ view: "calendar" })}>Kalender</button>
+        </div>
+        {selection.view === "cycle" && <label className="cycle-selector">Siklus yang ditinjau
+          <select value={selection.cycle} onChange={event => navigate({ cycle: event.target.value, category: "" })}>
+            <option value="">Siklus berjalan</option>
+            {selection.cycle && !facts?.cycles?.some(item => item.start === selection.cycle) && <option value={selection.cycle}>{dayLabel(selection.cycle)}</option>}
+            {(facts?.cycles || []).map(period => <option key={period.start} value={period.start}>{cycleLabel(period)}</option>)}
+          </select>
+        </label>}
+      </div>
+      {selection.view === "calendar" ? <CalendarReview selection={selection} navigate={navigate}/> : <>
+        <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
+        {error && <button type="button" className="secondary" onClick={() => navigate({ cycle: "", category: "" })}>Siklus berjalan</button>}
+        {loading && <Skeleton cards={3} rows={4}/>}
+        {!loading && !error && facts && <>
+          <div className="cycle-period" aria-live="polite">
+            <strong>{cycleLabel(facts.period)}</strong>
+            <span>{facts.period.state === "ACTIVE" ? "Berjalan" : "Ditutup"} · {facts.spendingShape.days} hari tercatat · Asia/Jakarta</span>
+            <small>Data sampai {dayLabel(facts.period.measuredUntil)} (batas akhir tidak termasuk).</small>
+            {facts.period.kind !== "SALARY_CYCLE" && <p>Menampilkan bulan kalender sementara. Belum ada gaji utama terkonfirmasi untuk menentukan siklus.</p>}
+          </div>
+          <CyclePosition facts={facts}/>
+          <section id="spending-shape" className="review-section analytics-chart" aria-labelledby="shape-title">
+            <SectionTitle id="shape-title" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
+            <CycleSpendingPatternChart items={facts.daily} average={facts.spendingShape.averageDailyExpense} height={260}/>
+            <dl className="review-context">
+              <Metric label="Rata-rata per hari" value={new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 2 }).format(Number(facts.spendingShape.averageDailyExpense))}/>
+              <Metric label="Hari tertinggi" value={facts.spendingShape.peakDay ? `${dayLabel(facts.spendingShape.peakDay)} · ${money(facts.spendingShape.peakExpense)}` : "Belum ada"}/>
+              <Metric label="Porsi hari tertinggi" value={ratioLabel(facts.spendingShape.peakShareOfExpense)}/>
+              <Metric label="Hari tanpa pengeluaran bersih" value={`${facts.spendingShape.zeroSpendDays} hari`}/>
+            </dl>
+            <details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td></tr>)}</tbody></table></div></details>
+          </section>
+          <section id="changes" className="review-section" aria-labelledby="changes-title">
+            <SectionTitle id="changes-title" title="Apa yang berubah?" description="Perubahan kategori diurutkan berdasarkan selisih absolut oleh server. Besar perubahan bukan penilaian baik atau buruk."/>
+            <ComparisonContext comparison={facts.comparison}/>
+            <ChangesTable items={facts.categoryChanges} selected={selection.category} select={category => navigate({ category })}/>
+          </section>
+          <section id="drivers" className="review-section" aria-labelledby="drivers-title">
+            <SectionTitle id="drivers-title" title="Apa yang mendorong perubahan?" description="Pilih kategori untuk melihat merchant dan transaksi pendukung, bukan dugaan penyebab."/>
+            <label className="driver-selector">Kategori
+              <select value={selectedCategory ? selectedCategory.id || "uncategorized" : ""} onChange={event => navigate({ category: event.target.value })}><option value="">Pilih kategori</option>{facts.categoryChanges.map(item => <option key={item.id || "uncategorized"} value={item.id || "uncategorized"}>{item.name}</option>)}</select>
+            </label>
+            <div id="category-drivers" aria-live="polite">
+              {selectedCategory ? <CategoryDrivers item={selectedCategory} period={facts.period}/> : <p className="empty compact">Pilih kategori di atas atau melalui tabel perubahan.</p>}
+            </div>
+          </section>
+          <section id="destinations" className="review-section" aria-labelledby="destinations-title">
+            <SectionTitle id="destinations-title" title="Ke mana uang keluar?" description="Distribusi pengeluaran bersih per kategori. Merchant diurutkan berdasarkan perubahan absolut dibanding siklus sebelumnya."/>
+            <div className="review-split"><div><CategoryRankingChart items={facts.categoryChanges} serverOwned height={260}/><a href={transactionHref(facts.period)}>Lihat seluruh pengeluaran periode ini</a></div><MerchantTable items={facts.merchantDrivers} period={facts.period}/></div>
+          </section>
+          <section id="household" className="review-section" aria-labelledby="household-title">
+            <SectionTitle id="household-title" title="Catatan rumah tangga" description="Siapa yang memulai pencatatan, ketika diketahui. Ini bukan peringkat tanggung jawab atau perbandingan kebiasaan."/>
+            <dl className="review-attribution">{facts.memberAttribution.map(item => <Metric key={item.id || item.name} label={item.name} value={`${money(item.amount)} · ${item.count} transaksi`}/>)}</dl>
+            {!facts.memberAttribution.length && <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
+          </section>
+          <SavingsWealth facts={facts}/>
+          <QualitySection facts={facts}/>
+          <section id="discussion" className="review-section" aria-labelledby="discussion-title">
+            <SectionTitle id="discussion-title" title="Bahan pembahasan" description="Pembahasan opsional dari fakta dan bukti di atas. Bukan saran keuangan atau keputusan rumah tangga."/>
+            <InsightCard insight={insight} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
+            <a href="#changes">Lihat data pendukung pembahasan</a>
+          </section>
+        </>}
+      </>}
+    </div>
   </AppShell>;
 }
 
-function Ranked({ title, items }) { return <article className="surface analytics-ranked-card"><div className="section-title"><h2>{title}</h2></div><div className="ranked">{items.map((item, index) => <div key={item.id || item.name}><span>{String(index + 1).padStart(2, "0")}</span><b>{item.name}</b><strong>{money(item.amount)}</strong></div>)}{!items.length && <p className="empty compact">Belum ada data.</p>}</div></article>; }
+function SectionTitle({ id, title, description }) {
+  return <div className="section-title"><div><h2 id={id}>{title}</h2>{description && <p className="review-description">{description}</p>}</div></div>;
+}
+
+function Metric({ label, value }) {
+  return <div><dt>{label}</dt><dd>{value}</dd></div>;
+}
+
+function CyclePosition({ facts }) {
+  return <section id="position" className="review-section cycle-position" aria-labelledby="position-title">
+    <SectionTitle id="position-title" title="Posisi siklus" description="Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."/>
+    <dl className="cycle-outcome">
+      <div className="cycle-net"><dt>Arus kas bersih</dt><dd>{money(facts.cashflow.netCashflow)}</dd></div>
+      <Metric label="Pemasukan" value={money(facts.cashflow.income)}/>
+      <Metric label="Pengeluaran bersih" value={money(facts.cashflow.expense)}/>
+      <Metric label="Tabungan dialokasikan" value={money(facts.cashflow.savingsAllocated)}/>
+      <Metric label="Surplus belum dialokasikan" value={money(facts.cashflow.unallocatedSurplus)}/>
+    </dl>
+    <p className="review-description">Refund tercatat {money(facts.cashflow.refund)}. Surplus belum dialokasikan adalah arus kas bersih dikurangi transfer tabungan terkonfirmasi, bukan transaksi tambahan.</p>
+  </section>;
+}
+
+function ComparisonContext({ comparison }) {
+  return <div className="review-baseline">
+    <p>{comparison.previous ? `Perbandingan dengan ${cycleLabel(comparison.previous)}. ${comparison.mode === "ELAPSED_DAYS" ? "Hanya jumlah hari yang sama, bukan seluruh siklus sebelumnya." : "Kedua siklus sudah ditutup."}` : "Belum ada siklus selesai yang dapat dibandingkan."}</p>
+    <p>{comparison.median3Available ? "Median dari 3 siklus selesai tersedia; perhatikan bersama perbandingan siklus sebelumnya." : `Median 3 siklus belum tersedia (${comparison.eligibleCycles} siklus memenuhi perbandingan).`}</p>
+    <dl className="review-context">
+      <Metric label="Pengeluaran siklus sebelumnya" value={amountLabel(comparison.expense.previous)}/>
+      <Metric label="Median 3 siklus" value={amountLabel(comparison.expense.median3)}/>
+      <Metric label="Selisih total vs sebelumnya" value={signedMoney(comparison.expense.deltaVsPrevious)}/>
+      <Metric label="Selisih total vs median" value={signedMoney(comparison.expense.deltaVsMedian3)}/>
+    </dl>
+  </div>;
+}
+
+function ChangesTable({ items, selected, select }) {
+  if (!items.length) return <p className="empty compact">Belum ada pengeluaran kategori pada periode ini atau pembandingnya.</p>;
+  return <div className="review-table-wrap"><table className="changes-table">
+    <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —.</caption>
+    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya</th><th scope="col">Median 3</th><th scope="col">Selisih vs sebelumnya</th><th scope="col">Selisih vs median</th><th scope="col">Kontribusi ke selisih total</th></tr></thead>
+    <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
+      <th scope="row"><button className="change-button" type="button" aria-controls="category-drivers" aria-pressed={selected === (item.id || "uncategorized")} onClick={() => select(item.id || "uncategorized")}>{item.name}</button><span className="change-track" aria-hidden="true"><i style={{ width: changeWidth(item, items) }}/></span></th>
+      <td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td>
+      <td>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></td>
+      <td>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></td>
+      <td>{ratioLabel(item.contributionToExpenseChange)}</td>
+    </tr>)}</tbody>
+  </table></div>;
+}
+
+function MerchantTable({ items, period, categoryId }) {
+  if (!items.length) return <p className="empty compact">Belum ada merchant pendukung.</p>;
+  return <div className="review-table-wrap"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya</th><th scope="col">Median 3</th><th scope="col">Selisih</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></tr>)}</tbody></table></div>;
+}
+
+function CategoryDrivers({ item, period }) {
+  return <div className="category-evidence">
+    <h3>{item.name}</h3>
+    <dl className="review-context"><Metric label="Porsi pengeluaran siklus" value={ratioLabel(item.shareOfExpense)}/><Metric label="Jumlah transaksi" value={item.count}/></dl>
+    <MerchantTable items={item.merchants} period={period} categoryId={item.id || "uncategorized"}/>
+    <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Transaksi pendukung"><table><caption>Transaksi pendukung terbesar (maks. 10). Refund ditandai terpisah.</caption><thead><tr><th scope="col">Merchant / tanggal</th><th scope="col">Jenis</th><th scope="col">Jumlah</th><th scope="col">Bukti</th></tr></thead><tbody>{item.transactions.map(transaction => <tr key={transaction.id}><th scope="row">{transaction.merchant}<small>{dateTime(transaction.transactionAt)}</small></th><td>{typeLabel[transaction.type]}</td><td>{money(transaction.amount)}</td><td><a href={transactionHref(period, { categoryId: item.id || "uncategorized", id: transaction.id })}>Buka transaksi</a></td></tr>)}</tbody></table></div>
+    {!item.transactions.length && <p className="empty compact">Tidak ada transaksi terkonfirmasi kategori ini pada siklus terpilih.</p>}
+    <a href={transactionHref(period, { categoryId: item.id || "uncategorized" })}>Lihat transaksi {item.name} dalam periode ini</a>
+  </div>;
+}
+
+function SavingsWealth({ facts }) {
+  const { wealth, cashflow } = facts;
+  return <section id="savings-wealth" className="review-section" aria-labelledby="savings-title">
+    <SectionTitle id="savings-title" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
+    <div className="review-split">
+      <div><h3>Ke mana surplus dialokasikan?</h3><dl className="review-context">
+        <Metric label="Arus kas bersih" value={money(cashflow.netCashflow)}/><Metric label="Tabungan dialokasikan" value={money(cashflow.savingsAllocated)}/><Metric label="Belum dialokasikan" value={money(cashflow.unallocatedSurplus)}/>
+      </dl>
+      <dl className="review-destinations">{facts.savingsDestinations.map(item => <Metric key={item.id || item.name} label={item.name} value={money(item.amount)}/>)}</dl>
+      {!facts.savingsDestinations.length && <p>Belum ada alokasi tabungan terkonfirmasi.</p>}
+      </div>
+      <div><h3>Pergerakan kekayaan</h3><dl className="review-context">
+        <Metric label="Kekayaan bersih sebelumnya" value={amountLabel(wealth.previous?.netWorth)}/><Metric label="Kekayaan bersih terbaru" value={amountLabel(wealth.current?.netWorth)}/>
+        <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/><Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
+        <Metric label="Valuasi & perubahan lain" value={signedMoney(wealth.valuationAndOtherChange)}/>
+      </dl>
+      <p className="review-description">Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p>
+      {[["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]].map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <><a href={`/wealth?snapshotId=${encodeURIComponent(snapshot.id)}`}>{dateTime(snapshot.observedAt)}</a> · usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
+      {wealth.netWorthChange == null && <p>Pergerakan belum dapat direkonsiliasi. Periksa catatan dan kelengkapan akun.</p>}
+      <a href="/wealth">Buka detail Kekayaan</a></div>
+    </div>
+  </section>;
+}
+
+function QualitySection({ facts }) {
+  return <section id="quality" className="review-section" aria-labelledby="quality-title">
+    <SectionTitle id="quality-title" title="Kelengkapan data & tindak lanjut" description="Hal yang belum lengkap tetap terlihat. Tidak ada skor kepercayaan dari model."/>
+    {!facts.dataQuality.length ? <p>Tidak ada kendala yang tercatat untuk periode ini.</p> : <ul className="review-quality">{facts.dataQuality.map(blocker => {
+      const [label, action] = qualityCopy[blocker.kind] || ["Data tinjauan perlu dilengkapi", "Buka Inbox"];
+      const counted = ["OPEN_REVIEWS", "UNCATEGORIZED_EXPENSE", "PROCESSING_INCOMPLETE"].includes(blocker.kind);
+      return <li key={blocker.kind}><div><strong>{counted ? `${blocker.count} ` : ""}{label}</strong>{blocker.amount != null && <p>{money(blocker.amount)} terkonfirmasi.</p>}</div><a href={blocker.kind === "UNCATEGORIZED_EXPENSE" ? transactionHref(facts.period, { type: "EXPENSE", categoryId: "uncategorized" }) : ["/inbox", "/wealth", "/settings"].includes(blocker.action) ? blocker.action : "/inbox"}>{action}</a></li>;
+    })}</ul>}
+  </section>;
+}
+
+function CalendarReview({ selection, navigate }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setData(null); setError("");
+    const query = new URLSearchParams({ period: selection.from && selection.to ? "custom" : "calendar", range: selection.range });
+    if (selection.from && selection.to) { query.set("from", selection.from); query.set("to", selection.to); }
+    Promise.all(["cashflow", "spending", "categories", "merchants", "members"].map(async name => {
+      const response = await fetch(`/api/v1/analytics/${name}?${query}`, { signal: controller.signal });
+      if (!response.ok) throw new Error("Analisis kalender belum dapat dimuat. Periksa rentang lalu coba lagi.");
+      return [name, await response.json()];
+    })).then(entries => { if (!controller.signal.aborted) setData(Object.fromEntries(entries)); })
+      .catch(err => { if (err.name !== "AbortError") setError(err.message); });
+    return () => controller.abort();
+  }, [selection.range, selection.from, selection.to, reload]);
+  return <>
+    <div className="range-controls"><div className="range-control-group">{["3", "6", "12"].map(range => <button type="button" key={range} className={selection.range === range && !selection.from ? "active" : "secondary"} aria-pressed={selection.range === range && !selection.from} onClick={() => navigate({ range, from: "", to: "" })}>{range} Bulan</button>)}</div>
+      <form className="custom-range" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); navigate({ from: form.get("from"), to: form.get("to") }); }}><label>Bulan mulai<input name="from" type="month" defaultValue={selection.from} required/></label><label>Bulan selesai<input name="to" type="month" defaultValue={selection.to} required/></label><button className="secondary">Kustom</button></form>
+    </div>
+    <p>{selection.from && selection.to ? `Rentang bulan ${selection.from} sampai ${selection.to}` : `${selection.range} bulan terakhir`} · Asia/Jakarta</p>
+    <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
+    {!data && !error && <Skeleton cards={1} rows={4}/>}
+    {data && <>
+      <section className="review-section analytics-chart"><SectionTitle title="Pemasukan vs pengeluaran" description="Bagaimana arus kas berubah antar bulan? Semua nilai berasal dari transaksi terkonfirmasi."/><MonthlyCashflowChart items={data.cashflow} height={280}/></section>
+      <section className="review-section"><SectionTitle title="Arus kas per bulan"/><div className="review-table-wrap"><table><thead><tr><th scope="col">Bulan</th><th scope="col">Pemasukan</th><th scope="col">Pengeluaran</th><th scope="col">Arus kas bersih</th></tr></thead><tbody>{data.cashflow.map(item => <tr key={item.period}><th scope="row">{item.period}</th><td>{money(item.income)}</td><td>{money(item.expense)}</td><td>{money(item.netCashflow)}</td></tr>)}</tbody></table></div></section>
+      <section className="review-section"><SectionTitle title="Distribusi kategori" description="Kategori mana yang menyusun pengeluaran rentang ini?"/><CategoryRankingChart items={data.categories}/></section>
+      <section className="review-section"><SectionTitle title="Merchant" description="Pengeluaran bersih setelah refund dalam rentang kalender."/><ValueList items={data.merchants}/></section>
+      <section className="review-section"><SectionTitle title="Catatan rumah tangga" description="Atribusi pencatatan ketika diketahui, bukan peringkat anggota."/><ValueList items={[...data.members].sort((a, b) => a.name.localeCompare(b.name, "id"))}/></section>
+      <section className="review-section"><SectionTitle title="Pengeluaran setelah refund"/><ValueList items={data.spending.map(item => ({ name: item.period, amount: item.netSpending }))}/></section>
+      <p>Pembahasan dan tinjauan rumah tangga tersedia pada mode Siklus Gaji.</p>
+    </>}
+  </>;
+}
+
+function ValueList({ items }) {
+  return items.length ? <dl className="review-values">{items.map((item, index) => <Metric key={item.id || `${item.name}:${index}`} label={item.name} value={money(item.amount)}/>)}</dl> : <p className="empty compact">Belum ada data pada rentang ini.</p>;
+}
