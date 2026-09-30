@@ -1,10 +1,20 @@
+> **SUPERSEDED FOR NEW ANALYTICS WORK — 2026-09-30**
+>
+> This document is historical implementation guidance. For new Analytics work,
+> follow `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`,
+> `docs/bdr/BDR-006-analytics-household-cycle-review.md`, ADR-030/ADR-033 as
+> amended, and `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`.
+> In particular, do not restore a "prompt for structured JSON narrative" contract:
+> financial data is obtained through native tools and model-written prose is emitted
+> through a native rendering/respond tool.
+
 # Richmod — Restore LLM-Powered Analytics Insight in Web
 
-**Document type:** Codex implementation plan + UX specification + reference snippets  
-**Repository:** `raufimusaddiq/richmod`  
-**Target:** latest `main` at implementation time  
-**Scope:** expose the existing aggregate-only LLM insight capability in `/analytics` without changing deterministic chart ownership  
-**Stack:** Go + Next.js + React + JavaScript + Recharts  
+**Document type:** Codex implementation plan + UX specification + reference snippets
+**Repository:** `raufimusaddiq/richmod`
+**Target:** latest `main` at implementation time
+**Scope:** expose the existing aggregate-only LLM insight capability in `/analytics` without changing deterministic chart ownership
+**Stack:** Go + Next.js + React + JavaScript + Recharts
 **Status:** implementation requested
 
 > This is **not** a new LLM architecture.

@@ -6,12 +6,40 @@ Accepted.
 
 ## Decision
 
-Insight generation snapshots deterministic monthly aggregate facts in PostgreSQL
-before enqueueing a job. Raw transactions, evidence, account identifiers, and user
-messages are never sent to the model. The cloud gateway returns a strict Indonesian
-narrative schema with exactly one recommendation paragraph grounded in the supplied
-aggregate snapshot. Go validates the schema and stores it as non-authoritative text only.
+Insight generation uses deterministic household analytics as its factual source.
+Raw evidence, provider credentials, and unrestricted database access are never exposed
+to the model. The model must obtain financial facts through server-owned native tools
+or another explicitly approved bounded context supplied by the server.
+
+The user-facing narrative is non-authoritative language. It may be natural free-form
+prose because Richmod does not parse that prose back into canonical financial state.
+Amounts, comparisons, materiality, authorization, and mutations remain deterministic.
 
 Generation is limited to once per household period per hour. Completeness below
 0.70 bypasses the gateway and returns a deterministic data-quality message. Insight
 failures never alter financial state, and all requests/completions are audited.
+
+## Tool-first amendment — 2026-09-30
+
+When an Analytics model needs financial data, it must use Richmod native read-only
+analytical tools with strict server-owned argument schemas and authoritative
+deterministic results. Those READ tools should also be reusable by the existing
+Telegram conversational agent for analytical questions.
+
+Richmod must not ask the model to manufacture a JSON/structured-output payload
+merely so Go can parse it.
+
+For the Web Analytics AI surface, user-facing prose is non-authoritative and must
+never be parsed into ledger mutations, financial facts, analytical significance,
+or household decisions.
+
+Telegram reuse follows ADR-033's existing conversational response contract. This
+Analytics ADR does not redefine Telegram's final-response protocol.
+
+If a tool call fails, deterministic Analytics remains available. Do not replace the
+failed tool with regex/keyword inference, narrative switch cases, canned analysis,
+or by asking the model to guess missing financial data.
+
+Go computes financial measurements. Open-ended "what is noteworthy?" and analytical
+narrative remain intelligence responsibilities; they must not drift into deterministic
+pseudo-NLP simply because Go owns the ledger.
