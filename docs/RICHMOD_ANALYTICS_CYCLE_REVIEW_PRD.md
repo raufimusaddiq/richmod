@@ -1,9 +1,9 @@
 # Richmod Analytics Cycle Review PRD
 
-**Status:** Proposed product contract for implementation  
-**Target:** latest `main` at implementation time  
-**Primary surface:** `/analytics`  
-**Product owner intent:** make captured household financial data useful for an end-of-cycle meeting, not merely visible  
+**Status:** Proposed product contract for implementation
+**Target:** latest `main` at implementation time
+**Primary surface:** `/analytics`
+**Product owner intent:** make captured household financial data useful for an end-of-cycle meeting, not merely visible
 **Supersedes where conflicting:** `docs/RICHMOD_ANALYTICS_LLM_INSIGHT_UI_CODEX.md` and older analytics insight/checklist guidance
 
 ## 1. North-star fit
