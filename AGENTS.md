@@ -32,6 +32,10 @@ Do not treat an initial design document as permanently authoritative.
 - Exact deterministic facts, arithmetic, authorization, binding, and reconciliation stay in Go.
 - AI model output is untrusted and must pass deterministic validation before DB mutation.
 - AI models must never directly access or mutate the database.
+- Generative AI product paths must use native tool calling with required, strict,
+  server-owned tool schemas. Free-form model prose must not be used as a product
+  contract or persisted semantic result. If prose is needed, it must be returned
+  inside validated native-tool arguments. Any exception requires an explicit ADR.
 - Prefer System One/Jev over a generative LLM when the required result is a bounded semantic choice, predicate, or score.
 - Use generative models only when arbitrary extraction, vision, open-ended reasoning, or prose is required.
 - Preserve source events/evidence; dedup links evidence instead of deleting it.
