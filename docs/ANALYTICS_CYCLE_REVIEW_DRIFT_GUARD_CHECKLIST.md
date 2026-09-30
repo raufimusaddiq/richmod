@@ -73,106 +73,113 @@ and no absolute/material context is shown
 
 ---
 
-## D. Materiality integrity
+## D. Analytical ownership
 
-- [ ] Is materiality implemented in Go/SQL or another deterministic server-owned policy?
-- [ ] Is the materiality policy versioned?
-- [ ] Does the policy consider absolute impact?
-- [ ] Does it avoid treating tiny changes as important from percentage alone?
-- [ ] Can the API explain why a candidate qualified using bounded reason codes?
-- [ ] Are low-value candidates omitted?
-- [ ] Can "no material finding" occur without error?
-
-The prompt is not a valid place to hide materiality thresholds.
-
----
-
-## E. Native-tool-only AI
-
-This section is mandatory whenever generative AI is touched.
-
-- [ ] Does the model call go only through LiteRouter / the existing gateway?
-- [ ] Does the code use native tool calling?
-- [ ] Is tool choice required?
-- [ ] Is the tool schema server-owned?
-- [ ] Is the schema strict?
-- [ ] Is `additionalProperties=false` used where supported?
-- [ ] Are unknown fields rejected?
-- [ ] Is the expected tool name validated?
-- [ ] Is free-form model output rejected as a product result?
-- [ ] Is there no direct browser-to-model request?
-- [ ] Is there no direct provider call?
-- [ ] Does gateway failure avoid a free-form fallback?
-- [ ] Does malformed tool output fail closed to deterministic Analytics?
-- [ ] Does `scripts/check_native_only_llm.sh` cover the changed Analytics path, or is equivalent enforcement added?
-
-Hard prohibition:
-
-~~~text
-AI requested
--> free-form chat/prose response
--> display it in Analytics
-~~~
-
-unless a future explicit ADR changes the repository-wide native-tool standard.
-
----
-
-## F. AI input boundary
-
-- [ ] Does the model receive only approved structured analytical facts?
-- [ ] Are raw transaction rows excluded?
-- [ ] Is raw bank/email/document evidence excluded?
-- [ ] Are raw Telegram/user messages excluded?
-- [ ] Are canonical transaction/account UUIDs excluded?
-- [ ] Are credentials/secrets excluded?
-- [ ] Are fact references semantic rather than database IDs?
-- [ ] Are merchant/category display values included only when already suitable for household presentation?
-- [ ] Is the fact packet bounded to the selected cycle/relevant baseline?
+- [ ] Does Go compute objective financial measurements rather than semantic conclusions?
+- [ ] Are amount, delta, baseline, contribution, concentration, and ordering deterministic?
+- [ ] Is open-ended "what is noteworthy?" owned by generative intelligence?
+- [ ] If Jev decides relevance, is the question genuinely bounded?
+- [ ] Is there no growing threshold tree whose real purpose is to imitate analyst judgment?
+- [ ] Is there no keyword/regex/switch logic deciding what a household should discuss?
+- [ ] Can the model conclude that nothing noteworthy stands out without being forced to fill N slots?
 
 Red flag:
 
 ~~~text
-"the model can find the insight if we give it the whole ledger"
+if delta > X && share > Y {
+    insight = "This category is important"
+}
+~~~
+
+unless X/Y are an explicit deterministic product rule whose purpose is not
+semantic imitation.
+
+---
+
+## E. Provider-native tool boundary
+
+This section is mandatory whenever an LLM is touched.
+
+- [ ] Does every production model phase use provider-native tools?
+- [ ] Is tool choice required for that phase?
+- [ ] Are tool names allow-listed by server state?
+- [ ] Are tool argument schemas strict and server-owned?
+- [ ] Are unknown/malformed tool calls rejected?
+- [ ] Are financial data/state requests satisfied through native READ tools?
+- [ ] Is final model-written prose emitted through a native RENDER/respond tool?
+- [ ] Is raw final assistant text rejected in production LLM paths?
+- [ ] Is there no "return JSON matching this schema" prompt contract?
+- [ ] Is there no JSON embedded in prose that Go parses as a domain contract?
+- [ ] Is there no direct browser-to-provider or direct provider bypass around LiteRouter?
+- [ ] Does `scripts/check_native_only_llm.sh` cover the changed path or is equivalent enforcement added?
+
+Native tool arguments are structured. The human language inside a render tool's
+`message` remains free-form.
+
+---
+
+## F. Data access boundary
+
+- [ ] Does the model obtain finance data through bounded Richmod tools?
+- [ ] Is there no unrestricted database/ledger dump tool?
+- [ ] Are raw email/document/provider payloads excluded unless a dedicated extraction lane explicitly needs source evidence?
+- [ ] Are credentials/secrets excluded?
+- [ ] Are canonical IDs hidden when server-scoped references can bind the target?
+- [ ] Are tool results household-scoped and authorization-checked?
+- [ ] Are transaction details returned only when a bounded analytical tool actually needs them?
+- [ ] Are tool results factual/structured rather than pre-written Go narratives?
+- [ ] Can dependent READs be performed through the bounded model loop instead of Go guessing which data the model "must" need?
+
+Red flag:
+
+~~~text
+Go pre-decides the answer
+-> gives model only the facts that support that answer
 ~~~
 
 ---
 
-## G. AI output boundary
+## G. Rendering/output boundary
 
-- [ ] Is the output structured rather than one unbounded narrative?
-- [ ] Does every finding have at least one evidence ref?
-- [ ] Does every evidence ref exist in the approved fact packet?
-- [ ] Are unsupported refs rejected?
-- [ ] Is finding count bounded?
-- [ ] Are text lengths bounded?
-- [ ] Are finding kinds enum-constrained?
+- [ ] Does model-written analysis finish through a native rendering/respond tool?
+- [ ] Is the render tool display-only?
+- [ ] Is its prose field intentionally free-form?
+- [ ] Does Go validate the tool envelope but avoid NLP-parsing the message?
+- [ ] If supporting refs are accepted, are they bounded and server-issued?
+- [ ] Are UI-critical amounts rendered from deterministic data/tool results?
+- [ ] Is the final prose never parsed into a transaction, decision, category, amount, materiality flag, or household state?
 - [ ] Is there no mandatory recommendation/advice field?
-- [ ] Can the model return `no_material_finding`?
-- [ ] Are monetary/percentage values rendered from deterministic facts rather than trusted from prose?
-- [ ] Can every visible AI finding expose its supporting data?
+- [ ] Can the render message simply say that nothing noteworthy stands out?
+- [ ] Does a failed render/model phase leave deterministic Analytics available?
 
 Hard prohibition:
 
 ~~~text
-AI says "Groceries rose Rp620k"
-but the UI cannot show which deterministic fact supports Rp620k
+model -> prose/JSON text
+Go -> parse meaning
+Go -> mutate/render structured financial state
 ~~~
 
 ---
 
-## H. Intelligence efficiency and ownership
+## H. Anti-Go semantic drift
 
-- [ ] If deterministic materiality finds no signal, is the generative call skipped?
-- [ ] If a bounded Jev verifier is used, does it answer a distinct bounded question?
-- [ ] Does generative inference avoid repeating a Jev-owned decision?
-- [ ] Does Jev avoid repeating a generative decision solely for consensus?
-- [ ] Are model calls reused/persisted appropriately for the same stable closed-cycle fact snapshot?
-- [ ] Does refreshing the page avoid unnecessary generation?
-- [ ] Is AI generation asynchronous where current architecture expects it?
-- [ ] Does Analytics remain responsive while AI is pending?
+- [ ] Did the PR add `strings.Contains`, keyword maps, or regexes to interpret ordinary human language?
+- [ ] Did the PR add switch/case branches that choose analytical meaning or narrative?
+- [ ] Did the PR add canned templates presented as AI analysis?
+- [ ] Did the PR add arbitrary thresholds whose actual job is to decide open-ended noteworthiness?
+- [ ] On model/gateway failure, does the code fail/defer/review rather than imitate the model in Go?
+- [ ] If Go authors text, is it a literal protocol/status/error acknowledgement rather than semantic analysis?
+- [ ] Before adding a semantic Go branch, did the implementation explicitly consider Jev for bounded judgment or generative intelligence for open-ended reasoning/prose?
+- [ ] Are tests present that fail if the old semantic fallback is reintroduced?
 
-Follow BDR-001: cheapest sufficient intelligence once; escalate only for residual uncertainty.
+Use this decision test:
+
+> If the branch must understand what a human sentence means, decide what is
+> noteworthy, or write an analytical narrative, it probably does not belong in
+> Go. Go may enforce exact deterministic policy; it must not imitate intelligence.
+
+Provider failure does not transfer semantic ownership to Go.
 
 ---
 
@@ -259,9 +266,9 @@ When decision-log functionality is touched:
 ## N. Persistence and auditability
 
 - [ ] Is the deterministic input snapshot auditable?
-- [ ] Is materiality policy version recorded?
+- [ ] Are deterministic analytical calculations/versioning recorded where needed?
 - [ ] Is AI tool/prompt contract version recorded?
-- [ ] Is structured AI output persisted separately from authoritative finance state?
+- [ ] Is persisted AI commentary clearly non-authoritative text rather than a JSON domain contract?
 - [ ] Are existing historical insight rows preserved?
 - [ ] Is compatibility behavior explicit?
 - [ ] Are migrations forward-only?
@@ -272,17 +279,20 @@ When decision-log functionality is touched:
 
 ## O. Tests
 
-- [ ] Stable cycle proves no model call is required.
+- [ ] Stable cycle proves the model can render a concise no-noteworthy response without filler.
 - [ ] Previous-cycle outlier / recent-median-normal scenario is tested.
 - [ ] Material category increase and driver contribution are tested.
-- [ ] Tiny denominator does not create a misleading material finding.
+- [ ] Tiny denominator is exposed with correct deterministic context and does not require a hard-coded Go "importance" conclusion.
 - [ ] Incomplete data suppresses unsupported analysis.
-- [ ] Native tool is required.
-- [ ] Wrong tool name fails.
-- [ ] Unknown fields fail.
-- [ ] Unsupported evidence ref fails.
+- [ ] Every LLM phase requires native tools.
+- [ ] Wrong/unexposed tool name fails.
+- [ ] Unknown tool-argument fields fail.
+- [ ] Raw final assistant text fails.
+- [ ] Native RENDER with natural prose succeeds.
+- [ ] Supporting refs, when used, are validated.
 - [ ] AI gateway failure leaves deterministic Analytics intact.
-- [ ] No recommendation field exists in the new contract.
+- [ ] No structured recommendation/advice DTO is required for the rendered response.
+- [ ] No regex/keyword/switch/template semantic fallback is introduced in Go.
 - [ ] Web renders deterministic fallback.
 - [ ] Drill-down preserves correct household/period filters.
 - [ ] Cross-household decision access fails.
@@ -313,13 +323,13 @@ Before requesting final approval, the implementation PR must answer:
 1. What household review question does this PR make easier to answer?
 2. Which displayed facts are new, and where are they computed?
 3. What comparison baseline is used and why?
-4. What materiality policy decides whether something is worth showing?
-5. If AI is used, what exact native tool is required?
-6. What facts are sent to the model?
-7. What facts are intentionally withheld?
-8. How is every AI finding bound back to deterministic evidence?
+4. Which layer decides what is noteworthy, and why is that not hidden in Go heuristics?
+5. What native READ tools can the model use?
+6. What native RENDER/respond tool carries the final natural prose?
+7. What data is available through tools, and what is intentionally withheld?
+8. How can the user inspect the deterministic facts behind the rendered analysis?
 9. What happens when the model is unavailable?
-10. What prevents free-form prose from returning later?
+10. What prevents JSON-in-text contracts, raw final model text, or Go semantic fallbacks from returning later?
 11. What test proves a stable cycle does not generate filler?
 12. What test prevents a misleading previous-cycle comparison?
 13. What part of the page remains useful without AI?
@@ -337,7 +347,7 @@ The target is:
 trusted ledger
 + useful deterministic analysis
 + meaningful charts
-+ optional native-tool evidence-bound interpretation
++ native-tool analytical reasoning and rendering
 + household-owned discussion and decisions
 ~~~
 
