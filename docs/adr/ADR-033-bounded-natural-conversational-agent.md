@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-09-12; amended by ADR-038 and clarified by ADR-030 (2026-09-30 target rendering contract).
+Accepted — 2026-09-12; amended by ADR-038.
 
 ## Context
 
@@ -33,10 +33,10 @@ Go authorizes, validates, reconciles, reviews, audits, and commits.
 PostgreSQL remains canonical.
 ```
 
-The currently deployed Telegram conversational runtime accepts these response shapes:
+A conversational model response is valid in exactly one of these shapes:
 
-1. **Final display text** — non-empty assistant text and zero tool calls. The text
-   is display-only and is never parsed into a financial action.
+1. **Final text** — non-empty assistant text and zero tool calls. Text is display
+   only and is never parsed into a financial action.
 2. **READ batch** — one or more allow-listed READ tool calls. Independent reads
    may execute concurrently. Their model-safe authoritative results are supplied
    to the next bounded model phase.
@@ -44,14 +44,6 @@ The currently deployed Telegram conversational runtime accepts these response sh
    calls. Go strictly decodes and validates it and owns the resulting domain
    transition. At most one side effect may execute in one free-text user turn.
 
-### Target rendering migration
-
-ADR-030 now defines the target conversational boundary: final display text moves
-behind a native RENDER/respond tool whose `message` remains free-form prose.
-
-The current raw-final-text shape is a single documented legacy exception. It must
-not be copied or expanded. Any material feature work in this conversational lane
-must migrate final rendering first or include that migration in the same change.
 Pending transaction batches are a stricter workflow lane: while one is active,
 the model must call the server-exposed `pending_batch_decision` tool for every
 reply. The gateway uses a named required tool choice. `CONFIRM`, `CANCEL`, and
@@ -79,14 +71,10 @@ overall Telegram free-text budget:    20 seconds
 The limits are server-owned and may be tuned without changing the canonical
 ledger boundary.
 
-Today, normal final responses and clarifying questions may still be ordinary
-display-only assistant text. After the rendering migration, the same free-form
-language is carried inside the native RENDER/respond tool.
-
-The migration changes the machine boundary, not the writing style.
-
-The model must ask only for facts genuinely missing from bounded conversation and
-server-owned workflow context.
+Normal final responses and clarifying questions are ordinary model text. A fake
+`respond_to_user` or `ask_clarification` tool is not required merely to satisfy a
+framework contract. The model must ask only for facts genuinely missing from
+bounded conversation and server-owned workflow context.
 
 Read tools return composable structured finance facts rather than pre-rendered
 Telegram strings. The model decides which authoritative facts it needs and
@@ -133,11 +121,8 @@ and expiry. Parallel READ batches use collision-safe prefixed references so two
 concurrent searches cannot redefine the same short reference.
 
 Post-mutation response synthesis receives only the model-safe authoritative
-mutation result and the rendering tool, with no side-effect tools. Failure to
-synthesize does not roll back or retry the mutation; Go may send a literal
-deterministic acknowledgement of the already-completed result. That fallback may
-report status but must not perform new semantic interpretation or analytical
-reasoning.
+mutation result and no side-effect tools. Failure to synthesize does not roll
+back or retry the mutation; Go sends a deterministic acknowledgement instead.
 
 The strict single-native-tool contract remains available for non-conversational
 lanes such as classification/extraction where a single typed result is the
@@ -146,15 +131,12 @@ allowed to use different LLM contracts.
 
 ## Superseded / amended decisions
 
-- ADR-030's strict **one call total** shape remains superseded for the Telegram
-  conversational lane because conversation may use bounded multi-phase READ
-  batches.
-- ADR-030's 2026-09-30 amendment defines the target native rendering contract.
-  Existing Telegram raw final display text remains a temporary legacy exception
-  until the migration lands.
-- Conversation may execute multiple validated READ calls in a bounded phase.
-  Side effects remain exactly one. After migration, rendering is exactly one
-  display-only RENDER/respond tool call.
+- ADR-030's requirement that **every finance model invocation** contain exactly
+  one native tool call is superseded for the Telegram conversational lane.
+  ADR-030 remains applicable to strict single-result finance model workflows.
+- ADR-030's universal `tool_choice=required` and universal parallel-call ban are
+  superseded for the Telegram conversational lane. Conversation uses automatic
+  tool choice; parallel execution is allowed only for validated READ batches.
 - ADR-031's consequence that one native tool decision terminates a free-text
   model phase/turn is superseded. Multiple bounded model phases are allowed.
 - ADR-027's 10-second Telegram budget is amended for free-text conversation to a
@@ -175,17 +157,15 @@ arbitrary extraction, dependent READ reasoning, open-ended synthesis, or prose.
 
 ## Consequences
 
-- Richmod can answer ordinary conversational follow-ups naturally. The current
-  Telegram runtime still permits raw display text; the target boundary carries
-  the same prose through a rendering tool.
+- Richmod can answer ordinary conversational follow-ups without inventing a tool
+  call.
 - Analytical questions can retrieve several independent facts in one model
   response and can perform dependent follow-up reads in later phases.
 - The LLM performs materially more useful conversational reasoning while never
   gaining authority over canonical financial state.
-- Normal finance answers are model-written and grounded in authoritative Go tool
-  results. After migration they are carried by a native rendering tool;
-  deterministic canned analytical responses remain prohibited as an intelligence
-  substitute.
+- Normal free-text finance answers are model-written and grounded in
+  authoritative Go tool results; deterministic canned query responses become
+  fallback/system behavior rather than the normal path.
 - Multiple side effects in one free-text turn are structurally impossible at the
   server policy boundary, not merely discouraged by the prompt.
 - Registered side effects must map to exactly one conversational executor; there
@@ -193,28 +173,3 @@ arbitrary extraction, dependent READ reasoning, open-ended synthesis, or prose.
 - Existing deterministic callback/review bindings remain valid and exact reply
   targets have precedence over implicit review selection.
 - The document classification/extraction lanes are not changed by this ADR.
-
-
-## Anti-Go semantic drift amendment — 2026-09-30
-
-The bounded conversational agent exists so Go does not become a hidden NLP or
-analysis engine.
-
-Go may implement exact deterministic policy, validation, authorization,
-arithmetic, binding, persistence, and literal protocol/status messages.
-
-Go must not implement a semantic fallback using:
-
-- keyword or substring intent detection;
-- regex-based interpretation of ordinary language;
-- switch/case branches that decide conversational meaning;
-- hard-coded narrative selection intended to imitate model reasoning;
-- template-generated analytical conclusions;
-- open-ended "noteworthy" judgments encoded as arbitrary deterministic branches.
-
-If implementation needs to understand what a human sentence means, decide what
-is worth discussing, or synthesize an analytical explanation, that is an
-intelligence responsibility. Use Jev for a genuinely bounded semantic decision
-or generative intelligence for open-ended reasoning/prose.
-
-A provider failure does not transfer semantic ownership to Go.
