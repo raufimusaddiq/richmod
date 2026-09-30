@@ -57,17 +57,16 @@ test("charts answer distinct dashboard, cycle, calendar, and category questions"
   assert.match(charts, /ReferenceLine/);
 });
 
-test("analytics insight UI is aggregate-only and safely rendered", () => {
+test("analytics commentary is selected-cycle tool-first prose, safely rendered after deterministic evidence", () => {
   const analytics = text("app/analytics/page.js");
   const card = text("app/components/InsightCard.js");
   assert.match(analytics, /api\/v1\/insights/);
-  assert.match(analytics, /generate\?period=cycle/);
+  assert.match(analytics, /period: "cycle", cycle_start: cycleStart/);
   assert.match(analytics, /pollInsight/);
   assert.match(card, /split\(\/\\n\{2,\}\//);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
-  assert.ok(analytics.indexOf("analytics-kpis") < analytics.indexOf("analytics-chart"));
-  assert.ok(analytics.indexOf("analytics-chart") < analytics.indexOf("<InsightCard"));
-  assert.ok(analytics.indexOf("<InsightCard") < analytics.indexOf("analytics-detail-layout"));
+  const ordered = ["<CyclePosition", 'id="spending-shape"', 'id="changes"', 'id="drivers"', 'id="destinations"', 'id="household"', "<SavingsWealth", "<QualitySection", 'id="discussion"', "<InsightCard"];
+  for (let index = 1; index < ordered.length; index += 1) assert.ok(analytics.indexOf(ordered[index - 1]) < analytics.indexOf(ordered[index]), ordered[index]);
   assert.match(card, /insight-card-compact/);
   assert.match(card, /insight-state-copy/);
 });
@@ -83,10 +82,11 @@ test("analytics components own semantics, spacing, controls, and chart colors", 
   const analytics = text("app/analytics/page.js");
   const charts = text("app/components/Charts.js");
   const styles = text("app/globals.css");
-  assert.match(analytics, /className="analytics-flow"/);
-  assert.match(analytics, /className="surface analytics-ranked-card"/);
-  assert.match(analytics, /<strong>\{value\}<\/strong>/);
-  assert.doesNotMatch(analytics, /<b>\{value\}<\/b>/);
+  assert.match(analytics, /className="analytics-flow cycle-review"/);
+  assert.match(analytics, /className="cycle-outcome"/);
+  assert.match(analytics, /<dd>\{value\}<\/dd>/);
+  assert.match(analytics, /aria-labelledby="changes-title"/);
+  assert.match(analytics, /aria-controls="category-drivers"/);
   assert.match(analytics, /className="range-control-group"/);
   assert.match(analytics, /className="custom-range"/);
   assert.match(styles, /\.analytics-ranked-card \{ padding: 22px; \}/);

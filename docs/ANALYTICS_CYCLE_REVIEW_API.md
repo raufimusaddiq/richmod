@@ -88,8 +88,9 @@ financial mutation, provider call, or production-data repair is involved.
 The engine now lives in `apps/reviewdomain/analyticscore`. The API is a thin
 authorized adapter; [shared native analytical READ tools](ANALYTICS_SHARED_READ_TOOLS.md)
 use the same calculations and explicit model-safe projections. API canonical
-IDs remain server/browser-only. Full Web UI, meeting mode, and decision
-persistence belong to subsequent scoped sprints.
+IDs remain server/browser-only. The [cycle-review Web UI](ANALYTICS_CYCLE_REVIEW_UI.md)
+consumes this response directly. Meeting mode and decision persistence remain
+separate subsequent work.
 
 ## Verification
 
