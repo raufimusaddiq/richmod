@@ -92,7 +92,7 @@ inactive, unconfirmed, or cross-household aliases never authorize confirmation.
 - Telegram category callbacks honor that stored contract even when merchant is
   NULL. Receipt duplicate reviews expose candidate merge, confirm-as-new, and
   ignore choices; transfer-only actions remain unavailable there.
-- The merchant prompt keeps its `Beli aset` and `Abaikan` buttons (ADR-036,
+- The merchant prompt keeps its `Beli aset` and `Abaikan` buttons (ADR-036),
   matching the category chooser it replaced, so a missing-merchant card can
   still be reclassified as an asset purchase. A reply still binds to the
   merchant field unless the asset button is tapped.

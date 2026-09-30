@@ -69,6 +69,20 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 			p := NewProcessor(f.pool, model)
 			p.SetJudgment(eagerEngine{})
 			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99))
+			if mode == "remembered" {
+				// "Beli aset" is a deterministic callback, so it arrives on the
+				// callback lane, not the free-text agent lane.
+				asset := callbackUpdate(f.chatID, 99, "review:asset")
+				assetRaw, marshalErr := json.Marshal(asset)
+				mustAgentTest(t, marshalErr)
+				mustAgentTest(t, p.Process(ctx, f.seedSourceEvent(ctx, t, "asset-callback", assetRaw)))
+				var assetState string
+				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&assetState))
+				if assetState != "AWAITING_CONFIRMATION" {
+					t.Fatalf("Beli aset must ask for the Wealth Account, state=%s", assetState)
+				}
+				return
+			}
 			f.update.Message.Text = "New Cafe"
 			if mode == "remembered" || mode == "legacy-card" {
 				f.update.Message.Text = "  NEW   CAFE  "
