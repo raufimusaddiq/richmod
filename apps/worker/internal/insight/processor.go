@@ -178,6 +178,9 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 			reads = append(reads, toolRead{call.Name, call.Arguments, facts})
 			outputs = append(outputs, gateway.AgentToolOutput{CallID: call.CallID, Output: facts})
 		}
+		if len(request.ToolOutputs) > 0 {
+			request.ReadHistory = append(request.ReadHistory, gateway.AgentReadPhase{ToolCalls: request.PreviousToolCalls, ToolOutputs: request.ToolOutputs})
+		}
 		request.PreviousResponseID = response.ResponseID
 		request.PreviousToolCalls = calls
 		request.ToolOutputs = outputs

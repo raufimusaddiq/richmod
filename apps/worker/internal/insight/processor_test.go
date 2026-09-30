@@ -68,6 +68,9 @@ func TestAnalystNativeDependentReadsNoFillerOrAdviceContract(t *testing.T) {
 		t.Fatalf("calls=%v", calls)
 	}
 	for i, req := range g.requests {
+		if i > 1 && len(req.ReadHistory) != i-1 {
+			t.Fatalf("earlier native READ phases lost: phase=%d history=%d", i, len(req.ReadHistory))
+		}
 		raw, _ := json.Marshal(req.Content)
 		if strings.Contains(string(raw), "1400000") || strings.Contains(string(raw), "server-only-insight-id") {
 			t.Fatal("preloaded financial facts/IDs reached model")

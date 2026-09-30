@@ -61,6 +61,9 @@ never requires a recommendation paragraph.
 
 The worker calls LiteRouter through the existing native agent continuation API.
 Financial data appears only in native READ outputs, never initial model content.
+Responses retains earlier READ phases through `previous_response_id`. Chat
+Completions replays completed READ phases as ordered native assistant/tool
+messages, preserving early overview/baseline facts through later driver reads.
 Limits: 5 phases, 5 READs/phase, 8 READs/turn, 8 seconds/model call, 45 seconds
 overall. READs are fully validated before a batch executes. The selected cycle
 is server-bound; requests for a different cycle fail.
