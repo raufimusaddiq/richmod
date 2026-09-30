@@ -149,6 +149,9 @@ func TestConfirmRecallsLearnedMerchantCategory(t *testing.T) {
 			if response.Code != wantCode {
 				t.Fatalf("status=%d want=%d body=%s", response.Code, wantCode, response.Body.String())
 			}
+			if wantCode == http.StatusBadRequest && !bytes.Contains(response.Body.Bytes(), []byte(`"missingFacts":["category"]`)) {
+				t.Fatalf("recall miss must identify the category input: %s", response.Body.String())
+			}
 			var status string
 			var storedCategory *string
 			if err := pool.QueryRow(ctx, `SELECT status,category_id FROM transaction WHERE id=$1`, transactionID).Scan(&status, &storedCategory); err != nil {

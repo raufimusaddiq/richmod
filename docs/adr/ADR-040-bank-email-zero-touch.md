@@ -87,7 +87,8 @@ inactive, unconfirmed, or cross-household aliases never authorize confirmation.
 Web Review Inbox confirmation also accepts a merchant name without a category
 when the same exact household-confirmed alias resolves an active category. Its
 category picker allows this attempt when merchant is missing; unmatched names
-still require an explicit category. An explicitly selected category wins. Other
+produce a category-specific error and focus the now-required category picker.
+Changing the merchant allows recall again. An explicitly selected category wins. Other
 missing facts still block confirmation. Ingestion auto-confirm policies and
 Financial Provider Email resolution are unchanged.
 
