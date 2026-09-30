@@ -96,25 +96,22 @@ semantic imitation.
 
 ---
 
-## E. Provider-native tool boundary
+## E. Native analytical data-tool boundary
 
-This section is mandatory whenever an LLM is touched.
+This section is mandatory whenever AI analysis is touched.
 
-- [ ] Does every production model phase use provider-native tools?
-- [ ] Is tool choice required for that phase?
-- [ ] Are tool names allow-listed by server state?
+- [ ] Are financial data/state requests satisfied through native analytical READ tools?
+- [ ] Are tool names allow-listed by server/channel state?
 - [ ] Are tool argument schemas strict and server-owned?
-- [ ] Are unknown/malformed tool calls rejected?
-- [ ] Are financial data/state requests satisfied through native READ tools?
-- [ ] Is final model-written prose emitted through a native RENDER/respond tool?
-- [ ] Is raw final assistant text rejected in production LLM paths?
-- [ ] Is there no "return JSON matching this schema" prompt contract?
-- [ ] Is there no JSON embedded in prose that Go parses as a domain contract?
+- [ ] Are unknown/malformed analytical tool calls rejected?
+- [ ] Is there no "return JSON matching this schema" prompt contract for analysis?
+- [ ] Is there no JSON embedded in prose that Go parses as a financial-analysis contract?
 - [ ] Is there no direct browser-to-provider or direct provider bypass around LiteRouter?
-- [ ] Does `scripts/check_native_only_llm.sh` cover the changed path or is equivalent enforcement added?
+- [ ] Are the analytical READ implementations reusable by both Web and Telegram rather than duplicated?
+- [ ] Does `scripts/check_native_only_llm.sh` cover any new Analytics model path, or is equivalent enforcement added?
 
-Native tool arguments are structured. The human language inside a render tool's
-`message` remains free-form.
+The structured machine contract is the analytical tool arguments/results.
+Presentation is channel-specific.
 
 ---
 
