@@ -91,17 +91,6 @@ func TestEmptyRouteDoesNotNarrowImplicitBinding(t *testing.T) {
 	}
 }
 
-// undecidedJudgmentEngine returns no usable decision, simulating a classifier
-// that cannot decide (or is unavailable).
-type undecidedJudgmentEngine struct{ err error }
-
-func (e undecidedJudgmentEngine) Evaluate(_ context.Context, _ string, _ judgment.Request) (judgment.Result, error) {
-	if e.err != nil {
-		return judgment.Result{}, e.err
-	}
-	return judgment.Result{Model: "stub-jev", Answers: map[string]judgment.Answer{}}, nil
-}
-
 // nonReviewJudgmentEngine answers OTHER_OR_UNCLEAR whenever the question offers
 // it, and affirmatively otherwise. It simulates a classifier that is confident
 // the message is not a bounded answer to the pending workflow.

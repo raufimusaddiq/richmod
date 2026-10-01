@@ -1,5 +1,11 @@
 # Richmod Conversational Native Tool V2 — Codex Implementation Plan
 
+> **Status note (2026-10-02):** `executeNativeTool`, `processAssistantIntent`, and
+> `resolveTransactionDecision` named in this document were removed as unreachable
+> for production traffic; see the addendum in
+> `docs/audits/P0_YAGNI_TECH_DEBT_CLEANUP.md`. The live typed-text path is
+> `ProcessAgent`.
+
 **Repository:** `raufimusaddiq/richmod`  
 **Baseline branch:** `main`  
 **Reviewed baseline commit:** `9b73b98bda1b3b7fe95af53669f7b1a18308f55c` (`merge: native document and insight tools`, 2026-09-01)  

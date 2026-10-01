@@ -1,5 +1,11 @@
 # SAVR-00 — Semantic Authority Boundary Audit
 
+> **Status note (2026-10-02):** `executeNativeTool`, `processAssistantIntent`, and
+> `resolveTransactionDecision` named in this document were removed as unreachable
+> for production traffic; see the addendum in
+> `docs/audits/P0_YAGNI_TECH_DEBT_CLEANUP.md`. The live typed-text path is
+> `ProcessAgent`.
+
 **Status:** baseline audit complete for architecture PR  
 **Audited main:** `ffb29a15f13bef32fa8da0d840be75e3501fd928`  
 **Date:** 2026-09-27

@@ -24,44 +24,6 @@ func (p *Processor) agentResolveReview(ctx context.Context, state *agentState, c
 type agentTransactionReview struct {
 	reviewID, transactionID, transactionType, reviewType, conversationState, merchantID string
 	messageID                                                                           int64
-	ambiguous                                                                           bool
-	count                                                                               int
-}
-
-func (p *Processor) agentBoundTransactionReview(ctx context.Context, state *agentState) (*agentTransactionReview, error) {
-	query := `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0)
-		FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
-	params := []any{state.HouseholdID, state.Update.Message.Chat.ID}
-	if state.Update.Message.ReplyToMessage != nil {
-		query = `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0)
-			FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
-		params = append(params, state.Update.Message.ReplyToMessage.MessageID)
-	}
-	rows, err := p.pool.Query(ctx, query, params...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var choices []agentTransactionReview
-	for rows.Next() {
-		var v agentTransactionReview
-		if err := rows.Scan(&v.reviewID, &v.transactionID, &v.transactionType, &v.reviewType, &v.conversationState, &v.merchantID, &v.messageID); err != nil {
-			return nil, err
-		}
-		choices = append(choices, v)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(choices) == 0 {
-		return nil, nil
-	}
-	if len(choices) != 1 {
-		return &agentTransactionReview{ambiguous: true, count: len(choices)}, nil
-	}
-	return &choices[0], nil
 }
 
 func (p *Processor) agentCategoryID(ctx context.Context, householdID, slug string) (string, error) {
