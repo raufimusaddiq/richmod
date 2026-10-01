@@ -94,6 +94,30 @@ chart is replaced by a short "belum tersedia" line, never silently dropped.
 The cycle header now says "hari ke-N, hari ini belum penuh" for an active cycle,
 and the daily average is shown in whole rupiah like every other amount.
 
+## Calendar view hygiene — October 2, 2026
+
+The calendar view (`view=calendar`) is secondary to the cycle review; these fixes
+keep it honest without redesigning it.
+
+- A custom range is validated beside its fields with the API's own rules (both
+  months, start not after end, at most 24 months, end at most next month); the
+  message appears in an alert and an invalid range never reaches the URL. Inputs
+  are controlled, so they follow the URL after Back or a preset, are bounded by
+  `max`, and **Kustom** shows its selected state.
+- When the API rejects a range, its reason is read and shown as guidance
+  (for example "Rentang kustom harus 1 sampai 24 bulan…") instead of one fixed
+  sentence.
+- Months read "Sep 26", not `2026-09`. The running month is marked "· berjalan" in
+  the table and chart tooltip, with a note under the chart. A month with no
+  confirmed transactions says "belum ada transaksi" instead of Rp0.
+- The monthly table is Bulan, Pemasukan, **Pengeluaran bersih** (already net of
+  refunds), **Refund**, Arus kas bersih. The separate "Pengeluaran setelah refund"
+  list and its `/analytics/spending` request are gone: they repeated the cashflow
+  expense column.
+- The previous range stays visible but dimmed ("Memuat rentang…") while another
+  loads; a failed load clears it. The page still loads its four requests together:
+  one failure shows the retry state for the whole view.
+
 ## Document hierarchy
 
 ### Compact presentation — October 1, 2026
