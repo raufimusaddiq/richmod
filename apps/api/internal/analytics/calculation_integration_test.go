@@ -10,7 +10,32 @@ import (
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 )
+
+func TestSeptemberAndOctoberRentUseDifferentSalaryCycles(t *testing.T) {
+	f := cycleReviewFixture(t)
+	f.anchor(t, "2026-08-24")
+	f.anchor(t, "2026-09-25")
+	f.transaction(t, "2026-09-01", "EXPENSE", "CONFIRMED", "2000000", true)
+	f.transaction(t, "2026-09-02", "REFUND", "CONFIRMED", "50000", true)
+	f.transaction(t, "2026-10-01", "EXPENSE", "CONFIRMED", "1950000", true)
+	f.transaction(t, "2026-10-02", "EXPENSE", "CONFIRMED", "9999999", true)
+	facts, err := analyticscore.Load(context.Background(), f.pool, f.household, "2026-09-25", time.Date(2026, 10, 1, 12, 0, 0, 0, clock.HouseholdLocation()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := facts.Categories[0]
+	if facts.Period.MeasuredUntil != "2026-10-02" || facts.Comparison.PreviousFullCycle.Start != "2026-08-24" || facts.Comparison.PreviousFullCycle.MeasuredUntil != "2026-09-25" || facts.Comparison.Previous.MeasuredUntil != "2026-08-31" {
+		t.Fatalf("period=%+v comparison=%+v", facts.Period, facts.Comparison)
+	}
+	if c.Amount != "1950000" || *c.PreviousFull != "1950000" || *c.DeltaFull != "0" || *c.RelativeFull != "0.0000" || *c.Previous != "0" || c.Relative != nil {
+		t.Fatalf("rent=%+v", c)
+	}
+	if facts.Comparison.EligibleCycles != 1 || facts.Comparison.Median3Available || *facts.Comparison.Expense.PreviousFull != "1950000" {
+		t.Fatalf("full context must not change eligible history: %+v", facts.Comparison)
+	}
+}
 
 func TestAnalyticsCycleRangeBucketsAndRefundConsistency(t *testing.T) {
 	f := cycleReviewFixture(t)
@@ -88,9 +113,7 @@ func TestMerchantSharesUseAllNetExpenseBeforeTopTen(t *testing.T) {
 	}
 }
 
-// An elapsed active cycle compares only the measured prefix of each earlier
-// cycle; the full-cycle window is never pulled forward into the baseline.
-func TestCycleReviewBaselineUsesMeasuredPrefixOnly(t *testing.T) {
+func TestCycleReviewKeepsFullRentHistorySeparateFromElapsedBaseline(t *testing.T) {
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-01")
 	f.anchor(t, "2026-09-01")
@@ -99,34 +122,35 @@ func TestCycleReviewBaselineUsesMeasuredPrefixOnly(t *testing.T) {
 	f.transaction(t, "2026-09-08", "EXPENSE", "CONFIRMED", "1950000", true)
 	facts := f.review(t, "")
 	c := facts.Categories[0]
-	if facts.Comparison.Mode != "ELAPSED_DAYS" || facts.Comparison.EligibleCycles != 1 || facts.Comparison.Median3Available || facts.Comparison.Previous.MeasuredUntil != "2026-08-11" {
+	if facts.Comparison.Mode != "ELAPSED_DAYS" || facts.Comparison.EligibleCycles != 1 || facts.Comparison.Median3Available || facts.Comparison.Previous.MeasuredUntil != "2026-08-11" || facts.Comparison.PreviousFullCycle.MeasuredUntil != "2026-09-01" {
 		t.Fatalf("comparison=%+v", facts.Comparison)
 	}
-	if *c.Previous != "0" || c.Relative != nil {
+	if *c.Previous != "0" || c.Relative != nil || *c.PreviousFull != "1950000" || *c.DeltaFull != "0" || *c.RelativeFull != "0.0000" || *facts.Comparison.Expense.PreviousFull != "1950000" {
 		t.Fatalf("rent=%+v", c)
 	}
-	// Closed selection compares against the previous full closed cycle.
+	if len(c.Merchants) != 1 || *c.Merchants[0].PreviousFull != "1950000" {
+		t.Fatalf("merchant context=%+v", c.Merchants)
+	}
+	// Closed selection reuses full history without altering the primary baseline.
 	f.anchor(t, "2026-07-01")
 	f.transaction(t, "2026-07-15", "EXPENSE", "CONFIRMED", "1950000", true)
 	closed := f.review(t, "?cycle_start=2026-08-01")
-	if closed.Comparison.Mode != "FULL_CYCLE" || *closed.Comparison.Expense.Previous != "1950000" || *closed.Comparison.Expense.Delta != "0" {
+	if closed.Comparison.Mode != "FULL_CYCLE" || *closed.Comparison.Expense.Previous != *closed.Comparison.Expense.PreviousFull || *closed.Comparison.Expense.Delta != "0" || closed.Comparison.PreviousFullCycle.MeasuredUntil != "2026-08-01" {
 		t.Fatalf("closed comparison=%+v", closed.Comparison)
 	}
 }
 
-// A prior cycle shorter than the measured prefix is not a comparable elapsed
-// window, so it is excluded from the baseline entirely.
-func TestShorterPriorCycleIsNotAnElapsedBaseline(t *testing.T) {
+func TestFullPreviousCycleSurvivesIneligibleElapsedHistory(t *testing.T) {
 	f := cycleReviewFixture(t)
 	f.anchor(t, "2026-08-28")
 	f.anchor(t, "2026-09-01")
 	f.transaction(t, "2026-08-30", "EXPENSE", "CONFIRMED", "1950000", true)
 	facts := f.review(t, "")
-	if facts.Comparison.EligibleCycles != 0 || facts.Comparison.Previous != nil || facts.Comparison.Expense.Previous != nil || facts.Comparison.Expense.Median != nil {
+	if facts.Comparison.EligibleCycles != 0 || facts.Comparison.Previous != nil || facts.Comparison.Expense.Previous != nil || facts.Comparison.Expense.Median != nil || facts.Comparison.PreviousFullCycle.Start != "2026-08-28" {
 		t.Fatalf("ineligible history=%+v", facts.Comparison)
 	}
-	if len(facts.Categories) != 0 {
-		t.Fatalf("current-only category=%+v", facts.Categories)
+	if len(facts.Categories) != 1 || facts.Categories[0].Amount != "0" || *facts.Categories[0].PreviousFull != "1950000" || *facts.Categories[0].DeltaFull != "-1950000" {
+		t.Fatalf("full-only category=%+v", facts.Categories)
 	}
 }
 

@@ -252,16 +252,18 @@ function CyclePosition({ facts }) {
 }
 
 function ComparisonContext({ comparison, period }) {
-  const rows = [["Siklus ini", comparison.expense.amount], ["Sebelumnya", comparison.expense.previous], ["Median 3", comparison.expense.median3]];
+  const elapsed = comparison.mode === "ELAPSED_DAYS";
+  const rows = [[elapsed ? "Siklus ini · berjalan" : "Siklus ini", comparison.expense.amount], ["Sebelumnya · penuh", comparison.expense.previousFullCycle], ...(elapsed ? [["Sebelumnya · hari setara", comparison.expense.previous]] : []), [elapsed ? "Median 3 · hari setara" : "Median 3", comparison.expense.median3]];
   const maximum = Math.max(0, ...rows.map(([, value]) => Math.abs(Number(value))));
   return <div className="review-baseline">
-    <div className="baseline-meta"><span>{measuredLabel(period)}</span><span>{comparison.previous ? `vs ${measuredLabel(comparison.previous)}` : "Belum ada siklus pembanding"}</span><strong>{comparison.mode === "ELAPSED_DAYS" ? "Hari setara, bukan siklus penuh" : comparison.previous ? "Siklus ditutup" : "—"}</strong><span>{comparison.median3Available ? "Median 3 siklus tersedia" : `Median belum tersedia · ${comparison.eligibleCycles}/3 siklus`}</span></div>
+    <div className="baseline-meta"><span>{measuredLabel(period)}{elapsed && " · berjalan"}</span><span>{comparison.previousFullCycle ? `Sebelumnya · penuh: ${measuredLabel(comparison.previousFullCycle)}` : "Belum ada siklus pembanding"}</span>{elapsed && <span>Hari setara, bukan siklus penuh: {measuredLabel(comparison.previous)}</span>}<span>{comparison.median3Available ? "Median 3 siklus tersedia" : `Median belum tersedia · ${comparison.eligibleCycles}/3 siklus`}</span></div>
     <dl className="comparison-bars" aria-label="Perbandingan pengeluaran bersih">
       {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd><span aria-hidden="true" className="comparison-track"><i data-negative={String(value).startsWith("-") || undefined} style={{ width: maximum ? `${Math.abs(Number(value)) / maximum * 100}%` : "0%" }}/></span><strong>{amountLabel(value)}</strong></dd></div>)}
     </dl>
     <dl className="comparison-deltas">
-      <Metric label="Δ sebelumnya" value={signedMoney(comparison.expense.deltaVsPrevious)}/>
-      <Metric label="Δ median 3" value={signedMoney(comparison.expense.deltaVsMedian3)}/>
+      <Metric label="Δ siklus sebelumnya · penuh" value={`${signedMoney(comparison.expense.deltaVsPreviousFullCycle)} · ${ratioLabel(comparison.expense.relativeDeltaVsPreviousFullCycle)}`}/>
+      {elapsed && <Metric label="Δ hari setara" value={signedMoney(comparison.expense.deltaVsPrevious)}/>}
+      <Metric label={elapsed ? "Δ median 3 · hari setara" : "Δ median 3"} value={signedMoney(comparison.expense.deltaVsMedian3)}/>
     </dl>
   </div>;
 }
@@ -271,33 +273,35 @@ function ChangesTable({ items, comparison, selected, select }) {
   const elapsed = comparison.mode === "ELAPSED_DAYS";
   const deltaLabel = elapsed ? "Δ hari setara" : "Δ sebelumnya";
   return <>
-    <div className="change-ranking-head" aria-hidden="true"><span>Kategori</span><span>Siklus ini</span><span>{deltaLabel}</span></div>
+    <div className="change-ranking-head" aria-hidden="true"><span>Kategori</span><span>{elapsed ? "Siklus berjalan" : "Siklus ini"}</span><span>Δ siklus sebelumnya · penuh</span></div>
     <ul className="change-ranking" aria-label="Perubahan kategori">
       {items.map(item => <li key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
         <button className="change-button" type="button" aria-controls="category-drivers" aria-pressed={selected === (item.id || "uncategorized")} onClick={() => select(item.id || "uncategorized")}>{item.name}</button>
         <span><span className="visually-hidden">Siklus ini: </span>{money(item.amount)}</span>
-        <span><span className="visually-hidden">{deltaLabel}: </span>{signedMoney(item.deltaVsPrevious)}</span>
-        <span className="change-track" aria-hidden="true"><i data-negative={String(item.deltaVsPrevious).startsWith("-") || undefined} style={{ width: changeWidth(item, items) }}/></span>
+        <span><span className="visually-hidden">Δ siklus sebelumnya · penuh: </span>{signedMoney(item.deltaVsPreviousFullCycle)}<small> · {ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></span>
+        <span className="change-track" aria-hidden="true"><i data-negative={String(item.deltaVsPreviousFullCycle).startsWith("-") || undefined} style={{ width: changeWidth(item, items, "deltaVsPreviousFullCycle") }}/></span>
       </li>)}
     </ul>
     <small>Batang menunjukkan besar selisih relatif, bukan persentase kenaikan.</small>
     <details className="review-daily"><summary>Perbandingan lengkap · median, persentase & kontribusi</summary>
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
-    <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —.</caption>
-    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{elapsed ? "Sebelumnya · hari setara" : "Sebelumnya"}</th><th scope="col">Median 3</th><th scope="col">{deltaLabel}</th><th scope="col">Selisih vs median</th><th scope="col">Kontribusi ke selisih total</th></tr></thead>
+    <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —. Sebelumnya · penuh: {measuredLabel(comparison.previousFullCycle)}.</caption>
+    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{elapsed ? "Sebelumnya · hari setara" : "Sebelumnya · penuh"}</th><th scope="col">{elapsed ? "Median 3 · hari setara" : "Median 3"}</th><th scope="col">{deltaLabel}</th><th scope="col">{elapsed ? "Selisih vs median · hari setara" : "Selisih vs median"}</th><th scope="col">{elapsed ? "Kontribusi ke selisih hari setara" : "Kontribusi ke selisih total"}</th>{elapsed && <><th scope="col">Sebelumnya · penuh</th><th scope="col">Δ siklus sebelumnya · penuh</th></>}</tr></thead>
     <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
       <th scope="row">{item.name}</th>
       <td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td>
       <td>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></td>
       <td>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></td>
       <td>{ratioLabel(item.contributionToExpenseChange)}</td>
+      {elapsed && <><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td></>}
     </tr>)}</tbody>
   </table></div></details></>;
 }
 
 function MerchantTable({ items, period, categoryId }) {
   if (!items.length) return <p className="empty compact">Belum ada merchant pendukung.</p>;
-  return <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya</th><th scope="col">Median 3</th><th scope="col">Selisih</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></tr>)}</tbody></table></div>;
+  const elapsed = period.state === "ACTIVE";
+  return <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya · penuh</th><th scope="col">Δ siklus sebelumnya · penuh</th>{elapsed && <><th scope="col">Sebelumnya · hari setara</th><th scope="col">Δ hari setara</th></>}<th scope="col">{elapsed ? "Median 3 · hari setara" : "Median 3"}</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td>{elapsed && <><td>{amountLabel(item.previous)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></>}<td>{amountLabel(item.median3)}</td></tr>)}</tbody></table></div>;
 }
 
 function CategoryDrivers({ item, period }) {

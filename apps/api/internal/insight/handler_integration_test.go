@@ -90,6 +90,18 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if retry.Code != http.StatusOK {
 		t.Fatalf("retry status=%d body=%s", retry.Code, retry.Body.String())
 	}
+	// A pending old contract must not be reused as new full-cycle commentary.
+	if _, err := pool.Exec(ctx, `UPDATE insight SET prompt_version='cycle-analyst-v4' WHERE id=$1`, generated["id"]); err != nil {
+		t.Fatal(err)
+	}
+	legacyPending := httptest.NewRecorder()
+	handler.Generate(legacyPending, request)
+	if legacyPending.Code != http.StatusConflict || strings.Contains(legacyPending.Body.String(), generated["id"]) {
+		t.Fatalf("legacy pending=%d %s", legacyPending.Code, legacyPending.Body.String())
+	}
+	if _, err := pool.Exec(ctx, `UPDATE insight SET prompt_version=$2 WHERE id=$1`, generated["id"], insightPromptVersion); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE insight SET status='FAILED' WHERE id=$1`, generated["id"]); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +115,7 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=input_metrics_json || '{"facts_snapshot":{"private":"fixture"},"tool_reads":[{"private":"fixture"}]}'::jsonb WHERE id=$1`, generated["id"]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,created_at,requested_by_user_id,completed_at) SELECT $1,'2026-09-01','SUCCEEDED','{"period_start":"2026-09-01","period_kind":"SALARY_CYCLE"}', 'cycle-analyst-v4',1,now()+n*interval '1 minute',$2,now() FROM generate_series(1,14) n`, householdID, userID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,created_at,requested_by_user_id,completed_at) SELECT $1,'2026-09-01','SUCCEEDED','{"period_start":"2026-09-01","period_kind":"SALARY_CYCLE"}', 'cycle-analyst-v5',1,now()+n*interval '1 minute',$2,now() FROM generate_series(1,14) n`, householdID, userID); err != nil {
 		t.Fatal(err)
 	}
 	listRequest := httptest.NewRequest("GET", "/api/v1/insights?cycle_start=2026-08-24", nil)

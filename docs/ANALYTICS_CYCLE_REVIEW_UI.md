@@ -53,12 +53,14 @@ deltas and signed contribution under **Perbandingan lengkap**. Selection opens
 and focuses category evidence without a second API call. Merchant/transaction
 tables remain household/cycle-bound and keyboard-scrollable.
 
-Comparison context shows actual inclusive measured dates for current and prior
-prefixes. Active-category headings explicitly say `Δ hari setara`. Visual bars
-indicate relative magnitude, not percentage growth. Every baseline in the
-expanded comparison uses the same measured prefix, preserving equal-day/median
-semantics and the compact default layout. Zero-baseline percentage remains
-unavailable, even when a bar spans 100% width.
+Comparison context shows actual inclusive dates for the current measured range,
+the full previous closed cycle, and the supplemental equal-day prefix. Active
+amounts are labelled running, not complete. Full-cycle deltas lead category
+rankings and cashflow context; equal-day deltas, median and contribution remain
+explicitly labelled in the expanded table. Merchant details show both contexts.
+Visual bars indicate relative magnitude, not percentage growth. Equal full-cycle
+rent amounts show Rp0 / 0% even when the prior prefix has zero rent. Zero-baseline
+ratios remain unavailable, even when a visual bar spans 100% width.
 
 Distribution, attribution, optional commentary and human-authored decision
 context use native disclosures. Decisions open automatically in their meeting
@@ -209,7 +211,9 @@ by HTTP no-store. Its existing one-hour generation reuse remains unchanged;
 canonical corrections update current facts on reload, not past model prose.
 Worker READ sessions retain `facts_snapshot.generatedAt` across retries/midnight;
 PostgreSQL retains the independent `created_at` clock for rate limiting.
-new commentary uses `cycle-analyst-v4` and reports every baseline on the measured prefix.
+New commentary uses `cycle-analyst-v5` and distinguishes full-cycle context from
+supplemental elapsed comparisons. Older commentary stays preserved as historical;
+no automatic regeneration is added.
 Server reuse also checks the cutoff. HTTP 429 explains the preserved hourly cap;
 HTTP 409 explains pending earlier work, rather than returning a mismatched ID.
 

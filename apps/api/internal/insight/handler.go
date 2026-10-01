@@ -18,12 +18,12 @@ type Handler struct {
 	now  func() time.Time
 }
 
-const insightPromptVersion = "cycle-analyst-v4"
+const insightPromptVersion = "cycle-analyst-v5"
 
 // A stale cutoff is not reusable -- return it and the client rejects it -- but it
 // still counts against the hourly cap, so EXISTING matches only the reusable
 // cutoff (a pending job always, a fresh SUCCEEDED row only on the same cutoff).
-const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND input_metrics_json->>'period_end'=$6 AND (status='PENDING' OR (status='SUCCEEDED' AND prompt_version=$5 AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
+const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND input_metrics_json->>'period_end'=$6 AND prompt_version=$5 AND (status='PENDING' OR (status='SUCCEEDED' AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 

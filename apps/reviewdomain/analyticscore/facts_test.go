@@ -45,18 +45,33 @@ func TestCashChangeUsesOnlyCompletedEligibleHistory(t *testing.T) {
 		{period: reviewPeriod{State: "CLOSED"}, cash: reviewCashflow{Expense: "1500000"}},
 		{period: reviewPeriod{State: "CLOSED"}, cash: reviewCashflow{Expense: "1350000"}},
 	}
-	result := cashChange(measures, amount)
-	if result.Previous == nil || *result.Previous != "700000" || result.Median == nil || *result.Median != "1350000" {
+	full := cycleMeasure{cash: reviewCashflow{Expense: "9000000"}}
+	result := cashChange(measures, amount, &full)
+	if result.Previous == nil || *result.Previous != "700000" || result.Median == nil || *result.Median != "1350000" || *result.PreviousFull != "9000000" || *result.DeltaFull != "-7600000" {
 		t.Fatalf("comparison=%+v", result)
 	}
 }
 
-func TestCategoryWithNoEligibleHistoryFallsBackToZero(t *testing.T) {
+func TestFullOnlyCategoryDoesNotInventEligibleHistory(t *testing.T) {
 	current := newCycleMeasure(reviewPeriod{})
+	full := newCycleMeasure(reviewPeriod{})
+	full.categories["rent"] = reviewValue{ID: "rent", Name: "Rent", Amount: "1950000"}
+	rows := changes([]cycleMeasure{current}, func(m cycleMeasure) map[string]reviewValue { return m.categories }, &full)
+	if len(rows) != 1 || rows[0].Amount != "0" || rows[0].Previous != nil || rows[0].Delta != nil || rows[0].Median != nil || *rows[0].PreviousFull != "1950000" || *rows[0].DeltaFull != "-1950000" {
+		t.Fatalf("full-only category=%+v", rows)
+	}
+}
+
+func TestCategoryOrderUsesDisplayedFullCycleDelta(t *testing.T) {
+	current, previous, full := newCycleMeasure(reviewPeriod{}), newCycleMeasure(reviewPeriod{}), newCycleMeasure(reviewPeriod{})
 	current.categories["rent"] = reviewValue{ID: "rent", Name: "Rent", Amount: "1950000"}
-	rows := changes([]cycleMeasure{current}, func(m cycleMeasure) map[string]reviewValue { return m.categories })
-	if len(rows) != 1 || rows[0].Amount != "1950000" || rows[0].Previous != nil || rows[0].Delta != nil || rows[0].Median != nil {
-		t.Fatalf("no-history category=%+v", rows)
+	current.categories["food"] = reviewValue{ID: "food", Name: "Food", Amount: "500000"}
+	previous.categories["food"] = current.categories["food"]
+	full.categories["rent"] = current.categories["rent"]
+	full.categories["food"] = reviewValue{ID: "food", Name: "Food", Amount: "1000000"}
+	rows := changes([]cycleMeasure{current, previous}, func(m cycleMeasure) map[string]reviewValue { return m.categories }, &full)
+	if len(rows) != 2 || rows[0].ID != "food" || *rows[0].DeltaFull != "-500000" || rows[1].ID != "rent" || *rows[1].DeltaFull != "0" || *rows[1].Delta != "1950000" {
+		t.Fatalf("displayed full-cycle order=%+v", rows)
 	}
 }
 

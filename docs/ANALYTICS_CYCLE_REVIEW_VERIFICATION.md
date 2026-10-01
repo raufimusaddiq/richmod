@@ -21,7 +21,7 @@ this file records the checks, not an unobserved production deployment.
 | K — neutrality | Worker prompt prohibits blame, scores, motives and advice. Attribution is descriptive. Decisions have no model tool; browser save requires explicit human action. No causal success claim. |
 | L — household decisions | `TestCycleDecisionsExplicitSaveAuditAndHouseholdIsolation` checks author binding, active membership, prior-cycle context, same-transaction audit, denied foreign access, soft revocation, no financial rows. Invalid input tests and browser retained-draft/explicit retry/revoke tests. Telemetry never copies text. |
 | M — quality | Facts expose Inbox/settings/Wealth/category blockers, not model confidence. `TestCompletenessUsesGrossExpenseAndReviewCoverage` and worker data-failure tests enforce existing coverage suppression; no missing evidence guessed or retry loop on insufficient facts. |
-| N — persistence | `cycle-review-v1`, `cycle-analyst-v4`, deterministic request snapshot and executed native READ transcript retained in `insight`; historical rows preserved, legacy jobs explicitly superseded. Schema through 00074 matches decision entity/ERD; calculation/cutoff fixes change no schema. Model prose never mutates financial state. |
+| N — persistence | `cycle-review-v1`, `cycle-analyst-v5`, deterministic request snapshot and executed native READ transcript retained in `insight`; historical rows preserved, legacy jobs explicitly superseded. Schema through 00074 matches decision entity/ERD; calculation/cutoff fixes change no schema. Model prose never mutates financial state. |
 | O — regression | Shared facts/tool tests, PostgreSQL API/worker integration, model phase/read-count/order tests, web tests and synthetic Playwright smoke. Stable/no-filler, previous outlier, large category/transaction drivers, tiny denominator, incomplete state, AI outage, correct ledger binding and cross-household decisions. No acceptance assertion weakened. |
 | P — scope | No budgets/goals/recurring/portfolio/live prices/new infrastructure/provider branch/Telegram redesign; no Python, Redis, Kafka or direct provider integration. |
 | Q — review questions | Answers below; PR describes the evidence and limits. |
@@ -79,7 +79,11 @@ pending/recent-success/expired-success regressions while preserving the hourly
 cap. The exact revised head must pass CI and automatic review before merge.
 
 - Historical Sprint 5 local web tests (superseded, pre-revision): diff whitespace and native-only
-  guard passed. Current calculation/cutoff revision: 81 Node tests passed.
+  guard passed. Calculation/cutoff revision: 81 Node tests passed.
+  Full-cycle restoration: 82 Node tests passed; exact September 1 / October 1
+  rent fixtures, refund-adjusted full context, shorter prior cycles, native tool
+  projections and four-width browser assertions added/restored. DB integration,
+  build and browser checks require exact-head CI; no production fixtures used.
 - Initial Sprint 5 CI: frontend/browser, containers, secrets and CodeQL passed.
   Backend found a new fixture's missing required author, then its missing
   completion timestamp for `SUCCEEDED`; both fixed without weakening assertions

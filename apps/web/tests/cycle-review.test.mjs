@@ -22,6 +22,7 @@ test("comparison labels expose the measured prefix, not the whole closed cycle",
 	assert.equal(measuredLabel(null), "—");
 	const page = text("app/analytics/page.js");
 	assert.match(page, /measuredLabel\(comparison.previous\)/);
+  assert.match(page, /measuredLabel\(comparison.previousFullCycle\)/);
 	assert.match(page, /Batang menunjukkan besar selisih relatif, bukan persentase kenaikan/);
 });
 
@@ -41,6 +42,17 @@ test("change weight is proportional to the largest absolute delta, not a thresho
   assert.equal(changeWidth(items[1], items), "100%");
   assert.equal(changeWidth(items[2], items), "0%");
   assert.equal(changeWidth({ amount: "0" }, [{ deltaVsPrevious: "0" }]), "0%");
+});
+
+test("rent compares full cycles by default, not a zero equal-day prefix", () => {
+  const rent = { amount: "1950000", previous: "0", deltaVsPrevious: "1950000", previousFullCycle: "1950000", deltaVsPreviousFullCycle: "0", relativeDeltaVsPreviousFullCycle: "0.0000" };
+  assert.equal(changeWidth(rent, [rent], "deltaVsPreviousFullCycle"), "0%");
+  assert.equal(ratioLabel(rent.relativeDeltaVsPreviousFullCycle), "0%");
+  assert.equal(signedMoney(rent.deltaVsPreviousFullCycle), money("0"));
+  const page = text("app/analytics/page.js");
+  assert.match(page, /signedMoney\(item.deltaVsPreviousFullCycle\)/);
+  assert.match(page, /changeWidth\(item, items, "deltaVsPreviousFullCycle"\)/);
+  assert.match(page, /Sebelumnya · hari setara/);
 });
 
 test("drill-down URLs carry deterministic cycle boundaries with exclusive end", () => {

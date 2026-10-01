@@ -109,20 +109,25 @@ func TestAnalyticalParallelReads(t *testing.T) {
 	wg.Wait()
 }
 
-func TestNativeChangesKeepZeroPrefixDistinctFromMissing(t *testing.T) {
+func TestNativeChangesKeepZeroPrefixAndFullCycleContextDistinct(t *testing.T) {
 	s := toolFixture()
 	f := s.facts[""]
 	c := change("1950000", valuePointer("0"), nil)
+	c.setFullPrevious("1950000")
 	c.Name = "Fixture rent"
 	f.Categories[0].reviewChange = c
 	f.Comparison.Mode = "ELAPSED_DAYS"
+	f.Comparison.PreviousFullCycle = &reviewPeriod{Start: "2026-07-01", MeasuredUntil: "2026-08-01"}
 	s.facts[""] = f
 	result, err := s.Read(context.Background(), "get_cycle_changes", json.RawMessage(`{"cycle_start":null}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	categories := result["categories"].([]map[string]any)
-	if *categories[0]["previous"].(*string) != "0" || categories[0]["relative_delta_vs_previous"].(*string) != nil {
+	if *categories[0]["previous"].(*string) != "0" || categories[0]["relative_delta_vs_previous"].(*string) != nil || *categories[0]["previous_full_cycle"].(*string) != "1950000" || *categories[0]["delta_vs_previous_full_cycle"].(*string) != "0" || *categories[0]["relative_delta_vs_previous_full_cycle"].(*string) != "0.0000" {
 		t.Fatalf("native facts=%v", categories)
+	}
+	if result["comparison"].(map[string]any)["previous_full_cycle"] == nil {
+		t.Fatal("full cycle context must include its exact period")
 	}
 }

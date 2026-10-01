@@ -29,11 +29,14 @@ Not emitted, with reasons:
 
 - `cycle-review-v1` computes all section facts in one read-only repeatable-read
   transaction: two period reads, one grouped measure read for the selected cycle
-  plus up to three baselines, one bounded transaction-driver read, one quality
+  plus up to three prefix baselines and the full immediately prior closed cycle
+  (reusing its measure when identical), one bounded transaction-driver read, one quality
   read, one Wealth snapshot read, and optionally one observation-interval cashflow
   read. Six or seven SELECTs, excluding transaction control, independent of the
   number of categories/merchants. The time-window scans still scale with ledger
   size; this is a query-count review, not a production latency benchmark.
+  Full context is appended to the existing grouped `unnest` query; no extra
+  SELECT is added, and it is excluded from eligible history/median calculations.
 - The insight list no longer ships `input_metrics_json->'facts_snapshot'` or
   `tool_reads`, and it filters by `cycle_start` before `LIMIT 12`.
 - AI rate is unchanged: generation stays explicit and rate-limited by the
@@ -82,4 +85,4 @@ returns HTTP 429 without a stale ID; pending stale
 work returns HTTP 409. The browser explains the limit rather than pairing old
 days with new measurements, retaining readable active snapshots during errors.
 PostgreSQL owns the hourly clock; worker timing uses the stored request snapshot.
-Current commentary uses `cycle-analyst-v4`.
+Current commentary uses `cycle-analyst-v5`.
