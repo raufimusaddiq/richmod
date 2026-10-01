@@ -61,7 +61,7 @@ test("brand fonts are bundled and the guideline matches the existing token sourc
   }
   assert.match(text("public/fonts/OFL.txt"), /The Fraunces Project Authors/);
   assert.match(text("public/fonts/OFL.txt"), /The Inter Project Authors/);
-  assert.doesNotMatch(source, /fonts.googleapis.com|fonts.gstatic.com/);
+  assert.doesNotMatch(source, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
 });
 
 test("loading, tab, and drawer states are announced to assistive technology", () => {
