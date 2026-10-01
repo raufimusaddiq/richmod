@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
@@ -24,7 +25,16 @@ func (h *Handler) CycleReview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	facts, err := analyticscore.Load(r.Context(), h.pool, household, start, cycleNow(h)())
+	history := analyticscore.DefaultHistory
+	if raw := r.URL.Query().Get("history"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > analyticscore.MaxHistory {
+			writeJSON(w, 400, map[string]string{"error": "history must be 1 to 12"})
+			return
+		}
+		history = n
+	}
+	facts, err := analyticscore.LoadWithHistory(r.Context(), h.pool, household, start, cycleNow(h)(), history)
 	if errors.Is(err, analyticscore.ErrCycleNotFound) {
 		writeJSON(w, 404, map[string]string{"error": err.Error()})
 		return

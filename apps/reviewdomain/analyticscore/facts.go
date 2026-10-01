@@ -95,12 +95,55 @@ type reviewWealth struct {
 	Other    *string         `json:"valuationAndOtherChange"`
 }
 
+// historyCycle is one ledger column: whole-cycle totals for the cycle-to-cycle
+// view. Closed cycles are measured to their exclusive end; the active cycle to
+// its measuredUntil. Equal-day comparisons stay in Facts.Comparison.
+type historyCycle struct {
+	Start            string  `json:"start"`
+	End              *string `json:"end"`
+	MeasuredUntil    string  `json:"measuredUntil"`
+	State            string  `json:"state"`
+	Income           string  `json:"income"`
+	GrossExpense     string  `json:"grossExpense"`
+	Refund           string  `json:"refund"`
+	Expense          string  `json:"expense"`
+	Net              string  `json:"netCashflow"`
+	SavingsAllocated string  `json:"savingsAllocated"`
+}
+
+type historyCategory struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Amounts []string `json:"amounts"`
+}
+
+// categoryHistory is the category x cycle matrix. Rows are the top categories
+// by net expense over the window; Other holds the rest, so every column
+// reconciles exactly to its cycle's net expense.
+type categoryHistory struct {
+	CycleStarts []string          `json:"cycleStarts"`
+	Rows        []historyCategory `json:"rows"`
+	Other       struct {
+		Amounts []string `json:"amounts"`
+	} `json:"other"`
+}
+
+func emptyCategoryHistory() categoryHistory {
+	h := categoryHistory{CycleStarts: []string{}, Rows: []historyCategory{}}
+	h.Other.Amounts = []string{}
+	return h
+}
+
 type Facts struct {
 	Version     string         `json:"version"`
 	GeneratedAt time.Time      `json:"generatedAt"`
 	Period      reviewPeriod   `json:"period"`
 	Cycles      []reviewPeriod `json:"cycles"`
-	Comparison  struct {
+	// History and CategoryHistory are additive ledger series; they are never
+	// forwarded to analytical tools (tools use explicit projections).
+	History         []historyCycle  `json:"history"`
+	CategoryHistory categoryHistory `json:"categoryHistory"`
+	Comparison      struct {
 		Mode              string        `json:"mode"`
 		Previous          *reviewPeriod `json:"previous"`
 		PreviousFullCycle *reviewPeriod `json:"previousFullCycle"`
@@ -177,9 +220,26 @@ func newCycleMeasure(period reviewPeriod) cycleMeasure {
 	return cycleMeasure{period: period, cash: reviewCashflow{Income: "0", GrossExpense: "0", Refund: "0", Expense: "0", Net: "0", Allocated: "0", Unallocated: "0"}, categories: map[string]reviewValue{}, merchants: map[string]reviewValue{}, categoryMerchants: map[string]map[string]reviewValue{}}
 }
 
+const (
+	// DefaultHistory and MaxHistory bound the ledger window (cycles).
+	DefaultHistory       = 6
+	MaxHistory           = 12
+	historyTopCategories = 8
+)
+
 // Load computes one household's authoritative cycle facts in a read-only
-// repeatable-read snapshot. Callers own household authorization.
+// repeatable-read snapshot, without the multi-cycle history series. Callers own
+// household authorization.
 func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time) (Facts, error) {
+	return LoadWithHistory(ctx, pool, household, selected, now, 0)
+}
+
+// LoadWithHistory is Load plus the cycle-to-cycle history series for up to
+// `history` cycles (0 disables it, at most MaxHistory).
+func LoadWithHistory(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time, history int) (Facts, error) {
+	if history < 0 || history > MaxHistory {
+		return Facts{}, errors.New("history must be 0 to 12")
+	}
 	if pool == nil {
 		return Facts{}, errors.New("database pool required")
 	}
@@ -201,7 +261,7 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if err != nil {
 		return Facts{}, err
 	}
-	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, Members: []reviewValue{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
+	facts := Facts{Version: "cycle-review-v1", GeneratedAt: now, Cycles: periods, History: []historyCycle{}, CategoryHistory: emptyCategoryHistory(), Daily: []map[string]string{}, Categories: []reviewCategory{}, Merchants: []reviewChange{}, Members: []reviewValue{}, Destinations: []reviewValue{}, Quality: []reviewBlocker{}}
 	index := 0
 	if selected != "" {
 		index = -1
@@ -271,6 +331,10 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 			measures = append(measures, newCycleMeasure(p))
 		}
 	}
+	var window []int
+	if history > 0 && facts.Period.Kind == "SALARY_CYCLE" {
+		measures, window = historyMeasures(measures, historyWindow(periods, index, history))
+	}
 	if err := loadReviewMeasures(ctx, tx, household, measures, &facts); err != nil {
 		return facts, err
 	}
@@ -281,6 +345,9 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		}
 		measures[i].cash.Expense, measures[i].cash.Net = cash.NetExpense, cash.Surplus
 		measures[i].cash.Unallocated = financialmath.Subtract(cash.Surplus, measures[i].cash.Allocated)
+	}
+	if len(window) > 0 {
+		facts.History, facts.CategoryHistory = buildHistory(measures, window)
 	}
 	var full *cycleMeasure
 	if fullIndex >= 0 {
@@ -313,6 +380,110 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		return facts, err
 	}
 	return facts, tx.Commit(ctx)
+}
+
+// historyWindow selects the ledger cycles from periods (newest first): the n
+// most recent, or n ending at the selected cycle when it is older. The result is
+// oldest first. Closed cycles are measured to their full exclusive end, even when
+// the shared periods slice carries an equal-day cutoff for the comparison.
+func historyWindow(periods []reviewPeriod, index, n int) []reviewPeriod {
+	if n <= 0 || index < 0 || index >= len(periods) {
+		return nil
+	}
+	from := 0
+	if index >= n {
+		from = index
+	}
+	to := from + n
+	if to > len(periods) {
+		to = len(periods)
+	}
+	window := make([]reviewPeriod, 0, to-from)
+	for i := to - 1; i >= from; i-- {
+		p := periods[i]
+		if p.State == "CLOSED" && p.End != nil {
+			p.MeasuredUntil = *p.End
+		}
+		window = append(window, p)
+	}
+	return window
+}
+
+// historyMeasures reuses already-loaded measures with the same start and
+// cutoff, and appends the rest. It returns the window as measure indices.
+func historyMeasures(measures []cycleMeasure, window []reviewPeriod) ([]cycleMeasure, []int) {
+	seen := map[string]int{}
+	for i, m := range measures {
+		seen[m.period.Start+"|"+m.period.MeasuredUntil] = i
+	}
+	indices := make([]int, 0, len(window))
+	for _, p := range window {
+		key := p.Start + "|" + p.MeasuredUntil
+		i, ok := seen[key]
+		if !ok {
+			measures = append(measures, newCycleMeasure(p))
+			i = len(measures) - 1
+			seen[key] = i
+		}
+		indices = append(indices, i)
+	}
+	return measures, indices
+}
+
+// buildHistory turns loaded window measures (oldest first) into the ledger
+// series. Amounts are Go-computed whole-IDR strings; "Other" is net expense minus
+// the listed rows, so each cycle reconciles exactly.
+func buildHistory(measures []cycleMeasure, window []int) ([]historyCycle, categoryHistory) {
+	history := make([]historyCycle, 0, len(window))
+	matrix := emptyCategoryHistory()
+	totals, names := map[string]string{}, map[string]string{}
+	for _, i := range window {
+		m := measures[i]
+		history = append(history, historyCycle{Start: m.period.Start, End: m.period.End, MeasuredUntil: m.period.MeasuredUntil, State: m.period.State,
+			Income: m.cash.Income, GrossExpense: m.cash.GrossExpense, Refund: m.cash.Refund, Expense: m.cash.Expense, Net: m.cash.Net, SavingsAllocated: m.cash.Allocated})
+		matrix.CycleStarts = append(matrix.CycleStarts, m.period.Start)
+		for id, v := range m.categories {
+			if _, ok := totals[id]; !ok {
+				totals[id], names[id] = "0", v.Name
+			}
+			totals[id] = financialmath.Add(totals[id], v.Amount)
+		}
+	}
+	ids := make([]string, 0, len(totals))
+	for id, total := range totals {
+		if compareAmounts(total, "0") != 0 {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(a, b int) bool {
+		if c := compareAmounts(totals[ids[a]], totals[ids[b]]); c != 0 {
+			return c > 0
+		}
+		if names[ids[a]] != names[ids[b]] {
+			return names[ids[a]] < names[ids[b]]
+		}
+		return ids[a] < ids[b]
+	})
+	if len(ids) > historyTopCategories {
+		ids = ids[:historyTopCategories]
+	}
+	for _, id := range ids {
+		matrix.Rows = append(matrix.Rows, historyCategory{ID: id, Name: names[id], Amounts: make([]string, 0, len(window))})
+	}
+	for _, i := range window {
+		m := measures[i]
+		listed := "0"
+		for r, id := range ids {
+			amount := "0"
+			if v, ok := m.categories[id]; ok {
+				amount = v.Amount
+			}
+			matrix.Rows[r].Amounts = append(matrix.Rows[r].Amounts, amount)
+			listed = financialmath.Add(listed, amount)
+		}
+		matrix.Other.Amounts = append(matrix.Other.Amounts, financialmath.Subtract(m.cash.Expense, listed))
+	}
+	return history, matrix
 }
 
 func (f *Facts) block(kind string, count int, amount *string, action string) {
