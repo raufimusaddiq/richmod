@@ -44,7 +44,6 @@ type judgmentOutcome string
 const (
 	judgmentOutcomeAccepted            judgmentOutcome = "ACCEPTED"
 	judgmentOutcomeClarification       judgmentOutcome = "CLARIFICATION"
-	judgmentOutcomeReview              judgmentOutcome = "REVIEW"
 	judgmentOutcomeRejected            judgmentOutcome = "REJECTED"
 	judgmentOutcomeProviderFailure     judgmentOutcome = "PROVIDER_FAILURE"
 	judgmentOutcomeJudgmentUnavailable judgmentOutcome = "JUDGMENT_UNAVAILABLE"

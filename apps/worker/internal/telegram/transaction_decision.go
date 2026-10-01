@@ -155,11 +155,11 @@ func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requ
 // a Jev call only on dimensions that remain genuinely unresolved, so a clear
 // generative result never pays a full second semantic pass (PRD §7.2, ADR-045).
 //
-// It deliberately does NOT go through resolveTransactionDecision: that function
-// sends the whole bundle (direction, amount/date support, ambiguity, category),
-// which is the redundant replay. Residual-first routing is the contract here.
-// Batch confirmation stays on resolveTransactionDecision because that path is an
-// explicit human confirmation, not an autonomous extraction.
+// It deliberately does NOT send the whole bundle (direction, amount/date support,
+// ambiguity, category) in one call, which is the redundant replay. Residual-first
+// routing is the contract here. Batch confirmation (agentFinalizePendingBatch)
+// does not re-run semantic approval: it is an explicit human confirmation, not an
+// autonomous extraction.
 func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
 	if direct, ok := directAcceptanceDecision(value, categories, state.Now); ok {
 		if p.postGenerativeAutoConfirmOff {
