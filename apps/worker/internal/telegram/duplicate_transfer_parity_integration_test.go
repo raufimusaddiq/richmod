@@ -136,7 +136,10 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, sourceID, raw); err != nil {
 		t.Fatal(err)
 	}
-	if err = NewProcessor(pool, boundReviewGateway{}).Process(ctx, sourceID); err != nil {
+	// Free text that is not a bound reply is ordinary conversation, handled by the
+	// agent lane. With the model unavailable it reports the outage so the queue
+	// retries; what this test pins is that nothing mutates either way.
+	if err = NewProcessor(pool, boundReviewGateway{}).Process(ctx, sourceID); err != nil && !strings.Contains(err.Error(), "conversational gateway unavailable") {
 		t.Fatal(err)
 	}
 	var transferType, transferStatus string

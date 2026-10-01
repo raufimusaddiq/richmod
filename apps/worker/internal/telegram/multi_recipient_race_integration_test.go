@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,7 +141,10 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply2 := seedTelegramReply(t, pool, householdID, secondChat, 42, 32, "54000 2026-09-23T13:45:00+07:00")
-	if err = processor.Process(ctx, reply2); err != nil {
+	// Free text that is not a bound reply is ordinary conversation, handled by the
+	// agent lane. With the model unavailable it reports the outage so the queue
+	// retries; what this test pins is that nothing mutates either way.
+	if err = processor.Process(ctx, reply2); err != nil && !strings.Contains(err.Error(), "conversational gateway unavailable") {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, "SELECT count(*) FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1", itemID).Scan(&queued); err != nil {
