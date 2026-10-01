@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 // Styled replacements for window.confirm / window.prompt. The native <dialog>
 // gives modal focus handling and Escape for free; the promise resolves to
@@ -28,6 +28,7 @@ export default function useDialogs() {
 
 function DialogView({ request, onSettle }) {
   const ref = useRef(null);
+  const titleId = useId();
   const isConfirm = request.kind === "confirm";
   useEffect(() => {
     const element = ref.current;
@@ -42,11 +43,11 @@ function DialogView({ request, onSettle }) {
     onSettle(Object.fromEntries(request.fields.map(field => [field.name, String(form.get(field.name) ?? "")])));
   }
 
-  return <dialog ref={ref} aria-labelledby="app-dialog-title" onCancel={event => { event.preventDefault(); onSettle(isConfirm ? false : null); }}>
+  return <dialog ref={ref} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onSettle(isConfirm ? false : null); }}>
     <form onSubmit={submit}>
       {isConfirm
-        ? <h2 id="app-dialog-title">{request.message}</h2>
-        : <><h2 id="app-dialog-title">{request.title}</h2>{request.fields.map((field, index) => <label key={field.name}>{field.label}{field.multiline
+        ? <h2 id={titleId}>{request.message}</h2>
+        : <><h2 id={titleId}>{request.title}</h2>{request.fields.map((field, index) => <label key={field.name}>{field.label}{field.multiline
           ? <textarea name={field.name} rows={5} defaultValue={field.defaultValue || ""} required={field.required} autoFocus={index === 0}/>
           : <input name={field.name} defaultValue={field.defaultValue || ""} required={field.required} autoFocus={index === 0}/>}</label>)}</>}
       <div className="dialog-actions">

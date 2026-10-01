@@ -136,6 +136,8 @@ test("destructive and text-entry choices use the shared dialog, not window.confi
   const dialogs = text("app/components/useDialogs.js");
   assert.match(dialogs, /showModal\(\)/);
   assert.match(dialogs, /onCancel=/);
+  assert.match(dialogs, /useId\(\)/);
+  assert.doesNotMatch(dialogs, /app-dialog-title/);
   // The leave-page guard in analytics must answer synchronously, so it keeps window.confirm.
   assert.match(text("app/analytics/page.js"), /window\.confirm\("Ada draf keputusan/);
 });
@@ -150,10 +152,12 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
   assert.match(provider, /Date\.now\(\) - lastLoad\.current > 60000/);
   assert.match(provider, /INBOX_COUNT_EVENT/);
   assert.match(text("app/layout.js"), /<InboxCountProvider>\{children\}<\/InboxCountProvider>/);
-  assert.match(text("app/inbox/page.js"), /publishInboxCount\(reviews\.length \+ actions\.length\)/);
+  assert.match(text("app/inbox/page.js"), /if \(!loading && !error\) publishInboxCount\(reviews\.length \+ actions\.length\)/);
 });
 
 test("decorative glyphs are hidden from assistive technology", () => {
   assert.match(text("app/components/Feedback.js"), /<span aria-hidden="true">✓<\/span>/);
   assert.match(text("app/components/ReviewCards.js"), /<span aria-hidden="true">✓<\/span>/);
+  assert.match(text("app/inbox/page.js"), /<span aria-hidden="true">✓<\/span>/);
+  assert.doesNotMatch(text("app/inbox/page.js"), /<span>✓<\/span>/);
 });
