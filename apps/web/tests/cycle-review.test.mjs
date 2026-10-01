@@ -126,7 +126,7 @@ test("review styles keep deterministic chart colours and a single accent", () =>
   const styles = globalCss();
   assert.match(styles, /\.cycle-review \{ gap: 0; \}/);
   assert.match(styles, /\.cycle-outcome \{ display: grid; grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
-  assert.match(styles, /\.change-track i \{ display: block; height: 100%; border-radius: 999px; background: var\(--accent\); \}/);
+  assert.match(styles, /\.change-track i \{ display: block; height: 100%; border-radius: 999px; background: var\(--ink-soft\); \}/);
   assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.cycle-outcome, \.cycle-review \.cycle-outcome \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });
 

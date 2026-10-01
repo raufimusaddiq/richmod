@@ -179,7 +179,7 @@ function AnalyticsReview() {
               <Metric label="Porsi hari tertinggi" value={ratioLabel(facts.spendingShape.peakShareOfExpense)}/>
               <Metric label="Hari tanpa pengeluaran bersih" value={`${facts.spendingShape.zeroSpendDays} hari`}/>
             </dl>
-            <details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td></tr>)}</tbody></table></div></details>
+            <details className="review-daily"><summary>Lihat nilai harian</summary><div className="review-table-wrap"><table><caption className="visually-hidden">Pengeluaran bersih harian</caption><thead><tr><th scope="col">Tanggal</th><th scope="col">Pengeluaran</th><th scope="col">Refund</th><th scope="col">Total sampai hari ini</th></tr></thead><tbody>{facts.daily.map(item => <tr key={item.period}><th scope="row">{dayLabel(item.period)}</th><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{item.cumulativeExpense == null ? "—" : money(item.cumulativeExpense)}</td></tr>)}</tbody></table></div></details>
           </section>
           <section id="changes" className="review-section" aria-labelledby="changes-title">
             <details className="report-disclosure" open={step === "changes"}>
@@ -201,13 +201,13 @@ function AnalyticsReview() {
             </details>
           </section>
           <section id="destinations" className="review-section" aria-labelledby="destinations-title">
-            <details className="report-disclosure"><summary><h2 id="destinations-title">Distribusi & merchant</h2><span>Detail pengeluaran</span></summary>
+            <details className="report-disclosure"><summary><h2 id="destinations-title">Distribusi & merchant</h2><span>{facts.categoryChanges.length} kategori · {facts.merchantDrivers.length} merchant</span></summary>
             <p className="review-description">Distribusi pengeluaran bersih per kategori. Merchant diurutkan berdasarkan perubahan absolut dibanding siklus sebelumnya.</p>
             <div className="review-split"><div><CategoryRankingChart items={facts.categoryChanges} serverOwned height={260}/><a href={transactionHref(facts.period)}>Lihat seluruh pengeluaran periode ini</a></div><MerchantTable items={facts.merchantDrivers} period={facts.period}/></div>
             </details>
           </section>
           <section id="household" className="review-section" aria-labelledby="household-title">
-            <details className="report-disclosure"><summary><h2 id="household-title">Catatan rumah tangga</h2><span>Atribusi pencatatan</span></summary>
+            <details className="report-disclosure"><summary><h2 id="household-title">Catatan rumah tangga</h2><span>{facts.memberAttribution.length ? `${facts.memberAttribution.length} pencatat` : "Belum ada atribusi"}</span></summary>
             <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Ini bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
             <dl className="review-attribution">{facts.memberAttribution.map(item => <Metric key={item.id || item.name} label={item.name} value={`${money(item.amount)} · ${item.count} transaksi`}/>)}</dl>
             {!facts.memberAttribution.length && <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}

@@ -66,6 +66,14 @@ bars, the ranked category deltas and the complete comparison table; nothing was
 removed. Comparison labels now read "Selisih vs …" and "hari yang sama" instead of
 "Δ" and "hari setara".
 
+Colour follows the [brand guide](brand-guidelines.md): baseline and category-change
+bars are neutral ink, a decrease is hatched rather than a different hue, selection
+is butter, and the category distribution chart uses the chart ramp. Collapsed
+sections say what is inside ("3 kategori · 8 merchant", "2 pencatat"), the daily
+values table gains **Total sampai hari ini** (the pace chart's table equivalent),
+and tables show edge shadows only while they overflow instead of a permanent
+"geser" caption.
+
 The browser formats numbers and maps amounts to bar lengths only. An absent
 `history` renders nothing, so the page still works against an older API.
 
