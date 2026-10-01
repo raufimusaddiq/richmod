@@ -161,7 +161,7 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	categoryID := ""
 	if categorySlug != "" {
 		if err := p.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, categorySlug).Scan(&categoryID); err != nil {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Kategori belum valid untuk keluarga ini.")
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori yang tersedia.")
 		}
 	}
 	if c.typ == "UNCLASSIFIED" && action == "EXPENSE" {
@@ -355,7 +355,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 	}
 	encoded, err := json.Marshal(args)
 	if err != nil || json.Unmarshal(encoded, &input) != nil {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Data alokasi tidak valid.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Alokasinya belum bisa dibaca. Isi nominal untuk tiap akun kekayaan, lalu kirim lagi.")
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
