@@ -74,7 +74,7 @@ func (p *Processor) promptAssetWealthAccount(ctx context.Context, sourceEventID,
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if err = enqueueReply(ctx, tx, update, "Sebutkan Wealth Account tujuan, misalnya: emas."); err != nil {
+	if err = enqueueReply(ctx, tx, update, "Sebutkan akun kekayaan tujuan, misalnya: emas."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -98,11 +98,11 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 	wealthHint := strings.TrimSpace(update.Message.Text)
 	if classification == "ASSET_PURCHASE" {
 		if wealthHint == "" {
-			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Sebutkan Wealth Account tujuan, misalnya: beli emas.")
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Sebutkan akun kekayaan tujuan, misalnya: beli emas.")
 		}
 		id, resolveErr := resolveUniqueWealthHint(ctx, tx, householdID, wealthHint)
 		if resolveErr != nil {
-			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Akun kekayaan belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
 		}
 		wealthHint = id
 	}
@@ -124,7 +124,7 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 		}
 		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
 			_ = tx.Rollback(ctx)
-			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Wealth Account tujuan bukan aset yang kompatibel.")
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Akun kekayaan tujuan bukan aset yang kompatibel.")
 		}
 		return err
 	}
@@ -183,16 +183,16 @@ func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, h
 	}
 	if len(buttons) == 0 {
 		_ = tx.Rollback(ctx)
-		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Belum ada Wealth Account investasi aktif untuk dipilih. Review tetap terbuka sampai rekening tersedia.")
+		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Belum ada akun kekayaan investasi aktif untuk dipilih. Tinjauan tetap terbuka sampai rekening tersedia.")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
 	markup := &InlineKeyboardMarkup{InlineKeyboard: buttons}
 	if update.CallbackQuery != nil {
-		err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih Wealth Account investasi tujuan:", markup)
+		err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Pilih akun kekayaan investasi tujuan:", markup)
 	} else {
-		err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Pilih Wealth Account investasi tujuan:", markup)
+		err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Pilih akun kekayaan investasi tujuan:", markup)
 	}
 	if err != nil {
 		return err

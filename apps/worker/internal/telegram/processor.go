@@ -213,6 +213,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		}
 	}
 	if update.CallbackQuery != nil {
+		if handled, err := p.processPendingConfirmCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+			return err
+		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:cat:") || strings.HasPrefix(update.CallbackQuery.Data, "review:catpage:") {
 			return p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
@@ -665,7 +668,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='native-finance-tool',parser_version='1' WHERE id=$1`, sourceID); err != nil {
 			return true, err
 		}
-		if err = enqueueReply(ctx, tx, update, "Saya menemukan "+label+" · Rp"+FormatIDR(amount)+". Ubah tanggalnya ke "+at.In(jakartaLocation()).Format("02 Jan 2006 15:04")+"? Balas yes/ya atau no/tidak."); err != nil {
+		if err = enqueueReplyMarkup(ctx, tx, update, "Saya menemukan "+label+" · Rp"+FormatIDR(amount)+". Ubah tanggalnya ke "+formatIDDateTime(at)+"?", pendingActionMarkup()); err != nil {
 			return true, err
 		}
 		return true, tx.Commit(ctx)
@@ -710,9 +713,9 @@ func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, u
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-proposal',parser_version='1' WHERE id=$1`, sourceID); err != nil {
 		return true, err
 	}
-	message := fmt.Sprintf("Saya menemukan %s · Rp%s. Ubah tanggalnya ke %s? Balas yes/ya untuk konfirmasi atau no/tidak untuk membatalkan.", label, FormatIDR(value.Amount), value.TransactionAt.In(jakartaLocation()).Format("02 Jan 2006 15:04"))
+	message := fmt.Sprintf("Saya menemukan %s · Rp%s. Ubah tanggalnya ke %s?", label, FormatIDR(value.Amount), formatIDDateTime(value.TransactionAt))
 	if enqueueMessage {
-		err = enqueueReply(ctx, tx, update, message)
+		err = enqueueReplyMarkup(ctx, tx, update, message, pendingActionMarkup())
 	}
 	if err != nil {
 		return true, err
@@ -743,7 +746,7 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 		status = "CONFIRMED"
 		message = "Perubahan transaksi berhasil disimpan."
 		if proposedAt != nil {
-			message = "Tanggal transaksi berhasil diubah ke " + proposedAt.In(jakartaLocation()).Format("02 Jan 2006 15:04") + "."
+			message = "Tanggal transaksi berhasil diubah ke " + formatIDDateTime(*proposedAt) + "."
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=COALESCE($2,transaction_at),category_id=COALESCE($3,category_id),description=COALESCE(NULLIF($4,''),description),updated_at=now() WHERE id=$1 AND household_id=$5`, transactionID, proposedAt, proposedCategoryID, proposedDescription, householdID); err != nil {
 			return true, err
@@ -837,10 +840,10 @@ func (p *Processor) offerBatch(ctx context.Context, householdID string, update t
 		if category == "" {
 			category = "-"
 		}
-		lines = append(lines, fmt.Sprintf("• %s Rp%s (%s, %s, %s)", label, FormatIDR(v.Amount), v.Type, category, v.TransactionAt.In(jakartaLocation()).Format("02/01/2006 15:04 WIB")))
+		lines = append(lines, fmt.Sprintf("• %s Rp%s (%s, %s, %s)", label, FormatIDR(v.Amount), v.Type, category, formatIDDateTime(v.TransactionAt)+" WIB"))
 	}
-	msg := fmt.Sprintf("Saya menemukan %d transaksi (total Rp%s):\n%s\n\nBalas yes/ya untuk mencatat semuanya, atau no/tidak untuk membatalkan.", len(vals), FormatIDR(total.String()), strings.Join(lines, "\n"))
-	if err = enqueueReply(ctx, tx, update, msg); err != nil {
+	msg := fmt.Sprintf("Saya menemukan %d transaksi (total Rp%s):\n%s\n\nCatat semuanya?", len(vals), FormatIDR(total.String()), strings.Join(lines, "\n"))
+	if err = enqueueReplyMarkup(ctx, tx, update, msg, pendingBatchMarkup()); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1016,7 +1019,7 @@ func (p *Processor) stageNativeCorrection(ctx context.Context, sourceID, househo
 	if categorySlug != "" {
 		var id string
 		if err := p.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, categorySlug).Scan(&id); err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Kategori belum valid untuk household ini.")
+			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Kategori belum valid untuk keluarga ini.")
 		}
 		categoryID = &id
 	}
@@ -1048,7 +1051,7 @@ func (p *Processor) stageNativeCorrection(ctx context.Context, sourceID, househo
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='native-finance-tool',parser_version='2' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
-	if err = enqueueReply(ctx, tx, update, "Usulkan perubahan untuk "+label+" · Rp"+FormatIDR(amount)+". Balas ya untuk konfirmasi atau tidak untuk batal."); err != nil {
+	if err = enqueueReplyMarkup(ctx, tx, update, "Usulkan perubahan untuk "+label+" · Rp"+FormatIDR(amount)+". Simpan perubahan ini?", pendingActionMarkup()); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

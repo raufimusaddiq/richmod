@@ -88,7 +88,7 @@ func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID stri
 			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
 			UNION ALL
 			SELECT 'CYCLE_RESIDUAL',crc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
-			       crc.basis_residual_idr::text,'Sisa salary cycle',r.created_at
+			       crc.basis_residual_idr::text,'Sisa siklus gaji',r.created_at
 			FROM review_request r
 			JOIN review_item ri ON ri.id=r.review_item_id
 			JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id

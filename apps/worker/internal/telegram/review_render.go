@@ -43,7 +43,7 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// The email did not support a required financial fact, so no canonical
 		// transaction was written. The only bounded action is to acknowledge it;
 		// there is no fact the household must supply here (SAVR-06).
-		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Bukti email belum pasti", context, "Bukti email ini tidak didukung. Abaikan atau buka Review Inbox."), "financial_email_facts"
+		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Bukti email belum pasti", context, "Bukti email ini tidak didukung. Abaikan atau buka Kotak Tinjauan."), "financial_email_facts"
 	case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
 		// A document review's only bounded action is to retry the shared document
 		// pipeline; the summary is the document's own extraction context.

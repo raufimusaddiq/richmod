@@ -183,6 +183,10 @@ func validCallbackAction(value string) bool {
 	switch value {
 	case "review:expense", "review:asset", "review:own", "review:household", "review:confirm", "review:change", "review:remember", "review:once":
 		return true
+	// Yes/no answers for a staged correction or batch. The worker resolves them
+	// against the sender's own pending row; the callback carries no identifiers.
+	case "pending:action:yes", "pending:action:no", "pending:batch:yes", "pending:batch:no":
+		return true
 	}
 	for _, action := range []string{"edit", "merchant", "description", "category", "ignore"} {
 		if value == "review:"+action {

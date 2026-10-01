@@ -133,7 +133,7 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, message)
 		}
 		if c.messageID == 0 {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pesan review belum terikat. Buka Review Inbox untuk melanjutkan.")
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pesan tinjauan belum terikat. Buka Kotak Tinjauan untuk melanjutkan.")
 		}
 		update.Message.Text = detail
 		update.Message.ReplyToMessage = &struct {
@@ -153,7 +153,7 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	if action == "ASSET_PURCHASE" {
 		wealthHint, _ := args["wealth_account_hint"].(string)
 		if strings.TrimSpace(wealthHint) == "" {
-			return p.continueReview(ctx, sourceEventID, c.id, c.tx, update, "Sebutkan Wealth Account tujuan, misalnya: emas.")
+			return p.continueReview(ctx, sourceEventID, c.id, c.tx, update, "Sebutkan akun kekayaan tujuan, misalnya: emas.")
 		}
 		update.Message.Text = wealthHint
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, c.id, c.tx, update, "TRANSFER", "CONFIRMED", "ASSET_PURCHASE", "Pembelian aset dicatat sebagai transfer.", "")
@@ -161,7 +161,7 @@ func (p *Processor) resolveNativeReview(ctx context.Context, sourceEventID, hous
 	categoryID := ""
 	if categorySlug != "" {
 		if err := p.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, categorySlug).Scan(&categoryID); err != nil {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Kategori belum valid untuk household ini.")
+			return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Kategori belum valid untuk keluarga ini.")
 		}
 	}
 	if c.typ == "UNCLASSIFIED" && action == "EXPENSE" {
@@ -224,16 +224,16 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		defer tx.Rollback(ctx)
 		id, resolveErr := resolveUniqueWealthHint(ctx, tx, householdID, wealthHint)
 		if resolveErr != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Wealth Account harus cocok tepat satu.")
+			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Akun kekayaan harus cocok tepat satu.")
 		}
 		// ADR-046: the observation mutation and review-learned alias are shared.
 		if txErr = reviewdomain.ResolveWealthObservation(ctx, tx, reviewdomain.WealthObservationCommand{HouseholdID: householdID, ObservationID: observationID, WealthAccountID: id}); txErr != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Wealth Account tidak lagi tersedia. Pilih ulang rekeningnya.")
+			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Akun kekayaan tidak lagi tersedia. Pilih ulang rekeningnya.")
 		}
 		if _, txErr = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); txErr != nil {
 			return true, txErr
 		}
-		if txErr = enqueueReply(ctx, tx, update, "Wealth Account tersimpan. Siapkan snapshot lengkap untuk menerapkan nilai dokumen."); txErr != nil {
+		if txErr = enqueueReply(ctx, tx, update, "Akun kekayaan tersimpan. Siapkan snapshot lengkap untuk menerapkan nilai dokumen."); txErr != nil {
 			return true, txErr
 		}
 		return true, tx.Commit(ctx)
@@ -303,9 +303,9 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		return true, nil
 	}
 	if action == "IGNORE" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Observasi Wealth diabaikan.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Observasi kekayaan diabaikan.")
 	}
-	return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih tindakan observasi Wealth yang valid.")
+	return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih tindakan observasi kekayaan yang valid.")
 }
 
 func (p *Processor) resolveNativeTransferCase(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, caseID, itemID, target, action string) error {
@@ -345,7 +345,7 @@ type residualAllocation struct {
 
 func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, requestID, itemID, caseID, action string, args map[string]any) error {
 	if action == "TRANSACTION_MISSING" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah transaksi tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu tinjauan). Setelah transaksi tersimpan, sisa siklus gaji dihitung ulang; tinjauan tetap terbuka jika masih perlu tindakan.")
 	}
 	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau catat transaksi baru lewat Telegram.")
@@ -390,7 +390,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CYCLE_RESIDUAL_STALE_NOT_APPLICABLE','cycle_residual_case',$3,jsonb_build_object('residualIdr',$4))`, householdID, userID, caseID, outcome.Residual); err != nil {
 			return err
 		}
-		if err = enqueueReply(ctx, tx, update, "Sisa salary cycle tidak lagi positif. Rekonsiliasi ini ditutup tanpa alokasi."); err != nil {
+		if err = enqueueReply(ctx, tx, update, "Sisa siklus gaji tidak lagi positif. Rekonsiliasi ini ditutup tanpa alokasi."); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -406,7 +406,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,$3,'cycle_residual_case',$4,jsonb_build_object('residualIdr',$5))`, householdID, userID, "CYCLE_RESIDUAL_"+action, caseID, outcome.Residual); err != nil {
 		return err
 	}
-	if err = enqueueReply(ctx, tx, update, "Rekonsiliasi sisa salary cycle tersimpan."); err != nil {
+	if err = enqueueReply(ctx, tx, update, "Rekonsiliasi sisa siklus gaji tersimpan."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -630,7 +630,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Tercatat. Ingat kategori ini untuk merchant tersebut?", markup); err != nil {
 			return err
 		}
-	} else if err := enqueueReply(ctx, tx, update, "Tercatat dan Review Inbox sudah diperbarui."); err != nil {
+	} else if err := enqueueReply(ctx, tx, update, "Tercatat dan Kotak Tinjauan sudah diperbarui."); err != nil {
 		return err
 	}
 	return nil

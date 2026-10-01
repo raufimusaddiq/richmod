@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
 import useAuth from "../components/useAuth";
+import useDrawerA11y from "../components/useDrawerA11y";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import { money, dateTime } from "../lib/format";
 import { NetWorthHistoryChart } from "../components/Charts";
@@ -53,6 +54,7 @@ export default function WealthPage() {
   const user = useAuth();
   const [data, setData] = useState(empty), [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null), [working, setWorking] = useState(false), [correcting, setCorrecting] = useState(false);
+  const drawerRef = useDrawerA11y(Boolean(selected), () => closeSnapshot());
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -173,7 +175,7 @@ export default function WealthPage() {
       </>}
     </div>
 
-    {selected && <div className="drawer-backdrop" onClick={closeSnapshot}><aside className="detail-drawer wealth-drawer" role="dialog" aria-modal="true" aria-labelledby="wealth-snapshot-title" onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeSnapshot}>×</button><span className="eyebrow">DETAIL CATATAN POSISI</span><h2 id="wealth-snapshot-title">{dateTime(selected.observedAt)}</h2><p className="muted">Waktu observasi tidak dapat diubah setelah catatan dibuat.</p>
+    {selected && <div className="drawer-backdrop" onClick={closeSnapshot}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer wealth-drawer" role="dialog" aria-modal="true" aria-labelledby="wealth-snapshot-title" onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeSnapshot}>×</button><span className="eyebrow">DETAIL CATATAN POSISI</span><h2 id="wealth-snapshot-title">{dateTime(selected.observedAt)}</h2><p className="muted">Waktu observasi tidak dapat diubah setelah catatan dibuat.</p>
       {!correcting ? <><div className="wealth-drawer-summary"><div><span>Kekayaan bersih</span><strong>{money(selected.netWorthIdr)}</strong></div><div><span>Aset</span><strong className="positive">{money(selected.assetTotalIdr)}</strong></div><div><span>Kewajiban</span><strong className="negative">{money(selected.liabilityTotalIdr)}</strong></div></div><div className="wealth-drawer-items">{(selected.items || []).map(item => <div className="wealth-detail-row" key={item.id || item.wealthAccountId}><div><span>{item.name || item.accountName}</span><small>{[wealthTypeLabel[item.wealthType], usageRoleLabel[item.usageRole], item.source].filter(Boolean).join(" · ")}</small>{item.note && <small>{item.note}</small>}</div><strong>{money(item.valueIdr)}</strong></div>)}</div><button className="button secondary" onClick={() => setCorrecting(true)}>Koreksi catatan</button></> : <form className="wealth-correction-form" onSubmit={correctSnapshot}>{(selected.items || []).map(item => <fieldset className="wealth-correction-account" key={item.id || item.wealthAccountId}><legend>{item.name || item.accountName}</legend><label><span>Nilai</span><input name={`value-${item.wealthAccountId}`} inputMode="numeric" pattern="[0-9]+" required defaultValue={item.valueIdr}/></label><div className="wealth-correction-grid"><label><span>Jumlah unit</span><input name={`quantity-${item.wealthAccountId}`} inputMode="decimal" defaultValue={item.quantity || ""}/></label><label><span>Satuan</span><input name={`unit-${item.wealthAccountId}`} defaultValue={item.unit || ""}/></label><label><span>Harga per unit</span><input name={`unitPrice-${item.wealthAccountId}`} inputMode="numeric" defaultValue={item.unitPriceIdr || ""}/></label><label><span>Sumber</span><input name={`source-${item.wealthAccountId}`} defaultValue={item.source || "MANUAL"}/></label></div><label><span>Catatan</span><input name={`note-${item.wealthAccountId}`} defaultValue={item.note || ""}/></label></fieldset>)}<div className="wealth-drawer-actions"><button type="button" className="secondary" onClick={() => setCorrecting(false)}>Batal</button><button disabled={working}>{working ? "Menyimpan…" : "Simpan koreksi"}</button></div></form>}
     </aside></div>}
   </AppShell>;

@@ -86,3 +86,41 @@ test("overview links to the exact snapshot it summarises", () => {
   assert.match(text("app/wealth/page.js"), /get\("snapshotId"\)/);
   assert.match(text("app" + "/globals.css"), /\.settings-section \{ scroll-margin-top: 24px; \}/);
 });
+
+test("modal drawers share focus, Escape, and Tab handling", () => {
+  const hook = text("app/components/useDrawerA11y.js");
+  assert.match(hook, /event\.key === "Escape"/);
+  assert.match(hook, /event\.key !== "Tab"/);
+  assert.match(hook, /opener\.focus\(\)/);
+  for (const page of ["transactions", "documents", "wealth"]) {
+    const source = text(`app/${page}/page.js`);
+    assert.match(source, /import useDrawerA11y from "\.\.\/components\/useDrawerA11y"/, `${page} imports the drawer hook`);
+    assert.match(source, /<aside ref={drawerRef} tabIndex={-1}/, `${page} attaches the drawer ref`);
+  }
+});
+
+test("mobile overflow button carries the pending-review badge", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.match(shell, /hiddenInboxCount/);
+  assert.match(shell, /<span>Lainnya<\/span>\{hiddenInboxCount > 0/);
+});
+
+test("user-facing copy uses the shared Indonesian vocabulary", () => {
+  for (const file of ["app/admin/page.js", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
+    const source = text(file);
+    assert.doesNotMatch(source, /Wealth Account|Review Inbox|Pemilik household|data household|alamat household|Antrean review|Joint \/ household/, `${file} avoids internal terms`);
+  }
+  const cards = text("app/components/ReviewCards.js");
+  assert.doesNotMatch(cards, />[A-Z]{4,}( [A-Z]{2,})+</, "review card badges are sentence case");
+});
+
+test("inbox badges are decorative and the control carries the accessible name", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.doesNotMatch(shell, /<b className="nav-badge" aria-label/);
+  assert.match(shell, /aria-label=\{pending \? `\$\{label\}, \$\{inboxCount\} item menunggu tinjauan`/);
+  assert.match(shell, /aria-label=\{hiddenInboxCount > 0 \? `Lainnya, \$\{hiddenInboxCount\} item menunggu tinjauan`/);
+});
+
+test("admin console uses the shared Tinjauan vocabulary", () => {
+  assert.doesNotMatch(text("app/admin/page.js"), /Memuat review|Per jenis review|<h2>Review<\/h2>|"Review"/);
+});

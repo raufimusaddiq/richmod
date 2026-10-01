@@ -6,8 +6,9 @@ Accepted — availability remediation Release 1.
 
 ## Decision
 
-The Telegram webhook authenticates and validates a bounded `review:` callback
-grammar, then atomically persists source evidence and a queue job before returning
+The Telegram webhook authenticates and validates a bounded callback grammar (`review:*`, plus the
+`pending:action:yes|no` and `pending:batch:yes|no` answers for staged
+corrections and batches), then atomically persists source evidence and a queue job before returning
 HTTP 204. The API has no Telegram bot token and makes no Telegram network call.
 
 The worker acknowledges callbacks first with a 1.5-second budget. ACK failure is

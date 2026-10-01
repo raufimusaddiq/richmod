@@ -90,6 +90,32 @@ Body family: "Inter" (`--font-body` in CSS).
   container. Transaction dialogs use one padded surface, not nested panels;
   date filters and manual entry stay usable at 320px without horizontal scroll.
 
+## Voice and vocabulary
+
+Web and Telegram speak Indonesian with one name per concept. Internal domain
+terms (Wealth Account, Review Inbox, household, residual) stay in code, schema,
+and PRDs; they never appear in user-facing copy.
+
+| Concept | User-facing term | Not |
+| --- | --- | --- |
+| Wealth Account | akun kekayaan | Wealth Account, Akun Wealth |
+| Review Inbox | Kotak Tinjauan | Review Inbox |
+| review (noun) | tinjauan | review |
+| household | keluarga | household |
+| salary cycle / residual | siklus gaji / sisa siklus gaji | salary cycle, residual |
+
+- Labels and card badges use sentence case, not ALL CAPS.
+- Telegram dates use Indonesian month names (`04 Mei 2026`, `01 Agu 2026`)
+  through `formatIDDate*` in `apps/worker/internal/telegram/id_format.go`; never
+  Go's `time.Format` with a month name.
+- Telegram asks for confirmation with inline buttons (`pending:action:*`,
+  `pending:batch:*`), not by asking the user to type yes/no. Typed answers still
+  work through the bounded judgment lane.
+- Modal drawers (`aside[role="dialog"]`) use `useDrawerA11y`: focus moves in,
+  Escape closes, Tab stays inside, and focus returns to the opener.
+- On mobile, the pending-review count appears on the "Lainnya" button whenever
+  Tinjauan is in the overflow panel.
+
 ## Diagrams and charts
 
 - Diagrams: 2px ink outlines, pastel fills, ink arrows, and `Inter` labels with

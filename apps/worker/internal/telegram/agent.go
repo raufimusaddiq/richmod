@@ -472,7 +472,12 @@ func (p *Processor) finishAgentText(ctx context.Context, state *agentState, mess
 		WHERE id=$1`, state.SourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, state.Update, message); err != nil {
+	if markup := agentPendingMarkup(state.History); markup != nil {
+		err = enqueueReplyMarkup(ctx, tx, state.Update, message, markup)
+	} else {
+		err = enqueueReply(ctx, tx, state.Update, message)
+	}
+	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -507,9 +512,9 @@ func agentMutationFallback(result agentToolResult) string {
 		case "TRANSACTION_RECORDED":
 			if result.Status == "NEEDS_REVIEW" {
 				if amount != "" {
-					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Review karena masih perlu konfirmasi."
+					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
 				}
-				return "Transaksi sudah masuk ke Review karena masih perlu konfirmasi."
+				return "Transaksi sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
 			}
 			if amount != "" {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
@@ -572,19 +577,19 @@ func agentMutationFallback(result agentToolResult) string {
 		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
 			return "Detail review sudah diperbarui."
 		case "WEALTH_ACCOUNT_SET":
-			return "Wealth Account untuk observasi tersebut sudah diperbarui."
+			return "Akun kekayaan untuk observasi tersebut sudah diperbarui."
 		case "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE":
-			return "Observasi Wealth sudah direklasifikasi sebagai pembelian aset."
+			return "Observasi kekayaan sudah direklasifikasi sebagai pembelian aset."
 		case "WEALTH_OBSERVATION_IGNORED":
-			return "Observasi Wealth sudah diabaikan."
+			return "Observasi kekayaan sudah diabaikan."
 		case "CYCLE_RESIDUAL_RESOLVED":
-			return "Rekonsiliasi sisa salary cycle sudah diselesaikan."
+			return "Rekonsiliasi sisa siklus gaji sudah diselesaikan."
 		case "CYCLE_RESIDUAL_REFRESHED":
-			return "Nilai sisa salary cycle berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
+			return "Nilai sisa siklus gaji berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
 		case "CYCLE_RESIDUAL_CLOSED":
-			return "Rekonsiliasi sisa salary cycle ditutup karena tidak lagi berlaku."
+			return "Rekonsiliasi sisa siklus gaji ditutup karena tidak lagi berlaku."
 		case "ADD_MISSING_TRANSACTION_IN_TELEGRAM":
-			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan."
+			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu tinjauan). Setelah tersimpan, sisa siklus gaji dihitung ulang; tinjauan tetap terbuka jika masih perlu tindakan."
 		}
 	}
 
@@ -608,7 +613,7 @@ func agentMutationFallback(result agentToolResult) string {
 	case "ACCOUNT_AMBIGUOUS":
 		return "Rekening sumber belum bisa dikenali secara unik. Sebutkan nama rekening yang lebih spesifik."
 	case "WEALTH_ACCOUNT_AMBIGUOUS", "MISSING_WEALTH_ACCOUNT":
-		return "Wealth Account belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
+		return "Akun kekayaan belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
 	case "MISSING_REVIEW_DETAIL":
 		return "Masih ada detail review yang perlu dilengkapi."
 	case "MISSING_CATEGORY", "INVALID_CATEGORY":
@@ -618,7 +623,7 @@ func agentMutationFallback(result agentToolResult) string {
 	case "INVALID_PAY_DATE":
 		return "Tanggal pembayaran belum valid."
 	case "TRANSFER_RECONCILIATION_REQUIRED":
-		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi Wealth bisa direklasifikasi."
+		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi."
 	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
 		return "Target review sudah berubah atau selesai. Buka atau balas review terbaru sebelum melanjutkan."
 	}
