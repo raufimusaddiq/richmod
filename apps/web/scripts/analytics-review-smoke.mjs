@@ -238,8 +238,8 @@ try {
     assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} meeting has no overflow`);
     await page.screenshot({ path: new URL(`${name}-meeting-decisions.png`, output).pathname, fullPage: true, animations: "disabled" });
-    page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "Batalkan keputusan", exact: true }).click();
+    await page.locator("dialog[open]").getByRole("button", { name: "Ya, batalkan", exact: true }).click();
     await page.getByText("Keputusan dibatalkan. Riwayat tetap tersimpan.", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Selesai meninjau", exact: true }).click();
     assert.equal(new URL(page.url()).searchParams.has("review"), false);

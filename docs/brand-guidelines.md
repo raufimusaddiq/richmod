@@ -115,6 +115,12 @@ and PRDs; they never appear in user-facing copy.
   with it deterministically, before any model call. The agent prompt tells the
   model to say what Richmod can do and point at `/help` whenever it declines a
   request. The worker registers a `/help` command menu at start (best-effort).
+- Confirmations and text entry use `useDialogs` (a native `<dialog>`), never
+  `window.confirm`/`window.prompt`. The one exception is the unsaved-draft guard
+  in analytics, which must answer synchronously.
+- The app shell reads one shared pending-review count (`InboxCountProvider`):
+  loaded once per session, refreshed on tab focus (at most once a minute), and
+  set exactly by the inbox page whenever it holds both lists.
 - Modal drawers (`aside[role="dialog"]`) use `useDrawerA11y`: focus moves in,
   Escape closes, Tab stays inside, and focus returns to the opener.
 - On mobile, the pending-review count appears on the "Lainnya" button whenever

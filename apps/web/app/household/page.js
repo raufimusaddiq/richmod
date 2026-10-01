@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
+import useDialogs from "../components/useDialogs";
 
 const roleLabel = (role) => ({ OWNER: "Administrator", MEMBER: "Anggota" })[role] || role;
 
 export default function HouseholdPage() {
+  const { confirm, dialogs } = useDialogs();
   const [household, setHousehold] = useState(null);
   const [members, setMembers] = useState([]);
   const [me, setMe] = useState(null);
@@ -42,13 +44,14 @@ export default function HouseholdPage() {
   async function createDashboardInvite(memberId) { const response = await fetch(`/api/v1/household/members/${memberId}/dashboard-invite`, {method:"POST"}); const body=await response.json().catch(()=>({})); if(!response.ok){setError(body.error||"Undangan login belum dapat dibuat.");return;} const link=window.location.origin+body.link; await navigator.clipboard?.writeText(link); setInvite({link,memberId,dashboard:true}); await load(); }
 
   async function deactivate(memberId) {
-    if (!window.confirm("Nonaktifkan anggota ini? Riwayat transaksi tetap disimpan.")) return;
+    if (!(await confirm("Nonaktifkan anggota ini? Riwayat transaksi tetap disimpan.", { confirmLabel: "Nonaktifkan", danger: true }))) return;
     const response = await fetch(`/api/v1/household/members/${memberId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: false }) });
     if (!response.ok) { setError("Anggota belum dapat dinonaktifkan."); return; } await load();
   }
 
   if (!me) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return <AppShell user={me} eyebrow="KELUARGA" title={household?.name || "Rumah Tangga"} actions={<span className="header-meta">{members.filter(member => member.active).length} anggota aktif</span>}>
+    {dialogs}
     <p className="page-intro">Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p>
     {error && <p className="notice error">{error}</p>}
     <div className="admin-stack">

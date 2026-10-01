@@ -1,6 +1,7 @@
 import "./globals.css";
 import "./detail-drawer.css";
 import AuthProvider from "./components/AuthProvider";
+import InboxCountProvider from "./components/InboxCountProvider";
 
 // The browser-authenticated app must not reuse an HTML shell from an older
 // deployment whose client chunks may have been replaced.
@@ -39,7 +40,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
-      <body><AuthProvider>{children}</AuthProvider></body>
+      <body><AuthProvider><InboxCountProvider>{children}</InboxCountProvider></AuthProvider></body>
     </html>
   );
 }

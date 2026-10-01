@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { dayLabel } from "../lib/chartData";
 import { dateTime } from "../lib/format";
 import { ErrorNotice } from "./Feedback";
+import useDialogs from "./useDialogs";
 
 export default function CycleDecisions({ cycleStart, closed, body, onBodyChange, expanded = false }) {
+  const { confirm, dialogs } = useDialogs();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -49,7 +51,7 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
   }
 
   async function revoke(id) {
-    if (pending.current || !window.confirm("Batalkan keputusan ini? Catatan asli tetap tersimpan dalam riwayat audit.")) return;
+    if (pending.current || !(await confirm("Batalkan keputusan ini? Catatan asli tetap tersimpan dalam riwayat audit.", { confirmLabel: "Ya, batalkan", danger: true }))) return;
     pending.current = true; setBusy(true); setSaveError(""); setStatus("");
     try {
       const response = await fetch(`/api/v1/analytics/cycle-decisions/${encodeURIComponent(id)}/revoke`, { method: "POST" });
@@ -60,6 +62,7 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
   }
 
   return <section id="decisions" className="review-section" aria-labelledby="decisions-title">
+    {dialogs}
     <details className="report-disclosure" open={expanded || Boolean(body)}>
     <summary><h2 id="decisions-title" tabIndex={-1}>Keputusan rumah tangga</h2><span>{body ? "Draf belum disimpan" : data ? `${data.items.length} catatan · ${data.previous.length} sebelumnya` : error ? "Belum tersedia" : "Memuat…"}</span></summary>
     <p className="review-description">Catatan ditulis dan disimpan oleh anggota rumah tangga. Bukan transaksi, perubahan saldo, atau kesimpulan model.</p>

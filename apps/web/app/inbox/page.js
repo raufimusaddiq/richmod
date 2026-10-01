@@ -5,6 +5,7 @@ import AppShell from "../components/AppShell";
 import { ErrorNotice, Skeleton, Toast } from "../components/Feedback";
 import ReviewCards from "../components/ReviewCards";
 import useAuth from "../components/useAuth";
+import { publishInboxCount } from "../components/InboxCountProvider";
 
 const currentView = () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "actions" ? "actions" : "transactions";
 
@@ -31,6 +32,7 @@ export default function InboxPage() {
   }, []);
   useEffect(() => { setView(currentView()); const sync = () => setView(currentView()); window.addEventListener("popstate", sync); return () => window.removeEventListener("popstate", sync); }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
+  useEffect(() => { if (!loading && !error) publishInboxCount(reviews.length + actions.length); }, [loading, error, reviews, actions]);
   const closeToast = useCallback(() => setToast(""), []);
 
   function selectView(next) { setView(next); window.history.pushState({}, "", `/inbox?view=${next}`); }
@@ -50,7 +52,7 @@ export default function InboxPage() {
   return <AppShell user={user} eyebrow="TINJAUAN" title={`${count} item menunggu`} actions={<span className="header-meta">Transaksi dan tindakan tetap diproses terpisah</span>}>
     <div className="inbox-tabs" role="tablist" aria-label="Jenis tinjauan"><button role="tab" data-view="transactions" tabIndex={view === "transactions" ? 0 : -1} aria-selected={view === "transactions"} className={view === "transactions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("transactions")}>Transaksi <b>{reviews.length}</b></button><button role="tab" data-view="actions" tabIndex={view === "actions" ? 0 : -1} aria-selected={view === "actions"} className={view === "actions" ? "active" : ""} onKeyDown={tabKeys} onClick={() => selectView("actions")}>Tindakan <b>{actions.length}</b></button></div>
     <ErrorNotice message={error} retry={load}/>
-    {loading ? <Skeleton cards={2}/> : view === "transactions" ? <ReviewCards items={reviews} categories={categories} accounts={accounts} wealthAccounts={wealthAccounts} working={working} action={reviewAction}/> : <section className="action-list">{actions.map(item => <article key={item.id} className="surface action-card"><div><span className="eyebrow">{item.integrationType === "EMAIL_FORWARDING" ? "EMAIL" : item.integrationType}</span><h2>{item.title}</h2><p>{item.description}</p><small>Diterima {new Date(item.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</small>{item.actionCode && <p className="action-code">Kode konfirmasi: <code>{item.actionCode}</code></p>}</div>{owner ? <div className="action-buttons">{item.actionUrl && <a className="button" href={item.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={working === item.id} onClick={() => resolveAction(item.id)}>Tandai selesai</button></div> : <small>Pemilik keluarga perlu menyelesaikan tindakan ini.</small>}</article>)}{!actions.length && <div className="empty-state"><span>✓</span><h2>Tidak ada tindakan tertunda</h2><p>Richmod akan menampilkan kebutuhan setup integrasi di sini.</p></div>}</section>}
+    {loading ? <Skeleton cards={2}/> : view === "transactions" ? <ReviewCards items={reviews} categories={categories} accounts={accounts} wealthAccounts={wealthAccounts} working={working} action={reviewAction}/> : <section className="action-list">{actions.map(item => <article key={item.id} className="surface action-card"><div><span className="eyebrow">{item.integrationType === "EMAIL_FORWARDING" ? "EMAIL" : item.integrationType}</span><h2>{item.title}</h2><p>{item.description}</p><small>Diterima {new Date(item.createdAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}</small>{item.actionCode && <p className="action-code">Kode konfirmasi: <code>{item.actionCode}</code></p>}</div>{owner ? <div className="action-buttons">{item.actionUrl && <a className="button" href={item.actionUrl} target="_blank" rel="noopener noreferrer">Verifikasi penerusan</a>}<button className="secondary" disabled={working === item.id} onClick={() => resolveAction(item.id)}>Tandai selesai</button></div> : <small>Pemilik keluarga perlu menyelesaikan tindakan ini.</small>}</article>)}{!actions.length && <div className="empty-state"><span aria-hidden="true">✓</span><h2>Tidak ada tindakan tertunda</h2><p>Richmod akan menampilkan kebutuhan setup integrasi di sini.</p></div>}</section>}
     <Toast message={toast} onClose={closeToast}/>
   </AppShell>;
 }
