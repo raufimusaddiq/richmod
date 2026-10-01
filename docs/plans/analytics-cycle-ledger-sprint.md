@@ -181,6 +181,9 @@ Web only: surface the API error text, controlled custom-range inputs with min/ma
   "median 3") moves to PR 3, where those tables are demoted, so the smoke script's
   text assertions change in one place.
 
+- **PR 3** puts the matrix rows in the ribbon's table (standalone table under the cards when there are fewer than four closed cycles). A row is clickable only when `categoryChanges` serves that category, because older window categories may have no evidence. The ledger shows in the position and changes meeting steps. The plain-language relabelling shipped here. Scroll-snap was not added; the figure scrolls horizontally and centres the selected column.
+- **PR 3** turns "Apa yang berubah?" into the closed "Detail perubahan" disclosure instead of wrapping its contents in another "Detail penuh"; everything it held is still there.
+
 ## 5. Verification and resources
 
 - Local: `node --test tests/*.test.mjs` in `apps/web`; Go tests that do not need Postgres.

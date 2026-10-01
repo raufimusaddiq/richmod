@@ -188,4 +188,13 @@
   .ledger-bar i { width: 14px; }
   .ledger-verdict dd { font-size: var(--text-lg); }
 }
+/* Category x cycle matrix: rows share the ribbon's columns; the tint only sizes a value within its own row. */
+.ledger-table thead th > b { display: block; padding-top: var(--space-2); font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.ledger-table thead th > small { display: block; padding-bottom: var(--space-2); color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
+.ledger-table tbody tr.ledger-first-category > * { border-top: 2px solid var(--ink); }
+.ledger-table tbody th .ledger-row-button, .ledger-table tbody th .ledger-row-button:hover:not(:disabled) { display: block; width: 100%; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--ink); text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.ledger-table tbody th .ledger-row-button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
+.ledger-table tbody tr[data-selected-row] > th { box-shadow: inset 4px 0 0 var(--ink); }
+.ledger-cell { display: block; margin: 3px 4px; padding: 6px 0; border-radius: 6px; background: rgb(58 88 103 / calc(var(--tint) * .42)); font-size: var(--text-md); }
+.ledger-matrix-only { margin-top: var(--space-4); }
 /* end cycle ledger */

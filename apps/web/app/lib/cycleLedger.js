@@ -66,6 +66,30 @@ export function buildLedger(history = [], selectedStart = "", median = null) {
   return { columns, mode: closed >= CLOSED_FOR_CHART ? "chart" : "cards", medianLength: median == null ? null : length(median) };
 }
 
+// The category x cycle matrix shares the ledger's columns. Rows and the "Lainnya"
+// remainder are served and reconcile to each cycle's net expense; the browser only
+// sizes the tint (each cell relative to the largest positive value in its row).
+// A series that does not line up with history[] is not drawn.
+export function buildMatrix(categoryHistory, history = [], selectedCategory = "", selectable = []) {
+  const starts = history.map(item => item.start);
+  const served = categoryHistory?.cycleStarts ?? [];
+  const rows = categoryHistory?.rows ?? [];
+  const other = categoryHistory?.other?.amounts ?? [];
+  if (!rows.length || served.length !== starts.length || served.some((start, index) => start !== starts[index])) return [];
+  if (other.length !== starts.length || rows.some(row => row.amounts?.length !== starts.length)) return [];
+  const tints = amounts => {
+    const peak = Math.max(0, ...amounts.map(Number).filter(Number.isFinite));
+    return amounts.map(value => (peak > 0 && Number.isFinite(Number(value)) ? Math.max(0, Number(value)) / peak : 0));
+  };
+  const pickable = new Set(selectable);
+  const matrix = rows.map(row => {
+    const id = row.id || "uncategorized";
+    return { key: id, id, name: row.name, amounts: row.amounts, tints: tints(row.amounts), other: false, selected: id === selectedCategory, selectable: pickable.has(id) };
+  });
+  matrix.push({ key: "other", id: "", name: "Lainnya", amounts: other, tints: tints(other), other: true, selected: false, selectable: false });
+  return matrix;
+}
+
 // `cycles` is newest first, as served. Older is the next entry, newer the one before.
 export function adjacentCycles(cycles = [], start = "") {
   const index = cycles.findIndex(item => item.start === start);
