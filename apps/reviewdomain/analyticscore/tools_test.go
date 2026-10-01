@@ -138,6 +138,7 @@ func TestAnalyticalToolsNeverExposeCycleHistory(t *testing.T) {
 	f.History = []historyCycle{{Start: "2026-07-01", MeasuredUntil: "2026-08-01", State: "CLOSED", Expense: "777777"}}
 	f.CategoryHistory = emptyCategoryHistory()
 	f.CategoryHistory.Rows = []historyCategory{{ID: "history-only-id", Name: "History only", Amounts: []string{"888888"}}}
+	f.Pace = paceBaselines{PreviousFullCycle: []string{"999111"}, Median3: []string{"999222"}}
 	s.facts[""] = f
 	s.facts[f.Period.Start] = f
 	ctx := context.Background()
@@ -158,7 +159,7 @@ func TestAnalyticalToolsNeverExposeCycleHistory(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, forbidden := range []string{`"history"`, "categoryHistory", "cycleStarts", "History only", "history-only-id", "777777", "888888"} {
+		for _, forbidden := range []string{`"history"`, "categoryHistory", "cycleStarts", "History only", "history-only-id", "777777", "888888", `"pace"`, "previousFullCycle", "999111", "999222"} {
 			if strings.Contains(string(raw), forbidden) {
 				t.Fatalf("%s exposed ledger history (%s): %s", tool.Name, forbidden, raw)
 			}

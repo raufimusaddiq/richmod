@@ -175,7 +175,7 @@ function AnalyticsReview() {
           <section id="spending-shape" className="review-section analytics-chart" aria-labelledby="shape-title">
             <SectionTitle id="shape-title" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
             <CycleSpendingPatternChart items={facts.daily} average={facts.spendingShape.averageDailyExpense} height={260}/>
-            <CyclePaceChart items={facts.daily} references={paceReferences(facts)} height={220}/>
+            <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={facts.pace} height={220}/>
             <dl className="review-context">
               <Metric label="Rata-rata per hari" value={money(String(Math.round(Number(facts.spendingShape.averageDailyExpense))))}/>
               <Metric label="Hari tertinggi" value={facts.spendingShape.peakDay ? `${dayLabel(facts.spendingShape.peakDay)} · ${money(facts.spendingShape.peakExpense)}` : "Belum ada"}/>

@@ -66,6 +66,8 @@ export function cycleFacts(start = "2026-09-01") {
     { start: facts.period.start, end: facts.period.end, state: facts.period.state, income: facts.cashflow.income, expense: facts.cashflow.expense }];
   facts.history = rows.map((row, index) => ({ start: row.start, end: row.end, measuredUntil: row.end ?? facts.period.measuredUntil, state: row.state, income: row.income, grossExpense: row.expense, refund: "0", expense: row.expense,
     netCashflow: String(BigInt(row.income) - BigInt(row.expense)), savingsAllocated: "0", expenseDelta: index ? String(BigInt(row.expense) - BigInt(rows[index - 1].expense)) : null }));
+  // Pace curves, as served: the previous cycle in full and the 3-cycle median over the shared days.
+  facts.pace = { previousFullCycle: Array.from({ length: 30 }, (_, index) => String((index + 1) * 100000)), median3: Array.from({ length: facts.daily.length }, (_, index) => String((index + 1) * 120000)) };
   // Category x cycle matrix: the selected cycle uses the served category amounts; earlier
   // cycles split their expense by fixed shares. "Lainnya" is the exact remainder, as served.
   const last = facts.history.length - 1;

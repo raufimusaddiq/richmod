@@ -340,3 +340,35 @@ func TestCycleReviewHistorySeriesWindowAndReconciliation(t *testing.T) {
 		t.Fatal("history must not change the selected cycle's facts")
 	}
 }
+
+func TestCycleReviewPaceCurvesComeFromServedDailyNetExpense(t *testing.T) {
+	f := cycleReviewFixture(t)
+	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
+		f.anchor(t, date)
+	}
+	f.transaction(t, "2026-06-05", "EXPENSE", "CONFIRMED", "1000", true)
+	f.transaction(t, "2026-07-05", "EXPENSE", "CONFIRMED", "2000", true)
+	f.transaction(t, "2026-07-06", "REFUND", "CONFIRMED", "500", true)
+	f.transaction(t, "2026-08-05", "EXPENSE", "CONFIRMED", "1500", true)
+	f.transaction(t, "2026-09-05", "EXPENSE", "CONFIRMED", "900", true)
+
+	active := f.review(t, "")
+	previous, median := active.Pace.PreviousFullCycle, active.Pace.Median3
+	if len(previous) != 31 || previous[3] != "0" || previous[4] != "1500" || previous[30] != "1500" {
+		t.Fatalf("the previous cycle is served in full: len=%d %v", len(previous), previous)
+	}
+	if len(median) != 10 || median[3] != "0" || median[4] != "1500" || median[5] != "1500" || median[9] != "1500" {
+		t.Fatalf("an active review's median covers only the elapsed days: len=%d %v", len(median), median)
+	}
+
+	closed := f.review(t, "?cycle_start=2026-08-01")
+	if closed.Pace.Median3 != nil {
+		t.Fatalf("two earlier cycles are not a median: %v", closed.Pace.Median3)
+	}
+	if got := closed.Pace.PreviousFullCycle; len(got) != 31 || got[4] != "2000" || got[5] != "1500" || got[30] != "1500" {
+		t.Fatalf("refunds reduce the running total: %v", got)
+	}
+	if first := f.review(t, "?cycle_start=2026-06-01"); first.Pace.PreviousFullCycle != nil || first.Pace.Median3 != nil {
+		t.Fatalf("the first cycle has no history to compare: %+v", first.Pace)
+	}
+}
