@@ -86,6 +86,9 @@ Body family: "Inter" (`--font-body` in CSS).
 - Depth comes from a 2px ink outline plus an offset shadow (`--shadow`,
   `--shadow-float`). No blur-based glow.
 - Controls keep a 44px minimum height and inputs stay at 16px on mobile.
+- Native date/date-time inputs and label tracks must shrink inside their
+  container. Transaction dialogs use one padded surface, not nested panels;
+  date filters and manual entry stay usable at 320px without horizontal scroll.
 
 ## Diagrams and charts
 
