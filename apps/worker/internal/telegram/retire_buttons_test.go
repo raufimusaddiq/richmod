@@ -30,8 +30,15 @@ func TestRetiredMessageKeepsTheQuestionAndAddsTheOutcome(t *testing.T) {
 		t.Fatal("a message with unknown text must not be edited")
 	}
 	long := strings.Repeat("a", 5000)
-	if n := len([]rune(retiredMessageText(long, "Dibatalkan."))); n > 4000 {
+	got = retiredMessageText(long, "Dibatalkan.")
+	if n := len([]rune(got)); n > 4000 {
 		t.Fatalf("edited text exceeds Telegram's limit: %d", n)
+	}
+	if !strings.HasSuffix(got, "\n\nDibatalkan.") {
+		t.Fatalf("a long question must not lose the outcome: ...%q", got[len(got)-30:])
+	}
+	if !strings.Contains(got, "…\n\n") {
+		t.Fatal("a trimmed question should show that it was shortened")
 	}
 }
 

@@ -617,7 +617,7 @@ func agentMutationFallback(result agentToolResult) string {
 	case "MISSING_REVIEW_DETAIL":
 		return "Masih ada detail review yang perlu dilengkapi."
 	case "MISSING_CATEGORY", "INVALID_CATEGORY":
-		return "Kategori belum valid. Pilih kategori pengeluaran yang tersedia."
+		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia."
 	case "MISSING_BANK_FACTS":
 		return "Nominal dan waktu transaksi masih perlu dilengkapi."
 	case "INVALID_PAY_DATE":

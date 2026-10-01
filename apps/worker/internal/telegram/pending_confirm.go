@@ -118,7 +118,13 @@ func retiredMessageText(original, outcome string) string {
 	if original == "" {
 		return ""
 	}
-	return clean(original+"\n\n"+outcome, 4000)
+	// Telegram caps a message at 4096 and clean() at 4000 runes. Trim the
+	// question, never the outcome, so a long question still shows what happened.
+	suffix := "\n\n" + outcome
+	if room := 4000 - len([]rune(suffix)); len([]rune(original)) > room {
+		original = string([]rune(original)[:room-1]) + "…"
+	}
+	return original + suffix
 }
 
 // enqueueRetireButtons edits the message a callback came from so its buttons
