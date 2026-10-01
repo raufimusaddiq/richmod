@@ -37,12 +37,26 @@ export default function Home() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { const responses = await Promise.all(sections.map(([, url]) => fetch(url)));
-      const failed = responses.flatMap((response, index) => response.ok ? [] : [sections[index][0]]);
+    try {
+      const responses = await Promise.all(sections.map(([, url]) => fetch(url)));
+      // Setters are looked up by section name, so reordering `sections` cannot
+      // bind a response to the wrong state.
+      const apply = {
+        "ringkasan": setOverview,
+        "pengeluaran harian": data => setCashflow(elapsedDaily(data.daily || [], data.daysElapsed)),
+        "kategori": setCategories,
+        "transaksi terbaru": setTransactions,
+        "periode siklus": setCycle,
+        "kekayaan": setLatestWealth,
+      };
+      const failed = [];
+      for (const [index, [name]] of sections.entries()) {
+        try {
+          if (!responses[index].ok) throw new Error();
+          apply[name](await responses[index].json());
+        } catch { failed.push(name); }
+      }
       setError(failed.length ? `Belum termuat: ${failed.join(", ")}. Bagian lain tetap ditampilkan.` : "");
-      if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(elapsedDaily(cycleData.daily || [], cycleData.daysElapsed)); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
-      if (responses[4].ok) setCycle(await responses[4].json());
-      if (responses[5].ok) setLatestWealth(await responses[5].json());
     } catch { setError("Koneksi terputus saat memuat ringkasan."); } finally { setLoading(false); }
   }, [user]);
 

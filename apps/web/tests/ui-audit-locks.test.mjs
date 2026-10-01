@@ -213,3 +213,31 @@ test("split modules import only what they use", () => {
     assert.doesNotMatch(read(`app/components/review/${card}.js`), /import \{[^}]*\blabel\b[^}]*\} from "\.\/shared"/, `${card} does not import an unused label`);
   }
 });
+
+test("every dashboard section has a setter and every nav entry has an icon", () => {
+  const home = text("app/page.js");
+  const names = [...home.matchAll(/^\s+\["([^"]+)", "\/api\/v1\/[^"]+"\],$/gm)].map(match => match[1]);
+  assert.ok(names.length >= 6, "the dashboard sections are listed with their endpoints");
+  for (const name of names) assert.match(home, new RegExp(`"${name}": `), `section "${name}" has a setter in apply`);
+  assert.match(home, /apply\[name\]\(await responses\[index\]\.json\(\)\)/);
+
+  const shell = text("app/components/AppShell.js");
+  const navKeys = [...shell.matchAll(/^\s+\["\/[^"]*", "[^"]+", "(\w+)"\],$/gm)].map(match => match[1]);
+  const iconMap = shell.match(/const icons = \{([^}]*)\}/)[1];
+  assert.ok(navKeys.length >= 8);
+  for (const key of [...navKeys, "admin"]) assert.match(iconMap, new RegExp(`\\b${key}: `), `nav icon "${key}" is mapped`);
+});
+
+test("one malformed inbox list does not hide the other", () => {
+  const inbox = text("app/inbox/page.js");
+  assert.match(inbox, /const readList = async \(response, apply, name\) => \{ try \{/);
+  assert.match(inbox, /await readList\(reviewResponse, setReviews/);
+  assert.match(inbox, /await readList\(actionResponse, setActions/);
+});
+
+test("the console docs point at the split admin modules", () => {
+  for (const doc of ["RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md", "RICHMOD_SUPER_ADMIN_PLATFORM_CONSOLE_CODEX.md"]) {
+    const source = readFileSync(new URL(`../../../docs/${doc}`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /^apps\/web\/app\/admin\/page\.js$/m, `${doc} no longer names the old single file`);
+  }
+});
