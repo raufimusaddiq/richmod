@@ -172,9 +172,10 @@ Web only: surface the API error text, controlled custom-range inputs with min/ma
   without splitting the existing `page.js`; the split followed as a separate
   behaviour-preserving refactor (functions moved verbatim into `shared.js`,
   `CycleSections.js` and `CalendarReview.js`; tests read the directory).
-- **PR 2** draws the pace chart as the served running total plus served comparison
-  references (dashed levels, equal-day markers). Previous-cycle and median daily
-  curves are not served, so they are not drawn.
+- **PR 2** drew the pace chart as the served running total plus served comparison
+  references (dashed levels, equal-day markers) because the API did not serve
+  previous-cycle or median daily series. A follow-up added them (`pace`, computed in
+  Go) and the chart now draws both as curves.
 - **PR 2** shows income and net comparison through the ledger rows (from `history`)
   rather than a separate use of `comparison.income` / `comparison.netCashflow`.
 - **PR 2** plots the served `cumulativeExpense` as the pace chart. If any daily row lacks it, the chart says the total is unavailable instead of disappearing.

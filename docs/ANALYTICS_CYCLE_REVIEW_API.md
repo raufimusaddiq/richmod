@@ -118,6 +118,23 @@ forward either field (see [shared read tools](ANALYTICS_SHARED_READ_TOOLS.md)); 
 test asserts it. No schema change; the series reuses the existing array-driven
 measures query inside the same `REPEATABLE READ` transaction.
 
+## Pace curves — October 2, 2026
+
+`pace` gives the pace chart the day-by-day curves behind the comparison totals.
+Both arrays are cumulative net expense (refunds subtracted, transfers excluded),
+index `i` being day `i+1` of the cycle, each `null` when it does not exist:
+
+- `previousFullCycle`: the previous closed cycle in full (its whole length), the
+  same cycle as `comparison.previousFullCycle`.
+- `median3`: the per-day median of the three eligible cycles over the days all three
+  share. For a closed review that is the three preceding full cycles; for an active
+  review it is the elapsed-day prefix, so its length is the elapsed days. It is
+  `null` unless `comparison.median3Available`.
+
+Clients must tolerate their absence and must not derive curves. Like `history`, `pace`
+is not forwarded to analytical tools (a test asserts it). No schema change; the daily
+net expense reuses the measures query that already loads every comparison cycle.
+
 ## Wealth and quality
 
 The current snapshot is the latest observation before the measured cutoff

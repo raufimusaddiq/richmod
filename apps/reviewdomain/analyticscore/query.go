@@ -105,6 +105,11 @@ func loadReviewMeasures(ctx context.Context, tx pgx.Tx, household string, measur
 			if typ == "REFUND" {
 				amount = financialmath.Subtract("0", amount)
 			}
+			prior := "0" // net expense per day, for every measured cycle: the pace curves read it
+			if v, ok := m.dailyNet[day]; ok {
+				prior = v
+			}
+			m.dailyNet[day] = financialmath.Add(prior, amount)
 			accumulate(m.categories, cid, cid, cname, amount, count)
 			merchantKey := mid + ":" + mname
 			accumulate(m.merchants, merchantKey, mid, mname, amount, count)

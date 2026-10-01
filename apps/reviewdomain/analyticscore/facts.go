@@ -146,7 +146,10 @@ type Facts struct {
 	// forwarded to analytical tools (tools use explicit projections).
 	History         []historyCycle  `json:"history"`
 	CategoryHistory categoryHistory `json:"categoryHistory"`
-	Comparison      struct {
+	// Pace carries the previous cycle's and the 3-cycle median's cumulative curves
+	// for the pace chart. Like History, it is never forwarded to analytical tools.
+	Pace       paceBaselines `json:"pace"`
+	Comparison struct {
 		Mode              string        `json:"mode"`
 		Previous          *reviewPeriod `json:"previous"`
 		PreviousFullCycle *reviewPeriod `json:"previousFullCycle"`
@@ -217,10 +220,11 @@ type cycleMeasure struct {
 	cash                  reviewCashflow
 	categories, merchants map[string]reviewValue
 	categoryMerchants     map[string]map[string]reviewValue
+	dailyNet              map[string]string // YYYY-MM-DD (Jakarta) -> net expense that day
 }
 
 func newCycleMeasure(period reviewPeriod) cycleMeasure {
-	return cycleMeasure{period: period, cash: reviewCashflow{Income: "0", GrossExpense: "0", Refund: "0", Expense: "0", Net: "0", Allocated: "0", Unallocated: "0"}, categories: map[string]reviewValue{}, merchants: map[string]reviewValue{}, categoryMerchants: map[string]map[string]reviewValue{}}
+	return cycleMeasure{period: period, dailyNet: map[string]string{}, cash: reviewCashflow{Income: "0", GrossExpense: "0", Refund: "0", Expense: "0", Net: "0", Allocated: "0", Unallocated: "0"}, categories: map[string]reviewValue{}, merchants: map[string]reviewValue{}, categoryMerchants: map[string]map[string]reviewValue{}}
 }
 
 const (
@@ -357,6 +361,7 @@ func LoadWithHistory(ctx context.Context, pool *pgxpool.Pool, household, selecte
 		full = &measures[fullIndex]
 	}
 	measures = measures[:historyCount]
+	facts.Pace = buildPace(full, measures[1:], facts.Comparison.Median3Available)
 	facts.Cashflow = measures[0].cash
 	facts.Comparison.Expense = cashChange(measures, func(c reviewCashflow) string { return c.Expense }, full)
 	facts.Comparison.Income = cashChange(measures, func(c reviewCashflow) string { return c.Income }, full)
@@ -383,6 +388,49 @@ func LoadWithHistory(ctx context.Context, pool *pgxpool.Pool, household, selecte
 		return facts, err
 	}
 	return facts, tx.Commit(ctx)
+}
+
+// paceBaselines are per-day cumulative net-expense curves; index i is day i+1 of
+// the cycle. PreviousFullCycle is the previous closed cycle in full. Median3 is the
+// per-day median of the three eligible cycles over the days all three share (the
+// elapsed days while the selected cycle runs). Each is null when it does not exist.
+type paceBaselines struct {
+	PreviousFullCycle []string `json:"previousFullCycle"`
+	Median3           []string `json:"median3"`
+}
+
+// cumulativeSeries is the running net expense for each day from the cycle start up
+// to its measured cutoff.
+func cumulativeSeries(m cycleMeasure) []string {
+	start, startErr := time.ParseInLocation("2006-01-02", m.period.Start, clock.HouseholdLocation())
+	end, endErr := time.ParseInLocation("2006-01-02", m.period.MeasuredUntil, clock.HouseholdLocation())
+	if startErr != nil || endErr != nil {
+		return nil
+	}
+	series := []string{}
+	total := "0"
+	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
+		if v, ok := m.dailyNet[d.Format("2006-01-02")]; ok {
+			total = financialmath.Add(total, v)
+		}
+		series = append(series, total)
+	}
+	return series
+}
+
+func buildPace(previousFull *cycleMeasure, eligible []cycleMeasure, medianAvailable bool) paceBaselines {
+	var pace paceBaselines
+	if previousFull != nil {
+		pace.PreviousFullCycle = cumulativeSeries(*previousFull)
+	}
+	if medianAvailable && len(eligible) == 3 {
+		series := [][]string{cumulativeSeries(eligible[0]), cumulativeSeries(eligible[1]), cumulativeSeries(eligible[2])}
+		shared := min(len(series[0]), len(series[1]), len(series[2]))
+		for i := 0; i < shared; i++ {
+			pace.Median3 = append(pace.Median3, *median3([]string{series[0][i], series[1][i], series[2][i]}))
+		}
+	}
+	return pace
 }
 
 // historyWindow selects the ledger cycles from periods (newest first): the n
