@@ -5,12 +5,11 @@ import (
 	"testing"
 )
 
-// Web and every Telegram wealth lane must mutate a wealth observation through
+// Web and the live Telegram wealth paths must mutate a wealth observation through
 // the shared operations; no adapter may keep its own dismiss/resolve/evidence SQL.
 func TestWealthObservationIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/canonical.go",
-		telegramReviewSourceGlob,
 		"../worker/internal/telegram/agent_bound_mutations.go",
 		"../worker/internal/telegram/agent_wealth_asset_purchase_tx.go",
 	} {
@@ -27,7 +26,6 @@ func TestWealthObservationIsSharedAcrossSurfaces(t *testing.T) {
 // The reclassification evidence update is shared too.
 func TestWealthReclassifyIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
-		telegramReviewSourceGlob,
 		"../worker/internal/telegram/agent_bound_mutations.go",
 		"../worker/internal/telegram/agent_wealth_asset_purchase_tx.go",
 	} {

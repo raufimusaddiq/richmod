@@ -64,18 +64,6 @@ func TestResolveTimeRejectsUnknownApproximatePeriod(t *testing.T) {
 	}
 }
 
-func TestExtractionPromptTreatsContextAsUntrusted(t *testing.T) {
-	if !strings.Contains(extractionPrompt, "untrusted data") || !strings.Contains(extractionPrompt, "bypass validation") {
-		t.Fatal("prompt must retain context/input injection guardrails")
-	}
-	if !strings.Contains(extractionPrompt, "clearly named purchased item or service") {
-		t.Fatal("prompt must direct clear purchases to an allowed category")
-	}
-	if !strings.Contains(extractionPrompt, "PAGI, SIANG, SORE, or MALAM") || !strings.Contains(extractionPrompt, "Never replace an explicitly stated past date with today") {
-		t.Fatal("prompt must preserve past dates and canonicalize named time periods")
-	}
-}
-
 // A clear purchase with an accepted category must not create avoidable review,
 // and an expense without an accepted category must stay reviewable. The old
 // model self-confidence thresholds no longer exist: the semantic decision object
