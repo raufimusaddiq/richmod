@@ -295,6 +295,24 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("view"), "calendar");
     await page.getByRole("button", { name: "3 Bulan", exact: true }).click();
     assert.equal(new URL(page.url()).searchParams.get("range"), "3");
+    // Calendar hygiene: months are formatted, the duplicate monthly-spending call is gone,
+    // and a custom range is validated beside its fields instead of failing after a request.
+    assert.equal(requests.filter(request => request.path === "/api/v1/analytics/spending").length, 0, "the calendar view no longer fetches duplicate monthly spending");
+    assert.equal(await page.getByRole("rowheader", { name: /Sep 26/ }).count(), 1, "months are formatted, not raw YYYY-MM");
+    await page.getByLabel("Bulan mulai").fill("2025-03");
+    await page.getByLabel("Bulan selesai").fill("2025-01");
+    await page.getByRole("button", { name: "Kustom", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.has("from"), false, "an invalid range never reaches the URL");
+    await page.getByLabel("Bulan mulai").fill("2025-01");
+    await page.getByLabel("Bulan selesai").fill("2025-03");
+    await page.getByRole("button", { name: "Kustom", exact: true }).click();
+    await page.getByText("Rentang bulan Jan 25 sampai Mar 25").waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("from"), "2025-01");
+    assert.equal(await page.getByRole("button", { name: "Kustom", exact: true }).getAttribute("aria-pressed"), "true");
+    assert.equal(await page.getByRole("alert").count(), 0, "a valid range clears the field error");
+    await page.goBack({ waitUntil: "networkidle" });
+    assert.equal(await page.getByLabel("Bulan mulai").inputValue(), "", "the inputs follow the URL after Back");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false);
 
     invalidFacts = true;

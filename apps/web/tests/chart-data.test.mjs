@@ -59,6 +59,12 @@ test("monthly mapping converts values and creates localized labels", () => {
   assert.deepEqual(mapMonthlyCashflow([]), []);
 });
 
+test("monthly mapping marks only the running month as partial", () => {
+  const items = [{ period: "2026-08", income: "1", expense: "1", netCashflow: "0" }, { period: "2026-09", income: "1", expense: "1", netCashflow: "0" }];
+  assert.deepEqual(mapMonthlyCashflow(items, "2026-09").map(month => month.partial), [false, true]);
+  assert.deepEqual(mapMonthlyCashflow(items).map(month => month.partial), [false, false], "no running month means nothing is partial");
+});
+
 test("dayLabel includes the complete Indonesian date", () => {
   assert.match(dayLabel("2026-08-29"), /2026/);
   assert.equal(dayLabel(null), "");

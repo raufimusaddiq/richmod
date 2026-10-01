@@ -20,7 +20,7 @@ function DailyTooltip({ active, payload, label }) {
 function MonthlyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const net = payload[0]?.payload?.netValue || 0;
-  return <div className="chart-tooltip"><b className="chart-tooltip-title">{label}</b>{payload.map(item => <div className="chart-tooltip-row" key={item.dataKey}><span>{item.dataKey === "incomeValue" ? "Pemasukan" : "Pengeluaran"}</span><strong>{money(String(Math.round(item.value || 0)))}</strong></div>)}<div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(String(Math.round(net)))}</strong></div></div>;
+  return <div className="chart-tooltip"><b className="chart-tooltip-title">{label}{payload[0]?.payload?.partial && " · berjalan"}</b>{payload.map(item => <div className="chart-tooltip-row" key={item.dataKey}><span>{item.dataKey === "incomeValue" ? "Pemasukan" : "Pengeluaran"}</span><strong>{money(String(Math.round(item.value || 0)))}</strong></div>)}<div className="chart-tooltip-row chart-tooltip-net"><span>Arus bersih</span><strong>{money(String(Math.round(net)))}</strong></div></div>;
 }
 
 export function DashboardDailySpendingChart({ items, height = 280 }) {
@@ -71,8 +71,8 @@ export function CyclePaceChart({ items, references = [], height = 240 }) {
   </div>;
 }
 
-export function MonthlyCashflowChart({ items, height = 340 }) {
-  const data = mapMonthlyCashflow(items);
+export function MonthlyCashflowChart({ items, height = 340, partialPeriod = "" }) {
+  const data = mapMonthlyCashflow(items, partialPeriod);
   if (!data.length) return <p className="empty compact">Belum ada data bulanan pada periode ini.</p>;
   return <div className="chart-wrap" role="img" aria-label="Perbandingan pemasukan dan pengeluaran bulanan" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 0 }} barCategoryGap="24%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }}/><YAxis hide/><Tooltip content={<MonthlyTooltip/>}/><Legend formatter={value => ({ incomeValue: "Pemasukan", expenseValue: "Pengeluaran" }[value])}/><Bar dataKey="incomeValue" fill="var(--chart-income)" {...bar} maxBarSize={34}/><Bar dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={34}/></BarChart></ResponsiveContainer></div>;
 }

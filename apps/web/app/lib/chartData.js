@@ -50,6 +50,7 @@ export function cycleProgressLabel(daysElapsed) {
   return day > 0 ? `Hari ke-${day}` : "Belum dimulai";
 }
 
-export function mapMonthlyCashflow(items = []) {
-  return items.map(item => ({ ...item, label: monthLabel(item.period), incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
+// `partialPeriod` ("YYYY-MM") marks the running month so the tooltip can say it is not complete.
+export function mapMonthlyCashflow(items = [], partialPeriod = "") {
+  return items.map(item => ({ ...item, partial: Boolean(partialPeriod) && item.period === partialPeriod, label: monthLabel(item.period), incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
 }
