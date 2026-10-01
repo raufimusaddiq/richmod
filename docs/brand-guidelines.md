@@ -111,6 +111,12 @@ and PRDs; they never appear in user-facing copy.
 - Telegram asks for confirmation with inline buttons (`pending:action:*`,
   `pending:batch:*`), not by asking the user to type yes/no. Typed answers still
   work through the bounded judgment lane.
+- Confirmations and text entry use `useDialogs` (a native `<dialog>`), never
+  `window.confirm`/`window.prompt`. The one exception is the unsaved-draft guard
+  in analytics, which must answer synchronously.
+- The app shell reads one shared pending-review count (`InboxCountProvider`):
+  loaded once per session, refreshed on tab focus (at most once a minute), and
+  set exactly by the inbox page whenever it holds both lists.
 - Modal drawers (`aside[role="dialog"]`) use `useDrawerA11y`: focus moves in,
   Escape closes, Tab stays inside, and focus returns to the opener.
 - On mobile, the pending-review count appears on the "Lainnya" button whenever

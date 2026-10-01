@@ -65,7 +65,9 @@ test("brand fonts are bundled and the guideline matches the existing token sourc
 });
 
 test("loading, tab, and drawer states are announced to assistive technology", () => {
-  assert.match(text("app/components/Feedback.js"), /role="status" aria-live="polite" aria-label="Memuat data"/);
+  assert.match(text("app/components/Feedback.js"), /role="status" aria-live="polite" aria-label=\{label\}/);
+  assert.match(text("app/components/Feedback.js"), /label = "Memuat data"/);
+  assert.doesNotMatch(text("app/page.js"), /role="status" aria-live="polite">\{loading && <Skeleton/);
   assert.match(text("app/inbox/page.js"), /data-view="transactions" tabIndex=/);
   assert.match(text("app/inbox/page.js"), /onKeyDown={tabKeys}/);
   assert.match(text("app/inbox/page.js"), /event\.key === "ArrowRight"/);
@@ -123,4 +125,39 @@ test("inbox badges are decorative and the control carries the accessible name", 
 
 test("admin console uses the shared Tinjauan vocabulary", () => {
   assert.doesNotMatch(text("app/admin/page.js"), /Memuat review|Per jenis review|<h2>Review<\/h2>|"Review"/);
+});
+
+test("destructive and text-entry choices use the shared dialog, not window.confirm/prompt", () => {
+  for (const file of ["app/settings/page.js", "app/household/page.js", "app/admin/page.js", "app/components/CycleDecisions.js"]) {
+    const source = text(file);
+    assert.doesNotMatch(source, /window\.(confirm|prompt)\(|if \(!confirm\(/, `${file} avoids native dialogs`);
+    assert.match(source, /useDialogs/, `${file} uses the shared dialog hook`);
+  }
+  const dialogs = text("app/components/useDialogs.js");
+  assert.match(dialogs, /showModal\(\)/);
+  assert.match(dialogs, /onCancel=/);
+  assert.match(dialogs, /useId\(\)/);
+  assert.doesNotMatch(dialogs, /app-dialog-title/);
+  // The leave-page guard in analytics must answer synchronously, so it keeps window.confirm.
+  assert.match(text("app/analytics/page.js"), /window\.confirm\("Ada draf keputusan/);
+});
+
+test("the shell shares one inbox count instead of fetching both lists per navigation", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.doesNotMatch(shell, /fetch\("\/api\/v1\/reviews"\)/);
+  assert.match(shell, /useInboxCount\(\)/);
+  assert.match(shell, /^function NavLink\(/m, "NavLink is a top-level component");
+  assert.doesNotMatch(shell, /^[ \t]+function NavLink\(/m, "NavLink is not redefined inside AppShell");
+  const provider = text("app/components/InboxCountProvider.js");
+  assert.match(provider, /Date\.now\(\) - lastLoad\.current > 60000/);
+  assert.match(provider, /INBOX_COUNT_EVENT/);
+  assert.match(text("app/layout.js"), /<InboxCountProvider>\{children\}<\/InboxCountProvider>/);
+  assert.match(text("app/inbox/page.js"), /if \(!loading && !error\) publishInboxCount\(reviews\.length \+ actions\.length\)/);
+});
+
+test("decorative glyphs are hidden from assistive technology", () => {
+  assert.match(text("app/components/Feedback.js"), /<span aria-hidden="true">✓<\/span>/);
+  assert.match(text("app/components/ReviewCards.js"), /<span aria-hidden="true">✓<\/span>/);
+  assert.match(text("app/inbox/page.js"), /<span aria-hidden="true">✓<\/span>/);
+  assert.doesNotMatch(text("app/inbox/page.js"), /<span>✓<\/span>/);
 });

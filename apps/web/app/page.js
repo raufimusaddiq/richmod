@@ -48,7 +48,7 @@ export default function Home() {
   const wealthLiabilityCount = wealthItems.filter(item => item.side === "LIABILITY").length;
   return <AppShell user={user} eyebrow="Ringkasan" title="Keuangan keluarga" actions={<Link className="button secondary" href="/documents"><UploadSimple aria-hidden="true"/> Unggah bukti</Link>}>
     <ErrorNotice message={error} retry={load}/>
-    <div role="status" aria-live="polite">{loading && <Skeleton/>}<span className="visually-hidden">{loading ? "Memuat ringkasan keuangan." : ""}</span></div>
+    {loading && <Skeleton label="Memuat ringkasan keuangan"/>}
     {!loading && <>
     <section className="overview-flow" aria-labelledby="overview-cashflow-title">
       <article className="surface overview-position">
