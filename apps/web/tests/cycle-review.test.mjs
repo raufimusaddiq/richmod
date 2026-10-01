@@ -80,6 +80,15 @@ test("review page keeps month-end inclusive bounds and no browser-side totals", 
   assert.doesNotMatch(page, /reduce\(\(sum, item\) => sum \+ Number\(item\.[a-z]+/i);
 });
 
+test("cycle explanations use native disclosures without hiding financial facts", () => {
+  const page = text("app/analytics/page.js");
+  assert.match(page, /<details className="review-explainer"><summary>Tentang data ini<\/summary><p>\{description\}<\/p><\/details>/);
+  assert.match(page, /<span>Refund <strong>\{money\(facts.cashflow.refund\)\}<\/strong><\/span>/);
+  assert.match(page, /Hari setara, bukan siklus penuh/);
+  for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(page, new RegExp(`money\\(facts.cashflow.${field}\\)`));
+  assert.match(page, /Tentang rekonsiliasi/);
+});
+
 test("insight card hides historical advice rows and the quality percentage", () => {
   const card = text("app/components/InsightCard.js");
   const data = text("app/lib/insightData.js");

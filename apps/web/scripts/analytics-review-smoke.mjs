@@ -91,6 +91,16 @@ try {
     });
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Posisi siklus" }).waitFor();
+    const explanation = page.locator("#position .section-title .review-explainer");
+    assert.equal(await explanation.locator("p").isVisible(), false, "explanation is secondary to the figures");
+    await explanation.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await explanation.locator("p").isVisible(), true, "native disclosure is keyboard accessible");
+    await page.keyboard.press("Enter");
+    assert.equal(await explanation.locator("p").isVisible(), false);
+    assert.equal(await page.locator(".cycle-footnote > span").isVisible(), true, "refund amount stays visible");
+    await page.evaluate(() => document.fonts.ready);
+    assert.equal(await page.evaluate(() => document.fonts.check('500 16px "Fraunces"') && document.fonts.check('400 14px "Inter"')), true, "brand fonts loaded");
     assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(7800000n));
     assert.equal(requests.filter(request => request.method === "POST").length, 0, "opening review never invokes generation");
     assert.equal(await page.getByRole("button", { name: "Tinjau siklus ini", exact: true }).count(), 0, "active cycle cannot enter closed-cycle meeting");

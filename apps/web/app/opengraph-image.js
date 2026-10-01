@@ -15,8 +15,8 @@ export default function OpenGraphImage() {
           flexDirection: "column",
           justifyContent: "space-between",
           padding: "64px 72px",
-          background: "#f3f1ec",
-          color: "#282522",
+          background: "#f7f3e8",
+          color: "#253a36",
           fontFamily: '"Avenir Next", "Segoe UI", sans-serif',
         }}
       >
@@ -29,8 +29,8 @@ export default function OpenGraphImage() {
               alignItems: "center",
               justifyContent: "center",
               borderRadius: 15,
-              background: "#282522",
-              color: "#ffffff",
+              background: "#245c54",
+              color: "#f7f3e8",
               fontFamily: "Georgia, serif",
               fontSize: 33,
               fontWeight: 700,
@@ -40,7 +40,7 @@ export default function OpenGraphImage() {
           </div>
           <div style={{ display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-0.03em" }}>Richmod</div>
-            <div style={{ marginTop: 5, color: "#6a625e", fontSize: 16 }}>Keuangan keluarga, bukti sebagai dasar.</div>
+            <div style={{ marginTop: 5, color: "#4c5a50", fontSize: 16 }}>Keuangan keluarga, bukti sebagai dasar.</div>
           </div>
         </div>
 
@@ -58,23 +58,23 @@ export default function OpenGraphImage() {
             <div>Keuangan keluarga,</div>
             <div>tanpa menebak.</div>
           </div>
-          <div style={{ marginTop: 28, color: "#57504d", fontSize: 28, lineHeight: 1.35 }}>
+          <div style={{ marginTop: 28, color: "#354943", fontSize: 28, lineHeight: 1.35 }}>
             Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan.
           </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 18, fontWeight: 650 }}>
-          <div style={{ display: "flex", padding: "11px 16px", border: "1px solid #cacbc4", borderRadius: 999, background: "#fbfaf7" }}>
+          <div style={{ display: "flex", padding: "11px 16px", border: "1px solid #7b8979", borderRadius: 999, background: "#fffcf4" }}>
             Email bank
           </div>
-          <div style={{ display: "flex", padding: "11px 16px", border: "1px solid #cacbc4", borderRadius: 999, background: "#fbfaf7" }}>
+          <div style={{ display: "flex", padding: "11px 16px", border: "1px solid #7b8979", borderRadius: 999, background: "#fffcf4" }}>
             Telegram
           </div>
-          <div style={{ display: "flex", padding: "11px 16px", border: "1px solid #cacbc4", borderRadius: 999, background: "#fbfaf7" }}>
+          <div style={{ display: "flex", padding: "11px 16px", border: "1px solid #7b8979", borderRadius: 999, background: "#fffcf4" }}>
             Dokumen
           </div>
-          <div style={{ display: "flex", margin: "0 4px", color: "#6d435c", fontSize: 30 }}>→</div>
-          <div style={{ display: "flex", padding: "11px 16px", borderRadius: 999, background: "#eee4ea", color: "#6d435c" }}>
+          <div style={{ display: "flex", margin: "0 4px", color: "#cb715c", fontSize: 30 }}>→</div>
+          <div style={{ display: "flex", padding: "11px 16px", borderRadius: 999, background: "#dceae2", color: "#245c54" }}>
             Catatan keluarga
           </div>
         </div>
