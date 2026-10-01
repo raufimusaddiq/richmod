@@ -257,6 +257,7 @@ try {
     stable = false;
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-25`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Posisi siklus", exact: true }).waitFor();
+    assert.equal(await page.locator(".cycle-net dd").evaluate(element => element.scrollWidth > element.clientWidth + 1), false, "headline amount fits its metric cell");
     assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-25");
     await page.screenshot({ path: new URL(`${name}-september25-overview.png`, output).pathname, fullPage: true, animations: "disabled" });
     assert.equal(await page.locator("#changes table").isVisible(), false);
