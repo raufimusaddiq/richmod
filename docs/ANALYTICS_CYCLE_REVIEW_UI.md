@@ -25,6 +25,48 @@ shares, or significance in JavaScript. Browser math formats percentages and maps
 server amounts to visual lengths only. Invalid/failed responses show a retry
 state, never zero-valued financial facts or another cycle's stale result.
 
+## Cycle ledger — October 2, 2026
+
+The first section of the cycle view is a **cycle ledger**
+([plan](plans/analytics-cycle-ledger-sprint.md), [mock](assets/analytics-cycle-ledger-mock.html)).
+It renders the API's `history[]` (see the [facts API](ANALYTICS_CYCLE_REVIEW_API.md)):
+
+- one column per salary cycle, oldest first, with income and net-expense bars and
+  direct value labels in Rp juta, net cashflow, and the server-computed
+  `expenseDelta` from the column on its left; the selected cycle is highlighted,
+  a running cycle's expense bar is hatched and shows no change value, and the
+  selected column scrolls into view;
+- a dashed median tick in a **closed** selected column, from the served
+  `comparison.expense.median3`; an active cycle shows none (partial against full);
+- with fewer than four closed cycles the figure is a list of per-cycle cards
+  instead of bars;
+- a verdict of label : value pairs from served comparison fields: closed cycles
+  compare with the previous full cycle and the 3-cycle median; active cycles
+  compare with the same elapsed days. Missing baselines read "Belum ada pembanding".
+  Direction is a signed value with a neutral ▲/▼ marker, never colour alone;
+- selecting a column, or the Previous/Next buttons, changes `cycle=` in the URL
+  and loads that cycle. The reviewed cycle also survives a Calendar visit, and the
+  page title follows the view.
+
+The browser formats numbers and maps amounts to bar lengths only. An absent
+`history` renders nothing, so the page still works against an older API.
+
+While another cycle loads, the previous report stays visible, dimmed, with a
+"Memuat siklus…" status; a failed load clears it and shows the retry state, never
+another cycle's numbers. The skeleton is only for the first load.
+
+Under the daily bars, `#spending-shape` adds **Total pengeluaran sampai hari ini**:
+a separate, single-series line of the served running total with its own axis. This
+does not reverse the earlier chart refinement, which removed the cumulative line
+from the *daily bar chart* because it dominated the scale; the daily bars are
+unchanged. References are served comparison totals: full-cycle values are dashed
+levels and equal-day values are markers at the latest day, listed as text below the
+chart. Previous-cycle and median *curves* are not drawn because daily series for
+those cycles are not served.
+
+The cycle header now says "hari ke-N, hari ini belum penuh" for an active cycle,
+and the daily average is shown in whole rupiah like every other amount.
+
 ## Document hierarchy
 
 ### Compact presentation — October 1, 2026

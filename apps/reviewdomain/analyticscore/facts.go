@@ -109,6 +109,9 @@ type historyCycle struct {
 	Expense          string  `json:"expense"`
 	Net              string  `json:"netCashflow"`
 	SavingsAllocated string  `json:"savingsAllocated"`
+	// ExpenseDelta is expense minus the preceding history entry's expense; null
+	// for the first entry. It is server arithmetic for the ledger's change row.
+	ExpenseDelta *string `json:"expenseDelta"`
 }
 
 type historyCategory struct {
@@ -448,6 +451,9 @@ func buildHistory(measures []cycleMeasure, window []int) ([]historyCycle, catego
 			}
 			totals[id] = financialmath.Add(totals[id], v.Amount)
 		}
+	}
+	for i := 1; i < len(history); i++ {
+		history[i].ExpenseDelta = valuePointer(financialmath.Subtract(history[i].Expense, history[i-1].Expense))
 	}
 	ids := make([]string, 0, len(totals))
 	for id, total := range totals {

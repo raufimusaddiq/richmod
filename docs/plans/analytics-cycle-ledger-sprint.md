@@ -162,6 +162,24 @@ Web and docs. Colour semantics against `brand-guidelines.md`, weight of the key 
 
 Web only: surface the API error text, controlled custom-range inputs with min/max, formatted months, drop the duplicate `/spending` request from the calendar view, mark the current month as partial. No API change.
 
+## 4a. Deviations recorded during execution
+
+- **PR 1** shipped as planned (`history` and `categoryHistory`).
+- **PR 2** also adds `expenseDelta` to each `history[]` entry (Go, with tests and
+  the API doc): the ledger's change row is arithmetic, so it is served rather than
+  subtracted in the browser.
+- **PR 2** adds new modules (`CycleLedger`, `lib/cycleLedger.js`, `CyclePaceChart`)
+  but does not split the existing `page.js`; several tests and the smoke script read
+  it directly. The split can follow when the tables move in PR 3.
+- **PR 2** draws the pace chart as the served running total plus served comparison
+  references (dashed levels, equal-day markers). Previous-cycle and median daily
+  curves are not served, so they are not drawn.
+- **PR 2** shows income and net comparison through the ledger rows (from `history`)
+  rather than a separate use of `comparison.income` / `comparison.netCashflow`.
+- Plain-language relabelling of the existing comparison tables ("Δ", "hari setara",
+  "median 3") moves to PR 3, where those tables are demoted, so the smoke script's
+  text assertions change in one place.
+
 ## 5. Verification and resources
 
 - Local: `node --test tests/*.test.mjs` in `apps/web`; Go tests that do not need Postgres.

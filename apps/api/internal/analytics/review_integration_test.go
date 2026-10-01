@@ -293,6 +293,9 @@ func TestCycleReviewHistorySeriesWindowAndReconciliation(t *testing.T) {
 		}
 	}
 	closed, refunded, saved, active := review.History[0], review.History[1], review.History[2], review.History[3]
+	if closed.ExpenseDelta != nil || *refunded.ExpenseDelta != "100" || *saved.ExpenseDelta != "0" || *active.ExpenseDelta != "-600" {
+		t.Fatalf("expense deltas must follow the preceding entry: %+v", review.History)
+	}
 	if closed.State != "CLOSED" || *closed.End != "2026-07-01" || closed.MeasuredUntil != "2026-07-01" || closed.Income != "10000000" || closed.GrossExpense != "1400" || closed.Expense != "1400" || closed.Refund != "0" {
 		t.Fatalf("closed=%+v", closed)
 	}

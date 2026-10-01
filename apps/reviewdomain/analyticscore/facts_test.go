@@ -196,6 +196,9 @@ func TestBuildHistoryReconcilesEveryCycleExactly(t *testing.T) {
 	if len(history) != 2 || len(matrix.Rows) != 8 || matrix.Rows[0].ID != "p8" || matrix.Rows[7].ID != "p1" {
 		t.Fatalf("rows=%+v", matrix.Rows)
 	}
+	if history[0].ExpenseDelta != nil || history[1].ExpenseDelta == nil || *history[1].ExpenseDelta != "-3555" {
+		t.Fatalf("expense delta is server arithmetic against the preceding entry: %+v", history)
+	}
 	if strings.Join(matrix.CycleStarts, ",") != "2026-06-01,2026-07-01" {
 		t.Fatalf("starts=%v", matrix.CycleStarts)
 	}
@@ -238,7 +241,7 @@ func TestEmptyHistoryEncodesArraysAndKeepsTheContractFieldNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"start"`, `"end"`, `"measuredUntil"`, `"state"`, `"income"`, `"grossExpense"`, `"refund"`, `"expense"`, `"netCashflow"`, `"savingsAllocated"`} {
+	for _, want := range []string{`"start"`, `"end"`, `"measuredUntil"`, `"state"`, `"income"`, `"grossExpense"`, `"refund"`, `"expense"`, `"netCashflow"`, `"savingsAllocated"`, `"expenseDelta"`} {
 		if !strings.Contains(string(one), want) {
 			t.Fatalf("history entry lost %s: %s", want, one)
 		}

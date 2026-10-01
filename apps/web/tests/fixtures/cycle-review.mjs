@@ -56,6 +56,15 @@ export function cycleFacts(start = "2026-09-01") {
     groceries.shareOfExpense = "0.3853"; dining.shareOfExpense = "0.2569"; transport.shareOfExpense = "0.3578";
     groceries.contributionToExpenseChange = "0.2154"; dining.contributionToExpenseChange = "0.1846"; transport.contributionToExpenseChange = "0.6000";
   }
+  // Ledger series (history[]), oldest first, as the API serves it: whole-cycle totals
+  // plus the server-computed change from the preceding entry.
+  const earlier = [["2026-04-26", "2026-05-26", "12000000", "7400000"], ["2026-05-26", "2026-06-26", "12000000", "8100000"], ["2026-06-26", "2026-07-26", "12500000", "7900000"], ["2026-07-26", "2026-08-26", "12500000", "7200000"]].filter(([, end]) => end <= previous.start);
+  const rows = [...earlier.map(([start, end, income, expense]) => ({ start, end, state: "CLOSED", income, expense })),
+    { start: previous.start, end: previous.end, state: "CLOSED", income: "12000000", expense: facts.comparison.expense.previousFullCycle },
+    { start: facts.period.start, end: facts.period.end, state: facts.period.state, income: facts.cashflow.income, expense: facts.cashflow.expense }];
+  facts.history = rows.map((row, index) => ({ start: row.start, end: row.end, measuredUntil: row.end ?? facts.period.measuredUntil, state: row.state, income: row.income, grossExpense: row.expense, refund: "0", expense: row.expense,
+    netCashflow: String(BigInt(row.income) - BigInt(row.expense)), savingsAllocated: "0", expenseDelta: index ? String(BigInt(row.expense) - BigInt(rows[index - 1].expense)) : null }));
+  facts.categoryHistory = { cycleStarts: facts.history.map(item => item.start), rows: [], other: { amounts: facts.history.map(item => item.expense) } };
   return facts;
 }
 

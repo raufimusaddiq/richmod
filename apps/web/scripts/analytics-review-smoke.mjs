@@ -49,7 +49,7 @@ try {
         body = stable ? stableCycleFacts() : cycleFacts(url.searchParams.get("cycle_start") || undefined);
         if (invalidFacts) status = 503;
         if (noSalary) {
-          body.period = { ...body.period, kind: "CALENDAR_MONTH", start: "2026-09-01", state: "ACTIVE", end: "2026-10-01", measuredUntil: "2026-09-07" }; body.cycles = [];
+          body.period = { ...body.period, kind: "CALENDAR_MONTH", start: "2026-09-01", state: "ACTIVE", end: "2026-10-01", measuredUntil: "2026-09-07" }; body.cycles = []; body.history = []; body.categoryHistory = { cycleStarts: [], rows: [], other: { amounts: [] } };
           body.dataQuality.push({ kind: "MISSING_SALARY_ANCHOR", count: 1, impact: "ANALYSIS_PARTIAL", action: "/settings" });
         }
       } else if (url.pathname === "/api/v1/analytics/cycle-decisions") {
@@ -167,6 +167,37 @@ try {
     await page.locator(".chart-tooltip").waitFor();
     assert.match(await page.locator(".chart-tooltip").textContent(), /Pengeluaran bersih.*Rp.*Refund.*Rp/);
     await page.screenshot({ path: new URL(`${name}-tooltip.png`, output).pathname, fullPage: true, animations: "disabled" });
+
+    // Cycle ledger: one column per served cycle; selection is a URL change and the
+    // reviewed cycle survives a Calendar visit. Numbers are served, never derived.
+    await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Siklus ke siklus", exact: true }).waitFor();
+    const cycleLedger = page.locator("#ledger");
+    assert.equal(await cycleLedger.locator("thead th button").count(), 6, "one column per served cycle");
+    assert.equal(await cycleLedger.locator('thead th[aria-current="true"] button').getAttribute("aria-pressed"), "true");
+    assert.match(await cycleLedger.locator(".ledger-verdict").textContent(), /Siklus sebelumnya di hari yang sama/);
+    assert.equal(await cycleLedger.locator("tbody tr").count(), 3, "bars, net cashflow, and change rows");
+    assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
+    assert.equal(await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} ledger has no page overflow`);
+    await page.screenshot({ path: new URL(`${name}-ledger.png`, output).pathname, fullPage: true, animations: "disabled" });
+    await cycleLedger.locator("thead th button", { hasText: "26 Agu" }).click();
+    await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26");
+    assert.match(await cycleLedger.locator(".ledger-verdict").textContent(), /Dibanding siklus sebelumnya/);
+    assert.equal(await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).isDisabled(), true, "the served list has no older cycle");
+    await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).click();
+    await page.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-01");
+    await page.getByRole("button", { name: "‹ Siklus sebelumnya", exact: true }).click();
+    await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
+    await page.getByRole("button", { name: "Kalender", exact: true }).click();
+    await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26", "Calendar keeps the reviewed cycle in the URL");
+    assert.equal(await page.getByRole("heading", { name: "Analisis kalender", exact: true }).count(), 1, "the page title follows the view");
+    await page.getByRole("button", { name: "Siklus Gaji", exact: true }).click();
+    await page.getByRole("heading", { name: "Siklus ke siklus", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-08-26", "returning from Calendar keeps the reviewed cycle");
 
     olderCommentary = true;
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });

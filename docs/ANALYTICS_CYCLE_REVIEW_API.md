@@ -88,6 +88,7 @@ confirmed salary anchor (calendar-month fallback) both fields are empty.
 ```text
 start, end (exclusive; null while active), measuredUntil, state
 income, grossExpense, refund, expense (net of refunds), netCashflow, savingsAllocated
+expenseDelta             expense minus the preceding entry's expense; null for the first entry
 ```
 
 Closed cycles are measured to their full exclusive `end`, even when the
