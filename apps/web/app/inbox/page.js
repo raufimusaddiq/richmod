@@ -19,14 +19,15 @@ export default function InboxPage() {
     setLoading(true);
     try {
       const [reviewResponse, actionResponse, categoryResponse, wealthResponse, accountResponse] = await Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions"), fetch("/api/v1/categories"), fetch("/api/v1/wealth/accounts"), fetch("/api/v1/accounts")]);
-      if (!reviewResponse.ok || !actionResponse.ok) throw new Error();
-      const [reviewItems, actionItems] = await Promise.all([reviewResponse.json(), actionResponse.json()]);
-      setReviews(Array.isArray(reviewItems) ? reviewItems : []);
-      setActions(Array.isArray(actionItems) ? actionItems : []);
+      // Each list stands on its own: one failing request must not hide the other.
+      const failed = [];
+      const readList = async (response, apply, name) => { try { if (!response.ok) throw new Error(); const items = await response.json(); apply(Array.isArray(items) ? items : []); } catch { failed.push(name); } };
+      await readList(reviewResponse, setReviews, "daftar transaksi");
+      await readList(actionResponse, setActions, "daftar tindakan");
       if (categoryResponse.ok) setCategories(await categoryResponse.json());
       if (wealthResponse.ok) setWealthAccounts(await wealthResponse.json());
       if (accountResponse.ok) setAccounts(await accountResponse.json());
-      setError("");
+      setError(failed.length ? `Belum termuat: ${failed.join(" dan ")}.` : "");
     } catch { setError("Kotak tinjauan belum dapat dimuat."); }
     finally { setLoading(false); }
   }, []);

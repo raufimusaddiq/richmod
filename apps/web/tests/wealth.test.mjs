@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { reviewCards, tree } from "./source.mjs";
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 test("wealth UI keeps decimal strings and supports snapshots", () => {
   const wealth = text("app/wealth/page.js");
@@ -44,10 +45,10 @@ test("manual transfer exposes purpose and wealth account", () => {
   assert.match(transactions, /relatedWealthAccountId/);
   const inbox = text("app/inbox/page.js");
   assert.match(inbox, /api\/v1\/reviews/);
-  assert.match(text("app/components/ReviewCards.js"), /Alokasikan saldo tersisa/);
-  assert.match(text("app/components/ReviewCards.js"), /ALLOCATE_RETAINED_BALANCE/);
-  assert.match(text("app/components/ReviewCards.js"), /ASSET_PURCHASE/);
-  assert.match(text("app/components/ReviewCards.js"), /Beli aset/);
-  assert.match(text("app/components/ReviewCards.js"), /item\.type === "EXPENSE".*classification: "ASSET_PURCHASE"/s);
+  assert.match(reviewCards(), /Alokasikan saldo tersisa/);
+  assert.match(reviewCards(), /ALLOCATE_RETAINED_BALANCE/);
+  assert.match(reviewCards(), /ASSET_PURCHASE/);
+  assert.match(reviewCards(), /Beli aset/);
+  assert.match(reviewCards(), /item\.type === "EXPENSE".*classification: "ASSET_PURCHASE"/s);
   assert.match(text("app/components/AppShell.js"), /\["\/wealth", "Kekayaan"/);
 });

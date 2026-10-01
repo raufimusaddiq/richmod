@@ -1091,3 +1091,7 @@ button.wealth-history-row small { color: var(--accent); font-size: 11px; font-we
   .cycle-review .custom-range input { width: 100%; }
   .cycle-review .cycle-outcome dd { overflow-wrap: anywhere; }
 }
+
+/* Review card checkboxes: a compact row instead of the full-width input style. */
+label.review-check { display: flex; min-height: 42px; align-items: center; gap: 8px; color: var(--ink-soft); cursor: pointer; }
+label.review-check input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; padding: 0; margin: 0; flex: 0 0 auto; accent-color: var(--accent); box-shadow: none; cursor: pointer; }

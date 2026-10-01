@@ -37,7 +37,7 @@ Read at minimum:
 ```text
 AGENTS.md
 
-apps/web/app/admin/page.js
+apps/web/app/admin/ (page.js is the tab shell; one module per tab; shared.js)
 apps/web/app/components/AppShell.js
 apps/web/app/globals.css
 
@@ -1279,7 +1279,7 @@ Avoid a 1000-line admin page.
 Suggested:
 
 ```text
-apps/web/app/admin/page.js
+apps/web/app/admin/ (page.js is the tab shell; one module per tab; shared.js)
 
 apps/web/app/admin/components/
   AdminTabs.js
