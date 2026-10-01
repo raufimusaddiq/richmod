@@ -129,11 +129,13 @@ Every request that changes repository files must use its own branch and linked w
 3. Keep unrelated user changes out of the branch; never reset/clean/stash them without permission.
 4. Commit with a descriptive message.
 5. Push the feature branch.
-6. Merge into `main` with `git merge --no-ff <branch>` and push `main`.
+6. Open a pull request to `main`, wait for the required checks (CI and Hermes
+   Review) to pass, then merge the PR with a merge commit. `main` is protected;
+   never push to it directly.
 7. Deploy only from the updated `main` worktree.
 
 Before finishing, inspect the diff, run relevant tests, and report the branch, commit,
-merge result, and deployment result if applicable.
+pull request, merge result, and deployment result if applicable.
 
 For the full sprint sequence—CI/release-image gate, safe reclaim, human deployment
 approval, post-deploy verification, and handoff—follow
