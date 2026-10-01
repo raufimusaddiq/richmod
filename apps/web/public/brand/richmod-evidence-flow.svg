@@ -3,7 +3,7 @@
   <desc id="desc">Email bank, Telegram, and documents flow into Richmod. Clear evidence becomes a ledger entry, while unclear evidence asks the household for a decision.</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-30%" width="140%" height="180%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#2B2628" flood-opacity="0.08"/>
+      <feDropShadow dx="4" dy="5" stdDeviation="0" flood-color="#33261F" flood-opacity="0.16"/>
     </filter>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
       <path d="M0 0L10 5L0 10Z" fill="#8D8781"/>
@@ -14,9 +14,9 @@
   <path d="M173 124C236 75 329 87 391 111C462 139 511 98 594 113C678 128 733 193 721 266C710 333 760 372 702 422C641 474 556 447 487 458C400 473 337 493 277 457C220 423 138 438 115 376C94 320 128 275 130 222C131 181 145 151 173 124Z" stroke="#D7D2CB" stroke-width="1.5" stroke-dasharray="3 7" opacity="0.7"/>
 
   <g filter="url(#shadow)">
-    <rect x="137" y="86" width="180" height="102" rx="18" fill="#FBFAF7" stroke="#D8D4CD"/>
-    <rect x="360" y="86" width="180" height="102" rx="18" fill="#FBFAF7" stroke="#D8D4CD"/>
-    <rect x="583" y="86" width="180" height="102" rx="18" fill="#FBFAF7" stroke="#D8D4CD"/>
+    <rect x="137" y="86" width="180" height="102" rx="18" fill="#FAE4D4" stroke="#33261F" stroke-width="2"/>
+    <rect x="360" y="86" width="180" height="102" rx="18" fill="#D6E8F5" stroke="#33261F" stroke-width="2"/>
+    <rect x="583" y="86" width="180" height="102" rx="18" fill="#EEE3F7" stroke="#33261F" stroke-width="2"/>
   </g>
 
   <rect x="197" y="112" width="60" height="38" rx="8" stroke="#47627F" stroke-width="2"/>
@@ -36,7 +36,7 @@
   <path d="M677 188V220H450" stroke="#8D8781" stroke-width="1.6"/>
 
   <g filter="url(#shadow)">
-    <rect x="289" y="246" width="322" height="88" rx="18" fill="#FBFAF7" stroke="#C9C4BD"/>
+    <rect x="289" y="246" width="322" height="88" rx="18" fill="#FFFAF1" stroke="#33261F" stroke-width="2"/>
   </g>
   <circle cx="339" cy="290" r="22" fill="#EEE4EA"/>
   <path d="M339 273L344 283L355 288L344 293L339 304L334 293L323 288L334 283L339 273Z" fill="#6D435C"/>
@@ -47,7 +47,7 @@
   <path d="M450 365H637V390" stroke="#8D8781" stroke-width="1.6" marker-end="url(#arrow)"/>
 
   <g filter="url(#shadow)">
-    <rect x="138" y="408" width="250" height="94" rx="18" fill="#E4EFE9" stroke="#B8D1C3"/>
+    <rect x="138" y="408" width="250" height="94" rx="18" fill="#D8EFE1" stroke="#33261F" stroke-width="2"/>
   </g>
   <circle cx="181" cy="455" r="21" fill="#216247"/>
   <path d="M171 455L178 462L191 447" stroke="#FBFAF7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -55,7 +55,7 @@
   <text x="216" y="470" fill="#282522" font-family="Avenir Next, Segoe UI, sans-serif" font-size="17" font-weight="700">Ledger tercatat</text>
 
   <g filter="url(#shadow)">
-    <rect x="512" y="408" width="250" height="94" rx="18" fill="#F3ECDC" stroke="#DDCEAD"/>
+    <rect x="512" y="408" width="250" height="94" rx="18" fill="#FBE6C1" stroke="#33261F" stroke-width="2"/>
   </g>
   <circle cx="555" cy="455" r="21" fill="#8B672A"/>
   <text x="555" y="462" text-anchor="middle" fill="#FBFAF7" font-family="Georgia, serif" font-size="23" font-weight="700">?</text>
