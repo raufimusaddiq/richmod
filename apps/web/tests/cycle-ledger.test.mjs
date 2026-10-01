@@ -260,6 +260,7 @@ test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back,
   assert.doesNotMatch(card, /[Aa]nalisis|Menganalisis/, "the feature is called pembahasan everywhere");
   assert.match(card, /Buat pembahasan/);
   assert.match(card, /Dibatasi satu pembahasan per jam/, "the hourly limit is stated before it is hit");
+});
 
 test("served pace curves are used whole or not at all and share the day axis", () => {
   assert.deepEqual(paceCurves(undefined), { previous: null, median: null });
