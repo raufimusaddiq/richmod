@@ -194,6 +194,11 @@ try {
     await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("category"), "11111111-1111-4111-8111-111111111111");
     assert.equal(await page.locator("#drivers > details").evaluate(element => element.open), true, "a matrix row opens the category evidence");
+    assert.equal(await page.locator("#category-drivers").getByRole("link", { name: "Kembali ke ringkasan siklus", exact: true }).isVisible(), true, "the evidence links back to the ledger");
+    await matrixRow.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
+    assert.equal(await matrixRow.getAttribute("aria-pressed"), "false", "choosing the selected category again clears it");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
     assert.equal(await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} ledger has no page overflow`);
@@ -359,6 +364,9 @@ try {
     await page.getByRole("button", { name: "Buka semua detail", exact: true }).click();
     assert.equal(await page.locator("#changes table").isVisible(), true);
     for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), true);
+    await page.getByRole("button", { name: "Tutup semua detail", exact: true }).click();
+    for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, "the same button closes everything it opened");
+    await page.getByRole("button", { name: "Buka semua detail", exact: true }).click();
     assert.equal(await page.locator(".review-daily table").first().locator("tbody tr").count(), 7, "all exact daily rows retained");
     const rentRanking = page.locator(".change-ranking > li").filter({ has: page.getByRole("button", { name: "Tempat Tinggal", exact: true }) });
     assert.match(await rentRanking.textContent(), /0%/);
@@ -371,7 +379,7 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} complete report has no page overflow`);
     await page.screenshot({ path: new URL(`${name}-september25-complete.png`, output).pathname, fullPage: true, animations: "disabled" });
     generationStatus = 429;
-    await page.getByRole("button", { name: "Buat analisis", exact: true }).click();
+    await page.getByRole("button", { name: "Buat pembahasan", exact: true }).click();
     await page.getByText("Batas satu pembahasan per jam. Coba lagi setelah jeda satu jam dari permintaan terakhir.", { exact: true }).waitFor();
     generationStatus = 409;
     await page.locator("#discussion").getByRole("button", { name: "Coba lagi", exact: true }).click();

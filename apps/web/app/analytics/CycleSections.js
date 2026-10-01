@@ -18,7 +18,7 @@ export function MeetingNav({ step, selection, navigate }) {
 export function CyclePosition({ facts }) {
   const active = facts.period.state === "ACTIVE"; // income lands on day 1, so net cashflow is not the headline until the cycle closes
   return <section id="position" className="review-section cycle-position" aria-labelledby="position-title">
-    <SectionTitle id="position-title" title="Posisi siklus" description={active ? "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran. Selama siklus berjalan, arus kas bersih belum final karena pengeluaran masih bertambah." : "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."}/>
+    <SectionTitle id="position-title" about="posisi siklus" title="Posisi siklus" description={active ? "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran. Selama siklus berjalan, arus kas bersih belum final karena pengeluaran masih bertambah." : "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."}/>
     <dl className="cycle-outcome">
       {active
         ? <div className="cycle-net"><dt>Pengeluaran bersih sejauh ini</dt><dd>{money(facts.cashflow.expense)}</dd></div>
@@ -88,6 +88,7 @@ export function MerchantTable({ items, period, categoryId }) {
 export function CategoryDrivers({ item, period }) {
   return <div className="category-evidence">
     <h3>{item.name}</h3>
+    {!period.reviewStep && <a className="evidence-back" href="#ledger">Kembali ke ringkasan siklus</a>}
     <dl className="review-context"><Metric label="Porsi pengeluaran siklus" value={ratioLabel(item.shareOfExpense)}/><Metric label="Jumlah transaksi" value={item.count}/></dl>
     <MerchantTable items={item.merchants} period={period} categoryId={item.id || "uncategorized"}/>
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Transaksi pendukung"><table><caption>Transaksi pendukung terbesar (maks. 10). Refund ditandai terpisah.</caption><thead><tr><th scope="col">Merchant / tanggal</th><th scope="col">Jenis</th><th scope="col">Jumlah</th><th scope="col">Bukti</th></tr></thead><tbody>{item.transactions.map(transaction => <tr key={transaction.id}><th scope="row">{transaction.merchant}<small>{dateTime(transaction.transactionAt)}</small></th><td>{typeLabel[transaction.type]}</td><td>{money(transaction.amount)}</td><td><a href={transactionHref(period, { categoryId: item.id || "uncategorized", id: transaction.id })}>Buka transaksi</a></td></tr>)}</tbody></table></div>
@@ -99,7 +100,7 @@ export function CategoryDrivers({ item, period }) {
 export function SavingsWealth({ facts }) {
   const { wealth, cashflow } = facts;
   return <section id="savings-wealth" className="review-section" aria-labelledby="savings-title">
-    <SectionTitle id="savings-title" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
+    <SectionTitle id="savings-title" about="tabungan dan kekayaan" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
     <div className="review-split">
       <div><h3>Ke mana surplus dialokasikan?</h3><dl className="review-context">
         <Metric label="Tabungan dialokasikan" value={money(cashflow.savingsAllocated)}/><Metric label="Belum dialokasikan" value={money(cashflow.unallocatedSurplus)}/>
@@ -127,7 +128,7 @@ export function SavingsWealth({ facts }) {
 
 export function QualitySection({ facts }) {
   return <section id="quality" className="review-section" aria-labelledby="quality-title">
-    <SectionTitle id="quality-title" title="Kelengkapan data & tindak lanjut" description="Hal yang belum lengkap tetap terlihat. Tidak ada skor kepercayaan dari model."/>
+    <SectionTitle id="quality-title" about="kelengkapan data" title="Kelengkapan data & tindak lanjut" description="Hal yang belum lengkap tetap terlihat. Tidak ada skor kepercayaan dari model."/>
     {!facts.dataQuality.length ? <p>Tidak ada kendala yang tercatat untuk periode ini.</p> : <ul className="review-quality">{facts.dataQuality.map(blocker => {
       const [label, action] = qualityCopy[blocker.kind] || ["Data tinjauan perlu dilengkapi", "Buka Inbox"];
       const counted = ["OPEN_REVIEWS", "UNCATEGORIZED_EXPENSE", "PROCESSING_INCOMPLETE"].includes(blocker.kind);

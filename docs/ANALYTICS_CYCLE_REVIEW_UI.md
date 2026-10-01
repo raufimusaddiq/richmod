@@ -25,6 +25,17 @@ shares, or significance in JavaScript. Browser math formats percentages and maps
 server amounts to visual lengths only. Invalid/failed responses show a retry
 state, never zero-valued financial facts or another cycle's stale result.
 
+## UX audit fixes — October 2, 2026
+
+- Choosing the selected category again clears it (the ledger matrix and the change
+  list alike), and the evidence panel has **Kembali ke ringkasan siklus** back to the
+  ledger when not in a meeting.
+- **Buka semua detail** is a toggle ("Tutup semua detail"); a new cycle starts collapsed.
+- The generated commentary is "pembahasan" everywhere (section, card, button, states);
+  the card says up front that it is limited to one per hour.
+- Each section explainer names its subject ("Tentang posisi siklus", "Tentang pola
+  pengeluaran", …) instead of ten identical "Tentang data ini" disclosures.
+
 ## Code layout
 
 `app/analytics/page.js` owns URL selection, data loading (facts, commentary, the

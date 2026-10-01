@@ -245,3 +245,18 @@ test("an active cycle leads with spending so far; the wide layout leaves no empt
   assert.doesNotMatch(wide, /> #spending-shape \{ grid-column: 1; \}/, "no half-width column beside a collapsed section");
   assert.doesNotMatch(wide, /> #changes \{ grid-column: 2; \}/);
 });
+
+test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back, the limit up front", () => {
+  const page = tree("app/analytics");
+  assert.match(page, /const chooseCategory = category => navigate\(\{ category: category === selection\.category \? "" : category/, "choosing the selected category again clears it");
+  assert.equal(page.split("chooseCategory").length - 1, 3, "the ledger matrix and the change list both use it");
+  assert.match(page, /\{allOpen \? "Tutup semua detail" : "Buka semua detail"\}/, "open-all is a toggle");
+  assert.match(page, /useEffect\(\(\) => \{ setAllOpen\(false\); \}, \[cycleStart\]\)/, "a new cycle starts collapsed again");
+  assert.match(text("app/analytics/shared.js"), /Tentang \{about \|\| "data ini"\}/);
+  for (const about of ["posisi siklus", "pola pengeluaran", "tabungan dan kekayaan", "kelengkapan data", "arus kas bulanan", "tabel bulanan", "distribusi kategori", "merchant", "catatan rumah tangga"]) assert.ok(page.includes(`about="${about}"`), `${about} has its own explainer label`);
+  assert.match(text("app/analytics/CycleSections.js"), /\{!period\.reviewStep && <a className="evidence-back" href="#ledger">Kembali ke ringkasan siklus<\/a>\}/, "a way back from the evidence, outside meetings");
+  const card = text("app/components/InsightCard.js");
+  assert.doesNotMatch(card, /[Aa]nalisis|Menganalisis/, "the feature is called pembahasan everywhere");
+  assert.match(card, /Buat pembahasan/);
+  assert.match(card, /Dibatasi satu pembahasan per jam/, "the hourly limit is stated before it is hit");
+});

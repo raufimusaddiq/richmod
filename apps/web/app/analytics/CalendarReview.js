@@ -43,11 +43,11 @@ export function CalendarReview({ selection, navigate }) {
     {allFailed && <ErrorNotice message={cashflow.error} retry={() => sections.forEach(section => section.retry())}/>}
     {refreshing && <p className="ledger-loading" role="status">Memuat rentang…</p>}
     {!allFailed && <div className="calendar-body">
-      <CalendarSection state={cashflow} className="review-section analytics-chart" title="Pemasukan vs pengeluaran" description="Bagaimana arus kas berubah antar bulan? Semua nilai berasal dari transaksi terkonfirmasi." rows={4}>{items => <><MonthlyCashflowChart items={items} height={280} partialPeriod={running}/>{items.some(item => item.period === running) && <p className="ledger-legend">Bulan berjalan ({monthLabel(running)}) belum penuh.</p>}</>}</CalendarSection>
-      <CalendarSection state={cashflow} hideError title="Arus kas per bulan" description="Pengeluaran sudah dikurangi refund. Bulan tanpa transaksi terkonfirmasi ditandai, bukan ditulis sebagai Rp0." rows={3}>{items => <div className="review-table-wrap"><table><thead><tr><th scope="col">Bulan</th><th scope="col">Pemasukan</th><th scope="col">Pengeluaran bersih</th><th scope="col">Refund</th><th scope="col">Arus kas bersih</th></tr></thead><tbody>{items.map(item => { const active = hasActivity(item); return <tr key={item.period}><th scope="row">{monthRowLabel(item.period, now)}{!active && <small>belum ada transaksi</small>}</th>{active ? <><td>{money(item.income)}</td><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{money(item.netCashflow)}</td></> : <td colSpan={4}>—</td>}</tr>; })}</tbody></table></div>}</CalendarSection>
-      <CalendarSection state={categories} title="Distribusi kategori" description="Kategori mana yang menyusun pengeluaran rentang ini?" rows={3}>{items => <CategoryRankingChart items={items}/>}</CalendarSection>
-      <CalendarSection state={merchants} title="Merchant" description="Pengeluaran bersih setelah refund dalam rentang kalender." rows={2}>{items => <ValueList items={items}/>}</CalendarSection>
-      <CalendarSection state={members} title="Catatan rumah tangga" description="Atribusi pencatatan ketika diketahui, bukan peringkat anggota." rows={2}>{items => <ValueList items={[...items].sort((a, b) => a.name.localeCompare(b.name, "id"))}/>}</CalendarSection>
+      <CalendarSection state={cashflow} className="review-section analytics-chart" title="Pemasukan vs pengeluaran" about="arus kas bulanan" description="Bagaimana arus kas berubah antar bulan? Semua nilai berasal dari transaksi terkonfirmasi." rows={4}>{items => <><MonthlyCashflowChart items={items} height={280} partialPeriod={running}/>{items.some(item => item.period === running) && <p className="ledger-legend">Bulan berjalan ({monthLabel(running)}) belum penuh.</p>}</>}</CalendarSection>
+      <CalendarSection state={cashflow} hideError title="Arus kas per bulan" about="tabel bulanan" description="Pengeluaran sudah dikurangi refund. Bulan tanpa transaksi terkonfirmasi ditandai, bukan ditulis sebagai Rp0." rows={3}>{items => <div className="review-table-wrap"><table><thead><tr><th scope="col">Bulan</th><th scope="col">Pemasukan</th><th scope="col">Pengeluaran bersih</th><th scope="col">Refund</th><th scope="col">Arus kas bersih</th></tr></thead><tbody>{items.map(item => { const active = hasActivity(item); return <tr key={item.period}><th scope="row">{monthRowLabel(item.period, now)}{!active && <small>belum ada transaksi</small>}</th>{active ? <><td>{money(item.income)}</td><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{money(item.netCashflow)}</td></> : <td colSpan={4}>—</td>}</tr>; })}</tbody></table></div>}</CalendarSection>
+      <CalendarSection state={categories} title="Distribusi kategori" about="distribusi kategori" description="Kategori mana yang menyusun pengeluaran rentang ini?" rows={3}>{items => <CategoryRankingChart items={items}/>}</CalendarSection>
+      <CalendarSection state={merchants} title="Merchant" about="merchant" description="Pengeluaran bersih setelah refund dalam rentang kalender." rows={2}>{items => <ValueList items={items}/>}</CalendarSection>
+      <CalendarSection state={members} title="Catatan rumah tangga" about="catatan rumah tangga" description="Atribusi pencatatan ketika diketahui, bukan peringkat anggota." rows={2}>{items => <ValueList items={[...items].sort((a, b) => a.name.localeCompare(b.name, "id"))}/>}</CalendarSection>
       <p>Pembahasan dan tinjauan rumah tangga tersedia pada mode Siklus Gaji.</p>
     </div>}
   </>;
@@ -76,9 +76,9 @@ function useCalendarSection(name, queryString) {
   return { ...state, retry: () => setAttempt(value => value + 1) };
 }
 
-function CalendarSection({ state, title, description, rows, className = "review-section", hideError = false, children }) {
+function CalendarSection({ state, title, description, about, rows, className = "review-section", hideError = false, children }) {
   return <section className={`${className} calendar-section`} data-stale={state.loading && state.data ? "true" : undefined} aria-busy={state.loading || undefined}>
-    <SectionTitle title={title} description={description}/>
+    <SectionTitle title={title} description={description} about={about}/>
     {state.error ? (hideError ? null : <ErrorNotice message={state.error} retry={state.retry}/>) : state.data ? children(state.data) : <Skeleton cards={1} rows={rows} label={`Memuat ${title.toLowerCase()}`}/>}
   </section>;
 }
