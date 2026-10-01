@@ -1,9 +1,21 @@
 package queue
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
+
+type redactedTimeout struct{}
+
+func (redactedTimeout) Error() string { return "generate insight: gateway_timeout" }
+func (redactedTimeout) Unwrap() error { return context.DeadlineExceeded }
+
+func TestClassifyErrorPreservesRedactedTimeoutCause(t *testing.T) {
+	if got := classifyError(redactedTimeout{}); got != "TIMEOUT" {
+		t.Fatalf("redacted timeout class=%s", got)
+	}
+}
 
 type permanentTestError struct{}
 

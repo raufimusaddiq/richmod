@@ -100,7 +100,7 @@ func classifyError(err error) string {
 	}
 	msg := err.Error()
 	switch {
-	case strings.Contains(msg, "context deadline exceeded"):
+	case errors.Is(err, context.DeadlineExceeded) || strings.Contains(msg, "context deadline exceeded"):
 		return "TIMEOUT"
 	case strings.Contains(msg, "SQLSTATE"):
 		return "DATABASE"

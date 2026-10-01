@@ -29,13 +29,13 @@ export function insightQuality(insight) {
   return { value: Number(value || 0), label: completenessLabel(value) };
 }
 
-export async function pollInsight({ insightId, load, onUpdate = () => {}, signal, attempts = 15, wait = abortableDelay }) {
+export async function pollInsight({ insightId, load, onUpdate = () => {}, signal, attempts = 90, wait = abortableDelay }) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const selected = (await load(signal)).find(item => item.id === insightId) || null;
     if (selected) onUpdate(selected);
     if (selected?.status === "SUCCEEDED" || selected?.status === "FAILED") return selected;
-    if (attempt < attempts - 1) await wait(1800, signal);
+    if (attempt < attempts - 1) await wait(5000, signal);
   }
   throw new Error("insight polling timeout");
 }

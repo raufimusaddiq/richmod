@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -15,10 +16,13 @@ type analystGateway struct {
 	responses []gateway.AgentResponse
 	requests  []gateway.AgentRequest
 	err       error
+	budgets   []time.Duration
 }
 
-func (g *analystGateway) AgentTurn(_ context.Context, _ string, req gateway.AgentRequest) (gateway.AgentResponse, error) {
+func (g *analystGateway) AgentTurn(ctx context.Context, _ string, req gateway.AgentRequest) (gateway.AgentResponse, error) {
 	g.requests = append(g.requests, req)
+	deadline, _ := ctx.Deadline()
+	g.budgets = append(g.budgets, time.Until(deadline))
 	if g.err != nil {
 		return gateway.AgentResponse{}, g.err
 	}
@@ -126,7 +130,7 @@ func TestAnalystReadAndPhaseLimits(t *testing.T) {
 		maxExecuted int
 	}{
 		{"batch", []int{6}, 0},
-		{"turn", []int{5, 4}, 5},
+		{"turn", []int{5, 5, 3}, 10},
 		{"phases", []int{1, 1, 1, 1, 1}, 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -149,6 +153,54 @@ func TestAnalystReadAndPhaseLimits(t *testing.T) {
 				t.Fatalf("err=%v calls=%d phases=%d", err, calls, len(g.requests))
 			}
 		})
+	}
+}
+
+func TestAnalystProductionReadSequenceAndBudgetBoundaries(t *testing.T) {
+	for _, sizes := range [][]int{{2, 3, 4}, {2, 5, 5}, {2, 1, 1, 1}} {
+		t.Run(fmt.Sprint(sizes), func(t *testing.T) {
+			g := &analystGateway{responses: []gateway.AgentResponse{overviewPhase()}}
+			readCount := 2
+			for _, size := range sizes[1:] {
+				phase := gateway.AgentResponse{ResponseID: fmt.Sprint(readCount)}
+				for j := 0; j < size; j++ {
+					readCount++
+					phase.ToolCalls = append(phase.ToolCalls, analyticalCall(fmt.Sprint(readCount), "get_cycle_changes"))
+				}
+				g.responses = append(g.responses, phase)
+			}
+			g.responses = append(g.responses, renderPhase("Pembahasan berdasarkan data yang tersedia."))
+			text, _, reads, err := (&Processor{gateway: g}).generate(context.Background(), "id", "2026-08-01", safeFacts)
+			if err != nil || text == "" || len(reads) != readCount {
+				t.Fatalf("text=%q reads=%d err=%v", text, len(reads), err)
+			}
+			for i, request := range g.requests {
+				remaining := maxReadsPerTurn
+				for _, count := range sizes[:min(i, len(sizes))] {
+					remaining -= count
+				}
+				if !strings.Contains(request.SystemPrompt, fmt.Sprintf("%d READs remaining", remaining)) || !strings.Contains(request.SystemPrompt, fmt.Sprintf("%d model phases remaining", maxPhases-i)) {
+					t.Fatalf("phase %d missing server-owned budget", i)
+				}
+				if g.budgets[i] <= 25*time.Second || g.budgets[i] > modelTimeout {
+					t.Fatalf("model deadline=%s", g.budgets[i])
+				}
+			}
+			last := g.requests[len(g.requests)-1]
+			if readCount == maxReadsPerTurn || len(g.requests) == maxPhases {
+				if len(last.Tools) != 1 || last.Tools[0].Name != renderToolName || last.RequiredTool != renderToolName {
+					t.Fatal("budget boundary must require rendering, not another READ")
+				}
+			}
+		})
+	}
+}
+
+func TestAnalystTimeoutReasonIsSafeAndPreservesCause(t *testing.T) {
+	g := &analystGateway{err: fmt.Errorf("provider private-detail: %w", context.DeadlineExceeded)}
+	_, _, _, err := (&Processor{gateway: g}).generate(context.Background(), "id", "2026-08-01", safeFacts)
+	if !errors.Is(err, context.DeadlineExceeded) || err.Error() != "generate insight: gateway_timeout" {
+		t.Fatalf("timeout classification=%v", err)
 	}
 }
 

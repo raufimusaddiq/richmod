@@ -376,7 +376,9 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		budget = 45 * time.Second
 	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "FETCH_TELEGRAM_IMAGE":
 		budget = 60 * time.Second
-	case "GENERATE_INSIGHT", "GENERATE_CYCLE_RESIDUAL_REVIEW":
+	case "GENERATE_INSIGHT":
+		budget = workerInsight.Timeout + 5*time.Second
+	case "GENERATE_CYCLE_RESIDUAL_REVIEW":
 		budget = 30 * time.Second
 	}
 	if budget > 0 {
@@ -515,7 +517,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
-		return insightProcessor.Process(ctx, payload.InsightID)
+		return insightProcessor.Process(ctx, payload.InsightID, job.Attempts >= job.MaxAttempts)
 	case "GENERATE_CYCLE_RESIDUAL_REVIEW":
 		payload, err := residual.Decode(job.Payload)
 		if err != nil {
