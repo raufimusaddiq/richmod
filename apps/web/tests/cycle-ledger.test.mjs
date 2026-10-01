@@ -208,3 +208,18 @@ test("matrix source: text cells, keyboard rows, evidence-only buttons, detail de
   assert.match(page, /Selisih vs hari yang sama/);
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
 });
+
+test("data marks are neutral or chart-coloured; decreases are hatched, never another hue; accent stays on interaction", () => {
+  const styles = globalCss();
+  assert.doesNotMatch(styles, /\.change-track i \{[^}]*var\(--accent\)/, "category change bars are data, not interaction");
+  assert.doesNotMatch(styles, /\.comparison-track i[^{]*\{[^}]*var\(--accent\)/, "baseline bars are data, not interaction");
+  assert.doesNotMatch(styles, /i\[data-negative\] \{ background: var\(--expense\)/, "a decrease is not a good/bad hue");
+  assert.match(styles, /i\[data-negative\] \{ background: repeating-linear-gradient/, "a decrease is a hatched neutral bar");
+  assert.match(styles, /\.change-ranking > li\[data-selected="true"\] \{ background: var\(--butter\); \}/, "selection is butter, as in the ledger");
+  assert.doesNotMatch(styles, /Tabel lengkap · geser/, "no permanent scroll caption on tables that do not scroll");
+  assert.match(styles, /background-attachment: local, local, scroll, scroll/, "scroll shadows appear only while a table overflows");
+  assert.match(text("app/components/Charts.js"), /dataKey="amountValue" fill="var\(--chart-category-2\)"/, "chart colour comes from the chart ramp");
+  const page = tree("app/analytics");
+  assert.match(page, /Total sampai hari ini<\/th>/, "the pace chart has a table equivalent");
+  assert.match(page, /facts\.categoryChanges\.length\} kategori · \{facts\.merchantDrivers\.length\} merchant/, "collapsed sections say what is inside");
+});

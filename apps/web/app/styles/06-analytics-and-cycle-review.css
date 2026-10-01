@@ -67,7 +67,7 @@
 .change-button { min-height: 0; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: var(--weight-semibold); text-align: left; }
 .change-button:hover:not(:disabled) { border: 0; background: none; color: var(--accent-hover); text-decoration: underline; }
 .change-track { display: block; width: 100%; height: 4px; margin-top: 7px; border-radius: 999px; background: var(--surface-muted); }
-.change-track i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.change-track i { display: block; height: 100%; border-radius: 999px; background: var(--ink-soft); }
 .review-daily { margin-top: 18px; border-top: 1px solid var(--line); }
 .review-daily summary { padding: 13px 2px; color: var(--ink-soft); font-size: 12px; font-weight: var(--weight-semibold); cursor: pointer; }
 .driver-selector { max-width: 320px; margin-bottom: 4px; }
@@ -109,8 +109,8 @@
 .comparison-bars strong { text-align: right; font-size: var(--text-sm); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .comparison-track { display: block; height: 12px; background: var(--surface-muted); }
 .comparison-track i { display: block; height: 100%; background: var(--ink-soft); border: 1px solid var(--ink); }
-.comparison-bars > div:first-child .comparison-track i { background: var(--accent); }
-.comparison-track i[data-negative] { background: var(--expense); }
+.comparison-bars > div:first-child .comparison-track i { background: var(--ink); }
+.comparison-track i[data-negative] { background: repeating-linear-gradient(135deg, var(--ink-soft) 0 3px, transparent 3px 6px); }
 .comparison-deltas { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-3) 0 0; font-size: var(--text-xs); color: var(--muted); }
 .comparison-deltas > div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .comparison-deltas dd { margin: 0; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--ink); }
@@ -118,12 +118,12 @@
 .change-ranking-head { margin-top: var(--space-4); color: var(--muted); font-size: 11px; }
 .change-ranking { padding: 0; margin: var(--space-2) 0 0; list-style: none; }
 .change-ranking > li { position: relative; padding-block: var(--space-2); border-top: 1px solid var(--line); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
-.change-ranking > li[data-selected="true"] { background: var(--accent-soft); }
+.change-ranking > li[data-selected="true"] { background: var(--butter); }
 .change-ranking .change-button { min-height: 44px; overflow-wrap: anywhere; color: var(--ink); }
 .change-ranking .change-track { grid-column: 1 / -1; margin: 0; }
-.change-ranking .change-track i[data-negative] { background: var(--expense); }
-.cycle-review .review-table-wrap { border: 1px solid var(--line-strong); border-radius: var(--radius-xs); }
-.cycle-review .review-table-wrap::before { content: "Tabel lengkap · geser untuk semua kolom"; display: block; position: sticky; left: 0; padding: var(--space-2); background: var(--surface-muted); color: var(--muted); font-size: 11px; }
+.change-ranking .change-track i[data-negative] { background: repeating-linear-gradient(135deg, var(--ink-soft) 0 3px, transparent 3px 6px); }
+/* Edge shadows appear only while a table overflows, replacing a permanent "geser" caption. */
+.cycle-review .review-table-wrap { border: 1px solid var(--line-strong); border-radius: var(--radius-xs); background-color: var(--surface); background-image: linear-gradient(to right, var(--surface) 30%, rgb(255 252 244 / 0)), linear-gradient(to left, var(--surface) 30%, rgb(255 252 244 / 0)), radial-gradient(farthest-side at 0 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)); background-position: left center, right center, left center, right center; background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; }
 .cycle-review .review-quality a { min-height: 44px; }
 
 /* Cycle ledger: one column per salary cycle. Design: docs/assets/analytics-cycle-ledger-mock.html */
