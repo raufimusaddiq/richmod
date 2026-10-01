@@ -233,3 +233,15 @@ test("the analytics page is a composition shell over named modules", () => {
   assert.match(text("app/analytics/CalendarReview.js"), /export function CalendarReview/);
   assert.doesNotMatch(text("app/analytics/page.js"), /function (CyclePosition|ChangesTable|CalendarReview|MerchantTable)\b/, "section components live in their modules");
 });
+
+test("an active cycle leads with spending so far; the wide layout leaves no empty column", () => {
+  const sections = text("app/analytics/CycleSections.js");
+  assert.match(sections, /const active = facts\.period\.state === "ACTIVE"/);
+  assert.match(sections, /<dt>Pengeluaran bersih sejauh ini<\/dt><dd>\{money\(facts\.cashflow\.expense\)\}<\/dd>/, "active cycles lead with spending");
+  assert.match(sections, /<dt>Arus kas bersih<\/dt><dd>\{money\(facts\.cashflow\.netCashflow\)\}<\/dd>/, "closed cycles still lead with net cashflow");
+  assert.match(sections, /Arus kas bersih sejauh ini/, "net cashflow stays visible, as a regular metric, while the cycle runs");
+  for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(sections, new RegExp(`money\\(facts\\.cashflow\\.${field}\\)`), field);
+  const wide = globalCss();
+  assert.doesNotMatch(wide, /> #spending-shape \{ grid-column: 1; \}/, "no half-width column beside a collapsed section");
+  assert.doesNotMatch(wide, /> #changes \{ grid-column: 2; \}/);
+});

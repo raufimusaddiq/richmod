@@ -16,12 +16,15 @@ export function MeetingNav({ step, selection, navigate }) {
 }
 
 export function CyclePosition({ facts }) {
+  const active = facts.period.state === "ACTIVE"; // income lands on day 1, so net cashflow is not the headline until the cycle closes
   return <section id="position" className="review-section cycle-position" aria-labelledby="position-title">
-    <SectionTitle id="position-title" title="Posisi siklus" description="Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."/>
+    <SectionTitle id="position-title" title="Posisi siklus" description={active ? "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran. Selama siklus berjalan, arus kas bersih belum final karena pengeluaran masih bertambah." : "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."}/>
     <dl className="cycle-outcome">
-      <div className="cycle-net"><dt>Arus kas bersih</dt><dd>{money(facts.cashflow.netCashflow)}</dd></div>
+      {active
+        ? <div className="cycle-net"><dt>Pengeluaran bersih sejauh ini</dt><dd>{money(facts.cashflow.expense)}</dd></div>
+        : <div className="cycle-net"><dt>Arus kas bersih</dt><dd>{money(facts.cashflow.netCashflow)}</dd></div>}
       <Metric label="Pemasukan" value={money(facts.cashflow.income)}/>
-      <Metric label="Pengeluaran bersih" value={money(facts.cashflow.expense)}/>
+      {active ? <Metric label="Arus kas bersih sejauh ini" value={money(facts.cashflow.netCashflow)}/> : <Metric label="Pengeluaran bersih" value={money(facts.cashflow.expense)}/>}
       <Metric label="Tabungan dialokasikan" value={money(facts.cashflow.savingsAllocated)}/>
       <Metric label="Surplus belum dialokasikan" value={money(facts.cashflow.unallocatedSurplus)}/>
     </dl>

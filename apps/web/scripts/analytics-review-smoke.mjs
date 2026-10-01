@@ -31,6 +31,7 @@ try {
     let generationStatus = 202;
     let olderCommentary = false;
     let invalidFacts = false;
+    let merchantsFail = false;
     let noSalary = false;
     let stable = false;
     let salaryCalls = 0;
@@ -80,7 +81,7 @@ try {
         body = cycleFacts().categoryChanges;
       } else if (url.pathname === "/api/v1/analytics/spending") {
         body = [{ period: "2026-08", netSpending: "2800000" }, { period: "2026-09", netSpending: "4200000" }];
-      } else if (url.pathname === "/api/v1/analytics/merchants") body = cycleFacts().merchantDrivers;
+      } else if (url.pathname === "/api/v1/analytics/merchants") { if (merchantsFail) status = 500; body = cycleFacts().merchantDrivers; }
       else if (url.pathname === "/api/v1/analytics/members") body = cycleFacts().memberAttribution;
       else if (url.pathname.startsWith("/api/v1/transactions")) {
         const transactions = cycleFacts(url.searchParams.get("cycle") || undefined).categoryChanges[0].transactions.map(item => ({ ...item, merchantName: item.merchant, categoryName: "Belanja rumah", status: "CONFIRMED" }));
@@ -103,7 +104,9 @@ try {
     assert.equal(await page.locator(".cycle-footnote > span").isVisible(), true, "refund amount stays visible");
     await page.evaluate(() => document.fonts.ready);
     assert.equal(await page.evaluate(() => document.fonts.check('500 16px "Fraunces"') && document.fonts.check('400 14px "Inter"')), true, "brand fonts loaded");
-    assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(7800000n));
+    assert.equal(await page.locator(".cycle-net dt").textContent(), "Pengeluaran bersih sejauh ini", "a running cycle leads with spending, not a net cashflow that looks large on day 1");
+    assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(4200000n));
+    assert.equal(await page.locator("#position").getByText("Arus kas bersih sejauh ini", { exact: true }).isVisible(), true, "net cashflow stays visible as a regular metric");
     assert.equal(requests.filter(request => request.method === "POST").length, 0, "opening review never invokes generation");
     assert.equal(await page.getByRole("button", { name: "Tinjau siklus ini", exact: true }).count(), 0, "active cycle cannot enter closed-cycle meeting");
     assert.equal(await page.getByRole("button", { name: "Simpan keputusan", exact: true }).count(), 0, "active cycle has no save action");
@@ -314,6 +317,15 @@ try {
     await page.goBack({ waitUntil: "networkidle" });
     await page.waitForFunction(() => document.querySelector('input[name="from"]')?.value === "");
     assert.equal(await page.getByLabel("Bulan mulai").inputValue(), "", "the inputs follow the URL after Back");
+    // One failing section does not blank the rest, and it retries on its own.
+    merchantsFail = true;
+    await page.getByRole("button", { name: "6 Bulan", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "Analisis kalender belum dapat dimuat" }).waitFor();
+    assert.equal(await page.getByRole("heading", { name: "Pemasukan vs pengeluaran", exact: true }).isVisible(), true, "the cashflow chart survives a failed merchants request");
+    assert.equal(await page.getByRole("rowheader", { name: /Sep 26/ }).count(), 1, "the monthly table survives too");
+    merchantsFail = false;
+    await page.getByRole("button", { name: "Coba lagi", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "Analisis kalender belum dapat dimuat" }).waitFor({ state: "detached" });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false);
 
     invalidFacts = true;

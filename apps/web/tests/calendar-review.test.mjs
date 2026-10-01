@@ -49,8 +49,9 @@ test("zero-filled months are marked and the running month says so", () => {
 
 test("calendar source: no duplicate request, controlled range, visible reason, formatted months", () => {
   const page = tree("app/analytics");
-  assert.match(page, /\["cashflow", "categories", "merchants", "members"\]\.map\(async name =>/, "four requests; monthly spending duplicated the cashflow expense column");
-  assert.doesNotMatch(page, /"spending"/);
+  for (const name of ["cashflow", "categories", "merchants", "members"]) assert.match(page, new RegExp(`useCalendarSection\\("${name}", queryString\\)`), `${name} loads on its own`);
+  assert.doesNotMatch(page, /Promise\.all/, "one failing request must not blank the whole view");
+  assert.doesNotMatch(page, /"spending"/, "monthly spending duplicated the cashflow expense column");
   assert.doesNotMatch(page, /Pengeluaran setelah refund/, "the redundant section is gone; its numbers are the cashflow expense column");
   assert.match(page, /calendarErrorMessage\(response\.status, body\?\.error\)/, "the API's reason is read, not replaced by a fixed sentence");
   assert.match(page, /onSubmit=\{submitRange\} noValidate/);
@@ -60,8 +61,11 @@ test("calendar source: no duplicate request, controlled range, visible reason, f
   assert.match(page, /max: latest/);
   assert.match(page, /monthRowLabel\(item\.period, now\)/);
   assert.doesNotMatch(page, /<th scope="row">\{item\.period\}<\/th>/, "no raw YYYY-MM row headers");
-  assert.match(page, /\{loading && !data && !error && <Skeleton/, "the skeleton is only for the first load");
-  assert.match(page, /\.catch\(err => \{ if \(err\.name !== "AbortError"\) \{ setData\(null\); setError\(err\.message\); \} \}\)/, "a failed range clears the old range's numbers");
+  assert.match(page, /<Skeleton cards=\{1\} rows=\{rows\}/, "each section shows its own skeleton on first load");
+  assert.match(page, /setState\(\{ data: null, error: err\.message, loading: false \}\)/, "a failed section clears its own old numbers");
+  assert.match(page, /<ErrorNotice message=\{state\.error\} retry=\{state\.retry\}\/>/, "each failed section retries on its own");
+  assert.match(page, /const allFailed = sections\.every\(section => section\.error\)/, "a range every section rejects shows one notice, not four");
+  assert.match(page, /hideError/, "the table sharing the chart's request does not repeat its error");
   assert.match(page, /Pengeluaran bersih<\/th><th scope="col">Refund<\/th>/);
-  assert.match(text("app/styles/06-analytics-and-cycle-review.css"), /\.calendar-body\[data-stale\]/);
+  assert.match(text("app/styles/06-analytics-and-cycle-review.css"), /\.calendar-section\[data-stale\]/);
 });
