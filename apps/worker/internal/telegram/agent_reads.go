@@ -76,24 +76,27 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 			return result, err
 		}
 		rows, err := p.pool.Query(ctx, `
-			SELECT COALESCE(c.slug,''),COALESCE(c.name,'Tanpa kategori'),
-			       sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)::text,count(*)::text
+			WITH categories AS (SELECT COALESCE(c.slug,'') AS slug,COALESCE(c.name,'Tanpa kategori') AS name,
+			       sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END) AS amount,count(*)::text AS count
 			FROM transaction t
-			LEFT JOIN category c ON c.id=t.category_id
+			LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id
 			WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN('EXPENSE','REFUND')
 			  AND t.transaction_at >= $2 AND t.transaction_at < $3
 			GROUP BY COALESCE(c.slug,''),COALESCE(c.name,'Tanpa kategori')
-			HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)>0
-			ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END) DESC
+			HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)<>0)
+			SELECT slug,name,amount::text,count,(SELECT count(*)::int FROM categories),
+			(SELECT COALESCE(sum(amount),0)::text FROM categories)
+			FROM categories ORDER BY abs(amount) DESC,name,slug
 			LIMIT 20`, state.HouseholdID, r.From, r.To)
 		if err != nil {
 			return result, err
 		}
 		defer rows.Close()
 		items := make([]map[string]any, 0, 20)
+		totalCategories, totalExpense := 0, "0"
 		for rows.Next() {
 			var slug, name, amount, count string
-			if err := rows.Scan(&slug, &name, &amount, &count); err != nil {
+			if err := rows.Scan(&slug, &name, &amount, &count, &totalCategories, &totalExpense); err != nil {
 				return result, err
 			}
 			items = append(items, map[string]any{"slug": slug, "name": name, "amount_idr": amount, "transaction_count": count})
@@ -101,7 +104,7 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 		if err := rows.Err(); err != nil {
 			return result, err
 		}
-		result.Facts = map[string]any{"period": agentPeriodFact(r), "categories": items}
+		result.Facts = map[string]any{"period": agentPeriodFact(r), "categories": items, "total_categories": totalCategories, "net_expense_idr": totalExpense, "truncated": totalCategories > len(items)}
 
 	case "get_largest_transactions":
 		r, err := p.resolveAgentRange(ctx, state.HouseholdID, state.Now, args)

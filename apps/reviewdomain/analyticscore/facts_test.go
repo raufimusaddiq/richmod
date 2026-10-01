@@ -51,6 +51,15 @@ func TestCashChangeUsesOnlyCompletedEligibleHistory(t *testing.T) {
 	}
 }
 
+func TestCategoryWithNoEligibleHistoryFallsBackToZero(t *testing.T) {
+	current := newCycleMeasure(reviewPeriod{})
+	current.categories["rent"] = reviewValue{ID: "rent", Name: "Rent", Amount: "1950000"}
+	rows := changes([]cycleMeasure{current}, func(m cycleMeasure) map[string]reviewValue { return m.categories })
+	if len(rows) != 1 || rows[0].Amount != "1950000" || rows[0].Previous != nil || rows[0].Delta != nil || rows[0].Median != nil {
+		t.Fatalf("no-history category=%+v", rows)
+	}
+}
+
 func TestReviewDoesNotAuthorSemanticConclusions(t *testing.T) {
 	payload, err := json.Marshal(Facts{})
 	if err != nil {

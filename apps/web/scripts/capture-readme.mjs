@@ -20,7 +20,7 @@ const transactions = [
   transaction("tx-4", "INCOME", "Gaji Bulanan", "salary", "Gaji", "18500000", "2026-09-01T08:00:00+07:00"),
   transaction("tx-5", "EXPENSE", "PLN", "utilities", "Tagihan", "612400", "2026-09-02T20:05:00+07:00"),
 ];
-const daily = [420000, 275000, 0, 510000, 335000, 554500].map((expense, index) => ({ period: `2026-09-${String(index + 1).padStart(2, "0")}`, income: index === 0 ? "18500000" : "0", expense: String(expense), netCashflow: String((index === 0 ? 18500000 : 0) - expense) }));
+const daily = [420000, 275000, 0, 510000, 335000, 554500].map((expense, index) => ({ period: `2026-09-${String(index + 1).padStart(2, "0")}`, income: index === 0 ? "18500000" : "0", grossExpense: String(expense), refund: "0", expense: String(expense), netCashflow: String((index === 0 ? 18500000 : 0) - expense) }));
 const reviews = [
   { id: "review-1", reason: "AMBIGUOUS_CATEGORY", amount: "186500", merchantName: "INDOMARET POINT", transactionAt: "2026-09-06T12:21:00+07:00", sourceType: "Bank email", type: "EXPENSE", proposalStatus: "NEEDS_REVIEW", categoryId: "groceries" },
   { id: "review-2", reason: "UNKNOWN_MERCHANT", amount: "92500", description: "Merchant perlu dikonfirmasi", transactionAt: "2026-09-05T19:36:00+07:00", sourceType: "Telegram", type: "EXPENSE", proposalStatus: "NEEDS_REVIEW", missingFields: ["merchant"] },

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { completenessLabel, insightQuality, pollInsight, selectCycleInsight } from "../app/lib/insightData.js";
+import { completenessLabel, insightPeriod, insightQuality, pollInsight, selectCycleInsight } from "../app/lib/insightData.js";
 
 test("completeness labels use Indonesian thresholds", () => {
   assert.equal(completenessLabel("0.96"), "Tinggi");
@@ -15,6 +15,31 @@ test("cycle insight matches active cycle, not array position", () => {
   ], { cycleStart: "2026-08-25" });
   assert.equal(insight.id, "current");
   assert.equal(selectCycleInsight([], { cycleStart: "2026-08-25" }), null);
+});
+
+test("closed commentary cutoff must match current facts, including during polling", async () => {
+	const cycle = { start: "2026-09-25", measuredUntil: "2026-10-02", state: "CLOSED" };
+	const old = { id: "old", historical: false, status: "SUCCEEDED", metrics: { period_kind: "CURRENT_CYCLE", period_start: cycle.start, period_end: "2026-09-26" } };
+	const fresh = { ...old, id: "fresh", metrics: { ...old.metrics, period_end: cycle.measuredUntil } };
+	assert.equal(selectCycleInsight([old], cycle), null);
+	assert.equal(selectCycleInsight([fresh, old], cycle).id, "fresh");
+	let rendered = false;
+	await assert.rejects(pollInsight({ insightId: old.id, cycle, load: async () => [old], onUpdate: () => { rendered = true; } }), /insight cutoff mismatch/);
+	assert.equal(rendered, false);
+	await assert.rejects(pollInsight({ insightId: old.id, cycle, load: async () => [{ ...old, status: "PENDING" }] }), /insight cutoff mismatch/);
+});
+
+test("active commentary retains a dated earlier snapshot, never future or malformed cutoffs", async () => {
+  const cycle = { start: "2026-09-25", measuredUntil: "2026-10-02", state: "ACTIVE" };
+  const old = { id: "old", historical: false, status: "SUCCEEDED", metrics: { period_kind: "CURRENT_CYCLE", period_start: cycle.start, period_end: "2026-10-01" } };
+  assert.equal(selectCycleInsight([old], cycle)?.id, "old");
+  assert.deepEqual(insightPeriod(old), { start: cycle.start, measuredUntil: "2026-10-01" });
+  assert.equal((await pollInsight({ insightId: old.id, cycle, load: async () => [old] })).id, "old");
+  for (const end of [undefined, "bad", "2026-09-31", "2026-10-03", cycle.start]) {
+    assert.equal(selectCycleInsight([{ ...old, metrics: { ...old.metrics, period_end: end } }], cycle), null);
+  }
+  assert.equal(selectCycleInsight([{ ...old, historical: true }], cycle), null);
+  assert.equal(selectCycleInsight([{ ...old, metrics: { ...old.metrics, period_start: "2026-08-25" } }], cycle), null);
 });
 
 test("insight quality accepts API strings", () => {

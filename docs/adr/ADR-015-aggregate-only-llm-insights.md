@@ -65,7 +65,7 @@ Final failures record a bounded diagnostic reason in the audit log, not provider
 text, model arguments, or raw financial results. Historical failed insights are
 not silently requeued or rewritten.
 
-New jobs use `cycle-analyst-v3`. The server stores request facts and executed
+New jobs use `cycle-analyst-v4`. The server stores request facts and executed
 READ transcript as audit evidence, not as initial model context. Completed
 older rows remain untouched and are explicitly marked historical by the list
 API. Pending legacy jobs fail with `superseded_contract` instead of regenerating
@@ -95,3 +95,27 @@ Cycle-review usage emits bounded, non-identifying log events, not financial
 writes or new persistence. Definitions, privacy boundaries, query budget and
 invalidation are recorded in
 [the hardening note](../ANALYTICS_CYCLE_REVIEW_TELEMETRY.md).
+
+## Measurement-context amendment — October 1, 2026
+
+New jobs use `cycle-analyst-v4`. Active-cycle comparisons measure every earlier
+baseline over the same elapsed-day prefix as the running cycle, so the deltas the
+model cites reconcile with the facts it reads; Go owns the amounts/deltas,
+including null ratios for nonpositive baselines. A prior closed cycle shorter
+than the prefix is ineligible. The model must not interpret a null ratio as 100%
+growth.
+
+PostgreSQL owns insight `created_at` and the hourly cap clock. Worker READ sessions
+reuse the existing request snapshot's `generatedAt` (fallback: `created_at`) across
+queue delays/retries so metadata and retrieved facts describe the same measured
+days. Web selection/polling require matching start; closed cycles require exact
+`period_end`, active cycles retain earlier valid cutoffs as visibly dated previous
+snapshots, never labelled current. Future/malformed cutoffs are rejected.
+Existing hourly reuse, explicit generation, historical
+row preservation, coverage gate and financial mutation boundaries stay unchanged.
+Server reuse requires matching `period_end` too. A mismatched recent success
+returns HTTP 429 without a stale ID; a mismatched pending job remains HTTP 409
+under existing pending-job uniqueness. After the hourly window, an explicit
+request may generate the new cutoff. No automatic model request is added.
+Rate-limit/pending errors do not erase readable dated active commentary.
+No migration or production data repair is required.

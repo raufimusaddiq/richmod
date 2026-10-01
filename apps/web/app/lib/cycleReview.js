@@ -13,6 +13,10 @@ export function cycleLabel(period) {
   return `${dayLabel(period.start)} – ${period.state === "ACTIVE" ? "berjalan" : dayLabel(inclusiveEnd(period.end))}`;
 }
 
+export function measuredLabel(period) {
+  return period ? `${dayLabel(period.start)} – ${dayLabel(inclusiveEnd(period.measuredUntil))}` : "—";
+}
+
 export function amountLabel(value) {
   return value == null ? "—" : money(value);
 }

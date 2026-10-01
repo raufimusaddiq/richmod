@@ -74,6 +74,12 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if period.Format("2006-01-02") != "2026-08-24" || kind != "CURRENT_CYCLE" || start != "2026-08-24" {
 		t.Fatalf("period=%s kind=%s start=%s", period.Format("2006-01-02"), kind, start)
 	}
+	var requestedAt time.Time
+	var cutoff string
+	var databaseClock bool
+	if err := pool.QueryRow(ctx, `SELECT (input_metrics_json->'facts_snapshot'->>'generatedAt')::timestamptz,input_metrics_json->>'period_end',created_at BETWEEN now()-interval '1 minute' AND now()+interval '1 minute' FROM insight WHERE id=$1`, generated["id"]).Scan(&requestedAt, &cutoff, &databaseClock); err != nil || !requestedAt.Equal(handler.now()) || cutoff != "2026-09-01" || !databaseClock {
+		t.Fatalf("request timestamp=%v cutoff=%s err=%v", requestedAt, cutoff, err)
+	}
 	var jobCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='GENERATE_INSIGHT' AND payload_json->>'insight_id'=$1`, generated["id"]).Scan(&jobCount); err != nil || jobCount != 1 {
 		t.Fatalf("jobs=%d err=%v", jobCount, err)
@@ -97,7 +103,7 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=input_metrics_json || '{"facts_snapshot":{"private":"fixture"},"tool_reads":[{"private":"fixture"}]}'::jsonb WHERE id=$1`, generated["id"]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,created_at,requested_by_user_id,completed_at) SELECT $1,'2026-09-01','SUCCEEDED','{"period_start":"2026-09-01","period_kind":"SALARY_CYCLE"}', 'cycle-analyst-v3',1,now()+n*interval '1 minute',$2,now() FROM generate_series(1,14) n`, householdID, userID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,created_at,requested_by_user_id,completed_at) SELECT $1,'2026-09-01','SUCCEEDED','{"period_start":"2026-09-01","period_kind":"SALARY_CYCLE"}', 'cycle-analyst-v4',1,now()+n*interval '1 minute',$2,now() FROM generate_series(1,14) n`, householdID, userID); err != nil {
 		t.Fatal(err)
 	}
 	listRequest := httptest.NewRequest("GET", "/api/v1/insights?cycle_start=2026-08-24", nil)
@@ -133,5 +139,42 @@ func TestGenerateCycleInsightUsesTrueSalaryAnchor(t *testing.T) {
 	handler.List(isolated, listRequest)
 	if isolated.Code != 200 || strings.TrimSpace(isolated.Body.String()) != "[]" {
 		t.Fatalf("foreign list status=%d body=%s", isolated.Code, isolated.Body.String())
+	}
+	var pending map[string]string
+	if err := json.Unmarshal(retryFailed.Body.Bytes(), &pending); err != nil {
+		t.Fatal(err)
+	}
+	// A pending request from an older cutoff must never be returned as current.
+	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=jsonb_set(input_metrics_json,'{period_end}','"2026-08-31"'::jsonb) WHERE id=$1`, pending["id"]); err != nil {
+		t.Fatal(err)
+	}
+	stalePending := httptest.NewRecorder()
+	handler.Generate(stalePending, request)
+	if stalePending.Code != http.StatusConflict || strings.Contains(stalePending.Body.String(), pending["id"]) {
+		t.Fatalf("stale pending=%d %s", stalePending.Code, stalePending.Body.String())
+	}
+	if _, err := pool.Exec(ctx, `UPDATE insight SET status='SUCCEEDED',completed_at=now(),created_at=now() WHERE id=$1`, pending["id"]); err != nil {
+		t.Fatal(err)
+	}
+	staleSuccess := httptest.NewRecorder()
+	handler.Generate(staleSuccess, request)
+	if staleSuccess.Code != http.StatusTooManyRequests || strings.Contains(staleSuccess.Body.String(), pending["id"]) {
+		t.Fatalf("stale success=%d %s", staleSuccess.Code, staleSuccess.Body.String())
+	}
+	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=jsonb_set(input_metrics_json,'{period_end}','"2026-09-01"'::jsonb) WHERE id=$1`, pending["id"]); err != nil {
+		t.Fatal(err)
+	}
+	matching := httptest.NewRecorder()
+	handler.Generate(matching, request)
+	if matching.Code != http.StatusOK || !strings.Contains(matching.Body.String(), pending["id"]) {
+		t.Fatalf("matching cutoff=%d %s", matching.Code, matching.Body.String())
+	}
+	if _, err := pool.Exec(ctx, `UPDATE insight SET input_metrics_json=jsonb_set(input_metrics_json,'{period_end}','"2026-08-31"'::jsonb),created_at=now()-interval '2 hours' WHERE id=$1`, pending["id"]); err != nil {
+		t.Fatal(err)
+	}
+	expired := httptest.NewRecorder()
+	handler.Generate(expired, request)
+	if expired.Code != http.StatusAccepted || strings.Contains(expired.Body.String(), pending["id"]) {
+		t.Fatalf("expired cutoff=%d %s", expired.Code, expired.Body.String())
 	}
 }

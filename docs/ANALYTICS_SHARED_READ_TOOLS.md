@@ -49,6 +49,12 @@ Rules:
   forwarded; display names and amounts are intentional;
 - refs are request-local and cannot be replayed across requests or households.
 
+Elapsed comparisons retain exact measured prefixes. Every baseline window in
+`get_cycle_changes` -- the primary `previous` and the `median3` sample -- uses
+that same prefix, so the numbers reconcile with the active cycle. A prior closed
+cycle shorter than the prefix is ineligible. Null ratios never mean a 100%
+increase or absence in the full prior cycle.
+
 Dependent reads run through the owning channel's bounded loop: Telegram reuses
 ADR-033 (5 phases, 5 reads/response, 8 reads/turn); its final reply stays natural
 text and passes through no JSON contract.
@@ -75,12 +81,24 @@ quality READs. It accepts only a natural `message` (1–4000 characters), cannot
 mix with READs, and creates no financial state. Telegram does not use it;
 ADR-033 ordinary final text stays unchanged.
 
-New commentary rows use `cycle-analyst-v3`; request facts plus the executed READ
+New commentary rows use `cycle-analyst-v4`; request facts plus the executed READ
 transcript are retained as server audit evidence. No confidence, recommendation
 or findings DTO is produced. No model prose is interpreted later. Existing
 successful insights remain verbatim with `historical=true`; pending old-contract
 jobs fail with an audited superseded-contract reason. API rate limiting remains
 one successful generation per household period/hour, with pending-job idempotency.
+
+Worker READ sessions reuse `facts_snapshot.generatedAt` across queue
+delays/retries so their measured cutoff matches the request, falling back to
+`created_at` for compatible fixtures. PostgreSQL still sets `created_at` for
+the existing hourly cap. Web selection/polling require matching start; closed
+cycles require exact `period_end`, while active cycles may retain an earlier
+valid cutoff as an explicitly dated previous snapshot, never as current facts.
+Future/malformed cutoffs are rejected. Hourly reuse and explicit generation stay.
+Server reuse also requires `period_end`; a stale recent success returns HTTP 429
+without its ID, and stale pending work returns HTTP 409 through existing unique
+pending-job enforcement. Neither response bypasses the hourly cap.
+The dated active snapshot remains readable alongside either error.
 
 Generation failures remain pending through the existing three-attempt queue
 policy; only the final failure marks the insight failed. Queue/audit diagnostics

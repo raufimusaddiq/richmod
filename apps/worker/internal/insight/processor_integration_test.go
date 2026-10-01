@@ -60,7 +60,7 @@ func TestCommentaryPersistenceCompatibilityAndFailureIsolation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var id string
-			check(pool.QueryRow(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,'2026-08-01','PENDING','{"period_kind":"SALARY_CYCLE","period_start":"2026-08-01"}',$2,$3,$4) RETURNING id`, household, tc.version, tc.completeness, user).Scan(&id))
+			check(pool.QueryRow(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,'2026-08-01','PENDING','{"period_kind":"CURRENT_CYCLE","period_start":"2026-08-01","period_end":"2026-08-11","facts_snapshot":{"generatedAt":"2026-08-10T23:59:59+07:00"}}',$2,$3,$4) RETURNING id`, household, tc.version, tc.completeness, user).Scan(&id))
 			g := &analystGateway{responses: []gateway.AgentResponse{overviewPhase(), renderPhase("Tidak ada perubahan berarti untuk dibahas.")}}
 			if tc.fail {
 				g.err = fmt.Errorf("gateway unavailable private-detail")
@@ -106,6 +106,10 @@ func TestCommentaryPersistenceCompatibilityAndFailureIsolation(t *testing.T) {
 				check(json.Unmarshal(metrics, &stored))
 				if text == nil || *text != "Tidak ada perubahan berarti untuk dibahas." || stored["tool_contract"] != promptVersion || len(stored["tool_reads"].([]any)) != 2 {
 					t.Fatalf("commentary/audit=%s %v", metrics, text)
+				}
+				period := stored["tool_reads"].([]any)[0].(map[string]any)["facts"].(map[string]any)["period"].(map[string]any)
+				if period["measuredUntil"] != stored["period_end"] || period["state"] != "ACTIVE" {
+					t.Fatalf("queue delay changed measurement cutoff: %v", period)
 				}
 			}
 			var audits int

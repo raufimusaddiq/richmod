@@ -1,7 +1,7 @@
 # Cycle-review verification evidence
 
-Current implementation: PR230 contract, followed by PR231–235. Sprint 5 final
-CI/automatic-review/merge gates remain pending until the exact pushed head passes;
+Current follow-up: PR241 calculation/cutoff audit after the PR230–240 contract.
+Exact-head CI/automatic-review/merge gates remain pending until they pass;
 this file records the checks, not an unobserved production deployment.
 
 ## Drift guard A–R
@@ -21,7 +21,7 @@ this file records the checks, not an unobserved production deployment.
 | K — neutrality | Worker prompt prohibits blame, scores, motives and advice. Attribution is descriptive. Decisions have no model tool; browser save requires explicit human action. No causal success claim. |
 | L — household decisions | `TestCycleDecisionsExplicitSaveAuditAndHouseholdIsolation` checks author binding, active membership, prior-cycle context, same-transaction audit, denied foreign access, soft revocation, no financial rows. Invalid input tests and browser retained-draft/explicit retry/revoke tests. Telemetry never copies text. |
 | M — quality | Facts expose Inbox/settings/Wealth/category blockers, not model confidence. `TestCompletenessUsesGrossExpenseAndReviewCoverage` and worker data-failure tests enforce existing coverage suppression; no missing evidence guessed or retry loop on insufficient facts. |
-| N — persistence | `cycle-review-v1`, `cycle-analyst-v3`, deterministic request snapshot and executed native READ transcript retained in `insight`; historical rows preserved, legacy jobs explicitly superseded. Schema through 00074 matches decision entity/ERD; Sprint 5 changes no schema. Model prose never mutates financial state. |
+| N — persistence | `cycle-review-v1`, `cycle-analyst-v4`, deterministic request snapshot and executed native READ transcript retained in `insight`; historical rows preserved, legacy jobs explicitly superseded. Schema through 00074 matches decision entity/ERD; calculation/cutoff fixes change no schema. Model prose never mutates financial state. |
 | O — regression | Shared facts/tool tests, PostgreSQL API/worker integration, model phase/read-count/order tests, web tests and synthetic Playwright smoke. Stable/no-filler, previous outlier, large category/transaction drivers, tiny denominator, incomplete state, AI outage, correct ledger binding and cross-household decisions. No acceptance assertion weakened. |
 | P — scope | No budgets/goals/recurring/portfolio/live prices/new infrastructure/provider branch/Telegram redesign; no Python, Redis, Kafka or direct provider integration. |
 | Q — review questions | Answers below; PR describes the evidence and limits. |
@@ -71,7 +71,15 @@ records without making their point-in-time UI requirements current again.
 
 ## Gates
 
-- Local web tests: 74 passed; diff whitespace and native-only guard passed.
+October 1 calculation audit: local Node tests 80/80; initial PR #241 CI passed
+API/shared-domain/worker integration and vet, web build/tests, four-width browser
+checks, containers, secrets and CodeQL. Automatic review found cutoff reuse
+needed server enforcement. The revision adds exact-cutoff reuse plus stale
+pending/recent-success/expired-success regressions while preserving the hourly
+cap. The exact revised head must pass CI and automatic review before merge.
+
+- Historical Sprint 5 local web tests (superseded, pre-revision): diff whitespace and native-only
+  guard passed. Current calculation/cutoff revision: 81 Node tests passed.
 - Initial Sprint 5 CI: frontend/browser, containers, secrets and CodeQL passed.
   Backend found a new fixture's missing required author, then its missing
   completion timestamp for `SUCCEEDED`; both fixed without weakening assertions

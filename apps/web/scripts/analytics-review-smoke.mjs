@@ -28,6 +28,8 @@ try {
     const errors = [];
     const requests = [];
     let aiAvailable = true;
+    let generationStatus = 202;
+    let olderCommentary = false;
     let invalidFacts = false;
     let noSalary = false;
     let stable = false;
@@ -68,9 +70,9 @@ try {
         body = { status: "REVOKED" };
       } else if (url.pathname === "/api/v1/insights") {
         status = aiAvailable ? 200 : 503;
-        body = [{ ...cycleCommentary, historical: true, text: "Historical advice should never display." }, stable ? { ...cycleCommentary, text: "Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", metrics: { period_kind: "SALARY_CYCLE", period_start: "2026-08-26" } } : { ...cycleCommentary }];
+        body = [{ ...cycleCommentary, historical: true, text: "Historical advice should never display." }, { ...cycleCommentary, id: "stale-commentary", createdAt: "2026-09-05T12:00:00+07:00", text: "Stale cutoff must never display.", metrics: { ...cycleCommentary.metrics, period_end: "2026-09-06" } }, stable ? { ...cycleCommentary, text: "Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", metrics: { period_kind: "SALARY_CYCLE", period_start: "2026-08-26", period_end: "2026-09-01" } } : olderCommentary ? { ...cycleCommentary, text: "Older daily snapshot is visible.", metrics: { ...cycleCommentary.metrics, period_end: "2026-09-06" } } : { ...cycleCommentary }];
       } else if (url.pathname === "/api/v1/insights/generate") {
-        status = aiAvailable ? 202 : 503;
+        status = aiAvailable ? generationStatus : 503;
         body = { id: cycleCommentary.id };
       } else if (url.pathname === "/api/v1/analytics/cashflow") {
         body = [{ period: "2026-08", income: "12000000", expense: "2800000", netCashflow: "9200000" }, { period: "2026-09", income: "12000000", expense: "4200000", netCashflow: "7800000" }];
@@ -107,6 +109,7 @@ try {
     assert.equal(await page.getByRole("button", { name: "Simpan keputusan", exact: true }).count(), 0, "active cycle has no save action");
     assert.equal(salaryCalls, 1, "explicit cycle uses one facts request");
     assert.equal(await page.getByText("Historical advice should never display.").count(), 0);
+    assert.equal(await page.getByText("Stale cutoff must never display.").count(), 0);
     for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) {
       assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, `${id} is available on demand, not a wall of text`);
     }
@@ -118,6 +121,9 @@ try {
     await completeComparison.locator("summary").focus();
     await page.keyboard.press("Enter");
     assert.equal(await completeComparison.evaluate(element => element.open), true, "complete comparison is keyboard accessible");
+    assert.equal(await page.getByRole("columnheader", { name: "Δ hari setara", exact: true }).isVisible(), true);
+    await page.getByRole("region", { name: "Perbandingan kategori lengkap, geser untuk semua kolom", exact: true }).focus();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} expanded comparison has no page overflow`);
     if (name === "desktop") await page.screenshot({ path: new URL("readme-analytics.png", output).pathname, fullPage: false, animations: "disabled" });
     assert.equal(await page.locator("#changes tbody tr").count(), 3);
     assert.equal(await page.locator("#changes tbody tr").nth(1).locator("td").nth(2).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1350000n), "previous outlier does not hide recent median");
@@ -160,6 +166,17 @@ try {
     await page.locator(".chart-tooltip").waitFor();
     assert.match(await page.locator(".chart-tooltip").textContent(), /Pengeluaran bersih.*Rp.*Refund.*Rp/);
     await page.screenshot({ path: new URL(`${name}-tooltip.png`, output).pathname, fullPage: true, animations: "disabled" });
+
+    olderCommentary = true;
+    await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-01`, { waitUntil: "networkidle" });
+    await page.locator("#discussion > details > summary").click();
+    await page.getByText("Older daily snapshot is visible.", { exact: true }).waitFor();
+    assert.match(await page.locator("#discussion .insight-muted").textContent(), /Snapshot sebelumnya.*5 Sep 2026.*bukan data terkini/);
+    generationStatus = 429;
+    await page.getByRole("button", { name: "Perbarui pembahasan", exact: true }).click();
+    await page.getByText("Batas satu pembahasan per jam. Coba lagi setelah jeda satu jam dari permintaan terakhir.", { exact: true }).waitFor();
+    assert.equal(await page.getByText("Older daily snapshot is visible.", { exact: true }).isVisible(), true, "hourly cap does not erase the dated snapshot");
+    olderCommentary = false; generationStatus = 202;
 
     // Selected closed cycle, no AI: full deterministic review and supporting
     // data remain usable. No automatic retries or synthesis request.
@@ -270,6 +287,12 @@ try {
     assert.equal(await page.locator("#household .review-attribution > div").count(), 2);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} complete report has no page overflow`);
     await page.screenshot({ path: new URL(`${name}-september25-complete.png`, output).pathname, fullPage: true, animations: "disabled" });
+    generationStatus = 429;
+    await page.getByRole("button", { name: "Buat analisis", exact: true }).click();
+    await page.getByText("Batas satu pembahasan per jam. Coba lagi setelah jeda satu jam dari permintaan terakhir.", { exact: true }).waitFor();
+    generationStatus = 409;
+    await page.locator("#discussion").getByRole("button", { name: "Coba lagi", exact: true }).click();
+    await page.getByText("Pembahasan sebelumnya masih diproses. Tunggu sampai selesai.", { exact: true }).waitFor();
     assert.deepEqual(errors, [], `${name} runtime errors`);
     await page.close();
   }

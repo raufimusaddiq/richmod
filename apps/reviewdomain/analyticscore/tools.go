@@ -27,7 +27,7 @@ func Tools() []Tool {
 		category          bool
 	}{
 		{"get_cycle_overview", "Read a salary cycle's cashflow, spending shape and descriptive household attribution. Null cycle_start selects the current cycle; returned cycles list available starts.", false},
-		{"get_cycle_changes", "Read expense, income and net cashflow changes against the previous completed comparable cycle and previous-three-cycle median. Returns up to 20 category changes sorted by absolute delta and request-local category refs.", false},
+		{"get_cycle_changes", "Read expense, income and net cashflow changes against the previous completed comparable cycle and previous-three-cycle median. ELAPSED_DAYS compares exact measured prefixes, not full cycles. Null relative deltas are unavailable, never 100%. Returns up to 20 category changes sorted by absolute delta and request-local category refs.", false},
 		{"get_category_drivers", "Read one category's exact changes and concentration context. Use a category_ref issued by get_cycle_changes for this cycle.", true},
 		{"get_merchant_drivers", "Read up to 10 merchant drivers, sorted by absolute delta. Null category_ref selects the whole cycle; otherwise use a category_ref issued by get_cycle_changes.", true},
 		{"get_supporting_transactions", "Read up to 10 supporting confirmed expense/refund transactions for a category_ref issued by get_cycle_changes. No raw evidence or canonical IDs.", true},
