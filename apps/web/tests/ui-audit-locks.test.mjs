@@ -86,3 +86,30 @@ test("overview links to the exact snapshot it summarises", () => {
   assert.match(text("app/wealth/page.js"), /get\("snapshotId"\)/);
   assert.match(text("app" + "/globals.css"), /\.settings-section \{ scroll-margin-top: 24px; \}/);
 });
+
+test("modal drawers share focus, Escape, and Tab handling", () => {
+  const hook = text("app/components/useDrawerA11y.js");
+  assert.match(hook, /event\.key === "Escape"/);
+  assert.match(hook, /event\.key !== "Tab"/);
+  assert.match(hook, /opener\.focus\(\)/);
+  for (const page of ["transactions", "documents", "wealth"]) {
+    const source = text(`app/${page}/page.js`);
+    assert.match(source, /import useDrawerA11y from "\.\.\/components\/useDrawerA11y"/, `${page} imports the drawer hook`);
+    assert.match(source, /<aside ref={drawerRef} tabIndex={-1}/, `${page} attaches the drawer ref`);
+  }
+});
+
+test("mobile overflow button carries the pending-review badge", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.match(shell, /hiddenInboxCount/);
+  assert.match(shell, /<span>Lainnya<\/span>\{hiddenInboxCount > 0/);
+});
+
+test("user-facing copy uses the shared Indonesian vocabulary", () => {
+  for (const file of ["app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js"]) {
+    const source = text(file);
+    assert.doesNotMatch(source, /Wealth Account|Review Inbox/, `${file} avoids internal terms`);
+  }
+  const cards = text("app/components/ReviewCards.js");
+  assert.doesNotMatch(cards, />[A-Z]{4,}( [A-Z]{2,})+</, "review card badges are sentence case");
+});

@@ -6,7 +6,7 @@ import AppShell from "../components/AppShell";
 
 const tabs = [
   ["overview", "Ringkasan"],
-  ["reviews", "Review"],
+  ["reviews", "Tinjauan"],
   ["jobs", "Tugas"],
   ["llm", "LLM"],
   ["logs", "Log"],
@@ -203,7 +203,7 @@ function Overview({ setError }) {
           }
           note="24 jam"
         />
-        <Metric label="Review terbuka" value={number(data.reviews.open)} />
+        <Metric label="Tinjauan terbuka" value={number(data.reviews.open)} />
         <Metric label="Rumah tangga" value={number(data.households.total)} />
         <Metric
           label="Cakupan review Telegram"
@@ -211,7 +211,7 @@ function Overview({ setError }) {
           note="24 jam"
         />
         <Metric
-          label="Escape ke Web"
+          label="Dialihkan ke web"
           value={percent(reviewHealth?.webEscapeRate)}
           note="24 jam"
         />
@@ -331,7 +331,7 @@ function Reviews({ setError }) {
         </select>
       </div>
       <div className="admin-metrics">
-        <Metric label="Review terbuka" value={number(summary.openReviews)} />
+        <Metric label="Tinjauan terbuka" value={number(summary.openReviews)} />
         <Metric
           label="Eligible Telegram"
           value={number(summary.eligibleTelegramReviews)}
@@ -346,7 +346,7 @@ function Reviews({ setError }) {
           note="Target 100%"
         />
         <Metric
-          label="Escape ke Web"
+          label="Dialihkan ke web"
           value={percent(summary.webEscapeRate)}
           note="Target 0%"
         />
@@ -397,7 +397,7 @@ function Reviews({ setError }) {
             "Telegram",
             "Web",
             "Sistem",
-            "Escape",
+            "Ke web",
             "Gagal",
           ]}
         >
@@ -854,7 +854,7 @@ function Households({ setError }) {
           "Household",
           "Members",
           "Transactions",
-          "Review",
+          "Tinjauan",
           "Last activity",
           "Created",
         ]}

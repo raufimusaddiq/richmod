@@ -49,7 +49,7 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	if strings.TrimSpace(dest) != "" {
 		wealthID, err = resolveUniqueWealthHint(ctx, tx, householdID, dest)
 		if err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Wealth Account tujuan belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
+			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Akun kekayaan tujuan belum dapat dikenali secara unik. Sebutkan nama yang lebih spesifik.")
 		}
 	}
 	// An in-process caller may already know the purpose deterministically (a fixed

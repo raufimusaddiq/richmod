@@ -126,7 +126,7 @@ func TestReviewQuestionUsesIndonesianIDRFormat(t *testing.T) {
 func TestAssistantRangeLabelUsesInclusiveJakartaDates(t *testing.T) {
 	location := jakartaLocation()
 	r := assistantRange{From: time.Date(2026, 8, 1, 0, 0, 0, 0, location), To: time.Date(2026, 9, 1, 0, 0, 0, 0, location)}
-	if got := r.label(); got != "01 Aug 2026–31 Aug 2026" {
+	if got := r.label(); got != "01 Agu 2026–31 Agu 2026" {
 		t.Fatalf("label = %q", got)
 	}
 }

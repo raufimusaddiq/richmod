@@ -284,7 +284,7 @@ test("settings lists are bounded with pagination and keep empty states", () => {
   assert.match(settings, /const pageCount = Math\.ceil\(items\.length \/ limit\);/);
   assert.match(settings, /Halaman \{currentPage \+ 1\} dari \{pageCount\}/);
   assert.match(settings, /Belum ada rekening\./);
-  assert.match(settings, /Belum ada Wealth Account\./);
+  assert.match(settings, /Belum ada akun kekayaan\./);
   assert.match(settings, /Belum ada kategori keluarga\./);
   assert.match(settings, /Belum ada notifikasi bank yang dipercaya\./);
   assert.doesNotMatch(settings, /settings-list">\{data\.[A-Za-z]+\.map/);

@@ -178,7 +178,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			SourceEventID: amountSourceID, ActorType: "TELEGRAM", AmountIDR: &amount, IncomeConfirmed: incomeConfirmed,
 		})
 		if errors.Is(resolveErr, reviewdomain.ErrMissingAmountReviewInvalid) {
-			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Tinjauan berubah. Buka Review Inbox untuk menyelesaikannya.")
+			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Tinjauan berubah. Buka Kotak Tinjauan untuk menyelesaikannya.")
 		}
 		if resolveErr != nil {
 			return true, resolveErr
@@ -285,7 +285,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	}
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah kedaluwarsa. Buka Review Inbox untuk menyelesaikannya.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk menyelesaikannya.")
 	}
 	// A review that no longer requires the merchant is a plain category choice; the
 	// Telegram lanes can complete it, so route it to the chooser instead of sending
@@ -306,7 +306,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
 		}
 		if transferReviewCallbackAction(update.CallbackQuery.Data) == "" {
-			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Aksi ini tidak tersedia. Review tetap terbuka.")
+			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Aksi ini tidak tersedia. Tinjauan tetap terbuka.")
 		}
 		return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
 	}
@@ -857,11 +857,11 @@ func residualReviewGuidance(err error) string {
 	case errors.Is(err, reviewdomain.ErrCycleAllocationInvalid):
 		return "Alokasi harus memakai nominal IDR bulat positif dan rekening valid."
 	case errors.Is(err, reviewdomain.ErrCycleAllocationDuplicate):
-		return "Setiap Wealth Account hanya boleh sekali."
+		return "Setiap akun kekayaan hanya boleh sekali."
 	case errors.Is(err, reviewdomain.ErrCycleAllocationMismatch):
 		return "Total alokasi harus sama dengan sisa saldo cycle."
 	case errors.Is(err, reviewdomain.ErrCycleWealthAccountInvalid):
-		return "Wealth Account harus aktif dan milik household ini."
+		return "Akun kekayaan harus aktif dan milik keluarga ini."
 	default:
 		return "Data alokasi tidak valid."
 	}

@@ -472,7 +472,12 @@ func (p *Processor) finishAgentText(ctx context.Context, state *agentState, mess
 		WHERE id=$1`, state.SourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, state.Update, message); err != nil {
+	if markup := agentPendingMarkup(state.History); markup != nil {
+		err = enqueueReplyMarkup(ctx, tx, state.Update, message, markup)
+	} else {
+		err = enqueueReply(ctx, tx, state.Update, message)
+	}
+	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -572,7 +577,7 @@ func agentMutationFallback(result agentToolResult) string {
 		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
 			return "Detail review sudah diperbarui."
 		case "WEALTH_ACCOUNT_SET":
-			return "Wealth Account untuk observasi tersebut sudah diperbarui."
+			return "Akun kekayaan untuk observasi tersebut sudah diperbarui."
 		case "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE":
 			return "Observasi Wealth sudah direklasifikasi sebagai pembelian aset."
 		case "WEALTH_OBSERVATION_IGNORED":
@@ -608,7 +613,7 @@ func agentMutationFallback(result agentToolResult) string {
 	case "ACCOUNT_AMBIGUOUS":
 		return "Rekening sumber belum bisa dikenali secara unik. Sebutkan nama rekening yang lebih spesifik."
 	case "WEALTH_ACCOUNT_AMBIGUOUS", "MISSING_WEALTH_ACCOUNT":
-		return "Wealth Account belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
+		return "Akun kekayaan belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
 	case "MISSING_REVIEW_DETAIL":
 		return "Masih ada detail review yang perlu dilengkapi."
 	case "MISSING_CATEGORY", "INVALID_CATEGORY":

@@ -13,8 +13,8 @@ import (
 type assistantRange struct{ From, To time.Time }
 
 func (r assistantRange) label() string {
-	from := r.From.In(jakartaLocation()).Format("02 Jan 2006")
-	to := r.To.In(jakartaLocation()).AddDate(0, 0, -1).Format("02 Jan 2006")
+	from := formatIDDate(r.From)
+	to := formatIDDate(r.To.In(jakartaLocation()).AddDate(0, 0, -1))
 	if from == to {
 		return from
 	}
@@ -49,7 +49,7 @@ func (p *Processor) processAssistantIntent(ctx context.Context, sourceID, househ
 	case "GET_REVIEW_ITEMS":
 		return p.replyReviews(ctx, sourceID, householdID, update)
 	case "UPLOAD_FINANCIAL_DOCUMENT":
-		return p.finishAssistant(ctx, sourceID, update, "Kirim foto atau dokumen ke chat ini. Richmod akan memprosesnya lewat pipeline dokumen dan meminta review jika buktinya ambigu.", nil)
+		return p.finishAssistant(ctx, sourceID, update, "Kirim foto atau dokumen ke chat ini. Richmod akan memprosesnya dan meminta tinjauan jika buktinya ambigu.", nil)
 	default:
 		return p.finishAssistant(ctx, sourceID, update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.", nil)
 	}
@@ -171,7 +171,7 @@ func (p *Processor) replyWealthAccounts(ctx context.Context, sourceID, household
 		return err
 	}
 	defer rows.Close()
-	lines := []string{"🏦 Wealth Accounts"}
+	lines := []string{"🏦 Akun kekayaan"}
 	for rows.Next() {
 		var name, institution, role string
 		if err := rows.Scan(&name, &institution, &role); err != nil {
@@ -188,7 +188,7 @@ func (p *Processor) replyWealthAccounts(ctx context.Context, sourceID, household
 		return err
 	}
 	if len(lines) == 1 {
-		lines = append(lines, "Belum ada Wealth Account aktif.")
+		lines = append(lines, "Belum ada akun kekayaan aktif.")
 	}
 	return p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil)
 }
@@ -233,7 +233,7 @@ func (p *Processor) replySearch(ctx context.Context, sourceID, householdID strin
 			return err
 		}
 		ids = append(ids, id)
-		lines = append(lines, fmt.Sprintf("%d. %s · %s · Rp%s · %s", len(ids), at.In(jakartaLocation()).Format("02 Jan"), typ, FormatIDR(amount), label))
+		lines = append(lines, fmt.Sprintf("%d. %s · %s · Rp%s · %s", len(ids), formatIDDayMonth(at), typ, FormatIDR(amount), label))
 	}
 	if err = rows.Err(); err != nil {
 		return err
