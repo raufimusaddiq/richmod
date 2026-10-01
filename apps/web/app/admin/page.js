@@ -3,6 +3,7 @@
 import { Children, cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
+import useDialogs from "../components/useDialogs";
 
 const tabs = [
   ["overview", "Ringkasan"],
@@ -966,9 +967,10 @@ function HouseholdDetail({ id, close, setError }) {
 }
 
 function Users({ setError }) {
+  const { confirm, dialogs } = useDialogs();
   const [users, refresh] = useLoad("/api/v1/admin/users", setError);
   const mutate = async (user, patch, label) => {
-    if (!confirm(`${label} ${user.email}?`)) return;
+    if (!(await confirm(`${label} ${user.email}?`, { confirmLabel: label }))) return;
     try {
       const response = await fetch(`/api/v1/admin/users/${user.id}`, {
         method: "PATCH",
@@ -985,6 +987,7 @@ function Users({ setError }) {
   if (!users) return <Empty>Memuat users…</Empty>;
   return (
     <section className="admin-stack">
+      {dialogs}
       <div className="admin-section-head">
         <div>
           <span className="eyebrow">IDENTITAS</span>

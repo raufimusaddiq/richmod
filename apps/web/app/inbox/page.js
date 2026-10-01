@@ -5,6 +5,7 @@ import AppShell from "../components/AppShell";
 import { ErrorNotice, Skeleton, Toast } from "../components/Feedback";
 import ReviewCards from "../components/ReviewCards";
 import useAuth from "../components/useAuth";
+import { publishInboxCount } from "../components/InboxCountProvider";
 
 const currentView = () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "actions" ? "actions" : "transactions";
 
@@ -31,6 +32,7 @@ export default function InboxPage() {
   }, []);
   useEffect(() => { setView(currentView()); const sync = () => setView(currentView()); window.addEventListener("popstate", sync); return () => window.removeEventListener("popstate", sync); }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
+  useEffect(() => { if (!loading) publishInboxCount(reviews.length + actions.length); }, [loading, reviews, actions]);
   const closeToast = useCallback(() => setToast(""), []);
 
   function selectView(next) { setView(next); window.history.pushState({}, "", `/inbox?view=${next}`); }
