@@ -121,10 +121,14 @@ function AnalyticsReview() {
   useEffect(() => {
     if (step) document.getElementById(step)?.querySelector("h2")?.focus();
   }, [step, facts]);
+  useEffect(() => {
+    if (!selection.category || step || loading) return;
+    document.getElementById("drivers-title")?.focus();
+  }, [selection.category, step, loading]);
 
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   const selectedCategory = selection.category ? facts?.categoryChanges.find(item => (item.id || "uncategorized") === selection.category) : null;
-  return <AppShell user={user} eyebrow="Analisis" title="Tinjauan keuangan rumah tangga">
+  return <AppShell user={user} eyebrow="Analisis" title="Laporan siklus">
     <div className="analytics-flow cycle-review" data-meeting-step={step || undefined}>
       <div className="range-controls">
         <div className="range-control-group" aria-label="Tampilan analisis">
@@ -150,6 +154,7 @@ function AnalyticsReview() {
             <small>Data sampai {dayLabel(facts.period.measuredUntil)} (batas akhir tidak termasuk).</small>
             {facts.period.kind !== "SALARY_CYCLE" && <p>Menampilkan bulan kalender sementara. Belum ada gaji utama terkonfirmasi untuk menentukan siklus.</p>}
             {facts.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && !meeting && <button type="button" onClick={() => navigate({ step: "position" })}>Tinjau siklus ini</button>}
+            {!meeting && <button type="button" className="secondary" onClick={event => event.currentTarget.closest(".cycle-review").querySelectorAll("details").forEach(details => { details.open = true; })}>Buka semua detail</button>}
           </div>
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
           <CyclePosition facts={facts}/>
@@ -170,31 +175,40 @@ function AnalyticsReview() {
             <ChangesTable items={facts.categoryChanges} selected={selection.category} select={category => navigate({ category, ...(meeting ? { step: "drivers" } : {}) })}/>
           </section>
           <section id="drivers" className="review-section" aria-labelledby="drivers-title">
-            <SectionTitle id="drivers-title" title="Apa yang mendorong perubahan?" description="Pilih kategori untuk melihat merchant dan transaksi pendukung, bukan dugaan penyebab."/>
+            <details className="report-disclosure" open={Boolean(selectedCategory) || step === "drivers"}>
+            <summary><h2 id="drivers-title" tabIndex={-1}>Bukti kategori</h2><span>{selectedCategory?.name || "Pilih kategori"}</span></summary>
             <label className="driver-selector">Kategori
               <select value={selectedCategory ? selectedCategory.id || "uncategorized" : ""} onChange={event => navigate({ category: event.target.value })}><option value="">Pilih kategori</option>{facts.categoryChanges.map(item => <option key={item.id || "uncategorized"} value={item.id || "uncategorized"}>{item.name}</option>)}</select>
             </label>
             <div id="category-drivers" aria-live="polite">
               {selectedCategory ? <CategoryDrivers item={selectedCategory} period={{ ...facts.period, reviewStep: step }}/> : <p className="empty compact">Pilih kategori di atas atau melalui tabel perubahan.</p>}
             </div>
+            </details>
           </section>
           <section id="destinations" className="review-section" aria-labelledby="destinations-title">
-            <SectionTitle id="destinations-title" title="Ke mana uang keluar?" description="Distribusi pengeluaran bersih per kategori. Merchant diurutkan berdasarkan perubahan absolut dibanding siklus sebelumnya."/>
+            <details className="report-disclosure"><summary><h2 id="destinations-title">Distribusi & merchant</h2><span>Detail pengeluaran</span></summary>
+            <p className="review-description">Distribusi pengeluaran bersih per kategori. Merchant diurutkan berdasarkan perubahan absolut dibanding siklus sebelumnya.</p>
             <div className="review-split"><div><CategoryRankingChart items={facts.categoryChanges} serverOwned height={260}/><a href={transactionHref(facts.period)}>Lihat seluruh pengeluaran periode ini</a></div><MerchantTable items={facts.merchantDrivers} period={facts.period}/></div>
+            </details>
           </section>
           <section id="household" className="review-section" aria-labelledby="household-title">
-            <SectionTitle id="household-title" title="Catatan rumah tangga" description="Siapa yang memulai pencatatan, ketika diketahui. Ini bukan peringkat tanggung jawab atau perbandingan kebiasaan."/>
+            <details className="report-disclosure"><summary><h2 id="household-title">Catatan rumah tangga</h2><span>Atribusi pencatatan</span></summary>
+            <p className="review-description">Siapa yang memulai pencatatan, ketika diketahui. Ini bukan peringkat tanggung jawab atau perbandingan kebiasaan.</p>
             <dl className="review-attribution">{facts.memberAttribution.map(item => <Metric key={item.id || item.name} label={item.name} value={`${money(item.amount)} · ${item.count} transaksi`}/>)}</dl>
             {!facts.memberAttribution.length && <p className="empty compact">Belum ada pengeluaran yang dapat diatribusikan.</p>}
+            </details>
           </section>
           <SavingsWealth facts={facts}/>
           <QualitySection facts={{ ...facts, period: { ...facts.period, reviewStep: step } }}/>
           <section id="discussion" className="review-section" aria-labelledby="discussion-title">
-            <SectionTitle id="discussion-title" title="Bahan pembahasan" description="Pembahasan opsional dari fakta dan bukti di atas. Bukan saran keuangan atau keputusan rumah tangga."/>
+            <details className="report-disclosure" open={step === "discussion"}>
+            <summary><h2 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h2><span>{insightError ? "Belum tersedia" : insightLoading || insight?.status === "PENDING" ? "Memproses" : insight?.status === "SUCCEEDED" ? "Tersedia · opsional" : "Opsional"}</span></summary>
+            <p className="review-description">Bukan saran keuangan atau keputusan rumah tangga.</p>
             <InsightCard insight={insight} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
             <a href={meeting ? selectionHref({ ...selection, step: "changes" }) : "#changes"}>Lihat data pendukung pembahasan</a>
+            </details>
           </section>
-          {cycleStart && <CycleDecisions key={cycleStart} cycleStart={cycleStart} closed={facts.period.state === "CLOSED"} body={drafts[cycleStart] || ""} onBodyChange={body => setDrafts(current => ({ ...current, [cycleStart]: body }))}/>}
+          {cycleStart && <CycleDecisions key={cycleStart} expanded={step === "decisions"} cycleStart={cycleStart} closed={facts.period.state === "CLOSED"} body={drafts[cycleStart] || ""} onBodyChange={body => setDrafts(current => ({ ...current, [cycleStart]: body }))}/>}
         </>}
       </>}
     </div>
@@ -237,35 +251,49 @@ function CyclePosition({ facts }) {
 }
 
 function ComparisonContext({ comparison }) {
+  const rows = [["Siklus ini", comparison.expense.amount], ["Sebelumnya", comparison.expense.previous], ["Median 3", comparison.expense.median3]];
+  const maximum = Math.max(0, ...rows.map(([, value]) => Math.abs(Number(value))));
   return <div className="review-baseline">
     <div className="baseline-meta"><span>{comparison.previous ? `vs ${cycleLabel(comparison.previous)}` : "Belum ada siklus pembanding"}</span><strong>{comparison.mode === "ELAPSED_DAYS" ? "Hari setara, bukan siklus penuh" : comparison.previous ? "Siklus ditutup" : "—"}</strong><span>{comparison.median3Available ? "Median 3 siklus tersedia" : `Median belum tersedia · ${comparison.eligibleCycles}/3 siklus`}</span></div>
-    <dl className="review-context">
-      <Metric label="Pengeluaran siklus sebelumnya" value={amountLabel(comparison.expense.previous)}/>
-      <Metric label="Median 3 siklus" value={amountLabel(comparison.expense.median3)}/>
-      <Metric label="Selisih total vs sebelumnya" value={signedMoney(comparison.expense.deltaVsPrevious)}/>
-      <Metric label="Selisih total vs median" value={signedMoney(comparison.expense.deltaVsMedian3)}/>
+    <dl className="comparison-bars" aria-label="Perbandingan pengeluaran bersih">
+      {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd><span aria-hidden="true" className="comparison-track"><i data-negative={String(value).startsWith("-") || undefined} style={{ width: maximum ? `${Math.abs(Number(value)) / maximum * 100}%` : "0%" }}/></span><strong>{amountLabel(value)}</strong></dd></div>)}
+    </dl>
+    <dl className="comparison-deltas">
+      <Metric label="Δ sebelumnya" value={signedMoney(comparison.expense.deltaVsPrevious)}/>
+      <Metric label="Δ median 3" value={signedMoney(comparison.expense.deltaVsMedian3)}/>
     </dl>
   </div>;
 }
 
 function ChangesTable({ items, selected, select }) {
   if (!items.length) return <p className="empty compact">Belum ada pengeluaran kategori pada periode ini atau pembandingnya.</p>;
-  return <div className="review-table-wrap"><table className="changes-table">
+  return <>
+    <div className="change-ranking-head" aria-hidden="true"><span>Kategori</span><span>Siklus ini</span><span>Δ sebelumnya</span></div>
+    <ul className="change-ranking" aria-label="Perubahan kategori">
+      {items.map(item => <li key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
+        <button className="change-button" type="button" aria-controls="category-drivers" aria-pressed={selected === (item.id || "uncategorized")} onClick={() => select(item.id || "uncategorized")}>{item.name}</button>
+        <span><span className="visually-hidden">Siklus ini: </span>{money(item.amount)}</span>
+        <span><span className="visually-hidden">Selisih vs sebelumnya: </span>{signedMoney(item.deltaVsPrevious)}</span>
+        <span className="change-track" aria-hidden="true"><i data-negative={String(item.deltaVsPrevious).startsWith("-") || undefined} style={{ width: changeWidth(item, items) }}/></span>
+      </li>)}
+    </ul>
+    <details className="review-daily"><summary>Perbandingan lengkap · median, persentase & kontribusi</summary>
+    <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
     <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —.</caption>
     <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya</th><th scope="col">Median 3</th><th scope="col">Selisih vs sebelumnya</th><th scope="col">Selisih vs median</th><th scope="col">Kontribusi ke selisih total</th></tr></thead>
     <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
-      <th scope="row"><button className="change-button" type="button" aria-controls="category-drivers" aria-pressed={selected === (item.id || "uncategorized")} onClick={() => select(item.id || "uncategorized")}>{item.name}</button><span className="change-track" aria-hidden="true"><i style={{ width: changeWidth(item, items) }}/></span></th>
+      <th scope="row">{item.name}</th>
       <td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td>
       <td>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></td>
       <td>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></td>
       <td>{ratioLabel(item.contributionToExpenseChange)}</td>
     </tr>)}</tbody>
-  </table></div>;
+  </table></div></details></>;
 }
 
 function MerchantTable({ items, period, categoryId }) {
   if (!items.length) return <p className="empty compact">Belum ada merchant pendukung.</p>;
-  return <div className="review-table-wrap"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya</th><th scope="col">Median 3</th><th scope="col">Selisih</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></tr>)}</tbody></table></div>;
+  return <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya</th><th scope="col">Median 3</th><th scope="col">Selisih</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></tr>)}</tbody></table></div>;
 }
 
 function CategoryDrivers({ item, period }) {
@@ -285,19 +313,24 @@ function SavingsWealth({ facts }) {
     <SectionTitle id="savings-title" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
     <div className="review-split">
       <div><h3>Ke mana surplus dialokasikan?</h3><dl className="review-context">
-        <Metric label="Arus kas bersih" value={money(cashflow.netCashflow)}/><Metric label="Tabungan dialokasikan" value={money(cashflow.savingsAllocated)}/><Metric label="Belum dialokasikan" value={money(cashflow.unallocatedSurplus)}/>
+        <Metric label="Tabungan dialokasikan" value={money(cashflow.savingsAllocated)}/><Metric label="Belum dialokasikan" value={money(cashflow.unallocatedSurplus)}/>
       </dl>
       <dl className="review-destinations">{facts.savingsDestinations.map(item => <Metric key={item.id || item.name} label={item.name} value={money(item.amount)}/>)}</dl>
       {!facts.savingsDestinations.length && <p>Belum ada alokasi tabungan terkonfirmasi.</p>}
       </div>
       <div><h3>Pergerakan kekayaan</h3><dl className="review-context">
+        <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/>
+      </dl>
+      {wealth.netWorthChange == null && <p>Belum dapat direkonsiliasi.</p>}
+      <details className="review-daily"><summary>Rincian saldo & rekonsiliasi</summary><dl className="review-context">
         <Metric label="Kekayaan bersih sebelumnya" value={amountLabel(wealth.previous?.netWorth)}/><Metric label="Kekayaan bersih terbaru" value={amountLabel(wealth.current?.netWorth)}/>
-        <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/><Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
+        <Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
         <Metric label="Valuasi & perubahan lain" value={signedMoney(wealth.valuationAndOtherChange)}/>
       </dl>
       <details className="review-explainer"><summary>Tentang rekonsiliasi</summary><p>Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p></details>
       {[["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]].map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <><a href={`/wealth?snapshotId=${encodeURIComponent(snapshot.id)}`}>{dateTime(snapshot.observedAt)}</a> · usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
       {wealth.netWorthChange == null && <p>Pergerakan belum dapat direkonsiliasi. Periksa catatan dan kelengkapan akun.</p>}
+      </details>
       <a href="/wealth">Buka detail Kekayaan</a></div>
     </div>
   </section>;

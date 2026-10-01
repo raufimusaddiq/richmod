@@ -103,5 +103,17 @@ test("review styles keep deterministic chart colours and a single accent", () =>
   assert.match(styles, /\.cycle-review \{ gap: 0; \}/);
   assert.match(styles, /\.cycle-outcome \{ display: grid; grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.change-track i \{ display: block; height: 100%; border-radius: 999px; background: var\(--accent\); \}/);
-  assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.cycle-outcome \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.cycle-outcome, \.cycle-review \.cycle-outcome \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+});
+
+test("scan-first report keeps every comparison and evidence behind native drill-downs", () => {
+  const page = text("app/analytics/page.js");
+  assert.match(page, /className="comparison-bars" aria-label="Perbandingan pengeluaran bersih"/);
+  assert.match(page, /className="change-ranking" aria-label="Perubahan kategori"/);
+  assert.match(page, /<details className="review-daily"><summary>Perbandingan lengkap/);
+  for (const field of ["previous", "median3", "deltaVsPrevious", "deltaVsMedian3", "relativeDeltaVsPrevious", "relativeDeltaVsMedian3", "contributionToExpenseChange"]) assert.ok(page.includes(`item.${field}`), field);
+  assert.match(page, /open={Boolean\(selectedCategory\) \|\| step === "drivers"}/);
+  assert.match(page, /open={step === "discussion"}/);
+  assert.match(text("app/components/CycleDecisions.js"), /open={expanded \|\| Boolean\(body\)}/);
+  assert.match(page, /aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"/);
 });

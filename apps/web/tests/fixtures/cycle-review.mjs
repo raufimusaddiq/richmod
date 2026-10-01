@@ -1,7 +1,8 @@
 // Synthetic only. Mirrors cycle-review-v1; no household/provider evidence.
 export function cycleFacts(start = "2026-09-01") {
   const closed = start === "2026-08-26";
-  const period = { kind: "SALARY_CYCLE", start: closed ? "2026-08-26" : "2026-09-01", end: closed ? "2026-09-01" : null, measuredUntil: closed ? "2026-09-01" : "2026-09-07", state: closed ? "CLOSED" : "ACTIVE", configured: true };
+  const september25 = start === "2026-09-25";
+  const period = { kind: "SALARY_CYCLE", start: closed ? "2026-08-26" : september25 ? "2026-09-25" : "2026-09-01", end: closed ? "2026-09-01" : null, measuredUntil: closed ? "2026-09-01" : september25 ? "2026-10-01" : "2026-09-07", state: closed ? "CLOSED" : "ACTIVE", configured: true };
   const previous = { kind: "SALARY_CYCLE", start: closed ? "2026-07-26" : "2026-08-26", end: closed ? "2026-08-26" : "2026-09-01", measuredUntil: closed ? "2026-08-26" : "2026-09-01", state: "CLOSED", configured: true };
   const change = (id, name, amount, previous, median3, deltaVsPrevious, deltaVsMedian3, relative, share, contribution) => ({
     id, name, amount, previous, median3, deltaVsPrevious, deltaVsMedian3, relativeDeltaVsPrevious: relative, relativeDeltaVsMedian3: null,
