@@ -126,6 +126,7 @@ try {
     await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
     await page.locator("#discussion > details > summary").click();
     const groceries = page.getByRole("button", { name: "Belanja rumah", exact: true });
+    await page.keyboard.press("Tab");
     await groceries.focus();
     assert.notEqual(await groceries.evaluate(element => getComputedStyle(element).outlineStyle), "none");
     await page.keyboard.press("Enter");
