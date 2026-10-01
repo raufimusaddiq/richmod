@@ -3,6 +3,7 @@ package insight
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -62,16 +63,39 @@ func TestCommentaryPersistenceCompatibilityAndFailureIsolation(t *testing.T) {
 			check(pool.QueryRow(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,'2026-08-01','PENDING','{"period_kind":"SALARY_CYCLE","period_start":"2026-08-01"}',$2,$3,$4) RETURNING id`, household, tc.version, tc.completeness, user).Scan(&id))
 			g := &analystGateway{responses: []gateway.AgentResponse{overviewPhase(), renderPhase("Tidak ada perubahan berarti untuk dibahas.")}}
 			if tc.fail {
-				g.err = fmt.Errorf("gateway unavailable")
+				g.err = fmt.Errorf("gateway unavailable private-detail")
 			}
 			p := NewProcessor(pool, g)
-			check(p.Process(ctx, id))
-			check(p.Process(ctx, id))
+			if tc.fail {
+				if err := p.Process(ctx, id, false); err == nil {
+					t.Fatal("failed generation must reach queue retry policy")
+				}
+				var retryStatus string
+				check(pool.QueryRow(ctx, `SELECT status FROM insight WHERE id=$1`, id).Scan(&retryStatus))
+				if retryStatus != "PENDING" {
+					t.Fatalf("retry status=%s", retryStatus)
+				}
+				if err := p.Process(ctx, id, true); err == nil {
+					t.Fatal("exhausted generation must fail the queue job")
+				}
+				var reason string
+				check(pool.QueryRow(ctx, `SELECT after_json->>'reason' FROM audit_log WHERE entity_id=$1 AND action='FAIL_INSIGHT'`, id).Scan(&reason))
+				if reason != "generate insight: gateway_failure" {
+					t.Fatalf("failure reason=%s", reason)
+				}
+			} else {
+				check(p.Process(ctx, id, false))
+			}
+			check(p.Process(ctx, id, true))
 			var status string
 			var text, confidence *string
 			var metrics json.RawMessage
 			check(pool.QueryRow(ctx, `SELECT status,generated_text,confidence::text,input_metrics_json FROM insight WHERE id=$1`, id).Scan(&status, &text, &confidence, &metrics))
-			if status != tc.wantStatus || len(g.requests) != tc.phases || confidence != nil {
+			wantPhases := tc.phases
+			if tc.fail {
+				wantPhases++
+			}
+			if status != tc.wantStatus || len(g.requests) != wantPhases || confidence != nil {
 				t.Fatalf("status=%s phases=%d confidence=%v", status, len(g.requests), confidence)
 			}
 			if tc.wantStatus == "FAILED" && text != nil {
@@ -91,6 +115,26 @@ func TestCommentaryPersistenceCompatibilityAndFailureIsolation(t *testing.T) {
 			}
 		})
 	}
+	t.Run("timeout retry recovers without terminal failure audit", func(t *testing.T) {
+		var id string
+		check(pool.QueryRow(ctx, `INSERT INTO insight(household_id,period,status,input_metrics_json,prompt_version,data_completeness,requested_by_user_id) VALUES($1,'2026-08-01','PENDING','{"period_start":"2026-08-01"}',$2,1,$3) RETURNING id`, household, promptVersion, user).Scan(&id))
+		g := &analystGateway{err: context.DeadlineExceeded, responses: []gateway.AgentResponse{overviewPhase(), renderPhase("Data tersedia.")}}
+		p := NewProcessor(pool, g)
+		if err := p.Process(ctx, id, false); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("retryable timeout=%v", err)
+		}
+		g.err = nil
+		g.requests = nil
+		check(p.Process(ctx, id, false))
+		check(p.Process(ctx, id, true))
+		var status string
+		var failedAudits, completeAudits int
+		check(pool.QueryRow(ctx, `SELECT status FROM insight WHERE id=$1`, id).Scan(&status))
+		check(pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action='FAIL_INSIGHT'),count(*) FILTER (WHERE action='COMPLETE_INSIGHT') FROM audit_log WHERE entity_id=$1`, id).Scan(&failedAudits, &completeAudits))
+		if status != "SUCCEEDED" || failedAudits != 0 || completeAudits != 1 {
+			t.Fatalf("status=%s failed=%d completed=%d", status, failedAudits, completeAudits)
+		}
+	})
 	var oldText string
 	check(pool.QueryRow(ctx, `SELECT generated_text FROM insight WHERE id=$1`, historical).Scan(&oldText))
 	if oldText != "Historical text" {

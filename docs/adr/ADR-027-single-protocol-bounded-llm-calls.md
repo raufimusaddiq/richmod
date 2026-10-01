@@ -15,7 +15,8 @@ When using `chat_completions`, the gateway adapter converts Responses-style
 `image_url` parts before sending; unsupported part types fail locally.
 
 Go owns task budgets. Bank extraction remains 45 seconds total, document stages
-60 seconds, and insights 30 seconds. Telegram callbacks retain their deterministic
+60 seconds. Tool-first insights use the 120-second overall / 30-second model-call
+budget in ADR-015, with a 125-second worker deadline for persistence. Telegram callbacks retain their deterministic
 interactive path. Under ADR-033, Telegram free-text conversation has a 20-second
 overall turn budget, an 8-second per-model-call deadline, at most 5 model phases,
 at most 4 READ calls in one model response, at most 8 READ calls in one turn, and

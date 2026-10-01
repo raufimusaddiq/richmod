@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -19,7 +20,19 @@ const promptVersion = "cycle-analyst-v3"
 const renderToolName = "render_cycle_commentary"
 const maxPhases = 5
 const maxReadsPerPhase = 5
-const maxReadsPerTurn = 8
+const maxReadsPerTurn = 12
+const Timeout = 120 * time.Second
+const modelTimeout = 30 * time.Second
+
+// generationError preserves the cause for classification, never provider text
+// or model arguments in queue logs and audit metadata.
+type generationError struct {
+	reason string
+	cause  error
+}
+
+func (e generationError) Error() string { return "generate insight: " + e.reason }
+func (e generationError) Unwrap() error { return e.cause }
 
 const prompt = `You write concise Indonesian household cycle-review discussion, not recommendations or advice.
 Obtain every financial fact through the available native READ tools. Start by reading get_cycle_overview and get_cycle_data_quality for the selected cycle. Then choose changes, drivers, savings or Wealth reads as needed. Independent reads may share one phase; category-scoped reads depend on refs returned by get_cycle_changes.
@@ -63,7 +76,7 @@ type toolRead struct {
 	Facts     map[string]any  `json:"facts"`
 }
 
-func (p *Processor) Process(ctx context.Context, insightID string) error {
+func (p *Processor) Process(ctx context.Context, insightID string, finalAttempt bool) error {
 	var household, status, version, completeness, selected string
 	if err := p.pool.QueryRow(ctx, `SELECT household_id,status,prompt_version,data_completeness::text,COALESCE(input_metrics_json->>'period_start','') FROM insight WHERE id=$1`, insightID).Scan(&household, &status, &version, &completeness, &selected); err != nil {
 		return err
@@ -86,7 +99,12 @@ func (p *Processor) Process(ctx context.Context, insightID string) error {
 	session := analyticscore.NewSession(p.pool, household, time.Now())
 	message, metadata, reads, err := p.generate(ctx, insightID, selected, session.Read)
 	if err != nil {
-		return p.fail(ctx, insightID, household, "gateway_or_validation_failure")
+		if finalAttempt {
+			if persistErr := p.fail(ctx, insightID, household, err.Error()); persistErr != nil {
+				return persistErr
+			}
+		}
+		return err
 	}
 	return p.complete(ctx, insightID, household, message, metadata, reads)
 }
@@ -113,7 +131,7 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 	if p.gateway == nil {
 		return "", gateway.Metadata{}, nil, fmt.Errorf("gateway unavailable")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	request := gateway.AgentRequest{SystemPrompt: prompt, Content: map[string]any{"task": "Review the selected salary cycle for neutral household discussion.", "cycle_start": selected}, Tools: analyticalTools(), AllowParallel: true}
 	reads := []toolRead{}
@@ -121,15 +139,25 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 	callIDs := map[string]bool{}
 	for phase := 0; phase < maxPhases; phase++ {
 		renderAvailable := seen["get_cycle_overview"] && seen["get_cycle_data_quality"]
+		renderOnly := renderAvailable && (len(reads) == maxReadsPerTurn || phase == maxPhases-1)
+		request.SystemPrompt = fmt.Sprintf("%s\nBudget for this invocation: at most %d READs per batch, %d READs remaining, %d model phases remaining including this one. Reserve one phase for rendering; do not repeat completed READs. Render now when the remaining budget cannot support further reads.", prompt, maxReadsPerPhase, maxReadsPerTurn-len(reads), maxPhases-phase)
 		request.Tools = analyticalTools()
 		if renderAvailable {
 			request.Tools = append(request.Tools, renderingTool())
 		}
-		modelCtx, modelCancel := context.WithTimeout(ctx, 8*time.Second)
+		if renderOnly {
+			request.Tools = []gateway.ToolDefinition{renderingTool()}
+			request.RequiredTool = renderToolName
+		}
+		modelCtx, modelCancel := context.WithTimeout(ctx, modelTimeout)
 		response, err := p.gateway.AgentTurn(modelCtx, insightID, request)
 		modelCancel()
 		if err != nil {
-			return "", response.Metadata, reads, err
+			reason := "gateway_failure"
+			if errors.Is(err, context.DeadlineExceeded) {
+				reason = "gateway_timeout"
+			}
+			return "", response.Metadata, reads, generationError{reason, err}
 		}
 		calls := response.ToolCalls
 		if strings.TrimSpace(response.Text) != "" || len(calls) == 0 {
@@ -150,16 +178,19 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 			message, err := decodeMessage(calls[0].Arguments)
 			return message, response.Metadata, reads, err
 		}
+		if renderOnly {
+			return "", response.Metadata, reads, fmt.Errorf("rendering required at analytical budget boundary")
+		}
 		if len(calls) > maxReadsPerPhase || len(reads)+len(calls) > maxReadsPerTurn {
 			return "", response.Metadata, reads, fmt.Errorf("analytical read limit exceeded")
 		}
 		for _, call := range calls {
 			if !analyticscore.IsRead(call.Name) {
-				return "", response.Metadata, reads, fmt.Errorf("unexposed analytical tool %q", call.Name)
+				return "", response.Metadata, reads, fmt.Errorf("unexposed analytical tool")
 			}
 			args, err := analyticscore.DecodeArgs(call.Name, call.Arguments)
 			if err != nil {
-				return "", response.Metadata, reads, err
+				return "", response.Metadata, reads, generationError{"invalid_tool_arguments", err}
 			}
 			if args.CycleStart == nil || *args.CycleStart != selected {
 				return "", response.Metadata, reads, fmt.Errorf("analytical tool outside selected cycle")
@@ -169,7 +200,7 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 		for _, call := range calls {
 			facts, err := read(ctx, call.Name, call.Arguments)
 			if err != nil {
-				return "", response.Metadata, reads, err
+				return "", response.Metadata, reads, generationError{"analytical_read_failure", err}
 			}
 			if completeness, ok := facts["data_completeness"].(string); !ok || belowThreshold(completeness, "0.7000") {
 				return "", response.Metadata, reads, fmt.Errorf("insufficient current analytical data")

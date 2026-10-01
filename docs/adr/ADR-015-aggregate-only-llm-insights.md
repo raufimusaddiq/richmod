@@ -48,12 +48,22 @@ fact engine, strict native schemas, request-local references, no financial write
 capability, and explicit projections excluding canonical identifiers and raw
 evidence. Both the API and Telegram consume it.
 
-Web commentary uses at most 5 model phases, 5 READs per response, 8 READs per
-turn, 8 seconds per model invocation, and 45 seconds overall. The rendering
+Web commentary uses at most 5 model phases, 5 READs per response, 12 READs per
+turn, 30 seconds per model invocation, and 120 seconds overall. The rendering
 tool is exposed only after cycle overview and data-quality READs completed.
 It carries one natural `message`, never a findings/recommendation DTO. Rendering
 cannot share a batch with READs. Unknown/malformed tools fail before any READ
 in that batch executes. Gateway failure emits no substitute analytical prose.
+
+Each invocation receives its remaining READ/phase budget. Once the READ budget
+is consumed or the final phase is reached, only the rendering tool is exposed
+and required, provided both mandatory fact READs completed. The worker job has
+125 seconds, allowing the full generation budget plus terminal persistence.
+Generation errors reach the existing three-attempt PostgreSQL queue retry
+policy; the insight remains `PENDING` until success or the final failed attempt.
+Final failures record a bounded diagnostic reason in the audit log, not provider
+text, model arguments, or raw financial results. Historical failed insights are
+not silently requeued or rewritten.
 
 New jobs use `cycle-analyst-v3`. The server stores request facts and executed
 READ transcript as audit evidence, not as initial model context. Completed
