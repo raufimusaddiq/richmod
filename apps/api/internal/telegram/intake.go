@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 const maxWebhookBytes = 1 << 20
@@ -179,49 +180,10 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// validCallbackAction admits only the callback grammar the system issues; the
+// grammar is shared with the worker so the two cannot drift apart.
 func validCallbackAction(value string) bool {
-	switch value {
-	case "review:expense", "review:asset", "review:own", "review:household", "review:confirm", "review:change", "review:remember", "review:once":
-		return true
-	// Yes/no answers for a staged correction or batch. The worker resolves them
-	// against the sender's own pending row; the callback carries no identifiers.
-	case "pending:action:yes", "pending:action:no", "pending:batch:yes", "pending:batch:no":
-		return true
-	}
-	for _, action := range []string{"edit", "merchant", "description", "category", "ignore"} {
-		if value == "review:"+action {
-			return true
-		}
-	}
-	if strings.HasPrefix(value, "review:cat:") {
-		return validCallbackToken(strings.TrimPrefix(value, "review:cat:"), 64)
-	}
-	if strings.HasPrefix(value, "review:catpage:") {
-		page := strings.TrimPrefix(value, "review:catpage:")
-		if len(page) == 0 || len(page) > 4 {
-			return false
-		}
-		for _, r := range page {
-			if r < '0' || r > '9' {
-				return false
-			}
-		}
-		_, err := strconv.Atoi(page)
-		return err == nil
-	}
-	return strings.HasPrefix(value, "review:category:") && validCallbackToken(strings.TrimPrefix(value, "review:category:"), 64)
-}
-
-func validCallbackToken(value string, max int) bool {
-	if value == "" || len(value) > max {
-		return false
-	}
-	for _, r := range value {
-		if !(r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
-			return false
-		}
-	}
-	return true
+	return reviewdomain.ValidTelegramCallback(value)
 }
 
 type telegramImage struct{ fileID, fileName, mimeType string }

@@ -11,6 +11,12 @@ The Telegram webhook authenticates and validates a bounded callback grammar (`re
 corrections and batches), then atomically persists source evidence and a queue job before returning
 HTTP 204. The API has no Telegram bot token and makes no Telegram network call.
 
+The grammar is defined once in `reviewdomain.ValidTelegramCallback`; the API
+webhook and the worker both use it, and a worker test fails if any callback the
+worker emits or parses is not admitted. A callback outside the grammar is
+dropped with HTTP 204 before anything is persisted, so a new button must extend
+the grammar in the same change.
+
 The worker acknowledges callbacks first with a 1.5-second budget. ACK failure is
 logged but does not block the deterministically bound review action. Callback,
 send, and edit work is `INTERACTIVE`; ordinary Telegram text is `DEFAULT`; bank,

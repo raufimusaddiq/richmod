@@ -123,13 +123,17 @@ func TestEveryWorkerReviewCallbackPassesIngressValidation(t *testing.T) {
 		"review:category", "review:ignore", "review:cat:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
 		"review:catpage:0", "review:catpage:12",
 		"pending:action:yes", "pending:action:no", "pending:batch:yes", "pending:batch:no",
+		"review:dup:new", "review:dup:merge:0", "review:dup:merge:8", "review:reprocess", "review:quality:confirm",
+		"review:salary:primary", "review:salary:ordinary", "review:investment", "review:fepage:0", "review:fepage:3",
+		"review:fe:account:8a97e069-0278-4f49-9195-fbbfe81fdfd5", "review:fe:wealth:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
+		"review:invest:8a97e069-0278-4f49-9195-fbbfe81fdfd5", "review:bank:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
 	}
 	for _, action := range valid {
 		if !validCallbackAction(action) {
 			t.Errorf("generated callback %q was rejected", action)
 		}
 	}
-	for _, action := range []string{"review:cat:", "review:cat:../../admin", "review:catpage:-1", "review:catpage:99999", "admin:delete", "pending:", "pending:action:maybe", "pending:batch:yes:1", "pending:action"} {
+	for _, action := range []string{"review:cat:", "review:cat:../../admin", "review:catpage:-1", "review:catpage:99999", "admin:delete", "pending:", "pending:action:maybe", "pending:batch:yes:1", "pending:action", "review:dup:merge:-1", "review:fepage:x", "review:salary:other", "review:fe:wealth:", "review:bank:a/b"} {
 		if validCallbackAction(action) {
 			t.Errorf("unsafe callback %q was accepted", action)
 		}
