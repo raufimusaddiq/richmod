@@ -25,7 +25,7 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 	localTime, _ := args["local_time"].(string)
 	at, err := resolveTime(p.now().In(jakartaLocation()), stringPtr(dateRef), stringPtr(explicitDate), stringPtr(localTime))
 	if err != nil {
-		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tanggal atau waktu transfer tidak valid.")
+		return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tanggal transfernya belum terbaca. Sebutkan harinya, misalnya hari ini atau 12 Agu.")
 	}
 	desc, _ := args["description"].(string)
 	tx, err := p.pool.Begin(ctx)
@@ -66,7 +66,7 @@ func (p *Processor) recordTransfer(ctx context.Context, sourceID, householdID st
 			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tujuan transfer belum bisa dipastikan dengan aman. Coba jelaskan lagi.")
 		}
 		if !ok {
-			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tujuan transfer belum cukup jelas untuk dicatat otomatis.")
+			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Tujuan transfernya belum jelas, jadi belum dicatat. Sebutkan tujuannya, misalnya: beli emas atau transfer ke tabungan.")
 		}
 	}
 	var compatible bool

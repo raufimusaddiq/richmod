@@ -863,7 +863,7 @@ func residualReviewGuidance(err error) string {
 	case errors.Is(err, reviewdomain.ErrCycleWealthAccountInvalid):
 		return "Akun kekayaan harus aktif dan milik keluarga ini."
 	default:
-		return "Data alokasi tidak valid."
+		return "Alokasinya belum bisa dibaca. Isi nominal untuk tiap akun kekayaan, lalu kirim lagi."
 	}
 }
 

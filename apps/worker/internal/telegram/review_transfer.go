@@ -26,7 +26,7 @@ func (p *Processor) applyTransferReviewCallback(ctx context.Context, sourceEvent
 	case "ASSET_PURCHASE":
 		return p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
 	default:
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 	}
 	return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "TRANSFER", "CONFIRMED", classification, message, "")
 }

@@ -111,6 +111,13 @@ and PRDs; they never appear in user-facing copy.
 - Telegram asks for confirmation with inline buttons (`pending:action:*`,
   `pending:batch:*`), not by asking the user to type yes/no. Typed answers still
   work through the bounded judgment lane.
+- Telegram error messages say what to type next ("Sebutkan harinya, misalnya
+  hari ini atau 12 Agu"), never "tidak valid" on its own. A copy test rejects the
+  old validation-style phrases.
+- A confirmation that is answered, or a button that is no longer valid, is
+  retired: the original message is edited to keep its text, drop its buttons,
+  and append the outcome ("Dikonfirmasi.", "Dibatalkan.", "Tidak lagi
+  berlaku."), so a second tap cannot reach a resolved question.
 - Telegram has one help text (`helpMessage`). Typed `/help` and `/start` answer
   with it deterministically, before any model call. The agent prompt tells the
   model to say what Richmod can do and point at `/help` whenever it declines a
