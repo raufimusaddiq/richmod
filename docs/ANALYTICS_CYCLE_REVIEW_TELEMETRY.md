@@ -75,3 +75,11 @@ jobs for one hour, then allows a new analysis. Canonical corrections within that
 hour change facts immediately but do not bypass the rate limit; the UI shows the
 commentary timestamp and supporting current facts. No timeless accuracy claim is
 made for old prose, and no model interpretation is used as invalidation logic.
+Server reuse and closed-cycle browser selection require the same measured
+cutoff. Active commentary may remain as a labelled, dated previous snapshot,
+not current facts; future/malformed cutoffs are rejected. Recent stale success
+returns HTTP 429 without a stale ID; pending stale
+work returns HTTP 409. The browser explains the limit rather than pairing old
+days with new measurements, retaining readable active snapshots during errors.
+PostgreSQL owns the hourly clock; worker timing uses the stored request snapshot.
+Current commentary uses `cycle-analyst-v4`.

@@ -74,7 +74,7 @@ func (p *Processor) replyCycleInsight(ctx context.Context, sourceID, householdID
 
 func (p *Processor) resolveSalaryCycleRange(ctx context.Context, householdID string, now time.Time, previous bool) (assistantRange, error) {
 	var current, next, prior *time.Time
-	err := p.pool.QueryRow(ctx, `WITH anchors AS (SELECT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED') SELECT (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date),(SELECT min(pay_date) FROM anchors WHERE pay_date > $2::date),(SELECT max(pay_date) FROM anchors WHERE pay_date < (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date))`, householdID, now.In(jakartaLocation()).Format("2006-01-02")).Scan(&current, &next, &prior)
+	err := p.pool.QueryRow(ctx, `WITH anchors AS (SELECT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id AND ss.household_id=se.household_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED') SELECT (SELECT max(pay_date)::timestamp AT TIME ZONE 'Asia/Jakarta' FROM anchors WHERE pay_date <= $2::date),(SELECT min(pay_date)::timestamp AT TIME ZONE 'Asia/Jakarta' FROM anchors WHERE pay_date > $2::date),(SELECT max(pay_date)::timestamp AT TIME ZONE 'Asia/Jakarta' FROM anchors WHERE pay_date < (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date))`, householdID, now.In(jakartaLocation()).Format("2006-01-02")).Scan(&current, &next, &prior)
 	if err != nil || current == nil {
 		return assistantRange{}, errors.New("salary cycle unavailable")
 	}

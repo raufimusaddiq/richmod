@@ -9,7 +9,7 @@ import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
 import useAuth from "../components/useAuth";
 import { dayLabel } from "../lib/chartData";
-import { amountLabel, changeWidth, cycleLabel, qualityCopy, ratioLabel, readReviewSelection, reviewSteps, selectionHref, signedMoney, transactionHref } from "../lib/cycleReview";
+import { amountLabel, changeWidth, cycleLabel, measuredLabel, qualityCopy, ratioLabel, readReviewSelection, reviewSteps, selectionHref, signedMoney, transactionHref } from "../lib/cycleReview";
 import { dateTime, money, typeLabel } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
 
@@ -74,6 +74,7 @@ function AnalyticsReview() {
 
   const cycleStart = facts?.period?.kind === "SALARY_CYCLE" ? facts.period.start : "";
   const cycleEnd = facts?.period?.measuredUntil || "";
+  const cycleState = facts?.period?.state || "";
   const loadInsights = useCallback(async signal => {
     const query = new URLSearchParams({ cycle_start: cycleStart });
     const response = await fetch(`/api/v1/insights?${query}`, { signal, cache: "no-store" });
@@ -88,15 +89,15 @@ function AnalyticsReview() {
     const controller = new AbortController();
     insightAbort.current = controller;
     loadInsights(controller.signal).then(async items => {
-      const selected = selectCycleInsight(items, { start: cycleStart, measuredUntil: cycleEnd });
+      const selected = selectCycleInsight(items, { start: cycleStart, measuredUntil: cycleEnd, state: cycleState });
       if (controller.signal.aborted) return;
       setInsight(selected);
-      if (selected?.status === "PENDING") await pollInsight({ insightId: selected.id, load: loadInsights, onUpdate: setInsight, signal: controller.signal });
+      if (selected?.status === "PENDING") await pollInsight({ insightId: selected.id, load: loadInsights, onUpdate: setInsight, signal: controller.signal, cycle: { start: cycleStart, measuredUntil: cycleEnd, state: cycleState } });
     }).catch(err => {
-      if (err.name !== "AbortError") setInsightError(err.message === "insight polling timeout" ? "Pembahasan belum selesai. Periksa lagi nanti." : "Pembahasan belum dapat dimuat.");
+      if (err.name !== "AbortError") setInsightError(err.message === "insight cutoff mismatch" ? "Pembahasan lama tidak cocok dengan rentang ini. Coba lagi nanti." : err.message === "insight polling timeout" ? "Pembahasan belum selesai. Periksa lagi nanti." : "Pembahasan belum dapat dimuat.");
     });
     return () => controller.abort();
-  }, [user, selection.view, cycleStart, cycleEnd, loadInsights]);
+  }, [user, selection.view, cycleStart, cycleEnd, cycleState, loadInsights]);
 
   async function generateInsight() {
     if (!cycleStart || insightLoading) return;
@@ -107,11 +108,11 @@ function AnalyticsReview() {
     try {
       const query = new URLSearchParams({ period: "cycle", cycle_start: cycleStart });
       const response = await fetch(`/api/v1/insights/generate?${query}`, { method: "POST", signal: controller.signal });
-      if (!response.ok) throw new Error("generate");
+      if (!response.ok) throw new Error(response.status === 429 ? "insight rate limit" : response.status === 409 ? "insight pending cutoff" : "generate");
       const requested = await response.json();
-      await pollInsight({ insightId: requested.id, signal: controller.signal, onUpdate: setInsight, load: loadInsights });
+      await pollInsight({ insightId: requested.id, signal: controller.signal, onUpdate: setInsight, load: loadInsights, cycle: { start: cycleStart, measuredUntil: cycleEnd, state: cycleState } });
     } catch (err) {
-      if (err.name !== "AbortError") setInsightError(err.message === "insight polling timeout" ? "Pembahasan belum selesai. Periksa lagi nanti." : "Pembahasan belum dapat dibuat. Data dan bukti tetap tersedia.");
+      if (err.name !== "AbortError") setInsightError(err.message === "insight rate limit" ? "Batas satu pembahasan per jam. Coba lagi setelah jeda satu jam dari permintaan terakhir." : err.message === "insight pending cutoff" ? "Pembahasan sebelumnya masih diproses. Tunggu sampai selesai." : err.message === "insight cutoff mismatch" ? "Pembahasan lama tidak cocok dengan rentang ini. Coba lagi nanti." : err.message === "insight polling timeout" ? "Pembahasan belum selesai. Periksa lagi nanti." : "Pembahasan belum dapat dibuat. Data dan bukti tetap tersedia.");
     } finally { if (!controller.signal.aborted) setInsightLoading(false); }
   }
   useEffect(() => () => insightAbort.current?.abort(), []);
@@ -171,8 +172,8 @@ function AnalyticsReview() {
           </section>
           <section id="changes" className="review-section" aria-labelledby="changes-title">
             <SectionTitle id="changes-title" title="Apa yang berubah?" description="Perubahan kategori diurutkan berdasarkan selisih absolut oleh server. Besar perubahan bukan penilaian baik atau buruk."/>
-            <ComparisonContext comparison={facts.comparison}/>
-            <ChangesTable items={facts.categoryChanges} selected={selection.category} select={category => navigate({ category, ...(meeting ? { step: "drivers" } : {}) })}/>
+            <ComparisonContext comparison={facts.comparison} period={facts.period}/>
+            <ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={category => navigate({ category, ...(meeting ? { step: "drivers" } : {}) })}/>
           </section>
           <section id="drivers" className="review-section" aria-labelledby="drivers-title">
             <details className="report-disclosure" open={Boolean(selectedCategory) || step === "drivers"}>
@@ -204,7 +205,7 @@ function AnalyticsReview() {
             <details className="report-disclosure" open={step === "discussion"}>
             <summary><h2 id="discussion-title" tabIndex={-1}>Bahan pembahasan</h2><span>{insightError ? "Belum tersedia" : insightLoading || insight?.status === "PENDING" ? "Memproses" : insight?.status === "SUCCEEDED" ? "Tersedia · opsional" : "Opsional"}</span></summary>
             <p className="review-description">Bukan saran keuangan atau keputusan rumah tangga.</p>
-            <InsightCard insight={insight} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
+            <InsightCard insight={insight} cycle={facts.period} loading={insightLoading} error={insightError} canGenerate={Boolean(cycleStart)} onGenerate={generateInsight}/>
             <a href={meeting ? selectionHref({ ...selection, step: "changes" }) : "#changes"}>Lihat data pendukung pembahasan</a>
             </details>
           </section>
@@ -250,11 +251,11 @@ function CyclePosition({ facts }) {
   </section>;
 }
 
-function ComparisonContext({ comparison }) {
+function ComparisonContext({ comparison, period }) {
   const rows = [["Siklus ini", comparison.expense.amount], ["Sebelumnya", comparison.expense.previous], ["Median 3", comparison.expense.median3]];
   const maximum = Math.max(0, ...rows.map(([, value]) => Math.abs(Number(value))));
   return <div className="review-baseline">
-    <div className="baseline-meta"><span>{comparison.previous ? `vs ${cycleLabel(comparison.previous)}` : "Belum ada siklus pembanding"}</span><strong>{comparison.mode === "ELAPSED_DAYS" ? "Hari setara, bukan siklus penuh" : comparison.previous ? "Siklus ditutup" : "—"}</strong><span>{comparison.median3Available ? "Median 3 siklus tersedia" : `Median belum tersedia · ${comparison.eligibleCycles}/3 siklus`}</span></div>
+    <div className="baseline-meta"><span>{measuredLabel(period)}</span><span>{comparison.previous ? `vs ${measuredLabel(comparison.previous)}` : "Belum ada siklus pembanding"}</span><strong>{comparison.mode === "ELAPSED_DAYS" ? "Hari setara, bukan siklus penuh" : comparison.previous ? "Siklus ditutup" : "—"}</strong><span>{comparison.median3Available ? "Median 3 siklus tersedia" : `Median belum tersedia · ${comparison.eligibleCycles}/3 siklus`}</span></div>
     <dl className="comparison-bars" aria-label="Perbandingan pengeluaran bersih">
       {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd><span aria-hidden="true" className="comparison-track"><i data-negative={String(value).startsWith("-") || undefined} style={{ width: maximum ? `${Math.abs(Number(value)) / maximum * 100}%` : "0%" }}/></span><strong>{amountLabel(value)}</strong></dd></div>)}
     </dl>
@@ -265,22 +266,25 @@ function ComparisonContext({ comparison }) {
   </div>;
 }
 
-function ChangesTable({ items, selected, select }) {
+function ChangesTable({ items, comparison, selected, select }) {
   if (!items.length) return <p className="empty compact">Belum ada pengeluaran kategori pada periode ini atau pembandingnya.</p>;
+  const elapsed = comparison.mode === "ELAPSED_DAYS";
+  const deltaLabel = elapsed ? "Δ hari setara" : "Δ sebelumnya";
   return <>
-    <div className="change-ranking-head" aria-hidden="true"><span>Kategori</span><span>Siklus ini</span><span>Δ sebelumnya</span></div>
+    <div className="change-ranking-head" aria-hidden="true"><span>Kategori</span><span>Siklus ini</span><span>{deltaLabel}</span></div>
     <ul className="change-ranking" aria-label="Perubahan kategori">
       {items.map(item => <li key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
         <button className="change-button" type="button" aria-controls="category-drivers" aria-pressed={selected === (item.id || "uncategorized")} onClick={() => select(item.id || "uncategorized")}>{item.name}</button>
         <span><span className="visually-hidden">Siklus ini: </span>{money(item.amount)}</span>
-        <span><span className="visually-hidden">Selisih vs sebelumnya: </span>{signedMoney(item.deltaVsPrevious)}</span>
+        <span><span className="visually-hidden">{deltaLabel}: </span>{signedMoney(item.deltaVsPrevious)}</span>
         <span className="change-track" aria-hidden="true"><i data-negative={String(item.deltaVsPrevious).startsWith("-") || undefined} style={{ width: changeWidth(item, items) }}/></span>
       </li>)}
     </ul>
+    <small>Batang menunjukkan besar selisih relatif, bukan persentase kenaikan.</small>
     <details className="review-daily"><summary>Perbandingan lengkap · median, persentase & kontribusi</summary>
     <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
     <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —.</caption>
-    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya</th><th scope="col">Median 3</th><th scope="col">Selisih vs sebelumnya</th><th scope="col">Selisih vs median</th><th scope="col">Kontribusi ke selisih total</th></tr></thead>
+    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{elapsed ? "Sebelumnya · hari setara" : "Sebelumnya"}</th><th scope="col">Median 3</th><th scope="col">{deltaLabel}</th><th scope="col">Selisih vs median</th><th scope="col">Kontribusi ke selisih total</th></tr></thead>
     <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
       <th scope="row">{item.name}</th>
       <td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td>

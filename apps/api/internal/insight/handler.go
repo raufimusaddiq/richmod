@@ -18,9 +18,12 @@ type Handler struct {
 	now  func() time.Time
 }
 
-const insightPromptVersion = "cycle-analyst-v3"
+const insightPromptVersion = "cycle-analyst-v4"
 
-const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND (status='PENDING' OR (status='SUCCEEDED' AND prompt_version=$5 AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
+// A stale cutoff is not reusable -- return it and the client rejects it -- but it
+// still counts against the hourly cap, so EXISTING matches only the reusable
+// cutoff (a pending job always, a fresh SUCCEEDED row only on the same cutoff).
+const existingInsightQuery = `SELECT id FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND input_metrics_json->>'period_end'=$6 AND (status='PENDING' OR (status='SUCCEEDED' AND prompt_version=$5 AND created_at>now()-interval '1 hour')) ORDER BY created_at DESC LIMIT 1`
 
 func NewHandler(pool *pgxpool.Pool) *Handler { return &Handler{pool: pool, now: time.Now} }
 
@@ -102,13 +105,23 @@ func (h *Handler) Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	period := facts.Period.Start
 	var existing string
-	err = h.pool.QueryRow(r.Context(), existingInsightQuery, household, period, kind, period, insightPromptVersion).Scan(&existing)
+	err = h.pool.QueryRow(r.Context(), existingInsightQuery, household, period, kind, period, insightPromptVersion, facts.Period.MeasuredUntil).Scan(&existing)
 	if err == nil {
 		writeJSON(w, 200, map[string]string{"id": existing, "status": "EXISTING"})
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 500, map[string]string{"error": "unable to check insight rate limit"})
+		return
+	}
+	// Different measured days are not reusable, but do not bypass the hourly cap.
+	var limited bool
+	if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM insight WHERE household_id=$1 AND period=$2::date AND input_metrics_json->>'period_kind'=$3 AND input_metrics_json->>'period_start'=$4 AND status='SUCCEEDED' AND prompt_version=$5 AND created_at>now()-interval '1 hour')`, household, period, kind, period, insightPromptVersion).Scan(&limited); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to check insight rate limit"})
+		return
+	}
+	if limited {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "new cutoff requires waiting for the hourly generation limit"})
 		return
 	}
 

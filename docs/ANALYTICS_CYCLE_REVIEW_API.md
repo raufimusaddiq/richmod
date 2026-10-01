@@ -23,8 +23,10 @@ from another household never bind this endpoint. There is no household-ID input.
 - Unallocated surplus is net cashflow minus confirmed savings transfers. It is
   not a synthetic transaction. Residual-review attributions are not additional
   transfers and do not change that arithmetic.
-- All amounts remain whole-IDR decimal strings. Daily averages use two decimal
-  places; ratios use four. No financial arithmetic uses binary floats.
+- All amounts remain whole-IDR decimal strings (integral values may drop a
+  trailing `.00`, and the API does not promise a fixed NUMERIC scale). Daily
+  averages use two decimal places; ratios use four. No financial arithmetic uses
+  binary floats.
 
 ## Comparison and drivers
 
@@ -36,6 +38,13 @@ cutoff, including when it is before their full cycle end.
 When an active review uses a historical elapsed-day prefix, that cycle's
 `cycles[]` entry exposes the same measured cutoff as `comparison.previous`.
 Its full exclusive `end` remains unchanged.
+
+Each comparison baseline is measured over the same window as the active cycle
+(the elapsed prefix), so the numbers a reader sees reconcile with the numbers the
+model cites. A prior closed cycle shorter than that prefix is ineligible and is
+not pulled forward as full-cycle context. Categories or merchants absent from an
+eligible baseline contribute zero; there is no separate full-cycle projection.
+Zero or negative baselines produce null relative deltas, never a percentage.
 
 `median3Available` is true only with three eligible completed cycles. Missing
 categories/merchants within an available comparison cycle contribute zero, not
@@ -102,3 +111,26 @@ reconciliation, concrete blockers, authentication, and household isolation.
 
 Run API/worker tests and vet against disposable PostgreSQL through the existing
 CI matrix. Do not run local builds/tests without the runbook's capacity gate.
+
+## Legacy analytics consistency — October 1, 2026
+
+Calendar buckets include every overlapping Jakarta month, bounded by the exact
+requested start/exclusive end. Short cycles and trailing partial months are not
+dropped. `/spending` consumes already-net expense without subtracting refunds
+again. `/cycle-daily` exposes net `expense`, separate `grossExpense`, and
+refund-adjusted spent/cumulative/remaining values. Salary NUMERIC text is parsed
+exactly, accepting decimal-scale input without silent parse-to-zero. Integral
+salary/remaining values use whole-IDR strings; fractional values retain cents.
+Merchant shares use all confirmed net expense, including undisplayed merchants
+and refund-only groups, not the displayed top-ten subtotal.
+
+Legacy current-cycle analytics and Telegram CURRENT/PREVIOUS_CYCLE READs use
+Jakarta midnight instants. Legacy `get_category_breakdown` retains signed nonzero
+categories, orders by absolute amount, and reports `total_categories`, full
+`net_expense_idr`, and `truncated` for its twenty-row limit. No financial records
+are rewritten by these fixes.
+
+For `/spending`, legacy `expense` and `netSpending` are both already net;
+`refund` is separate gross provenance and must not be subtracted again. Category
+and member display joins are household-scoped; invalid foreign bindings retain
+amounts in the unnamed group rather than exposing another household's identity.

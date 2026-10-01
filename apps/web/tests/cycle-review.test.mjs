@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { changeWidth, cycleLabel, inclusiveEnd, ratioLabel, readReviewSelection, selectionHref, signedMoney, transactionHref } from "../app/lib/cycleReview.js";
+import { changeWidth, cycleLabel, inclusiveEnd, measuredLabel, ratioLabel, readReviewSelection, selectionHref, signedMoney, transactionHref } from "../app/lib/cycleReview.js";
 import { money } from "../app/lib/format.js";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -12,6 +12,17 @@ test("cycle labels use inclusive Jakarta dates and explicit state", () => {
   assert.match(cycleLabel(period), /26 Agu 2026/);
   assert.match(cycleLabel(period), /24 Sep 2026/);
   assert.match(cycleLabel({ ...period, end: null, state: "ACTIVE" }), /berjalan/);
+});
+
+test("comparison labels expose the measured prefix, not the whole closed cycle", () => {
+	const label = measuredLabel({ start: "2026-08-24", end: "2026-09-25", measuredUntil: "2026-08-31", state: "CLOSED" });
+	assert.match(label, /24 Agu 2026/);
+	assert.match(label, /30 Agu 2026/);
+	assert.doesNotMatch(label, /Sep/);
+	assert.equal(measuredLabel(null), "—");
+	const page = text("app/analytics/page.js");
+	assert.match(page, /measuredLabel\(comparison.previous\)/);
+	assert.match(page, /Batang menunjukkan besar selisih relatif, bukan persentase kenaikan/);
 });
 
 test("currency and ratio formatting never invent a value for null", () => {

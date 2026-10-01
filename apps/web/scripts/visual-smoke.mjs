@@ -29,7 +29,7 @@ const categories = [
   { id: "cat-3", name: "Makan", amount: "420000", active: true, slug: "makan" },
   { id: "cat-4", name: "Tagihan", amount: "280000", active: true, slug: "tagihan" },
 ];
-const daily = Array.from({ length: 12 }, (_, index) => ({ period: `2026-09-${String(index + 1).padStart(2, "0")}`, expense: String((index % 4) * 80000 + 120000), income: index === 0 ? "12500000" : "0" }));
+const daily = Array.from({ length: 12 }, (_, index) => ({ period: `2026-09-${String(index + 1).padStart(2, "0")}`, grossExpense: String((index % 4) * 80000 + 120000), refund: "0", expense: String((index % 4) * 80000 + 120000), income: index === 0 ? "12500000" : "0" }));
 const review = [{ id: "review-1", reason: "AMBIGUOUS_CATEGORY", amount: "750000", merchantName: "Transfer ke rekening lain", transactionAt: "2026-09-05T15:00:00+07:00", sourceType: "BANK_EMAIL", proposalStatus: "NEEDS_REVIEW", missingFields: ["merchant"], description: "Tujuan transfer belum jelas" }];
 const members = [{ id: "member-1", displayName: "Rafi", email: "rafi@example.test", role: "OWNER", active: true, telegramConnected: true }, { id: "member-2", displayName: "Dina", email: "dina@example.test", role: "MEMBER", active: true, telegramConnected: false }];
 const document = { id: "doc-1", status: "SUCCEEDED", documentType: "RECEIPT", sourceType: "WEB_IMAGE", createdAt: "2026-09-06T10:00:00+07:00", confidence: 0.93, linkedTransactionIds: ["tx-1"], summary: { merchant: "Pasar Minggu", amount: "185000" }, needsReview: false };

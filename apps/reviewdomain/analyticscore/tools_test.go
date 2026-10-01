@@ -108,3 +108,21 @@ func TestAnalyticalParallelReads(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestNativeChangesKeepZeroPrefixDistinctFromMissing(t *testing.T) {
+	s := toolFixture()
+	f := s.facts[""]
+	c := change("1950000", valuePointer("0"), nil)
+	c.Name = "Fixture rent"
+	f.Categories[0].reviewChange = c
+	f.Comparison.Mode = "ELAPSED_DAYS"
+	s.facts[""] = f
+	result, err := s.Read(context.Background(), "get_cycle_changes", json.RawMessage(`{"cycle_start":null}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	categories := result["categories"].([]map[string]any)
+	if *categories[0]["previous"].(*string) != "0" || categories[0]["relative_delta_vs_previous"].(*string) != nil {
+		t.Fatalf("native facts=%v", categories)
+	}
+}

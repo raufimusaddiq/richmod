@@ -230,15 +230,20 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		if p.State != "CLOSED" {
 			continue
 		}
+		// Compare on the narrower window: the current measured prefix for an active
+		// cycle, the full span for a closed one. This is also the window the model
+		// reads, so the cited numbers reconcile with get_cycle_changes.
+		end := p.MeasuredUntil
 		if facts.Period.State == "ACTIVE" {
 			elapsed := daysBetween(facts.Period.Start, facts.Period.MeasuredUntil)
 			if daysBetween(p.Start, p.MeasuredUntil) < elapsed {
 				continue
 			}
 			start, _ := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
-			p.MeasuredUntil = start.AddDate(0, 0, elapsed).Format("2006-01-02")
-			facts.Cycles[index+1+offset].MeasuredUntil = p.MeasuredUntil
+			end = start.AddDate(0, 0, elapsed).Format("2006-01-02")
+			facts.Cycles[index+1+offset].MeasuredUntil = end
 		}
+		p.MeasuredUntil = end
 		measures = append(measures, newCycleMeasure(p))
 		if len(measures) == 4 {
 			break

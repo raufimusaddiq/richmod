@@ -39,9 +39,9 @@ export function cycleFacts(start = "2026-09-01") {
 }
 
 export const cycleCommentary = {
-  id: "synthetic-commentary", status: "SUCCEEDED", historical: false, promptVersion: "cycle-analyst-v3",
+  id: "synthetic-commentary", status: "SUCCEEDED", historical: false, promptVersion: "cycle-analyst-v4", createdAt: "2026-09-06T11:59:59+07:00",
   text: "Belanja rumah menyumbang setengah selisih pengeluaran dari siklus sebelumnya. Makan di luar lebih tinggi dari siklus sebelumnya, tetapi dekat dengan median tiga siklus. Bukti merchant dan transaksi dapat diperiksa sebelum dibahas bersama.",
-  metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01" }, completedAt: "2026-09-06T12:00:00+07:00",
+  metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01", period_end: "2026-09-07" }, completedAt: "2026-09-06T12:00:00+07:00",
 };
 
 export function stableCycleFacts() {
