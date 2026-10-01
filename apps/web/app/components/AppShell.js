@@ -65,7 +65,7 @@ export default function AppShell({ user, title, eyebrow, actions, children }) {
 
 function NavLink({ item, active, inboxCount, onClick }) {
   const [href, label, icon] = item;
-  const Icon = icons[icon];
+  const Icon = icons[icon] || DotsThree; // the nav test guarantees every entry is mapped; this keeps a typo from crashing the shell
   const pending = href === "/inbox" && inboxCount > 0;
   return <Link href={href} className={active ? "active" : ""} aria-current={active ? "page" : undefined} aria-label={pending ? `${label}, ${inboxCount} item menunggu tinjauan` : undefined} onClick={onClick}>
     <Icon aria-hidden="true" weight={active ? "fill" : "regular"}/><span>{label}</span>

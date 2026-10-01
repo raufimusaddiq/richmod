@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import test from "node:test";
-import { reviewCards, tree } from "./source.mjs";
+import { reviewCards, tree, globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -74,7 +74,7 @@ test("analytics commentary is selected-cycle tool-first prose, safely rendered a
 });
 
 test("analytics insight card owns its spacing", () => {
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(styles, /\.insight-card \{ padding: 22px; \}/);
   assert.match(styles, /\.analytics-detail-layout, \.admin-grid \{ display: grid; grid-template-columns: minmax\(0, 1\.55fr\) minmax\(280px, \.75fr\);/);
   assert.match(styles, /@media \(max-width: 1100px\) \{[\s\S]*?\.analytics-detail-layout, \.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
@@ -83,7 +83,7 @@ test("analytics insight card owns its spacing", () => {
 test("analytics components own semantics, spacing, controls, and chart colors", () => {
   const analytics = text("app/analytics/page.js");
   const charts = text("app/components/Charts.js");
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(analytics, /className="analytics-flow cycle-review"/);
   assert.match(analytics, /className="cycle-outcome"/);
   assert.match(analytics, /<dd>\{value\}<\/dd>/);
@@ -150,7 +150,7 @@ test("settings navigation uses the shared Phosphor icon family", () => {
 
 test("mobile shell keeps navigation and dense actions usable", () => {
   const shell = text("app/components/AppShell.js");
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(shell, /aria-modal="true"/);
   assert.match(shell, /event\.key === "Escape"/);
   assert.match(shell, /aria-controls="mobile-more-panel"/);
@@ -162,7 +162,7 @@ test("mobile shell keeps navigation and dense actions usable", () => {
 
 test("email ingress controls stay grouped inside the integration card", () => {
   const settings = text("app/settings/page.js");
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(settings, /className="integration-actions"/);
   assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
   assert.match(styles, /\.integration-grid small \{ margin-top: 3px; color: var\(--muted\); font-size: 11px; \}/);
@@ -185,7 +185,7 @@ test("household route exposes Telegram connection state", () => {
 
 test("shared UX feedback is accessible and motion respects user preference", () => {
   const feedback = text("app/components/Feedback.js");
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(feedback, /aria-busy="true"/);
   assert.match(feedback, /role="alert"/);
   assert.match(feedback, /aria-live="polite"/);
@@ -248,7 +248,7 @@ test("admin lists use bounded server filters and accessible detail actions", () 
 
 test("admin console adapts tables and drawer for mobile", () => {
   const admin = tree("app/admin");
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(admin, /Children, cloneElement, isValidElement/);
   assert.match(admin, /"data-label": headers\[index\]/);
   assert.match(styles, /\.admin-table thead \{ display: none; \}/);
@@ -273,12 +273,12 @@ test("admin user changes require confirmation", () => {
   const admin = tree("app/admin");
   assert.match(admin, /confirm\(/);
   assert.match(admin, /ADMINISTRASI PLATFORM/);
-  assert.match(text("app/globals.css"), /admin-table-wrap/);
+  assert.match(globalCss(), /admin-table-wrap/);
 });
 
 test("settings lists are bounded with pagination and keep empty states", () => {
   const settings = text("app/settings/page.js");
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   for (const dataset of ["accounts", "wealthAccounts", "salarySources", "known", "listeners", "financialSources", "categories", "aliases"]) {
     assert.match(settings, new RegExp(`<BoundedList items=\\{data\\.${dataset}\\}`), dataset);
   }

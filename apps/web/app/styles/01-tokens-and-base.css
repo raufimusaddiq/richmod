@@ -1,0 +1,94 @@
+@font-face { font-family: "Fraunces"; src: url("/fonts/fraunces-latin.woff2") format("woff2"); font-style: normal; font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("/fonts/inter-latin.woff2") format("woff2"); font-style: normal; font-weight: 400 700; font-display: swap; }
+
+:root {
+  /* Retro Ledger: cream paper, deep teal, butter and coral accents.
+     This is the existing shared token source, not a parallel theme. */
+  --canvas: #f7f3e8;
+  --canvas-deep: #eee8d8;
+  --surface: #fffcf4;
+  --surface-strong: #fffef9;
+  --surface-muted: #f2edde;
+  --ink: #253a36;
+  --ink-soft: #354943;
+  --muted: #4c5a50;
+  /* Even secondary text must remain readable on the pastel surfaces. */
+  --faint: #596359;
+  --line: #d5d9c8;
+  --line-strong: #7b8979;
+  --accent: #245c54;
+  --accent-hover: #17483f;
+  --accent-border: #245c54;
+  --accent-soft: #dceae2;
+  --pastel-peach: #fae9de;
+  --pastel-mint: #e7eedf;
+  --butter: #f5ebc3;
+  --coral: #cb715c;
+  --income: #315b3f;
+  --income-soft: #e0ecdd;
+  --expense: #8b4437;
+  --expense-soft: #f7e5dc;
+  --warning: #73561e;
+  --warning-soft: #f5ebc3;
+  --danger: #913e40;
+  --danger-soft: #f6e2df;
+  --info: #3a5867;
+  --info-soft: #e1eaf0;
+  --chart-income: var(--income);
+  --chart-expense: #8b4437;
+  --chart-axis: var(--muted);
+  --chart-grid: #d5d9c8;
+  --chart-reference: #3a5867;
+  --chart-category-1: #245c54;
+  --chart-category-2: #3a5867;
+  --chart-category-3: #73561e;
+  --chart-category-4: #53613b;
+  --chart-category-5: #8b4437;
+  --chart-category-6: #705268;
+  --shadow: 3px 4px 0 rgba(37, 58, 54, .16);
+  --shadow-float: 5px 7px 0 rgba(37, 58, 54, .24);
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 19px;
+  --weight-semibold: 650;
+  --sidebar: 244px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--canvas); scroll-behavior: smooth; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-body); font-size: var(--text-base); line-height: 1.5; text-rendering: optimizeLegibility; }
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+button { color: inherit; }
+svg { display: block; flex: 0 0 auto; }
+img { max-width: 100%; }
+h1, h2, h3, p { text-wrap: pretty; }
+h1, h2, h3, b, strong { letter-spacing: -.015em; }
+h1, h2, h3 { font-family: var(--font-display); font-optical-sizing: auto; letter-spacing: 0; text-wrap: balance; }
+strong, .transaction-amount, .detail-amount, .admin-metric b, .system-metrics b { font-variant-numeric: tabular-nums; }
+::selection { background: var(--accent-soft); color: var(--ink); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); border: 0; white-space: nowrap; }
+
+.skip-link { position: fixed; top: 10px; left: 10px; z-index: 1000; padding: 9px 12px; border-radius: var(--radius-sm); background: var(--ink); color: white; transform: translateY(-150%); transition: transform .15s ease; }
+.skip-link:focus { transform: none; }
+
