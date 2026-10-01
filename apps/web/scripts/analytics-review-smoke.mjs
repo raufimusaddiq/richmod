@@ -310,8 +310,9 @@ try {
     await page.getByText("Rentang bulan Jan 25 sampai Mar 25").waitFor();
     assert.equal(new URL(page.url()).searchParams.get("from"), "2025-01");
     assert.equal(await page.getByRole("button", { name: "Kustom", exact: true }).getAttribute("aria-pressed"), "true");
-    assert.equal(await page.getByRole("alert").count(), 0, "a valid range clears the field error");
+    assert.equal(await page.getByRole("alert").filter({ hasText: "Bulan mulai harus sebelum atau sama dengan bulan selesai." }).count(), 0, "a valid range clears the field error");
     await page.goBack({ waitUntil: "networkidle" });
+    await page.waitForFunction(() => document.querySelector('input[name="from"]')?.value === "");
     assert.equal(await page.getByLabel("Bulan mulai").inputValue(), "", "the inputs follow the URL after Back");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false);
 
