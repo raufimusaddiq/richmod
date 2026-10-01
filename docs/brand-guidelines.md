@@ -96,6 +96,10 @@ Body family: "Inter" (`--font-body` in CSS).
 - Insight copy is supporting text. Priority figures (cycle position, comparisons,
   evidence links, data-quality warnings) stay visible; explanatory prose sits
   behind a `Tentang data ini` disclosure so the data reads before the narrative.
+- Learned constraint: complete reporting must not require reading a novel.
+  Lead with figures and labelled comparisons; use explicit expandable evidence
+  and a complete-report action. Do not merely collapse explanatory paragraphs
+  while leaving repeated totals and tables at equal visual weight.
 
 ## Assets
 

@@ -5,7 +5,7 @@ import { dayLabel } from "../lib/chartData";
 import { dateTime } from "../lib/format";
 import { ErrorNotice } from "./Feedback";
 
-export default function CycleDecisions({ cycleStart, closed, body, onBodyChange }) {
+export default function CycleDecisions({ cycleStart, closed, body, onBodyChange, expanded = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -60,7 +60,9 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange 
   }
 
   return <section id="decisions" className="review-section" aria-labelledby="decisions-title">
-    <div className="section-title"><div><h2 id="decisions-title" tabIndex={-1}>Keputusan rumah tangga</h2><p className="review-description">Catatan ditulis dan disimpan oleh anggota rumah tangga. Bukan transaksi, perubahan saldo, atau kesimpulan model.</p></div></div>
+    <details className="report-disclosure" open={expanded || Boolean(body)}>
+    <summary><h2 id="decisions-title" tabIndex={-1}>Keputusan rumah tangga</h2><span>{body ? "Draf belum disimpan" : data ? `${data.items.length} catatan · ${data.previous.length} sebelumnya` : error ? "Belum tersedia" : "Memuat…"}</span></summary>
+    <p className="review-description">Catatan ditulis dan disimpan oleh anggota rumah tangga. Bukan transaksi, perubahan saldo, atau kesimpulan model.</p>
     <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
     {!data && !error && <p role="status">Memuat keputusan…</p>}
     {data && <>
@@ -78,6 +80,7 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange 
     </form> : <p>Keputusan baru dapat disimpan setelah siklus ditutup. Catatan siklus sebelumnya tetap dapat dibaca.</p>}
     {saveError && <p id="decision-error" className="notice error" role="alert">{saveError}</p>}
     <p role="status" aria-live="polite">{status || (body ? "Draf belum disimpan." : "")}</p>
+    </details>
   </section>;
 }
 

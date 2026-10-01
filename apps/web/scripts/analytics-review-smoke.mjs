@@ -107,10 +107,24 @@ try {
     assert.equal(await page.getByRole("button", { name: "Simpan keputusan", exact: true }).count(), 0, "active cycle has no save action");
     assert.equal(salaryCalls, 1, "explicit cycle uses one facts request");
     assert.equal(await page.getByText("Historical advice should never display.").count(), 0);
-    await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
+    for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) {
+      assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, `${id} is available on demand, not a wall of text`);
+    }
+    assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).isVisible(), true, "blockers stay actionable without expansion");
+    assert.equal(await page.locator(".comparison-bars > div").count(), 3);
+    assert.equal(await page.locator(".change-ranking > li").count(), 3);
+    const completeComparison = page.locator("#changes > details");
+    assert.equal(await completeComparison.evaluate(element => element.open), false);
+    await completeComparison.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await completeComparison.evaluate(element => element.open), true, "complete comparison is keyboard accessible");
     if (name === "desktop") await page.screenshot({ path: new URL("readme-analytics.png", output).pathname, fullPage: false, animations: "disabled" });
     assert.equal(await page.locator("#changes tbody tr").count(), 3);
     assert.equal(await page.locator("#changes tbody tr").nth(1).locator("td").nth(2).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1350000n), "previous outlier does not hide recent median");
+    await completeComparison.locator("summary").click();
+    await page.locator("#discussion > details > summary").click();
+    await page.getByRole("heading", { name: "Pembahasan siklus terpilih" }).waitFor();
+    await page.locator("#discussion > details > summary").click();
     const groceries = page.getByRole("button", { name: "Belanja rumah", exact: true });
     await groceries.focus();
     assert.notEqual(await groceries.evaluate(element => getComputedStyle(element).outlineStyle), "none");
@@ -152,7 +166,7 @@ try {
     requests.length = 0;
     await page.getByLabel("Siklus yang ditinjau").selectOption("2026-08-26");
     await page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" }).waitFor();
-    await page.getByText("Pembahasan belum dapat dimuat.", { exact: true }).waitFor();
+    await page.locator("#discussion > details > summary").getByText("Belum tersedia", { exact: true }).waitFor();
     for (const id of ["position", "spending-shape", "changes", "drivers", "destinations", "household", "savings-wealth", "quality"]) assert.equal(await page.locator(`#${id}`).count(), 1);
     assert.equal(requests.filter(request => request.method === "POST").length, 0);
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).count(), 1);
@@ -230,11 +244,30 @@ try {
     assert.equal(requests.filter(request => request.path.startsWith("/api/v1/insights")).length, 0);
     noSalary = false; aiAvailable = true; stable = true;
     await page.goto(`${base}/analytics?view=cycle&cycle=2026-08-26`, { waitUntil: "networkidle" });
+    await page.locator("#discussion > details > summary").click();
     await page.getByText("Tidak ada perubahan yang menonjol terhadap tiga siklus sebelumnya.", { exact: true }).waitFor();
     assert.equal(await page.locator(".cycle-net dd").textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(0n));
     assert.equal(await page.locator(".insight-text p").count(), 1, "stable commentary is not expanded into filler");
     assert.equal(await page.locator("#changes tbody tr").count(), 1);
     assert.equal(requests.filter(request => request.path === "/api/v1/insights/generate").length, 0, "stable review never auto-generates commentary");
+
+    // Requested URL, synthetic facts only. Default is scan-first; one explicit
+    // action exposes the complete report without deleting any data.
+    stable = false;
+    await page.goto(`${base}/analytics?view=cycle&cycle=2026-09-25`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Posisi siklus", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get("cycle"), "2026-09-25");
+    await page.screenshot({ path: new URL(`${name}-september25-overview.png`, output).pathname, fullPage: true, animations: "disabled" });
+    assert.equal(await page.locator("#changes table").isVisible(), false);
+    assert.equal(await page.locator("#discussion .insight-card").isVisible(), false);
+    await page.getByRole("button", { name: "Buka semua detail", exact: true }).click();
+    assert.equal(await page.locator("#changes table").isVisible(), true);
+    for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), true);
+    assert.equal(await page.locator(".review-daily table").first().locator("tbody tr").count(), 6, "all exact daily rows retained");
+    assert.equal(await page.locator("#changes table tbody tr").count(), 3, "all exact category comparisons retained");
+    assert.equal(await page.locator("#household .review-attribution > div").count(), 2);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} complete report has no page overflow`);
+    await page.screenshot({ path: new URL(`${name}-september25-complete.png`, output).pathname, fullPage: true, animations: "disabled" });
     assert.deepEqual(errors, [], `${name} runtime errors`);
     await page.close();
   }

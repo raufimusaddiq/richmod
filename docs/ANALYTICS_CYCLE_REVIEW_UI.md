@@ -28,7 +28,7 @@ state, never zero-valued financial facts or another cycle's stale result.
 The data hierarchy below is unchanged. Repeated section explanations now use
 native `Tentang data ini` disclosures, available to keyboard and touch users.
 Refund amount, total metrics, comparison cutoff/mode, missing-baseline states,
-all category/merchant/transaction rows, quality blockers and actions stay visible.
+quality blockers and actions stay visible.
 Comparison prose becomes a compact context strip (cycle, equal elapsed days vs
 closed-cycle mode, median availability). Surplus and Wealth reconciliation
 definitions remain available under named disclosures. No facts, calculations,
@@ -38,6 +38,33 @@ Brand colours, chart outlines and self-hosted fonts follow
 [Retro Ledger](brand-guidelines.md). The cycle chart retains its daily bars and
 server-owned average; overview and wealth history use straight line segments,
 not smoothed curves or inferred observations.
+
+### Scan-first report — October 1, 2026
+
+The default view is a report to scan, not prose to read. Net cashflow leads a
+compact metric strip; daily spending and category changes sit side-by-side on
+wide screens, stack on smaller screens. Previous/current/median expense amounts
+use directly labelled bars on one zero-based magnitude scale. Signed values stay
+explicit; null history stays missing. Browser arithmetic only sizes visual bars.
+
+Every category remains in the compact current/delta list in server order.
+The full comparison table retains previous/median values, both absolute/relative
+deltas and signed contribution under **Perbandingan lengkap**. Selection opens
+and focuses category evidence without a second API call. Merchant/transaction
+tables remain household/cycle-bound and keyboard-scrollable.
+
+Distribution, attribution, optional commentary and human-authored decision
+context use native disclosures. Decisions open automatically in their meeting
+step or when a draft exists; drafts/save/revoke behavior is unchanged. Savings
+destinations and net-worth movement stay visible; detailed balances, cashflow
+contribution, valuation/other difference and snapshot provenance are expandable.
+Unavailable reconciliation remains visibly unavailable.
+
+**Buka semua detail** exposes all tables, metadata and explanations in one
+explicit action. No fact is removed, abbreviated, synthesized or recomputed.
+Concrete quality blockers/actions stay outside disclosures. Focused meeting
+mode still opens its active section and uses the same eight steps. Calendar
+analysis, AI generation and all financial/data mutation behavior are unchanged.
 
 1. Explicit period, state, measured cutoff and Jakarta timezone.
 2. Cycle outcome: dominant net cashflow, income, refund-adjusted expense,
