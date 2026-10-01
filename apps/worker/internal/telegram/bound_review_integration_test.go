@@ -10,36 +10,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 type boundReviewGateway struct{}
 
 func (boundReviewGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
 	return gateway.ToolCall{}, gateway.Metadata{}, fmt.Errorf("bound review reply must not call LLM")
-}
-
-type clearPurchaseGateway struct{}
-
-func (clearPurchaseGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
-	return gateway.ToolCall{Name: "record_transaction", Arguments: json.RawMessage(`{"type":"EXPENSE","amount_idr":"9000","merchant":"Indomaret","category_slug":"makanan-minuman","description":"Beli es krim","note":null,"date_reference":"TODAY","date_provenance":"USER_STATED","explicit_date":null,"local_time":null,"confidence":0.98,"category_confidence":0.88}`)}, gateway.Metadata{Model: "test"}, nil
-}
-
-// The legacy deterministic Process path still uses the full bundle. IR-04
-// applies to the conversational ProcessAgent path only.
-type clearPurchaseJudgmentEngine struct{ t *testing.T }
-
-func (e clearPurchaseJudgmentEngine) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	answers := map[string]judgment.Answer{
-		"amount_support": decidedNoul(0.99), "date_support": decidedNoul(0.99),
-		"material_ambiguity": decidedNoul(0.02),
-		"transaction_type":   confidentChoice(judgmentTypeCriteria, "EXPENSE"),
-	}
-	if category, ok := request.Questions["category"]; ok {
-		criteria, _ := category.Criteria.(map[string]any)
-		answers["category"] = confidentChoice(criteria, "makanan-minuman")
-	}
-	return judgment.Result{Model: "jev-clear-purchase", Answers: answers}, nil
 }
 
 func TestTelegramReplyToBoundMerchantReviewBypassesLLM(t *testing.T) {
@@ -260,57 +236,5 @@ func TestTelegramCategoryCallbackDoesNotReopenCategoryOnlyReview(t *testing.T) {
 	}
 	if sourceStatus != "PROCESSED" || transactionStatus != "NEEDS_REVIEW" || reviewStatus != "OPEN" {
 		t.Fatalf("category-only callback must leave Inbox resolution to the user: source=%q transaction=%q review=%q", sourceStatus, transactionStatus, reviewStatus)
-	}
-}
-
-func TestClearPurchaseWithValidCategoryDoesNotCreateReview(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-
-	stamp := time.Now().UnixNano()
-	chatID := stamp
-	var householdID, userID, categoryID, sourceID string
-	if err = pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Clear purchase %d", stamp)).Scan(&householdID); err != nil {
-		t.Fatal(err)
-	}
-	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("clear-purchase-%d@example.test", stamp)).Scan(&userID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID); err != nil {
-		t.Fatal(err)
-	}
-	if err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman') RETURNING id`, householdID).Scan(&categoryID); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := json.Marshal(map[string]any{"update_id": stamp, "message": map[string]any{"message_id": 19, "text": "beli es krim indomaret 9k", "from": map[string]any{"id": chatID}, "chat": map[string]any{"id": chatID}}})
-	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("clear-purchase-%d", stamp), raw).Scan(&sourceID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, sourceID, raw); err != nil {
-		t.Fatal(err)
-	}
-	clearPurchase := NewProcessor(pool, clearPurchaseGateway{})
-	clearPurchase.SetJudgment(clearPurchaseJudgmentEngine{t: t})
-	if err = clearPurchase.Process(ctx, sourceID); err != nil {
-		t.Fatal(err)
-	}
-	var status, merchant, description, gotCategoryID string
-	var reviewCount int
-	if err = pool.QueryRow(ctx, `SELECT status,COALESCE(counterparty_name,''),COALESCE(description,''),category_id::text,(SELECT count(*) FROM review_request WHERE transaction_id=t.id) FROM transaction t WHERE household_id=$1 ORDER BY created_at DESC LIMIT 1`, householdID).Scan(&status, &merchant, &description, &gotCategoryID, &reviewCount); err != nil {
-		t.Fatal(err)
-	}
-	if status != "CONFIRMED" || merchant != "Indomaret" || description != "Beli es krim" || gotCategoryID != categoryID || reviewCount != 0 {
-		t.Fatalf("status=%q merchant=%q description=%q category=%q reviews=%d", status, merchant, description, gotCategoryID, reviewCount)
 	}
 }

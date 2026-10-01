@@ -261,7 +261,6 @@ func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTran
 // such as "5kg" or "5jt-an" matched the optional suffix and harvested a
 // currency amount from a quantity (PRD §24 T1: only real amounts are harvested).
 var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta|k)?\b(?:\s|$)`)
-var simpleDatePattern = regexp.MustCompile(`\b(20[0-9]{2}-[0-9]{2}-[0-9]{2})\b`)
 
 func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 	matches := simpleAmountPattern.FindAllStringSubmatch(text, -1)

@@ -850,23 +850,6 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	return tx.Commit(ctx)
 }
 
-func residualReviewGuidance(err error) string {
-	switch {
-	case errors.Is(err, reviewdomain.ErrCycleAllocationsRequired):
-		return "Minimal satu alokasi diperlukan."
-	case errors.Is(err, reviewdomain.ErrCycleAllocationInvalid):
-		return "Alokasi harus memakai nominal IDR bulat positif dan rekening valid."
-	case errors.Is(err, reviewdomain.ErrCycleAllocationDuplicate):
-		return "Setiap akun kekayaan hanya boleh sekali."
-	case errors.Is(err, reviewdomain.ErrCycleAllocationMismatch):
-		return "Total alokasi harus sama dengan sisa saldo cycle."
-	case errors.Is(err, reviewdomain.ErrCycleWealthAccountInvalid):
-		return "Akun kekayaan harus aktif dan milik keluarga ini."
-	default:
-		return "Alokasinya belum bisa dibaca. Isi nominal untuk tiap akun kekayaan, lalu kirim lagi."
-	}
-}
-
 func TelegramCompletableReviewType(reviewType string) bool {
 	switch reviewType {
 	case "CYCLE_RESIDUAL_ALLOCATION", "WEALTH_OBSERVATION_CONFIRMATION", "TRANSFER_CLASSIFICATION", "PAYSLIP_CONFIRMATION",
@@ -1001,23 +984,6 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 	}
 	keyboard = append(keyboard, []InlineKeyboardButton{{Text: detailText, CallbackData: detailCallback}, {Text: "Abaikan", CallbackData: "review:ignore"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
-}
-
-func (p *Processor) categories(ctx context.Context, householdID string) ([]categoryChoice, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id,name,slug FROM category WHERE household_id=$1 AND active ORDER BY slug`, householdID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []categoryChoice
-	for rows.Next() {
-		var value categoryChoice
-		if err := rows.Scan(&value.ID, &value.Name, &value.Slug); err != nil {
-			return nil, err
-		}
-		result = append(result, value)
-	}
-	return result, rows.Err()
 }
 
 func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID, action string) error {

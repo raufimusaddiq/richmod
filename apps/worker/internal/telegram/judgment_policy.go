@@ -50,21 +50,6 @@ const (
 	judgmentOutcomeJudgmentUnavailable judgmentOutcome = "JUDGMENT_UNAVAILABLE"
 )
 
-// judgmentOutcomeFor maps a policy result onto a telemetry outcome. A provider
-// error is infrastructure, never semantic uncertainty.
-func judgmentOutcomeFor(err error, accepted, needsClarification bool) judgmentOutcome {
-	if err != nil {
-		return judgmentOutcomeProviderFailure
-	}
-	if accepted {
-		return judgmentOutcomeAccepted
-	}
-	if needsClarification {
-		return judgmentOutcomeClarification
-	}
-	return judgmentOutcomeReview
-}
-
 // judgmentPolicy is the single source of truth for every threshold this worker
 // applies. Values live here, in one place, with one version, instead of being
 // scattered across call sites where they can drift apart (PRD §25).

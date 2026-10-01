@@ -12,12 +12,6 @@ func formatIDDate(value time.Time) string {
 	return local.Format("02 ") + indonesianMonths[local.Month()-1] + local.Format(" 2006")
 }
 
-// formatIDDayMonth renders "02 Agu" in Asia/Jakarta.
-func formatIDDayMonth(value time.Time) string {
-	local := value.In(jakartaLocation())
-	return local.Format("02 ") + indonesianMonths[local.Month()-1]
-}
-
 // formatIDDateTime renders "02 Agu 2026 15:04" in Asia/Jakarta.
 func formatIDDateTime(value time.Time) string {
 	return formatIDDate(value) + value.In(jakartaLocation()).Format(" 15:04")

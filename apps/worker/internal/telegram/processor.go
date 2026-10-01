@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -49,11 +48,6 @@ var approximateLocalTimes = map[string]struct {
 	"night":     {hour: 20, period: "MALAM"},
 }
 
-// Telegram must remain responsive when a gateway model stalls. Each LLM
-// strategy gets its own bounded attempt; a fallback must not inherit the
-// gateway client's much longer transport timeout.
-const telegramLLMAttemptTimeout = 10 * time.Second
-
 type Gateway interface {
 	NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error)
 }
@@ -76,48 +70,6 @@ type Processor struct {
 	postGenerativeAutoConfirmOff bool
 	now                          func() time.Time
 	bot                          *Bot
-}
-
-type extraction struct {
-	Language                string           `json:"language"`
-	Intent                  string           `json:"intent"`
-	Amount                  *string          `json:"amount"`
-	Currency                *string          `json:"currency"`
-	Merchant                *string          `json:"merchant"`
-	CategorySlug            *string          `json:"category_slug"`
-	Description             *string          `json:"description"`
-	Note                    *string          `json:"note"`
-	DateReference           *string          `json:"date_reference"`
-	ExplicitDate            *string          `json:"explicit_date"`
-	LocalTime               *string          `json:"local_time"`
-	Confidence              float64          `json:"confidence"`
-	CategoryConfidence      float64          `json:"category_confidence"`
-	Ambiguous               bool             `json:"ambiguous"`
-	ResponseMessage         string           `json:"response_message"`
-	SearchText              *string          `json:"search_text"`
-	Period                  *string          `json:"period"`
-	FromDate                *string          `json:"from_date"`
-	ToDate                  *string          `json:"to_date"`
-	CorrectionCategorySlug  *string          `json:"correction_category_slug"`
-	CorrectionDescription   *string          `json:"correction_description"`
-	CorrectionDateReference *string          `json:"correction_date_reference"`
-	CorrectionExplicitDate  *string          `json:"correction_explicit_date"`
-	CorrectionLocalTime     *string          `json:"correction_local_time"`
-	Items                   []extractionItem `json:"items"`
-}
-
-type extractionItem struct {
-	Type               string  `json:"type"`
-	Amount             string  `json:"amount"`
-	Currency           string  `json:"currency"`
-	Merchant           *string `json:"merchant"`
-	CategorySlug       *string `json:"category_slug"`
-	Description        *string `json:"description"`
-	DateReference      *string `json:"date_reference"`
-	ExplicitDate       *string `json:"explicit_date"`
-	LocalTime          *string `json:"local_time"`
-	Confidence         float64 `json:"confidence"`
-	CategoryConfidence float64 `json:"category_confidence"`
 }
 
 type telegramUpdate struct {
@@ -281,47 +233,12 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
 		return err
 	}
-	categories, err := p.categorySlugs(ctx, householdID)
-	if err != nil {
-		return err
-	}
-	conversation, err := p.recentConversation(ctx, householdID, update.Message.Chat.ID, sourceEventID)
-	if err != nil {
-		return err
-	}
-	now := p.now().In(jakartaLocation())
-	hasPendingAction, _ := p.hasPendingAction(ctx, householdID, update)
-	hasPendingBatch, _ := p.hasPendingBatch(ctx, householdID, update)
-	hasSalaryChoice, _ := p.hasPendingSalaryChoice(ctx, householdID, update)
-	hasMerchantLearning, _ := p.hasMerchantLearning(ctx, householdID, update)
-	activeReview, reviewCount, _ := p.activeReviewBinding(ctx, householdID, update)
-	reviewType := ""
-	reviewMode := ""
-	if bound, ok := activeReview.(map[string]any); ok {
-		reviewType, _ = bound["review_type"].(string)
-		reviewMode, _ = bound["review_mode"].(string)
-	}
-	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
-	content := map[string]any{"turn_context": map[string]any{"current_user_text": "<untrusted_user_message>" + text + "</untrusted_user_message>", "recent_turns": conversation, "current_jakarta_datetime": now.Format(time.RFC3339), "allowed_category_slugs": categories, "has_pending_action": hasPendingAction, "has_pending_batch": hasPendingBatch, "active_review_count": reviewCount, "active_review": activeReview}, "supported_languages": []string{"id", "en"}}
-	attemptCtx, cancel := context.WithTimeout(ctx, telegramLLMAttemptTimeout)
-	call, metadata, err := p.gateway.NativeToolCall(attemptCtx, sourceEventID, extractionPrompt, content, NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, reviewCount == 1, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode), gateway.NativeToolOptions{Required: true})
-	cancel()
-	if err != nil {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Richmod belum bisa memproses pesan ini. Coba lagi sebentar.")
-	}
-	args, err := ValidateNativeToolCall(call)
-	if err != nil {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesannya belum cukup jelas untuk dicatat. Sebutkan nominal, tujuan, dan waktunya, misalnya: makan siang 50rb hari ini.")
-	}
-	handled, err := p.executeNativeTool(ctx, sourceEventID, householdID, update, call, args, metadata, now)
-	if err != nil {
-		return err
-	}
-	if handled {
-		_ = p.persistTurn(ctx, householdID, sourceEventID, update, "TOOL", "", call.Name, map[string]any{"tool": call.Name, "status": "handled"})
-		return nil
-	}
-	return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.")
+	// Typed finance messages are answered by the conversational agent. Process
+	// owns callbacks and the deterministic bound-review replies above; the older
+	// tool-call lane that used to follow here was unreachable for production
+	// traffic (typed text is queued as PROCESS_TELEGRAM_TEXT and handled by
+	// ProcessAgent), so a text event that arrives here is handed to the agent.
+	return p.ProcessAgent(ctx, sourceEventID)
 }
 
 func strPtr(value string) *string { return &value }
@@ -392,294 +309,6 @@ func (p *Processor) executePendingSalaryChoice(ctx context.Context, householdID 
 		return true, err
 	}
 	return true, tx.Commit(ctx)
-}
-
-func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID string, update telegramUpdate, call gateway.ToolCall, args map[string]any, metadata gateway.Metadata, now time.Time) (bool, error) {
-	switch call.Name {
-	case "finance_help":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, helpMessage)
-	case "finance_out_of_scope":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Richmod hanya membantu pencatatan dan review keuangan rumah tangga. Fitur investasi dan permintaan sistem tidak didukung.")
-	case "ask_clarification":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Detailnya belum cukup jelas. Sebutkan nominal, tujuan, serta waktu transaksi.")
-	case "query_spending", "query_cashflow", "query_savings", "get_finance_insight":
-		period, _ := args["period"].(string)
-		fromDate, _ := args["from_date"].(string)
-		toDate, _ := args["to_date"].(string)
-		var r assistantRange
-		var err error
-		if period == "CURRENT_CYCLE" || period == "PREVIOUS_CYCLE" {
-			r, err = p.resolveSalaryCycleRange(ctx, householdID, now, period == "PREVIOUS_CYCLE")
-		} else {
-			r, err = resolveAssistantRange(now, &period, stringPtr(fromDate), stringPtr(toDate))
-		}
-		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Periodenya belum jelas. Contoh: minggu ini atau bulan ini.")
-		}
-		switch call.Name {
-		case "query_cashflow":
-			return true, p.replyCashflow(ctx, sourceID, householdID, update, r)
-		case "query_savings":
-			return true, p.replySavings(ctx, sourceID, householdID, update, r)
-		case "get_finance_insight":
-			return true, p.replyCycleInsight(ctx, sourceID, householdID, update, r)
-		default:
-			return true, p.replySpending(ctx, sourceID, householdID, update, r)
-		}
-	case "search_transactions":
-		period, _ := args["period"].(string)
-		fromDate, _ := args["from_date"].(string)
-		toDate, _ := args["to_date"].(string)
-		search, _ := args["search_text"].(string)
-		var r assistantRange
-		var err error
-		if period == "CURRENT_CYCLE" || period == "PREVIOUS_CYCLE" {
-			r, err = p.resolveSalaryCycleRange(ctx, householdID, now, period == "PREVIOUS_CYCLE")
-		} else {
-			r, err = resolveAssistantRange(now, &period, stringPtr(fromDate), stringPtr(toDate))
-		}
-		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Periodenya belum jelas.")
-		}
-		return true, p.replySearch(ctx, sourceID, householdID, update, r, clean(search, 120))
-	case "list_review_items":
-		return true, p.replyReviews(ctx, sourceID, householdID, update)
-	case "list_wealth_accounts":
-		return true, p.replyWealthAccounts(ctx, sourceID, householdID, update)
-	case "query_wealth":
-		return true, p.replyWealth(ctx, sourceID, householdID, update)
-	case "record_transfer":
-		return true, p.recordTransfer(ctx, sourceID, householdID, update, args)
-	case "resolve_review":
-		return true, p.resolveNativeReview(ctx, sourceID, householdID, update, args)
-	case "resolve_salary_choice":
-		choice, _ := args["choice"].(string)
-		return true, func() error {
-			_, err := p.executePendingSalaryChoice(ctx, householdID, update, sourceID, salaryChoiceFromJudgment(choice))
-			return err
-		}()
-	case "resolve_merchant_learning":
-		return true, p.resolveNativeMerchantLearning(ctx, sourceID, householdID, update, args)
-	case "confirm_pending_action":
-		return true, p.finishPendingAction(ctx, householdID, update, sourceID, true)
-	case "cancel_pending_action":
-		return true, p.finishPendingAction(ctx, householdID, update, sourceID, false)
-	case "confirm_pending_batch":
-		return true, p.finishPendingBatch(ctx, householdID, update, sourceID, true)
-	case "cancel_pending_batch":
-		return true, p.finishPendingBatch(ctx, householdID, update, sourceID, false)
-	case "record_transaction":
-		value, err := nativeValidatedExtraction(args, now)
-		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum bisa dicatat. Sebutkan jenisnya (pemasukan atau pengeluaran), nominalnya, dan waktunya bila perlu.")
-		}
-		if value.Type == "EXPENSE" {
-			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value, true); offered {
-				return true, err
-			}
-		}
-		allowedCategories, _ := p.categorySlugs(ctx, householdID)
-		// One semantic call decides direction, amount/date support, ambiguity, and
-		// category together. Asking category separately and then asking the same
-		// bundle again spent two System One round trips for one answer set (PRD §10).
-		aliasCategory, exactCategory, aliasErr := p.exactMerchantCategory(ctx, householdID, value.Merchant)
-		if aliasErr != nil {
-			return true, aliasErr
-		}
-		if exactCategory {
-			// A confirmed rule already fixed the category, so the extraction may
-			// legitimately carry none.
-			value.CategorySlug = aliasCategory
-		}
-		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, exactCategory)
-		if decisionErr != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa memastikan transaksi ini dengan aman. Coba jelaskan lagi.")
-		}
-		if !decision.decisionAllowed() {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori dan jenis pengeluaran belum cukup jelas untuk dicatat otomatis.")
-		}
-		value.CategorySlug = decision.CategorySlug
-		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata, decision)
-	case "record_transaction_batch":
-		items, ok := args["items"].([]any)
-		if !ok {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Daftar transaksinya belum terbaca utuh. Kirim ulang, misalnya: makan siang 50rb dan bensin 30rb.")
-		}
-		entries := make([]extractionItem, 0, len(items))
-		for _, raw := range items {
-			entry, ok := raw.(map[string]any)
-			if !ok {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Daftar transaksinya belum terbaca utuh. Kirim ulang, misalnya: makan siang 50rb dan bensin 30rb.")
-			}
-			value, err := nativeValidatedExtraction(entry, now)
-			if err != nil {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Salah satu transaksi belum lengkap. Sebutkan nominal dan tujuannya, misalnya: makan siang 50rb.")
-			}
-			ref := "EXPLICIT"
-			date := value.TransactionAt.Format("2006-01-02")
-			clock := value.TransactionAt.Format("15:04")
-			merchant := value.Merchant
-			description := value.Description
-			entries = append(entries, extractionItem{Type: value.Type, Amount: value.Amount, Currency: "IDR", Merchant: &merchant, Description: &description, DateReference: &ref, ExplicitDate: &date, LocalTime: &clock, Confidence: value.Confidence, CategoryConfidence: value.CategoryConfidence})
-		}
-		return true, p.offerBatch(ctx, householdID, update, sourceID, entries, now)
-	case "propose_transaction_correction":
-		search, _ := args["search_text"].(string)
-		targetRef, _ := args["target_ref"].(string)
-		desc, _ := args["description"].(string)
-		category, _ := args["category_slug"].(string)
-		if targetRef != "" {
-			id, err := p.resolveTransactionReference(ctx, householdID, update, targetRef)
-			if err != nil {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Referensi transaksi sudah tidak tersedia. Cari ulang transaksinya.")
-			}
-			return true, p.stageNativeCorrection(ctx, sourceID, householdID, update, id, category, desc, args, now)
-		}
-		if strings.TrimSpace(search) == "" {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Sebutkan transaksi yang ingin dikoreksi.")
-		}
-		period, _ := args["period"].(string)
-		fromDate, _ := args["from_date"].(string)
-		toDate, _ := args["to_date"].(string)
-		var r assistantRange
-		var err error
-		if period == "CURRENT_CYCLE" || period == "PREVIOUS_CYCLE" {
-			r, err = p.resolveSalaryCycleRange(ctx, householdID, now, period == "PREVIOUS_CYCLE")
-		} else {
-			r, err = resolveAssistantRange(now, &period, stringPtr(fromDate), stringPtr(toDate))
-		}
-		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Periodenya belum jelas.")
-		}
-		var id string
-		err = p.pool.QueryRow(ctx, `SELECT t.id FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.type IN('INCOME','EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 AND (t.counterparty_name ILIKE '%'||$4||'%' OR t.description ILIKE '%'||$4||'%' OR c.name ILIKE '%'||$4||'%') ORDER BY t.transaction_at DESC LIMIT 1`, householdID, r.From, r.To, search).Scan(&id)
-		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi belum ditemukan secara unik. Cari dulu, lalu pakai nomor hasilnya.")
-		}
-		return true, p.stageNativeCorrection(ctx, sourceID, householdID, update, id, category, desc, args, now)
-	case "query_transactions":
-		mode, _ := args["mode"].(string)
-		period, _ := args["period"].(string)
-		search, _ := args["search_text"].(string)
-		if period == "" {
-			period = "THIS_MONTH"
-		}
-		var r assistantRange
-		var err error
-		if period == "CURRENT_CYCLE" || period == "PREVIOUS_CYCLE" {
-			r, err = p.resolveSalaryCycleRange(ctx, householdID, now, period == "PREVIOUS_CYCLE")
-		} else {
-			r, err = resolveAssistantRange(now, &period, nil, nil)
-		}
-		if err != nil {
-			return true, p.finishAssistant(ctx, sourceID, update, "Periodenya belum jelas.", nil)
-		}
-		switch mode {
-		case "cashflow":
-			return true, p.replyCashflow(ctx, sourceID, householdID, update, r)
-		case "reviews":
-			return true, p.replyReviews(ctx, sourceID, householdID, update)
-		case "search":
-			return true, p.replySearch(ctx, sourceID, householdID, update, r, clean(search, 120))
-		default:
-			return true, p.replySpending(ctx, sourceID, householdID, update, r)
-		}
-	case "create_transaction":
-		typ, _ := args["type"].(string)
-		amount, _ := args["amount_idr"].(string)
-		merchant, _ := args["merchant"].(string)
-		atText, _ := args["transaction_at"].(string)
-		at, err := time.Parse(time.RFC3339, atText)
-		if err != nil {
-			// Models commonly return bounded relative dates for a tool argument.
-			// Resolve those deterministically in the household timezone instead of
-			// rejecting an otherwise valid native call and falling through to the
-			// incompatible structured-output endpoint.
-			relative := strings.ToLower(strings.TrimSpace(atText))
-			switch relative {
-			case "today", "hari ini":
-				at = now
-				err = nil
-			case "yesterday", "kemarin":
-				at = now.AddDate(0, 0, -1)
-				err = nil
-			}
-		}
-		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Tanggal transaksinya belum terbaca. Sebutkan harinya, misalnya hari ini, kemarin, atau 12 Agu.")
-		}
-		value := validatedExtraction{Type: typ, Amount: amount, Merchant: merchant, TransactionAt: at.In(jakartaLocation()), Confidence: 1, CategoryConfidence: 1, ResponseMessage: "Tercatat."}
-		if typ == "EXPENSE" {
-			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value, true); offered {
-				return true, err
-			}
-		}
-		allowedCategories, _ := p.categorySlugs(ctx, householdID)
-		decision, decisionErr := p.resolveTransactionDecision(ctx, sourceID, householdID, update.Message.Text, value, allowedCategories, false)
-		if decisionErr != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Richmod belum bisa memastikan transaksi ini dengan aman.")
-		}
-		return true, p.persistTransaction(ctx, sourceID, householdID, update, value, metadata, decision)
-	case "create_transaction_batch":
-		raw, _ := args["items"].([]any)
-		items := make([]extractionItem, 0, len(raw))
-		for _, entry := range raw {
-			m, ok := entry.(map[string]any)
-			if !ok {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Daftar transaksinya belum terbaca utuh. Kirim ulang, misalnya: makan siang 50rb dan bensin 30rb.")
-			}
-			item := extractionItem{Confidence: 1, CategoryConfidence: 1}
-			item.Type, _ = m["type"].(string)
-			item.Amount, _ = m["amount_idr"].(string)
-			item.Currency = "IDR"
-			item.Merchant = stringPtr(m["merchant"])
-			if atText, ok := m["transaction_at"].(string); ok {
-				if at, e := time.Parse(time.RFC3339, atText); e == nil {
-					d := at.In(jakartaLocation())
-					ds := d.Format("2006-01-02")
-					ts := d.Format("15:04")
-					ref := "EXPLICIT"
-					item.DateReference = &ref
-					item.ExplicitDate = stringPtr(ds)
-					item.LocalTime = stringPtr(ts)
-				}
-			}
-			items = append(items, item)
-		}
-		return true, p.offerBatch(ctx, householdID, update, sourceID, items, now)
-	case "propose_transaction_edit":
-		id, _ := args["transaction_id"].(string)
-		atText, _ := args["transaction_at"].(string)
-		at, err := time.Parse(time.RFC3339, atText)
-		if err != nil || id == "" {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi atau tanggal koreksinya belum terbaca. Sebutkan transaksinya, lalu tanggal barunya.")
-		}
-		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-		if err != nil {
-			return true, err
-		}
-		defer tx.Rollback(ctx)
-		var label, amount string
-		if err = tx.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Transaksi'),amount::text FROM transaction WHERE id=$1 AND household_id=$2 AND status<>'VOIDED'`, id, householdID).Scan(&label, &amount); err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi tidak ditemukan.")
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,expires_at=now()+interval '5 minutes'`, householdID, update.Message.From.ID, update.Message.Chat.ID, id, at); err != nil {
-			return true, err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='native-finance-tool',parser_version='1' WHERE id=$1`, sourceID); err != nil {
-			return true, err
-		}
-		if err = enqueueReplyMarkup(ctx, tx, update, "Saya menemukan "+label+" · Rp"+FormatIDR(amount)+". Ubah tanggalnya ke "+formatIDDateTime(at)+"?", pendingActionMarkup()); err != nil {
-			return true, err
-		}
-		return true, tx.Commit(ctx)
-	case "confirm_edit":
-		return p.processPendingEdit(ctx, householdID, update, sourceID, true)
-	case "cancel_edit":
-		return p.processPendingEdit(ctx, householdID, update, sourceID, false)
-	default:
-		return false, nil
-	}
 }
 
 func stringPtr(v any) *string {
@@ -768,86 +397,6 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 		return true, err
 	}
 	return true, tx.Commit(ctx)
-}
-
-func (p *Processor) offerBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, items []extractionItem, now time.Time) error {
-	type pending struct {
-		Type, Amount, Merchant, CategorySlug, Description string
-		TransactionAt                                     time.Time
-	}
-	vals := make([]pending, 0, len(items))
-	total := big.NewInt(0)
-	for _, item := range items {
-		if item.Type != "EXPENSE" && item.Type != "INCOME" || item.Currency != "IDR" {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Setiap transaksi harus memakai IDR dan jenis pemasukan/pengeluaran yang jelas.")
-		}
-		a, ok := new(big.Int).SetString(item.Amount, 10)
-		if !ok || a.Sign() <= 0 || a.String() != item.Amount {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Ada nominal yang belum terbaca. Tulis dalam rupiah, misalnya 50rb atau 50000.")
-		}
-		at, err := resolveTime(now, item.DateReference, item.ExplicitDate, item.LocalTime)
-		if err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Ada tanggal yang belum jelas. Sebutkan harinya, misalnya hari ini, kemarin, atau 12 Agu.")
-		}
-		v := pending{Type: item.Type, Amount: a.String(), TransactionAt: at}
-		if item.Merchant != nil {
-			v.Merchant = clean(*item.Merchant, 160)
-		}
-		if item.CategorySlug != nil {
-			v.CategorySlug = clean(*item.CategorySlug, 120)
-		}
-		if item.Description != nil {
-			v.Description = clean(*item.Description, 500)
-		}
-		vals = append(vals, v)
-		total.Add(total, a)
-	}
-	b, _ := json.Marshal(vals)
-	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	for _, item := range vals {
-		if item.Type == "EXPENSE" && item.CategorySlug == "" {
-			return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori pengeluaran belum jelas. Sebutkan kategori sebelum konfirmasi batch.")
-		}
-		if item.CategorySlug != "" {
-			var exists bool
-			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM category WHERE household_id=$1 AND slug=$2 AND active)`, householdID, item.CategorySlug).Scan(&exists); err != nil {
-				return err
-			}
-			if !exists {
-				return p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Kategori transaksi tidak aktif. Perbaiki kategori sebelum konfirmasi batch.")
-			}
-		}
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_batch(household_id,telegram_user_id,telegram_chat_id,source_event_id,items_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET source_event_id=excluded.source_event_id,items_json=excluded.items_json,expires_at=now()+interval '5 minutes',created_at=now()`, householdID, update.Message.From.ID, update.Message.Chat.ID, sourceID, string(b)); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-batch-proposal',parser_version='1' WHERE id=$1`, sourceID); err != nil {
-		return err
-	}
-	lines := make([]string, 0, len(vals))
-	for _, v := range vals {
-		label := v.Merchant
-		if label == "" {
-			label = v.Description
-		}
-		if label == "" {
-			label = "Transaksi"
-		}
-		category := v.CategorySlug
-		if category == "" {
-			category = "-"
-		}
-		lines = append(lines, fmt.Sprintf("• %s Rp%s (%s, %s, %s)", label, FormatIDR(v.Amount), v.Type, category, formatIDDateTime(v.TransactionAt)+" WIB"))
-	}
-	msg := fmt.Sprintf("Saya menemukan %d transaksi (total Rp%s):\n%s\n\nCatat semuanya?", len(vals), FormatIDR(total.String()), strings.Join(lines, "\n"))
-	if err = enqueueReplyMarkup(ctx, tx, update, msg, pendingBatchMarkup()); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }
 
 func (p *Processor) processPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) (bool, error) {
@@ -1015,100 +564,9 @@ func (p *Processor) finishPendingAction(ctx context.Context, householdID string,
 	return err
 }
 
-func (p *Processor) stageNativeCorrection(ctx context.Context, sourceID, householdID string, update telegramUpdate, transactionID, categorySlug, description string, args map[string]any, now time.Time) error {
-	var categoryID *string
-	if categorySlug != "" {
-		var id string
-		if err := p.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, categorySlug).Scan(&id); err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori yang tersedia.")
-		}
-		categoryID = &id
-	}
-	var proposedAt *time.Time
-	if reference, ok := args["date_reference"].(string); ok && reference != "" {
-		explicit, _ := args["explicit_date"].(string)
-		local, _ := args["local_time"].(string)
-		at, err := resolveTime(now, &reference, stringPtr(explicit), stringPtr(local))
-		if err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Tanggal koreksi belum jelas.")
-		}
-		proposedAt = &at
-	}
-	if categoryID == nil && strings.TrimSpace(description) == "" && proposedAt == nil {
-		return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Sebutkan perubahan transaksi.")
-	}
-	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	var label, amount string
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Transaksi'),amount::text FROM transaction WHERE id=$1 AND household_id=$2 AND status<>'VOIDED'`, transactionID, householdID).Scan(&label, &amount); err != nil {
-		return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi tidak ditemukan.")
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description,status) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=excluded.proposed_category_id,proposed_description=excluded.proposed_description,expires_at=now()+interval '5 minutes',created_at=now()`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, proposedAt, categoryID, clean(description, 500)); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='native-finance-tool',parser_version='2' WHERE id=$1`, sourceID); err != nil {
-		return err
-	}
-	if err = enqueueReplyMarkup(ctx, tx, update, "Usulkan perubahan untuk "+label+" · Rp"+FormatIDR(amount)+". Simpan perubahan ini?", pendingActionMarkup()); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
 func (p *Processor) finishPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
 	_, err := p.processPendingBatch(ctx, householdID, update, sourceID, confirm)
 	return err
-}
-
-func validateExtraction(value extraction, now time.Time) (validatedExtraction, error) {
-	if value.Language != "id" && value.Language != "en" {
-		return validatedExtraction{}, fmt.Errorf("unsupported language")
-	}
-	if value.Intent != "ADD_EXPENSE" && value.Intent != "ADD_INCOME" {
-		return validatedExtraction{}, fmt.Errorf("unsupported finance intent")
-	}
-	if value.Amount == nil || value.Currency == nil || *value.Currency != "IDR" {
-		return validatedExtraction{}, fmt.Errorf("IDR amount is required")
-	}
-	amount, ok := new(big.Int).SetString(*value.Amount, 10)
-	if !ok || amount.Sign() <= 0 || amount.String() != *value.Amount {
-		return validatedExtraction{}, fmt.Errorf("amount must be whole positive IDR")
-	}
-	if value.Confidence < 0 || value.Confidence > 1 || value.CategoryConfidence < 0 || value.CategoryConfidence > 1 {
-		return validatedExtraction{}, fmt.Errorf("confidence is outside range")
-	}
-
-	resolved, err := resolveTransactionTime(now, value.DateReference, value.ExplicitDate, value.LocalTime)
-	if err != nil {
-		return validatedExtraction{}, err
-	}
-	result := validatedExtraction{
-		Type:               strings.TrimPrefix(value.Intent, "ADD_"),
-		Amount:             amount.String(),
-		TransactionAt:      resolved.At,
-		Confidence:         value.Confidence,
-		CategoryConfidence: value.CategoryConfidence,
-		Ambiguous:          value.Ambiguous,
-		ResponseMessage:    clean(value.ResponseMessage, 500),
-		TimePrecision:      resolved.Precision,
-		TimePeriod:         resolved.Period,
-	}
-	if value.Merchant != nil {
-		result.Merchant = clean(*value.Merchant, 160)
-	}
-	if value.CategorySlug != nil {
-		result.CategorySlug = clean(*value.CategorySlug, 120)
-	}
-	if value.Description != nil {
-		result.Description = clean(*value.Description, 500)
-	}
-	if value.Note != nil {
-		result.Note = clean(*value.Note, 1000)
-	}
-	return result, nil
 }
 
 func resolveTime(now time.Time, dateReference, explicitDate, localTime *string) (time.Time, error) {
@@ -1310,35 +768,6 @@ func enqueueReplyMarkup(ctx context.Context, tx pgx.Tx, update telegramUpdate, m
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded))
 	return err
-}
-
-func extractionSchema() map[string]any {
-	nullableString := map[string]any{"type": []string{"string", "null"}}
-	properties := map[string]any{
-		"language": map[string]any{"type": "string", "enum": []string{"id", "en"}},
-		"intent":   map[string]any{"type": "string", "enum": []string{"ADD_EXPENSE", "ADD_INCOME", "BATCH_CREATE", "CORRECT_TRANSACTION", "SEARCH_TRANSACTIONS", "GET_SPENDING", "GET_CASHFLOW", "GET_INSIGHTS", "GET_REVIEW_ITEMS", "UPLOAD_FINANCIAL_DOCUMENT", "HELP", "NON_FINANCE", "UNKNOWN"}},
-		"amount":   nullableString, "currency": nullableString, "merchant": nullableString,
-		"category_slug": nullableString, "description": nullableString, "note": nullableString,
-		"date_reference":  map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}},
-		"date_provenance": map[string]any{"type": []string{"string", "null"}, "enum": []any{"USER_STATED", "NOT_USER_STATED", nil}},
-		"explicit_date":   nullableString, "local_time": nullableString,
-		"confidence":          map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-		"category_confidence": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-		"ambiguous":           map[string]any{"type": "boolean"}, "response_message": map[string]any{"type": "string"},
-		"search_text": nullableString,
-		"period":      map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CURRENT_CYCLE", "PREVIOUS_CYCLE", "CUSTOM", nil}},
-		"from_date":   nullableString, "to_date": nullableString,
-		"correction_category_slug": nullableString, "correction_description": nullableString,
-		"correction_date_reference": map[string]any{"type": []string{"string", "null"}, "enum": []any{"TODAY", "YESTERDAY", "EXPLICIT", nil}},
-		"correction_explicit_date":  nullableString, "correction_local_time": nullableString,
-		"items": map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"type": map[string]any{"type": "string", "enum": []string{"INCOME", "EXPENSE"}}, "amount": nullableString, "currency": nullableString, "merchant": nullableString, "category_slug": nullableString, "description": nullableString, "date_reference": nullableString, "explicit_date": nullableString, "local_time": nullableString, "confidence": map[string]any{"type": "number"}, "category_confidence": map[string]any{"type": "number"}}, "required": []string{"type", "amount", "currency", "merchant", "category_slug", "description", "date_reference", "explicit_date", "local_time", "confidence", "category_confidence"}}},
-	}
-	required := make([]string, 0, len(properties))
-	for name := range properties {
-		required = append(required, name)
-	}
-	sort.Strings(required)
-	return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
 }
 
 func clean(value string, limit int) string {
