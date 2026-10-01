@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 )
 
 // helpMessage is the one answer to /help, /start, and the model's finance_help
@@ -20,11 +22,38 @@ const helpMessage = "Richmod membantu mencatat keuangan keluarga.\n\n" +
 	"Kirim foto struk, slip gaji, atau bukti transfer untuk dicatat otomatis. " +
 	"Kalau ada yang belum jelas, Richmod bertanya lewat tombol atau meminta kamu membalas pesannya."
 
-// outOfScopeMessage is the one refusal for anything that is not household
-// finance. It says what Richmod does and where to see examples.
-const outOfScopeMessage = "Richmod hanya membantu pencatatan, pencarian, koreksi, arus kas, dan tinjauan keuangan keluarga. Ketik /help untuk contoh."
+// The refusals below each say what Richmod does and point at /help. They are
+// chosen by the model's finance_out_of_scope reason so a non-finance request
+// and an unsupported feature do not get the same answer.
+const (
+	outOfScopeMessage          = "Richmod hanya membantu pencatatan, pencarian, koreksi, arus kas, dan tinjauan keuangan keluarga. Ketik /help untuk contoh."
+	unsupportedFeatureMessage  = "Richmod belum mendukung fitur investasi atau perintah sistem. Ketik /help untuk contoh."
+	unsupportedLanguageMessage = "Richmod membaca pesan dalam bahasa Indonesia atau Inggris. Ketik /help untuk contoh."
+)
 
-const unsupportedFeatureMessage = "Richmod belum mendukung fitur investasi atau perintah sistem. Ketik /help untuk contoh."
+// outOfScopeReply maps the finance_out_of_scope reason enum to its refusal.
+func outOfScopeReply(reason string) string {
+	switch reason {
+	case "INVESTMENT_ACTION_UNSUPPORTED", "SYSTEM_REQUEST":
+		return unsupportedFeatureMessage
+	case "UNSUPPORTED_LANGUAGE":
+		return unsupportedLanguageMessage
+	default:
+		return outOfScopeMessage
+	}
+}
+
+// isHelpCommand reports whether a typed message is /help or /start, with an
+// optional @BotName suffix and trailing text. Typed text reaches the worker
+// through the agent lane, so this check must run before any model call.
+func isHelpCommand(text string) bool {
+	fields := strings.Fields(strings.ToLower(text))
+	if len(fields) == 0 {
+		return false
+	}
+	command, _, _ := strings.Cut(fields[0], "@")
+	return command == "/help" || command == "/start"
+}
 
 // botCommands is the menu Telegram shows next to the message box.
 var botCommands = []map[string]string{
@@ -53,6 +82,12 @@ func (b *Bot) SetCommands(ctx context.Context) error {
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("Telegram commands API returned HTTP %d", response.StatusCode)
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result) != nil || !result.OK {
+		return fmt.Errorf("Telegram commands API returned an invalid response")
 	}
 	return nil
 }

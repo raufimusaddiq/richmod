@@ -20,7 +20,7 @@ func TestHelpMessageGivesExamplesWithinTelegramLimit(t *testing.T) {
 	if utf8.RuneCountInString(helpMessage) > 4096 {
 		t.Fatal("help exceeds Telegram's message limit")
 	}
-	for _, message := range []string{outOfScopeMessage, unsupportedFeatureMessage} {
+	for _, message := range []string{outOfScopeMessage, unsupportedFeatureMessage, unsupportedLanguageMessage} {
 		if !strings.Contains(message, "/help") {
 			t.Errorf("refusal %q must point at /help", message)
 		}
@@ -33,7 +33,7 @@ func TestSetCommandsRegistersTheHelpMenu(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer server.Close()
 	bot := &Bot{token: "test-token", http: server.Client(), base: server.URL}
@@ -50,5 +50,45 @@ func TestSetCommandsRegistersTheHelpMenu(t *testing.T) {
 	}
 	if err := (&Bot{http: server.Client(), base: server.URL}).SetCommands(ctx); err == nil {
 		t.Fatal("an unconfigured bot must not call Telegram")
+	}
+}
+
+func TestSetCommandsRejectsOkFalse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":false,"description":"nope"}`))
+	}))
+	defer server.Close()
+	bot := &Bot{token: "test-token", http: server.Client(), base: server.URL}
+	if err := bot.SetCommands(context.Background()); err == nil {
+		t.Fatal("a 200 response with ok:false must be an error")
+	}
+}
+
+func TestIsHelpCommandMatchesTypedSlashCommands(t *testing.T) {
+	for _, text := range []string{"/help", "/HELP", "/start", "/help@RichmodBot", "  /start  ", "/start abc123 xyz", "/help tolong"} {
+		if !isHelpCommand(text) {
+			t.Errorf("%q must be a help command", text)
+		}
+	}
+	for _, text := range []string{"", "help", "/helpme", "/starting", "makan siang /help", "/hel"} {
+		if isHelpCommand(text) {
+			t.Errorf("%q must not be a help command", text)
+		}
+	}
+}
+
+func TestOutOfScopeReplyFollowsTheModelReason(t *testing.T) {
+	cases := map[string]string{
+		"NON_FINANCE":                   outOfScopeMessage,
+		"INVESTMENT_ACTION_UNSUPPORTED": unsupportedFeatureMessage,
+		"SYSTEM_REQUEST":                unsupportedFeatureMessage,
+		"UNSUPPORTED_LANGUAGE":          unsupportedLanguageMessage,
+		"":                              outOfScopeMessage,
+		"SOMETHING_NEW":                 outOfScopeMessage,
+	}
+	for reason, want := range cases {
+		if got := outOfScopeReply(reason); got != want {
+			t.Errorf("reason %q: got %q", reason, got)
+		}
 	}
 }

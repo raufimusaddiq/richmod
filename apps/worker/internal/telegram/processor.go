@@ -274,7 +274,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if sourceType == "TELEGRAM_CALLBACK" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
 	}
-	if strings.HasPrefix(strings.ToLower(text), "/help") || strings.HasPrefix(strings.ToLower(text), "/start") {
+	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, helpMessage)
 	}
 	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
@@ -398,7 +398,8 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 	case "finance_help":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, helpMessage)
 	case "finance_out_of_scope":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, unsupportedFeatureMessage)
+		reason, _ := args["reason"].(string)
+		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, outOfScopeReply(reason))
 	case "ask_clarification":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Detailnya belum cukup jelas. Sebutkan nominal, tujuan, serta waktu transaksi.")
 	case "query_spending", "query_cashflow", "query_savings", "get_finance_insight":
