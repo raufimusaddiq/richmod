@@ -157,7 +157,7 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 			if errors.Is(err, context.DeadlineExceeded) {
 				reason = "gateway_timeout"
 			}
-			return "", response.Metadata, reads, generationError{reason, err}
+			return "", response.Metadata, reads, generationError{reason: reason, cause: err}
 		}
 		calls := response.ToolCalls
 		if strings.TrimSpace(response.Text) != "" || len(calls) == 0 {
@@ -190,7 +190,7 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 			}
 			args, err := analyticscore.DecodeArgs(call.Name, call.Arguments)
 			if err != nil {
-				return "", response.Metadata, reads, generationError{"invalid_tool_arguments", err}
+				return "", response.Metadata, reads, generationError{reason: "invalid_tool_arguments", cause: err}
 			}
 			if args.CycleStart == nil || *args.CycleStart != selected {
 				return "", response.Metadata, reads, fmt.Errorf("analytical tool outside selected cycle")
@@ -200,7 +200,7 @@ func (p *Processor) generate(ctx context.Context, insightID, selected string, re
 		for _, call := range calls {
 			facts, err := read(ctx, call.Name, call.Arguments)
 			if err != nil {
-				return "", response.Metadata, reads, generationError{"analytical_read_failure", err}
+				return "", response.Metadata, reads, generationError{reason: "analytical_read_failure", cause: err}
 			}
 			if completeness, ok := facts["data_completeness"].(string); !ok || belowThreshold(completeness, "0.7000") {
 				return "", response.Metadata, reads, fmt.Errorf("insufficient current analytical data")

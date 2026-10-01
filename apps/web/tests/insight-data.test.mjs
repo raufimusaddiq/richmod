@@ -40,6 +40,17 @@ test("polling stops on success and failure", async () => {
   assert.equal(calls, 1);
 });
 
+test("default polling covers three worker attempts without increasing request frequency", async () => {
+  let calls = 0;
+  const delays = [];
+  const result = await pollInsight({ insightId: "current", wait: async milliseconds => delays.push(milliseconds), load: async () => [{ id: "current", status: ++calls === 90 ? "SUCCEEDED" : "PENDING" }] });
+  assert.equal(result.status, "SUCCEEDED");
+  assert.equal(calls, 90);
+  assert.equal(delays.length, 89);
+  assert.ok(delays.every(delay => delay === 5000));
+  assert.ok(delays.reduce((sum, delay) => sum + delay, 0) >= 3 * 125000 + 6000);
+});
+
 test("polling is bounded and honors cancellation", async () => {
   let calls = 0;
   await assert.rejects(pollInsight({ insightId: "missing", attempts: 2, wait: async () => {}, load: async () => { calls += 1; return []; } }), /insight polling timeout/);

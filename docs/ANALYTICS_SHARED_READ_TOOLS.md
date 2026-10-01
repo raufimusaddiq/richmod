@@ -64,8 +64,10 @@ Financial data appears only in native READ outputs, never initial model content.
 Responses retains earlier READ phases through `previous_response_id`. Chat
 Completions replays completed READ phases as ordered native assistant/tool
 messages, preserving early overview/baseline facts through later driver reads.
-Limits: 5 phases, 5 READs/phase, 8 READs/turn, 8 seconds/model call, 45 seconds
-overall. READs are fully validated before a batch executes. The selected cycle
+Limits: 5 phases, 5 READs/phase, 12 READs/turn, 30 seconds/model call, 120 seconds
+overall (125-second worker deadline). Each phase receives its remaining budget;
+the final phase or exhausted READ budget exposes and requires rendering only,
+after both mandatory fact READs. READs are fully validated before a batch executes. The selected cycle
 is server-bound; requests for a different cycle fail.
 
 `render_cycle_commentary` is presentation-only, exposed after overview and
@@ -79,6 +81,13 @@ or findings DTO is produced. No model prose is interpreted later. Existing
 successful insights remain verbatim with `historical=true`; pending old-contract
 jobs fail with an audited superseded-contract reason. API rate limiting remains
 one successful generation per household period/hour, with pending-job idempotency.
+
+Generation failures remain pending through the existing three-attempt queue
+policy; only the final failure marks the insight failed. Queue/audit diagnostics
+retain bounded safe reasons, never provider text or model arguments. Historical
+failed rows are not silently requeued. Browser polling is bounded to 90 attempts
+at 5-second intervals (about 7.5 minutes), covering all three worker attempts
+and backoff without polling after navigation or cancellation.
 
 ADR-015's 0.70 data-coverage gate remains deterministic and separate from model
 noteworthiness. Failed/insufficient-data commentary emits no fake analysis;
