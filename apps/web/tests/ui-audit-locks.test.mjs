@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { tree } from "./source.mjs";
 
-const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const text = path => path.endsWith("/") ? tree(path.slice(0, -1)) : readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const css = () => text("app/globals.css");
 
 const contrast = hex => {
@@ -72,8 +73,8 @@ test("loading, tab, and drawer states are announced to assistive technology", ()
   assert.match(text("app/inbox/page.js"), /onKeyDown={tabKeys}/);
   assert.match(text("app/inbox/page.js"), /event\.key === "ArrowRight"/);
   assert.match(text("app/transactions/page.js"), /role="dialog" aria-modal="true" aria-label="Detail transaksi"/);
-  assert.match(text("app/admin/page.js"), /function useDrawerA11y/);
-  assert.match(text("app/admin/page.js"), /if \(event\.key === "Escape"\) close\(\)/);
+  assert.match(tree("app/admin"), /function useDrawerA11y/);
+  assert.match(tree("app/admin"), /if \(event\.key === "Escape"\) close\(\)/);
 });
 
 test("toast dismissal is owned by a stable callback", () => {
@@ -108,7 +109,7 @@ test("mobile overflow button carries the pending-review badge", () => {
 });
 
 test("user-facing copy uses the shared Indonesian vocabulary", () => {
-  for (const file of ["app/admin/page.js", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
+  for (const file of ["app/admin/", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /Wealth Account|Review Inbox|Pemilik household|data household|alamat household|Antrean review|Joint \/ household/, `${file} avoids internal terms`);
   }
@@ -124,11 +125,11 @@ test("inbox badges are decorative and the control carries the accessible name", 
 });
 
 test("admin console uses the shared Tinjauan vocabulary", () => {
-  assert.doesNotMatch(text("app/admin/page.js"), /Memuat review|Per jenis review|<h2>Review<\/h2>|"Review"/);
+  assert.doesNotMatch(tree("app/admin"), /Memuat review|Per jenis review|<h2>Review<\/h2>|"Review"/);
 });
 
 test("destructive and text-entry choices use the shared dialog, not window.confirm/prompt", () => {
-  for (const file of ["app/settings/page.js", "app/household/page.js", "app/admin/page.js", "app/components/CycleDecisions.js"]) {
+  for (const file of ["app/settings/page.js", "app/household/page.js", "app/admin/", "app/components/CycleDecisions.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /window\.(confirm|prompt)\(|if \(!confirm\(/, `${file} avoids native dialogs`);
     assert.match(source, /useDialogs/, `${file} uses the shared dialog hook`);

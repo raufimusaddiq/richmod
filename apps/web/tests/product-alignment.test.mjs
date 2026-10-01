@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import test from "node:test";
+import { tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -225,7 +226,7 @@ test("public routes preserve the authenticated overview and dedicated login flow
 });
 
 test("admin console keeps platform tabs and redacts sensitive payloads", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   for (const label of ["overview", "jobs", "llm", "logs", "households", "users", "audit"]) assert.match(admin, new RegExp(`"${label}"`));
   assert.match(admin, /\/api\/v1\/admin\/overview/);
   assert.match(admin, /\/api\/v1\/admin\/jobs/);
@@ -236,7 +237,7 @@ test("admin console keeps platform tabs and redacts sensitive payloads", () => {
 });
 
 test("admin lists use bounded server filters and accessible detail actions", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   assert.match(admin, /useAdminList/);
   assert.match(admin, /nextCursor/);
   assert.match(admin, /Muat berikutnya/);
@@ -246,7 +247,7 @@ test("admin lists use bounded server filters and accessible detail actions", () 
 });
 
 test("admin console adapts tables and drawer for mobile", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   const styles = text("app/globals.css");
   assert.match(admin, /Children, cloneElement, isValidElement/);
   assert.match(admin, /"data-label": headers\[index\]/);
@@ -260,7 +261,7 @@ test("admin console adapts tables and drawer for mobile", () => {
 });
 
 test("admin audit defaults to combined bounded feed while retaining scoped views", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   assert.match(admin, /useState\("all"\)/);
   assert.match(admin, /\/api\/v1\/admin\/audit\/all/);
   assert.match(admin, /<option value="all">Semua<\/option>/);
@@ -269,7 +270,7 @@ test("admin audit defaults to combined bounded feed while retaining scoped views
 });
 
 test("admin user changes require confirmation", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   assert.match(admin, /confirm\(/);
   assert.match(admin, /ADMINISTRASI PLATFORM/);
   assert.match(text("app/globals.css"), /admin-table-wrap/);
