@@ -22,12 +22,18 @@ const ratio = (a, b) => {
 test("every text colour clears WCAG AA 4.5:1 on every surface", () => {
   const source = css();
   const token = name => source.match(new RegExp(`--${name}: (#[0-9a-f]{6});`))[1];
-  const surfaces = ["surface", "surface-strong", "canvas", "surface-muted", "income-soft", "expense-soft", "warning-soft", "danger-soft", "info-soft", "accent-soft"];
+  const surfaces = ["surface", "surface-strong", "canvas", "canvas-deep", "surface-muted", "income-soft", "expense-soft", "warning-soft", "danger-soft", "info-soft", "accent-soft", "pastel-peach", "pastel-mint"];
   for (const name of ["ink", "ink-soft", "muted", "faint", "income", "expense", "warning", "danger", "info", "accent"]) {
     for (const surface of surfaces) {
       const value = ratio(token(name), token(surface));
       assert.ok(value >= 4.5, `--${name} on --${surface} is ${value.toFixed(2)}:1`);
     }
+  }
+  assert.ok(ratio(token("surface-strong"), token("accent-hover")) >= 4.5, "primary button hover remains readable");
+  assert.ok(ratio(token("line-strong"), token("surface-strong")) >= 3, "input outlines remain visible");
+  assert.ok(ratio(token("accent"), token("canvas")) >= 3, "keyboard focus remains visible");
+  for (let index = 1; index <= 6; index++) {
+    assert.ok(ratio(token(`chart-category-${index}`), token("surface-strong")) >= 4.5, "donut labels remain readable");
   }
 });
 
