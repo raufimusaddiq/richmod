@@ -168,9 +168,10 @@ Web only: surface the API error text, controlled custom-range inputs with min/ma
 - **PR 2** also adds `expenseDelta` to each `history[]` entry (Go, with tests and
   the API doc): the ledger's change row is arithmetic, so it is served rather than
   subtracted in the browser.
-- **PR 2** adds new modules (`CycleLedger`, `lib/cycleLedger.js`, `CyclePaceChart`)
-  but does not split the existing `page.js`; several tests and the smoke script read
-  it directly. The split can follow when the tables move in PR 3.
+- **PR 2** added new modules (`CycleLedger`, `lib/cycleLedger.js`, `CyclePaceChart`)
+  without splitting the existing `page.js`; the split followed as a separate
+  behaviour-preserving refactor (functions moved verbatim into `shared.js`,
+  `CycleSections.js` and `CalendarReview.js`; tests read the directory).
 - **PR 2** draws the pace chart as the served running total plus served comparison
   references (dashed levels, equal-day markers). Previous-cycle and median daily
   curves are not served, so they are not drawn.

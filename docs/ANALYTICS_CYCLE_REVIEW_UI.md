@@ -25,6 +25,16 @@ shares, or significance in JavaScript. Browser math formats percentages and maps
 server amounts to visual lengths only. Invalid/failed responses show a retry
 state, never zero-valued financial facts or another cycle's stale result.
 
+## Code layout
+
+`app/analytics/page.js` owns URL selection, data loading (facts, commentary, the
+unsaved-draft guard) and composition. The pieces live beside it: `shared.js`
+(`SectionTitle`, `Metric`), `CycleSections.js` (position, comparison, changes,
+drivers, savings and Wealth, quality, meeting navigation) and `CalendarReview.js`
+(the calendar view). The ledger and pace chart are in `app/components`
+(`CycleLedger.js`, `Charts.js`) with their helpers in `app/lib/cycleLedger.js`.
+Tests read the whole directory with `tree("app/analytics")`.
+
 ## Cycle ledger — October 2, 2026
 
 The first section of the cycle view is a **cycle ledger**

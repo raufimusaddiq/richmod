@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { globalCss } from "./source.mjs";
+import { globalCss, tree } from "./source.mjs";
 import { changeWidth, cycleLabel, inclusiveEnd, measuredLabel, ratioLabel, readReviewSelection, selectionHref, signedMoney, transactionHref } from "../app/lib/cycleReview.js";
 import { money } from "../app/lib/format.js";
 
@@ -21,7 +21,7 @@ test("comparison labels expose the measured prefix, not the whole closed cycle",
 	assert.match(label, /30 Agu 2026/);
 	assert.doesNotMatch(label, /Sep/);
 	assert.equal(measuredLabel(null), "—");
-	const page = text("app/analytics/page.js");
+	const page = tree("app/analytics");
 	assert.match(page, /measuredLabel\(comparison.previous\)/);
   assert.match(page, /measuredLabel\(comparison.previousFullCycle\)/);
 	assert.match(page, /Batang menunjukkan besar selisih relatif, bukan persentase kenaikan/);
@@ -50,7 +50,7 @@ test("rent compares full cycles by default, not a zero equal-day prefix", () => 
   assert.equal(changeWidth(rent, [rent], "deltaVsPreviousFullCycle"), "0%");
   assert.equal(ratioLabel(rent.relativeDeltaVsPreviousFullCycle), "0%");
   assert.equal(signedMoney(rent.deltaVsPreviousFullCycle), money("0"));
-  const page = text("app/analytics/page.js");
+  const page = tree("app/analytics");
   assert.match(page, /signedMoney\(item.deltaVsPreviousFullCycle\)/);
   assert.match(page, /changeWidth\(item, items, "deltaVsPreviousFullCycle"\)/);
   assert.match(page, /Sebelumnya · hari yang sama/);
@@ -84,7 +84,7 @@ test("meeting step round-trips; ledger preserves step and cycle on return", () =
 });
 
 test("review page renders deterministic sections, native chart, and AI-disabled path", () => {
-  const page = text("app/analytics/page.js");
+  const page = tree("app/analytics");
   for (const section of ["position", "spending-shape", "changes", "drivers", "destinations", "household", "savings-wealth", "quality", "discussion"]) assert.match(page, new RegExp(`id="${section}"`));
   assert.match(page, /analytics\/cycle-review/);
   assert.match(page, /fetch\(`\/api\/v1\/insights\?\$\{query\}/);
@@ -99,13 +99,13 @@ test("review page renders deterministic sections, native chart, and AI-disabled 
 });
 
 test("review page keeps month-end inclusive bounds and no browser-side totals", () => {
-  const page = text("app/analytics/page.js");
+  const page = tree("app/analytics");
   assert.match(page, /measuredUntil/);
   assert.doesNotMatch(page, /reduce\(\(sum, item\) => sum \+ Number\(item\.[a-z]+/i);
 });
 
 test("cycle explanations use native disclosures without hiding financial facts", () => {
-  const page = text("app/analytics/page.js");
+  const page = tree("app/analytics");
   assert.match(page, /<details className="review-explainer"><summary>Tentang data ini<\/summary><p>\{description\}<\/p><\/details>/);
   assert.match(page, /<span>Refund <strong>\{money\(facts.cashflow.refund\)\}<\/strong><\/span>/);
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
@@ -131,7 +131,7 @@ test("review styles keep deterministic chart colours and a single accent", () =>
 });
 
 test("scan-first report keeps every comparison and evidence behind native drill-downs", () => {
-  const page = text("app/analytics/page.js");
+  const page = tree("app/analytics");
   assert.match(page, /className="comparison-bars" aria-label="Perbandingan pengeluaran bersih"/);
   assert.match(page, /className="change-ranking" aria-label="Perubahan kategori"/);
   assert.match(page, /<details className="review-daily"><summary>Perbandingan lengkap/);

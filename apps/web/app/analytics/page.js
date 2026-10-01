@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
-import { CategoryRankingChart, CyclePaceChart, CycleSpendingPatternChart, MonthlyCashflowChart } from "../components/Charts";
+import { CategoryRankingChart, CyclePaceChart, CycleSpendingPatternChart } from "../components/Charts";
 import CycleLedger from "../components/CycleLedger";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
@@ -11,10 +11,12 @@ import CycleDecisions from "../components/CycleDecisions";
 import useAuth from "../components/useAuth";
 import { dayLabel } from "../lib/chartData";
 import { adjacentCycles, paceReferences, verdictPairs } from "../lib/cycleLedger";
-import { amountLabel, changeWidth, cycleLabel, measuredLabel, qualityCopy, ratioLabel, readReviewSelection, reviewSteps, selectionHref, signedMoney, transactionHref } from "../lib/cycleReview";
-import { calendarErrorMessage, currentMonthKey, hasActivity, monthRowLabel, nextMonthKey, validateCustomRange } from "../lib/calendarReview";
-import { dateTime, money, monthLabel, typeLabel } from "../lib/format";
+import { cycleLabel, ratioLabel, readReviewSelection, selectionHref, transactionHref } from "../lib/cycleReview";
+import { money } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
+import { SectionTitle, Metric } from "./shared";
+import { MeetingNav, CyclePosition, ComparisonContext, ChangesTable, MerchantTable, CategoryDrivers, SavingsWealth, QualitySection } from "./CycleSections";
+import { CalendarReview } from "./CalendarReview";
 
 export default function AnalyticsPage() {
   return <Suspense fallback={<main className="loading" role="status">Memuat…</main>}><AnalyticsReview/></Suspense>;
@@ -229,205 +231,4 @@ function AnalyticsReview() {
       </>}
     </div>
   </AppShell>;
-}
-
-function SectionTitle({ id, title, description }) {
-  return <div className="section-title"><h2 id={id} tabIndex={-1}>{title}</h2>{description && <details className="review-explainer"><summary>Tentang data ini</summary><p>{description}</p></details>}</div>;
-}
-
-function MeetingNav({ step, selection, navigate }) {
-  const index = reviewSteps.findIndex(([id]) => id === step);
-  return <div className="meeting-controls">
-    <p role="status">{index + 1} / {reviewSteps.length} · {reviewSteps[index][1]} <small>Sesi tinjauan; keputusan disimpan terpisah.</small></p>
-    <nav aria-label="Langkah tinjauan siklus"><ol>{reviewSteps.map(([id, label], i) => <li key={id}><button type="button" className={id === step ? "active" : "secondary"} aria-current={id === step ? "step" : undefined} onClick={() => navigate({ step: id })}>{i + 1}. {label}</button></li>)}</ol></nav>
-    <div className="meeting-actions">
-      <button type="button" className="secondary" disabled={index === 0} onClick={() => navigate({ step: reviewSteps[index - 1][0] })}>Langkah sebelumnya</button>
-      {index < reviewSteps.length - 1 && <button type="button" onClick={() => navigate({ step: reviewSteps[index + 1][0] })}>Langkah berikutnya</button>}
-      <button type="button" className="secondary" onClick={() => navigate({ step: "" })}>{index === reviewSteps.length - 1 ? "Selesai meninjau" : "Tampilkan seluruh tinjauan"}</button>
-    </div>
-  </div>;
-}
-
-function Metric({ label, value }) {
-  return <div><dt>{label}</dt><dd>{value}</dd></div>;
-}
-
-function CyclePosition({ facts }) {
-  return <section id="position" className="review-section cycle-position" aria-labelledby="position-title">
-    <SectionTitle id="position-title" title="Posisi siklus" description="Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."/>
-    <dl className="cycle-outcome">
-      <div className="cycle-net"><dt>Arus kas bersih</dt><dd>{money(facts.cashflow.netCashflow)}</dd></div>
-      <Metric label="Pemasukan" value={money(facts.cashflow.income)}/>
-      <Metric label="Pengeluaran bersih" value={money(facts.cashflow.expense)}/>
-      <Metric label="Tabungan dialokasikan" value={money(facts.cashflow.savingsAllocated)}/>
-      <Metric label="Surplus belum dialokasikan" value={money(facts.cashflow.unallocatedSurplus)}/>
-    </dl>
-    <div className="cycle-footnote"><span>Refund <strong>{money(facts.cashflow.refund)}</strong></span><details className="review-explainer"><summary>Tentang surplus</summary><p>Surplus belum dialokasikan adalah arus kas bersih dikurangi transfer tabungan terkonfirmasi, bukan transaksi tambahan.</p></details></div>
-  </section>;
-}
-
-function ComparisonContext({ comparison, period }) {
-  const elapsed = comparison.mode === "ELAPSED_DAYS";
-  const rows = [[elapsed ? "Siklus ini · berjalan" : "Siklus ini", comparison.expense.amount], ["Sebelumnya · penuh", comparison.expense.previousFullCycle], ...(elapsed ? [["Sebelumnya · hari yang sama", comparison.expense.previous]] : []), [elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus", comparison.expense.median3]];
-  const maximum = Math.max(0, ...rows.map(([, value]) => Math.abs(Number(value))));
-  return <div className="review-baseline">
-    <div className="baseline-meta"><span>{measuredLabel(period)}{elapsed && " · berjalan"}</span><span>{comparison.previousFullCycle ? `Sebelumnya · penuh: ${measuredLabel(comparison.previousFullCycle)}` : "Belum ada siklus pembanding"}</span>{elapsed && <span>Hari yang sama, bukan siklus penuh: {measuredLabel(comparison.previous)}</span>}<span>{comparison.median3Available ? "Median 3 siklus tersedia" : `Median belum tersedia · ${comparison.eligibleCycles}/3 siklus`}</span></div>
-    <dl className="comparison-bars" aria-label="Perbandingan pengeluaran bersih">
-      {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd><span aria-hidden="true" className="comparison-track"><i data-negative={String(value).startsWith("-") || undefined} style={{ width: maximum ? `${Math.abs(Number(value)) / maximum * 100}%` : "0%" }}/></span><strong>{amountLabel(value)}</strong></dd></div>)}
-    </dl>
-    <dl className="comparison-deltas">
-      <Metric label="Selisih vs siklus sebelumnya (penuh)" value={`${signedMoney(comparison.expense.deltaVsPreviousFullCycle)} · ${ratioLabel(comparison.expense.relativeDeltaVsPreviousFullCycle)}`}/>
-      {elapsed && <Metric label="Selisih vs hari yang sama" value={signedMoney(comparison.expense.deltaVsPrevious)}/>}
-      <Metric label={elapsed ? "Selisih vs median 3 siklus · hari yang sama" : "Selisih vs median 3 siklus"} value={signedMoney(comparison.expense.deltaVsMedian3)}/>
-    </dl>
-  </div>;
-}
-
-function ChangesTable({ items, comparison, selected, select }) {
-  if (!items.length) return <p className="empty compact">Belum ada pengeluaran kategori pada periode ini atau pembandingnya.</p>;
-  const elapsed = comparison.mode === "ELAPSED_DAYS";
-  const deltaLabel = elapsed ? "Selisih vs hari yang sama" : "Selisih vs sebelumnya";
-  return <>
-    <div className="change-ranking-head" aria-hidden="true"><span>Kategori</span><span>{elapsed ? "Siklus berjalan" : "Siklus ini"}</span><span>Selisih vs siklus sebelumnya</span></div>
-    <ul className="change-ranking" aria-label="Perubahan kategori">
-      {items.map(item => <li key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
-        <button className="change-button" type="button" aria-controls="category-drivers" aria-pressed={selected === (item.id || "uncategorized")} onClick={() => select(item.id || "uncategorized")}>{item.name}</button>
-        <span><span className="visually-hidden">Siklus ini: </span>{money(item.amount)}</span>
-        <span><span className="visually-hidden">Selisih vs siklus sebelumnya (penuh): </span>{signedMoney(item.deltaVsPreviousFullCycle)}<small> · {ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></span>
-        <span className="change-track" aria-hidden="true"><i data-negative={String(item.deltaVsPreviousFullCycle).startsWith("-") || undefined} style={{ width: changeWidth(item, items, "deltaVsPreviousFullCycle") }}/></span>
-      </li>)}
-    </ul>
-    <small>Batang menunjukkan besar selisih relatif, bukan persentase kenaikan.</small>
-    <details className="review-daily"><summary>Perbandingan lengkap · median, persentase & kontribusi</summary>
-    <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Perbandingan kategori lengkap, geser untuk semua kolom"><table className="changes-table">
-    <caption>Perubahan kategori. Persentase tanpa pembanding positif ditampilkan sebagai —. Sebelumnya · penuh: {measuredLabel(comparison.previousFullCycle)}.</caption>
-    <thead><tr><th scope="col">Kategori / bukti</th><th scope="col">Siklus ini</th><th scope="col">{elapsed ? "Sebelumnya · hari yang sama" : "Sebelumnya · penuh"}</th><th scope="col">{elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus"}</th><th scope="col">{deltaLabel}</th><th scope="col">{elapsed ? "Selisih vs median · hari yang sama" : "Selisih vs median"}</th><th scope="col">{elapsed ? "Kontribusi ke selisih hari yang sama" : "Kontribusi ke selisih total"}</th>{elapsed && <><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th></>}</tr></thead>
-    <tbody>{items.map(item => <tr key={item.id || "uncategorized"} data-selected={selected === (item.id || "uncategorized")}>
-      <th scope="row">{item.name}</th>
-      <td>{money(item.amount)}</td><td>{amountLabel(item.previous)}</td><td>{amountLabel(item.median3)}</td>
-      <td>{signedMoney(item.deltaVsPrevious)}<small>{ratioLabel(item.relativeDeltaVsPrevious)}</small></td>
-      <td>{signedMoney(item.deltaVsMedian3)}<small>{ratioLabel(item.relativeDeltaVsMedian3)}</small></td>
-      <td>{ratioLabel(item.contributionToExpenseChange)}</td>
-      {elapsed && <><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td></>}
-    </tr>)}</tbody>
-  </table></div></details></>;
-}
-
-function MerchantTable({ items, period, categoryId }) {
-  if (!items.length) return <p className="empty compact">Belum ada merchant pendukung.</p>;
-  const elapsed = period.state === "ACTIVE";
-  return <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Merchant pendukung, geser untuk semua kolom"><table><caption>Merchant pendukung (maks. 10). Nilai bersih setelah refund.</caption><thead><tr><th scope="col">Merchant</th><th scope="col">Siklus ini</th><th scope="col">Sebelumnya · penuh</th><th scope="col">Selisih vs siklus sebelumnya (penuh)</th>{elapsed && <><th scope="col">Sebelumnya · hari yang sama</th><th scope="col">Selisih vs hari yang sama</th></>}<th scope="col">{elapsed ? "Median 3 siklus · hari yang sama" : "Median 3 siklus"}</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.id}:${index}`}><th scope="row">{item.id ? <a href={transactionHref(period, { merchantId: item.id, categoryId })}>{item.name}</a> : item.name}</th><td>{money(item.amount)}</td><td>{amountLabel(item.previousFullCycle)}</td><td>{signedMoney(item.deltaVsPreviousFullCycle)}<small>{ratioLabel(item.relativeDeltaVsPreviousFullCycle)}</small></td>{elapsed && <><td>{amountLabel(item.previous)}</td><td>{signedMoney(item.deltaVsPrevious)}</td></>}<td>{amountLabel(item.median3)}</td></tr>)}</tbody></table></div>;
-}
-
-function CategoryDrivers({ item, period }) {
-  return <div className="category-evidence">
-    <h3>{item.name}</h3>
-    <dl className="review-context"><Metric label="Porsi pengeluaran siklus" value={ratioLabel(item.shareOfExpense)}/><Metric label="Jumlah transaksi" value={item.count}/></dl>
-    <MerchantTable items={item.merchants} period={period} categoryId={item.id || "uncategorized"}/>
-    <div className="review-table-wrap" tabIndex={0} role="region" aria-label="Transaksi pendukung"><table><caption>Transaksi pendukung terbesar (maks. 10). Refund ditandai terpisah.</caption><thead><tr><th scope="col">Merchant / tanggal</th><th scope="col">Jenis</th><th scope="col">Jumlah</th><th scope="col">Bukti</th></tr></thead><tbody>{item.transactions.map(transaction => <tr key={transaction.id}><th scope="row">{transaction.merchant}<small>{dateTime(transaction.transactionAt)}</small></th><td>{typeLabel[transaction.type]}</td><td>{money(transaction.amount)}</td><td><a href={transactionHref(period, { categoryId: item.id || "uncategorized", id: transaction.id })}>Buka transaksi</a></td></tr>)}</tbody></table></div>
-    {!item.transactions.length && <p className="empty compact">Tidak ada transaksi terkonfirmasi kategori ini pada siklus terpilih.</p>}
-    <a href={transactionHref(period, { categoryId: item.id || "uncategorized" })}>Lihat transaksi {item.name} dalam periode ini</a>
-  </div>;
-}
-
-function SavingsWealth({ facts }) {
-  const { wealth, cashflow } = facts;
-  return <section id="savings-wealth" className="review-section" aria-labelledby="savings-title">
-    <SectionTitle id="savings-title" title="Tabungan & kekayaan" description="Alokasi tabungan adalah transfer terkonfirmasi; kekayaan adalah pengamatan saldo, bukan transaksi."/>
-    <div className="review-split">
-      <div><h3>Ke mana surplus dialokasikan?</h3><dl className="review-context">
-        <Metric label="Tabungan dialokasikan" value={money(cashflow.savingsAllocated)}/><Metric label="Belum dialokasikan" value={money(cashflow.unallocatedSurplus)}/>
-      </dl>
-      <dl className="review-destinations">{facts.savingsDestinations.map(item => <Metric key={item.id || item.name} label={item.name} value={money(item.amount)}/>)}</dl>
-      {!facts.savingsDestinations.length && <p>Belum ada alokasi tabungan terkonfirmasi.</p>}
-      </div>
-      <div><h3>Pergerakan kekayaan</h3><dl className="review-context">
-        <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/>
-      </dl>
-      {wealth.netWorthChange == null && <p>Belum dapat direkonsiliasi.</p>}
-      <details className="review-daily"><summary>Rincian saldo & rekonsiliasi</summary><dl className="review-context">
-        <Metric label="Kekayaan bersih sebelumnya" value={amountLabel(wealth.previous?.netWorth)}/><Metric label="Kekayaan bersih terbaru" value={amountLabel(wealth.current?.netWorth)}/>
-        <Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
-        <Metric label="Valuasi & perubahan lain" value={signedMoney(wealth.valuationAndOtherChange)}/>
-      </dl>
-      <details className="review-explainer"><summary>Tentang rekonsiliasi</summary><p>Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p></details>
-      {[["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]].map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <><a href={`/wealth?snapshotId=${encodeURIComponent(snapshot.id)}`}>{dateTime(snapshot.observedAt)}</a> · usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
-      {wealth.netWorthChange == null && <p>Pergerakan belum dapat direkonsiliasi. Periksa catatan dan kelengkapan akun.</p>}
-      </details>
-      <a href="/wealth">Buka detail Kekayaan</a></div>
-    </div>
-  </section>;
-}
-
-function QualitySection({ facts }) {
-  return <section id="quality" className="review-section" aria-labelledby="quality-title">
-    <SectionTitle id="quality-title" title="Kelengkapan data & tindak lanjut" description="Hal yang belum lengkap tetap terlihat. Tidak ada skor kepercayaan dari model."/>
-    {!facts.dataQuality.length ? <p>Tidak ada kendala yang tercatat untuk periode ini.</p> : <ul className="review-quality">{facts.dataQuality.map(blocker => {
-      const [label, action] = qualityCopy[blocker.kind] || ["Data tinjauan perlu dilengkapi", "Buka Inbox"];
-      const counted = ["OPEN_REVIEWS", "UNCATEGORIZED_EXPENSE", "PROCESSING_INCOMPLETE"].includes(blocker.kind);
-      return <li key={blocker.kind}><div><strong>{counted ? `${blocker.count} ` : ""}{label}</strong>{blocker.amount != null && <p>{money(blocker.amount)} terkonfirmasi.</p>}</div><a href={blocker.kind === "UNCATEGORIZED_EXPENSE" ? transactionHref(facts.period, { type: "EXPENSE", categoryId: "uncategorized" }) : ["/inbox", "/wealth", "/settings"].includes(blocker.action) ? blocker.action : "/inbox"}>{action}</a></li>;
-    })}</ul>}
-  </section>;
-}
-
-function CalendarReview({ selection, navigate }) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [reload, setReload] = useState(0);
-  const [from, setFrom] = useState(selection.from);
-  const [to, setTo] = useState(selection.to);
-  const [rangeError, setRangeError] = useState("");
-  const now = new Date(); // labels and picker bounds only; the API decides which months exist
-  const running = currentMonthKey(now);
-  useEffect(() => { setFrom(selection.from); setTo(selection.to); setRangeError(""); }, [selection.from, selection.to]);
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true); setError("");
-    const query = new URLSearchParams({ period: selection.from && selection.to ? "custom" : "calendar", range: selection.range });
-    if (selection.from && selection.to) { query.set("from", selection.from); query.set("to", selection.to); }
-    Promise.all(["cashflow", "categories", "merchants", "members"].map(async name => {
-      const response = await fetch(`/api/v1/analytics/${name}?${query}`, { signal: controller.signal });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(calendarErrorMessage(response.status, body?.error));
-      }
-      return [name, await response.json()];
-    })).then(entries => { if (!controller.signal.aborted) setData(Object.fromEntries(entries)); })
-      .catch(err => { if (err.name !== "AbortError") { setData(null); setError(err.message); } })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [selection.range, selection.from, selection.to, reload]);
-  const custom = Boolean(selection.from && selection.to);
-  const refreshing = loading && Boolean(data);
-  const latest = nextMonthKey(now);
-  function submitRange(event) {
-    event.preventDefault();
-    const problem = validateCustomRange(from, to, new Date());
-    setRangeError(problem);
-    if (!problem) navigate({ from, to });
-  }
-  const rangeProps = value => ({ type: "month", max: latest, required: true, "aria-invalid": rangeError ? true : undefined, "aria-describedby": rangeError ? "range-error" : undefined, value });
-  return <>
-    <div className="range-controls"><div className="range-control-group">{["3", "6", "12"].map(range => <button type="button" key={range} className={selection.range === range && !custom ? "active" : "secondary"} aria-pressed={selection.range === range && !custom} onClick={() => navigate({ range, from: "", to: "" })}>{range} Bulan</button>)}</div>
-      <form className="custom-range" onSubmit={submitRange} noValidate><label>Bulan mulai<input name="from" {...rangeProps(from)} onChange={event => setFrom(event.target.value)}/></label><label>Bulan selesai<input name="to" {...rangeProps(to)} onChange={event => setTo(event.target.value)}/></label><button className={custom ? "active" : "secondary"} aria-pressed={custom}>Kustom</button></form>
-    </div>
-    {rangeError && <div id="range-error" className="notice error feedback" role="alert"><span>{rangeError}</span></div>}
-    <p>{custom ? `Rentang bulan ${monthLabel(selection.from)} sampai ${monthLabel(selection.to)}` : `${selection.range} bulan terakhir`} · Asia/Jakarta</p>
-    <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
-    {loading && !data && !error && <Skeleton cards={1} rows={4}/>}
-    {refreshing && <p className="ledger-loading" role="status">Memuat rentang…</p>}
-    {data && <div className="calendar-body" data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
-      <section className="review-section analytics-chart"><SectionTitle title="Pemasukan vs pengeluaran" description="Bagaimana arus kas berubah antar bulan? Semua nilai berasal dari transaksi terkonfirmasi."/><MonthlyCashflowChart items={data.cashflow} height={280} partialPeriod={running}/>{data.cashflow.some(item => item.period === running) && <p className="ledger-legend">Bulan berjalan ({monthLabel(running)}) belum penuh.</p>}</section>
-      <section className="review-section"><SectionTitle title="Arus kas per bulan" description="Pengeluaran sudah dikurangi refund. Bulan tanpa transaksi terkonfirmasi ditandai, bukan ditulis sebagai Rp0."/><div className="review-table-wrap"><table><thead><tr><th scope="col">Bulan</th><th scope="col">Pemasukan</th><th scope="col">Pengeluaran bersih</th><th scope="col">Refund</th><th scope="col">Arus kas bersih</th></tr></thead><tbody>{data.cashflow.map(item => { const active = hasActivity(item); return <tr key={item.period}><th scope="row">{monthRowLabel(item.period, now)}{!active && <small>belum ada transaksi</small>}</th>{active ? <><td>{money(item.income)}</td><td>{money(item.expense)}</td><td>{money(item.refund)}</td><td>{money(item.netCashflow)}</td></> : <td colSpan={4}>—</td>}</tr>; })}</tbody></table></div></section>
-      <section className="review-section"><SectionTitle title="Distribusi kategori" description="Kategori mana yang menyusun pengeluaran rentang ini?"/><CategoryRankingChart items={data.categories}/></section>
-      <section className="review-section"><SectionTitle title="Merchant" description="Pengeluaran bersih setelah refund dalam rentang kalender."/><ValueList items={data.merchants}/></section>
-      <section className="review-section"><SectionTitle title="Catatan rumah tangga" description="Atribusi pencatatan ketika diketahui, bukan peringkat anggota."/><ValueList items={[...data.members].sort((a, b) => a.name.localeCompare(b.name, "id"))}/></section>
-      <p>Pembahasan dan tinjauan rumah tangga tersedia pada mode Siklus Gaji.</p>
-    </div>}
-  </>;
-}
-
-function ValueList({ items }) {
-  return items.length ? <dl className="review-values">{items.map((item, index) => <Metric key={item.id || `${item.name}:${index}`} label={item.name} value={money(item.amount)}/>)}</dl> : <p className="empty compact">Belum ada data pada rentang ini.</p>;
 }

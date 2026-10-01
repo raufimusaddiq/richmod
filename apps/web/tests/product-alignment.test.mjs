@@ -47,7 +47,7 @@ test("overview chart is backed by deterministic analytics API", () => {
 test("charts answer distinct dashboard, cycle, calendar, and category questions", () => {
   const charts = text("app/components/Charts.js");
   const home = text("app/page.js");
-  const analytics = text("app/analytics/page.js");
+  const analytics = tree("app/analytics");
   for (const name of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "MonthlyCashflowChart", "CategoryDonutChart", "CategoryRankingChart"]) assert.match(charts, new RegExp(`export function ${name}`));
   assert.match(home, /DashboardDailySpendingChart/);
   assert.match(home, /CategoryDonutChart/);
@@ -60,7 +60,7 @@ test("charts answer distinct dashboard, cycle, calendar, and category questions"
 });
 
 test("analytics commentary is selected-cycle tool-first prose, safely rendered after deterministic evidence", () => {
-  const analytics = text("app/analytics/page.js");
+  const analytics = tree("app/analytics");
   const card = text("app/components/InsightCard.js");
   assert.match(analytics, /api\/v1\/insights/);
   assert.match(analytics, /period: "cycle", cycle_start: cycleStart/);
@@ -81,7 +81,7 @@ test("analytics insight card owns its spacing", () => {
 });
 
 test("analytics components own semantics, spacing, controls, and chart colors", () => {
-  const analytics = text("app/analytics/page.js");
+  const analytics = tree("app/analytics");
   const charts = text("app/components/Charts.js");
   const styles = globalCss();
   assert.match(analytics, /className="analytics-flow cycle-review"/);
