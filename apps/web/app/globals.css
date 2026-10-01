@@ -239,6 +239,7 @@ label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; color: v
 .member-form button { flex: 0 0 auto; }
 .transaction-form { margin: 0; }
 .transaction-form label { min-width: 150px; flex: 1 1 150px; }
+.transaction-form label:has(input[type="datetime-local"]) { flex-basis: 100%; }
 .inline-form { margin: 16px 0; }
 .inline-form > * { width: auto; min-width: 150px; flex: 1 1 150px; }
 .inline-form button { flex: 0 0 auto; }
