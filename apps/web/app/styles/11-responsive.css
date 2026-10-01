@@ -1,0 +1,170 @@
+@media (max-width: 1180px) {
+  :root { --sidebar: 218px; }
+  .app-main { padding-inline: 30px; }
+  .overview-position-grid { grid-template-columns: minmax(300px, 1.2fr) minmax(240px, 1fr); }
+  .overview-allocation { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; border-top: 1px solid var(--line); }
+  .overview-allocation > div + div { border-top: 0; border-left: 1px solid var(--line); }
+  .overview-insights { grid-template-columns: minmax(0, 1fr); }
+  .category-visual { grid-template-columns: minmax(210px, .7fr) 1fr; align-items: center; gap: 22px; }
+  .document-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wealth-analysis-grid { grid-template-columns: minmax(0, 1fr); }
+  .wealth-change-equation { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .wealth-change-equation > i { display: none; }
+}
+
+@media (max-width: 1100px) {
+  .sidebar { display: none; }
+  .app-main { width: 100%; margin-left: 0; padding: 28px 22px 98px; }
+  .mobile-nav { position: fixed; inset: auto 0 0; z-index: 50; display: grid; grid-template-columns: repeat(5, 1fr); padding: 7px max(8px, env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); border-top: 2px solid var(--ink); background: var(--pastel-mint); }
+  .mobile-nav a, .mobile-nav button { position: relative; display: flex; min-width: 0; min-height: 50px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 3px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: 11px; font-weight: var(--weight-semibold); text-decoration: none; }
+  .mobile-nav a:hover, .mobile-nav button:hover { border: 0; background: var(--surface-muted); color: var(--ink); }
+  .mobile-nav .active { background: var(--accent-soft); color: var(--accent); }
+  .mobile-nav svg { width: 21px; height: 21px; }
+  .mobile-nav .nav-badge { position: absolute; top: 1px; left: calc(50% + 5px); min-width: 17px; height: 17px; margin: 0; padding: 0 4px; font-size: 11px; }
+  .mobile-more { display: block; }
+  .mobile-more-panel { position: absolute; inset: auto 0 0; display: grid; gap: 4px; max-height: 82dvh; overflow-y: auto; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; background: var(--surface); box-shadow: var(--shadow-float); }
+  .mobile-more-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 8px; padding: 4px 3px 14px; border-bottom: 1px solid var(--line); }
+  .mobile-more-header span, .mobile-more-header b { display: block; }
+  .mobile-more-header span { color: var(--muted); font-size: 11px; }
+  .mobile-more-panel > a { min-height: 48px; }
+  .mobile-more-panel > a.active { border-color: var(--ink); background: var(--accent-soft); color: var(--accent); }
+  .table-head { display: none; }
+  .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
+  .transaction-main { grid-row: 1 / 3; }
+  .transaction-meta { display: none; }
+  .transaction-state { justify-self: end; }
+  .transaction-state small { display: none; }
+  .transaction-amount { grid-column: 2; grid-row: 1; }
+  .transaction-state { grid-column: 2; grid-row: 2; }
+  .analytics-detail-layout, .admin-grid { grid-template-columns: minmax(0, 1fr); }
+  .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .admin-metric:nth-child(-n + 2) { border-top: 0; }
+  .admin-metric:nth-child(2n + 1) { border-left: 0; }
+  .admin-table-wrap { overflow: visible; border: 0; }
+  .admin-table { min-width: 0; border-collapse: separate; border-spacing: 0 10px; }
+  .admin-table thead { display: none; }
+  .admin-table tbody, .admin-table tr, .admin-table td { display: block; }
+  .admin-table tr { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+  .admin-table td { display: grid; grid-template-columns: minmax(100px, .38fr) minmax(0, 1fr); gap: 8px; padding: 5px 0; border: 0; overflow-wrap: anywhere; }
+  .admin-table td::before { color: var(--muted); content: attr(data-label); font-size: 11px; font-weight: 700; }
+  .admin-table td[colspan] { display: block; }
+  .admin-table td[colspan]::before { content: none; }
+  .wealth-snapshot-account { grid-template-columns: minmax(160px, .85fr) minmax(180px, 1fr) minmax(150px, .8fr); }
+}
+
+@media (max-width: 680px) {
+  .app-main { padding: 22px 15px 94px; }
+  input, select, textarea { font-size: var(--text-lg); }
+  button:not(.admin-link), .button, .public-nav-login, .review-quality a { min-height: 44px; }
+  .page-header { display: grid; align-items: start; gap: 14px; margin-bottom: 23px; }
+  .page-header h1 { font-size: 30px; }
+  .page-actions { justify-content: flex-start; }
+  .page-actions > * { flex: 1 1 auto; }
+  .overview-position-header { display: grid; gap: 13px; padding: 16px; }
+  .overview-period { text-align: left; }
+  .overview-position-grid { grid-template-columns: minmax(0, 1fr); }
+  .overview-net-cashflow { padding: 25px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .overview-net-cashflow > strong { font-size: clamp(36px, 11vw, 46px); }
+  .overview-cashflow-parts, .overview-allocation { grid-column: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; border-right: 0; }
+  .overview-cashflow-parts > div, .overview-allocation > div { padding: 17px 16px; }
+  .overview-cashflow-parts > div + div, .overview-allocation > div + div { border-top: 0; border-left: 1px solid var(--line); }
+  .overview-cashflow-parts strong, .overview-allocation strong { font-size: clamp(16px, 5vw, 21px); }
+  .overview-allocation { border-top: 1px solid var(--line); }
+  .overview-lower { grid-template-columns: minmax(0, 1fr); }
+  .review-alert { grid-template-columns: 22px minmax(0, 1fr); }
+  .review-alert strong { grid-column: 2; }
+  .overview-trend, .overview-categories, .overview-activity, .overview-wealth, .analytics-chart, .analytics-category-panel, .analytics-ranked-card, .ledger-panel, .panel, .settings-section, .admin-panel { padding: 17px; }
+  .analytics-flow { gap: 14px; }
+  .range-controls { display: grid; width: 100%; overflow: visible; }
+  .range-control-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .range-control-group button { width: 100%; }
+  .custom-range { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); margin: 0; }
+  .custom-range input { width: 100%; }
+  .custom-range button { grid-column: 1 / -1; }
+  .insight-card-compact { padding: 17px; }
+  .insight-state { align-items: stretch; flex-direction: column; }
+  .insight-state button { align-self: flex-start; }
+  .category-visual { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .section-title { align-items: flex-start; }
+  .section-title h2 { font-size: 17px; }
+  .upload-card { grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 18px; }
+  .upload-card form { grid-template-columns: minmax(0, 1fr); }
+  .document-grid { grid-template-columns: minmax(0, 1fr); }
+  .document-card { grid-template-columns: 82px minmax(0, 1fr); }
+  .document-card > img { width: 82px; height: 108px; }
+  .review-card { padding: 18px; }
+  .review-card form { grid-template-columns: minmax(0, 1fr); }
+  .review-card form > p, .review-card form > .review-actions { grid-column: auto; }
+  .review-top strong { font-size: var(--text-lg); }
+  .action-card { align-items: stretch; flex-direction: column; padding: 18px; }
+  .action-buttons { justify-content: stretch; }
+  .action-buttons > * { flex: 1; }
+  .member-list article, .settings-list article, .integration-grid article { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 9px; }
+  .member-list .member-actions { grid-column: auto; justify-self: start; }
+  .integration-grid article { grid-template-columns: 12px minmax(0, 1fr); }
+  .integration-actions, .integration-grid article > .button { grid-column: 2; justify-self: start; }
+  .member-actions, .row-actions { justify-content: flex-start; }
+  .filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-bar > * { min-width: 0 !important; width: 100% !important; }
+  .filter-bar button { grid-column: 1 / -1; }
+  .detail-drawer, .admin-drawer { padding: 20px 16px 96px; border-left: 0; }
+  .detail-drawer dl { grid-template-columns: minmax(0, 1fr); }
+  .detail-drawer dl > div:nth-last-child(-n + 2) { border-bottom: 1px solid var(--line); }
+  .detail-drawer dl > div:last-child { border-bottom: 0; }
+  .dialog-actions > *, .review-actions > *, .member-actions > *, .invite-actions > * { flex: 1 1 130px; }
+  .public-legal { padding: 16px 12px; }
+  .public-legal-card { padding: 26px 22px; }
+  .admin-lane { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .admin-lane small { text-align: left; }
+}
+
+@media (max-width: 430px) {
+  .kpi-grid { grid-template-columns: minmax(0, 1fr); }
+  .kpi-grid article + article { border-top: 1px solid var(--line); border-left: 0; }
+  .filter-bar { grid-template-columns: minmax(0, 1fr); }
+  .filter-bar button { grid-column: auto; }
+  .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: minmax(0, 1fr); }
+  .admin-metric:nth-child(n) { border-top: 1px solid var(--line); border-left: 0; }
+  .admin-metric:first-child { border-top: 0; }
+  .transaction-main { grid-template-columns: 31px minmax(0, 1fr); gap: 9px; }
+  .transaction-icon { width: 31px; height: 31px; }
+  .transaction-amount { font-size: 12px; }
+  .status { padding: 3px 5px; font-size: 11px; }
+  .admin-definition { grid-template-columns: minmax(0, 1fr); }
+  .wealth-page { gap: 16px; }
+  .wealth-empty, .wealth-change, .wealth-composition, .wealth-trend, .wealth-cycle, .wealth-snapshot, .wealth-records { padding: 19px 16px; }
+  .wealth-position { grid-template-columns: minmax(0, 1fr); }
+  .wealth-position-primary { padding: 24px 19px; }
+  .wealth-position-primary > strong { font-size: 39px; }
+  .wealth-balance-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; }
+  .wealth-balance-summary article { padding: 15px; border-top: 1px solid var(--line); border-left: 0; }
+  .wealth-balance-summary article + article { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .wealth-change .section-title { align-items: start; }
+  .wealth-change-total { font-size: var(--text-xl); }
+  .wealth-change-equation { grid-template-columns: minmax(0, 1fr); }
+  .wealth-change-equation > div { min-height: 0; }
+  .wealth-composition-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .wealth-account-group.is-liability { padding-top: 20px; padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
+  .wealth-cycle { grid-template-columns: minmax(0, 1fr); gap: 19px; }
+  .wealth-cycle-summary { padding: 0 0 18px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .wealth-observation-note { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .wealth-observation-note b { justify-self: start; }
+  .wealth-snapshot-time, .wealth-snapshot-account { grid-template-columns: minmax(0, 1fr); gap: 11px; }
+  .wealth-snapshot-time p { margin: 0; }
+  .wealth-snapshot-heading-meta { justify-items: start; }
+  .wealth-snapshot-actions { display: grid; }
+  .wealth-snapshot-actions button { width: 100%; }
+  .wealth-cycle-row header { display: grid; gap: 8px; }
+  .wealth-cycle-row dl { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+  button.wealth-history-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; padding: 13px 0; }
+  button.wealth-history-row small { grid-column: 1; text-align: left; }
+  .wealth-drawer-summary { grid-template-columns: minmax(0, 1fr); }
+  .wealth-drawer-summary > div { border-top: 1px solid var(--line); border-left: 0; }
+  .wealth-drawer-summary > div:first-child { border-top: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { globalCss } from "./source.mjs";
 import { changeWidth, cycleLabel, inclusiveEnd, measuredLabel, ratioLabel, readReviewSelection, selectionHref, signedMoney, transactionHref } from "../app/lib/cycleReview.js";
 import { money } from "../app/lib/format.js";
 
@@ -122,7 +123,7 @@ test("insight card hides historical advice rows and the quality percentage", () 
 });
 
 test("review styles keep deterministic chart colours and a single accent", () => {
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(styles, /\.cycle-review \{ gap: 0; \}/);
   assert.match(styles, /\.cycle-outcome \{ display: grid; grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.change-track i \{ display: block; height: 100%; border-radius: 999px; background: var\(--accent\); \}/);

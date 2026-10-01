@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
-import { reviewCards, tree } from "./source.mjs";
+import { reviewCards, tree, globalCss } from "./source.mjs";
 
 const text = path => path.endsWith("/") ? tree(path.slice(0, -1)) : readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-const css = () => text("app/globals.css");
+const css = () => globalCss();
 
 const contrast = hex => {
   const channel = value => {
@@ -87,7 +87,7 @@ test("toast dismissal is owned by a stable callback", () => {
 test("overview links to the exact snapshot it summarises", () => {
   assert.match(text("app/page.js"), /href={latestWealth\?\.id \? `\/wealth\?snapshotId=\$\{latestWealth\.id\}` : "\/wealth"}/);
   assert.match(text("app/wealth/page.js"), /get\("snapshotId"\)/);
-  assert.match(text("app" + "/globals.css"), /\.settings-section \{ scroll-margin-top: 24px; \}/);
+  assert.match(globalCss(), /\.settings-section \{ scroll-margin-top: 24px; \}/);
 });
 
 test("modal drawers share focus, Escape, and Tab handling", () => {
@@ -239,5 +239,31 @@ test("the console docs point at the split admin modules", () => {
   for (const doc of ["RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md", "RICHMOD_SUPER_ADMIN_PLATFORM_CONSOLE_CODEX.md"]) {
     const source = readFileSync(new URL(`../../../docs/${doc}`, import.meta.url), "utf8");
     assert.doesNotMatch(source, /^apps\/web\/app\/admin\/page\.js$/m, `${doc} no longer names the old single file`);
+    assert.doesNotMatch(source, /app\/admin\/components/, `${doc} no longer suggests an admin/components layout`);
   }
+});
+
+test("the stylesheet is an ordered list of balanced pieces", () => {
+  const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  const entry = read("app/globals.css");
+  const imports = [...entry.matchAll(/^@import "\.\/styles\/([^"]+\.css)";$/gm)].map(match => match[1]);
+  assert.ok(imports.length >= 10, "globals.css imports its pieces");
+  const withoutComments = entry.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map(line => line.trim()).filter(Boolean);
+  assert.ok(withoutComments.every(line => line.startsWith("@import ")), "globals.css contains only @import lines, so the cascade is the import order");
+  assert.deepEqual(imports, [...imports].sort(), "pieces are imported in numeric order");
+  assert.equal(new Set(imports).size, imports.length, "no piece is imported twice");
+  const onDisk = readdirSync(new URL("../app/styles/", import.meta.url)).filter(name => name.endsWith(".css")).sort();
+  assert.deepEqual(imports, onDisk, "every piece on disk is imported and every import exists");
+  for (const name of imports) {
+    const piece = read(`app/styles/${name}`).replace(/\/\*[\s\S]*?\*\//g, "").replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, "");
+    const opens = (piece.match(/\{/g) || []).length;
+    const closes = (piece.match(/\}/g) || []).length;
+    assert.equal(opens, closes, `${name} has balanced braces, so it ends outside any rule`);
+    assert.doesNotMatch(piece, /@import/, `${name} does not import other files`);
+  }
+  assert.match(read("app/styles/01-tokens-and-base.css"), /:root \{/, "design tokens live in the first piece");
+});
+
+test("an unmapped nav icon falls back instead of rendering undefined", () => {
+  assert.match(text("app/components/AppShell.js"), /const Icon = icons\[icon\] \|\| DotsThree;/);
 });

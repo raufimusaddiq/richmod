@@ -1,0 +1,58 @@
+.inbox-tabs, .admin-tabs, .range-controls { display: flex; width: max-content; max-width: 100%; gap: 4px; margin: 0 0 18px; padding: 4px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.inbox-tabs button, .admin-tabs button, .range-controls button { min-height: 34px; flex: 0 0 auto; padding: 0 11px; border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; }
+.inbox-tabs button:hover, .admin-tabs button:hover, .range-controls button:hover { border-color: transparent; background: rgba(255,255,255,.65); color: var(--ink); }
+.inbox-tabs button.active, .admin-tabs button.active, .range-controls button.active { border-color: var(--line); background: var(--surface-strong); color: var(--ink); box-shadow: 0 1px 3px rgba(28,33,29,.06); }
+.inbox-tabs b { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--warning-soft); color: var(--warning); font-size: 11px; }
+.review-grid, .action-list { display: grid; gap: 14px; }
+.review-card, .action-card { position: relative; padding: 22px; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); }
+.review-card { background: var(--warning-soft); }
+.review-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.review-top strong { color: var(--expense); font-size: 18px; white-space: nowrap; }
+.review-reason { color: var(--warning); font-size: 11px; font-weight: 750; letter-spacing: .035em; }
+.review-card h2, .action-card h2 { margin: 10px 0 4px; font-size: var(--text-xl); }
+.review-card > p, .action-card p { margin: 0; color: var(--muted); font-size: 11px; }
+.state-line { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0; padding: 11px 0; border-block: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.review-card form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.review-card form > p, .review-card form > .review-actions { grid-column: 1 / -1; }
+.review-actions, .transfer-options, .action-buttons, .dialog-actions, .row-actions, .member-actions, .invite-actions, .integration-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.review-actions, .transfer-options { margin-top: 15px; }
+.transfer-options button { min-height: 36px; }
+.action-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.action-buttons { justify-content: flex-end; }
+.action-code code { display: inline-block; margin-top: 7px; padding: 4px 7px; border-radius: 5px; background: var(--surface-muted); color: var(--accent); font-weight: 700; }
+
+.empty, .empty-state { color: var(--muted); text-align: center; }
+.empty { padding: 30px 14px; }
+.empty.compact { padding: 18px 4px; }
+.empty-state { grid-column: 1 / -1; padding: 60px 24px; border: 2px dashed var(--line-strong); border-radius: var(--radius-md); background: var(--surface); }
+.empty-state > span { display: grid; width: 42px; height: 42px; margin: 0 auto 14px; place-items: center; border: 2px solid var(--ink); border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 18px; }
+.empty-state h2 { margin: 0; font-size: 18px; }
+.empty-state p { max-width: 48ch; margin: 6px auto 0; font-size: 12px; }
+.notice, .feedback { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 15px; padding: 12px 14px; border: 2px solid var(--warning); border-radius: var(--radius-sm); background: var(--warning-soft); color: var(--warning); font-size: 12px; }
+.notice.error, .error-notice { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+.error { color: var(--danger); }
+.muted { color: var(--muted); font-size: 11px; }
+.toast { position: fixed; right: 24px; bottom: 24px; z-index: 100; display: flex; align-items: center; gap: 9px; max-width: min(420px, calc(100vw - 32px)); padding: 12px 14px; border-radius: var(--radius-sm); background: var(--ink); color: #fff; box-shadow: var(--shadow-float); }
+.toast button { width: 28px; min-height: 28px; padding: 0; border: 0; background: transparent; }
+
+.upload-card { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(340px, 1.2fr); align-items: end; gap: 30px; margin-bottom: 18px; padding: 24px; }
+.upload-card h2 { margin: 5px 0; font-size: 21px; }
+.upload-card p { max-width: 52ch; margin: 0; color: var(--muted); font-size: 12px; }
+.upload-card form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 9px; }
+.upload-card form small { grid-column: 1 / -1; color: var(--muted); }
+.document-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.document-card { display: grid; min-width: 0; min-height: 0; grid-template-columns: 96px minmax(0, 1fr); align-items: stretch; gap: 15px; padding: 12px; overflow: hidden; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); text-align: left; }
+button.document-card:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-muted); color: var(--ink); }
+button.document-card:active:not(:disabled) { transform: none; }
+.document-card > img { width: 96px; height: 126px; border-radius: 8px; background: var(--surface-muted); object-fit: cover; }
+.document-card > div { min-width: 0; padding: 3px 0; }
+.document-card h2 { margin: 9px 0 3px; overflow: hidden; font-size: var(--text-base); text-overflow: ellipsis; white-space: nowrap; }
+.document-card p, .document-card small { display: block; margin: 0; color: var(--muted); font-size: 11px; }
+.document-summary { margin: 8px 0 !important; color: var(--ink-soft) !important; }
+.document-card .needs-review { margin-top: 8px; }
+.document-detail > img { width: 100%; max-height: 460px; border-radius: var(--radius-sm); background: var(--surface-muted); object-fit: contain; }
+.page-thumbnails { display: flex; gap: 8px; margin: 10px 0 24px; overflow-x: auto; }
+.page-thumbnails button { position: relative; min-width: 58px; height: 66px; padding: 3px; border-color: var(--line); background: var(--surface); }
+.page-thumbnails button[aria-current="true"] { border-color: var(--accent); }
+.page-thumbnails img { width: 48px; height: 56px; object-fit: cover; }
+

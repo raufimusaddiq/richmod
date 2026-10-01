@@ -513,21 +513,11 @@ Split without changing product behavior.
 Suggested:
 
 ```text
-apps/web/app/admin/ (page.js is the tab shell; one module per tab; shared.js)
-
-apps/web/app/admin/components/
-  AdminTabs.js
-  OverviewTab.js
-  JobsTab.js
-  JobDetailDrawer.js
-  LLMTab.js
-  LogsTab.js
-  HouseholdsTab.js
-  HouseholdDetailDrawer.js
-  UsersTab.js
-  AuditTab.js
-  AdminTable.js
-  AdminBadge.js
+apps/web/app/admin/
+  page.js         tab shell (AdminPage, AdminTab)
+  shared.js       helpers, Badge, Metric, Empty, Table, useLoad, useAdminList, useDrawerA11y
+  Overview.js  Reviews.js  Jobs.js (with JobDetail)  LLM.js  Logs.js
+  Households.js (with HouseholdDetail)  Users.js  Audit.js
 ```
 
 Do not over-componentize trivial code.
