@@ -30,7 +30,7 @@ Category-scoped tools take a request-local `category_ref` issued by
 | Tool | Returns |
 | --- | --- |
 | `get_cycle_overview` | period, cashflow, spending shape, member attribution, available cycles |
-| `get_cycle_changes` | expense/income/net change vs previous comparable cycle and 3-cycle median; up to 20 category changes with refs |
+| `get_cycle_changes` | expense/income/net change vs previous comparable cycle and 3-cycle median; up to 20 category changes with refs, ordered by full-cycle delta when available |
 | `get_category_drivers` | one category's change plus driver/transaction counts |
 | `get_merchant_drivers` | up to 10 merchants by absolute delta (whole cycle or one category) |
 | `get_supporting_transactions` | up to 10 supporting expense/refund transactions for a category |
@@ -49,11 +49,16 @@ Rules:
   forwarded; display names and amounts are intentional;
 - refs are request-local and cannot be replayed across requests or households.
 
-Elapsed comparisons retain exact measured prefixes. Every baseline window in
-`get_cycle_changes` -- the primary `previous` and the `median3` sample -- uses
-that same prefix, so the numbers reconcile with the active cycle. A prior closed
-cycle shorter than the prefix is ineligible. Null ratios never mean a 100%
-increase or absence in the full prior cycle.
+Native READs expose both full-cycle and elapsed context. `get_cycle_changes`
+returns `comparison.previous_full_cycle` with the immediately prior closed
+cycle's exact dates. Cashflow/category/merchant projections expose
+`previous_full_cycle`, `delta_vs_previous_full_cycle` and
+`relative_delta_vs_previous_full_cycle`, computed in Go. These provide the
+cycle-to-cycle baseline even when the equal-day prefix is zero or ineligible.
+For active cycles, current amounts are measured-to-date, not projected totals.
+Existing `previous`/`median3` stay equal-day comparisons in ELAPSED_DAYS mode;
+full context is never mixed into their history. Null ratios never mean 100%
+growth. Calendar-month analytics remain unchanged.
 
 Dependent reads run through the owning channel's bounded loop: Telegram reuses
 ADR-033 (5 phases, 5 reads/response, 8 reads/turn); its final reply stays natural
@@ -81,7 +86,7 @@ quality READs. It accepts only a natural `message` (1–4000 characters), cannot
 mix with READs, and creates no financial state. Telegram does not use it;
 ADR-033 ordinary final text stays unchanged.
 
-New commentary rows use `cycle-analyst-v4`; request facts plus the executed READ
+New commentary rows use `cycle-analyst-v5`; request facts plus the executed READ
 transcript are retained as server audit evidence. No confidence, recommendation
 or findings DTO is produced. No model prose is interpreted later. Existing
 successful insights remain verbatim with `historical=true`; pending old-contract

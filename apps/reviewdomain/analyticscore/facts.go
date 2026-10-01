@@ -52,6 +52,9 @@ type reviewChange struct {
 	RelativeMedian *string `json:"relativeDeltaVsMedian3"`
 	Contribution   *string `json:"contributionToExpenseChange"`
 	Share          *string `json:"shareOfExpense"`
+	PreviousFull   *string `json:"previousFullCycle"`
+	DeltaFull      *string `json:"deltaVsPreviousFullCycle"`
+	RelativeFull   *string `json:"relativeDeltaVsPreviousFullCycle"`
 }
 
 type reviewCategory struct {
@@ -98,13 +101,14 @@ type Facts struct {
 	Period      reviewPeriod   `json:"period"`
 	Cycles      []reviewPeriod `json:"cycles"`
 	Comparison  struct {
-		Mode             string        `json:"mode"`
-		Previous         *reviewPeriod `json:"previous"`
-		EligibleCycles   int           `json:"eligibleCycles"`
-		Median3Available bool          `json:"median3Available"`
-		Expense          reviewChange  `json:"expense"`
-		Income           reviewChange  `json:"income"`
-		NetCashflow      reviewChange  `json:"netCashflow"`
+		Mode              string        `json:"mode"`
+		Previous          *reviewPeriod `json:"previous"`
+		PreviousFullCycle *reviewPeriod `json:"previousFullCycle"`
+		EligibleCycles    int           `json:"eligibleCycles"`
+		Median3Available  bool          `json:"median3Available"`
+		Expense           reviewChange  `json:"expense"`
+		Income            reviewChange  `json:"income"`
+		NetCashflow       reviewChange  `json:"netCashflow"`
 	} `json:"comparison"`
 	Cashflow      reviewCashflow      `json:"cashflow"`
 	Daily         []map[string]string `json:"daily"`
@@ -230,20 +234,15 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		if p.State != "CLOSED" {
 			continue
 		}
-		// Compare on the narrower window: the current measured prefix for an active
-		// cycle, the full span for a closed one. This is also the window the model
-		// reads, so the cited numbers reconcile with get_cycle_changes.
-		end := p.MeasuredUntil
 		if facts.Period.State == "ACTIVE" {
 			elapsed := daysBetween(facts.Period.Start, facts.Period.MeasuredUntil)
 			if daysBetween(p.Start, p.MeasuredUntil) < elapsed {
 				continue
 			}
 			start, _ := time.ParseInLocation("2006-01-02", p.Start, clock.HouseholdLocation())
-			end = start.AddDate(0, 0, elapsed).Format("2006-01-02")
-			facts.Cycles[index+1+offset].MeasuredUntil = end
+			p.MeasuredUntil = start.AddDate(0, 0, elapsed).Format("2006-01-02")
+			facts.Cycles[index+1+offset].MeasuredUntil = p.MeasuredUntil
 		}
-		p.MeasuredUntil = end
 		measures = append(measures, newCycleMeasure(p))
 		if len(measures) == 4 {
 			break
@@ -254,6 +253,23 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 	if len(measures) > 1 {
 		p := measures[1].period
 		facts.Comparison.Previous = &p
+	}
+	// Full-cycle context is separate from eligible equal-day history and median.
+	historyCount, fullIndex := len(measures), -1
+	if index+1 < len(periods) && periods[index+1].State == "CLOSED" {
+		p := periods[index+1]
+		p.MeasuredUntil = *p.End
+		facts.Comparison.PreviousFullCycle = &p
+		for i := 1; i < len(measures); i++ {
+			if measures[i].period.Start == p.Start && measures[i].period.MeasuredUntil == p.MeasuredUntil {
+				fullIndex = i
+				break
+			}
+		}
+		if fullIndex < 0 {
+			fullIndex = len(measures)
+			measures = append(measures, newCycleMeasure(p))
+		}
 	}
 	if err := loadReviewMeasures(ctx, tx, household, measures, &facts); err != nil {
 		return facts, err
@@ -266,19 +282,24 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 		measures[i].cash.Expense, measures[i].cash.Net = cash.NetExpense, cash.Surplus
 		measures[i].cash.Unallocated = financialmath.Subtract(cash.Surplus, measures[i].cash.Allocated)
 	}
+	var full *cycleMeasure
+	if fullIndex >= 0 {
+		full = &measures[fullIndex]
+	}
+	measures = measures[:historyCount]
 	facts.Cashflow = measures[0].cash
-	facts.Comparison.Expense = cashChange(measures, func(c reviewCashflow) string { return c.Expense })
-	facts.Comparison.Income = cashChange(measures, func(c reviewCashflow) string { return c.Income })
-	facts.Comparison.NetCashflow = cashChange(measures, func(c reviewCashflow) string { return c.Net })
-	for _, c := range changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categories }) {
+	facts.Comparison.Expense = cashChange(measures, func(c reviewCashflow) string { return c.Expense }, full)
+	facts.Comparison.Income = cashChange(measures, func(c reviewCashflow) string { return c.Income }, full)
+	facts.Comparison.NetCashflow = cashChange(measures, func(c reviewCashflow) string { return c.Net }, full)
+	for _, c := range changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categories }, full) {
 		category := reviewCategory{reviewChange: c, Merchants: []reviewChange{}, Transactions: []reviewTransaction{}}
-		category.Merchants = changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categoryMerchants[c.ID] })
+		category.Merchants = changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.categoryMerchants[c.ID] }, full)
 		if len(category.Merchants) > 10 {
 			category.Merchants = category.Merchants[:10]
 		}
 		facts.Categories = append(facts.Categories, category)
 	}
-	facts.Merchants = changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.merchants })
+	facts.Merchants = changes(measures, func(m cycleMeasure) map[string]reviewValue { return m.merchants }, full)
 	if len(facts.Merchants) > 10 {
 		facts.Merchants = facts.Merchants[:10]
 	}
@@ -341,7 +362,7 @@ func median3(values []string) *string {
 	return &copyValues[1]
 }
 
-func cashChange(measures []cycleMeasure, amount func(reviewCashflow) string) reviewChange {
+func cashChange(measures []cycleMeasure, amount func(reviewCashflow) string, full *cycleMeasure) reviewChange {
 	var previous *string
 	history := []string{}
 	for _, m := range measures[1:] {
@@ -350,11 +371,26 @@ func cashChange(measures []cycleMeasure, amount func(reviewCashflow) string) rev
 	if len(history) > 0 {
 		previous = &history[0]
 	}
-	return change(amount(measures[0].cash), previous, median3(history))
+	c := change(amount(measures[0].cash), previous, median3(history))
+	if full != nil {
+		c.setFullPrevious(amount(full.cash))
+	}
+	return c
 }
 
-func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]reviewValue) []reviewChange {
+func (c *reviewChange) setFullPrevious(amount string) {
+	c.PreviousFull = valuePointer(amount)
+	c.DeltaFull = valuePointer(financialmath.Subtract(c.Amount, amount))
+	c.RelativeFull = positiveRatio(*c.DeltaFull, amount)
+}
+
+func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]reviewValue, full *cycleMeasure) []reviewChange {
 	names := map[string]reviewValue{}
+	if full != nil {
+		for id, v := range values(*full) {
+			names[id] = v
+		}
+	}
 	for i := len(measures) - 1; i >= 0; i-- {
 		for id, v := range values(measures[i]) {
 			names[id] = v
@@ -380,6 +416,13 @@ func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]revie
 		}
 		c := change(current.Amount, previous, median3(history))
 		c.reviewValue = current
+		if full != nil {
+			amount := "0"
+			if v, ok := values(*full)[id]; ok {
+				amount = v.Amount
+			}
+			c.setFullPrevious(amount)
+		}
 		c.Share = positiveRatio(current.Amount, measures[0].cash.Expense)
 		if c.Delta != nil {
 			den, _ := new(big.Int).SetString(financialmath.Subtract(measures[0].cash.Expense, measures[1].cash.Expense), 10)
@@ -392,7 +435,9 @@ func changes(measures []cycleMeasure, values func(cycleMeasure) map[string]revie
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i].Amount, out[j].Amount
-		if out[i].Delta != nil {
+		if out[i].DeltaFull != nil {
+			a, b = *out[i].DeltaFull, *out[j].DeltaFull
+		} else if out[i].Delta != nil {
 			a, b = *out[i].Delta, *out[j].Delta
 		}
 		x, _ := new(big.Int).SetString(a, 10)

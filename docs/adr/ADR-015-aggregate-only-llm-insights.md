@@ -65,7 +65,7 @@ Final failures record a bounded diagnostic reason in the audit log, not provider
 text, model arguments, or raw financial results. Historical failed insights are
 not silently requeued or rewritten.
 
-New jobs use `cycle-analyst-v4`. The server stores request facts and executed
+New jobs use `cycle-analyst-v5`. The server stores request facts and executed
 READ transcript as audit evidence, not as initial model context. Completed
 older rows remain untouched and are explicitly marked historical by the list
 API. Pending legacy jobs fail with `superseded_contract` instead of regenerating
@@ -98,12 +98,14 @@ invalidation are recorded in
 
 ## Measurement-context amendment — October 1, 2026
 
-New jobs use `cycle-analyst-v4`. Active-cycle comparisons measure every earlier
-baseline over the same elapsed-day prefix as the running cycle, so the deltas the
-model cites reconcile with the facts it reads; Go owns the amounts/deltas,
-including null ratios for nonpositive baselines. A prior closed cycle shorter
-than the prefix is ineligible. The model must not interpret a null ratio as 100%
-growth.
+New jobs use `cycle-analyst-v5`. Go exposes the full immediately previous closed
+salary cycle and its deltas alongside supplemental equal-day prefixes/median.
+The full cycle remains available even when too short for an eligible prefix;
+its values never enter prefix history or the median. Models must distinguish
+running measured-to-date amounts from closed-cycle totals, never infer missing
+rent from a zero prefix, and never interpret a null ratio as 100% growth.
+Calendar-month calculations remain independent and unchanged. Existing v4
+commentary is retained as historical, not silently rewritten or regenerated.
 
 PostgreSQL owns insight `created_at` and the hourly cap clock. Worker READ sessions
 reuse the existing request snapshot's `generatedAt` (fallback: `created_at`) across

@@ -27,9 +27,9 @@ func Tools() []Tool {
 		category          bool
 	}{
 		{"get_cycle_overview", "Read a salary cycle's cashflow, spending shape and descriptive household attribution. Null cycle_start selects the current cycle; returned cycles list available starts.", false},
-		{"get_cycle_changes", "Read expense, income and net cashflow changes against the previous completed comparable cycle and previous-three-cycle median. ELAPSED_DAYS compares exact measured prefixes, not full cycles. Null relative deltas are unavailable, never 100%. Returns up to 20 category changes sorted by absolute delta and request-local category refs.", false},
+		{"get_cycle_changes", "Read expense, income and net cashflow changes against the previous completed comparable cycle and previous-three-cycle median. ELAPSED_DAYS compares exact measured prefixes, not full cycles. Separate previous_full_cycle amounts/deltas provide full historical context, not an equal-day baseline. Null relative deltas are unavailable, never 100%. Returns up to 20 category changes sorted by absolute full-cycle delta when available, otherwise comparable delta and request-local category refs.", false},
 		{"get_category_drivers", "Read one category's exact changes and concentration context. Use a category_ref issued by get_cycle_changes for this cycle.", true},
-		{"get_merchant_drivers", "Read up to 10 merchant drivers, sorted by absolute delta. Null category_ref selects the whole cycle; otherwise use a category_ref issued by get_cycle_changes.", true},
+		{"get_merchant_drivers", "Read up to 10 merchant drivers, sorted by absolute full-cycle delta when available, otherwise comparable delta. Null category_ref selects the whole cycle; otherwise use a category_ref issued by get_cycle_changes.", true},
 		{"get_supporting_transactions", "Read up to 10 supporting confirmed expense/refund transactions for a category_ref issued by get_cycle_changes. No raw evidence or canonical IDs.", true},
 		{"get_savings_reconciliation", "Read confirmed surplus, allocated savings, destinations and unallocated residual. Transfers are not household expense.", false},
 		{"get_wealth_reconciliation", "Read actual Wealth snapshot dates, ages, net-worth movement, confirmed cashflow and valuation/other residual. These are observation-interval facts, not invented cycle-end balances.", false},
@@ -165,7 +165,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 		result["cashflow"], result["spending_shape"], result["cycles"] = f.Cashflow, f.SpendingShape, f.Cycles
 		result["member_attribution"] = modelValues(f.Members, "member")
 	case "get_cycle_changes":
-		result["comparison"] = map[string]any{"mode": f.Comparison.Mode, "previous": f.Comparison.Previous, "eligible_cycles": f.Comparison.EligibleCycles, "median3_available": f.Comparison.Median3Available,
+		result["comparison"] = map[string]any{"mode": f.Comparison.Mode, "previous": f.Comparison.Previous, "previous_full_cycle": f.Comparison.PreviousFullCycle, "eligible_cycles": f.Comparison.EligibleCycles, "median3_available": f.Comparison.Median3Available,
 			"expense": modelChange(f.Comparison.Expense, "cashflow.expense"), "income": modelChange(f.Comparison.Income, "cashflow.income"), "net_cashflow": modelChange(f.Comparison.NetCashflow, "cashflow.net")}
 		items := []map[string]any{}
 		if s.issued[periodKey] == nil {
@@ -215,6 +215,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 // membership. Display names and bounded amount/date facts are intentional.
 func modelChange(c reviewChange, ref string) map[string]any {
 	return map[string]any{"ref": ref, "name": c.Name, "current": c.Amount, "count": c.Count, "previous": c.Previous, "delta_vs_previous": c.Delta, "relative_delta_vs_previous": c.Relative,
+		"previous_full_cycle": c.PreviousFull, "delta_vs_previous_full_cycle": c.DeltaFull, "relative_delta_vs_previous_full_cycle": c.RelativeFull,
 		"median3": c.Median, "delta_vs_median3": c.DeltaMedian, "relative_delta_vs_median3": c.RelativeMedian, "contribution_to_expense_change": c.Contribution, "share_of_expense": c.Share}
 }
 

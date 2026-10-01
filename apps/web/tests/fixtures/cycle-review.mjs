@@ -2,11 +2,12 @@
 export function cycleFacts(start = "2026-09-01") {
   const closed = start === "2026-08-26";
   const september25 = start === "2026-09-25";
-  const period = { kind: "SALARY_CYCLE", start: closed ? "2026-08-26" : september25 ? "2026-09-25" : "2026-09-01", end: closed ? "2026-09-01" : null, measuredUntil: closed ? "2026-09-01" : september25 ? "2026-10-01" : "2026-09-07", state: closed ? "CLOSED" : "ACTIVE", configured: true };
+  const period = { kind: "SALARY_CYCLE", start: closed ? "2026-08-26" : september25 ? "2026-09-25" : "2026-09-01", end: closed ? "2026-09-01" : null, measuredUntil: closed ? "2026-09-01" : september25 ? "2026-10-02" : "2026-09-07", state: closed ? "CLOSED" : "ACTIVE", configured: true };
   const previous = { kind: "SALARY_CYCLE", start: closed ? "2026-07-26" : "2026-08-26", end: closed ? "2026-08-26" : "2026-09-01", measuredUntil: closed ? "2026-08-26" : "2026-09-01", state: "CLOSED", configured: true };
   const change = (id, name, amount, previous, median3, deltaVsPrevious, deltaVsMedian3, relative, share, contribution) => ({
     id, name, amount, previous, median3, deltaVsPrevious, deltaVsMedian3, relativeDeltaVsPrevious: relative, relativeDeltaVsMedian3: null,
     shareOfExpense: share, contributionToExpenseChange: contribution, count: 4,
+    previousFullCycle: previous, deltaVsPreviousFullCycle: deltaVsPrevious, relativeDeltaVsPreviousFullCycle: relative,
   });
   const groceries = change("11111111-1111-4111-8111-111111111111", "Belanja rumah", "2100000", "1400000", "1800000", "700000", "300000", "0.5000", "0.5000", "0.5000");
   groceries.merchants = [change("22222222-2222-4222-8222-222222222222", "Pasar Keluarga", "2100000", "1400000", "1800000", "700000", "300000", "0.5000", "0.5000", "0.5000")];
@@ -15,16 +16,24 @@ export function cycleFacts(start = "2026-09-01") {
   dining.merchants = []; dining.transactions = [];
   const transport = change("66666666-6666-4666-8666-666666666666", "Transportasi", "700000", "600000", "650000", "100000", "50000", "0.1667", "0.1667", "0.0714");
   transport.merchants = []; transport.transactions = [];
-  const amounts = ["900000", "700000", "1100000", "300000", "1000000", "200000"];
+  if (september25) {
+    transport.name = "Tempat Tinggal";
+    transport.amount = "1950000"; transport.previous = "0";
+    transport.deltaVsPrevious = "1950000"; transport.relativeDeltaVsPrevious = null;
+    transport.previousFullCycle = "1950000"; transport.deltaVsPreviousFullCycle = "0"; transport.relativeDeltaVsPreviousFullCycle = "0.0000";
+    previous.start = "2026-08-24"; previous.end = "2026-09-25"; previous.measuredUntil = "2026-08-31";
+  }
+  const amounts = ["900000", september25 ? "0" : "700000", "1100000", "300000", "1000000", "200000"];
   const daily = amounts.map((expense, index) => {
     const date = new Date(`${period.start}T00:00:00Z`);
     date.setUTCDate(date.getUTCDate() + index);
     return { period: date.toISOString().slice(0, 10), expense, grossExpense: index ? expense : "1200000", refund: index ? "0" : "300000", income: index ? "0" : "12000000" };
   });
-  return {
+  if (september25) daily.push({ period: "2026-10-01", expense: "1950000", grossExpense: "1950000", refund: "0", income: "0" });
+  const facts = {
     version: "cycle-review-v1", generatedAt: "2026-09-06T12:00:00+07:00", period,
     cycles: [{ ...period, start: "2026-09-01", end: null, state: "ACTIVE", measuredUntil: "2026-09-07" }, { ...period, start: "2026-08-26", end: "2026-09-01", state: "CLOSED", measuredUntil: "2026-09-01" }],
-    comparison: { mode: closed ? "FULL_CYCLE" : "ELAPSED_DAYS", previous, eligibleCycles: 3, median3Available: true,
+    comparison: { mode: closed ? "FULL_CYCLE" : "ELAPSED_DAYS", previous, previousFullCycle: { ...previous, measuredUntil: previous.end }, eligibleCycles: 3, median3Available: true,
       expense: change("", "", "4200000", "2800000", "3800000", "1400000", "400000", "0.5000", null, null) },
     cashflow: { income: "12000000", grossExpense: "4500000", refund: "300000", expense: "4200000", netCashflow: "7800000", savingsAllocated: "5000000", unallocatedSurplus: "2800000" },
     spendingShape: { days: 6, averageDailyExpense: "700000.00", peakDay: daily[2].period, peakExpense: "1100000", peakShareOfExpense: "0.2619", zeroSpendDays: 0 },
@@ -36,17 +45,29 @@ export function cycleFacts(start = "2026-09-01") {
       netWorthChange: "9000000", confirmedCashflow: "7800000", valuationAndOtherChange: "1200000" },
     dataQuality: [{ kind: "OPEN_REVIEWS", count: 2, impact: "ANALYSIS_PARTIAL", action: "/inbox" }],
   };
+  if (september25) {
+    facts.generatedAt = "2026-10-01T12:00:00+07:00";
+    facts.cycles = [period, previous];
+    facts.comparison.eligibleCycles = 1; facts.comparison.median3Available = false;
+    facts.comparison.expense = { ...facts.comparison.expense, amount: "5450000", previous: "2200000", deltaVsPrevious: "3250000", relativeDeltaVsPrevious: "1.4773", previousFullCycle: "4150000", deltaVsPreviousFullCycle: "1300000", relativeDeltaVsPreviousFullCycle: "0.3133", median3: null, deltaVsMedian3: null };
+    facts.cashflow = { ...facts.cashflow, grossExpense: "5750000", expense: "5450000", netCashflow: "6550000", unallocatedSurplus: "1550000" };
+    facts.spendingShape = { days: 7, averageDailyExpense: "778571.43", peakDay: "2026-10-01", peakExpense: "1950000", peakShareOfExpense: "0.3578", zeroSpendDays: 1 };
+    for (const item of facts.categoryChanges) { item.median3 = null; item.deltaVsMedian3 = null; item.relativeDeltaVsMedian3 = null; }
+    groceries.shareOfExpense = "0.3853"; dining.shareOfExpense = "0.2569"; transport.shareOfExpense = "0.3578";
+    groceries.contributionToExpenseChange = "0.2154"; dining.contributionToExpenseChange = "0.1846"; transport.contributionToExpenseChange = "0.6000";
+  }
+  return facts;
 }
 
 export const cycleCommentary = {
-  id: "synthetic-commentary", status: "SUCCEEDED", historical: false, promptVersion: "cycle-analyst-v4", createdAt: "2026-09-06T11:59:59+07:00",
+  id: "synthetic-commentary", status: "SUCCEEDED", historical: false, promptVersion: "cycle-analyst-v5", createdAt: "2026-09-06T11:59:59+07:00",
   text: "Belanja rumah menyumbang setengah selisih pengeluaran dari siklus sebelumnya. Makan di luar lebih tinggi dari siklus sebelumnya, tetapi dekat dengan median tiga siklus. Bukti merchant dan transaksi dapat diperiksa sebelum dibahas bersama.",
   metrics: { period_kind: "CURRENT_CYCLE", period_start: "2026-09-01", period_end: "2026-09-07" }, completedAt: "2026-09-06T12:00:00+07:00",
 };
 
 export function stableCycleFacts() {
   const facts = cycleFacts("2026-08-26");
-  const category = { ...facts.categoryChanges[0], amount: "1400000", previous: "1400000", median3: "1400000", deltaVsPrevious: "0", deltaVsMedian3: "0", relativeDeltaVsPrevious: "0", relativeDeltaVsMedian3: "0", shareOfExpense: "1", contributionToExpenseChange: null, count: 6, merchants: [], transactions: [] };
+  const category = { ...facts.categoryChanges[0], amount: "1400000", previous: "1400000", previousFullCycle: "1400000", deltaVsPreviousFullCycle: "0", relativeDeltaVsPreviousFullCycle: "0", median3: "1400000", deltaVsPrevious: "0", deltaVsMedian3: "0", relativeDeltaVsPrevious: "0", relativeDeltaVsMedian3: "0", shareOfExpense: "1", contributionToExpenseChange: null, count: 6, merchants: [], transactions: [] };
   facts.categoryChanges = [category];
   facts.comparison.expense = { ...category, id: "", name: "" };
   facts.cashflow = { income: "1400000", grossExpense: "1400000", refund: "0", expense: "1400000", netCashflow: "0", savingsAllocated: "0", unallocatedSurplus: "0" };

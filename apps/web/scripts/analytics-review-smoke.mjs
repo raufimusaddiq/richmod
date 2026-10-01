@@ -114,7 +114,7 @@ try {
       assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, `${id} is available on demand, not a wall of text`);
     }
     assert.equal(await page.locator("#quality").getByRole("link", { name: "Buka Inbox" }).isVisible(), true, "blockers stay actionable without expansion");
-    assert.equal(await page.locator(".comparison-bars > div").count(), 3);
+    assert.equal(await page.locator(".comparison-bars > div").count(), 4);
     assert.equal(await page.locator(".change-ranking > li").count(), 3);
     const completeComparison = page.locator("#changes > details");
     assert.equal(await completeComparison.evaluate(element => element.open), false);
@@ -122,6 +122,7 @@ try {
     await page.keyboard.press("Enter");
     assert.equal(await completeComparison.evaluate(element => element.open), true, "complete comparison is keyboard accessible");
     assert.equal(await page.getByRole("columnheader", { name: "Δ hari setara", exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole("columnheader", { name: "Sebelumnya · penuh", exact: true }).isVisible(), true);
     await page.getByRole("region", { name: "Perbandingan kategori lengkap, geser untuk semua kolom", exact: true }).focus();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} expanded comparison has no page overflow`);
     if (name === "desktop") await page.screenshot({ path: new URL("readme-analytics.png", output).pathname, fullPage: false, animations: "disabled" });
@@ -282,7 +283,13 @@ try {
     await page.getByRole("button", { name: "Buka semua detail", exact: true }).click();
     assert.equal(await page.locator("#changes table").isVisible(), true);
     for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), true);
-    assert.equal(await page.locator(".review-daily table").first().locator("tbody tr").count(), 6, "all exact daily rows retained");
+    assert.equal(await page.locator(".review-daily table").first().locator("tbody tr").count(), 7, "all exact daily rows retained");
+    const rentRanking = page.locator(".change-ranking > li").filter({ has: page.getByRole("button", { name: "Tempat Tinggal", exact: true }) });
+    assert.match(await rentRanking.textContent(), /0%/);
+    assert.doesNotMatch(await rentRanking.textContent(), /100%/);
+    const rentRow = page.locator("#changes table tbody tr").filter({ hasText: "Tempat Tinggal" });
+    assert.equal(await rentRow.locator("td").nth(6).textContent(), new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(1950000n));
+    assert.match(await rentRow.locator("td").nth(7).textContent(), /0%/);
     assert.equal(await page.locator("#changes table tbody tr").count(), 3, "all exact category comparisons retained");
     assert.equal(await page.locator("#household .review-attribution > div").count(), 2);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} complete report has no page overflow`);

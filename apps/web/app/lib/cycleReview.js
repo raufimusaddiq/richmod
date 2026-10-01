@@ -33,8 +33,8 @@ export function ratioLabel(value) {
 
 // Only visual length: exact values/order remain server-owned. Equal largest
 // magnitudes share the same scale; no semantic importance threshold.
-export function changeWidth(item, items) {
-  const magnitude = row => Math.abs(Number(row.deltaVsPrevious ?? row.amount));
+export function changeWidth(item, items, field = "deltaVsPrevious") {
+  const magnitude = row => Math.abs(Number(row[field] ?? row.amount));
   const max = Math.max(0, ...items.map(magnitude));
   return max > 0 ? `${magnitude(item) / max * 100}%` : "0%";
 }

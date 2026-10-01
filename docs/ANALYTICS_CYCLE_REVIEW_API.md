@@ -39,12 +39,17 @@ When an active review uses a historical elapsed-day prefix, that cycle's
 `cycles[]` entry exposes the same measured cutoff as `comparison.previous`.
 Its full exclusive `end` remains unchanged.
 
-Each comparison baseline is measured over the same window as the active cycle
-(the elapsed prefix), so the numbers a reader sees reconcile with the numbers the
-model cites. A prior closed cycle shorter than that prefix is ineligible and is
-not pulled forward as full-cycle context. Categories or merchants absent from an
-eligible baseline contribute zero; there is no separate full-cycle projection.
-Zero or negative baselines produce null relative deltas, never a percentage.
+Salary-cycle comparison includes the immediately previous closed cycle in full:
+`comparison.previousFullCycle` identifies its exact start/exclusive cutoff;
+cashflow/category/merchant projections expose `previousFullCycle`,
+`deltaVsPreviousFullCycle`, and `relativeDeltaVsPreviousFullCycle`. Current
+active amounts are measured-to-date, not a forecast of the final cycle total.
+Full-cycle deltas lead the UI; elapsed-day comparisons remain supplemental.
+The full measure remains available when that prior cycle is too short for the
+equal-day baseline. It never enters eligible history or the prefix median.
+Full-only categories remain visible. No prior closed cycle means null full
+context; zero or negative baselines mean null ratios, not 100% growth.
+Calendar-month analytics remain separate and unchanged.
 
 `median3Available` is true only with three eligible completed cycles. Missing
 categories/merchants within an available comparison cycle contribute zero, not
@@ -57,8 +62,9 @@ Contribution is null when total change is zero. Relative delta is null for a
 nonpositive denominator. A tiny positive denominator retains its exact baseline
 and absolute delta alongside the ratio; the API does not assign significance.
 
-Changes sort by absolute previous-cycle delta, or current amount without
-history, then name/ID for deterministic ties. Merchant drivers are bounded to
+Changes sort by absolute full previous-cycle delta when available, otherwise
+comparable-prefix delta or current amount without history, then name/ID for
+deterministic ties. Merchant drivers are bounded to
 10 overall and 10 per category; supporting confirmed expense/refund transactions
 are bounded to 10 per category, ordered by amount then date/ID. Transaction type
 stays explicit so a refund is not presented as an expense. Member attribution

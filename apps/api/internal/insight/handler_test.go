@@ -18,7 +18,7 @@ func TestPendingInsightRemainsIdempotent(t *testing.T) {
 	if strings.Contains(existingInsightQuery, "OR created_at") || !strings.Contains(existingInsightQuery, "status='SUCCEEDED'") {
 		t.Fatal("failed insights must not block retry generation")
 	}
-	if insightPromptVersion != "cycle-analyst-v4" || !strings.Contains(existingInsightQuery, "prompt_version=$5") {
+	if insightPromptVersion != "cycle-analyst-v5" || !strings.Contains(existingInsightQuery, "prompt_version=$5") {
 		t.Fatal("successful cached insights must match the current prompt version")
 	}
 	if !strings.Contains(existingInsightQuery, "input_metrics_json->>'period_end'=$6") {
