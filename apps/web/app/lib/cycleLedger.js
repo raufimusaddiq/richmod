@@ -138,9 +138,27 @@ export function hasPace(items = []) {
   return items.length > 0 && items.every(item => item.cumulativeExpense != null && Number.isFinite(Number(item.cumulativeExpense)));
 }
 
+// Served day-by-day curves (index i is day i+1). A curve is used only when every
+// point is a number, so a partial series is never drawn.
+export function paceCurves(pace) {
+  const usable = series => Array.isArray(series) && series.length > 0 && series.every(value => value != null && Number.isFinite(Number(value)));
+  return { previous: usable(pace?.previousFullCycle) ? pace.previousFullCycle : null, median: usable(pace?.median3) ? pace.median3 : null };
+}
+
 // `runningTotal` is the served cumulative net expense, converted for plotting only.
-export function mapPace(items = []) {
-  return items.map((item, index) => ({ day: index + 1, period: item.period, runningTotal: Number(item.cumulativeExpense), exact: item.cumulativeExpense }));
+// The previous-cycle and median curves share the day axis; each ends where it ends.
+export function mapPace(items = [], pace) {
+  const { previous, median } = paceCurves(pace);
+  const length = Math.max(items.length, previous?.length ?? 0, median?.length ?? 0);
+  const point = (series, index) => (series?.[index] == null ? null : Number(series[index]));
+  return Array.from({ length }, (_, index) => ({
+    day: index + 1,
+    period: items[index]?.period,
+    runningTotal: items[index] ? Number(items[index].cumulativeExpense) : null,
+    exact: items[index]?.cumulativeExpense,
+    previousTotal: point(previous, index), previousExact: previous?.[index],
+    medianTotal: point(median, index), medianExact: median?.[index],
+  }));
 }
 
 export function monthMarkers(items = []) {

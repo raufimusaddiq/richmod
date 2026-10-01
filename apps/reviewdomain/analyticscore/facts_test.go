@@ -247,3 +247,48 @@ func TestEmptyHistoryEncodesArraysAndKeepsTheContractFieldNames(t *testing.T) {
 		}
 	}
 }
+
+func paceMeasure(start, until string, daily map[string]string) cycleMeasure {
+	m := newCycleMeasure(reviewPeriod{Start: start, MeasuredUntil: until, State: "CLOSED"})
+	for day, amount := range daily {
+		m.dailyNet[day] = amount
+	}
+	return m
+}
+
+func TestCumulativeSeriesRunsToTheCutoffAndAllowsRefunds(t *testing.T) {
+	m := paceMeasure("2026-06-01", "2026-06-05", map[string]string{"2026-06-01": "100", "2026-06-03": "50", "2026-06-04": "-30"})
+	if got := strings.Join(cumulativeSeries(m), ","); got != "100,100,150,120" {
+		t.Fatalf("series=%s", got)
+	}
+	if got := strings.Join(cumulativeSeries(paceMeasure("2026-06-01", "2026-06-04", nil)), ","); got != "0,0,0" {
+		t.Fatalf("a cycle with no spending is a flat zero curve, got %s", got)
+	}
+	if cumulativeSeries(paceMeasure("not-a-date", "2026-06-04", nil)) != nil {
+		t.Fatal("an unreadable period must not invent a curve")
+	}
+}
+
+func TestBuildPaceUsesTheFullPreviousCycleAndTheDaysAllThreeShare(t *testing.T) {
+	a := paceMeasure("2026-05-01", "2026-05-06", map[string]string{"2026-05-02": "100", "2026-05-04": "200"}) // 0,100,100,300,300
+	b := paceMeasure("2026-06-01", "2026-06-05", map[string]string{"2026-06-01": "500", "2026-06-03": "100"}) // 500,500,600,600
+	c := paceMeasure("2026-07-01", "2026-07-08", map[string]string{"2026-07-01": "300", "2026-07-03": "400"}) // 300,300,700,700,700,700,700
+	pace := buildPace(&a, []cycleMeasure{a, b, c}, true)
+	if got := strings.Join(pace.PreviousFullCycle, ","); got != "0,100,100,300,300" {
+		t.Fatalf("previous=%s", got)
+	}
+	if got := strings.Join(pace.Median3, ","); got != "300,300,600,600" {
+		t.Fatalf("median over the 4 shared days = %s", got)
+	}
+	none := buildPace(nil, nil, false)
+	if none.PreviousFullCycle != nil || none.Median3 != nil {
+		t.Fatalf("no history means no curves, not zeros: %+v", none)
+	}
+	if buildPace(nil, []cycleMeasure{a, b}, true).Median3 != nil {
+		t.Fatal("a median needs exactly three eligible cycles")
+	}
+	raw, err := json.Marshal(none)
+	if err != nil || string(raw) != `{"previousFullCycle":null,"median3":null}` {
+		t.Fatalf("missing curves encode as null: %s %v", raw, err)
+	}
+}

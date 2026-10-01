@@ -106,11 +106,13 @@ Under the daily bars, `#spending-shape` adds **Total pengeluaran sampai hari ini
 a separate, single-series line of the served running total with its own axis. This
 does not reverse the earlier chart refinement, which removed the cumulative line
 from the *daily bar chart* because it dominated the scale; the daily bars are
-unchanged. References are served comparison totals: full-cycle values are dashed
-levels and equal-day values are markers at the latest day, listed as text below the
-chart. Previous-cycle and median *curves* are not drawn because daily series for
-those cycles are not served. If a daily row lacks the served running total, the
-chart is replaced by a short "belum tersedia" line, never silently dropped.
+unchanged. The previous cycle (dashed) and the 3-cycle median (dotted) are drawn as
+curves from the API's `pace` series, so you can see whether this cycle is ahead of or
+behind them on any day, not only at the end. Equal-day totals are markers on those
+curves, and every value is listed as text below the chart. When the API serves no
+curve (an older API, or no history) the chart falls back to the served comparison
+totals as dashed levels and markers. If a daily row lacks the served running total,
+the chart is replaced by a short "belum tersedia" line, never silently dropped.
 
 **Posisi siklus** leads differently while a cycle is running: the headline is
 **Pengeluaran bersih sejauh ini**, because salary lands on day 1 and a net cashflow

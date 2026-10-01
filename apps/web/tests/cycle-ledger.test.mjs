@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, buildMatrix, compactMillions, directionMark, directionText, hasPace, mapPace, monthMarkers, paceReferences, signedMillions, verdictPairs } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, paceCurves, compactMillions, directionMark, directionText, hasPace, mapPace, monthMarkers, paceReferences, signedMillions, verdictPairs } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -156,6 +156,7 @@ test("synthetic facts mirror the served contract the ledger and pace chart read"
     assert.equal(facts.daily.at(-1).cumulativeExpense, String(facts.daily.reduce((sum, row) => sum + BigInt(row.expense), 0n)));
     assert.ok(facts.history.length >= 5, "history is served oldest first");
     assert.equal(facts.history[0].expenseDelta, null);
+    assert.ok(facts.pace.previousFullCycle.length > 0 && facts.pace.median3.length === facts.daily.length, "pace curves are served: the previous cycle in full, the median over the shared days");
     assert.deepEqual(facts.categoryHistory.cycleStarts, facts.history.map(item => item.start));
     facts.history.forEach((item, index) => {
       const listed = facts.categoryHistory.rows.reduce((sum, row) => sum + BigInt(row.amounts[index]), 0n);
@@ -259,4 +260,28 @@ test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back,
   assert.doesNotMatch(card, /[Aa]nalisis|Menganalisis/, "the feature is called pembahasan everywhere");
   assert.match(card, /Buat pembahasan/);
   assert.match(card, /Dibatasi satu pembahasan per jam/, "the hourly limit is stated before it is hit");
+
+test("served pace curves are used whole or not at all and share the day axis", () => {
+  assert.deepEqual(paceCurves(undefined), { previous: null, median: null });
+  assert.deepEqual(paceCurves({ previousFullCycle: ["1", "2"], median3: null }), { previous: ["1", "2"], median: null });
+  assert.equal(paceCurves({ previousFullCycle: ["1", null] }).previous, null, "a partial series is never drawn");
+  assert.equal(paceCurves({ previousFullCycle: [] }).previous, null);
+  const items = [{ period: "2026-09-01", cumulativeExpense: "100" }, { period: "2026-09-02", cumulativeExpense: "250" }];
+  const data = mapPace(items, { previousFullCycle: ["10", "20", "30", "40"], median3: ["5", "15"] });
+  assert.equal(data.length, 4, "the previous cycle can run past the selected one");
+  assert.deepEqual(data.map(point => [point.day, point.runningTotal, point.previousTotal, point.medianTotal]), [[1, 100, 10, 5], [2, 250, 20, 15], [3, null, 30, null], [4, null, 40, null]]);
+  assert.equal(data[2].period, undefined);
+  assert.deepEqual(mapPace(items).map(point => [point.previousTotal, point.medianTotal]), [[null, null], [null, null]], "no served curves, none drawn");
+  assert.equal(mapPace(items, { previousFullCycle: ["10", "20", "30"] })[1].exact, "250", "exact served strings stay available for the tooltip");
+});
+
+test("pace chart source: curves from the served series; levels only when no curve already draws them", () => {
+  const charts = text("app/components/Charts.js");
+  assert.match(charts, /dataKey="previousTotal"/);
+  assert.match(charts, /dataKey="medianTotal"/);
+  assert.match(charts, /!\(reference\.tone === "previous" && curves\.previous\)/);
+  assert.match(charts, /!\(reference\.tone === "median" && curves\.median\)/);
+  assert.match(charts, /reference\.shape === "marker"/, "equal-day markers stay and sit on the curves");
+  assert.match(tree("app/analytics"), /pace=\{facts\.pace\}/);
+  assert.doesNotMatch(charts, /cumulativeValue|AreaChart/, "still a separate single-purpose line chart");
 });

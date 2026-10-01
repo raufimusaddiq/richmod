@@ -200,6 +200,7 @@ try {
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
     assert.equal(await matrixRow.getAttribute("aria-pressed"), "false", "choosing the selected category again clears it");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
+    assert.equal(await page.locator(".cycle-pace-chart .recharts-line-curve").count(), 3, "the selected cycle, the previous cycle and the median are drawn as curves");
     assert.equal(await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} ledger has no page overflow`);
     await page.screenshot({ path: new URL(`${name}-ledger.png`, output).pathname, fullPage: true, animations: "disabled" });
