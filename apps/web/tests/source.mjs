@@ -10,3 +10,8 @@ export function tree(dir) {
     .map(name => readFileSync(new URL(name, base), "utf8"))
     .join("\n");
 }
+
+// ReviewCards.js plus every card module under components/review.
+export function reviewCards() {
+  return `${readFileSync(new URL("../app/components/ReviewCards.js", import.meta.url), "utf8")}\n${tree("app/components/review")}`;
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import test from "node:test";
-import { tree } from "./source.mjs";
+import { reviewCards, tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -170,11 +170,11 @@ test("email ingress controls stay grouped inside the integration card", () => {
 
 test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/inbox/page.js"), /\/api\/v1\/reviews/);
-  assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
-  assert.match(text("app/components/ReviewCards.js"), /transactions\?id=/);
-	assert.match(text("app/components/ReviewCards.js"), /const missing = MissingInputs\(item\)/);
-	assert.match(text("app/components/ReviewCards.js"), /missing\.merchant && <label>Merchant/);
-  assert.match(text("app/components/ReviewCards.js"), /name="merchantName" required/);
+  assert.match(reviewCards(), /classify-transfer/);
+  assert.match(reviewCards(), /transactions\?id=/);
+	assert.match(reviewCards(), /const missing = MissingInputs\(item\)/);
+	assert.match(reviewCards(), /missing\.merchant && <label>Merchant/);
+  assert.match(reviewCards(), /name="merchantName" required/);
 });
 
 test("household route exposes Telegram connection state", () => {

@@ -1,0 +1,7 @@
+import { dateTime, money } from "../../lib/format";
+import { ProposalFacts } from "./shared";
+
+export default function TransferReconciliationCard({ item, disabled, resolve }) {
+  const canMerge = item.allowedActions?.includes("MERGE_EXISTING"); const canCreate = item.allowedActions?.includes("CONFIRM_NEW_TRANSFER");
+  return <article className="review-card transfer-card"><div className="review-top"><span className="review-reason">Transfer perlu rekonsiliasi</span><strong>{money(item.amount)}</strong></div><h2>{item.description || "Transfer mungkin sudah tercatat"}</h2><ProposalFacts item={item} known={[]} missing={item.missingFacts || []}/><p>{canMerge ? "Pilih hanya bukti yang benar-benar merupakan transfer yang sama." : "Terlalu banyak kandidat. Sistem tidak akan menebak atau membuat transfer baru."}</p><details className="review-evidence"><summary>Bukti</summary><div className="candidates">{item.transferCandidates.map(candidate => <button type="button" key={candidate.id} disabled={disabled || !canMerge} onClick={() => resolve("MERGE_EXISTING", { transactionId: candidate.id })}><span>{dateTime(candidate.transactionAt)} · {candidate.description || candidate.type}</span><strong>{money(candidate.amount)}</strong></button>)}</div></details><div className="review-actions">{canCreate && <button disabled={disabled} onClick={() => resolve("CONFIRM_NEW_TRANSFER")}>Ini transfer baru</button>}<button className="danger" disabled={disabled} onClick={() => resolve("IGNORE")}>Abaikan</button></div></article>;
+}

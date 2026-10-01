@@ -1,0 +1,10 @@
+import Link from "next/link";
+import { useState } from "react";
+import { money } from "../../lib/format";
+import { label, ProposalFacts } from "./shared";
+
+export default function WealthObservationCard({ item, wealthAccounts, disabled, resolve }) {
+  const [editing, setEditing] = useState(false);
+  function choose(event) { event.preventDefault(); const account = new FormData(event.currentTarget).get("wealthAccountId"); resolve("SET_WEALTH_ACCOUNT", { wealthAccountId: account }); }
+  return <article className="review-card"><div className="review-top"><span className="review-reason">Observasi kekayaan</span><strong>{money(item.amount)}</strong></div><h2>{item.institution} · {item.accountHint}</h2><ProposalFacts item={item} known={[["wealth_account", wealthAccounts.find(account => account.id === item.resolvedWealthAccountId)?.name || item.accountHint || null]]} missing={item.missingFacts || []}/><p>Nilai ini hanya prefill. Snapshot penuh opsional dan tidak mengubah review ini.</p>{!item.resolvedWealthAccountId && !editing ? <div className="review-actions"><button disabled={disabled} onClick={() => setEditing(true)}>Pilih akun</button></div> : null}{editing ? <form onSubmit={choose}><label>Akun kekayaan<select name="wealthAccountId" required defaultValue=""><option value="" disabled>Pilih akun</option>{wealthAccounts.filter(account => account.active !== false).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><div className="review-actions"><button disabled={disabled}>Gunakan akun ini</button><button type="button" className="secondary" disabled={disabled} onClick={() => setEditing(false)}>Batal</button></div></form> : item.resolvedWealthAccountId ? <div className="review-actions"><button className="secondary" disabled={disabled} onClick={() => setEditing(true)}>Ubah akun</button><button className="danger" disabled={disabled} onClick={() => resolve("IGNORE")}>Abaikan</button><Link className="button secondary" href="/wealth">Siapkan snapshot lengkap (opsional)</Link></div> : null}</article>;
+}

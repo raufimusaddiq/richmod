@@ -20,12 +20,12 @@ export default function Households({ setError }) {
       </div>
       <Table
         headers={[
-          "Household",
-          "Members",
-          "Transactions",
+          "Keluarga",
+          "Anggota",
+          "Transaksi",
           "Tinjauan",
-          "Last activity",
-          "Created",
+          "Aktivitas terakhir",
+          "Dibuat",
         ]}
       >
         {data.map((x) => (

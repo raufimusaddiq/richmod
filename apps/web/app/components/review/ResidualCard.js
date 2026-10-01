@@ -1,0 +1,9 @@
+import { useState } from "react";
+import { money } from "../../lib/format";
+import { label, ProposalFacts } from "./shared";
+
+export default function ResidualCard({ item, wealthAccounts, disabled, resolve }) {
+  const [editing, setEditing] = useState(false);
+  function allocate(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const rows = [...form.entries()].filter(([key, value]) => key.startsWith("allocation-") && value).map(([key, value]) => ({ wealthAccountId: key.slice(11), amountIdr: value })); resolve("ALLOCATE_RETAINED_BALANCE", { allocations: rows }); }
+  return <article className="review-card residual-card"><div className="review-top"><span className="review-reason">Sisa siklus gaji</span><strong>{money(item.amount)}</strong></div><h2>{item.description || "Sisa siklus gaji perlu direkonsiliasi"}</h2><ProposalFacts item={item} known={[["transaction_at", `${item.cycleStart || "—"} – ${item.cycleEnd || "—"}`]]} missing={item.missingFacts || []}/><p>Alokasi saldo tersisa tetap keputusan kamu; sistem tidak menebak dari pola lama.</p>{!editing ? <div className="review-actions"><button disabled={disabled} onClick={() => setEditing(true)}>Alokasikan</button><button className="secondary" disabled={disabled} onClick={() => resolve("LEAVE_UNALLOCATED")}>Biarkan belum dialokasikan</button><button className="danger" disabled={disabled} onClick={() => resolve("TRANSACTION_MISSING")}>Ada transaksi belum tercatat</button></div> : <form onSubmit={allocate}>{wealthAccounts.filter(account => account.active !== false).map(account => <label key={account.id}>{account.name}<input name={`allocation-${account.id}`} inputMode="numeric" pattern="[0-9]+" placeholder="0"/></label>)}<div className="review-actions"><button disabled={disabled}>Alokasikan saldo tersisa</button><button type="button" className="secondary" disabled={disabled} onClick={() => setEditing(false)}>Batal</button></div></form>}</article>;
+}

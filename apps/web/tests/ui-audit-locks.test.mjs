@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { tree } from "./source.mjs";
+import { reviewCards, tree } from "./source.mjs";
 
 const text = path => path.endsWith("/") ? tree(path.slice(0, -1)) : readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const css = () => text("app/globals.css");
@@ -109,11 +109,11 @@ test("mobile overflow button carries the pending-review badge", () => {
 });
 
 test("user-facing copy uses the shared Indonesian vocabulary", () => {
-  for (const file of ["app/admin/", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
+  for (const file of ["app/admin/", "app/components/review/", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /Wealth Account|Review Inbox|Pemilik household|data household|alamat household|Antrean review|Joint \/ household/, `${file} avoids internal terms`);
   }
-  const cards = text("app/components/ReviewCards.js");
+  const cards = reviewCards();
   assert.doesNotMatch(cards, />[A-Z]{4,}( [A-Z]{2,})+</, "review card badges are sentence case");
 });
 
@@ -158,7 +158,7 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
 
 test("decorative glyphs are hidden from assistive technology", () => {
   assert.match(text("app/components/Feedback.js"), /<span aria-hidden="true">✓<\/span>/);
-  assert.match(text("app/components/ReviewCards.js"), /<span aria-hidden="true">✓<\/span>/);
+  assert.match(reviewCards(), /<span aria-hidden="true">✓<\/span>/);
   assert.match(text("app/inbox/page.js"), /<span aria-hidden="true">✓<\/span>/);
   assert.doesNotMatch(text("app/inbox/page.js"), /<span>✓<\/span>/);
 });
@@ -180,4 +180,27 @@ test("a failed request names what is missing and keeps the rest", () => {
   const inbox = text("app/inbox/page.js");
   assert.match(inbox, /Each list stands on its own/);
   assert.doesNotMatch(inbox, /if \(!reviewResponse\.ok \|\| !actionResponse\.ok\) throw new Error/);
+});
+
+test("large screens are split into modules and carry no inline checkbox styles", () => {
+  const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  const lines = path => read(path).split("\n").length;
+  assert.ok(lines("app/admin/page.js") < 120, "admin page.js is only the tab shell");
+  for (const tab of ["Overview", "Reviews", "Jobs", "LLM", "Logs", "Households", "Users", "Audit"]) {
+    assert.match(read(`app/admin/${tab}.js`), new RegExp(`export default function ${tab}\\(`), `${tab} lives in its own module`);
+  }
+  assert.match(read("app/admin/page.js"), /import Overview from "\.\/Overview"/);
+  assert.ok(lines("app/components/ReviewCards.js") < 30, "ReviewCards.js only routes items to their card");
+  for (const card of ["CanonicalCard", "ReviewCard", "TransferCard", "ResidualCard", "WealthObservationCard", "FinancialEmailResolutionCard", "TransferReconciliationCard"]) {
+    assert.match(read(`app/components/review/${card}.js`), new RegExp(`export default function ${card}\\(`), `${card} lives in its own module`);
+  }
+  assert.doesNotMatch(reviewCards(), /checkbox(Label|Input)Style|style=\{\{/, "review cards use CSS classes, not inline styles");
+  assert.match(css(), /label\.review-check \{ display: flex;/);
+  assert.match(css(), /label\.review-check input\[type="checkbox"\] \{ width: 16px;/);
+});
+
+test("the households table uses the shared Indonesian vocabulary", () => {
+  const households = readFileSync(new URL("../app/admin/Households.js", import.meta.url), "utf8");
+  for (const header of ["Keluarga", "Anggota", "Transaksi", "Aktivitas terakhir", "Dibuat"]) assert.match(households, new RegExp(`"${header}"`));
+  assert.doesNotMatch(households, /"Last activity"|"Members"|"Created"/);
 });

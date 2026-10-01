@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile } from "node:fs/promises";
+import { reviewCards } from "./source.mjs";
 
 // PRD §13.1/§13.4: the Inbox is proposal-first, and it may render a required
 // input only for a fact the stored ReviewDecision named as missing. These are
 // source-level guards, because the card components are JSX without a test renderer.
-const source = await readFile(new URL("../app/components/ReviewCards.js", import.meta.url), "utf8");
+const source = reviewCards();
 
 test("review cards render the review decision proposal and missing facts", () => {
   assert.match(source, /ProposalFacts/);
