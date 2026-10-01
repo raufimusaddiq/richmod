@@ -6,7 +6,7 @@ Business Decision Record.
 
 ## Status
 
-Proposed product decision — 2026-09-30.
+Proposed product decision — 2026-09-30. Amended 2026-10-02 (cycle-to-cycle visual comparison, see Amendment below).
 
 ## Decision owner
 
@@ -260,6 +260,28 @@ These decisions are a separate product concept from transactions, categories, re
 They may be shown in future cycle reviews as context.
 
 Richmod must not infer that a later financial change was caused by a prior decision unless that causal relationship is actually established.
+
+## Amendment — cycle-to-cycle visual comparison (2026-10-02)
+
+Requested by the product owner. The cycle review answered "what changed?" for
+one cycle against one baseline, mostly in labels and tables. Question 4 above
+("is the change actually unusual against recent history?") needs recent cycles
+to be visible side by side.
+
+Decision: the primary visual of the cycle view becomes a **cycle ledger** — one
+figure with a column per salary cycle (income/expense bars, net, change vs the
+previous column, and a category x cycle matrix), plus a cumulative pace chart.
+Details: `docs/plans/analytics-cycle-ledger-sprint.md` and PRD §13.1.
+
+This does not make Analytics a "generic dashboard". The rejected shape is KPI
+tiles without a review job, health scores, or AI advice. A multi-cycle
+comparison serves the review job in this record's own question list. The
+existing invariants stay: server-owned numbers, no significance labels or
+good/bad colouring, no generated interpretive prose from Go, missing history shown as
+missing, AI optional.
+
+Revisit if households do not use the cycle column selection, or if the matrix is
+read as a performance score.
 
 ## Alternatives considered
 

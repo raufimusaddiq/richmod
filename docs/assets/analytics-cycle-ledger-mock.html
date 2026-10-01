@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Richmod · Mock Cycle Ledger</title>
+<!--
+  DESIGN MOCK, not production code. Synthetic fixture numbers only (no household data).
+  Spec: docs/plans/analytics-cycle-ledger-sprint.md. Tokens copied from apps/web/app/globals.css.
+  Production uses self-hosted Fraunces/Inter; this file uses system fallbacks to stay standalone.
+  Everything shown here is a server-owned value in production; the browser only maps amounts to lengths.
+-->
+<style>
+:root {
+  --canvas: #f7f3e8; --surface: #fffcf4; --surface-muted: #f2edde;
+  --ink: #253a36; --ink-soft: #354943; --muted: #4c5a50;
+  --line: #d5d9c8; --line-strong: #7b8979;
+  --accent: #245c54; --butter: #f5ebc3;
+  --income: #315b3f; --expense: #8b4437; --info: #3a5867;
+  --shadow: 3px 4px 0 rgba(37, 58, 54, .16);
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-body: system-ui, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 var(--font-body); }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; letter-spacing: 0; margin: 0; text-wrap: balance; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.note { margin: 0 0 20px; padding: 8px 12px; background: var(--butter); border: 1px solid var(--line-strong); font-size: 12px; }
+
+.head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.head h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.15; }
+.state { margin: 4px 0 0; color: var(--muted); }
+.step { display: flex; gap: 8px; }
+.step button { min-height: 44px; padding: 0 14px; background: var(--surface); border: 2px solid var(--ink); border-radius: 12px; box-shadow: var(--shadow); font-weight: 650; }
+.step button:disabled { opacity: .45; box-shadow: none; cursor: default; }
+
+.verdict { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 20px 0; padding: 0; }
+.verdict div { display: grid; }
+.verdict dt { color: var(--muted); font-size: 12px; }
+.verdict dd { margin: 0; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+/* The figure: ribbon and matrix are one table, so columns align by construction. */
+.figure { position: relative; overflow-x: auto; background: var(--surface); border: 2px solid var(--ink); border-radius: 18px; box-shadow: var(--shadow); scroll-snap-type: x proximity; }
+.hl { position: absolute; top: 0; bottom: 0; left: 0; background: var(--butter); transition: transform .22s cubic-bezier(.2, .7, .2, 1), width .22s; pointer-events: none; }
+table { position: relative; width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
+th, td { padding: 0; text-align: center; vertical-align: bottom; }
+col.label { width: 9.5rem; }
+thead th { padding: 12px 4px 10px; font-weight: 400; font-size: 13px; scroll-snap-align: start; border-bottom: 2px solid var(--ink); }
+thead th button { width: 100%; min-height: 44px; padding: 2px; background: none; border: 0; line-height: 1.25; }
+thead th button b { display: block; font-size: 15px; }
+thead th button small { display: block; color: var(--muted); font-size: 12px; }
+tbody th { padding: 0 12px; text-align: left; font-weight: 600; font-size: 13px; background: var(--surface); position: sticky; left: 0; z-index: 2; }
+tbody th small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+tbody tr + tr > * { border-top: 1px solid var(--line); }
+tr.ribbon th, tr.ribbon td { border-top: 0; }
+tbody th { vertical-align: middle; }
+tr.ribbon th { vertical-align: top; padding-top: 16px; }
+td.bars { position: relative; height: 150px; padding: 0 4px; }
+.pair { display: flex; align-items: flex-end; justify-content: center; gap: 6px; height: 100%; }
+.b { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; }
+.b em { font-style: normal; font-size: 12px; color: var(--muted); }
+.b.out em { color: var(--ink); font-weight: 650; font-size: 13px; }
+.b i { display: block; width: 18px; border: 2px solid var(--ink); border-bottom-width: 0; border-radius: 4px 4px 0 0; }
+.b.in i { background: var(--income); }
+.b.out i { background: var(--expense); }
+td.running .b.out i { background-image: repeating-linear-gradient(135deg, rgba(255, 252, 244, .55) 0 3px, transparent 3px 6px); border-style: dashed; }
+.med { position: absolute; left: 4px; right: 4px; border-top: 2px dashed var(--info); pointer-events: none; }
+td.num { height: 40px; vertical-align: middle; font-size: 14px; }
+td.num.muted { color: var(--muted); }
+td.cell { height: 40px; vertical-align: middle; font-size: 13px; }
+td.cell span { display: block; margin: 3px 4px; padding: 6px 0; border-radius: 6px; }
+tr.sep > * { border-top: 2px solid var(--ink) !important; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 10px 2px 0; color: var(--muted); font-size: 12px; }
+.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--ink); }
+
+.pace { margin-top: 32px; }
+.pace h2 { font-size: 21px; margin-bottom: 8px; }
+.pace svg { width: 100%; height: auto; display: block; }
+.pace text { font: 12px var(--font-body); fill: var(--muted); }
+.pace text.lab { fill: var(--ink); font-weight: 650; }
+
+.rest { margin: 32px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.rest details { border-bottom: 1px solid var(--line); }
+.rest summary { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-height: 48px; cursor: pointer; font-family: var(--font-display); font-size: 17px; font-weight: 600; }
+.rest summary span { color: var(--muted); font: 13px var(--font-body); }
+.rest p { margin: 0 0 14px; color: var(--muted); }
+
+@media (max-width: 680px) {
+  .verdict dd { font-size: 18px; }
+  table { min-width: 0; width: 560px; }
+  col.label { width: 5.5rem; }
+  tbody th { padding: 0 8px; font-size: 12px; }
+  .b i { width: 14px; }
+  thead th button b { font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .hl { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="note">Mock desain · angka sintetis · bukan data rumah tangga. Klik kolom siklus atau tombol Sebelumnya/Berikutnya untuk melihat sorotan berpindah.</p>
+
+  <header class="head">
+    <div>
+      <h1 id="title"></h1>
+      <p class="state" id="state"></p>
+    </div>
+    <nav class="step" aria-label="Pilih siklus">
+      <button type="button" id="prev">‹ Sebelumnya</button>
+      <button type="button" id="next">Berikutnya ›</button>
+    </nav>
+  </header>
+
+  <dl class="verdict" id="verdict" aria-live="polite"></dl>
+
+  <div class="figure" id="figure" tabindex="0" role="region" aria-label="Perbandingan siklus, geser untuk semua kolom">
+    <div class="hl" id="hl" aria-hidden="true"></div>
+    <table id="ledger"><caption class="visually-hidden">Pemasukan, pengeluaran, arus kas bersih, dan pengeluaran per kategori untuk enam siklus gaji</caption></table>
+  </div>
+  <div class="legend" id="legend"></div>
+
+  <section class="pace" aria-labelledby="pace-title">
+    <h2 id="pace-title">Pola pengeluaran kumulatif</h2>
+    <p class="legend" id="pacenote" style="margin:0 0 6px"></p>
+    <svg id="pace" viewBox="0 0 760 240" role="img" aria-label="Pengeluaran kumulatif siklus terpilih dibanding siklus sebelumnya dan median"></svg>
+  </section>
+
+  <ul class="rest">
+    <li><details><summary>Bukti kategori <span>Pilih kategori dari matriks</span></summary><p>Tidak berubah dari halaman saat ini: pedagang dan transaksi pendukung.</p></details></li>
+    <li><details><summary>Tabungan & kekayaan <span>Alokasi dan pergerakan kekayaan</span></summary><p>Tidak berubah dari halaman saat ini.</p></details></li>
+    <li><details><summary>Tindak lanjut <span>Kelengkapan data</span></summary><p>Tidak berubah dari halaman saat ini.</p></details></li>
+    <li><details><summary>Detail penuh <span>Tabel perbandingan lengkap, median, persentase, kontribusi</span></summary><p>Tabel yang ada sekarang pindah ke sini. Tidak ada fakta yang dihapus.</p></details></li>
+    <li><details><summary>Keputusan <span>Ditulis oleh rumah tangga</span></summary><p>Tidak berubah dari halaman saat ini.</p></details></li>
+  </ul>
+</main>
+
+<script>
+// Synthetic fixture. Category rows plus "Lainnya" reconcile to each cycle's expense.
+const C = [
+  { s: "2026-04-26", e: "2026-05-26", inc: 12.0, exp: 7.4, cat: [2.4, 1.1, 0.9, 1.6, 0.2, 1.2] },
+  { s: "2026-05-26", e: "2026-06-26", inc: 12.0, exp: 8.1, cat: [2.6, 1.4, 0.9, 1.6, 0.5, 1.1] },
+  { s: "2026-06-26", e: "2026-07-26", inc: 12.5, exp: 7.9, cat: [2.5, 1.2, 1.0, 1.6, 0.6, 1.0] },
+  { s: "2026-07-26", e: "2026-08-26", inc: 12.5, exp: 7.2, cat: [2.2, 1.0, 0.8, 1.6, 0.3, 1.3] },
+  { s: "2026-08-26", e: "2026-09-26", inc: 12.5, exp: 8.6, cat: [3.1, 1.7, 0.9, 1.6, 0.4, 0.9] },
+  { s: "2026-09-26", e: null, days: 7, inc: 12.5, exp: 2.9, cat: [1.0, 0.5, 0.3, 0.6, 0.1, 0.4] },
+];
+const NAMES = ["Belanja rumah", "Makan di luar", "Transportasi", "Tagihan", "Kesehatan", "Lainnya"];
+const SCALE = 9; // px per juta, length only
+let sel = 4;
+
+const $ = id => document.getElementById(id);
+const fmt = n => n.toFixed(1).replace(".", ",");
+const signed = n => (n > 0 ? "+" : n < 0 ? "−" : "") + fmt(Math.abs(n));
+const arrow = n => (n > 0 ? "▲ " : n < 0 ? "▼ " : "") + signed(n);
+const day = (iso, extra = {}) => new Date(iso + "T00:00:00Z").toLocaleDateString("id-ID", { day: "numeric", month: "short", timeZone: "UTC", ...extra });
+const minusDay = iso => new Date(Date.parse(iso + "T00:00:00Z") - 864e5).toISOString().slice(0, 10);
+const median = a => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+const running = c => c.e === null;
+const medianOf = i => (i >= 3 ? median([C[i - 1].exp, C[i - 2].exp, C[i - 3].exp]) : null);
+const tickMedian = i => (running(C[i]) ? null : medianOf(i));
+
+// Daily shape (synthetic) used only for the pace chart.
+const SHAPE = {};
+const share = (d, k = 0) => {
+  const W = SHAPE[k] ||= Array.from({ length: 31 }, (_, i) => Math.max(.2, 1 + .6 * Math.sin(i * 1.7 + k * 1.3) + .4 * Math.sin(i * .55 + k * .7)));
+  return W.slice(0, d).reduce((a, b) => a + b, 0) / W.reduce((a, b) => a + b, 0);
+};
+
+function render() {
+  const c = C[sel], prev = C[sel - 1], med = medianOf(sel);
+  $("title").textContent = running(c) ? `${day(c.s)} – berjalan` : `${day(c.s)} – ${day(minusDay(c.e), { year: "numeric" })}`;
+  $("state").textContent = running(c) ? `Berjalan · hari ke-${c.days} · Asia/Jakarta` : "Ditutup · Asia/Jakarta";
+  $("prev").disabled = sel === 0; $("next").disabled = sel === C.length - 1;
+
+  const pairs = [];
+  if (running(c)) {
+    const prefix = prev.exp * share(c.days, sel - 1);
+    pairs.push(["Pengeluaran bersih · hari ke-" + c.days, `Rp ${fmt(c.exp)} jt`], ["Siklus sebelumnya di hari yang sama", `Rp ${fmt(prefix)} jt · ${arrow(c.exp - prefix)} jt`]);
+  } else {
+    pairs.push(["Pengeluaran bersih", `Rp ${fmt(c.exp)} jt`]);
+    if (prev) pairs.push(["Dibanding siklus sebelumnya", `${arrow(c.exp - prev.exp)} jt · ${signed((c.exp - prev.exp) / prev.exp * 100).replace(",0", "")}%`]);
+    if (med != null) pairs.push(["Dibanding median 3 siklus", `${arrow(c.exp - med)} jt`]);
+  }
+  $("verdict").innerHTML = pairs.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+
+  const head = C.map((x, i) => `<th scope="col" data-i="${i}"><button type="button" aria-pressed="${i === sel}" data-i="${i}"><b>${day(x.s)}</b><small>${running(x) ? "berjalan" : "– " + day(minusDay(x.e))}</small></button></th>`).join("");
+  const bars = `<tr class="ribbon"><th scope="row">Pemasukan & pengeluaran</th>${C.map((x, i) => `<td class="bars${running(x) ? " running" : ""}"><div class="pair"><span class="b in"><em>${fmt(x.inc)}</em><i style="height:${x.inc * SCALE}px"></i></span><span class="b out"><em>${fmt(x.exp)}</em><i style="height:${x.exp * SCALE}px"></i></span></div>${i === sel && tickMedian(sel) != null ? `<span class="med" style="bottom:${med * SCALE}px" title="Median 3 siklus sebelumnya"></span>` : ""}</td>`).join("")}</tr>`;
+  const net = `<tr><th scope="row">Arus kas bersih</th>${C.map(x => `<td class="num${running(x) ? " muted" : ""}">${signed(x.inc - x.exp)}</td>`).join("")}</tr>`;
+  const delta = `<tr><th scope="row">Pengeluaran vs siklus sebelumnya</th>${C.map((x, i) => `<td class="num${running(x) ? " muted" : ""}">${i && !running(x) ? arrow(x.exp - C[i - 1].exp) : "—"}</td>`).join("")}</tr>`;
+  const rows = NAMES.map((n, r) => { const vals = C.map(x => x.cat[r]); const max = Math.max(...vals); return `<tr${r === 0 ? ' class="sep"' : ""}><th scope="row">${n}</th>${C.map((x, i) => `<td class="cell"><span style="background:rgba(58,88,103,${(vals[i] / max * .45).toFixed(2)})">${fmt(vals[i])}</span></td>`).join("")}</tr>`; }).join("");
+  $("ledger").innerHTML = `<caption class="visually-hidden">Pemasukan, pengeluaran, arus kas bersih, dan pengeluaran per kategori untuk enam siklus gaji</caption><colgroup><col class="label">${C.map(() => "<col>").join("")}</colgroup><thead><tr><th scope="col" style="text-align:left;padding-left:12px;border-bottom:2px solid var(--ink)"><span style="color:var(--muted);font-size:12px">Rp juta</span></th>${head}</tr></thead><tbody>${bars}${net}${delta}${rows}</tbody>`;
+
+  $("legend").innerHTML = `<span><i style="background:var(--income)"></i>Pemasukan</span><span><i style="background:var(--expense)"></i>Pengeluaran bersih</span>${tickMedian(sel) != null ? `<span><i style="border:0;border-top:2px dashed var(--info);height:0;width:16px;vertical-align:4px"></i>Median 3 siklus sebelum siklus terpilih</span>` : ""}<span>Warna sel = besar relatif dalam satu baris, bukan nilai baik atau buruk</span>`;
+  place(); pace();
+  $("pacenote").textContent = running(c) ? "Garis putus-putus: siklus sebelumnya dan median untuk siklus penuh. Perbandingan di hari yang sama ada di angka di atas." : "Siklus ini dibanding siklus sebelumnya dan median 3 siklus, pada hari yang sama dalam siklus.";
+}
+
+function place() {
+  const th = document.querySelector(`#ledger thead th[data-i="${sel}"]`);
+  const hl = $("hl");
+  hl.style.width = th.offsetWidth + "px";
+  hl.style.transform = `translateX(${th.offsetLeft}px)`;
+}
+
+function pace() {
+  const c = C[sel], prev = C[sel - 1], med = medianOf(sel);
+  const svg = $("pace"), VW = Math.max(300, Math.round(svg.getBoundingClientRect().width || 760));
+  svg.setAttribute("viewBox", `0 0 ${VW} 240`);
+  const L = 31, X0 = 34, X1 = VW - 124, Y0 = 20, Y1 = 204, YM = 10;
+  const x = d => X0 + (X1 - X0) * d / L, y = v => Y1 - (Y1 - Y0) * v / YM;
+  const line = (total, until, style, k) => `<polyline fill="none" ${style} points="${Array.from({ length: until + 1 }, (_, d) => `${x(d).toFixed(1)},${y(total * share(d, k)).toFixed(1)}`).join(" ")}"/>`;
+  const cur = running(c) ? c.days : L;
+  const labels = [[c.exp * share(cur, sel), `Siklus ini ${fmt(c.exp)}`, "var(--expense)"]];
+  if (prev) labels.push([prev.exp, `Sebelumnya ${fmt(prev.exp)}`, "var(--ink-soft)"]);
+  if (med != null) labels.push([med, `Median ${fmt(med)}`, "var(--info)"]);
+  labels.sort((a, b) => b[0] - a[0]);
+  let last = -99;
+  const text = labels.map(([v, t, col]) => { let ty = Math.max(y(v) + 4, last + 15); last = ty; return `<text class="lab" x="${X1 + 8}" y="${ty.toFixed(1)}" style="fill:${col}">${t}</text>`; }).join("");
+  const grid = [0, 5, 10].map(v => `<line x1="${X0}" x2="${X1}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${X0 - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join("");
+  const ticks = [1, 8, 15, 22, 29].map(d => `<text x="${x(d - 1)}" y="228" text-anchor="middle">${d}</text>`).join("");
+  const mStart = new Date(c.s + "T00:00:00Z"); const m1 = new Date(Date.UTC(mStart.getUTCFullYear(), mStart.getUTCMonth() + 1, 1));
+  const md = Math.round((m1 - mStart) / 864e5);
+  const month = md < L ? `<line x1="${x(md)}" x2="${x(md)}" y1="${Y0}" y2="${Y1}" stroke="var(--line-strong)" stroke-dasharray="2 3"/><text x="${x(md) + 4}" y="${Y0 + 22}">1 ${m1.toLocaleDateString("id-ID", { month: "short", timeZone: "UTC" })}</text>` : "";
+  $("pace").innerHTML = `${grid}${month}${prev ? line(prev.exp, L, 'stroke="var(--ink-soft)" stroke-width="2" stroke-dasharray="7 5"', sel - 1) : ""}${med != null ? line(med, L, 'stroke="var(--info)" stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round"', sel - 2) : ""}${line(c.exp, cur, 'stroke="var(--expense)" stroke-width="3.5" stroke-linejoin="round"', sel)}${ticks}${text}<text x="${X0}" y="12">Rp juta, kumulatif</text>`;
+}
+
+document.addEventListener("click", e => { const b = e.target.closest("button[data-i]"); if (b) { sel = +b.dataset.i; render(); } });
+$("prev").onclick = () => { if (sel > 0) { sel--; render(); } };
+$("next").onclick = () => { if (sel < C.length - 1) { sel++; render(); } };
+addEventListener("resize", () => { place(); pace(); });
+render();
+</script>
+</body>
+</html>

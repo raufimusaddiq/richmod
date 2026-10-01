@@ -70,6 +70,53 @@ are bounded to 10 per category, ordered by amount then date/ID. Transaction type
 stays explicit so a refund is not presented as an expense. Member attribution
 sorts by name, not by spending, and includes shared/automatic/unattributed rows.
 
+## Cycle history series — October 2, 2026
+
+For the cycle-to-cycle ledger ([sprint plan](plans/analytics-cycle-ledger-sprint.md)),
+`GET /api/v1/analytics/cycle-review` accepts an optional `history=N` (integer
+1–12, default 6). Anything else returns 400. The response stays
+`cycle-review-v1`; the two fields below are additive, so clients must tolerate
+their absence. `cycle_start` selection and every other field are unchanged.
+
+**Window.** The N most recent salary cycles, or N cycles ending at the selected
+cycle when it is older than that window, so the selected cycle is always listed.
+Cycles are ordered oldest first and clipped to the cycles that exist. Without a
+confirmed salary anchor (calendar-month fallback) both fields are empty.
+
+`history[]` — one entry per cycle:
+
+```text
+start, end (exclusive; null while active), measuredUntil, state
+income, grossExpense, refund, expense (net of refunds), netCashflow, savingsAllocated
+```
+
+Closed cycles are measured to their full exclusive `end`, even when the
+equal-day comparison uses an earlier cutoff for the same cycle. The active cycle
+is measured to its `measuredUntil` and is not a forecast. Equal-day comparisons
+stay in `comparison`. Every value follows the financial policy above (confirmed
+only, refunds reduce expense, transfers excluded from income/expense).
+
+`categoryHistory` — the category x cycle matrix:
+
+```text
+cycleStarts[]            the starts of history[], same order
+rows[]                   id (empty string = uncategorized), name, amounts[] (one per cycle)
+other.amounts[]          net expense minus the listed rows, one per cycle
+```
+
+Rows are the top 8 categories by net expense summed over the window (ties by
+name then ID); categories with a zero window total are never listed. For every
+cycle `sum(rows[].amounts[i]) + other.amounts[i] == history[i].expense` exactly.
+Category amounts are net of refunds, so a refund-only category can be negative,
+and `other` can be negative. Browser code must not recompute totals, medians or
+shares from these series.
+
+`apps/reviewdomain/analyticscore` exposes `LoadWithHistory`; `Load` is
+unchanged and returns empty series. The native analytical READ tools do not
+forward either field (see [shared read tools](ANALYTICS_SHARED_READ_TOOLS.md)); a
+test asserts it. No schema change; the series reuses the existing array-driven
+measures query inside the same `REPEATABLE READ` transaction.
+
 ## Wealth and quality
 
 The current snapshot is the latest observation before the measured cutoff
@@ -109,8 +156,9 @@ separate subsequent work.
 
 ## Verification
 
-`apps/api/internal/analytics/review_test.go` covers median/outlier/tiny-baseline
-arithmetic and absence of semantic output fields. `review_integration_test.go`
+`apps/reviewdomain/analyticscore/facts_test.go` covers median/outlier/tiny-baseline
+arithmetic, absence of semantic output fields, and the history window, measure
+reuse and exact reconciliation. `review_integration_test.go`
 covers no/one/three-cycle history, refunds, excluded transfers/unresolved/future
 state, exact boundaries, drivers, attribution, savings, snapshot cashflow
 reconciliation, concrete blockers, authentication, and household isolation.
