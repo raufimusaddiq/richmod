@@ -45,7 +45,8 @@ function PaceTooltip({ active, payload }) {
 // Single series on its own scale (never mixed with the daily bars): "are we on pace?".
 // References are served comparison totals; equal-day values are markers at the latest day.
 export function CyclePaceChart({ items, references = [], height = 240 }) {
-  if (!hasPace(items)) return null;
+  if (!items?.length) return null;
+  if (!hasPace(items)) return <p className="empty compact">Total pengeluaran sampai hari ini belum tersedia.</p>;
   const data = mapPace(items);
   const months = monthMarkers(items);
   const last = data[data.length - 1];

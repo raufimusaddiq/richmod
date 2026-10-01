@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { adjacentCycles, buildLedger, compactMillions, directionMark, directionText, hasPace, mapPace, monthMarkers, paceReferences, signedMillions, verdictPairs } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
-import { tree } from "./source.mjs";
+import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
+import { globalCss, tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -124,8 +125,8 @@ test("ledger source: served numbers only, no colour-only direction, accent reser
   assert.match(component, /aria-pressed=\{column\.selected\}/);
   assert.match(component, /role="region" aria-label="Perbandingan siklus, geser untuk semua kolom"/);
   assert.match(component, /<caption className="visually-hidden">/);
-  const styles = text("app/globals.css");
-  const block = styles.slice(styles.indexOf("/* Cycle ledger:"), styles.indexOf(".ranked > div {"));
+  const styles = globalCss();
+  const block = styles.slice(styles.indexOf("/* Cycle ledger:"), styles.indexOf("/* end cycle ledger */"));
   assert.ok(block.length > 500, "ledger styles present");
   assert.doesNotMatch(block, /var\(--accent|var\(--danger|var\(--income-soft|var\(--expense-soft/, "no accent or good/bad tinting in the ledger");
   assert.match(styles, /\[data-meeting-step\]:not\(\[data-meeting-step="position"\]\) > #ledger/, "the ledger belongs to the first meeting step");
@@ -145,5 +146,17 @@ test("page wiring: ledger, stale-while-revalidate, calendar-aware title", () => 
   assert.match(page, /hari ini belum penuh/);
   const charts = text("app/components/Charts.js");
   assert.match(charts, /export function CyclePaceChart/);
+  assert.match(charts, /Total pengeluaran sampai hari ini belum tersedia/, "a missing running total is explained, not silent");
   assert.doesNotMatch(charts, /cumulativeValue|AreaChart/, "pace is a separate single-series line chart");
+});
+
+test("synthetic facts mirror the served contract the ledger and pace chart read", () => {
+  for (const facts of [cycleFacts(), cycleFacts("2026-08-26"), cycleFacts("2026-09-25"), stableCycleFacts()]) {
+    assert.equal(hasPace(facts.daily), true, "every daily row serves cumulativeExpense");
+    assert.equal(facts.daily.at(-1).cumulativeExpense, String(facts.daily.reduce((sum, row) => sum + BigInt(row.expense), 0n)));
+    assert.ok(facts.history.length >= 5, "history is served oldest first");
+    assert.equal(facts.history[0].expenseDelta, null);
+    assert.deepEqual(facts.categoryHistory.cycleStarts, facts.history.map(item => item.start));
+    assert.equal(facts.history.at(-1).start, facts.period.start, "the selected cycle is listed");
+  }
 });

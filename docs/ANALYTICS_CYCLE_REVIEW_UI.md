@@ -62,7 +62,8 @@ from the *daily bar chart* because it dominated the scale; the daily bars are
 unchanged. References are served comparison totals: full-cycle values are dashed
 levels and equal-day values are markers at the latest day, listed as text below the
 chart. Previous-cycle and median *curves* are not drawn because daily series for
-those cycles are not served.
+those cycles are not served. If a daily row lacks the served running total, the
+chart is replaced by a short "belum tersedia" line, never silently dropped.
 
 The cycle header now says "hari ke-N, hari ini belum penuh" for an active cycle,
 and the daily average is shown in whole rupiah like every other amount.

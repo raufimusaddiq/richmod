@@ -7,7 +7,11 @@ vocabulary of a well-kept paper book: cream stock, ruled lines, ink outlines,
 offset shadows, and a display serif reserved for headings. The surfaces stay
 calm and legible because the money is the loud part, not the chrome.
 
-The single token source is `apps/web/app/globals.css`. This document describes
+The single token source is `apps/web/app/styles/01-tokens-and-base.css`
+(`:root`). `apps/web/app/globals.css` is only an ordered list of `@import`s over
+the pieces in `apps/web/app/styles/`; the pieces were cut from the original
+stylesheet in order, so the cascade is the import order. Keep that order and
+add rules to the piece that owns them (a test checks the structure). This document describes
 that source; it does not introduce a parallel token file.
 
 ## Palette

@@ -32,7 +32,7 @@ by side, which is BDR-006 question 4 ("is the change unusual against recent
 history?"). Audit findings that drive this plan:
 
 - The server already computes `comparison.income` and `comparison.netCashflow`; the page renders neither.
-- Daily `cumulativeExpense` is served and unused; the daily chart has no pace reference and labels days by day-of-month only.
+- Daily `cumulativeExpense` was served and unused (PR 2 now plots it as a separate pace chart); the daily chart has no pace reference and labels days by day-of-month only.
 - `cycles[]` carries boundaries only, so the browser has no per-cycle totals.
 - The active cycle leads with net cashflow, which is misleading mid-cycle because income lands on day 1.
 - Most comparison content is text, context spans and disclosures; the PRD lists "long wall of prose" as a thing not to build.
@@ -176,6 +176,7 @@ Web only: surface the API error text, controlled custom-range inputs with min/ma
   curves are not served, so they are not drawn.
 - **PR 2** shows income and net comparison through the ledger rows (from `history`)
   rather than a separate use of `comparison.income` / `comparison.netCashflow`.
+- **PR 2** plots the served `cumulativeExpense` as the pace chart. If any daily row lacks it, the chart says the total is unavailable instead of disappearing.
 - Plain-language relabelling of the existing comparison tables ("Δ", "hari setara",
   "median 3") moves to PR 3, where those tables are demoted, so the smoke script's
   text assertions change in one place.

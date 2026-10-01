@@ -30,6 +30,8 @@ export function cycleFacts(start = "2026-09-01") {
     return { period: date.toISOString().slice(0, 10), expense, grossExpense: index ? expense : "1200000", refund: index ? "0" : "300000", income: index ? "0" : "12000000" };
   });
   if (september25) daily.push({ period: "2026-10-01", expense: "1950000", grossExpense: "1950000", refund: "0", income: "0" });
+  let runningTotal = 0n; // the API serves cumulativeExpense on every daily row
+  for (const row of daily) { runningTotal += BigInt(row.expense); row.cumulativeExpense = String(runningTotal); }
   const facts = {
     version: "cycle-review-v1", generatedAt: "2026-09-06T12:00:00+07:00", period,
     cycles: [{ ...period, start: "2026-09-01", end: null, state: "ACTIVE", measuredUntil: "2026-09-07" }, { ...period, start: "2026-08-26", end: "2026-09-01", state: "CLOSED", measuredUntil: "2026-09-01" }],
@@ -81,6 +83,12 @@ export function stableCycleFacts() {
   facts.comparison.expense = { ...category, id: "", name: "" };
   facts.cashflow = { income: "1400000", grossExpense: "1400000", refund: "0", expense: "1400000", netCashflow: "0", savingsAllocated: "0", unallocatedSurplus: "0" };
   facts.daily = facts.daily.map((day, index) => ({ ...day, expense: index < 4 ? "200000" : "300000", grossExpense: index < 4 ? "200000" : "300000", refund: "0", income: index === 0 ? "1400000" : "0" }));
+  let stableTotal = 0n; // keep the served running total consistent with the rewritten days
+  for (const day of facts.daily) { stableTotal += BigInt(day.expense); day.cumulativeExpense = String(stableTotal); }
+  const last = facts.history.at(-1); // and the ledger's selected column with the rewritten cashflow
+  Object.assign(last, { income: "1400000", grossExpense: "1400000", expense: "1400000", netCashflow: "0" });
+  last.expenseDelta = String(BigInt(last.expense) - BigInt(facts.history.at(-2).expense));
+  facts.categoryHistory.other.amounts[facts.history.length - 1] = last.expense;
   facts.spendingShape = { days: 6, averageDailyExpense: "233333.33", peakDay: facts.daily[4].period, peakExpense: "300000", peakShareOfExpense: "0.2143", zeroSpendDays: 0 };
   facts.merchantDrivers = []; facts.memberAttribution = [{ name: "Shared / unattributed", amount: "1400000", count: 6 }]; facts.savingsDestinations = [];
   facts.wealth.current.netWorth = facts.wealth.previous.netWorth;
