@@ -115,3 +115,12 @@ and backoff without polling after navigation or cancellation.
 ADR-015's 0.70 data-coverage gate remains deterministic and separate from model
 noteworthiness. Failed/insufficient-data commentary emits no fake analysis;
 the cycle-review API still returns all deterministic measurements and blockers.
+
+## Cycle history is not a tool input — October 2, 2026
+
+`history` and `categoryHistory` (the ledger series served by
+`/api/v1/analytics/cycle-review`) are intentionally outside every tool
+projection. Tools call `Load`, which computes no history, and
+`TestAnalyticalToolsNeverExposeCycleHistory` fails if a projection ever forwards
+those fields. Exposing them to a model would be a separate decision under
+ADR-015.

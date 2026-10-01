@@ -268,3 +268,72 @@ func TestClosedCycleRecomputesAfterHistoricalCorrection(t *testing.T) {
 		t.Fatal("closed-cycle correction did not invalidate totals/baseline/drivers")
 	}
 }
+
+func TestCycleReviewHistorySeriesWindowAndReconciliation(t *testing.T) {
+	f := cycleReviewFixture(t)
+	for _, date := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
+		f.anchor(t, date)
+	}
+	f.transaction(t, "2026-06-05", "EXPENSE", "CONFIRMED", "1000", true)
+	f.transaction(t, "2026-06-06", "EXPENSE", "CONFIRMED", "400", false)
+	f.transaction(t, "2026-07-05", "EXPENSE", "CONFIRMED", "2000", true)
+	f.transaction(t, "2026-07-06", "REFUND", "CONFIRMED", "500", true)
+	f.transaction(t, "2026-08-05", "EXPENSE", "CONFIRMED", "1500", true)
+	f.transaction(t, "2026-08-06", "TRANSFER", "CONFIRMED", "700", false)
+	f.transaction(t, "2026-09-05", "EXPENSE", "CONFIRMED", "900", true)
+	f.transaction(t, "2026-09-12", "EXPENSE", "CONFIRMED", "9999", true) // after the measured cutoff
+
+	review := f.review(t, "")
+	if len(review.History) != 4 {
+		t.Fatalf("default window should hold every cycle (<=6): %+v", review.History)
+	}
+	for i, start := range []string{"2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"} {
+		if review.History[i].Start != start || review.CategoryHistory.CycleStarts[i] != start {
+			t.Fatalf("history must be ascending and match the matrix columns: %+v %v", review.History, review.CategoryHistory.CycleStarts)
+		}
+	}
+	closed, refunded, saved, active := review.History[0], review.History[1], review.History[2], review.History[3]
+	if closed.State != "CLOSED" || *closed.End != "2026-07-01" || closed.MeasuredUntil != "2026-07-01" || closed.Income != "10000000" || closed.GrossExpense != "1400" || closed.Expense != "1400" || closed.Refund != "0" {
+		t.Fatalf("closed=%+v", closed)
+	}
+	if refunded.GrossExpense != "2000" || refunded.Refund != "500" || refunded.Expense != "1500" {
+		t.Fatalf("refund must reduce expense, not income: %+v", refunded)
+	}
+	if saved.SavingsAllocated != "700" || saved.Expense != "1500" {
+		t.Fatalf("transfers are savings, never expense: %+v", saved)
+	}
+	if active.State != "ACTIVE" || active.End != nil || active.MeasuredUntil != "2026-09-11" || active.Expense != "900" {
+		t.Fatalf("active cycle is measured to its cutoff only: %+v", active)
+	}
+	rows := map[string][]string{}
+	for _, row := range review.CategoryHistory.Rows {
+		rows[row.Name] = row.Amounts
+	}
+	if got := fmt.Sprint(rows["Dining"]); got != "[1000 1500 1500 900]" || fmt.Sprint(rows["Belum dikategorikan"]) != "[400 0 0 0]" {
+		t.Fatalf("matrix rows=%v", rows)
+	}
+	for i, cycle := range review.History {
+		listed := "0"
+		for _, row := range review.CategoryHistory.Rows {
+			listed = add(listed, row.Amounts[i])
+		}
+		if add(listed, review.CategoryHistory.Other.Amounts[i]) != cycle.Expense {
+			t.Fatalf("column %d does not reconcile to net expense: listed=%s other=%s expense=%s", i, listed, review.CategoryHistory.Other.Amounts[i], cycle.Expense)
+		}
+	}
+
+	if got := f.review(t, "?history=2").History; len(got) != 2 || got[0].Start != "2026-08-01" || got[1].Start != "2026-09-01" {
+		t.Fatalf("newest window=%+v", got)
+	}
+	older := f.review(t, "?cycle_start=2026-07-01&history=2")
+	if older.Period.Start != "2026-07-01" || len(older.History) != 2 || older.History[0].Start != "2026-06-01" || older.History[1].Start != "2026-07-01" {
+		t.Fatalf("an older selection must end the window at itself: %+v", older.History)
+	}
+	inside := f.review(t, "?cycle_start=2026-08-01&history=2")
+	if len(inside.History) != 2 || inside.History[0].Start != "2026-08-01" || inside.History[1].Start != "2026-09-01" {
+		t.Fatalf("a selection inside the newest window keeps it: %+v", inside.History)
+	}
+	if f.review(t, "?history=1").Cashflow != review.Cashflow {
+		t.Fatal("history must not change the selected cycle's facts")
+	}
+}
