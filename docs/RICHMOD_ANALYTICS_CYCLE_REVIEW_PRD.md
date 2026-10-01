@@ -762,6 +762,42 @@ decisions
 
 Use whitespace and section composition so the page reads like a review document, not an admin console.
 
+### 13.1 Cycle ledger amendment — 2026-10-02
+
+The "primary chart" in the hierarchy above is amended: the primary visual is a
+**cycle ledger**, a single figure in which each salary cycle is a column and the
+following rows line up under it. See
+[the sprint plan](plans/analytics-cycle-ledger-sprint.md) and the
+[design mock](assets/analytics-cycle-ledger-mock.html).
+
+Amended hierarchy:
+
+~~~text
+period + review state + previous/next cycle
+verdict (label : value pairs from served fields)
+cycle ledger: per-cycle income/expense bars, net, change vs previous cycle,
+              category x cycle matrix
+pace: cumulative expense, this cycle vs previous vs median
+drivers
+distribution
+household
+savings/wealth
+data quality
+discussion
+decisions
+~~~
+
+Constraints, unchanged from the rest of this PRD:
+
+- every amount, delta, median, share and total is server-owned; the browser formats numbers and maps amounts to visual lengths only;
+- no scores, budgets, significance labels, "unusual" flags or good/bad colouring of changes; direction is a sign plus a neutral marker;
+- the verdict is label–value pairs, never a generated or interpretive sentence;
+- missing history is shown as missing, never as zero;
+- the page remains complete when AI is unavailable.
+
+Existing comparison tables remain available under a full-detail disclosure; no
+fact is removed.
+
 ## 14. Drill-down behavior
 
 Every material category/merchant/transaction finding should have a deterministic path to supporting data.

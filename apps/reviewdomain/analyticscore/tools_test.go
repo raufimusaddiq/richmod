@@ -131,3 +131,37 @@ func TestNativeChangesKeepZeroPrefixAndFullCycleContextDistinct(t *testing.T) {
 		t.Fatal("full cycle context must include its exact period")
 	}
 }
+
+func TestAnalyticalToolsNeverExposeCycleHistory(t *testing.T) {
+	s := toolFixture()
+	f := s.facts[""]
+	f.History = []historyCycle{{Start: "2026-07-01", MeasuredUntil: "2026-08-01", State: "CLOSED", Expense: "777777"}}
+	f.CategoryHistory = emptyCategoryHistory()
+	f.CategoryHistory.Rows = []historyCategory{{ID: "history-only-id", Name: "History only", Amounts: []string{"888888"}}}
+	s.facts[""] = f
+	s.facts[f.Period.Start] = f
+	ctx := context.Background()
+	if _, err := s.Read(ctx, "get_cycle_changes", json.RawMessage(`{"cycle_start":null}`)); err != nil {
+		t.Fatal(err)
+	}
+	dependent := json.RawMessage(`{"cycle_start":"2026-08-01","category_ref":"category.1"}`)
+	for _, tool := range Tools() {
+		args := json.RawMessage(`{"cycle_start":null}`)
+		if _, ok := tool.Parameters["properties"].(map[string]any)["category_ref"]; ok {
+			args = dependent
+		}
+		result, err := s.Read(ctx, tool.Name, args)
+		if err != nil {
+			t.Fatalf("%s: %v", tool.Name, err)
+		}
+		raw, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{`"history"`, "categoryHistory", "cycleStarts", "History only", "history-only-id", "777777", "888888"} {
+			if strings.Contains(string(raw), forbidden) {
+				t.Fatalf("%s exposed ledger history (%s): %s", tool.Name, forbidden, raw)
+			}
+		}
+	}
+}
