@@ -101,6 +101,14 @@ chart. Previous-cycle and median *curves* are not drawn because daily series for
 those cycles are not served. If a daily row lacks the served running total, the
 chart is replaced by a short "belum tersedia" line, never silently dropped.
 
+**Posisi siklus** leads differently while a cycle is running: the headline is
+**Pengeluaran bersih sejauh ini**, because salary lands on day 1 and a net cashflow
+headline looks large until spending accumulates. Net cashflow stays visible as
+**Arus kas bersih sejauh ini**, and a closed cycle still leads with **Arus kas
+bersih**. On wide screens the daily-spending section now uses the full width
+instead of sharing a row with the collapsed "Detail perubahan", which left the
+right half empty.
+
 The cycle header now says "hari ke-N, hari ini belum penuh" for an active cycle,
 and the daily average is shown in whole rupiah like every other amount.
 
@@ -124,9 +132,12 @@ keep it honest without redesigning it.
   refunds), **Refund**, Arus kas bersih. The separate "Pengeluaran setelah refund"
   list and its `/analytics/spending` request are gone: they repeated the cashflow
   expense column.
-- The previous range stays visible but dimmed ("Memuat rentang…") while another
-  loads; a failed load clears it. The page still loads its four requests together:
-  one failure shows the retry state for the whole view.
+- Each section (cashflow chart and table, categories, merchants, household notes)
+  loads, fails and retries on its own. A failing request leaves the other sections
+  intact and shows its error with a **Coba lagi** button; only a range that every
+  section rejects shows a single notice. A new range keeps each section's previous
+  data, dimmed ("Memuat rentang…"), until it arrives; a failed section clears its
+  own numbers.
 
 ## Document hierarchy
 

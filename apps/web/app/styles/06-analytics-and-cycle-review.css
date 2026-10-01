@@ -198,6 +198,6 @@
 .ledger-cell { display: block; margin: 3px 4px; padding: 6px 0; border-radius: 6px; background: rgb(58 88 103 / calc(var(--tint) * .42)); font-size: var(--text-md); }
 .ledger-matrix-only { margin-top: var(--space-4); }
 /* end cycle ledger */
-/* Calendar view: the previous range stays visible but dimmed while a new one loads. */
-.calendar-body[data-stale] { opacity: .5; pointer-events: none; transition: opacity .15s; }
+/* Calendar view: a section keeps its previous range, dimmed, while a new one loads. */
+.calendar-section[data-stale] { opacity: .5; pointer-events: none; transition: opacity .15s; }
 .calendar-body th small { display: block; color: var(--muted); font-size: var(--text-sm); font-weight: 400; }

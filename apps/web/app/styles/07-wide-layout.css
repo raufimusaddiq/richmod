@@ -1,8 +1,6 @@
 @media (min-width: 1101px) {
   .cycle-review:not([data-meeting-step]) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--space-6); align-items: start; }
   .cycle-review:not([data-meeting-step]) > * { grid-column: 1 / -1; }
-  .cycle-review:not([data-meeting-step]) > #spending-shape { grid-column: 1; }
-  .cycle-review:not([data-meeting-step]) > #changes { grid-column: 2; }
   .cycle-review .cycle-outcome { grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr)); }
   .cycle-review .cycle-outcome .cycle-net { grid-column: auto; border-bottom: 0; }
   .cycle-review .cycle-outcome .cycle-net dd { font-size: clamp(24px, 2.2vw, 36px); }
