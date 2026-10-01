@@ -512,9 +512,9 @@ func agentMutationFallback(result agentToolResult) string {
 		case "TRANSACTION_RECORDED":
 			if result.Status == "NEEDS_REVIEW" {
 				if amount != "" {
-					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Review karena masih perlu konfirmasi."
+					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
 				}
-				return "Transaksi sudah masuk ke Review karena masih perlu konfirmasi."
+				return "Transaksi sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
 			}
 			if amount != "" {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."

@@ -14,7 +14,7 @@ import (
 // User-facing Telegram copy uses the shared Indonesian vocabulary and never asks
 // the household to type yes/no. Only string literals are inspected, so comments,
 // identifiers, and the English model prompts are unaffected.
-var bannedCopy = regexp.MustCompile(`Review Inbox|Balas ya|Balas yes|yes/ya|no/tidak|Sisa salary cycle|sisa salary cycle|Observasi Wealth|review tetap terbuka|Review ini sudah|jangan balas kartu review|untuk household ini|milik household ini`)
+var bannedCopy = regexp.MustCompile(`Review Inbox|Balas ya|Balas yes|yes/ya|no/tidak|Sisa salary cycle|sisa salary cycle|Observasi Wealth|review tetap terbuka|Review ini sudah|jangan balas kartu review|untuk household ini|milik household ini|masuk ke Review `)
 
 func TestUserFacingCopyUsesSharedVocabulary(t *testing.T) {
 	entries, err := os.ReadDir(".")

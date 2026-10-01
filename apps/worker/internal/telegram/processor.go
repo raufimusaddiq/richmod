@@ -840,7 +840,7 @@ func (p *Processor) offerBatch(ctx context.Context, householdID string, update t
 		if category == "" {
 			category = "-"
 		}
-		lines = append(lines, fmt.Sprintf("• %s Rp%s (%s, %s, %s)", label, FormatIDR(v.Amount), v.Type, category, v.TransactionAt.In(jakartaLocation()).Format("02/01/2006 15:04 WIB")))
+		lines = append(lines, fmt.Sprintf("• %s Rp%s (%s, %s, %s)", label, FormatIDR(v.Amount), v.Type, category, formatIDDateTime(v.TransactionAt)+" WIB"))
 	}
 	msg := fmt.Sprintf("Saya menemukan %d transaksi (total Rp%s):\n%s\n\nCatat semuanya?", len(vals), FormatIDR(total.String()), strings.Join(lines, "\n"))
 	if err = enqueueReplyMarkup(ctx, tx, update, msg, pendingBatchMarkup()); err != nil {

@@ -106,9 +106,9 @@ test("mobile overflow button carries the pending-review badge", () => {
 });
 
 test("user-facing copy uses the shared Indonesian vocabulary", () => {
-  for (const file of ["app/admin/page.js", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js"]) {
+  for (const file of ["app/admin/page.js", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
     const source = text(file);
-    assert.doesNotMatch(source, /Wealth Account|Review Inbox/, `${file} avoids internal terms`);
+    assert.doesNotMatch(source, /Wealth Account|Review Inbox|Pemilik household|data household|alamat household|Antrean review|Joint \/ household/, `${file} avoids internal terms`);
   }
   const cards = text("app/components/ReviewCards.js");
   assert.doesNotMatch(cards, />[A-Z]{4,}( [A-Z]{2,})+</, "review card badges are sentence case");
