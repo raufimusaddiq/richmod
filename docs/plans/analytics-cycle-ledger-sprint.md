@@ -32,7 +32,7 @@ by side, which is BDR-006 question 4 ("is the change unusual against recent
 history?"). Audit findings that drive this plan:
 
 - The server already computes `comparison.income` and `comparison.netCashflow`; the page renders neither.
-- Daily `cumulativeExpense` is served and unused; the daily chart has no pace reference and labels days by day-of-month only.
+- Daily `cumulativeExpense` was served and unused (PR 2 now plots it as a separate pace chart); the daily chart has no pace reference and labels days by day-of-month only.
 - `cycles[]` carries boundaries only, so the browser has no per-cycle totals.
 - The active cycle leads with net cashflow, which is misleading mid-cycle because income lands on day 1.
 - Most comparison content is text, context spans and disclosures; the PRD lists "long wall of prose" as a thing not to build.
@@ -161,6 +161,25 @@ Web and docs. Colour semantics against `brand-guidelines.md`, weight of the key 
 ### PR 5 — Calendar hygiene (`fix/analytics-calendar-hygiene`) — lowest priority
 
 Web only: surface the API error text, controlled custom-range inputs with min/max, formatted months, drop the duplicate `/spending` request from the calendar view, mark the current month as partial. No API change.
+
+## 4a. Deviations recorded during execution
+
+- **PR 1** shipped as planned (`history` and `categoryHistory`).
+- **PR 2** also adds `expenseDelta` to each `history[]` entry (Go, with tests and
+  the API doc): the ledger's change row is arithmetic, so it is served rather than
+  subtracted in the browser.
+- **PR 2** adds new modules (`CycleLedger`, `lib/cycleLedger.js`, `CyclePaceChart`)
+  but does not split the existing `page.js`; several tests and the smoke script read
+  it directly. The split can follow when the tables move in PR 3.
+- **PR 2** draws the pace chart as the served running total plus served comparison
+  references (dashed levels, equal-day markers). Previous-cycle and median daily
+  curves are not served, so they are not drawn.
+- **PR 2** shows income and net comparison through the ledger rows (from `history`)
+  rather than a separate use of `comparison.income` / `comparison.netCashflow`.
+- **PR 2** plots the served `cumulativeExpense` as the pace chart. If any daily row lacks it, the chart says the total is unavailable instead of disappearing.
+- Plain-language relabelling of the existing comparison tables ("Δ", "hari setara",
+  "median 3") moves to PR 3, where those tables are demoted, so the smoke script's
+  text assertions change in one place.
 
 ## 5. Verification and resources
 

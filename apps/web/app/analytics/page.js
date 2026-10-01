@@ -3,12 +3,14 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
-import { CategoryRankingChart, CycleSpendingPatternChart, MonthlyCashflowChart } from "../components/Charts";
+import { CategoryRankingChart, CyclePaceChart, CycleSpendingPatternChart, MonthlyCashflowChart } from "../components/Charts";
+import CycleLedger from "../components/CycleLedger";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import InsightCard from "../components/InsightCard";
 import CycleDecisions from "../components/CycleDecisions";
 import useAuth from "../components/useAuth";
 import { dayLabel } from "../lib/chartData";
+import { adjacentCycles, paceReferences, verdictPairs } from "../lib/cycleLedger";
 import { amountLabel, changeWidth, cycleLabel, measuredLabel, qualityCopy, ratioLabel, readReviewSelection, reviewSteps, selectionHref, signedMoney, transactionHref } from "../lib/cycleReview";
 import { dateTime, money, typeLabel } from "../lib/format";
 import { pollInsight, selectCycleInsight } from "../lib/insightData";
@@ -53,7 +55,7 @@ function AnalyticsReview() {
   useEffect(() => {
     if (!user || selection.view !== "cycle") return;
     const controller = new AbortController();
-    setLoading(true); setError(""); setFacts(null);
+    setLoading(true); setError("");
     const query = new URLSearchParams();
     if (selection.cycle) query.set("cycle_start", selection.cycle);
     fetch(`/api/v1/analytics/cycle-review?${query}`, { signal: controller.signal, cache: "no-store" })
@@ -67,7 +69,7 @@ function AnalyticsReview() {
           window.history.replaceState(null, "", selectionHref({ ...readReviewSelection(window.location.search), cycle: result.period.start }));
         }
       })
-      .catch(err => { if (err.name !== "AbortError") setError(err.message || "Koneksi terputus saat memuat tinjauan."); })
+      .catch(err => { if (err.name !== "AbortError") { setFacts(null); setError(err.message || "Koneksi terputus saat memuat tinjauan."); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [user, selection.view, selection.cycle, reload]);
@@ -129,41 +131,50 @@ function AnalyticsReview() {
 
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   const selectedCategory = selection.category ? facts?.categoryChanges.find(item => (item.id || "uncategorized") === selection.category) : null;
-  return <AppShell user={user} eyebrow="Analisis" title="Laporan siklus">
-    <div className="analytics-flow cycle-review" data-meeting-step={step || undefined}>
+  const adjacent = adjacentCycles(facts?.cycles, facts?.period?.start);
+  const refreshing = selection.view === "cycle" && loading && Boolean(facts);
+  return <AppShell user={user} eyebrow="Analisis" title={selection.view === "calendar" ? "Analisis kalender" : "Laporan siklus"}>
+    <div className="analytics-flow cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
       <div className="range-controls">
         <div className="range-control-group" aria-label="Tampilan analisis">
           <button type="button" aria-pressed={selection.view === "cycle"} className={selection.view === "cycle" ? "active" : "secondary"} onClick={() => navigate({ view: "cycle" })}>Siklus Gaji</button>
           <button type="button" aria-pressed={selection.view === "calendar"} className={selection.view === "calendar" ? "active" : "secondary"} onClick={() => navigate({ view: "calendar" })}>Kalender</button>
         </div>
-        {selection.view === "cycle" && <label className="cycle-selector">Siklus yang ditinjau
+        {selection.view === "cycle" && <><label className="cycle-selector">Siklus yang ditinjau
           <select value={selection.cycle} onChange={event => navigate({ cycle: event.target.value, category: "", step: "" })}>
             <option value="">Siklus berjalan</option>
             {selection.cycle && !facts?.cycles?.some(item => item.start === selection.cycle) && <option value={selection.cycle}>{dayLabel(selection.cycle)}</option>}
             {(facts?.cycles || []).map(period => <option key={period.start} value={period.start}>{cycleLabel(period)}</option>)}
           </select>
-        </label>}
+        </label>
+        <div className="cycle-step" role="group" aria-label="Pindah siklus">
+          <button type="button" className="secondary" disabled={!adjacent.older} onClick={() => navigate({ cycle: adjacent.older, category: "", step: "" })}>‹ Siklus sebelumnya</button>
+          <button type="button" className="secondary" disabled={!adjacent.newer} onClick={() => navigate({ cycle: adjacent.newer, category: "", step: "" })}>Siklus berikutnya ›</button>
+        </div></>}
       </div>
       {selection.view === "calendar" ? <CalendarReview selection={selection} navigate={navigate}/> : <>
         <ErrorNotice message={error} retry={() => setReload(value => value + 1)}/>
         {error && <button type="button" className="secondary" onClick={() => navigate({ cycle: "", category: "" })}>Siklus berjalan</button>}
-        {loading && <Skeleton cards={3} rows={4}/>}
-        {!loading && !error && facts && <>
+        {loading && !facts && <Skeleton cards={3} rows={4}/>}
+        {refreshing && <p className="ledger-loading" role="status">Memuat siklus…</p>}
+        {facts && !error && <>
           <div className="cycle-period" aria-live="polite">
             <strong>{cycleLabel(facts.period)}</strong>
-            <span>{facts.period.state === "ACTIVE" ? "Berjalan" : "Ditutup"} · {facts.spendingShape.days} hari tercatat · Asia/Jakarta</span>
+            <span>{facts.period.state === "ACTIVE" ? `Berjalan · hari ke-${facts.spendingShape.days}, hari ini belum penuh` : `Ditutup · ${facts.spendingShape.days} hari`} · Asia/Jakarta</span>
             <small>Data sampai {dayLabel(facts.period.measuredUntil)} (batas akhir tidak termasuk).</small>
             {facts.period.kind !== "SALARY_CYCLE" && <p>Menampilkan bulan kalender sementara. Belum ada gaji utama terkonfirmasi untuk menentukan siklus.</p>}
             {facts.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && !meeting && <button type="button" onClick={() => navigate({ step: "position" })}>Tinjau siklus ini</button>}
             {!meeting && <button type="button" className="secondary" onClick={event => event.currentTarget.closest(".cycle-review").querySelectorAll("details").forEach(details => { details.open = true; })}>Buka semua detail</button>}
           </div>
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
+          {facts.history?.length > 0 && <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={verdictPairs(facts)} onSelect={start => navigate({ cycle: start, category: "", step: "" })}/>}
           <CyclePosition facts={facts}/>
           <section id="spending-shape" className="review-section analytics-chart" aria-labelledby="shape-title">
             <SectionTitle id="shape-title" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
             <CycleSpendingPatternChart items={facts.daily} average={facts.spendingShape.averageDailyExpense} height={260}/>
+            <CyclePaceChart items={facts.daily} references={paceReferences(facts)} height={220}/>
             <dl className="review-context">
-              <Metric label="Rata-rata per hari" value={new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 2 }).format(Number(facts.spendingShape.averageDailyExpense))}/>
+              <Metric label="Rata-rata per hari" value={money(String(Math.round(Number(facts.spendingShape.averageDailyExpense))))}/>
               <Metric label="Hari tertinggi" value={facts.spendingShape.peakDay ? `${dayLabel(facts.spendingShape.peakDay)} · ${money(facts.spendingShape.peakExpense)}` : "Belum ada"}/>
               <Metric label="Porsi hari tertinggi" value={ratioLabel(facts.spendingShape.peakShareOfExpense)}/>
               <Metric label="Hari tanpa pengeluaran bersih" value={`${facts.spendingShape.zeroSpendDays} hari`}/>

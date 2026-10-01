@@ -126,3 +126,66 @@
 .cycle-review .review-table-wrap::before { content: "Tabel lengkap · geser untuk semua kolom"; display: block; position: sticky; left: 0; padding: var(--space-2); background: var(--surface-muted); color: var(--muted); font-size: 11px; }
 .cycle-review .review-quality a { min-height: 44px; }
 
+/* Cycle ledger: one column per salary cycle. Design: docs/assets/analytics-cycle-ledger-mock.html */
+.cycle-step { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ledger-loading { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.cycle-review[data-stale] > :not(.range-controls):not(.ledger-loading) { opacity: .5; pointer-events: none; transition: opacity .15s; }
+.ledger-verdict { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-8); margin: 0 0 var(--space-4); }
+.ledger-verdict > div { display: grid; gap: 2px; }
+.ledger-verdict dt { color: var(--muted); font-size: var(--text-sm); }
+.ledger-verdict dd { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ledger-figure { position: relative; overflow-x: auto; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); }
+.ledger-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
+.ledger-table th, .ledger-table td { padding: 0; text-align: center; vertical-align: middle; transition: background-color .2s; }
+.ledger-table thead th:first-child, .ledger-table tbody th { position: sticky; left: 0; z-index: 2; width: 9.5rem; padding: 0 var(--space-3); background: var(--surface); text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.ledger-unit { color: var(--muted); font-weight: 400; }
+.ledger-table thead th { border-bottom: 2px solid var(--ink); font-weight: 400; }
+.ledger-table thead th button, .ledger-table thead th button:hover:not(:disabled) { display: block; width: 100%; min-height: 56px; padding: var(--space-2) 2px; border: 0; border-radius: 0; background: none; color: var(--ink); font-weight: 400; line-height: 1.25; }
+.ledger-table thead th button:hover:not(:disabled) { background: var(--surface-muted); }
+.ledger-table thead th button b { display: block; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.ledger-table thead th button small { display: block; color: var(--muted); font-size: var(--text-sm); }
+.ledger-table [data-selected], .ledger-table thead th[data-selected] button, .ledger-table thead th[data-selected] button:hover:not(:disabled) { background: var(--butter); }
+.ledger-table tbody tr + tr > * { border-top: 1px solid var(--line); }
+.ledger-table tbody td { height: 44px; font-size: var(--text-base); }
+.ledger-table tr.ledger-bars th { vertical-align: top; padding-top: var(--space-4); }
+.ledger-table tr.ledger-bars td { position: relative; height: 150px; padding: 0 4px; border-top: 0; }
+.ledger-pair { display: flex; align-items: flex-end; justify-content: center; gap: 6px; height: 100%; padding-top: 22px; }
+.ledger-bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; }
+.ledger-bar em { color: var(--muted); font-size: var(--text-sm); font-style: normal; line-height: 1.2; }
+.ledger-bar.expense em { color: var(--ink); font-weight: var(--weight-semibold); font-size: var(--text-md); }
+.ledger-bar i { display: block; width: 18px; min-height: 2px; height: calc(var(--len) * 128px); border: 2px solid var(--ink); border-bottom-width: 0; border-radius: 4px 4px 0 0; }
+.ledger-bar.income i { background: var(--chart-income); }
+.ledger-bar.expense i { background: var(--chart-expense); }
+.ledger-table td[data-running] .ledger-bar.expense i { border-style: dashed; background-image: repeating-linear-gradient(135deg, rgb(255 252 244 / .55) 0 3px, transparent 3px 6px); }
+.ledger-median { position: absolute; left: 4px; right: 4px; bottom: calc(var(--median) * 128px); border-top: 2px dashed var(--info); pointer-events: none; }
+.ledger-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); margin: var(--space-3) 2px 0; color: var(--muted); font-size: var(--text-sm); }
+.ledger-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; border: 2px solid var(--ink); vertical-align: -1px; }
+.ledger-legend i.income { background: var(--chart-income); }
+.ledger-legend i.expense { background: var(--chart-expense); }
+.ledger-legend i.median { width: 16px; height: 0; border-width: 2px 0 0; border-color: var(--info); border-style: dashed; vertical-align: 4px; }
+.ledger-legend i.running { border-style: dashed; background: repeating-linear-gradient(135deg, rgb(139 68 55 / .55) 0 2px, transparent 2px 5px); }
+.ledger-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.ledger-cards li { padding: var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.ledger-cards li[data-selected] { background: var(--butter); border-color: var(--ink); }
+.ledger-cards button { display: block; width: 100%; min-height: 44px; border: 0; background: none; text-align: left; }
+.ledger-cards button b { display: block; font-size: var(--text-lg); }
+.ledger-cards button small { color: var(--muted); font-size: var(--text-sm); }
+.ledger-cards dl { margin: var(--space-2) 0 0; display: grid; gap: var(--space-1); }
+.ledger-cards dl > div { display: flex; justify-content: space-between; gap: var(--space-3); font-variant-numeric: tabular-nums; }
+.ledger-cards dt { color: var(--muted); font-size: var(--text-sm); }
+.ledger-cards dd { margin: 0; font-weight: var(--weight-semibold); }
+.cycle-pace { margin-top: var(--space-5); }
+.pace-title { margin: 0 0 var(--space-2); font-size: var(--text-lg); }
+.pace-notes { display: grid; gap: var(--space-1); margin: var(--space-2) 0 0; padding: 0; list-style: none; color: var(--muted); font-size: var(--text-sm); }
+.pace-notes strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.pace-notes i { display: inline-block; width: 16px; height: 0; margin-right: 8px; border-top: 2px dashed var(--ink-soft); vertical-align: 3px; }
+.pace-notes li[data-tone="median"] i { border-top: 2px dotted var(--chart-reference); }
+.pace-notes li[data-shape="marker"] i { width: 10px; height: 10px; border: 2px solid var(--ink-soft); border-radius: 50%; background: var(--surface-strong); vertical-align: -1px; }
+.pace-notes li[data-shape="marker"][data-tone="median"] i { border-color: var(--chart-reference); }
+@media (max-width: 680px) {
+  .ledger-table { min-width: 0; width: 560px; }
+  .ledger-table thead th:first-child, .ledger-table tbody th { width: 5.5rem; padding: 0 var(--space-2); }
+  .ledger-bar i { width: 14px; }
+  .ledger-verdict dd { font-size: var(--text-lg); }
+}
+/* end cycle ledger */
