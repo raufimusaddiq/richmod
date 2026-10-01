@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import test from "node:test";
+import { reviewCards, tree } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -22,7 +23,7 @@ test("one inbox exposes separate transaction and integration action views", () =
   assert.match(inbox, /noopener noreferrer/);
   assert.match(inbox, /user\?\.household\?\.role === "OWNER"/);
   assert.match(inbox, /Pemilik keluarga perlu menyelesaikan tindakan ini/);
-  assert.match(shell, /\["\/inbox", "Tinjauan", "✓"\]/);
+  assert.match(shell, /\["\/inbox", "Tinjauan", "inbox"\]/);
   assert.match(shell, /nav-badge/);
   assert.match(text("app/reviews/page.js"), /redirect\("\/inbox\?view=transactions"\)/);
   assert.match(text("app/actions/page.js"), /redirect\("\/inbox\?view=actions"\)/);
@@ -169,11 +170,11 @@ test("email ingress controls stay grouped inside the integration card", () => {
 
 test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/inbox/page.js"), /\/api\/v1\/reviews/);
-  assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
-  assert.match(text("app/components/ReviewCards.js"), /transactions\?id=/);
-	assert.match(text("app/components/ReviewCards.js"), /const missing = MissingInputs\(item\)/);
-	assert.match(text("app/components/ReviewCards.js"), /missing\.merchant && <label>Merchant/);
-  assert.match(text("app/components/ReviewCards.js"), /name="merchantName" required/);
+  assert.match(reviewCards(), /classify-transfer/);
+  assert.match(reviewCards(), /transactions\?id=/);
+	assert.match(reviewCards(), /const missing = MissingInputs\(item\)/);
+	assert.match(reviewCards(), /missing\.merchant && <label>Merchant/);
+  assert.match(reviewCards(), /name="merchantName" required/);
 });
 
 test("household route exposes Telegram connection state", () => {
@@ -225,7 +226,7 @@ test("public routes preserve the authenticated overview and dedicated login flow
 });
 
 test("admin console keeps platform tabs and redacts sensitive payloads", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   for (const label of ["overview", "jobs", "llm", "logs", "households", "users", "audit"]) assert.match(admin, new RegExp(`"${label}"`));
   assert.match(admin, /\/api\/v1\/admin\/overview/);
   assert.match(admin, /\/api\/v1\/admin\/jobs/);
@@ -236,7 +237,7 @@ test("admin console keeps platform tabs and redacts sensitive payloads", () => {
 });
 
 test("admin lists use bounded server filters and accessible detail actions", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   assert.match(admin, /useAdminList/);
   assert.match(admin, /nextCursor/);
   assert.match(admin, /Muat berikutnya/);
@@ -246,7 +247,7 @@ test("admin lists use bounded server filters and accessible detail actions", () 
 });
 
 test("admin console adapts tables and drawer for mobile", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   const styles = text("app/globals.css");
   assert.match(admin, /Children, cloneElement, isValidElement/);
   assert.match(admin, /"data-label": headers\[index\]/);
@@ -260,7 +261,7 @@ test("admin console adapts tables and drawer for mobile", () => {
 });
 
 test("admin audit defaults to combined bounded feed while retaining scoped views", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   assert.match(admin, /useState\("all"\)/);
   assert.match(admin, /\/api\/v1\/admin\/audit\/all/);
   assert.match(admin, /<option value="all">Semua<\/option>/);
@@ -269,7 +270,7 @@ test("admin audit defaults to combined bounded feed while retaining scoped views
 });
 
 test("admin user changes require confirmation", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   assert.match(admin, /confirm\(/);
   assert.match(admin, /ADMINISTRASI PLATFORM/);
   assert.match(text("app/globals.css"), /admin-table-wrap/);

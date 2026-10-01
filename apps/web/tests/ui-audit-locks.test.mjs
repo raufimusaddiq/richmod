@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { reviewCards, tree } from "./source.mjs";
 
-const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const text = path => path.endsWith("/") ? tree(path.slice(0, -1)) : readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const css = () => text("app/globals.css");
 
 const contrast = hex => {
@@ -72,8 +73,8 @@ test("loading, tab, and drawer states are announced to assistive technology", ()
   assert.match(text("app/inbox/page.js"), /onKeyDown={tabKeys}/);
   assert.match(text("app/inbox/page.js"), /event\.key === "ArrowRight"/);
   assert.match(text("app/transactions/page.js"), /role="dialog" aria-modal="true" aria-label="Detail transaksi"/);
-  assert.match(text("app/admin/page.js"), /function useDrawerA11y/);
-  assert.match(text("app/admin/page.js"), /if \(event\.key === "Escape"\) close\(\)/);
+  assert.match(tree("app/admin"), /function useDrawerA11y/);
+  assert.match(tree("app/admin"), /if \(event\.key === "Escape"\) close\(\)/);
 });
 
 test("toast dismissal is owned by a stable callback", () => {
@@ -108,11 +109,11 @@ test("mobile overflow button carries the pending-review badge", () => {
 });
 
 test("user-facing copy uses the shared Indonesian vocabulary", () => {
-  for (const file of ["app/admin/page.js", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
+  for (const file of ["app/admin/", "app/components/review/", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js", "app/privacy/page.js", "app/inbox/page.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /Wealth Account|Review Inbox|Pemilik household|data household|alamat household|Antrean review|Joint \/ household/, `${file} avoids internal terms`);
   }
-  const cards = text("app/components/ReviewCards.js");
+  const cards = reviewCards();
   assert.doesNotMatch(cards, />[A-Z]{4,}( [A-Z]{2,})+</, "review card badges are sentence case");
 });
 
@@ -124,11 +125,11 @@ test("inbox badges are decorative and the control carries the accessible name", 
 });
 
 test("admin console uses the shared Tinjauan vocabulary", () => {
-  assert.doesNotMatch(text("app/admin/page.js"), /Memuat review|Per jenis review|<h2>Review<\/h2>|"Review"/);
+  assert.doesNotMatch(tree("app/admin"), /Memuat review|Per jenis review|<h2>Review<\/h2>|"Review"/);
 });
 
 test("destructive and text-entry choices use the shared dialog, not window.confirm/prompt", () => {
-  for (const file of ["app/settings/page.js", "app/household/page.js", "app/admin/page.js", "app/components/CycleDecisions.js"]) {
+  for (const file of ["app/settings/page.js", "app/household/page.js", "app/admin/", "app/components/CycleDecisions.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /window\.(confirm|prompt)\(|if \(!confirm\(/, `${file} avoids native dialogs`);
     assert.match(source, /useDialogs/, `${file} uses the shared dialog hook`);
@@ -157,7 +158,86 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
 
 test("decorative glyphs are hidden from assistive technology", () => {
   assert.match(text("app/components/Feedback.js"), /<span aria-hidden="true">✓<\/span>/);
-  assert.match(text("app/components/ReviewCards.js"), /<span aria-hidden="true">✓<\/span>/);
+  assert.match(reviewCards(), /<span aria-hidden="true">✓<\/span>/);
   assert.match(text("app/inbox/page.js"), /<span aria-hidden="true">✓<\/span>/);
   assert.doesNotMatch(text("app/inbox/page.js"), /<span>✓<\/span>/);
+});
+
+test("navigation icons are keyed by name, not by glyph", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.doesNotMatch(shell, /\["[^"]*", "[^"]*", "[⌂⌁✓▤⌾]"\]/);
+  assert.doesNotMatch(shell, /"[⌂⌁✓▤⌾]": /);
+  for (const name of ["home", "analytics", "inbox", "documents", "household"]) {
+    assert.match(shell, new RegExp(`${name}: \\w+`), `${name} maps to an icon`);
+  }
+});
+
+test("a failed request names what is missing and keeps the rest", () => {
+  const home = text("app/page.js");
+  assert.match(home, /const sections = \[/);
+  assert.match(home, /sections\.map\(\(\[, url\]\) => fetch\(url\)\)/);
+  assert.doesNotMatch(home, /sectionNames/);
+  assert.match(home, /Belum termuat: \$\{failed\.join/);
+  assert.doesNotMatch(home, /new Date\(latestWealth\?\.observedAt\)/);
+  const inbox = text("app/inbox/page.js");
+  assert.match(inbox, /Each list stands on its own/);
+  assert.doesNotMatch(inbox, /if \(!reviewResponse\.ok \|\| !actionResponse\.ok\) throw new Error/);
+});
+
+test("large screens are split into modules and carry no inline checkbox styles", () => {
+  const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  const lines = path => read(path).split("\n").length;
+  assert.ok(lines("app/admin/page.js") < 120, "admin page.js is only the tab shell");
+  for (const tab of ["Overview", "Reviews", "Jobs", "LLM", "Logs", "Households", "Users", "Audit"]) {
+    assert.match(read(`app/admin/${tab}.js`), new RegExp(`export default function ${tab}\\(`), `${tab} lives in its own module`);
+  }
+  assert.match(read("app/admin/page.js"), /import Overview from "\.\/Overview"/);
+  assert.ok(lines("app/components/ReviewCards.js") < 30, "ReviewCards.js only routes items to their card");
+  for (const card of ["CanonicalCard", "ReviewCard", "TransferCard", "ResidualCard", "WealthObservationCard", "FinancialEmailResolutionCard", "TransferReconciliationCard"]) {
+    assert.match(read(`app/components/review/${card}.js`), new RegExp(`export default function ${card}\\(`), `${card} lives in its own module`);
+  }
+  assert.doesNotMatch(reviewCards(), /checkbox(Label|Input)Style|style=\{\{/, "review cards use CSS classes, not inline styles");
+  assert.match(css(), /label\.review-check \{ display: flex;/);
+  assert.match(css(), /label\.review-check input\[type="checkbox"\] \{ width: 16px;/);
+});
+
+test("the households table uses the shared Indonesian vocabulary", () => {
+  const households = readFileSync(new URL("../app/admin/Households.js", import.meta.url), "utf8");
+  for (const header of ["Keluarga", "Anggota", "Transaksi", "Aktivitas terakhir", "Dibuat"]) assert.match(households, new RegExp(`"${header}"`));
+  assert.doesNotMatch(households, /"Last activity"|"Members"|"Created"/);
+});
+
+test("split modules import only what they use", () => {
+  const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  for (const card of ["CanonicalCard", "FinancialEmailResolutionCard", "ResidualCard", "ReviewCard", "TransferCard", "WealthObservationCard"]) {
+    assert.doesNotMatch(read(`app/components/review/${card}.js`), /import \{[^}]*\blabel\b[^}]*\} from "\.\/shared"/, `${card} does not import an unused label`);
+  }
+});
+
+test("every dashboard section has a setter and every nav entry has an icon", () => {
+  const home = text("app/page.js");
+  const names = [...home.matchAll(/^\s+\["([^"]+)", "\/api\/v1\/[^"]+"\],$/gm)].map(match => match[1]);
+  assert.ok(names.length >= 6, "the dashboard sections are listed with their endpoints");
+  for (const name of names) assert.match(home, new RegExp(`"${name}": `), `section "${name}" has a setter in apply`);
+  assert.match(home, /apply\[name\]\(await responses\[index\]\.json\(\)\)/);
+
+  const shell = text("app/components/AppShell.js");
+  const navKeys = [...shell.matchAll(/^\s+\["\/[^"]*", "[^"]+", "(\w+)"\],$/gm)].map(match => match[1]);
+  const iconMap = shell.match(/const icons = \{([^}]*)\}/)[1];
+  assert.ok(navKeys.length >= 8);
+  for (const key of [...navKeys, "admin"]) assert.match(iconMap, new RegExp(`\\b${key}: `), `nav icon "${key}" is mapped`);
+});
+
+test("one malformed inbox list does not hide the other", () => {
+  const inbox = text("app/inbox/page.js");
+  assert.match(inbox, /const readList = async \(response, apply, name\) => \{ try \{/);
+  assert.match(inbox, /await readList\(reviewResponse, setReviews/);
+  assert.match(inbox, /await readList\(actionResponse, setActions/);
+});
+
+test("the console docs point at the split admin modules", () => {
+  for (const doc of ["RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md", "RICHMOD_SUPER_ADMIN_PLATFORM_CONSOLE_CODEX.md"]) {
+    const source = readFileSync(new URL(`../../../docs/${doc}`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /^apps\/web\/app\/admin\/page\.js$/m, `${doc} no longer names the old single file`);
+  }
 });

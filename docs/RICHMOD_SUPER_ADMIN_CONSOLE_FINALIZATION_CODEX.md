@@ -47,7 +47,7 @@ apps/api/internal/admin/helpers.go
 apps/api/cmd/api/main.go
 apps/api/internal/platform/httpmw/middleware.go
 
-apps/web/app/admin/page.js
+apps/web/app/admin/ (page.js is the tab shell; one module per tab; shared.js)
 apps/web/app/globals.css
 apps/web/tests/product-alignment.test.mjs
 
@@ -513,7 +513,7 @@ Split without changing product behavior.
 Suggested:
 
 ```text
-apps/web/app/admin/page.js
+apps/web/app/admin/ (page.js is the tab shell; one module per tab; shared.js)
 
 apps/web/app/admin/components/
   AdminTabs.js

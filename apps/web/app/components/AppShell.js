@@ -7,16 +7,16 @@ import { useInboxCount } from "./InboxCountProvider";
 import { ChartDonut, DotsThree, FileText, GearSix, HouseLine, Receipt, ShieldChevron, SignOut, Tray, UsersThree, Vault, X } from "@phosphor-icons/react";
 
 const nav = [
-  ["/", "Ringkasan", "⌂"],
+  ["/", "Ringkasan", "home"],
   ["/transactions", "Transaksi", "ledger"],
-  ["/analytics", "Analisis", "⌁"],
+  ["/analytics", "Analisis", "analytics"],
   ["/wealth", "Kekayaan", "wealth"],
-  ["/inbox", "Tinjauan", "✓"],
-  ["/documents", "Dokumen", "▤"],
-  ["/household", "Keluarga", "⌾"],
+  ["/inbox", "Tinjauan", "inbox"],
+  ["/documents", "Dokumen", "documents"],
+  ["/household", "Keluarga", "household"],
   ["/settings", "Pengaturan", "settings"],
 ];
-const icons = { "⌂": HouseLine, ledger: Receipt, "⌁": ChartDonut, wealth: Vault, "✓": Tray, "▤": FileText, "⌾": UsersThree, settings: GearSix, admin: ShieldChevron };
+const icons = { home: HouseLine, ledger: Receipt, analytics: ChartDonut, wealth: Vault, inbox: Tray, documents: FileText, household: UsersThree, settings: GearSix, admin: ShieldChevron };
 
 export default function AppShell({ user, title, eyebrow, actions, children }) {
   const pathname = usePathname();
