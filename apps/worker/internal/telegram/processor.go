@@ -199,6 +199,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		return fmt.Errorf("decode Telegram source evidence: %w", err)
 	}
 	if update.CallbackQuery != nil {
+		ctx = withCallbackQuestion(ctx, payloadText)
 		update.Message.MessageID = update.CallbackQuery.Message.MessageID
 		update.Message.Chat.ID = update.CallbackQuery.Message.Chat.ID
 		update.Message.From.ID = update.CallbackQuery.From.ID
@@ -250,7 +251,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		// is already resolved or the binding changed) is stale; answer it here so it
 		// never falls through to the generic lanes as an unrecognized action.
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:salary:") {
-			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
+			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 		}
 		if strings.HasPrefix(update.CallbackQuery.Data, "review:") {
 			if handled, err := p.processReviewDetailCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
@@ -272,7 +273,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesan kosong diabaikan.")
 	}
 	if sourceType == "TELEGRAM_CALLBACK" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
 	}
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
@@ -310,7 +311,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	}
 	args, err := ValidateNativeToolCall(call)
 	if err != nil {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Instruksi belum cukup jelas untuk diproses dengan aman.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesannya belum cukup jelas untuk dicatat. Sebutkan nominal, tujuan, dan waktunya, misalnya: makan siang 50rb hari ini.")
 	}
 	handled, err := p.executeNativeTool(ctx, sourceEventID, householdID, update, call, args, metadata, now)
 	if err != nil {
@@ -470,7 +471,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 	case "record_transaction":
 		value, err := nativeValidatedExtraction(args, now)
 		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum valid. Pastikan jenis, nominal, dan tanggal/waktu bila disebutkan.")
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksinya belum bisa dicatat. Sebutkan jenisnya (pemasukan atau pengeluaran), nominalnya, dan waktunya bila perlu.")
 		}
 		if value.Type == "EXPENSE" {
 			if offered, err := p.offerExistingEdit(ctx, householdID, update, sourceID, value, true); offered {
@@ -502,17 +503,17 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 	case "record_transaction_batch":
 		items, ok := args["items"].([]any)
 		if !ok {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Format batch transaksi tidak valid.")
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Daftar transaksinya belum terbaca utuh. Kirim ulang, misalnya: makan siang 50rb dan bensin 30rb.")
 		}
 		entries := make([]extractionItem, 0, len(items))
 		for _, raw := range items {
 			entry, ok := raw.(map[string]any)
 			if !ok {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Format batch transaksi tidak valid.")
+				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Daftar transaksinya belum terbaca utuh. Kirim ulang, misalnya: makan siang 50rb dan bensin 30rb.")
 			}
 			value, err := nativeValidatedExtraction(entry, now)
 			if err != nil {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Salah satu transaksi batch belum lengkap.")
+				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Salah satu transaksi belum lengkap. Sebutkan nominal dan tujuannya, misalnya: makan siang 50rb.")
 			}
 			ref := "EXPLICIT"
 			date := value.TransactionAt.Format("2006-01-02")
@@ -605,7 +606,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 			}
 		}
 		if err != nil {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Tanggal transaksi tidak valid.")
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Tanggal transaksinya belum terbaca. Sebutkan harinya, misalnya hari ini, kemarin, atau 12 Agu.")
 		}
 		value := validatedExtraction{Type: typ, Amount: amount, Merchant: merchant, TransactionAt: at.In(jakartaLocation()), Confidence: 1, CategoryConfidence: 1, ResponseMessage: "Tercatat."}
 		if typ == "EXPENSE" {
@@ -625,7 +626,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		for _, entry := range raw {
 			m, ok := entry.(map[string]any)
 			if !ok {
-				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Format batch transaksi tidak valid.")
+				return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Daftar transaksinya belum terbaca utuh. Kirim ulang, misalnya: makan siang 50rb dan bensin 30rb.")
 			}
 			item := extractionItem{Confidence: 1, CategoryConfidence: 1}
 			item.Type, _ = m["type"].(string)
@@ -651,7 +652,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 		atText, _ := args["transaction_at"].(string)
 		at, err := time.Parse(time.RFC3339, atText)
 		if err != nil || id == "" {
-			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi atau tanggal koreksi tidak valid.")
+			return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Transaksi atau tanggal koreksinya belum terbaca. Sebutkan transaksinya, lalu tanggal barunya.")
 		}
 		tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
@@ -782,11 +783,11 @@ func (p *Processor) offerBatch(ctx context.Context, householdID string, update t
 		}
 		a, ok := new(big.Int).SetString(item.Amount, 10)
 		if !ok || a.Sign() <= 0 || a.String() != item.Amount {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Ada nominal yang belum valid. Gunakan angka rupiah bulat.")
+			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Ada nominal yang belum terbaca. Tulis dalam rupiah, misalnya 50rb atau 50000.")
 		}
 		at, err := resolveTime(now, item.DateReference, item.ExplicitDate, item.LocalTime)
 		if err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Ada tanggal transaksi yang belum jelas.")
+			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Ada tanggal yang belum jelas. Sebutkan harinya, misalnya hari ini, kemarin, atau 12 Agu.")
 		}
 		v := pending{Type: item.Type, Amount: a.String(), TransactionAt: at}
 		if item.Merchant != nil {
@@ -900,7 +901,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 				if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); e != nil {
 					return true, e
 				}
-				if e := enqueueReply(ctx, tx, update, "Batch ini belum bisa dicatat karena ada kategori yang tidak valid. Kirim ulang dengan kategori pengeluaran yang aktif."); e != nil {
+				if e := enqueueReply(ctx, tx, update, "Daftar ini belum bisa dicatat karena ada kategori yang tidak ada. Kirim ulang dengan kategori pengeluaran yang tersedia."); e != nil {
 					return true, e
 				}
 				return true, tx.Commit(ctx)
@@ -1019,7 +1020,7 @@ func (p *Processor) stageNativeCorrection(ctx context.Context, sourceID, househo
 	if categorySlug != "" {
 		var id string
 		if err := p.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, categorySlug).Scan(&id); err != nil {
-			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Kategori belum valid untuk keluarga ini.")
+			return p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori yang tersedia.")
 		}
 		categoryID = &id
 	}
@@ -1284,6 +1285,11 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 	}
 	if err := enqueueReply(ctx, tx, update, message); err != nil {
 		return err
+	}
+	if update.CallbackQuery != nil && message == staleActionMessage {
+		if err := enqueueRetireButtons(ctx, tx, update, "Tidak lagi berlaku."); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
