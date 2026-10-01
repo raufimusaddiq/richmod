@@ -111,6 +111,10 @@ and PRDs; they never appear in user-facing copy.
 - Telegram asks for confirmation with inline buttons (`pending:action:*`,
   `pending:batch:*`), not by asking the user to type yes/no. Typed answers still
   work through the bounded judgment lane.
+- Telegram has one help text (`helpMessage`). Typed `/help` and `/start` answer
+  with it deterministically, before any model call. The agent prompt tells the
+  model to say what Richmod can do and point at `/help` whenever it declines a
+  request. The worker registers a `/help` command menu at start (best-effort).
 - Confirmations and text entry use `useDialogs` (a native `<dialog>`), never
   `window.confirm`/`window.prompt`. The one exception is the unsaved-draft guard
   in analytics, which must answer synchronously.

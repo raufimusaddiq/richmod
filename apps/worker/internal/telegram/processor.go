@@ -274,8 +274,8 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if sourceType == "TELEGRAM_CALLBACK" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
 	}
-	if strings.HasPrefix(strings.ToLower(text), "/help") || strings.HasPrefix(strings.ToLower(text), "/start") {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kirim transaksi seperti: makan siang 50rb, atau gaji 8 juta hari ini.")
+	if isHelpCommand(text) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
 	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
 		return err
@@ -396,7 +396,7 @@ func (p *Processor) executePendingSalaryChoice(ctx context.Context, householdID 
 func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID string, update telegramUpdate, call gateway.ToolCall, args map[string]any, metadata gateway.Metadata, now time.Time) (bool, error) {
 	switch call.Name {
 	case "finance_help":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Contoh: makan siang 50rb hari ini; pengeluaran bulan ini; cari transaksi Pamella; koreksi transaksi Pamella.")
+		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, helpMessage)
 	case "finance_out_of_scope":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Richmod hanya membantu pencatatan dan review keuangan rumah tangga. Fitur investasi dan permintaan sistem tidak didukung.")
 	case "ask_clarification":

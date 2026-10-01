@@ -49,8 +49,8 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if text == "" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesan kosong diabaikan.")
 	}
-	if strings.HasPrefix(strings.ToLower(text), "/start") {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi atau tanyakan kondisi keuangan rumah tangga. Contoh: makan siang 50rb, atau bulan ini lebih boros nggak?")
+	if isHelpCommand(text) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()

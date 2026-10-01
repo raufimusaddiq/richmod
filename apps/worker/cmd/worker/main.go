@@ -95,6 +95,13 @@ func run(logger *slog.Logger) error {
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	processor := telegram.NewProcessor(pool, llm)
 	processor.SetBot(bot)
+	func() {
+		commandsCtx, cancelCommands := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelCommands()
+		if err := bot.SetCommands(commandsCtx); err != nil {
+			logger.Warn("telegram command menu not registered", "error", err)
+		}
+	}()
 	// The judgment plane owns bounded semantic mutation authority (ADR-038), so
 	// production must not be able to disable it by leaving the model unset.
 	// Non-production environments opt out explicitly with JUDGMENT_MODE=disabled-dev.
