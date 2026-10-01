@@ -275,7 +275,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
 	}
 	if strings.HasPrefix(strings.ToLower(text), "/help") || strings.HasPrefix(strings.ToLower(text), "/start") {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kirim transaksi seperti: makan siang 50rb, atau gaji 8 juta hari ini.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, helpMessage)
 	}
 	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
 		return err
@@ -320,7 +320,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		_ = p.persistTurn(ctx, householdID, sourceEventID, update, "TOOL", "", call.Name, map[string]any{"tool": call.Name, "status": "handled"})
 		return nil
 	}
-	return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.")
+	return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, outOfScopeMessage)
 }
 
 func strPtr(value string) *string { return &value }
@@ -396,9 +396,9 @@ func (p *Processor) executePendingSalaryChoice(ctx context.Context, householdID 
 func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID string, update telegramUpdate, call gateway.ToolCall, args map[string]any, metadata gateway.Metadata, now time.Time) (bool, error) {
 	switch call.Name {
 	case "finance_help":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Contoh: makan siang 50rb hari ini; pengeluaran bulan ini; cari transaksi Pamella; koreksi transaksi Pamella.")
+		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, helpMessage)
 	case "finance_out_of_scope":
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Richmod hanya membantu pencatatan dan review keuangan rumah tangga. Fitur investasi dan permintaan sistem tidak didukung.")
+		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, unsupportedFeatureMessage)
 	case "ask_clarification":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Detailnya belum cukup jelas. Sebutkan nominal, tujuan, serta waktu transaksi.")
 	case "query_spending", "query_cashflow", "query_savings", "get_finance_insight":

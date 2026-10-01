@@ -111,6 +111,9 @@ and PRDs; they never appear in user-facing copy.
 - Telegram asks for confirmation with inline buttons (`pending:action:*`,
   `pending:batch:*`), not by asking the user to type yes/no. Typed answers still
   work through the bounded judgment lane.
+- Telegram has one help text (`helpMessage`, shown for `/help`, `/start`, and the
+  model's `finance_help` tool) and one out-of-scope refusal; both point at
+  `/help`. The worker registers a `/help` command menu at start (best-effort).
 - Modal drawers (`aside[role="dialog"]`) use `useDrawerA11y`: focus moves in,
   Escape closes, Tab stays inside, and focus returns to the opener.
 - On mobile, the pending-review count appears on the "Lainnya" button whenever
