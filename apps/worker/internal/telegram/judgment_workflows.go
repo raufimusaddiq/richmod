@@ -278,15 +278,3 @@ func transferDestinationKind(destinationWealthID *string) string {
 	}
 	return "WEALTH_ACCOUNT"
 }
-
-// exactMerchantCategory resolves a confirmed merchant rule for this merchant.
-// That is deterministic server state, so the semantic decision short-circuits
-// instead of paying for a bounded call — and the matched slug is the category,
-// never an empty one (the rule already decided it).
-func (p *Processor) exactMerchantCategory(ctx context.Context, householdID, merchant string) (string, bool, error) {
-	match, err := merchantmemory.Lookup(ctx, p.pool, householdID, merchant)
-	if err != nil || match == nil {
-		return "", false, err
-	}
-	return match.Slug, true, nil
-}

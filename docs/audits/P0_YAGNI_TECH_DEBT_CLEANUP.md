@@ -41,3 +41,36 @@ SQL canonical semantics. Existing bank-email tests remain as regression coverage
 No product behavior changes. No model calls added or removed on the active path.
 No schema changes. Telegram legacy orchestration and document rollout paths
 intentionally deferred.
+
+## Addendum: Telegram legacy orchestration removed
+
+The deferred item above is done. Typed Telegram text is queued as
+`PROCESS_TELEGRAM_TEXT` and handled by `ProcessAgent`; `Process` is entered only
+for callbacks (`PROCESS_TELEGRAM_CALLBACK`, and `ProcessAgent` delegating a
+callback). The tool-call lane that followed the callback guard in `Process`
+(model extraction call, `executeNativeTool`, batch and correction staging, the
+assistant intent replies, and the transaction-semantics evaluator that only that
+lane called) was therefore unreachable for production traffic.
+
+- **Method:** whole-program reachability from `cmd/worker` with
+  `golang.org/x/tools/cmd/deadcode`, then `staticcheck -checks U1000` for the
+  types, constants and test helpers it cannot see. `go vet` and `go test`
+  compile every integration test.
+- **Removed:** about 2,000 lines in `apps/worker/internal/telegram`, and the
+  tests of the removed functions. `AgentFinanceTools` is kept because it is a
+  thin exported wrapper over the live `agentFinanceTools` that the catalog policy
+  tests use.
+- **Kept on purpose:** `processBoundReview`. Callbacks reach it through
+  `callbackText`, and about a dozen integration tests (with a gateway that fails
+  if any model is called) cover its deterministic reply handling. Its typed free
+  text branches (dates, merchants, amounts) are not reached by live typed text
+  and are the next candidate, to be removed together with those tests once they
+  can be run against the agent lane.
+- **Left alone:** five unreachable functions outside Telegram
+  (`EvidenceContext.modelContent`, `SalaryCycle`,
+  `ObservationClassification.wealthAllowed`/`nonActionable`, `ActiveReasons`).
+- **A text event handed to `Process`** is passed to `ProcessAgent` after the
+  deterministic bound-review attempt, so a mis-queued job still gets the live
+  behavior.
+
+No schema change; no model call added.

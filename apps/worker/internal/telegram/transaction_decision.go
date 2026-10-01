@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"strings"
 	"time"
@@ -90,30 +89,6 @@ var judgmentDateReferenceCriteria = map[string]string{
 	"OTHER_OR_UNCLEAR": "no transaction date was stated",
 }
 
-var judgmentPurchaseLabelCriteria = map[string]string{
-	"SUPPORTED":        "the user's wording names the purchased item or merchant",
-	"OTHER_OR_UNCLEAR": "no purchase wording was stated",
-}
-
-// evaluateTransactionSemantics is the one evaluator used after arbitrary
-// extraction. It calls the same builder and mapper as the harvested fast path,
-// so both channels consume identical policy (PRD §5).
-func (p *Processor) evaluateTransactionSemantics(ctx context.Context, requestID string, state map[string]any, categories []string) (TransactionSemanticDecision, error) {
-	typeHint := ""
-	if hint, ok := state["transaction_type_hint"].(string); ok {
-		typeHint = hint
-	}
-	// The semantic bundle decides direction, amount/date support, ambiguity, and
-	// category together in one call, so nothing was accepted by the bounded plane
-	// before it: an empty accepted set is honest, and a correct answer is not a
-	// re-decision (SAVR closure UISC-02B).
-	result, err := p.evaluateWithAccepted(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: transactionQuestions(categories, typeHint)}, []string{})
-	if err != nil {
-		return TransactionSemanticDecision{}, err
-	}
-	return transactionDecisionFromAnswers(result, simpleTransactionCandidate{}, categories), nil
-}
-
 // resolveResidualTransactionDecision asks the bounded plane only for the
 // dimensions the caller names as unresolved, using the generative extraction as
 // the shared state snapshot. It exists so a complete extraction can skip the
@@ -180,11 +155,11 @@ func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requ
 // a Jev call only on dimensions that remain genuinely unresolved, so a clear
 // generative result never pays a full second semantic pass (PRD §7.2, ADR-045).
 //
-// It deliberately does NOT go through resolveTransactionDecision: that function
-// sends the whole bundle (direction, amount/date support, ambiguity, category),
-// which is the redundant replay. Residual-first routing is the contract here.
-// Batch confirmation stays on resolveTransactionDecision because that path is an
-// explicit human confirmation, not an autonomous extraction.
+// It deliberately does NOT send the whole bundle (direction, amount/date support,
+// ambiguity, category) in one call, which is the redundant replay. Residual-first
+// routing is the contract here. Batch confirmation (agentFinalizePendingBatch)
+// does not re-run semantic approval: it is an explicit human confirmation, not an
+// autonomous extraction.
 func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
 	if direct, ok := directAcceptanceDecision(value, categories, state.Now); ok {
 		if p.postGenerativeAutoConfirmOff {
@@ -267,41 +242,6 @@ func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy jud
 	}
 	ambiguous, decided := judgment.AcceptNoul(answer, policy)
 	return ambiguous, decided && !ambiguous
-}
-
-// resolveTransactionDecision obtains the semantic decision for an extracted
-// transaction. An exact category match from deterministic merchant rules and an
-// already-narrowed fact-free proposal skip Jev; everything else must be ruled
-// on by the one shared evaluator.
-func (p *Processor) resolveTransactionDecision(ctx context.Context, sourceEventID, householdID, userText string, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
-	if value.Confidence < 0 || value.Confidence > 1 {
-		return TransactionSemanticDecision{}, fmt.Errorf("invalid extraction confidence")
-	}
-	if exactCategory && !value.Ambiguous {
-		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeAccepted)
-		return TransactionSemanticDecision{
-			RouteAccepted: true, TransactionType: value.Type, TypeAccepted: true,
-			AmountSupported: true, DateSupported: true, CategoryAccepted: true, CategorySlug: value.CategorySlug,
-			DecisionSource: "DETERMINISTIC_POLICY", PolicyVersion: judgmentPolicy.Version,
-		}, nil
-	}
-	if p.judgment == nil {
-		// Fail closed. Without the configured judgment plane Go cannot authorize a
-		// semantic mutation, so the proposal is preserved for review instead.
-		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeJudgmentUnavailable)
-		return TransactionSemanticDecision{DecisionSource: "JUDGMENT_UNAVAILABLE", PolicyVersion: judgmentPolicy.Version}, nil
-	}
-	state := map[string]any{
-		"user_text":              "<untrusted_user_message>" + userText + "</untrusted_user_message>",
-		"amount_candidates":      []string{value.Amount},
-		"date_reference":         value.TransactionAt.In(jakartaLocation()).Format("2006-01-02"),
-		"transaction_type_hint":  value.Type,
-		"category_hint":          value.CategorySlug,
-		"merchant":               value.Merchant,
-		"description":            value.Description,
-		"allowed_category_slugs": categories,
-	}
-	return p.evaluateTransactionSemantics(ctx, sourceEventID, state, categories)
 }
 
 // directAcceptanceDecision is the source acceptance contract for one extracted

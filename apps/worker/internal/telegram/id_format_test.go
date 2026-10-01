@@ -9,7 +9,6 @@ func TestIndonesianDateFormatting(t *testing.T) {
 	at := time.Date(2026, time.May, 3, 21, 5, 0, 0, time.UTC) // 04 May 04:05 Jakarta
 	cases := map[string]string{
 		formatIDDate(at):     "04 Mei 2026",
-		formatIDDayMonth(at): "04 Mei",
 		formatIDDateTime(at): "04 Mei 2026 04:05",
 		formatIDDate(time.Date(2026, time.August, 1, 0, 0, 0, 0, jakartaLocation())):     "01 Agu 2026",
 		formatIDDate(time.Date(2026, time.October, 9, 12, 0, 0, 0, jakartaLocation())):   "09 Okt 2026",
