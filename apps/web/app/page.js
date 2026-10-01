@@ -12,6 +12,9 @@ import { elapsedDaily } from "./lib/chartData";
 import { money } from "./lib/format";
 import LandingPage from "./components/LandingPage";
 
+// Order matches the Promise.all in load(); used to name what failed to load.
+const sectionNames = ["ringkasan", "pengeluaran harian", "kategori", "transaksi terbaru", "periode siklus", "kekayaan"];
+
 export default function Home() {
   const user = useAuth(false);
   const [overview, setOverview] = useState(null);
@@ -27,7 +30,8 @@ export default function Home() {
     if (!user) return;
     setLoading(true);
     try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions?limit=8"), fetch("/api/v1/analytics/cycle"), fetch("/api/v1/wealth/snapshots/latest")]);
-      if (responses.some(response => !response.ok)) setError("Sebagian ringkasan belum dapat dimuat."); else setError("");
+      const failed = responses.flatMap((response, index) => response.ok ? [] : [sectionNames[index]]);
+      setError(failed.length ? `Belum termuat: ${failed.join(", ")}. Bagian lain tetap ditampilkan.` : "");
       if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(elapsedDaily(cycleData.daily || [], cycleData.daysElapsed)); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
       if (responses[4].ok) setCycle(await responses[4].json());
       if (responses[5].ok) setLatestWealth(await responses[5].json());
@@ -41,8 +45,8 @@ export default function Home() {
   const periodLabel = overview?.periodKind === "CURRENT_CYCLE" ? "siklus ini" : "bulan ini";
   const cycleName = cycle?.kind === "CURRENT_CYCLE" ? "Siklus gaji" : "Bulan kalender";
   const cycleDates = cycle ? `${cycle.start}${cycle.end ? ` – ${cycle.end}` : " · masih berjalan"}` : "Periode belum tersedia";
-  const wealthObservedAt = new Date(latestWealth?.observedAt);
-  const wealthDate = latestWealth?.observedAt && !Number.isNaN(wealthObservedAt.valueOf()) ? wealthObservedAt.toLocaleDateString("id-ID") : null;
+  const wealthObservedAt = latestWealth?.observedAt ? new Date(latestWealth.observedAt) : null;
+  const wealthDate = wealthObservedAt && !Number.isNaN(wealthObservedAt.valueOf()) ? wealthObservedAt.toLocaleDateString("id-ID") : null;
   const wealthItems = latestWealth?.items || [];
   const wealthAssetCount = wealthItems.filter(item => item.side === "ASSET").length;
   const wealthLiabilityCount = wealthItems.filter(item => item.side === "LIABILITY").length;

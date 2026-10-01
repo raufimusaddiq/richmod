@@ -161,3 +161,22 @@ test("decorative glyphs are hidden from assistive technology", () => {
   assert.match(text("app/inbox/page.js"), /<span aria-hidden="true">✓<\/span>/);
   assert.doesNotMatch(text("app/inbox/page.js"), /<span>✓<\/span>/);
 });
+
+test("navigation icons are keyed by name, not by glyph", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.doesNotMatch(shell, /\["[^"]*", "[^"]*", "[⌂⌁✓▤⌾]"\]/);
+  assert.doesNotMatch(shell, /"[⌂⌁✓▤⌾]": /);
+  for (const name of ["home", "analytics", "inbox", "documents", "household"]) {
+    assert.match(shell, new RegExp(`${name}: \\w+`), `${name} maps to an icon`);
+  }
+});
+
+test("a failed request names what is missing and keeps the rest", () => {
+  const home = text("app/page.js");
+  assert.match(home, /const sectionNames = \[/);
+  assert.match(home, /Belum termuat: \$\{failed\.join/);
+  assert.doesNotMatch(home, /new Date\(latestWealth\?\.observedAt\)/);
+  const inbox = text("app/inbox/page.js");
+  assert.match(inbox, /Each list stands on its own/);
+  assert.doesNotMatch(inbox, /if \(!reviewResponse\.ok \|\| !actionResponse\.ok\) throw new Error/);
+});
