@@ -51,7 +51,7 @@ export default function CycleDecisions({ cycleStart, closed, body, onBodyChange,
   }
 
   async function revoke(id) {
-    if (pending.current || !(await confirm("Batalkan keputusan ini? Catatan asli tetap tersimpan dalam riwayat audit.", { confirmLabel: "Batalkan keputusan", danger: true }))) return;
+    if (pending.current || !(await confirm("Batalkan keputusan ini? Catatan asli tetap tersimpan dalam riwayat audit.", { confirmLabel: "Ya, batalkan", danger: true }))) return;
     pending.current = true; setBusy(true); setSaveError(""); setStatus("");
     try {
       const response = await fetch(`/api/v1/analytics/cycle-decisions/${encodeURIComponent(id)}/revoke`, { method: "POST" });
