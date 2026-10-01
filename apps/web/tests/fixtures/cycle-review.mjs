@@ -66,7 +66,15 @@ export function cycleFacts(start = "2026-09-01") {
     { start: facts.period.start, end: facts.period.end, state: facts.period.state, income: facts.cashflow.income, expense: facts.cashflow.expense }];
   facts.history = rows.map((row, index) => ({ start: row.start, end: row.end, measuredUntil: row.end ?? facts.period.measuredUntil, state: row.state, income: row.income, grossExpense: row.expense, refund: "0", expense: row.expense,
     netCashflow: String(BigInt(row.income) - BigInt(row.expense)), savingsAllocated: "0", expenseDelta: index ? String(BigInt(row.expense) - BigInt(rows[index - 1].expense)) : null }));
-  facts.categoryHistory = { cycleStarts: facts.history.map(item => item.start), rows: [], other: { amounts: facts.history.map(item => item.expense) } };
+  // Category x cycle matrix: the selected cycle uses the served category amounts; earlier
+  // cycles split their expense by fixed shares. "Lainnya" is the exact remainder, as served.
+  const last = facts.history.length - 1;
+  const columns = facts.history.map((item, index) => index === last ? facts.categoryChanges.map(change => change.amount) : [50n, 30n, 15n].map(percent => String(BigInt(item.expense) * percent / 100n)));
+  facts.categoryHistory = {
+    cycleStarts: facts.history.map(item => item.start),
+    rows: facts.categoryChanges.map((change, row) => ({ id: change.id, name: change.name, amounts: columns.map(column => column[row]) })),
+    other: { amounts: facts.history.map((item, index) => String(BigInt(item.expense) - columns[index].reduce((sum, value) => sum + BigInt(value), 0n))) },
+  };
   return facts;
 }
 
@@ -88,7 +96,7 @@ export function stableCycleFacts() {
   const last = facts.history.at(-1); // and the ledger's selected column with the rewritten cashflow
   Object.assign(last, { income: "1400000", grossExpense: "1400000", expense: "1400000", netCashflow: "0" });
   last.expenseDelta = String(BigInt(last.expense) - BigInt(facts.history.at(-2).expense));
-  facts.categoryHistory.other.amounts[facts.history.length - 1] = last.expense;
+  facts.categoryHistory = { cycleStarts: facts.history.map(item => item.start), rows: [{ id: category.id, name: category.name, amounts: facts.history.map(item => item.expense) }], other: { amounts: facts.history.map(() => "0") } };
   facts.spendingShape = { days: 6, averageDailyExpense: "233333.33", peakDay: facts.daily[4].period, peakExpense: "300000", peakShareOfExpense: "0.2143", zeroSpendDays: 0 };
   facts.merchantDrivers = []; facts.memberAttribution = [{ name: "Shared / unattributed", amount: "1400000", count: 6 }]; facts.savingsDestinations = [];
   facts.wealth.current.netWorth = facts.wealth.previous.netWorth;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { adjacentCycles, buildLedger, compactMillions, directionMark, directionText, hasPace, mapPace, monthMarkers, paceReferences, signedMillions, verdictPairs } from "../app/lib/cycleLedger.js";
+import { adjacentCycles, buildLedger, buildMatrix, compactMillions, directionMark, directionText, hasPace, mapPace, monthMarkers, paceReferences, signedMillions, verdictPairs } from "../app/lib/cycleLedger.js";
 import { readReviewSelection, selectionHref } from "../app/lib/cycleReview.js";
 import { cycleFacts, stableCycleFacts } from "./fixtures/cycle-review.mjs";
 import { globalCss, tree } from "./source.mjs";
@@ -129,7 +129,7 @@ test("ledger source: served numbers only, no colour-only direction, accent reser
   const block = styles.slice(styles.indexOf("/* Cycle ledger:"), styles.indexOf("/* end cycle ledger */"));
   assert.ok(block.length > 500, "ledger styles present");
   assert.doesNotMatch(block, /var\(--accent|var\(--danger|var\(--income-soft|var\(--expense-soft/, "no accent or good/bad tinting in the ledger");
-  assert.match(styles, /\[data-meeting-step\]:not\(\[data-meeting-step="position"\]\) > #ledger/, "the ledger belongs to the first meeting step");
+  assert.match(styles, /\[data-meeting-step\]:not\(\[data-meeting-step="position"\]\):not\(\[data-meeting-step="changes"\]\) > #ledger/, "the ledger belongs to the position and changes meeting steps");
 });
 
 test("page wiring: ledger, stale-while-revalidate, calendar-aware title", () => {
@@ -157,6 +157,54 @@ test("synthetic facts mirror the served contract the ledger and pace chart read"
     assert.ok(facts.history.length >= 5, "history is served oldest first");
     assert.equal(facts.history[0].expenseDelta, null);
     assert.deepEqual(facts.categoryHistory.cycleStarts, facts.history.map(item => item.start));
+    facts.history.forEach((item, index) => {
+      const listed = facts.categoryHistory.rows.reduce((sum, row) => sum + BigInt(row.amounts[index]), 0n);
+      assert.equal(String(listed + BigInt(facts.categoryHistory.other.amounts[index])), item.expense, "categories plus Lainnya reconcile to each cycle's net expense");
+    });
     assert.equal(facts.history.at(-1).start, facts.period.start, "the selected cycle is listed");
   }
+});
+
+const matrixHistory = [entry("2026-06-26", "2026-07-26", "CLOSED", "12500000", "7900000"), entry("2026-07-26", "2026-08-26", "CLOSED", "12500000", "7200000"), entry("2026-08-26", null, "ACTIVE", "12500000", "2900000")];
+const matrixSeries = {
+  cycleStarts: ["2026-06-26", "2026-07-26", "2026-08-26"],
+  rows: [{ id: "cat-1", name: "Belanja rumah", amounts: ["3000000", "2000000", "1000000"] }, { id: "", name: "Belum dikategorikan", amounts: ["400000", "0", "-100000"] }],
+  other: { amounts: ["4500000", "5200000", "2000000"] },
+};
+
+test("the matrix tints each value within its own row and never invents a category", () => {
+  const matrix = buildMatrix(matrixSeries, matrixHistory, "cat-1", ["cat-1"]);
+  assert.deepEqual(matrix.map(row => row.name), ["Belanja rumah", "Belum dikategorikan", "Lainnya"]);
+  assert.deepEqual(matrix[0].tints, [1, 2000000 / 3000000, 1000000 / 3000000]);
+  assert.deepEqual(matrix[1].tints, [1, 0, 0], "zero and negative values carry no tint");
+  assert.equal(matrix[0].selected, true);
+  assert.equal(matrix[0].selectable, true);
+  assert.equal(matrix[1].id, "uncategorized", "the empty category id maps to the uncategorized selection");
+  assert.equal(matrix[1].selectable, false, "a row without served evidence is not clickable");
+  assert.equal(matrix[2].other, true);
+  assert.equal(matrix[2].selectable, false, "the remainder opens no evidence");
+});
+
+test("a matrix that does not line up with history or has no rows is not drawn", () => {
+  assert.deepEqual(buildMatrix({ ...matrixSeries, rows: [] }, matrixHistory), []);
+  assert.deepEqual(buildMatrix(undefined, matrixHistory), []);
+  assert.deepEqual(buildMatrix({ ...matrixSeries, cycleStarts: ["2026-06-26", "2026-07-26", "2026-09-01"] }, matrixHistory), [], "columns must match the ribbon");
+  assert.deepEqual(buildMatrix({ ...matrixSeries, cycleStarts: matrixSeries.cycleStarts.slice(1) }, matrixHistory), []);
+  assert.deepEqual(buildMatrix({ ...matrixSeries, other: { amounts: ["1"] } }, matrixHistory), []);
+  assert.deepEqual(buildMatrix({ ...matrixSeries, rows: [{ id: "x", name: "X", amounts: ["1"] }] }, matrixHistory), []);
+});
+
+test("matrix source: text cells, keyboard rows, evidence-only buttons, detail demoted without removing facts", () => {
+  const component = text("app/components/CycleLedger.js");
+  assert.match(component, /<th scope="row">\{row\.selectable && onSelectCategory/);
+  assert.match(component, /aria-label=\{`Buka bukti \$\{row\.name\}`\}/, "row buttons are named by their action, apart from the category buttons in the detail list");
+  assert.match(component, /aria-pressed=\{row\.selected\}/);
+  assert.match(component, /\{compactMillions\(row\.amounts\[i\]\)\}/, "every cell is text");
+  const page = tree("app/analytics");
+  assert.match(page, /categoryHistory=\{facts\.categoryHistory\}/);
+  assert.match(page, /<details className="report-disclosure" open=\{step === "changes"\}>\s*<summary><h2 id="changes-title" tabIndex=\{-1\}>Detail perubahan<\/h2>/);
+  for (const kept of ["<ComparisonContext", "<ChangesTable", 'className="comparison-bars"', 'className="change-ranking"', "Perbandingan lengkap"]) assert.ok(page.includes(kept), `${kept} stays available`);
+  assert.doesNotMatch(page, /Δ|hari setara|Hari setara/, "plain-language labels, no Greek delta or 'hari setara'");
+  assert.match(page, /Selisih vs hari yang sama/);
+  assert.match(page, /Hari yang sama, bukan siklus penuh/);
 });

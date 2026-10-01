@@ -48,6 +48,24 @@ It renders the API's `history[]` (see the [facts API](ANALYTICS_CYCLE_REVIEW_API
   and loads that cycle. The reviewed cycle also survives a Calendar visit, and the
   page title follows the view.
 
+Below the bars, the **category x cycle matrix** uses the API's `categoryHistory`
+in the same table, so its columns line up with the ribbon: the top categories plus
+**Lainnya**, in Rp juta. Every cell is text. The tint sizes a value against the
+largest positive value in its own row, so it is a visual length, never a good/bad
+signal; zero and negative values carry no tint. A category row opens that
+category's evidence (**Bukti kategori**) only when the served category facts
+include it, so no click is a dead end; its button is named "Buka bukti …", apart
+from the category buttons in the detail list. The matrix is not drawn when its
+columns do not match `history`. With fewer than four closed cycles the same rows
+appear in a standalone table under the cards. The ledger shows in the "Posisi
+siklus" and "Perubahan" meeting steps.
+
+The former "Apa yang berubah?" section is now the closed disclosure **Detail
+perubahan** (open in the "Perubahan" meeting step). It still holds the baseline
+bars, the ranked category deltas and the complete comparison table; nothing was
+removed. Comparison labels now read "Selisih vs …" and "hari yang sama" instead of
+"Δ" and "hari setara".
+
 The browser formats numbers and maps amounts to bar lengths only. An absent
 `history` renders nothing, so the page still works against an older API.
 

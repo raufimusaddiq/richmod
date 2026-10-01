@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { buildLedger, compactMillions, directionMark, signedMillions } from "../lib/cycleLedger";
+import { buildLedger, buildMatrix, compactMillions, directionMark, signedMillions } from "../lib/cycleLedger";
 import { money } from "../lib/format";
 import { signedMoney } from "../lib/cycleReview";
 
 // One column per salary cycle. Direction is the sign plus a neutral marker,
 // never a colour. All values are served by the API; see lib/cycleLedger.js.
-export default function CycleLedger({ history, selected, median, verdict, onSelect }) {
+export default function CycleLedger({ history, selected, median, verdict, onSelect, categoryHistory, selectedCategory = "", selectable = [], onSelectCategory }) {
   const ledger = buildLedger(history, selected, median);
+  const matrix = buildMatrix(categoryHistory, history, selectedCategory, selectable);
   const frame = useRef(null);
   useEffect(() => {
     const figure = frame.current;
@@ -24,7 +25,7 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
       ? <>
         <div ref={frame} className="ledger-figure" tabIndex={0} role="region" aria-label="Perbandingan siklus, geser untuk semua kolom">
           <table className="ledger-table">
-            <caption className="visually-hidden">Pemasukan, pengeluaran bersih, arus kas bersih, dan perubahan pengeluaran per siklus gaji, dalam jutaan rupiah</caption>
+            <caption className="visually-hidden">Pemasukan, pengeluaran bersih, arus kas bersih, perubahan pengeluaran{matrix.length > 0 && ", dan pengeluaran per kategori"} untuk setiap siklus gaji, dalam jutaan rupiah</caption>
             <thead><tr>
               <th scope="col"><span className="ledger-unit">Rp juta</span></th>
               {ledger.columns.map(column => <th key={column.start} scope="col" aria-current={column.selected ? "true" : undefined} data-selected={column.selected || undefined}>
@@ -50,6 +51,7 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
                 <th scope="row">Selisih pengeluaran dari siklus sebelumnya</th>
                 {ledger.columns.map(column => <td key={column.start} data-selected={column.selected || undefined}>{column.running ? "—" : <><span aria-hidden="true">{directionMark(column.delta)} </span>{signedMillions(column.delta)}</>}</td>)}
               </tr>
+              <MatrixRows matrix={matrix} columns={ledger.columns} onSelectCategory={onSelectCategory}/>
             </tbody>
           </table>
         </div>
@@ -58,9 +60,11 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
           <span><i className="expense" aria-hidden="true"/>Pengeluaran bersih</span>
           {ledger.medianLength != null && <span><i className="median" aria-hidden="true"/>Median 3 siklus sebelum siklus terpilih</span>}
           {anyRunning && <span><i className="running" aria-hidden="true"/>Siklus berjalan, belum selesai</span>}
+          {matrix.length > 0 && <span>Warna sel = besar relatif dalam satu baris, bukan nilai baik atau buruk</span>}
         </p>
       </>
-      : <ul className="ledger-cards" aria-label="Ringkasan siklus">
+      : <>
+      <ul className="ledger-cards" aria-label="Ringkasan siklus">
         {ledger.columns.map(column => <li key={column.start} data-selected={column.selected || undefined}>
           <button type="button" aria-pressed={column.selected} onClick={() => onSelect(column.start)}><b>{column.label}</b><small>{column.until}</small></button>
           <dl>
@@ -69,6 +73,26 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
             <div><dt>Arus kas bersih</dt><dd>{signedMoney(column.net)}</dd></div>
           </dl>
         </li>)}
-      </ul>}
+      </ul>
+      {matrix.length > 0 && <div className="ledger-figure ledger-matrix-only" tabIndex={0} role="region" aria-label="Pengeluaran per kategori, geser untuk semua kolom">
+        <table className="ledger-table">
+          <caption className="visually-hidden">Pengeluaran bersih per kategori untuk setiap siklus gaji, dalam jutaan rupiah</caption>
+          <thead><tr><th scope="col"><span className="ledger-unit">Rp juta</span></th>{ledger.columns.map(column => <th key={column.start} scope="col" data-selected={column.selected || undefined}><b>{column.label}</b><small>{column.until}</small></th>)}</tr></thead>
+          <tbody><MatrixRows matrix={matrix} columns={ledger.columns} onSelectCategory={onSelectCategory}/></tbody>
+        </table>
+      </div>}
+      </>}
   </section>;
+}
+
+// Category rows share the ribbon's columns. Cells are text; the tint only sizes
+// each value within its own row. A row opens the category's evidence when the
+// served category facts include it.
+function MatrixRows({ matrix, columns, onSelectCategory }) {
+  return matrix.map((row, index) => <tr key={row.key} className={index === 0 ? "ledger-first-category" : undefined} data-selected-row={row.selected || undefined}>
+    <th scope="row">{row.selectable && onSelectCategory
+      ? <button type="button" className="ledger-row-button" aria-pressed={row.selected} aria-controls="category-drivers" aria-label={`Buka bukti ${row.name}`} onClick={() => onSelectCategory(row.id)}>{row.name}</button>
+      : row.name}</th>
+    {columns.map((column, i) => <td key={column.start} data-selected={column.selected || undefined} data-running={column.running || undefined}><span className="ledger-cell" style={{ "--tint": row.tints[i] }}>{compactMillions(row.amounts[i])}</span></td>)}
+  </tr>);
 }

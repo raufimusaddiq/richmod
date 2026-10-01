@@ -53,7 +53,7 @@ test("rent compares full cycles by default, not a zero equal-day prefix", () => 
   const page = text("app/analytics/page.js");
   assert.match(page, /signedMoney\(item.deltaVsPreviousFullCycle\)/);
   assert.match(page, /changeWidth\(item, items, "deltaVsPreviousFullCycle"\)/);
-  assert.match(page, /Sebelumnya · hari setara/);
+  assert.match(page, /Sebelumnya · hari yang sama/);
 });
 
 test("drill-down URLs carry deterministic cycle boundaries with exclusive end", () => {
@@ -108,7 +108,7 @@ test("cycle explanations use native disclosures without hiding financial facts",
   const page = text("app/analytics/page.js");
   assert.match(page, /<details className="review-explainer"><summary>Tentang data ini<\/summary><p>\{description\}<\/p><\/details>/);
   assert.match(page, /<span>Refund <strong>\{money\(facts.cashflow.refund\)\}<\/strong><\/span>/);
-  assert.match(page, /Hari setara, bukan siklus penuh/);
+  assert.match(page, /Hari yang sama, bukan siklus penuh/);
   for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(page, new RegExp(`money\\(facts.cashflow.${field}\\)`));
   assert.match(page, /Tentang rekonsiliasi/);
 });
