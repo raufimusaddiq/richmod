@@ -45,6 +45,25 @@ test("type scale is tokenised and no text renders below 11px", () => {
   assert.equal(Math.min(...sizes), 11, "micro type below 11px is not allowed");
 });
 
+test("brand fonts are bundled and the guideline matches the existing token source", () => {
+  const source = css();
+  const guide = text("../../docs/brand-guidelines.md");
+  for (const name of ["canvas", "ink", "accent", "accent-hover", "income", "expense", "warning", "danger", "info"]) {
+    const value = source.match(new RegExp(`--${name}: (#[0-9a-f]{6});`))[1];
+    assert.ok(guide.includes(value), `brand guideline is stale for --${name}`);
+  }
+  for (const name of ["fraunces", "inter"]) {
+    const file = `${name}-latin.woff2`;
+    assert.match(source, new RegExp(`/fonts/${file}`));
+    const font = readFileSync(new URL(`../public/fonts/${file}`, import.meta.url));
+    assert.equal(font.subarray(0, 4).toString(), "wOF2");
+    assert.ok(font.length < 80000, "Latin subsets remain small");
+  }
+  assert.match(text("public/fonts/OFL.txt"), /The Fraunces Project Authors/);
+  assert.match(text("public/fonts/OFL.txt"), /The Inter Project Authors/);
+  assert.doesNotMatch(source, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
+});
+
 test("loading, tab, and drawer states are announced to assistive technology", () => {
   assert.match(text("app/components/Feedback.js"), /role="status" aria-live="polite" aria-label="Memuat data"/);
   assert.match(text("app/inbox/page.js"), /data-view="transactions" tabIndex=/);

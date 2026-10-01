@@ -202,13 +202,13 @@ function AnalyticsReview() {
 }
 
 function SectionTitle({ id, title, description }) {
-  return <div className="section-title"><div><h2 id={id} tabIndex={-1}>{title}</h2>{description && <p className="review-description">{description}</p>}</div></div>;
+  return <div className="section-title"><h2 id={id} tabIndex={-1}>{title}</h2>{description && <details className="review-explainer"><summary>Tentang data ini</summary><p>{description}</p></details>}</div>;
 }
 
 function MeetingNav({ step, selection, navigate }) {
   const index = reviewSteps.findIndex(([id]) => id === step);
   return <div className="meeting-controls">
-    <p role="status">Langkah {index + 1} dari {reviewSteps.length}: {reviewSteps[index][1]}. Kemajuan hanya untuk sesi ini; keputusan disimpan terpisah.</p>
+    <p role="status">{index + 1} / {reviewSteps.length} · {reviewSteps[index][1]} <small>Sesi tinjauan; keputusan disimpan terpisah.</small></p>
     <nav aria-label="Langkah tinjauan siklus"><ol>{reviewSteps.map(([id, label], i) => <li key={id}><button type="button" className={id === step ? "active" : "secondary"} aria-current={id === step ? "step" : undefined} onClick={() => navigate({ step: id })}>{i + 1}. {label}</button></li>)}</ol></nav>
     <div className="meeting-actions">
       <button type="button" className="secondary" disabled={index === 0} onClick={() => navigate({ step: reviewSteps[index - 1][0] })}>Langkah sebelumnya</button>
@@ -232,14 +232,13 @@ function CyclePosition({ facts }) {
       <Metric label="Tabungan dialokasikan" value={money(facts.cashflow.savingsAllocated)}/>
       <Metric label="Surplus belum dialokasikan" value={money(facts.cashflow.unallocatedSurplus)}/>
     </dl>
-    <p className="review-description">Refund tercatat {money(facts.cashflow.refund)}. Surplus belum dialokasikan adalah arus kas bersih dikurangi transfer tabungan terkonfirmasi, bukan transaksi tambahan.</p>
+    <div className="cycle-footnote"><span>Refund <strong>{money(facts.cashflow.refund)}</strong></span><details className="review-explainer"><summary>Tentang surplus</summary><p>Surplus belum dialokasikan adalah arus kas bersih dikurangi transfer tabungan terkonfirmasi, bukan transaksi tambahan.</p></details></div>
   </section>;
 }
 
 function ComparisonContext({ comparison }) {
   return <div className="review-baseline">
-    <p>{comparison.previous ? `Perbandingan dengan ${cycleLabel(comparison.previous)}. ${comparison.mode === "ELAPSED_DAYS" ? "Hanya jumlah hari yang sama, bukan seluruh siklus sebelumnya." : "Kedua siklus sudah ditutup."}` : "Belum ada siklus selesai yang dapat dibandingkan."}</p>
-    <p>{comparison.median3Available ? "Median dari 3 siklus selesai tersedia; perhatikan bersama perbandingan siklus sebelumnya." : `Median 3 siklus belum tersedia (${comparison.eligibleCycles} siklus memenuhi perbandingan).`}</p>
+    <div className="baseline-meta"><span>{comparison.previous ? `vs ${cycleLabel(comparison.previous)}` : "Belum ada siklus pembanding"}</span><strong>{comparison.mode === "ELAPSED_DAYS" ? "Hari setara, bukan siklus penuh" : comparison.previous ? "Siklus ditutup" : "—"}</strong><span>{comparison.median3Available ? "Median 3 siklus tersedia" : `Median belum tersedia · ${comparison.eligibleCycles}/3 siklus`}</span></div>
     <dl className="review-context">
       <Metric label="Pengeluaran siklus sebelumnya" value={amountLabel(comparison.expense.previous)}/>
       <Metric label="Median 3 siklus" value={amountLabel(comparison.expense.median3)}/>
@@ -296,7 +295,7 @@ function SavingsWealth({ facts }) {
         <Metric label="Perubahan kekayaan bersih" value={signedMoney(wealth.netWorthChange)}/><Metric label="Kontribusi arus kas terkonfirmasi" value={amountLabel(wealth.confirmedCashflow)}/>
         <Metric label="Valuasi & perubahan lain" value={signedMoney(wealth.valuationAndOtherChange)}/>
       </dl>
-      <p className="review-description">Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p>
+      <details className="review-explainer"><summary>Tentang rekonsiliasi</summary><p>Rekonsiliasi mengikuti selang waktu pengamatan, bukan saldo akhir siklus yang diperkirakan. Selisih lainnya bukan laba investasi atau transfer tabungan.</p></details>
       {[["Sebelumnya", wealth.previous], ["Terbaru", wealth.current]].map(([label, snapshot]) => <p className="snapshot-context" key={label}>{label}: {snapshot ? <><a href={`/wealth?snapshotId=${encodeURIComponent(snapshot.id)}`}>{dateTime(snapshot.observedAt)}</a> · usia {snapshot.ageDays} hari pada batas pengukuran</> : "belum tersedia"}</p>)}
       {wealth.netWorthChange == null && <p>Pergerakan belum dapat direkonsiliasi. Periksa catatan dan kelengkapan akun.</p>}
       <a href="/wealth">Buka detail Kekayaan</a></div>

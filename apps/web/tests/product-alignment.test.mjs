@@ -53,7 +53,8 @@ test("charts answer distinct dashboard, cycle, calendar, and category questions"
   assert.match(analytics, /CycleSpendingPatternChart/);
   assert.match(analytics, /MonthlyCashflowChart/);
   assert.match(analytics, /CategoryRankingChart/);
-  assert.doesNotMatch(charts, /cumulativeValue|AreaChart|<Line/);
+  assert.doesNotMatch(charts, /cumulativeValue|AreaChart/);
+  assert.match(charts, /<Line type="linear"/);
   assert.match(charts, /ReferenceLine/);
 });
 
@@ -190,8 +191,8 @@ test("shared UX feedback is accessible and motion respects user preference", () 
   assert.match(styles, /prefers-reduced-motion: reduce/);
   assert.match(styles, /\.transaction-row \{ width: 100%;/);
   assert.match(styles, /:focus-visible/);
-  assert.match(styles, /--accent: #6d435c/);
-  assert.match(styles, /--income: #216247/);
+  assert.match(styles, /--accent: #245c54/);
+  assert.match(styles, /--income: #315b3f/);
   assert.match(styles, /\.app-main \{ width: calc\(100% - var\(--sidebar\)\)/);
   assert.doesNotMatch(styles, /\.app-main \{ width: min\(1440px/);
   assert.match(styles, /button\.document-card:hover:not\(:disabled\) \{ border-color: var\(--line-strong\); background: var\(--surface-muted\); color: var\(--ink\); \}/);

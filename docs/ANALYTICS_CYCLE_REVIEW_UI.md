@@ -23,6 +23,22 @@ state, never zero-valued financial facts or another cycle's stale result.
 
 ## Document hierarchy
 
+### Compact presentation — October 1, 2026
+
+The data hierarchy below is unchanged. Repeated section explanations now use
+native `Tentang data ini` disclosures, available to keyboard and touch users.
+Refund amount, total metrics, comparison cutoff/mode, missing-baseline states,
+all category/merchant/transaction rows, quality blockers and actions stay visible.
+Comparison prose becomes a compact context strip (cycle, equal elapsed days vs
+closed-cycle mode, median availability). Surplus and Wealth reconciliation
+definitions remain available under named disclosures. No facts, calculations,
+API fields, insight-generation rules or decision-saving behavior change.
+
+Brand colours, chart outlines and self-hosted fonts follow
+[Retro Ledger](brand-guidelines.md). The cycle chart retains its daily bars and
+server-owned average; overview and wealth history use straight line segments,
+not smoothed curves or inferred observations.
+
 1. Explicit period, state, measured cutoff and Jakarta timezone.
 2. Cycle outcome: dominant net cashflow, income, refund-adjusted expense,
    savings allocated, unallocated surplus.
