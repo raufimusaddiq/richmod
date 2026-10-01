@@ -22,27 +22,6 @@ const helpMessage = "Richmod membantu mencatat keuangan keluarga.\n\n" +
 	"Kirim foto struk, slip gaji, atau bukti transfer untuk dicatat otomatis. " +
 	"Kalau ada yang belum jelas, Richmod bertanya lewat tombol atau meminta kamu membalas pesannya."
 
-// The refusals below each say what Richmod does and point at /help. They are
-// chosen by the model's finance_out_of_scope reason so a non-finance request
-// and an unsupported feature do not get the same answer.
-const (
-	outOfScopeMessage          = "Richmod hanya membantu pencatatan, pencarian, koreksi, arus kas, dan tinjauan keuangan keluarga. Ketik /help untuk contoh."
-	unsupportedFeatureMessage  = "Richmod belum mendukung fitur investasi atau perintah sistem. Ketik /help untuk contoh."
-	unsupportedLanguageMessage = "Richmod membaca pesan dalam bahasa Indonesia atau Inggris. Ketik /help untuk contoh."
-)
-
-// outOfScopeReply maps the finance_out_of_scope reason enum to its refusal.
-func outOfScopeReply(reason string) string {
-	switch reason {
-	case "INVESTMENT_ACTION_UNSUPPORTED", "SYSTEM_REQUEST":
-		return unsupportedFeatureMessage
-	case "UNSUPPORTED_LANGUAGE":
-		return unsupportedLanguageMessage
-	default:
-		return outOfScopeMessage
-	}
-}
-
 // isHelpCommand reports whether a typed message is /help or /start, with an
 // optional @BotName suffix and trailing text. Typed text reaches the worker
 // through the agent lane, so this check must run before any model call.
@@ -56,8 +35,8 @@ func isHelpCommand(text string) bool {
 }
 
 // botCommands is the menu Telegram shows next to the message box.
-var botCommands = []map[string]string{
-	{"command": "help", "description": "Contoh pesan dan cara memakai Richmod"},
+func botCommands() []map[string]string {
+	return []map[string]string{{"command": "help", "description": "Contoh pesan dan cara memakai Richmod"}}
 }
 
 // SetCommands registers the command menu. It is best-effort at worker start;
@@ -66,18 +45,18 @@ func (b *Bot) SetCommands(ctx context.Context) error {
 	if b.token == "" {
 		return fmt.Errorf("Telegram commands are not configured")
 	}
-	body, err := json.Marshal(map[string]any{"commands": botCommands})
+	body, err := json.Marshal(map[string]any{"commands": botCommands()})
 	if err != nil {
 		return err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/setMyCommands", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create Telegram commands request")
+		return fmt.Errorf("create Telegram commands request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := b.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("set Telegram commands failed")
+		return fmt.Errorf("set Telegram commands failed: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

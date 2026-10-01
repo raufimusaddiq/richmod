@@ -20,10 +20,8 @@ func TestHelpMessageGivesExamplesWithinTelegramLimit(t *testing.T) {
 	if utf8.RuneCountInString(helpMessage) > 4096 {
 		t.Fatal("help exceeds Telegram's message limit")
 	}
-	for _, message := range []string{outOfScopeMessage, unsupportedFeatureMessage, unsupportedLanguageMessage} {
-		if !strings.Contains(message, "/help") {
-			t.Errorf("refusal %q must point at /help", message)
-		}
+	if !strings.Contains(conversationalAgentPrompt, "/help") {
+		t.Error("the agent prompt must tell the model to point declines at /help")
 	}
 }
 
@@ -73,22 +71,6 @@ func TestIsHelpCommandMatchesTypedSlashCommands(t *testing.T) {
 	for _, text := range []string{"", "help", "/helpme", "/starting", "makan siang /help", "/hel"} {
 		if isHelpCommand(text) {
 			t.Errorf("%q must not be a help command", text)
-		}
-	}
-}
-
-func TestOutOfScopeReplyFollowsTheModelReason(t *testing.T) {
-	cases := map[string]string{
-		"NON_FINANCE":                   outOfScopeMessage,
-		"INVESTMENT_ACTION_UNSUPPORTED": unsupportedFeatureMessage,
-		"SYSTEM_REQUEST":                unsupportedFeatureMessage,
-		"UNSUPPORTED_LANGUAGE":          unsupportedLanguageMessage,
-		"":                              outOfScopeMessage,
-		"SOMETHING_NEW":                 outOfScopeMessage,
-	}
-	for reason, want := range cases {
-		if got := outOfScopeReply(reason); got != want {
-			t.Errorf("reason %q: got %q", reason, got)
 		}
 	}
 }

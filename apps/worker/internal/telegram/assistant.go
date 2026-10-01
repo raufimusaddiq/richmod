@@ -51,7 +51,7 @@ func (p *Processor) processAssistantIntent(ctx context.Context, sourceID, househ
 	case "UPLOAD_FINANCIAL_DOCUMENT":
 		return p.finishAssistant(ctx, sourceID, update, "Kirim foto atau dokumen ke chat ini. Richmod akan memprosesnya dan meminta tinjauan jika buktinya ambigu.", nil)
 	default:
-		return p.finishAssistant(ctx, sourceID, update, outOfScopeMessage, nil)
+		return p.finishAssistant(ctx, sourceID, update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.", nil)
 	}
 }
 

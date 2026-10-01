@@ -320,7 +320,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		_ = p.persistTurn(ctx, householdID, sourceEventID, update, "TOOL", "", call.Name, map[string]any{"tool": call.Name, "status": "handled"})
 		return nil
 	}
-	return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, outOfScopeMessage)
+	return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Saya hanya membantu pencatatan, pencarian, koreksi, arus kas, dan review keuangan keluarga.")
 }
 
 func strPtr(value string) *string { return &value }
@@ -398,8 +398,7 @@ func (p *Processor) executeNativeTool(ctx context.Context, sourceID, householdID
 	case "finance_help":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, helpMessage)
 	case "finance_out_of_scope":
-		reason, _ := args["reason"].(string)
-		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, outOfScopeReply(reason))
+		return true, p.finishWithoutTransaction(ctx, sourceID, "IGNORED", update, "Richmod hanya membantu pencatatan dan review keuangan rumah tangga. Fitur investasi dan permintaan sistem tidak didukung.")
 	case "ask_clarification":
 		return true, p.finishWithoutTransaction(ctx, sourceID, "NEEDS_REVIEW", update, "Detailnya belum cukup jelas. Sebutkan nominal, tujuan, serta waktu transaksi.")
 	case "query_spending", "query_cashflow", "query_savings", "get_finance_insight":
