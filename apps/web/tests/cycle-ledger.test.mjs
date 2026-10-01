@@ -223,3 +223,13 @@ test("data marks are neutral or chart-coloured; decreases are hatched, never ano
   assert.match(page, /Total sampai hari ini<\/th>/, "the pace chart has a table equivalent");
   assert.match(page, /facts\.categoryChanges\.length\} kategori · \{facts\.merchantDrivers\.length\} merchant/, "collapsed sections say what is inside");
 });
+
+test("the analytics page is a composition shell over named modules", () => {
+  const lines = path => text(path).split("\n").length;
+  assert.ok(lines("app/analytics/page.js") < 260, "page.js keeps selection, data loading and composition only");
+  assert.match(text("app/analytics/shared.js"), /export function SectionTitle/);
+  assert.match(text("app/analytics/CycleSections.js"), /export function CyclePosition/);
+  assert.match(text("app/analytics/CalendarReview.js"), /^"use client";/, "the calendar view owns its hooks");
+  assert.match(text("app/analytics/CalendarReview.js"), /export function CalendarReview/);
+  assert.doesNotMatch(text("app/analytics/page.js"), /function (CyclePosition|ChangesTable|CalendarReview|MerchantTable)\b/, "section components live in their modules");
+});
