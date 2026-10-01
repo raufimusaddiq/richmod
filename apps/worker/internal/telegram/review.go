@@ -273,7 +273,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, fmt.Errorf("bind Telegram review reply: %w", err)
 	}
 	if (requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW") && !(transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION") {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Review ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
 	}
 	if transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION" {
 		if update.CallbackQuery == nil {
@@ -325,7 +325,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if transactionType == "INCOME" {
 		choice, choiceErr := p.incomeReviewChoice(ctx, sourceEventID, update.Message.Text)
 		if choiceErr != nil {
-			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Layanan keputusan sedang tidak tersedia. Coba lagi sebentar lagi; review tetap terbuka.")
+			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Layanan keputusan sedang tidak tersedia. Coba lagi sebentar lagi; tinjauan tetap terbuka.")
 		}
 		switch choice {
 		case "REJECT":

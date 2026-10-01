@@ -715,7 +715,7 @@ func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, u
 	}
 	message := fmt.Sprintf("Saya menemukan %s · Rp%s. Ubah tanggalnya ke %s?", label, FormatIDR(value.Amount), formatIDDateTime(value.TransactionAt))
 	if enqueueMessage {
-		err = enqueueReply(ctx, tx, update, message)
+		err = enqueueReplyMarkup(ctx, tx, update, message, pendingActionMarkup())
 	}
 	if err != nil {
 		return true, err
@@ -1051,7 +1051,7 @@ func (p *Processor) stageNativeCorrection(ctx context.Context, sourceID, househo
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='native-finance-tool',parser_version='2' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
-	if err = enqueueReply(ctx, tx, update, "Usulkan perubahan untuk "+label+" · Rp"+FormatIDR(amount)+". Balas ya untuk konfirmasi atau tidak untuk batal."); err != nil {
+	if err = enqueueReplyMarkup(ctx, tx, update, "Usulkan perubahan untuk "+label+" · Rp"+FormatIDR(amount)+". Simpan perubahan ini?", pendingActionMarkup()); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -306,13 +306,13 @@ function Reviews({ setError }) {
     refreshBreakdown();
     refreshProjections();
   };
-  if (!summary || !breakdown) return <Empty>Memuat review…</Empty>;
+  if (!summary || !breakdown) return <Empty>Memuat tinjauan…</Empty>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
         <div>
           <span className="eyebrow">KESEHATAN REVIEW UNIVERSAL</span>
-          <h2>Review</h2>
+          <h2>Tinjauan</h2>
         </div>
         <button className="secondary" onClick={refresh}>
           Perbarui
@@ -384,7 +384,7 @@ function Reviews({ setError }) {
       </div>
       <article className="surface admin-panel">
         <div className="section-title">
-          <h2>Per jenis review</h2>
+          <h2>Per jenis tinjauan</h2>
         </div>
         <Table
           headers={[

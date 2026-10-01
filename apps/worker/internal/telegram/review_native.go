@@ -303,9 +303,9 @@ func (p *Processor) resolveNativeSpecialReview(ctx context.Context, sourceEventI
 		return true, nil
 	}
 	if action == "IGNORE" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Observasi Wealth diabaikan.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Observasi kekayaan diabaikan.")
 	}
-	return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih tindakan observasi Wealth yang valid.")
+	return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih tindakan observasi kekayaan yang valid.")
 }
 
 func (p *Processor) resolveNativeTransferCase(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, caseID, itemID, target, action string) error {
@@ -345,7 +345,7 @@ type residualAllocation struct {
 
 func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, requestID, itemID, caseID, action string, args map[string]any) error {
 	if action == "TRANSACTION_MISSING" {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah transaksi tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu tinjauan). Setelah transaksi tersimpan, sisa siklus gaji dihitung ulang; tinjauan tetap terbuka jika masih perlu tindakan.")
 	}
 	if action != "ALLOCATE_RETAINED_BALANCE" && action != "LEAVE_UNALLOCATED" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilih alokasikan saldo tersisa, biarkan belum dialokasikan, atau catat transaksi baru lewat Telegram.")
@@ -390,7 +390,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CYCLE_RESIDUAL_STALE_NOT_APPLICABLE','cycle_residual_case',$3,jsonb_build_object('residualIdr',$4))`, householdID, userID, caseID, outcome.Residual); err != nil {
 			return err
 		}
-		if err = enqueueReply(ctx, tx, update, "Sisa salary cycle tidak lagi positif. Rekonsiliasi ini ditutup tanpa alokasi."); err != nil {
+		if err = enqueueReply(ctx, tx, update, "Sisa siklus gaji tidak lagi positif. Rekonsiliasi ini ditutup tanpa alokasi."); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -406,7 +406,7 @@ func (p *Processor) resolveNativeResidualReview(ctx context.Context, sourceEvent
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,$3,'cycle_residual_case',$4,jsonb_build_object('residualIdr',$5))`, householdID, userID, "CYCLE_RESIDUAL_"+action, caseID, outcome.Residual); err != nil {
 		return err
 	}
-	if err = enqueueReply(ctx, tx, update, "Rekonsiliasi sisa salary cycle tersimpan."); err != nil {
+	if err = enqueueReply(ctx, tx, update, "Rekonsiliasi sisa siklus gaji tersimpan."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

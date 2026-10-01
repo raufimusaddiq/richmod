@@ -106,10 +106,21 @@ test("mobile overflow button carries the pending-review badge", () => {
 });
 
 test("user-facing copy uses the shared Indonesian vocabulary", () => {
-  for (const file of ["app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js"]) {
+  for (const file of ["app/admin/page.js", "app/components/ReviewCards.js", "app/settings/page.js", "app/transactions/page.js", "app/components/LandingPage.js", "app/terms/page.js"]) {
     const source = text(file);
     assert.doesNotMatch(source, /Wealth Account|Review Inbox/, `${file} avoids internal terms`);
   }
   const cards = text("app/components/ReviewCards.js");
   assert.doesNotMatch(cards, />[A-Z]{4,}( [A-Z]{2,})+</, "review card badges are sentence case");
+});
+
+test("inbox badges are decorative and the control carries the accessible name", () => {
+  const shell = text("app/components/AppShell.js");
+  assert.doesNotMatch(shell, /<b className="nav-badge" aria-label/);
+  assert.match(shell, /aria-label=\{pending \? `\$\{label\}, \$\{inboxCount\} item menunggu tinjauan`/);
+  assert.match(shell, /aria-label=\{hiddenInboxCount > 0 \? `Lainnya, \$\{hiddenInboxCount\} item menunggu tinjauan`/);
+});
+
+test("admin console uses the shared Tinjauan vocabulary", () => {
+  assert.doesNotMatch(text("app/admin/page.js"), /Memuat review|Per jenis review|<h2>Review<\/h2>|"Review"/);
 });
