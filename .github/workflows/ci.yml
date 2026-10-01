@@ -111,7 +111,17 @@ jobs:
         run: npm test
       - name: Install browser for synthetic cycle-review checks
         working-directory: apps/web
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify transaction date inputs with synthetic data
+        working-directory: apps/web
+        run: node scripts/transaction-date-smoke.mjs
+      - name: Upload transaction date screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transaction-date-screenshots
+          path: apps/web/test-results/transaction-date
+          if-no-files-found: ignore
       - name: Verify cycle-review UI with synthetic data
         working-directory: apps/web
         run: node scripts/analytics-review-smoke.mjs
