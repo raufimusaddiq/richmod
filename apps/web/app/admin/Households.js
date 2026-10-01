@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, ms, Badge, Empty, useDrawerA11y, useLoad, Table } from "./shared";
+import { time, Badge, Empty, useDrawerA11y, useLoad, Table } from "./shared";
 
 export default function Households({ setError }) {
   const [data, refresh] = useLoad("/api/v1/admin/households", setError),

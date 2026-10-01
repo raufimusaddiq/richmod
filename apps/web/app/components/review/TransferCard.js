@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { dateTime, money } from "../../lib/format";
-import { label, ProposalFacts } from "./shared";
+import { ProposalFacts } from "./shared";
 
 export default function TransferCard({ item, categories, wealthAccounts, disabled, action }) {
   const [editing, setEditing] = useState(false);

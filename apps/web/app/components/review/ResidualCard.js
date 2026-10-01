@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { money } from "../../lib/format";
-import { label, ProposalFacts } from "./shared";
+import { ProposalFacts } from "./shared";
 
 export default function ResidualCard({ item, wealthAccounts, disabled, resolve }) {
   const [editing, setEditing] = useState(false);

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { dateTime, money } from "../../lib/format";
-import { reasons, label, MissingInputs, ProposalFacts } from "./shared";
+import { reasons, MissingInputs, ProposalFacts } from "./shared";
 
 export default function ReviewCard({ item, categories, wealthAccounts, disabled, action }) {
   const [editing, setEditing] = useState(false);

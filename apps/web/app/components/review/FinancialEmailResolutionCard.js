@@ -1,5 +1,4 @@
 import { money } from "../../lib/format";
-import { label } from "./shared";
 
 // PRD §12: an entity that is already resolved is shown as known and is never
 // requested again; only the unresolved dimension is asked for (PRD §13.4).

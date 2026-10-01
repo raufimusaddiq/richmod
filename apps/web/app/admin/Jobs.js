@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, ms, Badge, Empty, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
+import { time, Badge, Empty, useDrawerA11y, useLoad, useAdminList, Table } from "./shared";
 
 export default function Jobs({ setError }) {
   const [filters, setFilters] = useState({ status: "", lane: "", type: "", range: "24h", q: "" });

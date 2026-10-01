@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, number, ms, Badge, Metric, Empty, useLoad, useAdminList, Table } from "./shared";
+import { time, number, Badge, Metric, Empty, useLoad, useAdminList, Table } from "./shared";
 
 export default function LLM({ setError }) {
   const [filters, setFilters] = useState({ range: "24h", task: "", status: "" });

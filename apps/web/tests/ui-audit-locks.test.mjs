@@ -174,7 +174,9 @@ test("navigation icons are keyed by name, not by glyph", () => {
 
 test("a failed request names what is missing and keeps the rest", () => {
   const home = text("app/page.js");
-  assert.match(home, /const sectionNames = \[/);
+  assert.match(home, /const sections = \[/);
+  assert.match(home, /sections\.map\(\(\[, url\]\) => fetch\(url\)\)/);
+  assert.doesNotMatch(home, /sectionNames/);
   assert.match(home, /Belum termuat: \$\{failed\.join/);
   assert.doesNotMatch(home, /new Date\(latestWealth\?\.observedAt\)/);
   const inbox = text("app/inbox/page.js");
@@ -203,4 +205,11 @@ test("the households table uses the shared Indonesian vocabulary", () => {
   const households = readFileSync(new URL("../app/admin/Households.js", import.meta.url), "utf8");
   for (const header of ["Keluarga", "Anggota", "Transaksi", "Aktivitas terakhir", "Dibuat"]) assert.match(households, new RegExp(`"${header}"`));
   assert.doesNotMatch(households, /"Last activity"|"Members"|"Created"/);
+});
+
+test("split modules import only what they use", () => {
+  const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  for (const card of ["CanonicalCard", "FinancialEmailResolutionCard", "ResidualCard", "ReviewCard", "TransferCard", "WealthObservationCard"]) {
+    assert.doesNotMatch(read(`app/components/review/${card}.js`), /import \{[^}]*\blabel\b[^}]*\} from "\.\/shared"/, `${card} does not import an unused label`);
+  }
 });

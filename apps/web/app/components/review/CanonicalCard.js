@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { money } from "../../lib/format";
-import { reviewTypes, label, ProposalFacts } from "./shared";
+import { reviewTypes, ProposalFacts } from "./shared";
 import FinancialEmailResolutionCard from "./FinancialEmailResolutionCard";
 import TransferReconciliationCard from "./TransferReconciliationCard";
 import WealthObservationCard from "./WealthObservationCard";

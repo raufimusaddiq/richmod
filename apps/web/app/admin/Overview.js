@@ -1,6 +1,6 @@
 "use client";
 
-import { time, number, percent, ms, Badge, Metric, Empty, useLoad, Table } from "./shared";
+import { time, number, percent, Badge, Metric, Empty, useLoad, Table } from "./shared";
 
 export default function Overview({ setError }) {
   const [data, refresh] = useLoad("/api/v1/admin/overview", setError);

@@ -12,8 +12,16 @@ import { elapsedDaily } from "./lib/chartData";
 import { money } from "./lib/format";
 import LandingPage from "./components/LandingPage";
 
-// Order matches the Promise.all in load(); used to name what failed to load.
-const sectionNames = ["ringkasan", "pengeluaran harian", "kategori", "transaksi terbaru", "periode siklus", "kekayaan"];
+// Each dashboard section and the endpoint that feeds it. The response order is
+// the order here, and a failed section is reported by this name.
+const sections = [
+  ["ringkasan", "/api/v1/analytics/overview"],
+  ["pengeluaran harian", "/api/v1/analytics/cycle/daily"],
+  ["kategori", "/api/v1/analytics/categories?range=3"],
+  ["transaksi terbaru", "/api/v1/transactions?limit=8"],
+  ["periode siklus", "/api/v1/analytics/cycle"],
+  ["kekayaan", "/api/v1/wealth/snapshots/latest"],
+];
 
 export default function Home() {
   const user = useAuth(false);
@@ -29,8 +37,8 @@ export default function Home() {
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    try { const responses = await Promise.all([fetch("/api/v1/analytics/overview"), fetch("/api/v1/analytics/cycle/daily"), fetch("/api/v1/analytics/categories?range=3"), fetch("/api/v1/transactions?limit=8"), fetch("/api/v1/analytics/cycle"), fetch("/api/v1/wealth/snapshots/latest")]);
-      const failed = responses.flatMap((response, index) => response.ok ? [] : [sectionNames[index]]);
+    try { const responses = await Promise.all(sections.map(([, url]) => fetch(url)));
+      const failed = responses.flatMap((response, index) => response.ok ? [] : [sections[index][0]]);
       setError(failed.length ? `Belum termuat: ${failed.join(", ")}. Bagian lain tetap ditampilkan.` : "");
       if (responses[0].ok) setOverview(await responses[0].json()); if (responses[1].ok) { const cycleData = await responses[1].json(); setCashflow(elapsedDaily(cycleData.daily || [], cycleData.daysElapsed)); } if (responses[2].ok) setCategories(await responses[2].json()); if (responses[3].ok) setTransactions(await responses[3].json());
       if (responses[4].ok) setCycle(await responses[4].json());

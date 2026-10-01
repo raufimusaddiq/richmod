@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, number, Empty, useAdminList, Table } from "./shared";
+import { time, Empty, useAdminList, Table } from "./shared";
 
 export default function Audit({ setError }) {
   const [kind, setKind] = useState("all"), [householdId, setHouseholdId] = useState(""), [filters, setFilters] = useState({ action: "", range: "24h" });
