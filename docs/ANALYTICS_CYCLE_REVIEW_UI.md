@@ -3,6 +3,10 @@
 Sprints 3–4 of [the execution plan](plans/analytics-cycle-review-sprint.md).
 The source contract remains the [cycle-review PRD](RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md).
 
+> **Planned change (2026-10-02):** the primary visual becomes a cycle-to-cycle
+> ledger. This document describes the current behaviour until each step ships;
+> see [the sprint plan](plans/analytics-cycle-ledger-sprint.md).
+
 ## Selection and data
 
 - `/analytics?view=cycle&cycle=YYYY-MM-DD` selects one salary cycle.
