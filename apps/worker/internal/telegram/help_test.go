@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,5 +73,25 @@ func TestIsHelpCommandMatchesTypedSlashCommands(t *testing.T) {
 		if isHelpCommand(text) {
 			t.Errorf("%q must not be a help command", text)
 		}
+	}
+}
+
+func TestSetCommandsErrorsNeverContainTheBotToken(t *testing.T) {
+	const token = "123456:SECRET-TOKEN"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	base := server.URL
+	server.Close() // connection refused: the transport error would stringify the URL
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := (&Bot{token: token, http: &http.Client{Timeout: 2 * time.Second}, base: base}).SetCommands(ctx)
+	if err == nil {
+		t.Fatal("expected a transport error")
+	}
+	if strings.Contains(err.Error(), token) || strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("error leaks the bot token: %v", err)
+	}
+	if errors.Unwrap(err) != nil {
+		t.Fatalf("the transport error must not be wrapped: %v", err)
 	}
 }

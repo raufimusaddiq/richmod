@@ -275,7 +275,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Aksi ini sudah selesai atau tidak lagi tersedia.")
 	}
 	if isHelpCommand(text) {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, helpMessage)
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
 	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
 		return err

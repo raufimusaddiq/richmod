@@ -51,12 +51,14 @@ func (b *Bot) SetCommands(ctx context.Context) error {
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/setMyCommands", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create Telegram commands request: %w", err)
+		// The request URL contains the bot token; never wrap its errors.
+		return fmt.Errorf("create Telegram commands request")
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := b.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("set Telegram commands failed: %w", err)
+		// The transport error stringifies the URL, token included.
+		return fmt.Errorf("set Telegram commands failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
