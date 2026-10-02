@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`README.md` includes six product screenshots:
+`README.md` includes eight product screenshots:
 
 - `docs/assets/landing.png`
 - `docs/assets/login.png`
@@ -10,6 +10,8 @@
 - `docs/assets/wealth.png`
 - `docs/assets/review-inbox.png`
 - `docs/assets/analytics.png`
+- `docs/assets/dashboard-mobile.png` (phone, 390×844)
+- `docs/assets/transactions-tablet.png` (tablet, 768×1024)
 
 They are rendered by Playwright, not designed mockups. The capture script lives
 at `apps/web/scripts/capture-readme.mjs` and uses fixed synthetic API fixtures.
@@ -66,7 +68,7 @@ Wait until this succeeds:
 curl -fsS http://localhost:3002 >/dev/null
 ```
 
-Capture all six images. `--network host` is intentional for a Linux Docker
+Capture all eight images. `--network host` is intentional for a Linux Docker
 host: it lets the disposable browser reach the loopback-only web server.
 
 ```bash
@@ -80,8 +82,10 @@ docker run --rm --network host \
 
 The script uses a 1440×1050 desktop viewport, waits for the relevant public or
 authenticated shell and web fonts, disables animation, then overwrites only the
-six PNG files above. It captures the public landing and login experiences plus
-the dashboard, Wealth, transaction Review Inbox view, and analytics page.
+eight PNG files above. It captures the public landing and login experiences plus
+the dashboard, Wealth, transaction Review Inbox view, and analytics page, then
+the same synthetic app on a 390×844 phone (dashboard) and a 768×1024 tablet
+(transactions).
 
 For an already-running local server on port `3000`, the shorter command is:
 
@@ -94,10 +98,30 @@ That command still needs the pinned Playwright browser installed locally. The
 Docker path is preferred because it is repeatable and leaves no browser cache
 outside the worktree.
 
+## Without Docker
+
+Docker is preferred, but a disposable worktree can also capture directly. Keep the
+browser download inside the worktree so cleanup removes it, build the app, serve
+it on the unused port, capture, then stop the server:
+
+```bash
+cd apps/web
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/node_modules/.playwright-browsers"
+npm ci --ignore-scripts --no-audit --no-fund
+npx playwright install chromium
+npm run build
+npm run start -- -p 3002 &
+RICHMOD_SCREENSHOT_URL=http://127.0.0.1:3002 npm run capture:readme
+```
+
+Stop the server afterwards (it is the process listening on port `3002`). Then
+remove the worktree as described under cleanup; the browser download goes with it.
+
 ## Verify before committing
 
-Inspect the generated images. Confirm that each is 1440×1050, legible, current
-with the UI, and contains synthetic data only.
+Inspect the generated images. Confirm that the six desktop images are
+1440×1050, the phone image is 390×844 and the tablet image is 768×1024, and that
+each is legible, current with the UI, and contains synthetic data only.
 
 ```bash
 file docs/assets/landing.png \
@@ -105,7 +129,9 @@ file docs/assets/landing.png \
   docs/assets/dashboard.png \
   docs/assets/wealth.png \
   docs/assets/review-inbox.png \
-  docs/assets/analytics.png
+  docs/assets/analytics.png \
+  docs/assets/dashboard-mobile.png \
+  docs/assets/transactions-tablet.png
 ```
 
 Run the web checks from the repository-root mount. Product alignment tests read

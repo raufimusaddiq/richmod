@@ -58,7 +58,7 @@ await mkdir(outputDirectory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1050 }, deviceScaleFactor: 1 });
 let authenticated = true;
-await page.route("**/api/v1/**", async route => {
+async function fixtureRoute(route) {
   const url = new URL(route.request().url());
   if (url.pathname === "/api/v1/auth/me" && !authenticated) {
     await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthorized" }) });
@@ -66,7 +66,8 @@ await page.route("**/api/v1/**", async route => {
   }
   const key = [...responses.keys()].find(candidate => url.pathname === candidate);
   await route.fulfill({ status: key ? 200 : 404, contentType: "application/json", body: JSON.stringify(key ? responses.get(key) : { error: "fixture not found" }) });
-});
+}
+await page.route("**/api/v1/**", fixtureRoute);
 for (const [path, file, selector, isAuthenticated] of [
   ["/", "landing.png", ".landing-hero", false],
   ["/login", "login.png", ".login-card", false],
@@ -82,6 +83,21 @@ for (const [path, file, selector, isAuthenticated] of [
   await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important}html{scroll-behavior:auto!important}" });
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: `${outputDirectory}/${file}`, fullPage: false });
+}
+// The same synthetic app on a phone and a tablet: the layout changes, the data does not.
+authenticated = true;
+for (const [viewport, path, file] of [
+  [{ width: 390, height: 844 }, "/", "dashboard-mobile.png"],
+  [{ width: 768, height: 1024 }, "/transactions", "transactions-tablet.png"],
+]) {
+  const responsive = await browser.newPage({ viewport, deviceScaleFactor: 1 });
+  await responsive.route("**/api/v1/**", fixtureRoute);
+  await responsive.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
+  await responsive.locator(".app-frame").waitFor();
+  await responsive.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important}html{scroll-behavior:auto!important}" });
+  await responsive.evaluate(() => document.fonts.ready);
+  await responsive.screenshot({ path: `${outputDirectory}/${file}`, fullPage: false });
+  await responsive.close();
 }
 await browser.close();
 
