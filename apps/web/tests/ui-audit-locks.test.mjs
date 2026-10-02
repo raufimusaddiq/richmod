@@ -267,3 +267,20 @@ test("the stylesheet is an ordered list of balanced pieces", () => {
 test("an unmapped nav icon falls back instead of rendering undefined", () => {
   assert.match(text("app/components/AppShell.js"), /const Icon = icons\[icon\] \|\| DotsThree;/);
 });
+
+test("metric strips in cycle review stay rounded tiles, not flat square blocks", () => {
+  const rule = css().match(/\.cycle-review \.review-context \{[^}]*\}/)?.[0] ?? "";
+  assert.match(rule, /border-radius: var\(--radius-md\)/);
+  assert.match(rule, /border: 1px solid var\(--line\)/);
+  assert.match(rule, /background: var\(--surface\)/);
+  assert.doesNotMatch(rule, /border-radius: 0/);
+});
+
+test("the category donut does not animate in, so it never captures or shows a half-drawn ring", () => {
+  const donut = text("app/components/Charts.js").match(/export function CategoryDonutChart[\s\S]*?\n\}/)?.[0] ?? "";
+  assert.match(donut, /<Pie [^>]*isAnimationActive=\{false\}/);
+});
+
+test("legal pages put the brand on its own line above the page label", () => {
+  assert.match(css(), /\.public-legal-brand \{ display: block;/);
+});

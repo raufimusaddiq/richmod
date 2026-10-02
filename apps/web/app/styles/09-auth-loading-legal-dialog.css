@@ -23,7 +23,7 @@
 
 .public-legal { min-height: 100dvh; padding: 48px 20px; }
 .public-legal-card { max-width: 780px; margin: 0 auto; padding: 40px; }
-.public-legal-brand { display: inline-block; margin-bottom: 38px; font-size: 18px; font-weight: 700; text-decoration: none; }
+.public-legal-brand { display: block; width: fit-content; margin-bottom: 38px; font-size: 18px; font-weight: 700; text-decoration: none; }
 .public-legal h1 { margin: 6px 0; font-size: clamp(34px, 5vw, 52px); }
 .public-legal h2 { margin: 30px 0 8px; font-size: 17px; }
 .public-legal p { color: var(--muted); line-height: 1.75; }
