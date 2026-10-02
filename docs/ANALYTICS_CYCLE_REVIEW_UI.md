@@ -3,9 +3,10 @@
 Sprints 3–4 of [the execution plan](plans/analytics-cycle-review-sprint.md).
 The source contract remains the [cycle-review PRD](RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md).
 
-> **Planned change (2026-10-02):** the primary visual becomes a cycle-to-cycle
-> ledger. This document describes the current behaviour until each step ships;
-> see [the sprint plan](plans/analytics-cycle-ledger-sprint.md).
+> **Current page (2026-10-02):** the first section is the cycle-to-cycle ledger
+> ([sprint plan](plans/analytics-cycle-ledger-sprint.md)). Sections under
+> "Document hierarchy" below are dated records of earlier refinements; where one
+> disagrees with "Cycle ledger" or "Page order", those two win.
 
 ## Selection and data
 
@@ -158,6 +159,29 @@ keep it honest without redesigning it.
   data, dimmed ("Memuat rentang…"), until it arrives; a failed section clears its
   own numbers.
 
+## Page order — October 2, 2026
+
+The cycle view reads top to bottom as: **Siklus ke siklus** (ledger, verdict, category
+matrix) → **Posisi siklus** → **Pola pengeluaran** (daily bars and the pace curves)
+→ closed disclosures **Detail perubahan**, **Bukti kategori**, **Distribusi &
+merchant**, **Catatan rumah tangga**, Savings and Wealth, quality, **Bahan
+pembahasan** and the decisions. The numbered list under "Scan-first report" is the
+inventory of facts, not the on-screen order.
+
+Choosing a category (matrix row, change list or selector) opens **Bukti kategori**
+without moving the reader: focus stays on the control that was used, and a status line
+under the ledger names the category with **Lihat bukti** (moves focus to the evidence
+on request) and **Hapus pilihan**. Earlier text below that says selection "opens and
+focuses" the evidence is superseded by this. In a meeting step, choosing a category
+still advances to its evidence step.
+
+On wide screens (the section at least 820px wide) the daily-bars and pace charts sit
+side by side; they stack below that. The selected ledger column eases in when motion
+is allowed. While commentary is being prepared the card says the page checks every 5
+seconds for up to about 7 minutes (90 polls, from `pollInsight`), which is the client's
+polling budget, not a promise about generation time. A sliding column highlight from
+the mock was not built: it adds nothing the highlighted column does not already show.
+
 ## Document hierarchy
 
 ### Compact presentation — October 1, 2026
@@ -179,15 +203,15 @@ not smoothed curves or inferred observations.
 ### Scan-first report — October 1, 2026
 
 The default view is a report to scan, not prose to read. Net cashflow leads a
-compact metric strip; daily spending and category changes sit side-by-side on
-wide screens, stack on smaller screens. Previous/current/median expense amounts
+compact metric strip; daily spending and category changes once sat side-by-side on
+wide screens (superseded: see "Cycle ledger"). Previous/current/median expense amounts
 use directly labelled bars on one zero-based magnitude scale. Signed values stay
 explicit; null history stays missing. Browser arithmetic only sizes visual bars.
 
 Every category remains in the compact current/delta list in server order.
 The full comparison table retains previous/median values, both absolute/relative
-deltas and signed contribution under **Perbandingan lengkap**. Selection opens
-and focuses category evidence without a second API call. Merchant/transaction
+deltas and signed contribution under **Perbandingan lengkap**. Selecting a category opens
+its evidence without a second API call (focus behaviour: see "Page order"). Merchant/transaction
 tables remain household/cycle-bound and keyboard-scrollable.
 
 Comparison context shows actual inclusive dates for the current measured range,
