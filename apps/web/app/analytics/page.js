@@ -136,7 +136,7 @@ function AnalyticsReview() {
   // Choosing the selected category again clears it; in a meeting, choosing one moves on to its evidence.
   const chooseCategory = category => navigate({ category: category === selection.category ? "" : category, ...(meeting && category !== selection.category ? { step: "drivers" } : {}) });
   // Choosing a category opens its evidence below without moving the reader; this is the one place focus follows an explicit request.
-  const showEvidence = event => { event.preventDefault(); const title = document.getElementById("drivers-title"); title?.focus(); title?.scrollIntoView({ block: "start" }); };
+  const showEvidence = event => { event.preventDefault(); const panel = document.querySelector("#drivers > details"); if (panel) panel.open = true; const title = document.getElementById("drivers-title"); title?.focus(); title?.scrollIntoView({ block: "start" }); };
   const refreshing = selection.view === "cycle" && loading && Boolean(facts);
   return <AppShell user={user} eyebrow="Analisis" title={selection.view === "calendar" ? "Analisis kalender" : "Laporan siklus"}>
     <div className="analytics-flow cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
@@ -198,7 +198,7 @@ function AnalyticsReview() {
             </details>
           </section>
           <section id="drivers" className="review-section" aria-labelledby="drivers-title">
-            <details className="report-disclosure" open={Boolean(selectedCategory) || step === "drivers"}>
+            <details key={selection.category || "none"} className="report-disclosure" open={Boolean(selectedCategory) || step === "drivers"}>
             <summary><h2 id="drivers-title" tabIndex={-1}>Bukti kategori</h2><span>{selectedCategory?.name || "Pilih kategori"}</span></summary>
             <label className="driver-selector">Kategori
               <select value={selectedCategory ? selectedCategory.id || "uncategorized" : ""} onChange={event => navigate({ category: event.target.value })}><option value="">Pilih kategori</option>{facts.categoryChanges.map(item => <option key={item.id || "uncategorized"} value={item.id || "uncategorized"}>{item.name}</option>)}</select>

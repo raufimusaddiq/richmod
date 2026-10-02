@@ -218,7 +218,10 @@ try {
     assert.equal(await matrixRow.evaluate(element => element === document.activeElement), true, "choosing a category leaves focus on the row instead of jumping to the evidence");
     const selection = page.locator(".ledger-selection");
     assert.match(await selection.textContent(), /Belanja rumah/, "the choice is announced next to the ledger");
+    await page.locator("#drivers > details > summary").click();
+    assert.equal(await page.locator("#drivers > details").evaluate(element => element.open), false, "the reader can collapse the evidence");
     await selection.getByRole("link", { name: "Lihat bukti", exact: true }).click();
+    assert.equal(await page.locator("#drivers > details").evaluate(element => element.open), true, "Lihat bukti reopens a collapsed panel");
     await page.waitForFunction(() => document.activeElement?.id === "drivers-title");
     assert.equal(await page.locator("#category-drivers").getByRole("link", { name: "Kembali ke ringkasan siklus", exact: true }).isVisible(), true, "the evidence links back to the ledger");
     await matrixRow.focus();
@@ -226,6 +229,8 @@ try {
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
     assert.equal(await matrixRow.getAttribute("aria-pressed"), "false", "choosing the selected category again clears it");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
+    const charts = await page.evaluate(() => { const [a, b] = [".cycle-spending-chart", ".cycle-pace-chart"].map(selector => document.querySelector(selector)?.getBoundingClientRect()); return { sameRow: Boolean(a && b) && Math.abs(a.top - b.top) < 4 && a.right <= b.left + 1 }; });
+    if (name !== "tablet") assert.equal(charts.sameRow, name === "desktop", `${name} daily charts ${name === "desktop" ? "share a row" : "stack"}`);
     assert.equal(await page.locator(".cycle-pace-chart .recharts-line-curve").count(), 3, "the selected cycle, the previous cycle and the median are drawn as curves");
     assert.equal(await page.getByRole("button", { name: "Siklus berikutnya ›", exact: true }).isDisabled(), true, "the active cycle has no newer neighbour");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} ledger has no page overflow`);
