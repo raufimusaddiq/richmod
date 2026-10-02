@@ -28,14 +28,6 @@
   .mobile-more-header span { color: var(--muted); font-size: var(--text-xs); }
   .mobile-more-panel > a { min-height: 48px; }
   .mobile-more-panel > a.active { border-color: var(--ink); background: var(--accent-soft); color: var(--accent); }
-  .table-head { display: none; }
-  .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
-  .transaction-main { grid-row: 1 / 3; }
-  .transaction-meta { display: none; }
-  .transaction-state { justify-self: end; }
-  .transaction-state small { display: none; }
-  .transaction-amount { grid-column: 2; grid-row: 1; }
-  .transaction-state { grid-column: 2; grid-row: 2; }
   .analytics-detail-layout, .admin-grid { grid-template-columns: minmax(0, 1fr); }
   .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
@@ -54,6 +46,15 @@
 }
 
 @media (max-width: 680px) {
+  /* compact transaction rows: phones only; from 681px the list keeps its category, source and status columns */
+  .table-head { display: none; }
+  .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
+  .transaction-main { grid-row: 1 / 3; }
+  .transaction-meta { display: none; }
+  .transaction-state { justify-self: end; }
+  .transaction-state small { display: none; }
+  .transaction-amount { grid-column: 2; grid-row: 1; }
+  .transaction-state { grid-column: 2; grid-row: 2; }
   button.wealth-history-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; }
   button.wealth-history-row small { grid-column: 1; text-align: left; }
   .app-main { padding: 22px 15px calc(94px + env(safe-area-inset-bottom)); }
@@ -176,4 +177,9 @@
 .settings-index a, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { display: inline-flex; align-items: center; min-height: 32px; }
 @media (pointer: coarse) {
   .settings-index a, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { min-height: 44px; }
+}
+
+/* tablet gutter: a little more air than a phone once the sidebar is gone */
+@media (min-width: 681px) and (max-width: 1100px) {
+  .app-main { padding-inline: 32px; }
 }

@@ -14,6 +14,7 @@ const routes = ["/", "/transactions", "/analytics", "/inbox", "/documents", "/ho
 const viewports = [
   ["desktop", 1440, 900],
   ["tablet", 1024, 768],
+  ["tablet-portrait", 768, 1024],
   ["mobile", 390, 844],
   ["wide", 2560, 1440],
 ];

@@ -308,3 +308,23 @@ test("the login form sits close to the top on phones and is not centred in a voi
 test("destructive row actions keep clear space from neighbouring controls", () => {
   assert.match(css(), /\.settings-list \.danger, \.member-actions \.danger, \.row-actions \.danger \{ margin-inline-start: var\(--space-4\); \}/);
 });
+
+test("tablets keep the transaction table columns; compact rows are phone-only", () => {
+  const blocks = css().split(/\n@media /);
+  const block = query => blocks.filter(item => item.startsWith(query)).join(" "); // several stylesheets share a breakpoint
+  const tablet = block("(max-width: 1100px)");
+  const phone = block("(max-width: 680px)");
+  assert.ok(tablet && phone, "both media blocks exist");
+  assert.doesNotMatch(tablet, /\.transaction-meta \{ display: none; \}/, "category and source stay visible on tablets");
+  assert.doesNotMatch(tablet, /\.table-head \{ display: none; \}/);
+  assert.match(phone, /\.table-head \{ display: none; \}/);
+  assert.match(phone, /\.transaction-meta \{ display: none; \}/);
+});
+
+test("the tablet range gets its own content gutter", () => {
+  assert.match(css(), /@media \(min-width: 681px\) and \(max-width: 1100px\) \{\s*\.app-main \{ padding-inline: 32px; \}/);
+});
+
+test("the visual smoke covers a portrait tablet", () => {
+  assert.match(text("scripts/visual-smoke.mjs"), /\["tablet-portrait", 768, 1024\]/);
+});
