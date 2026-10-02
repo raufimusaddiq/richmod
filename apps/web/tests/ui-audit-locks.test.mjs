@@ -360,3 +360,23 @@ test("the tablet range gets its own content gutter", () => {
 test("the visual smoke covers a portrait tablet", () => {
   assert.match(text("scripts/visual-smoke.mjs"), /\["tablet-portrait", 768, 1024\]/);
 });
+
+const appSources = dir => readdirSync(new URL(`../${dir}/`, import.meta.url), { withFileTypes: true })
+  .flatMap(entry => entry.isDirectory() ? appSources(`${dir}/${entry.name}`) : entry.name.endsWith(".js") ? [`${dir}/${entry.name}`] : []);
+
+test("every scrolling table wrapper takes keyboard focus and has a name", () => {
+  const wrappers = appSources("app").flatMap(file => [...text(file).matchAll(/<div className="review-table-wrap"[^>]*>/g)].map(match => ({ file, tag: match[0] })));
+  assert.ok(wrappers.length >= 5, "the table wrappers are found");
+  for (const { file, tag } of wrappers) assert.match(tag, /tabIndex=\{0\} role="region" aria-label="[^"]+geser untuk semua kolom"/, `${file}: a scrolling table must be focusable, a region, and named`);
+});
+
+test("the extraction text block is focusable, named and shows an edge cue", () => {
+  assert.match(text("app/documents/page.js"), /<pre tabIndex=\{0\} role="region" aria-label="Hasil ekstraksi, geser untuk semua isi">/);
+  assert.match(css(), /\.extraction pre \{ background-color: var\(--ink\); background-image: [^}]*background-attachment: local, local, scroll, scroll;/);
+});
+
+test("the visual smoke fails on scrolling regions that keyboard users cannot reach", () => {
+  const smoke = text("scripts/visual-smoke.mjs");
+  assert.match(smoke, /async function unreachableScrollers\(page\)/);
+  assert.match(smoke, /scrolling regions without keyboard access or a name/);
+});
