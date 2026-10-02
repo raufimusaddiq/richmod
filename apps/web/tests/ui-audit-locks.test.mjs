@@ -309,6 +309,35 @@ test("destructive row actions keep clear space from neighbouring controls", () =
   assert.match(css(), /\.settings-list \.danger, \.member-actions \.danger, \.row-actions \.danger \{ margin-inline-start: var\(--space-4\); \}/);
 });
 
+test("loading skeletons follow their props, use rounded tiles and say they are loading", () => {
+  const source = css();
+  assert.match(source, /\.skeleton-cards \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(150px, 1fr\)\); gap: var\(--space-3\); \}/);
+  assert.doesNotMatch(source, /\.skeleton-cards \{[^}]*repeat\(4, 1fr\)/);
+  assert.match(source, /\.skeleton-(cards|panel) i \{[^}]*border-radius: var\(--radius-md\)/);
+  assert.match(text("app/components/Feedback.js"), /<p className="skeleton-note" aria-hidden="true">\{label\}…<\/p>/);
+});
+
+test("transaction filters are inert while their data loads", () => {
+  assert.match(text("app/transactions/page.js"), /<form className="filter-bar surface" onSubmit=\{filter\} inert=\{loading\}>/);
+});
+
+test("document thumbnails load lazily and the list shows twelve at a time", () => {
+  const page = text("app/documents/page.js");
+  assert.match(page, /alt="Pratinjau dokumen keuangan" loading="lazy" decoding="async"/);
+  assert.match(page, /items\.slice\(0, visibleCount\)\.map/);
+  assert.match(page, /setVisibleCount\(count => count \+ 12\)/);
+});
+
+test("the native file picker button follows the theme", () => {
+  assert.match(css(), /input\[type="file"\]::file-selector-button \{[^}]*border: 2px solid var\(--ink\); border-radius: var\(--radius-sm\);/);
+});
+
+test("document source and status labels cover the values the API returns", () => {
+  const page = text("app/documents/page.js");
+  assert.match(page, /WEB_IMAGE: "Unggahan web"/);
+  assert.match(page, /EXTRACTED: "Terbaca"/);
+});
+
 test("tablets keep the transaction table columns; compact rows are phone-only", () => {
   const blocks = css().split(/\n@media /);
   const block = query => blocks.filter(item => item.startsWith(query)).join(" "); // several stylesheets share a breakpoint

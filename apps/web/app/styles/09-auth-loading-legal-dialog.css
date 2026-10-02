@@ -14,11 +14,12 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .skeleton-page { display: grid; gap: 18px; }
-.skeleton-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--line); }
+.skeleton-note { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+.skeleton-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); } /* as many columns as there are cards, never a fixed four with a grey gap */
 .skeleton-cards i, .skeleton-panel i { display: block; background: linear-gradient(90deg, var(--surface-muted), var(--surface), var(--surface-muted)); background-size: 200% 100%; animation: skeleton 1.4s ease infinite; }
-.skeleton-cards i { height: 130px; }
-.skeleton-panel { display: grid; gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--line); }
-.skeleton-panel i { height: 66px; }
+.skeleton-cards i { height: 130px; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.skeleton-panel { display: grid; gap: var(--space-3); }
+.skeleton-panel i { height: 66px; border: 1px solid var(--line); border-radius: var(--radius-md); }
 @keyframes skeleton { to { background-position: -200% 0; } }
 
 .public-legal { min-height: 100dvh; padding: 48px 20px; }
