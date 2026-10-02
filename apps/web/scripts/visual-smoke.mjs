@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
+import { cycleFacts } from "../tests/fixtures/cycle-review.mjs";
 
 const port = process.env.RICHMOD_VISUAL_PORT || "3200";
 const baseURL = process.env.RICHMOD_VISUAL_BASE_URL || `http://127.0.0.1:${port}`;
@@ -36,6 +37,9 @@ const document = { id: "doc-1", status: "SUCCEEDED", documentType: "RECEIPT", so
 
 function fixture(path) {
   if (path === "/api/v1/auth/me") return user;
+  // The analytics page reads one authoritative cycle-review response (the same synthetic facts the smoke test uses).
+  if (path === "/api/v1/analytics/cycle-review") return cycleFacts();
+  if (path === "/api/v1/analytics/cycle-decisions") return { items: [], previous: [], previousCycleStart: "2026-08-26" };
   if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", savingsAllocated: "6500000", unallocatedSurplus: "3410000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
   if (path === "/api/v1/wealth/snapshots/latest") return { id: "wealth-1", netWorthIdr: "48250000", observedAt: "2026-09-06T10:00:00+07:00" };
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily };
@@ -65,6 +69,7 @@ function fixture(path) {
   if (path === "/api/v1/bank-email-listeners") return [];
   if (path === "/api/v1/integrations/email-ingress") return { address: "household@example.richmod.link", status: "ACTIVE", lastReceivedAt: "2026-09-06T09:20:00+07:00" };
   if (path === "/api/v1/admin/overview") return { status: "HEALTHY", checkedAt: "2026-09-07T10:00:00Z", worker: { healthy: true, lastHeartbeatAt: "2026-09-07T10:00:00Z" }, jobs: { pending: 0, running: 0, failed24h: 0, lanes: ["INTERACTIVE", "CHAT", "DEFAULT", "BACKGROUND"].map(lane => ({ lane, pending: 0, running: 0, oldestDueAgeMs: null })) }, llm: { calls24h: 12, failed24h: 0, successRate: 1, p95DurationMs: 820 }, reviews: { open: 1 }, households: { total: 1 }, integrations: { llmGatewayConfigured: true, llmProtocol: "Cloud gateway" }, recentEvents: [] };
+  if (path === "/api/v1/admin/jobs/job-1234567890abcdef") return { id: "job-1234567890abcdef", type: "SYNC", lane: "DEFAULT", status: "SUCCEEDED", attempts: 1, maxAttempts: 3, createdAt: "2026-09-07T09:57:00Z", startedAt: "2026-09-07T09:58:00Z", finishedAt: "2026-09-07T09:58:02Z", references: {}, retries: [] };
   if (path === "/api/v1/admin/jobs") return { items: [{ id: "job-1234567890abcdef", status: "SUCCEEDED", type: "SYNC", lane: "DEFAULT", attempts: 1, maxAttempts: 3, startedAt: "2026-09-07T09:58:00Z", finishedAt: "2026-09-07T09:58:02Z", updatedAt: "2026-09-07T09:58:02Z" }], nextCursor: null };
   if (path.startsWith("/api/v1/admin/")) return { items: [], nextCursor: null };
   return [];
@@ -166,13 +171,15 @@ async function run() {
             const lane = page.locator(".admin-lane").first();
             assert.equal(await lane.count(), 1);
             assert.equal(await lane.evaluate(element => getComputedStyle(element).display), "grid");
-            await page.getByRole("button", { name: "Jobs" }).click();
+            await page.getByRole("button", { name: "Tugas", exact: true }).click();
             await page.locator("button.admin-link").first().waitFor();
             const link = await page.locator("button.admin-link").first().evaluate(element => { const style = getComputedStyle(element); return { display: style.display, background: style.backgroundColor, minHeight: style.minHeight }; });
             assert.notEqual(link.display, "flex", `${name} admin ID inherited button flex layout`);
             assert.equal(link.background, "rgba(0, 0, 0, 0)", `${name} admin ID has button background`);
             assert.equal(link.minHeight, "0px", `${name} admin ID has button minimum height`);
             await page.screenshot({ path: new URL(`${name}-admin-jobs.png`, output).pathname, fullPage: true });
+            await page.locator("button.admin-link").first().click();
+            await page.locator("aside[role='dialog']").waitFor();
             assert.equal(await page.locator("aside[role='dialog']").count(), 1, `${name} admin job drawer is a modal dialog`);
             await page.keyboard.press("Escape");
             await page.waitForFunction(() => !document.querySelector("aside[role='dialog']"));
@@ -204,7 +211,7 @@ async function run() {
         await documentCard.hover();
         const documentHover = await documentCard.evaluate(element => { const style = getComputedStyle(element); return { background: style.backgroundColor, color: style.color }; });
         assert.notEqual(documentHover.background, "rgb(86, 52, 72)", `${name} document card uses primary hover background`);
-        assert.equal(documentHover.color, "rgb(40, 37, 34)", `${name} document card text changes on hover`);
+        assert.equal(documentHover.color, "rgb(37, 58, 54)", `${name} document card text stays the brand ink on hover`);
         await page.screenshot({ path: new URL(`${name}-documents-hover.png`, output).pathname, fullPage: true });
         await documentCard.click();
         await page.getByRole("dialog", { name: "Detail dokumen" }).waitFor();
