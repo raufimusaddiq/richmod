@@ -20,4 +20,5 @@ export function percent(value) {
 }
 
 export const typeLabel = { INCOME: "Pemasukan", EXPENSE: "Pengeluaran", REFUND: "Refund", TRANSFER: "Transfer", ADJUSTMENT: "Penyesuaian", UNCLASSIFIED: "Belum diklasifikasi" };
+export const sourceLabel = { BANK_EMAIL: "Email bank", TELEGRAM_TEXT: "Pesan Telegram", TELEGRAM_IMAGE: "Gambar Telegram", WEB_MANUAL: "Input web", WEB_IMAGE: "Dokumen web" };
 export const statusLabel = { CONFIRMED: "Terkonfirmasi", NEEDS_REVIEW: "Perlu review", VOIDED: "Diabaikan", PENDING: "Tertunda" };

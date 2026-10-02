@@ -34,6 +34,6 @@ function summaryText(summary) {
   return [summary.merchant, summary.employer, summary.period, summary.total, summary.net_pay, summary.amount, status, summary.due_date && `Jatuh tempo ${summary.due_date}`].filter(Boolean).slice(0, 3).join(" · ");
 }
 
-function statusLabel(value) { return ({ PENDING: "Menunggu", PROCESSING: "Diproses", SUCCEEDED: "Berhasil", FAILED: "Gagal" }[value] || value || "—"); }
+function statusLabel(value) { return ({ PENDING: "Menunggu", PROCESSING: "Diproses", SUCCEEDED: "Berhasil", EXTRACTED: "Terbaca", FAILED: "Gagal" }[value] || value || "—"); }
 function sourceLabel(value) { return ({ WEB_UPLOAD: "Unggahan web", TELEGRAM_IMAGE: "Gambar Telegram", TELEGRAM_TEXT: "Pesan Telegram", EMAIL: "Email" }[value] || value || "—"); }
 function documentTypeLabel(value) { return ({ TRANSACTION_SCREENSHOT: "Bukti transaksi", PAYSLIP: "Slip gaji", RECEIPT: "Struk", BILL_OR_INVOICE: "Tagihan atau faktur", BANK_STATEMENT: "Mutasi rekening" }[value] || value || ""); }
