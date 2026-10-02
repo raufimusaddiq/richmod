@@ -89,6 +89,7 @@ h1, h2, h3 { font-family: var(--font-display); font-optical-sizing: auto; letter
 h1, h2, h3, .brand div, .public-brand strong, .workflow-number { font-variation-settings: "SOFT" var(--font-display-soft); }
 strong, .transaction-amount, .detail-amount, .admin-metric b, .system-metrics b { font-variant-numeric: tabular-nums; }
 ::selection { background: var(--accent-soft); color: var(--ink); }
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); } /* 0 in portrait; clears the notch in landscape */
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); border: 0; white-space: nowrap; }
 

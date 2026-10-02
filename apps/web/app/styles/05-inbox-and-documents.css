@@ -1,4 +1,5 @@
 .inbox-tabs, .admin-tabs, .range-controls { display: flex; width: max-content; max-width: 100%; gap: 4px; margin: 0 0 18px; padding: 4px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.inbox-tabs, .admin-tabs, .range-controls { background-color: var(--surface-muted); background-image: linear-gradient(to right, var(--surface-muted) 30%, rgb(242 237 222 / 0)), linear-gradient(to left, var(--surface-muted) 30%, rgb(242 237 222 / 0)), radial-gradient(farthest-side at 0 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)); background-position: left center, right center, left center, right center; background-size: 24px 100%, 24px 100%, 10px 100%, 10px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; } /* the shadow shows only while the row overflows */
 .inbox-tabs button, .admin-tabs button, .range-controls button { min-height: 34px; flex: 0 0 auto; padding: 0 11px; border-color: transparent; background: transparent; color: var(--muted); font-size: var(--text-xs); }
 .inbox-tabs button:hover, .admin-tabs button:hover, .range-controls button:hover { border-color: transparent; background: rgba(255,255,255,.65); color: var(--ink); }
 .inbox-tabs button.active, .admin-tabs button.active, .range-controls button.active { border-color: var(--line); background: var(--surface-strong); color: var(--ink); box-shadow: 0 1px 3px rgba(28,33,29,.06); }
@@ -56,3 +57,6 @@ button.document-card:active:not(:disabled) { transform: none; }
 .page-thumbnails button[aria-current="true"] { border-color: var(--accent); }
 .page-thumbnails img { width: 48px; height: 56px; object-fit: cover; }
 
+
+/* A destructive action keeps clear space from the selects and buttons beside it. */
+.settings-list .danger, .member-actions .danger, .row-actions .danger { margin-inline-start: var(--space-4); }

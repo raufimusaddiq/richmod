@@ -7,6 +7,9 @@ import InboxCountProvider from "./components/InboxCountProvider";
 // deployment whose client chunks may have been replaced.
 export const dynamic = "force-dynamic";
 
+// viewport-fit=cover makes the safe-area insets real (Home Screen app, landscape).
+export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+
 const socialTitle = "Richmod · Keuangan keluarga, tanpa menebak";
 const socialDescription = "Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan.";
 

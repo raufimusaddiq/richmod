@@ -284,3 +284,27 @@ test("the category donut does not animate in, so it never captures or shows a ha
 test("legal pages put the brand on its own line above the page label", () => {
   assert.match(css(), /\.public-legal-brand \{ display: block;/);
 });
+
+test("secondary list lines and heat-table numbers stay readable", () => {
+  assert.match(css(), /\.member-list small, \.settings-list small, \.integration-grid small \{[^}]*color: var\(--ink-soft\); font-size: var\(--text-md\);/);
+  assert.match(css(), /\.ledger-cell \{[^}]*font-size: var\(--text-base\); font-weight: var\(--weight-semibold\);/);
+});
+
+test("scrolling tab rows show edge shadows while they overflow", () => {
+  assert.match(css(), /\.inbox-tabs, \.admin-tabs, \.range-controls \{ background-color: var\(--surface-muted\); background-image: [^}]*background-attachment: local, local, scroll, scroll;/);
+});
+
+test("the viewport extends under the notch and safe-area insets keep content clear of it", () => {
+  assert.match(text("app/layout.js"), /export const viewport = \{[^}]*viewportFit: "cover"/);
+  assert.match(css(), /body \{ padding-left: env\(safe-area-inset-left\); padding-right: env\(safe-area-inset-right\); \}/);
+  assert.match(css(), /\.app-main \{ padding: 22px 15px calc\(94px \+ env\(safe-area-inset-bottom\)\); \}/);
+});
+
+test("the login form sits close to the top on phones and is not centred in a void on tablets", () => {
+  assert.match(css(), /\.login-layout \{ display: block; min-height: auto; padding: 28px 16px 42px; \}/);
+  assert.match(css(), /@media \(min-width: 681px\) and \(max-width: 1100px\) \{\s*\.login-layout \{ min-height: auto; padding-top: 56px; padding-bottom: 40px; \}/);
+});
+
+test("destructive row actions keep clear space from neighbouring controls", () => {
+  assert.match(css(), /\.settings-list \.danger, \.member-actions \.danger, \.row-actions \.danger \{ margin-inline-start: var\(--space-4\); \}/);
+});

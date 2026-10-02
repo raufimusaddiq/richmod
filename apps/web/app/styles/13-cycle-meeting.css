@@ -38,12 +38,12 @@
   .landing-cta { padding: 72px 0 85px; }
   .public-footer { display: flex; align-items: flex-start; flex-direction: column; gap: 18px; padding: 23px 16px 27px; }
   .public-footer small { margin-top: 5px; }
-  .login-layout { display: block; min-height: auto; padding: 51px 16px 42px; }
-  .login-back { margin-bottom: 55px; }
-  .login-context { margin-bottom: 40px; }
-  .login-context h1 { font-size: 51px; }
+  .login-layout { display: block; min-height: auto; padding: 28px 16px 42px; }
+  .login-back { margin-bottom: 28px; }
+  .login-context { margin-bottom: 28px; }
+  .login-context h1 { font-size: 42px; }
   .login-context > p:not(.public-trust-note) { font-size: 15px; }
-  .login-context .public-trust-note { margin-top: 24px; }
+  .login-context .public-trust-note { margin-top: 16px; }
   .login-treeline { display: none; }
   .login-card { padding: 23px 18px; }
   .login-footer { align-items: flex-start; flex-wrap: wrap; padding: 0 16px 22px; }
@@ -104,3 +104,8 @@
   .cycle-review .cycle-outcome dd { overflow-wrap: anywhere; }
 }
 
+
+@media (min-width: 681px) and (max-width: 1100px) {
+  .login-layout { min-height: auto; padding-top: 56px; padding-bottom: 40px; } /* tablet: content sits under the header, not centred in a tall void */
+  .login-back { margin-bottom: 40px; }
+}
