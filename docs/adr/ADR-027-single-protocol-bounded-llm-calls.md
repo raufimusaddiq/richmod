@@ -18,9 +18,8 @@ Go owns task budgets. Bank extraction remains 45 seconds total, document stages
 60 seconds. Tool-first insights use the 120-second overall / 30-second model-call
 budget in ADR-015, with a 125-second worker deadline for persistence. Telegram
 callbacks retain their deterministic interactive path. Under ADR-033, Telegram
-free-text conversation has a 120-second
-overall turn backstop, an 8-second deadline for a model call that chooses tools and a
-25-second deadline for the call that writes the answer from tool results, a progress
+free-text conversation has a 130-second
+overall turn backstop, a 25-second deadline for every model call, a progress
 notice after 10 seconds, at most 5 model phases,
 at most 4 READ calls in one model response, at most 8 READ calls in one turn, and
 at most one side effect in one turn.

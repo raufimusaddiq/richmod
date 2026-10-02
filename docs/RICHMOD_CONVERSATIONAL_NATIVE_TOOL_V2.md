@@ -719,8 +719,11 @@ Do not use this table as financial evidence. `source_event`/`transaction_evidenc
 
 For the model:
 
-- load at most ~20 recent public turns;
-- use a time horizon around 30–60 minutes for ordinary conversational references;
+- load at most 40 recent public turns, oldest first, compacted: the newest 6 whole,
+  older ones clipped and stripped of tool results (superseded the earlier "~20
+  turns"; see ADR-033, Conversation memory);
+- use a 24-hour time horizon for ordinary conversational references (superseded
+  the earlier 30–60 minutes);
 - active review/pending state is loaded independently and may survive much longer;
 - bound exact reply references override age heuristics.
 

@@ -17,24 +17,23 @@ type agentLimits struct {
 	MaxReadCallsPerResponse int
 	MaxReadCallsPerTurn     int
 	MaxSideEffectsPerTurn   int
-	// PerModelCallTimeout bounds a model call that chooses tools or answers a
-	// simple message (measured p50 about 3.5 s, p90 about 6 s).
-	PerModelCallTimeout time.Duration
-	// AnswerPhaseTimeout bounds a model call that writes the answer from tool
-	// results, such as an analytics explanation. Long-form output on the same
-	// models takes 9 to 11 s, so the 8 s cap made it fail every time.
-	AnswerPhaseTimeout time.Duration
+	// ModelCallTimeout bounds every model call in a turn. One cap, not one per
+	// phase: a follow-up that carries earlier context takes as long as an
+	// answer (a first call measured 6 s, long-form answers 9 to 11 s), and an
+	// 8 s cap on the first call failed a short follow-up twice in a row. The
+	// cap exists to bound a hung call, not to ration a slow one.
+	ModelCallTimeout time.Duration
 	// TotalTurnTimeout is a backstop, not the working limit: a turn is bounded by
-	// its phases, so it must cover one tool-selection call plus every remaining
-	// phase at the answer cap. The household is told the answer is still coming
-	// after ProgressNoticeDelay, so a slow multi-read turn is not silent.
+	// its phases, so it must cover every phase at the call cap. The household is
+	// told the answer is still coming after ProgressNoticeDelay, so a slow
+	// multi-read turn is not silent.
 	TotalTurnTimeout time.Duration
 }
 
 // TextJobBudget is the queue budget for one PROCESS_TELEGRAM_TEXT attempt: the
 // turn timeout plus room for reads, writes, and the reply. It must stay above
 // TotalTurnTimeout, and below the five-minute job lease.
-const TextJobBudget = 150 * time.Second
+const TextJobBudget = 160 * time.Second
 
 // ProgressNoticeDelay is how long a turn runs before the household is told the
 // answer is still coming. Single-phase turns finish well inside it (p90 about
@@ -51,9 +50,8 @@ var defaultAgentLimits = agentLimits{
 	MaxReadCallsPerResponse: 5,
 	MaxReadCallsPerTurn:     8,
 	MaxSideEffectsPerTurn:   1,
-	PerModelCallTimeout:     8 * time.Second,
-	AnswerPhaseTimeout:      25 * time.Second,
-	TotalTurnTimeout:        120 * time.Second,
+	ModelCallTimeout:        25 * time.Second,
+	TotalTurnTimeout:        130 * time.Second,
 }
 
 type agentToolResult struct {
