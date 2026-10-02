@@ -15,7 +15,9 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
     const figure = frame.current;
     const active = figure?.querySelector('th[aria-current="true"]');
     if (!figure || !active) return;
-    figure.scrollLeft = Math.max(0, active.offsetLeft - (figure.clientWidth - active.offsetWidth) / 2);
+    // Start the selected column right after the sticky label (the browser clamps at the end), so no column is cut at the label edge.
+    const label = figure.querySelector("thead th:first-child");
+    figure.scrollLeft = Math.max(0, active.offsetLeft - (label ? label.offsetWidth : 0));
   }, [selected, history]);
   const anyRunning = ledger.columns.some(column => column.running);
   return <section id="ledger" className="review-section ledger" aria-labelledby="ledger-title">
@@ -24,7 +26,7 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
     {ledger.mode === "chart"
       ? <>
         <div ref={frame} className="ledger-figure" tabIndex={0} role="region" aria-label="Perbandingan siklus, geser untuk semua kolom">
-          <table className="ledger-table">
+          <table className="ledger-table" style={{ "--cols": ledger.columns.length }}>
             <caption className="visually-hidden">Pemasukan, pengeluaran bersih, arus kas bersih, perubahan pengeluaran{matrix.length > 0 && ", dan pengeluaran per kategori"} untuk setiap siklus gaji, dalam jutaan rupiah</caption>
             <thead><tr>
               <th scope="col"><span className="ledger-unit">Rp juta</span></th>
@@ -75,7 +77,7 @@ export default function CycleLedger({ history, selected, median, verdict, onSele
         </li>)}
       </ul>
       {matrix.length > 0 && <div className="ledger-figure ledger-matrix-only" tabIndex={0} role="region" aria-label="Pengeluaran per kategori, geser untuk semua kolom">
-        <table className="ledger-table">
+        <table className="ledger-table" style={{ "--cols": ledger.columns.length }}>
           <caption className="visually-hidden">Pengeluaran bersih per kategori untuk setiap siklus gaji, dalam jutaan rupiah</caption>
           <thead><tr><th scope="col"><span className="ledger-unit">Rp juta</span></th>{ledger.columns.map(column => <th key={column.start} scope="col" data-selected={column.selected || undefined}><b>{column.label}</b><small>{column.until}</small></th>)}</tr></thead>
           <tbody><MatrixRows matrix={matrix} columns={ledger.columns} onSelectCategory={onSelectCategory}/></tbody>

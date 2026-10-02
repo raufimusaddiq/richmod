@@ -186,6 +186,27 @@ try {
     assert.match(await cycleLedger.locator(".ledger-verdict").textContent(), /Siklus sebelumnya di hari yang sama/);
     assert.equal(await cycleLedger.locator("tbody tr").count(), 7, "bars, net cashflow, change, three categories, and Lainnya");
     assert.equal(await cycleLedger.locator("tbody tr").nth(6).locator("th").textContent(), "Lainnya", "the served remainder closes the matrix");
+    if (name === "mobile" || name === "small-mobile") {
+      // Phones: whole cycle columns beside the sticky label; none cut at its edge; labels fit; it scrolls and snaps.
+      const ribbon = await page.evaluate(() => {
+        const figure = document.querySelector("#ledger .ledger-figure");
+        const label = figure.querySelector("thead th:first-child").getBoundingClientRect();
+        const box = figure.getBoundingClientRect();
+        const heads = [...figure.querySelectorAll("thead th:not(:first-child)")].map(element => element.getBoundingClientRect());
+        return {
+          scrolls: figure.scrollWidth > figure.clientWidth + 1,
+          fullyVisible: heads.filter(rect => rect.left >= label.right - 1 && rect.right <= box.right - 1).length,
+          straddling: heads.filter(rect => rect.left < label.right - 1 && rect.right > label.right + 1).length,
+          labelOverflow: [...figure.querySelectorAll("tbody th")].filter(cell => cell.scrollWidth > cell.clientWidth + 1).map(cell => cell.textContent.trim()),
+          snap: getComputedStyle(figure).scrollSnapType,
+        };
+      });
+      assert.equal(ribbon.scrolls, true, `${name} the ribbon scrolls sideways instead of squeezing six cycles`);
+      assert.equal(ribbon.straddling, 0, `${name} no cycle column is cut at the label edge`);
+      assert.equal(ribbon.fullyVisible, name === "mobile" ? 4 : 3, `${name} shows whole cycle columns`);
+      assert.deepEqual(ribbon.labelOverflow, [], `${name} row labels fit their column`);
+      assert.match(ribbon.snap, /x mandatory/, `${name} columns snap`);
+    }
     const matrixRow = cycleLedger.getByRole("button", { name: "Buka bukti Belanja rumah", exact: true });
     assert.equal(await matrixRow.count(), 1);
     assert.equal(await cycleLedger.locator("tbody tr").nth(3).locator("td").last().textContent(), "2,1", "the selected column shows the served category amount");

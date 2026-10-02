@@ -290,3 +290,16 @@ test("pace chart source: curves from the served series; levels only when no curv
 test("the category change ratio is not shrunk below the 11px floor", () => {
   assert.match(globalCss(), /\.change-ranking small \{ font-size: var\(--text-xs\); \}/);
 });
+
+test("mobile ribbon: whole columns beside the label, snapping, the selected column starts after the label", () => {
+  const css = globalCss();
+  const component = text("app/components/CycleLedger.js");
+  assert.match(css, /\.ledger-figure \{[^}]*container-type: inline-size/, "column widths come from the figure's own width");
+  assert.match(css, /@container \(max-width: 520px\) \{[\s\S]*?--visible: 4;[\s\S]*?--col: calc\(\(100cqw - var\(--label\)\) \/ var\(--visible\)\)/, "four whole columns fit beside the label on a phone");
+  assert.match(css, /@container \(max-width: 319px\) \{ \.ledger-table \{ --visible: 3; \} \}/, "three on the narrowest screens");
+  assert.match(css, /scroll-snap-type: x mandatory; scroll-padding-inline-start: 5\.5rem/, "a column stops right after the sticky label");
+  assert.match(css, /\.ledger-table thead th:not\(:first-child\) \{ scroll-snap-align: start; \}/);
+  assert.match(css, /\.ledger-figure \{ background-image:[^}]*background-attachment: local, local, scroll, scroll; \}/, "an edge cue that appears only while the figure overflows");
+  assert.match(component, /figure\.scrollLeft = Math\.max\(0, active\.offsetLeft - \(label \? label\.offsetWidth : 0\)\)/, "the selected column starts after the label instead of being centred at an arbitrary offset");
+  assert.equal(component.split('"--cols": ledger.columns.length').length - 1, 2, "both ledger tables tell the CSS how many columns they have");
+});
