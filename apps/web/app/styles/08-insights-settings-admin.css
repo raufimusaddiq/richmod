@@ -31,6 +31,7 @@
 .list-count { margin: 0; padding: 8px 0; color: var(--muted); font-size: var(--text-xs); }
 .list-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); }
 .list-pagination button { min-height: 34px; padding: 7px 11px; }
+.list-pagination.document-more { justify-content: center; margin-top: var(--space-4); border-top: 0; }
 .integration-grid article { grid-template-columns: 12px minmax(0, 1fr) auto; }
 .health-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
 .health-dot.ok { background: var(--income); box-shadow: 0 0 0 4px var(--income-soft); }
