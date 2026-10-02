@@ -48,9 +48,8 @@ code and verification evidence.
 - [x] Compose configuration plus API and worker production-image builds pass.
 - [ ] Database-backed regression tests cover source completion (amount,
   timestamp, replay, cross-household, and resulting transaction review).
-- [ ] Telegram source-review conversation states collect and bind bank facts to
-  the stored review/message identity. Web completion is implemented; Telegram
-  completion is not yet implemented in this branch.
+- [x] Telegram source-review conversation states collect and bind bank facts to
+  the stored review/message identity. Implemented later on `main` (`apps/worker/internal/telegram/review_bank.go`); production has succeeded `COMPLETE_BANK_REVIEW` jobs.
 - [x] Complete API and worker tests plus vet passed against disposable
   PostgreSQL; web tests (11/11) and its production build passed.
 - [ ] Apply migrations to a restored production snapshot and inspect the

@@ -38,4 +38,4 @@
 - [x] Worker vet passes.
 - [x] Disposable PostgreSQL integration test verifies review, state updates,
   acknowledgement job, and idempotency.
-- [ ] Commit, push, merge, deploy, and reclaim after approval.
+- [x] Commit, push, merge, deploy, and reclaim after approval. Merged; running in production on `main` @ `daab0b1`.

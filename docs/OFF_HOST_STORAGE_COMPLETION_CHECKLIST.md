@@ -24,7 +24,8 @@ Baseline: `3545de2`
 - [x] Restore refuses targets not ending in `_restore_drill`.
 - [x] Live encrypted backup uploaded to provisioned OSS (`d30d4eb6`).
 - [x] Live snapshot restored into disposable PostgreSQL 17.
-- [ ] Production backup timer succeeds against OSS after code deployment.
+- [x] Production backup timer succeeds against OSS after code deployment. `family-finance-backup.service` finished successfully every day 2026-09-10 through 2026-09-27 (journal).
+- [ ] **Regression:** the daily backup has failed every run since 2026-09-28 with `restic: create key in repository ... repository master key and config already initialized` (still failing 2026-10-02). Needs a fix before backups can be called healthy.
 
 ## Verification
 
@@ -33,6 +34,6 @@ Baseline: `3545de2`
 - [x] Production API, worker, and backup images build.
 - [x] Live OSS attachment put/get/delete smoke passes.
 - [x] Production Compose config resolves OSS settings.
-- [ ] Feature branch committed and pushed.
-- [ ] Merged to `main` with `--no-ff` and pushed.
-- [ ] Production deployed only after explicit approval.
+- [x] Feature branch committed and pushed. (Merged as `08e0215`; production runs current `main`.)
+- [x] Merged to `main` with `--no-ff` and pushed. (Merged as `08e0215`; production runs current `main`.)
+- [x] Production deployed only after explicit approval. (Merged as `08e0215`; production runs current `main`.)

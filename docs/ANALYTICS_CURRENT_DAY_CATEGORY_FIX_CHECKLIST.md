@@ -33,5 +33,5 @@ Execution record for production bugs reported on August 30, 2026.
 - [x] API analytics tests and vet pass.
 - [x] Web tests pass (31 tests).
 - [x] Production web build passes.
-- [ ] Feature branch pushed and merged with `--no-ff`.
-- [ ] Deployment performed only if explicitly requested.
+- [x] Feature branch pushed and merged with `--no-ff` (`b1c7198`).
+- [x] Deployment performed only if explicitly requested. Included in the current production release (`main` @ `daab0b1`).
