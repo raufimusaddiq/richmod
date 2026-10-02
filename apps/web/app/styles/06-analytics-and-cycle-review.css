@@ -135,7 +135,9 @@
 .ledger-verdict > div { display: grid; gap: 2px; }
 .ledger-verdict dt { color: var(--muted); font-size: var(--text-sm); }
 .ledger-verdict dd { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.ledger-figure { position: relative; overflow-x: auto; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); }
+.ledger-figure { position: relative; overflow-x: auto; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow); container-type: inline-size; }
+/* Edge shadows appear only while the figure overflows, so a cut-off column is never the only hint to scroll. */
+.ledger-figure { background-image: linear-gradient(to right, var(--surface) 30%, rgb(255 252 244 / 0)), linear-gradient(to left, var(--surface) 30%, rgb(255 252 244 / 0)), radial-gradient(farthest-side at 0 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)); background-position: left center, right center, left center, right center; background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; }
 .ledger-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
 .ledger-table th, .ledger-table td { padding: 0; text-align: center; vertical-align: middle; transition: background-color .2s; }
 .ledger-table thead th:first-child, .ledger-table tbody th { position: sticky; left: 0; z-index: 2; width: 9.5rem; padding: 0 var(--space-3); background: var(--surface); text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
@@ -184,11 +186,21 @@
 .pace-notes li[data-shape="marker"] i { width: 10px; height: 10px; border: 2px solid var(--ink-soft); border-radius: 50%; background: var(--surface-strong); vertical-align: -1px; }
 .pace-notes li[data-shape="marker"][data-tone="median"] i { border-color: var(--chart-reference); }
 @media (max-width: 680px) {
-  .ledger-table { min-width: 0; width: 560px; }
-  .ledger-table thead th:first-child, .ledger-table tbody th { width: 5.5rem; padding: 0 var(--space-2); }
+  .ledger-figure { scroll-snap-type: x mandatory; scroll-padding-inline-start: 5.5rem; } /* a column stops right after the sticky label */
+  .ledger-table { min-width: 0; width: 560px; } /* fallback where container queries are unavailable */
+  .ledger-table thead th:first-child, .ledger-table tbody th { width: 5.5rem; padding: 0 6px; font-size: var(--text-xs); }
+  .ledger-table thead th:not(:first-child) { scroll-snap-align: start; }
   .ledger-bar i { width: 14px; }
   .ledger-verdict dd { font-size: var(--text-lg); }
 }
+/* Phones: a whole number of cycle columns fits beside the label (four, three on the narrowest),
+   so no column is cut at the label edge and the end of the scroll lines up with a column. */
+@container (max-width: 520px) {
+  .ledger-table { --label: 5.5rem; --visible: 4; --col: calc((100cqw - var(--label)) / var(--visible)); width: calc(var(--label) + var(--cols, 6) * var(--col)); }
+  .ledger-table thead th:first-child, .ledger-table tbody th { width: var(--label); }
+  .ledger-table thead th:not(:first-child) { width: var(--col); }
+}
+@container (max-width: 319px) { .ledger-table { --visible: 3; } }
 /* Category x cycle matrix: rows share the ribbon's columns; the tint only sizes a value within its own row. */
 .ledger-table thead th > b { display: block; padding-top: var(--space-2); font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .ledger-table thead th > small { display: block; padding-bottom: var(--space-2); color: var(--muted); font-size: var(--text-sm); font-weight: 400; }

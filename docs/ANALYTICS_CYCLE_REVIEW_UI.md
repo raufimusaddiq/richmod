@@ -87,6 +87,12 @@ bars, the ranked category deltas and the complete comparison table; nothing was
 removed. Comparison labels now read "Selisih vs …" and "hari yang sama" instead of
 "Δ" and "hari setara".
 
+On phones the ribbon shows a whole number of cycle columns beside the sticky label
+(four; three on the narrowest screens), sized from the figure's own width, so no
+column is cut at the label edge. Columns snap to the label, the selected cycle starts
+right after it on load (the end of the scroll lines up with a column), row labels
+fit their column, and an edge shadow appears only while there is more to scroll to.
+
 Colour follows the [brand guide](brand-guidelines.md): baseline and category-change
 bars are neutral ink, a decrease is hatched rather than a different hue, selection
 is butter, and the category distribution chart uses the chart ramp. Collapsed
