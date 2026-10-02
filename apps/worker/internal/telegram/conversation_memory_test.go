@@ -155,3 +155,45 @@ func TestCompactionBudgetCountsCharactersNotBytes(t *testing.T) {
 		t.Fatalf("multi-byte text must not be dropped as if it were twice as long, kept %d of 40", kept)
 	}
 }
+
+func TestExpiredAnalyticsRefsAreDroppedButFiguresAndOtherRefsStay(t *testing.T) {
+	toolContext := map[string]any{
+		"categories": []any{
+			map[string]any{"ref": "category.1", "name": "Orang Tua", "amount": "2500000"},
+			map[string]any{"ref": "category.5", "name": "Makan di Luar", "amount": "413392", "merchants": []any{
+				map[string]any{"ref": "category.5.merchant.2", "name": "Warung"},
+			}},
+		},
+		"refs":         []any{"category.1", "category.5", "tx_3"},
+		"transactions": []any{map[string]any{"ref": "tx_7", "amount": "50000"}, map[string]any{"ref": "review_2"}},
+		"period":       map[string]any{"start": "2026-09-25"},
+	}
+	dropExpiredAnalyticsRefs(toolContext)
+
+	encoded := fmt.Sprint(toolContext)
+	for _, expired := range []string{"category.1", "category.5", "category.5.merchant.2"} {
+		if strings.Contains(encoded, expired) {
+			t.Fatalf("expired ref %q must be removed from a replayed turn: %s", expired, encoded)
+		}
+	}
+	for _, kept := range []string{"Orang Tua", "2500000", "Makan di Luar", "413392", "Warung", "2026-09-25", "tx_3", "tx_7", "review_2"} {
+		if !strings.Contains(encoded, kept) {
+			t.Fatalf("%q must survive: names and figures stay so a follow-up can refer to them, and tx_/review_ refs are valid across turns: %s", kept, encoded)
+		}
+	}
+}
+
+func TestDroppingExpiredRefsToleratesEmptyAndOddInput(t *testing.T) {
+	dropExpiredAnalyticsRefs(nil)
+	dropExpiredAnalyticsRefs(map[string]any{})
+	dropExpiredAnalyticsRefs(map[string]any{"ref": 42, "list": []any{nil, 1, "category.x", "category.1x"}})
+	if got := dropExpiredAnalyticsRefs("category.2"); got != "category.2" {
+		t.Fatal("a bare string is not a container and must be returned as is")
+	}
+	// Only well-formed refs are expired; text that merely resembles one is not.
+	kept := map[string]any{"note": "category.x", "name": "category.1x"}
+	dropExpiredAnalyticsRefs(kept)
+	if len(kept) != 2 {
+		t.Fatalf("malformed look-alikes must be left alone, got %v", kept)
+	}
+}

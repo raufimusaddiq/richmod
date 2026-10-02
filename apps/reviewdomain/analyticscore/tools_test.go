@@ -3,6 +3,7 @@ package analyticscore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -163,6 +164,21 @@ func TestAnalyticalToolsNeverExposeCycleHistory(t *testing.T) {
 			if strings.Contains(string(raw), forbidden) {
 				t.Fatalf("%s exposed ledger history (%s): %s", tool.Name, forbidden, raw)
 			}
+		}
+	}
+}
+
+// A ref from an earlier turn is not valid in a new session: refs are list
+// positions, so reusing one could point at a different category if the data
+// changed. The error is a sentinel, so the agent can tell the model to fetch the
+// refs again instead of failing the turn.
+func TestUnissuedCategoryRefIsASentinelError(t *testing.T) {
+	session := NewSession(nil, "household", time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC))
+	session.facts[""] = Facts{}
+	for _, tool := range []string{"get_category_drivers", "get_supporting_transactions"} {
+		_, err := session.Read(context.Background(), tool, json.RawMessage(`{"cycle_start":null,"category_ref":"category.3"}`))
+		if !errors.Is(err, ErrCategoryRefNotIssued) {
+			t.Fatalf("%s with a ref nobody issued must return ErrCategoryRefNotIssued, got %v", tool, err)
 		}
 	}
 }

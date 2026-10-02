@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -121,6 +122,12 @@ type Session struct {
 	issued    map[string]map[string]int
 }
 
+// ErrCategoryRefNotIssued means the model named a category_ref this session never
+// issued. Refs are positions in one turn's fact snapshot, so they are valid only
+// in the turn whose get_cycle_changes issued them; the caller can hand this back
+// to the model to fix instead of failing the turn.
+var ErrCategoryRefNotIssued = errors.New("category_ref not issued for selected cycle")
+
 func NewSession(pool *pgxpool.Pool, household string, now time.Time) *Session {
 	return &Session{pool: pool, household: household, now: now, facts: map[string]Facts{}, issued: map[string]map[string]int{}}
 }
@@ -156,7 +163,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 	if args.CategoryRef != nil {
 		index, exists := s.issued[periodKey][*args.CategoryRef]
 		if !exists {
-			return nil, fmt.Errorf("category_ref not issued for selected cycle")
+			return nil, ErrCategoryRefNotIssued
 		}
 		category = &f.Categories[index]
 	}

@@ -99,7 +99,9 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 	processor := NewProcessor(f.pool, nil)
 	jobs := queue.New(f.pool)
 	hookFor := func(eventID string) func(context.Context, pgx.Tx) error {
-		return func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalTextFailureTx(ctx, tx, eventID) }
+		return func(ctx context.Context, tx pgx.Tx) error {
+			return processor.TerminalTextFailureTx(ctx, tx, eventID, true)
+		}
 	}
 
 	// Final attempt: the job fails, the event fails, and one notice is queued.
@@ -113,7 +115,7 @@ func TestTerminalNoticeIsAtomicWithMarkingTheJobFailed(t *testing.T) {
 	}
 
 	// A replayed failure must not send the notice twice.
-	if err := processor.HandleTerminalTextFailure(f.ctx, event); err != nil {
+	if err := processor.HandleTerminalTextFailure(f.ctx, event, true); err != nil {
 		t.Fatal(err)
 	}
 	if f.replies() != 1 {
@@ -181,7 +183,9 @@ func TestTerminalHookDoesNotRunForAJobThisWorkerNoLongerOwns(t *testing.T) {
 	if _, err := f.pool.Exec(f.ctx, `UPDATE job SET status='SUCCEEDED' WHERE id=$1`, job.ID); err != nil {
 		t.Fatal(err)
 	}
-	hook := func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalTextFailureTx(ctx, tx, event) }
+	hook := func(ctx context.Context, tx pgx.Tx) error {
+		return processor.TerminalTextFailureTx(ctx, tx, event, true)
+	}
 	if err := jobs.FailWithHook(f.ctx, job, timeoutError(), hook); err != nil {
 		t.Fatal(err)
 	}
@@ -196,8 +200,34 @@ func TestTerminalNoticeIgnoresMalformedEventIDs(t *testing.T) {
 	f := newTerminalFixture(t)
 	processor := NewProcessor(f.pool, nil)
 	for _, id := range []string{"", "not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
-		if err := processor.HandleTerminalTextFailure(f.ctx, id); err != nil {
+		if err := processor.HandleTerminalTextFailure(f.ctx, id, true); err != nil {
 			t.Fatalf("id %q must be a no-op, got %v", id, err)
+		}
+	}
+}
+
+// The notice and the recorded reason follow the cause: a timeout may say the
+// assistant was slow, any other failure must not.
+func TestTerminalNoticeNamesTheCause(t *testing.T) {
+	f := newTerminalFixture(t)
+	processor := NewProcessor(f.pool, nil)
+	for _, tc := range []struct {
+		message  string
+		timedOut bool
+		reason   string
+		text     string
+	}{{"1", true, "TIMEOUT", terminalTextFailureMessage}, {"2", false, "ERROR", terminalTextErrorMessage}} {
+		event := f.event(map[string]int64{"1": 101, "2": 102}[tc.message])
+		if err := processor.HandleTerminalTextFailure(f.ctx, event, tc.timedOut); err != nil {
+			t.Fatal(err)
+		}
+		var replies int
+		if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'text'=$2`, fmt.Sprint(f.chatID), tc.text).Scan(&replies); err != nil || replies != 1 {
+			t.Fatalf("timedOut=%v: expected one reply with the matching text, got %d (%v)", tc.timedOut, replies, err)
+		}
+		var reason string
+		if err := f.pool.QueryRow(f.ctx, `SELECT metadata_json->>'reason' FROM integration_action WHERE household_id=$1 AND dedupe_key=$2`, f.householdID, event).Scan(&reason); err != nil || reason != tc.reason {
+			t.Fatalf("timedOut=%v: expected the recorded reason %s, got %q (%v)", tc.timedOut, tc.reason, reason, err)
 		}
 	}
 }

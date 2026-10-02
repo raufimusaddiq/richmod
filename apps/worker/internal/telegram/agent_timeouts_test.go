@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -109,5 +111,45 @@ func TestTerminalErrorIsPermanentAndKeepsItsCause(t *testing.T) {
 	}
 	if TerminalError(nil) != nil {
 		t.Fatal("wrapping nil must stay nil")
+	}
+}
+
+// A ref the model copied from an earlier answer is not a failure of the
+// household's question: the model is told to fetch fresh refs and the turn goes
+// on. Any other read error stays an error.
+func TestAnExpiredCategoryRefBecomesAToolResultTheModelCanActOn(t *testing.T) {
+	base := agentToolResult{CallID: "c1", Tool: "get_category_drivers", Class: agentToolRead, Status: "OK"}
+	for _, err := range []error{analyticscore.ErrCategoryRefNotIssued, fmt.Errorf("read failed: %w", analyticscore.ErrCategoryRefNotIssued)} {
+		result, ok := recoverableAnalyticsRead(base, err)
+		if !ok {
+			t.Fatalf("%v must be recoverable", err)
+		}
+		if result.Status != "REFERENCE_NOT_ISSUED" || result.CallID != "c1" || result.Tool != "get_category_drivers" {
+			t.Fatalf("unexpected result %+v", result)
+		}
+		next, _ := result.Facts["next_step"].(string)
+		if !strings.Contains(next, "get_cycle_changes") {
+			t.Fatalf("the result must tell the model what to do next, got %q", next)
+		}
+	}
+	for _, err := range []error{nil, errors.New("database unavailable"), context.DeadlineExceeded, errors.New("category_ref required")} {
+		if _, ok := recoverableAnalyticsRead(base, err); ok {
+			t.Fatalf("%v must stay an error", err)
+		}
+	}
+}
+
+// The apology blames slowness only when the model was slow.
+func TestTerminalTextCopyDependsOnTheCause(t *testing.T) {
+	slow, slowReason := terminalTextFailureCopy(true)
+	other, otherReason := terminalTextFailureCopy(false)
+	if slowReason != "TIMEOUT" || otherReason != "ERROR" {
+		t.Fatalf("reasons: %s / %s", slowReason, otherReason)
+	}
+	if !strings.Contains(slow, "lambat") {
+		t.Fatalf("a timeout may say the assistant was slow: %q", slow)
+	}
+	if strings.Contains(other, "lambat") || !strings.Contains(other, "tulis ulang") {
+		t.Fatalf("a non-timeout failure must not blame slowness and should say how to retry: %q", other)
 	}
 }
