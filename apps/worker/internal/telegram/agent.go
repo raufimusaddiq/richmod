@@ -228,6 +228,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()
 	generativeRan = true
+	// A turn that needs several model phases can take a while; say so once
+	// instead of leaving the household to wonder.
+	stopProgress := startProgressNotice(ProgressNoticeDelay, func(noticeCtx context.Context) error {
+		return p.enqueueProgressNotice(noticeCtx, state.Update)
+	})
+	defer stopProgress()
 	return p.runAgentLoop(turnCtx, agentGateway, state)
 }
 
