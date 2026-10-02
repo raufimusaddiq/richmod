@@ -223,3 +223,4 @@
 .shape-charts > * { min-width: 0; }
 @container (min-width: 820px) { .shape-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: no-preference) { .ledger-table td[data-selected], .ledger-table th[data-selected], .ledger-table th[data-selected] button { transition: background-color .2s ease; } }
+.shape-charts > .cycle-pace { margin-top: 0; }

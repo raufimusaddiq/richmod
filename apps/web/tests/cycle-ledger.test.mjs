@@ -314,6 +314,7 @@ test("choosing a category opens its evidence without moving the reader; length a
   assert.match(css, /#spending-shape \{ container-type: inline-size; \}/);
   assert.match(css, /@container \(min-width: 820px\) \{ \.shape-charts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \}/, "the two daily charts sit side by side when the section is wide");
   assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{ \.ledger-table td\[data-selected\]/, "the selected column eases in only when motion is allowed");
+  assert.match(css, /\.shape-charts > \.cycle-pace \{ margin-top: 0; \}/, "the grid gap spaces the charts, so the pace chart does not sit lower than its neighbour");
   const insight = text("app/components/InsightCard.js");
   assert.match(insight, /tiap 5 detik hingga sekitar 7 menit/);
   assert.match(text("app/lib/insightData.js"), /attempts = 90[^]*wait\(5000, signal\)/, "the stated wait matches the polling budget: 90 x 5s");
