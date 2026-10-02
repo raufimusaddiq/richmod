@@ -107,7 +107,7 @@ rows read per turn:      40         (was 20)
 kept whole:              the newest 6 rows, including tool results
 older rows:              user and assistant text only, clipped to 200 / 300
                          characters, tool results dropped, marked "compacted"
-text budget:             6,000 characters; the oldest compacted rows go first,
+text budget:             6,000 characters (not bytes); the oldest compacted rows go first,
                          the newest rows are never dropped
 ```
 
@@ -118,7 +118,10 @@ model call to every turn, and add one more call that can time out; Go trims text
 and drops bulky tool data instead, and exact figures are fetched again by READ
 tools when they are needed. A retried message is saved once: the USER and
 ASSISTANT rows are written once per source event, while TOOL rows (one per call)
-are not deduplicated.
+are not deduplicated. The guarantee holds under concurrency (two workers after a
+stale-lock reclaim) through a transaction-scoped advisory lock on the event and
+role; a unique index would need a migration that deletes the duplicates retries
+already left behind, so it is not used.
 
 A typed message is never left without an answer. When it will not be retried
 again (a model timeout on the second attempt, or any failure on the last

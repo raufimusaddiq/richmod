@@ -69,11 +69,11 @@ func TestCompactionBudgetDropsTheOldestCompactedTurnsFirstAndNeverTheNewest(t *t
 	got := compactConversation(input)
 	total := 0
 	for _, turn := range got {
-		total += len(turn.Text)
+		total += len([]rune(turn.Text))
 	}
 	tailText := 0
 	for _, turn := range input[len(input)-verbatimTurns:] {
-		tailText += len(turn.Text)
+		tailText += len([]rune(turn.Text))
 	}
 	if total > conversationCharBudget && total > tailText {
 		t.Fatalf("text %d exceeds the budget %d even though older turns could still be dropped", total, conversationCharBudget)
@@ -132,5 +132,26 @@ func TestMemoryWindowIsLongerThanAnHourButBounded(t *testing.T) {
 	}
 	if conversationScanRows < 20 || verbatimTurns < 2 || conversationCharBudget < 2000 {
 		t.Fatal("memory limits are too small to carry a follow-up")
+	}
+}
+
+// The budget is in characters, so text with multi-byte characters is not counted
+// as if each were several characters.
+func TestCompactionBudgetCountsCharactersNotBytes(t *testing.T) {
+	// 40 older turns of 150 two-byte characters: 6,000 characters in total fit the
+	// budget, but the same text measured in bytes (12,000) would not.
+	var turns []PublicTurn
+	for i := 0; i < 40; i++ {
+		turns = append(turns, PublicTurn{Role: "USER", Text: strings.Repeat("é", 150)})
+	}
+	turns = append(turns, make([]PublicTurn, verbatimTurns)...)
+	kept := 0
+	for _, turn := range compactConversation(turns) {
+		if turn.Compacted {
+			kept++
+		}
+	}
+	if kept < 30 {
+		t.Fatalf("multi-byte text must not be dropped as if it were twice as long, kept %d of 40", kept)
 	}
 }

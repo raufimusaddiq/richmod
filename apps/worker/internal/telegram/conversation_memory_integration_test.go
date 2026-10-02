@@ -3,6 +3,7 @@ package telegram
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -154,5 +155,38 @@ func TestRecentConversationIsBoundedForALongChat(t *testing.T) {
 	}
 	if got[len(got)-1].Text != fmt.Sprintf("turn %03d", conversationScanRows*3-1) {
 		t.Fatalf("the newest turn must be present and last, got %q", got[len(got)-1].Text)
+	}
+}
+
+// Two workers saving the same turn at the same moment (a stale lock reclaimed
+// while the first attempt is still finishing) must still leave one USER row and
+// one ASSISTANT row.
+func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
+	f := newTerminalFixture(t)
+	processor := NewProcessor(f.pool, nil)
+	event := f.event(91)
+	update := f.updateFor(91)
+	var wg sync.WaitGroup
+	errs := make(chan error, 32)
+	for i := 0; i < 16; i++ {
+		for _, role := range []string{"USER", "ASSISTANT"} {
+			wg.Add(1)
+			go func(role string) {
+				defer wg.Done()
+				errs <- processor.persistTurn(f.ctx, f.householdID, event, update, role, "teks "+role, "", nil)
+			}(role)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, role := range []string{"USER", "ASSISTANT"} {
+		if got := f.turnCount(`source_event_id=$2::uuid AND role=$3`, event, role); got != 1 {
+			t.Fatalf("concurrent saves must leave one %s row, got %d", role, got)
+		}
 	}
 }

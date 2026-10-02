@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
 
 type PublicTurn struct {
@@ -41,17 +42,36 @@ const (
 // persistTurn stores one conversation turn. A retried message runs the turn
 // again, so the USER and ASSISTANT rows are saved once per source event; TOOL
 // rows (one per call) and rows without a source event are always inserted.
+//
+// "Once" holds even if two workers save the same turn at the same time (a stale
+// lock reclaimed while the first attempt is still finishing): for those rows the
+// insert runs behind a transaction-scoped advisory lock on the event and role, so
+// the second saver waits, then sees the first row and skips. A unique index would
+// give the same guarantee, but it would need a migration that first deletes the
+// duplicate rows retries already left behind.
 func (p *Processor) persistTurn(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, role, text, tool string, public map[string]any) error {
 	if p.pool == nil {
 		return nil
 	}
 	encoded, _ := json.Marshal(public)
-	_, err := p.pool.Exec(ctx, `INSERT INTO telegram_conversation_turn(household_id,telegram_user_id,telegram_chat_id,source_event_id,role,message_text,tool_name,public_context_json,telegram_message_id)
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if sourceEventID != "" && (role == "USER" || role == "ASSISTANT") {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, "telegram_turn:"+sourceEventID+":"+role); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO telegram_conversation_turn(household_id,telegram_user_id,telegram_chat_id,source_event_id,role,message_text,tool_name,public_context_json,telegram_message_id)
 		SELECT $1::uuid,$2::bigint,$3::bigint,NULLIF($4::text,'')::uuid,$5::text,NULLIF($6::text,''),NULLIF($7::text,''),$8::jsonb,$9::bigint
 		WHERE $5::text NOT IN ('USER','ASSISTANT') OR NULLIF($4::text,'') IS NULL
 		   OR NOT EXISTS (SELECT 1 FROM telegram_conversation_turn WHERE source_event_id=NULLIF($4::text,'')::uuid AND role=$5::text)`,
-		householdID, update.Message.From.ID, update.Message.Chat.ID, sourceEventID, role, text, tool, encoded, update.Message.MessageID)
-	return err
+		householdID, update.Message.From.ID, update.Message.Chat.ID, sourceEventID, role, text, tool, encoded, update.Message.MessageID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // recentConversation returns the chat's recent turns, oldest first, compacted.
@@ -106,15 +126,16 @@ func compactConversation(turns []PublicTurn) []PublicTurn {
 		older = append(older, PublicTurn{Role: turn.Role, Text: clipRunes(turn.Text, limit), Compacted: true})
 	}
 	verbatim := turns[cut:]
+	// The budget counts characters, not bytes, so non-ASCII text is not penalized.
 	total := 0
 	for _, turn := range verbatim {
-		total += len(turn.Text)
+		total += utf8.RuneCountInString(turn.Text)
 	}
 	for _, turn := range older {
-		total += len(turn.Text)
+		total += utf8.RuneCountInString(turn.Text)
 	}
 	for len(older) > 0 && total > conversationCharBudget {
-		total -= len(older[0].Text)
+		total -= utf8.RuneCountInString(older[0].Text)
 		older = older[1:]
 	}
 	return append(older, verbatim...)
