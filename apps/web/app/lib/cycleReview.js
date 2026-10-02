@@ -83,7 +83,7 @@ export const reviewSteps = [
 export const qualityCopy = {
   OPEN_REVIEWS: ["tinjauan belum selesai", "Buka Inbox"],
   UNCATEGORIZED_EXPENSE: ["pengeluaran belum dikategorikan", "Lihat transaksi"],
-  PROCESSING_INCOMPLETE: ["sumber belum selesai diproses", "Buka Inbox"],
+  PROCESSING_INCOMPLETE: ["sumber belum selesai diproses", "Buka Tindakan"],
   MISSING_SALARY_ANCHOR: ["Belum ada gaji utama terkonfirmasi untuk menentukan siklus", "Buka pengaturan"],
   MISSING_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan untuk periode ini", "Perbarui Kekayaan"],
   MISSING_PREVIOUS_WEALTH_SNAPSHOT: ["Belum ada catatan kekayaan sebelum siklus ini", "Buka Kekayaan"],

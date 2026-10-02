@@ -380,3 +380,15 @@ test("the visual smoke fails on scrolling regions that keyboard users cannot rea
   assert.match(smoke, /async function unreachableScrollers\(page\)/);
   assert.match(smoke, /scrolling regions without keyboard access or a name/);
 });
+
+test("unfinished sources link to the Tindakan tab, which can show and close them", () => {
+  const sections = text("app/analytics/CycleSections.js");
+  assert.match(sections, /\["\/inbox", "\/inbox\?view=actions", "\/wealth", "\/settings"\]\.includes\(blocker\.action\)/);
+  assert.match(text("app/lib/cycleReview.js"), /PROCESSING_INCOMPLETE: \["sumber belum selesai diproses", "Buka Tindakan"\]/);
+  const inbox = text("app/inbox/page.js");
+  assert.match(inbox, /SOURCE_PROCESSING: "SUMBER"/);
+  assert.match(inbox, /actionKind\(item\.integrationType\)/);
+  assert.doesNotMatch(inbox, /item\.integrationType === "EMAIL_FORWARDING"/);
+  // The Tindakan tab is a real view, so the link target exists.
+  assert.match(inbox, /view=actions|=== "actions"/);
+});

@@ -6,6 +6,9 @@ Accepted — 2026-09-27.
 
 Amended — 2026-09-28: human-review materiality and machine-failure eligibility.
 
+Amended — 2026-10-02: a terminal machine failure still opens no review, but it
+leaves a dismissable Tindakan item so the household can see it (ADR-049).
+
 ## Context
 
 Many current validators return a boolean/error that is sufficient for local code
