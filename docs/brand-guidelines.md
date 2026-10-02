@@ -74,13 +74,19 @@ that source; it does not introduce a parallel token file.
 
 | Role | Family | Weight | Notes |
 | --- | --- | --- | --- |
-| Display | Fraunces (variable, self-hosted) | 500-600 | `h1`, `h2`, `h3`, brand wordmark |
+| Display | Fraunces (variable, self-hosted; weight and `SOFT` axes) | 500-600 | `h1`, `h2`, `h3`, brand wordmark |
 | Body and UI | Inter (variable, self-hosted) | 400-600 | Paragraphs, controls, tables, chart ticks |
 | Numerals | Inter | 400-600 | `font-variant-numeric: tabular-nums` on every amount |
 
 Both files are Latin subsets under `apps/web/public/fonts/`, loaded with
-`display: swap` and a local sans-serif fallback. Keep the body floor at 11px;
-`ui-audit-locks.test.mjs` fails on smaller text.
+`display: swap` and a local sans-serif fallback. Keep the text floor at 12px
+(`--text-xs`); `ui-audit-locks.test.mjs` fails on smaller text. Small links and
+tabs keep a 32px hit area (44px on touch devices).
+
+Headings use Fraunces at `SOFT` 100 (`--font-display-soft`), which rounds the
+serifs and thickens hairlines so card titles do not read as a default Times
+face. The bundled file carries the weight and `SOFT` axes only; it has no
+optical-size axis.
 
 ### Font Stack
 

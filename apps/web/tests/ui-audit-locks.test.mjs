@@ -38,12 +38,12 @@ test("every text colour clears WCAG AA 4.5:1 on every surface", () => {
   }
 });
 
-test("type scale is tokenised and no text renders below 11px", () => {
+test("type scale is tokenised and no text renders below 12px", () => {
   const source = css();
   for (const token of ["text-xs", "text-sm", "text-md", "text-base", "text-lg", "text-xl", "weight-semibold"]) assert.match(source, new RegExp(`--${token}: `));
   const sizes = [...source.matchAll(/font-size: ([0-9.]+)px/g)].map(match => Number(match[1]));
   assert.ok(sizes.length > 0);
-  assert.equal(Math.min(...sizes), 11, "micro type below 11px is not allowed");
+  assert.equal(Math.min(...sizes), 12, "micro type below 12px is not allowed");
 });
 
 test("brand fonts are bundled and the guideline matches the existing token source", () => {
