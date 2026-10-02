@@ -106,7 +106,7 @@ test("review page keeps month-end inclusive bounds and no browser-side totals", 
 
 test("cycle explanations use native disclosures without hiding financial facts", () => {
   const page = tree("app/analytics");
-  assert.match(page, /<details className="review-explainer"><summary>Tentang data ini<\/summary><p>\{description\}<\/p><\/details>/);
+  assert.match(page, /<details className="review-explainer"><summary>Tentang \{about \|\| "data ini"\}<\/summary><p>\{description\}<\/p><\/details>/);
   assert.match(page, /<span>Refund <strong>\{money\(facts.cashflow.refund\)\}<\/strong><\/span>/);
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
   for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(page, new RegExp(`money\\(facts.cashflow.${field}\\)`));

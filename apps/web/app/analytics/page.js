@@ -80,6 +80,8 @@ function AnalyticsReview() {
   const cycleStart = facts?.period?.kind === "SALARY_CYCLE" ? facts.period.start : "";
   const cycleEnd = facts?.period?.measuredUntil || "";
   const cycleState = facts?.period?.state || "";
+  const [allOpen, setAllOpen] = useState(false);
+  useEffect(() => { setAllOpen(false); }, [cycleStart]);
   const loadInsights = useCallback(async signal => {
     const query = new URLSearchParams({ cycle_start: cycleStart });
     const response = await fetch(`/api/v1/insights?${query}`, { signal, cache: "no-store" });
@@ -135,6 +137,8 @@ function AnalyticsReview() {
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   const selectedCategory = selection.category ? facts?.categoryChanges.find(item => (item.id || "uncategorized") === selection.category) : null;
   const adjacent = adjacentCycles(facts?.cycles, facts?.period?.start);
+  // Choosing the selected category again clears it; in a meeting, choosing one moves on to its evidence.
+  const chooseCategory = category => navigate({ category: category === selection.category ? "" : category, ...(meeting && category !== selection.category ? { step: "drivers" } : {}) });
   const refreshing = selection.view === "cycle" && loading && Boolean(facts);
   return <AppShell user={user} eyebrow="Analisis" title={selection.view === "calendar" ? "Analisis kalender" : "Laporan siklus"}>
     <div className="analytics-flow cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
@@ -167,13 +171,13 @@ function AnalyticsReview() {
             <small>Data sampai {dayLabel(facts.period.measuredUntil)} (batas akhir tidak termasuk).</small>
             {facts.period.kind !== "SALARY_CYCLE" && <p>Menampilkan bulan kalender sementara. Belum ada gaji utama terkonfirmasi untuk menentukan siklus.</p>}
             {facts.period.kind === "SALARY_CYCLE" && facts.period.state === "CLOSED" && !meeting && <button type="button" onClick={() => navigate({ step: "position" })}>Tinjau siklus ini</button>}
-            {!meeting && <button type="button" className="secondary" onClick={event => event.currentTarget.closest(".cycle-review").querySelectorAll("details").forEach(details => { details.open = true; })}>Buka semua detail</button>}
+            {!meeting && <button type="button" className="secondary" onClick={event => { const next = !allOpen; event.currentTarget.closest(".cycle-review").querySelectorAll("details").forEach(details => { details.open = next; }); setAllOpen(next); }}>{allOpen ? "Tutup semua detail" : "Buka semua detail"}</button>}
           </div>
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
-          {facts.history?.length > 0 && <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={verdictPairs(facts)} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={category => navigate({ category, ...(meeting ? { step: "drivers" } : {}) })}/>}
+          {facts.history?.length > 0 && <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={verdictPairs(facts)} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>}
           <CyclePosition facts={facts}/>
           <section id="spending-shape" className="review-section analytics-chart" aria-labelledby="shape-title">
-            <SectionTitle id="shape-title" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
+            <SectionTitle id="shape-title" about="pola pengeluaran" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
             <CycleSpendingPatternChart items={facts.daily} average={facts.spendingShape.averageDailyExpense} height={260}/>
             <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={facts.pace} height={220}/>
             <dl className="review-context">
@@ -189,7 +193,7 @@ function AnalyticsReview() {
             <summary><h2 id="changes-title" tabIndex={-1}>Detail perubahan</h2><span>Pembanding, selisih per kategori, tabel lengkap</span></summary>
             <p className="review-description">Perubahan kategori diurutkan berdasarkan selisih absolut oleh server. Besar perubahan bukan penilaian baik atau buruk.</p>
             <ComparisonContext comparison={facts.comparison} period={facts.period}/>
-            <ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={category => navigate({ category, ...(meeting ? { step: "drivers" } : {}) })}/>
+            <ChangesTable items={facts.categoryChanges} comparison={facts.comparison} selected={selection.category} select={chooseCategory}/>
             </details>
           </section>
           <section id="drivers" className="review-section" aria-labelledby="drivers-title">
