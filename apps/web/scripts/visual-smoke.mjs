@@ -142,6 +142,20 @@ async function compareScreenshot(page, name) {
   assert.ok(result.ratio <= 0.005, `${name} visual difference ${(result.ratio * 100).toFixed(2)}% exceeds 0.50%`);
 }
 
+// A region that scrolls but cannot be focused (and has no name) is invisible to keyboard and screen-reader users.
+async function unreachableScrollers(page) {
+  return page.evaluate(() => [...document.querySelectorAll("main *, aside *, dialog *")].filter(element => {
+    const style = getComputedStyle(element);
+    if (element.clientWidth === 0 || element.clientHeight === 0) return false;
+    const scrollsX = (style.overflowX === "auto" || style.overflowX === "scroll") && element.scrollWidth > element.clientWidth + 1;
+    const scrollsY = (style.overflowY === "auto" || style.overflowY === "scroll") && element.scrollHeight > element.clientHeight + 1;
+    if (!scrollsX && !scrollsY) return false;
+    const focusable = element.tabIndex >= 0 || Boolean(element.querySelector('a[href], button, input, select, textarea, [tabindex="0"]'));
+    const named = element.tabIndex < 0 || Boolean(element.getAttribute("aria-label") || element.getAttribute("aria-labelledby"));
+    return !(focusable && named);
+  }).map(element => `${element.tagName.toLowerCase()}.${String(element.className).split(" ")[0]}`));
+}
+
 async function run() {
   await mkdir(output, { recursive: true });
   await mkdir(regressionOutput, { recursive: true });
@@ -344,6 +358,25 @@ async function run() {
         assert.equal(await legalPage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${path} has horizontal overflow`);
       }
       await legalPage.close();
+
+      // Scrolling regions must be reachable by keyboard and named. The extraction route returns a long line so the drawer's <pre> really overflows.
+      const scrollPage = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+      await intercept(scrollPage);
+      await scrollPage.route("**/api/v1/documents/*/extraction", route => route.fulfill({ json: [{ stage: "RECEIPT", schemaVersion: 1, validated: true, output: { merchant: "Pasar Minggu", note: "x".repeat(400) } }] }));
+      const unreachableByPage = {};
+      for (const path of ["/analytics", "/documents"]) {
+        console.log(`Visual smoke: scrollers ${path}`);
+        await scrollPage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
+        await scrollPage.locator("#main-content").waitFor();
+        if (path === "/documents") await scrollPage.locator(".document-card").first().click();
+        if (path === "/documents") await scrollPage.locator(".detail-drawer").waitFor();
+        if (path === "/documents") await scrollPage.locator(".detail-drawer pre").first().waitFor({ state: "attached" }); // the extraction arrives after the drawer opens
+        await scrollPage.evaluate(() => document.querySelectorAll("details").forEach(details => { details.open = true; }));
+        if (path === "/documents") await scrollPage.locator(".detail-drawer pre").first().waitFor();
+        unreachableByPage[path] = await unreachableScrollers(scrollPage);
+      }
+      assert.deepEqual(Object.fromEntries(Object.entries(unreachableByPage).filter(([, regions]) => regions.length)), {}, "scrolling regions without keyboard access or a name");
+      await scrollPage.close();
     } finally {
       await browser.close();
     }

@@ -54,4 +54,5 @@
 .timeline span, .extraction span, .timeline small { color: var(--muted); font-size: var(--text-xs); }
 .extraction > div { display: flex; justify-content: space-between; gap: 12px; }
 .extraction pre { max-width: 100%; overflow: auto; padding: 12px; border-radius: 8px; background: var(--ink); color: var(--surface-strong); font-size: var(--text-xs); }
+.extraction pre { background-color: var(--ink); background-image: linear-gradient(to right, var(--ink) 30%, rgb(37 58 54 / 0)), linear-gradient(to left, var(--ink) 30%, rgb(37 58 54 / 0)), radial-gradient(farthest-side at 0 50%, rgb(255 252 244 / .35), rgb(255 252 244 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(255 252 244 / .35), rgb(255 252 244 / 0)); background-position: left center, right center, left center, right center; background-size: 28px 100%, 28px 100%, 10px 100%, 10px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; } /* the edge shadow shows only while the text overflows */
 
