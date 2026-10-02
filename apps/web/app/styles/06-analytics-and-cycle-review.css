@@ -90,7 +90,7 @@
 .cycle-review .cycle-outcome .cycle-net { padding-block: var(--space-4); }
 .cycle-review .cycle-outcome > div { padding: var(--space-3) var(--space-4); }
 .cycle-review .cycle-outcome dd { overflow-wrap: anywhere; }
-.cycle-review .review-context { border: 0; background: none; border-radius: 0; gap: var(--space-3); margin-top: var(--space-3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cycle-review .review-context { gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); grid-template-columns: repeat(2, minmax(0, 1fr)); } /* a rounded tile like the other cards, never a flat square strip */
 .cycle-review .review-context > div { padding: 0; background: none; }
 .report-disclosure > summary { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); min-height: 44px; padding-block: var(--space-2); cursor: pointer; touch-action: manipulation; }
 .report-disclosure > summary::before { content: "+"; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
