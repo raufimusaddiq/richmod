@@ -7,10 +7,9 @@ import useDrawerA11y from "../components/useDrawerA11y";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import { money, dateTime } from "../lib/format";
 import { NetWorthHistoryChart } from "../components/Charts";
+import { usageRoleLabel, wealthTypeLabel } from "../lib/labels";
 
 const empty = { accounts: [], snapshots: [], latest: null, previous: null, summary: null, currentCycle: null, cycleRecaps: [], observation: null, observations: [] };
-const wealthTypeLabel = { BANK: "Bank", CASH: "Tunai", EWALLET: "Dompet digital", MUTUAL_FUND: "Reksa dana", GOLD: "Emas", BROKERAGE: "Rekening efek", DEPOSIT: "Deposito", CRYPTO: "Kripto", LOAN: "Pinjaman", OTHER: "Lainnya" };
-const usageRoleLabel = { TRANSACTIONAL: "Transaksional", SAVINGS: "Tabungan", INVESTMENT: "Investasi", OTHER: "Lainnya" };
 const reviewStatusLabel = { CURRENT: "Perlu direkonsiliasi", RESOLVED: "Sudah direkonsiliasi", STALE: "Perlu diperbarui", LEFT_UNALLOCATED: "Dibiarkan belum dialokasikan", NO_LONGER_APPLICABLE: "Tidak berlaku", NOT_REVIEWED: "Belum ditinjau" };
 
 export function jakartaDateTimeLocal(date = new Date()) {

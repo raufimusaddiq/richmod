@@ -301,7 +301,9 @@ test("the viewport extends under the notch and safe-area insets keep content cle
 });
 
 test("the login form sits close to the top on phones and is not centred in a void on tablets", () => {
-  assert.match(css(), /\.login-layout \{ display: block; min-height: auto; padding: 28px 16px 42px; \}/);
+  assert.match(css(), /\.login-layout \{ display: flex; flex-direction: column; gap: 16px; min-height: auto; padding: 28px 16px 42px; \}/);
+  assert.match(css(), /\.login-context \{ display: contents;/);
+  assert.match(css(), /\.login-card \{ order: 3; \}/);
   assert.match(css(), /@media \(min-width: 681px\) and \(max-width: 1100px\) \{\s*\.login-layout \{ min-height: auto; padding-top: 56px; padding-bottom: 40px; \}/);
 });
 
