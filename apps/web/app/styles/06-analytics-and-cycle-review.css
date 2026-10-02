@@ -1,13 +1,13 @@
 .analytics-flow { display: grid; gap: 18px; }
-.analytics-kpis, .system-metrics, .admin-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 18px; overflow: hidden; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--line); box-shadow: var(--shadow); }
+.analytics-kpis, .admin-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 18px; overflow: hidden; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--line); box-shadow: var(--shadow); }
 .admin-metrics { gap: 0; background: var(--surface); }
 .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
 .admin-metric:nth-child(-n + 4) { border-top: 0; }
 .admin-metric:nth-child(4n + 1) { border-left: 0; }
 .analytics-flow > .analytics-kpis { margin: 0; }
-.analytics-kpis article, .system-metrics article, .admin-metric { padding: 18px; background: var(--surface); }
-.analytics-kpis span, .system-metrics span, .admin-metric span { display: block; color: var(--muted); font-size: var(--text-xs); }
-.analytics-kpis strong, .system-metrics b, .admin-metric b { display: block; margin-top: 5px; font-size: var(--text-xl); font-variant-numeric: tabular-nums; line-height: 1.25; }
+.analytics-kpis article, .admin-metric { padding: 18px; background: var(--surface); }
+.analytics-kpis span, .admin-metric span { display: block; color: var(--muted); font-size: var(--text-xs); }
+.analytics-kpis strong, .admin-metric b { display: block; margin-top: 5px; font-size: var(--text-xl); font-variant-numeric: tabular-nums; line-height: 1.25; }
 .analytics-detail-layout, .admin-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, .75fr); gap: 18px; }
 .analytics-detail-side, .admin-stack, .settings-sections { display: grid; align-content: start; gap: 18px; }
 .settings-sections { max-width: 1680px; }
@@ -170,7 +170,7 @@
 .ledger-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
 .ledger-cards li { padding: var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
 .ledger-cards li[data-selected] { background: var(--butter); border-color: var(--ink); }
-.ledger-cards button { display: block; width: 100%; min-height: 44px; border: 0; background: none; text-align: left; }
+.ledger-cards button { display: block; width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; }
 .ledger-cards button b { display: block; font-size: var(--text-lg); }
 .ledger-cards button small { color: var(--muted); font-size: var(--text-sm); }
 .ledger-cards dl { margin: var(--space-2) 0 0; display: grid; gap: var(--space-1); }
@@ -196,7 +196,7 @@
 /* Phones: a whole number of cycle columns fits beside the label (four, three on the narrowest),
    so no column is cut at the label edge and the end of the scroll lines up with a column. */
 @container (max-width: 520px) {
-  .ledger-table { --label: 5.5rem; --visible: 4; --col: calc((100cqw - var(--label)) / var(--visible)); width: calc(var(--label) + var(--cols, 6) * var(--col)); }
+  .ledger-table { --label: 5.5rem; --visible: 4; --shown: min(var(--visible), var(--cols, 6)); --col: calc((100cqw - var(--label)) / var(--shown)); width: calc(var(--label) + var(--cols, 6) * var(--col)); } /* with fewer cycles than --visible the columns share the whole width */
   .ledger-table thead th:first-child, .ledger-table tbody th { width: var(--label); }
   .ledger-table thead th:not(:first-child) { width: var(--col); }
 }

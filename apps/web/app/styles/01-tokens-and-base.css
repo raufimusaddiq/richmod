@@ -88,7 +88,7 @@ h1, h2, h3 { font-family: var(--font-display); font-optical-sizing: auto; letter
 small { font-size: var(--text-xs); } /* the browser default (83%) is 11.67px, below the 12px floor */
 /* Softer, rounder Fraunces: matches the 2px-outline, rounded-card theme. The bundled file carries the weight and SOFT axes only. */
 h1, h2, h3, .brand div, .public-brand strong, .workflow-number { font-variation-settings: "SOFT" var(--font-display-soft); }
-strong, .transaction-amount, .detail-amount, .admin-metric b, .system-metrics b { font-variant-numeric: tabular-nums; }
+strong, .transaction-amount, .detail-amount, .admin-metric b { font-variant-numeric: tabular-nums; }
 ::selection { background: var(--accent-soft); color: var(--ink); }
 body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); } /* 0 in portrait; clears the notch in landscape */
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }

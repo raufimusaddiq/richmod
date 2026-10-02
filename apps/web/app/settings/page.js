@@ -13,14 +13,14 @@ const capabilityInputStyle = { width: 24, height: 24, minHeight: 24, padding: 0,
 export default function SettingsPage() {
   const { confirm, prompt, dialogs } = useDialogs();
   const user = useAuth();
-  const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [], financialSources: [], emailIngress: null });
+  const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], salarySources: [], listeners: [], financialSources: [], emailIngress: null });
   const [error, setError] = useState(""); const [working, setWorking] = useState(""); const [financialPreview, setFinancialPreview] = useState(null); const [editingFinancialSource, setEditingFinancialSource] = useState(null);
   const owner = user?.household?.role === "OWNER";
   const load = useCallback(async () => {
-    const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress"];
+    const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress"];
     const responses = await Promise.all(endpoints.map(value => fetch(`/api/v1/${value}`)));
     const values = await Promise.all(responses.map(response => response.ok ? response.json() : null));
-    setData({ accounts: values[0] || [], wealthAccounts: values[1] || [], categories: values[2] || [], aliases: values[3] || [], known: values[4] || [], members: values[5] || [], operations: values[6], salarySources: values[7] || [], listeners: values[8] || [], financialSources: values[9] || [], emailIngress: values[10] });
+    setData({ accounts: values[0] || [], wealthAccounts: values[1] || [], categories: values[2] || [], aliases: values[3] || [], known: values[4] || [], members: values[5] || [], salarySources: values[6] || [], listeners: values[7] || [], financialSources: values[8] || [], emailIngress: values[9] });
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
 
@@ -75,7 +75,6 @@ export default function SettingsPage() {
       <SettingsSection title="Email, Telegram, dan gateway" description="Alamat email dibuat Richmod dan aktif hanya setelah pemilik melakukan cutover.">
         <div className="integration-grid"><article><span className={`health-dot ${data.emailIngress?.status === "ACTIVE" ? "ok" : ""}`}/><div><b>Email notifikasi bank</b><small>{data.emailIngress?.address || "Alamat belum dibuat"}{data.emailIngress?.status ? ` · ${data.emailIngress.status}` : ""}{data.emailIngress?.lastReceivedAt ? ` · diterima ${dateTime(data.emailIngress.lastReceivedAt)}` : ""}</small></div><div className="integration-actions">{owner && !data.emailIngress?.address && <button className="secondary" disabled={working === "email-ingress-create"} onClick={() => emailIngressAction()}>Buat alamat</button>}{data.emailIngress?.address && <button className="secondary" onClick={copyEmailIngress}>Salin</button>}{owner && data.emailIngress?.status === "PROVISIONED" && <button disabled={working === "email-ingress-activate"} onClick={() => emailIngressAction("activate")}>Aktifkan</button>}{owner && data.emailIngress?.address && <button className="secondary" disabled={working === "email-ingress-rotate"} onClick={async () => { if (await confirm("Alamat lama akan dinonaktifkan. Lanjutkan?", { confirmLabel: "Rotasi alamat", danger: true })) emailIngressAction("rotate"); }}>Rotasi</button>}</div></article><article><span className={`health-dot ${data.members.some(item => item.telegramConnected) ? "ok" : ""}`}/><div><b>Telegram bot</b><small>{data.members.filter(item => item.telegramConnected).length} anggota terhubung</small></div><a className="button secondary" href="/household">Kelola</a></article><article><span className={`health-dot ${data.operations?.worker?.healthy && data.operations?.llmGateway?.configured ? "ok" : ""}`}/><div><b>Worker & LLM gateway</b><small>Worker {data.operations?.worker?.healthy ? "sehat" : "perlu perhatian"} · gateway {data.operations?.llmGateway?.configured ? "terkonfigurasi" : "tidak dikonfigurasi"}</small></div></article></div>
       </SettingsSection>
-      <SettingsSection title="Status pemrosesan" description={`Diperiksa ${dateTime(data.operations?.checkedAt)}`}><div className="system-metrics"><article><span>Status</span><b>{data.operations?.status || "—"}</b></article><article><span>Pekerjaan menunggu</span><b>{data.operations?.jobs?.pending ?? "—"}</b></article><article><span>Pekerjaan gagal</span><b>{data.operations?.jobs?.failed ?? "—"}</b></article><article><span>Antrean tinjauan</span><b>{data.operations?.reviewBacklog ?? "—"}</b></article></div></SettingsSection>
     </div>
   </AppShell>;
 }
