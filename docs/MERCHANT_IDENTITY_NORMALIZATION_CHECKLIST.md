@@ -12,4 +12,4 @@ Baseline: `main` at `c497f39`.
 - [x] Prefer a human-readable mixed-case stored name when merging existing duplicates.
 - [x] Verify migration through a disposable PostgreSQL 17 database with duplicate fixtures.
 - [x] Run complete API and worker tests/vet; run the merchant identity integration test against migration 41.
-- [ ] Commit, merge, and deploy only after explicit approval.
+- [x] Commit, merge, and deploy only after explicit approval. Merged as `40d8eca`; production DB is at migration 74 and runs `main`.
