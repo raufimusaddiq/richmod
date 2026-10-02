@@ -67,17 +67,14 @@ func Final(job Job, processErr error) bool {
 	return job.Attempts >= job.MaxAttempts || isPermanent(processErr)
 }
 
-func (q *Queue) Fail(ctx context.Context, job Job, processErr error) error {
-	return q.FailWithHook(ctx, job, processErr, nil)
-}
-
-// FailWithHook is Fail plus a step that runs in the same transaction when the
-// attempt is the job's last. A caller that must tell someone the job is
-// giving up (queue a reply) can do it atomically: either the job is marked
-// FAILED and the notice is queued, or neither happens and the stale-lock claim
-// retries the job. If the hook itself cannot succeed (bad payload, say), the
-// job is still marked FAILED without it, because a job that can never be
-// failed would be reclaimed forever.
+// FailWithHook records a failed attempt: the job is rescheduled, or marked FAILED
+// when Final says it is the last. On the last attempt it also runs onFinal in the
+// same transaction, so a caller that must tell someone the job is giving up
+// (queue a reply) does it atomically: either the job is marked FAILED and the
+// notice is queued, or neither happens and the stale-lock claim retries the job.
+// Only the worker that still owns the job runs onFinal. If onFinal itself cannot
+// succeed (bad payload, say), the job is still marked FAILED without it, because
+// a job that can never be failed would be reclaimed forever.
 func (q *Queue) FailWithHook(ctx context.Context, job Job, processErr error, onFinal func(context.Context, pgx.Tx) error) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()

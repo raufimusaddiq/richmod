@@ -161,8 +161,9 @@ allowed to use different LLM contracts.
 - ADR-031's consequence that one native tool decision terminates a free-text
   model phase/turn is superseded. Multiple bounded model phases are allowed.
 - ADR-027's 10-second Telegram budget is amended for free-text conversation to a
-  20-second overall turn budget with an 8-second per-model-call limit. Other
-  task budgets remain unchanged.
+  45-second overall turn budget with an 8-second limit for a tool-selection call
+  and a 25-second limit for the answer call (see the limits above). Other task
+  budgets remain unchanged.
 
 ## ADR-038 amendment
 
