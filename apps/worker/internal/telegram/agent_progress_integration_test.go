@@ -1,8 +1,12 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
 )
 
 // The progress notice is a reply to the user's message. It must be sent once
@@ -71,5 +75,61 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 	var empty telegramUpdate
 	if err := processor.enqueueProgressNotice(f.ctx, empty); err != nil {
 		t.Fatalf("a message without a chat must be a no-op, got %v", err)
+	}
+}
+
+// A progress notice that was already sent must never swallow the terminal
+// failure notice: the household would be left with "still working" and then
+// nothing.
+func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
+	f := newTerminalFixture(t)
+	processor := NewProcessor(f.pool, nil)
+	jobs := queue.New(f.pool)
+
+	event := f.event(21)
+	var update telegramUpdate
+	update.Message.MessageID, update.Message.Chat.ID, update.Message.From.ID = 21, f.chatID, f.chatID
+	if err := processor.enqueueProgressNotice(f.ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	var notices int
+	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'text'=$2`,
+		fmt.Sprint(f.chatID), progressNoticeMessage).Scan(&notices); err != nil || notices != 1 {
+		t.Fatalf("setup: the progress notice must exist, got %d (%v)", notices, err)
+	}
+
+	job := f.job(event, 2)
+	hook := func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalTextFailureTx(ctx, tx, event) }
+	if err := jobs.FailWithHook(f.ctx, job, timeoutError(), hook); err != nil {
+		t.Fatal(err)
+	}
+	if f.jobStatus(job.ID) != "FAILED" || f.eventStatus(event) != "FAILED" {
+		t.Fatalf("job=%s event=%s", f.jobStatus(job.ID), f.eventStatus(event))
+	}
+	if got := f.replies(); got != 1 {
+		t.Fatalf("the terminal notice must still be queued after a progress notice, got %d", got)
+	}
+}
+
+// The notice's existence check is bounded: a reply to the same message that is
+// older than the lookback does not suppress it.
+func TestProgressNoticeIgnoresRepliesOlderThanTheLookback(t *testing.T) {
+	f := newTerminalFixture(t)
+	processor := NewProcessor(f.pool, nil)
+	if _, err := f.pool.Exec(f.ctx, `INSERT INTO job(type,payload_json,created_at) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',31::bigint,'text','lama'),now()-interval '1 hour')`, f.chatID); err != nil {
+		t.Fatal(err)
+	}
+	var update telegramUpdate
+	update.Message.MessageID, update.Message.Chat.ID, update.Message.From.ID = 31, f.chatID, f.chatID
+	if err := processor.enqueueProgressNotice(f.ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	var notices int
+	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'reply_to_message_id'='31' AND payload_json->>'text'=$2`,
+		fmt.Sprint(f.chatID), progressNoticeMessage).Scan(&notices); err != nil {
+		t.Fatal(err)
+	}
+	if notices != 1 {
+		t.Fatalf("a reply older than the lookback must not suppress the notice, got %d", notices)
 	}
 }

@@ -35,9 +35,19 @@ func startProgressNotice(delay time.Duration, send func(context.Context) error) 
 	}
 }
 
+// progressNoticeLookback bounds the existence check to this turn and its one
+// retry (two attempts of at most TextJobBudget each, plus the retry delay). The
+// job table has no index on the reply target, so an unbounded check would scan a
+// chat's whole history.
+const progressNoticeLookback = 10 * time.Minute
+
 // enqueueProgressNotice queues the notice as a reply to the user's message. It
-// is skipped if any reply to that message already exists, which makes it
-// idempotent across retries and keeps it from landing after the answer.
+// is skipped if a reply to that message was queued within the lookback, which
+// makes it idempotent across retries and keeps it from landing after the answer.
+//
+// Only the notice is guarded this way. The final answer and the terminal failure
+// notice are queued unconditionally, so an earlier progress notice can never
+// suppress either of them.
 func (p *Processor) enqueueProgressNotice(ctx context.Context, update telegramUpdate) error {
 	if p.pool == nil || update.Message.Chat.ID == 0 {
 		return nil
@@ -49,8 +59,9 @@ func (p *Processor) enqueueProgressNotice(ctx context.Context, update telegramUp
 		WHERE NOT EXISTS (
 		  SELECT 1 FROM job
 		  WHERE type='SEND_TELEGRAM_MESSAGE'
+		    AND created_at > now() - make_interval(secs => $4::double precision)
 		    AND (payload_json->>'chat_id')::bigint=$1::bigint
 		    AND (payload_json->>'reply_to_message_id')::bigint=$2::bigint)`,
-		update.Message.Chat.ID, update.Message.MessageID, progressNoticeMessage)
+		update.Message.Chat.ID, update.Message.MessageID, progressNoticeMessage, progressNoticeLookback.Seconds())
 	return err
 }

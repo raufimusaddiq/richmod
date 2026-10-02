@@ -84,6 +84,9 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 	if err != nil {
 		return err
 	}
+	// Unconditional on purpose: an earlier progress notice must never suppress the
+	// failure notice (the household would be left with "still working" and then
+	// nothing). Only the progress notice checks for existing replies.
 	return enqueueReply(ctx, tx, update, terminalTextFailureMessage)
 }
 
