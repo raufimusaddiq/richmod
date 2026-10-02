@@ -14,6 +14,8 @@ const routes = ["/", "/transactions", "/analytics", "/inbox", "/documents", "/ho
 const viewports = [
   ["desktop", 1440, 900],
   ["tablet", 1024, 768],
+  ["tablet-small", 700, 900],
+  ["tablet-portrait", 768, 1024],
   ["mobile", 390, 844],
   ["wide", 2560, 1440],
 ];
@@ -161,6 +163,11 @@ async function run() {
           await page.locator("#main-content").waitFor();
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
           assert.equal(overflow, false, `${name} ${path} has horizontal overflow`);
+          // Cards use overflow: hidden, so document-level overflow cannot see a clipped column.
+          const clippedAmounts = await page.evaluate(() => [...document.querySelectorAll(".transaction-amount")].filter(element => { const card = element.closest(".surface"); return card && element.getBoundingClientRect().right > card.getBoundingClientRect().right + 1; }).length);
+          assert.equal(clippedAmounts, 0, `${name} ${path} clips transaction amounts inside their card`);
+          const clippedHeads = await page.evaluate(() => [...document.querySelectorAll(".table-head")].filter(element => { const card = element.closest(".surface"); return element.scrollWidth > element.clientWidth + 1 || (element.lastElementChild && card && element.lastElementChild.getBoundingClientRect().right > card.getBoundingClientRect().right + 1); }).length);
+          assert.equal(clippedHeads, 0, `${name} ${path} clips the transaction table header inside its card`);
           const smallText = await page.evaluate(() => [...document.querySelectorAll("body *")]
             .filter(element => element.children.length === 0 && (element.textContent || "").trim().length > 1)
             .map(element => ({ text: element.textContent.trim().slice(0, 30), size: Number.parseFloat(getComputedStyle(element).fontSize) }))

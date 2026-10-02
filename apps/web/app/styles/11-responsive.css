@@ -28,14 +28,14 @@
   .mobile-more-header span { color: var(--muted); font-size: var(--text-xs); }
   .mobile-more-panel > a { min-height: 48px; }
   .mobile-more-panel > a.active { border-color: var(--ink); background: var(--accent-soft); color: var(--accent); }
-  .table-head { display: none; }
-  .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
-  .transaction-main { grid-row: 1 / 3; }
-  .transaction-meta { display: none; }
-  .transaction-state { justify-self: end; }
-  .transaction-state small { display: none; }
-  .transaction-amount { grid-column: 2; grid-row: 1; }
-  .transaction-state { grid-column: 2; grid-row: 2; }
+  /* the dashboard's narrow transaction card keeps compact rows up to 1100px; the full list page only up to 680px */
+  .compact-table .table-head { display: none; }
+  .compact-table .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
+  .compact-table .transaction-main { grid-row: 1 / 3; }
+  .compact-table .transaction-meta { display: none; }
+  .compact-table .transaction-state { justify-self: end; grid-column: 2; grid-row: 2; }
+  .compact-table .transaction-state small { display: none; }
+  .compact-table .transaction-amount { grid-column: 2; grid-row: 1; }
   .analytics-detail-layout, .admin-grid { grid-template-columns: minmax(0, 1fr); }
   .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
@@ -51,6 +51,18 @@
   .admin-table td[colspan] { display: block; }
   .admin-table td[colspan]::before { content: none; }
   .wealth-snapshot-account { grid-template-columns: minmax(160px, .85fr) minmax(180px, 1fr) minmax(150px, .8fr); }
+}
+
+/* Compact transaction rows below 720px. The full table needs 621px, plus 34px of card padding and the 64px tablet gutter, so it first fits at 720px; above that the list keeps its category, source and status columns. */
+@media (max-width: 719px) {
+  .table-head { display: none; }
+  .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
+  .transaction-main { grid-row: 1 / 3; }
+  .transaction-meta { display: none; }
+  .transaction-state { justify-self: end; }
+  .transaction-state small { display: none; }
+  .transaction-amount { grid-column: 2; grid-row: 1; }
+  .transaction-state { grid-column: 2; grid-row: 2; }
 }
 
 @media (max-width: 680px) {
@@ -176,4 +188,9 @@
 .settings-index a, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { display: inline-flex; align-items: center; min-height: 32px; }
 @media (pointer: coarse) {
   .settings-index a, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { min-height: 44px; }
+}
+
+/* tablet gutter: a little more air than a phone once the sidebar is gone */
+@media (min-width: 681px) and (max-width: 1100px) {
+  .app-main { padding-inline: 32px; }
 }
