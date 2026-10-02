@@ -257,6 +257,16 @@ func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
 	return func() { close(stop) }
 }
 
+// agentPhaseTimeout gives the call that carries tool results, which is the one
+// that writes the answer, the longer answer cap; every other call keeps the
+// short cap.
+func agentPhaseTimeout(state *agentState) time.Duration {
+	if len(state.PendingToolOutputs) > 0 {
+		return defaultAgentLimits.AnswerPhaseTimeout
+	}
+	return defaultAgentLimits.PerModelCallTimeout
+}
+
 func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGateway, state *agentState) error {
 	for state.ModelPhases < defaultAgentLimits.MaxModelPhases {
 		request := gateway.AgentRequest{
@@ -269,11 +279,11 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			ToolOutputs:        state.PendingToolOutputs,
 			RequiredTool:       state.RequiredTool,
 		}
-		phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
+		phaseCtx, cancel := context.WithTimeout(ctx, agentPhaseTimeout(state))
 		response, err := model.AgentTurn(phaseCtx, state.SourceEventID, request)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("conversational model phase: %w", err)
+			return fmt.Errorf("%w: %w", errModelPhase, err)
 		}
 		// Continuation data is single-use. If this response asks for another READ
 		// phase, the new response/call IDs replace it below.
@@ -430,7 +440,9 @@ func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversa
 		"current_user_text":           state.TurnContext["current_user_text"],
 		"authoritative_action_result": result,
 	}
-	phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
+	// This call writes the final answer from an authoritative result, so it gets
+	// the answer cap; on failure the deterministic fallback below still answers.
+	phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.AnswerPhaseTimeout)
 	response, err := model.AgentTurn(phaseCtx, state.SourceEventID, gateway.AgentRequest{SystemPrompt: conversationalAgentPrompt, Content: content})
 	cancel()
 	if err != nil || len(response.ToolCalls) != 0 || strings.TrimSpace(response.Text) == "" {
