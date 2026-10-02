@@ -10,11 +10,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// The relationships hold for a turn of one tool-selection call and one answer
-// call, which is what an analytics question needs. A turn that chains several
-// reads can still reach the turn deadline; that lands in the terminal notice
-// path, not in silence.
-func TestAgentTimeoutsFitOneToolCallPlusOneAnswer(t *testing.T) {
+// A turn is bounded by its phases, not by a wall clock tuned to one question:
+// the turn timeout must cover one tool-selection call plus every remaining
+// phase at the answer cap, so a multi-read turn is never cut short by the
+// backstop. The household is told the answer is coming after ProgressNoticeDelay.
+func TestAgentTimeoutsCoverTheWholePhaseChain(t *testing.T) {
 	limits := defaultAgentLimits
 	if limits.AnswerPhaseTimeout <= limits.PerModelCallTimeout {
 		t.Fatal("the answer phase must get more time than a tool-selection call")
@@ -24,9 +24,9 @@ func TestAgentTimeoutsFitOneToolCallPlusOneAnswer(t *testing.T) {
 	if limits.AnswerPhaseTimeout < 20*time.Second {
 		t.Fatalf("answer phase cap %s leaves no headroom over a 10.7 s measured answer", limits.AnswerPhaseTimeout)
 	}
-	if limits.PerModelCallTimeout+limits.AnswerPhaseTimeout > limits.TotalTurnTimeout {
-		t.Fatalf("a turn of one tool-selection call and one answer call (%s) must fit in the turn timeout %s",
-			limits.PerModelCallTimeout+limits.AnswerPhaseTimeout, limits.TotalTurnTimeout)
+	chain := limits.PerModelCallTimeout + time.Duration(limits.MaxModelPhases-1)*limits.AnswerPhaseTimeout
+	if limits.TotalTurnTimeout < chain {
+		t.Fatalf("turn timeout %s is shorter than the full phase chain %s, so a multi-read turn could be cut off", limits.TotalTurnTimeout, chain)
 	}
 	if TextJobBudget <= limits.TotalTurnTimeout {
 		t.Fatalf("job budget %s must exceed the turn timeout %s so reads, writes, and the reply fit", TextJobBudget, limits.TotalTurnTimeout)
@@ -36,6 +36,20 @@ func TestAgentTimeoutsFitOneToolCallPlusOneAnswer(t *testing.T) {
 	}
 	if MaxModelTimeoutAttempts != 2 {
 		t.Fatalf("a model timeout is retried once, got %d attempts", MaxModelTimeoutAttempts)
+	}
+}
+
+func TestProgressNoticeWaitsLongEnoughToStaySilentForFastTurnsButNotMuchLonger(t *testing.T) {
+	// Single-phase turns measured p90 about 6 s; a notice before that is noise.
+	if ProgressNoticeDelay < 8*time.Second {
+		t.Fatalf("notice delay %s would fire on ordinary turns", ProgressNoticeDelay)
+	}
+	// Past 15 s of silence the household starts to wonder.
+	if ProgressNoticeDelay > 15*time.Second {
+		t.Fatalf("notice delay %s leaves the household waiting in silence", ProgressNoticeDelay)
+	}
+	if ProgressNoticeDelay >= defaultAgentLimits.AnswerPhaseTimeout {
+		t.Fatal("the notice must arrive before a single slow answer call can time out")
 	}
 }
 
