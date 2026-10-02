@@ -28,6 +28,14 @@
   .mobile-more-header span { color: var(--muted); font-size: var(--text-xs); }
   .mobile-more-panel > a { min-height: 48px; }
   .mobile-more-panel > a.active { border-color: var(--ink); background: var(--accent-soft); color: var(--accent); }
+  /* the dashboard's narrow transaction card keeps compact rows up to 1100px; the full list page only up to 680px */
+  .compact-table .table-head { display: none; }
+  .compact-table .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
+  .compact-table .transaction-main { grid-row: 1 / 3; }
+  .compact-table .transaction-meta { display: none; }
+  .compact-table .transaction-state { justify-self: end; grid-column: 2; grid-row: 2; }
+  .compact-table .transaction-state small { display: none; }
+  .compact-table .transaction-amount { grid-column: 2; grid-row: 1; }
   .analytics-detail-layout, .admin-grid { grid-template-columns: minmax(0, 1fr); }
   .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }

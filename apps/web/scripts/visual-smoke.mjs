@@ -162,6 +162,9 @@ async function run() {
           await page.locator("#main-content").waitFor();
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
           assert.equal(overflow, false, `${name} ${path} has horizontal overflow`);
+          // Cards use overflow: hidden, so document-level overflow cannot see a clipped column.
+          const clippedAmounts = await page.evaluate(() => [...document.querySelectorAll(".transaction-amount")].filter(element => { const card = element.closest(".surface"); return card && element.getBoundingClientRect().right > card.getBoundingClientRect().right + 1; }).length);
+          assert.equal(clippedAmounts, 0, `${name} ${path} clips transaction amounts inside their card`);
           const smallText = await page.evaluate(() => [...document.querySelectorAll("body *")]
             .filter(element => element.children.length === 0 && (element.textContent || "").trim().length > 1)
             .map(element => ({ text: element.textContent.trim().slice(0, 30), size: Number.parseFloat(getComputedStyle(element).fontSize) }))

@@ -344,10 +344,13 @@ test("tablets keep the transaction table columns; compact rows are phone-only", 
   const tablet = block("(max-width: 1100px)");
   const phone = block("(max-width: 680px)");
   assert.ok(tablet && phone, "both media blocks exist");
-  assert.doesNotMatch(tablet, /\.transaction-meta \{ display: none; \}/, "category and source stay visible on tablets");
-  assert.doesNotMatch(tablet, /\.table-head \{ display: none; \}/);
+  assert.doesNotMatch(tablet, /(?<!\.compact-table )\.transaction-meta \{ display: none; \}/, "category and source stay visible on tablets");
+  assert.doesNotMatch(tablet, /(?<!\.compact-table )\.table-head \{ display: none; \}/);
   assert.match(phone, /\.table-head \{ display: none; \}/);
   assert.match(phone, /\.transaction-meta \{ display: none; \}/);
+  // the dashboard's narrow card still needs compact rows across the tablet band
+  assert.match(tablet, /\.compact-table \.transaction-meta \{ display: none; \}/);
+  assert.match(tablet, /\.compact-table \.transaction-row \{ grid-template-columns: minmax\(0, 1fr\) auto;/);
 });
 
 test("the tablet range gets its own content gutter", () => {
