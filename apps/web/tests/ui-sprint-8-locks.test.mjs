@@ -5,16 +5,18 @@ import { globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("settings no longer shows or requests the processing-status card", () => {
+test("settings drops the processing-status card but keeps the data the gateway card reads", () => {
   const settings = text("app/settings/page.js");
   assert.ok(!settings.includes("Status pemrosesan"));
-  assert.ok(!settings.includes("operations/status"));
-  assert.ok(!settings.includes("operations:"));
   assert.ok(!globalCss().includes("system-metrics"));
-  assert.ok(!text("scripts/visual-smoke.mjs").includes("operations/status"));
-  // The remaining endpoints keep their order, so each value maps to the field it fills.
-  assert.match(settings, /"household\/members", "salary\/sources", "bank-email-listeners", "financial-email-sources", "integrations\/email-ingress"/);
-  assert.match(settings, /salarySources: values\[6\] \|\| \[\], listeners: values\[7\] \|\| \[\], financialSources: values\[8\] \|\| \[\], emailIngress: values\[9\]/);
+  // The "Worker & LLM gateway" card still reads data.operations, so the request and its mapping must stay.
+  assert.match(settings, /data\.operations\?\.worker\?\.healthy/);
+  assert.match(settings, /data\.operations\?\.llmGateway\?\.configured/);
+  assert.match(settings, /"household\/members", "operations\/status", "salary\/sources", "bank-email-listeners", "financial-email-sources", "integrations\/email-ingress"/);
+  assert.match(settings, /members: values\[5\] \|\| \[\], operations: values\[6\], salarySources: values\[7\] \|\| \[\], listeners: values\[8\] \|\| \[\], financialSources: values\[9\] \|\| \[\], emailIngress: values\[10\]/);
+  assert.match(settings, /operations: null/);
+  // The smoke serves that request, so the gateway card renders its healthy state in the baselines.
+  assert.ok(text("scripts/visual-smoke.mjs").includes("/api/v1/operations/status"));
 });
 
 test("transaction date filters carry visible labels and fit the card on iOS", () => {

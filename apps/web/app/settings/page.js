@@ -13,14 +13,14 @@ const capabilityInputStyle = { width: 24, height: 24, minHeight: 24, padding: 0,
 export default function SettingsPage() {
   const { confirm, prompt, dialogs } = useDialogs();
   const user = useAuth();
-  const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], salarySources: [], listeners: [], financialSources: [], emailIngress: null });
+  const [data, setData] = useState({ accounts: [], wealthAccounts: [], categories: [], aliases: [], known: [], members: [], operations: null, salarySources: [], listeners: [], financialSources: [], emailIngress: null });
   const [error, setError] = useState(""); const [working, setWorking] = useState(""); const [financialPreview, setFinancialPreview] = useState(null); const [editingFinancialSource, setEditingFinancialSource] = useState(null);
   const owner = user?.household?.role === "OWNER";
   const load = useCallback(async () => {
-    const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress"];
+    const endpoints = ["accounts", "wealth/accounts", "categories", "merchant-aliases", "known-accounts", "household/members", "operations/status", "salary/sources", "bank-email-listeners", "financial-email-sources", "integrations/email-ingress"];
     const responses = await Promise.all(endpoints.map(value => fetch(`/api/v1/${value}`)));
     const values = await Promise.all(responses.map(response => response.ok ? response.json() : null));
-    setData({ accounts: values[0] || [], wealthAccounts: values[1] || [], categories: values[2] || [], aliases: values[3] || [], known: values[4] || [], members: values[5] || [], salarySources: values[6] || [], listeners: values[7] || [], financialSources: values[8] || [], emailIngress: values[9] });
+    setData({ accounts: values[0] || [], wealthAccounts: values[1] || [], categories: values[2] || [], aliases: values[3] || [], known: values[4] || [], members: values[5] || [], operations: values[6], salarySources: values[7] || [], listeners: values[8] || [], financialSources: values[9] || [], emailIngress: values[10] });
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
 
