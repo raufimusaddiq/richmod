@@ -66,7 +66,8 @@ max read calls per user turn:          8
 max side effects per user turn:        1
 per model call timeout (choose tools): 8 seconds
 per model call timeout (write answer): 25 seconds
-overall Telegram free-text turn:      45 seconds (queue budget 50 seconds)
+overall Telegram free-text turn:     120 seconds (queue budget 150 seconds)
+progress notice after:                10 seconds
 attempts after a model timeout:        2
 ```
 
@@ -79,6 +80,18 @@ models, while tool-selection calls measure about 3.5 seconds at the median; the
 original 8-second cap made every analytics explanation time out. A timeout
 repeats with the same prompt and the same cap, so a typed message is tried
 twice, not five times.
+
+The turn is bounded by its phases, not by a wall clock tuned to one question: the
+turn timeout covers one tool-selection call plus every remaining phase at the
+answer cap (8 s + 4 x 25 s), so a multi-read analytics turn is not cut short.
+Because such a turn can run for a while, a turn still running after 10 seconds
+sends the household one plain reply, "Masih kuproses ya, analisis seperti ini
+butuh waktu lebih lama. Jawabannya menyusul di sini.", and the answer follows as
+a normal message. The notice is queued only if no reply to that message exists
+yet, which makes it idempotent across retries and keeps it from landing after the
+answer; turns that finish within 10 seconds (single-phase turns measure p90 about
+6 s) never send one. Typed messages are handled by two chat workers by default,
+so a long turn holds one of them for its duration.
 
 A typed message is never left without an answer. When it will not be retried
 again (a model timeout on the second attempt, or any failure on the last
@@ -161,9 +174,9 @@ allowed to use different LLM contracts.
 - ADR-031's consequence that one native tool decision terminates a free-text
   model phase/turn is superseded. Multiple bounded model phases are allowed.
 - ADR-027's 10-second Telegram budget is amended for free-text conversation to a
-  45-second overall turn budget with an 8-second limit for a tool-selection call
-  and a 25-second limit for the answer call (see the limits above). Other task
-  budgets remain unchanged.
+  120-second overall turn backstop with an 8-second limit for a tool-selection
+  call and a 25-second limit for the answer call, plus a progress notice after 10
+  seconds (see the limits above). Other task budgets remain unchanged.
 
 ## ADR-038 amendment
 

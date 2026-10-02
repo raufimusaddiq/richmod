@@ -24,13 +24,22 @@ type agentLimits struct {
 	// results, such as an analytics explanation. Long-form output on the same
 	// models takes 9 to 11 s, so the 8 s cap made it fail every time.
 	AnswerPhaseTimeout time.Duration
-	TotalTurnTimeout   time.Duration
+	// TotalTurnTimeout is a backstop, not the working limit: a turn is bounded by
+	// its phases, so it must cover one tool-selection call plus every remaining
+	// phase at the answer cap. The household is told the answer is still coming
+	// after ProgressNoticeDelay, so a slow multi-read turn is not silent.
+	TotalTurnTimeout time.Duration
 }
 
 // TextJobBudget is the queue budget for one PROCESS_TELEGRAM_TEXT attempt: the
 // turn timeout plus room for reads, writes, and the reply. It must stay above
-// TotalTurnTimeout, and well below the five-minute job lease.
-const TextJobBudget = 50 * time.Second
+// TotalTurnTimeout, and below the five-minute job lease.
+const TextJobBudget = 150 * time.Second
+
+// ProgressNoticeDelay is how long a turn runs before the household is told the
+// answer is still coming. Single-phase turns finish well inside it (p90 about
+// 6 s), so only genuinely long turns, such as multi-read analytics, send one.
+const ProgressNoticeDelay = 10 * time.Second
 
 // MaxModelTimeoutAttempts is how many times a typed message is tried when the
 // model call times out. A timeout repeats with the same prompt and the same cap,
@@ -44,7 +53,7 @@ var defaultAgentLimits = agentLimits{
 	MaxSideEffectsPerTurn:   1,
 	PerModelCallTimeout:     8 * time.Second,
 	AnswerPhaseTimeout:      25 * time.Second,
-	TotalTurnTimeout:        45 * time.Second,
+	TotalTurnTimeout:        120 * time.Second,
 }
 
 type agentToolResult struct {
