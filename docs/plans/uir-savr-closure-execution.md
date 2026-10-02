@@ -143,6 +143,11 @@ aggregates exist.
 
 Exit: Operations can measure all closure metrics prospectively.
 
+**Done (UISC-02, `c5278a4`):** the three permanent `notYetMeasurable` entries are
+removed. `aggregate.Coverage` starts empty and only reports
+`pre_migration_telemetry_history`; history lacking provenance is listed under
+`coverageIncomplete`, never as zero.
+
 ---
 
 ## UISC-03 — exact-SHA verification and production observation

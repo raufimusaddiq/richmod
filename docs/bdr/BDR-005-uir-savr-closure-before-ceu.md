@@ -120,7 +120,7 @@ their approved contracts.
 
 ## Closure record
 
-**2026-10-03 (UISC-04):** the product owner accepted the owner-household
+**UISC-04, 2026-10-03:** the product owner accepted the owner-household
 observation. Email-origin projection and the Jago/Bibit rechecks were not
 naturally observed and remain `PRODUCTION_UNOBSERVED` with green corpus evidence.
 

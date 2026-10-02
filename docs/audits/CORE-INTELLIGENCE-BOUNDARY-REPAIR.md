@@ -179,9 +179,13 @@ post-deploy email event was observed, so the Jago/Bibit production rechecks and
 email-origin review projection remain `PRODUCTION_UNOBSERVED`. No synthetic
 or seeded financial data was used.
 
-**Closure gate:** Telegram observation is partial; UISC-03 acceptance and
-UISC-04 freeze remain blocked until remaining production checks and email
-observation are recorded. Do not start CEU.
+**Closure gate (historical, as of 2026-09-29):** Telegram observation was
+partial; UISC-03 acceptance and UISC-04 freeze were blocked pending the remaining
+production checks and email observation.
+
+**Resolved (UISC-04, 2026-10-03):** the product owner accepted this observation
+record. Email-origin projection and the Jago/Bibit rechecks stay
+`PRODUCTION_UNOBSERVED` with green corpus evidence. CEU may start.
 
 ---
 
@@ -239,8 +243,9 @@ closure evidence.
 - Document wealth observations with unresolved account hints still require
   human entity resolution. This is retained canonical household binding, not
   semantic confirmation of already-complete evidence.
-- Real owner-household observation remains pending. No UISC-03/UISC-04 closure,
-  deploy, or roadmap work is implied by these code/test changes.
+- Real owner-household observation remained pending at the time of this
+  change. No UISC-03/UISC-04 closure, deploy, or roadmap work was implied by these
+  code/test changes (UISC-04 later closed on 2026-10-03; see §6 gate note).
 
 ## 7.4 Independent review findings and corrections
 
@@ -340,8 +345,9 @@ and bank-email pass after the final changes. The disposable database was at
 schema 72 and migration 00073's check-constraint change was applied manually for
 test execution because no Goose CLI is available in the Go image; migration
 application itself therefore still needs CI confirmation. API verification,
-Hermes review, merge, and deploy are not yet claimed. UISC-03 remains
-`PRODUCTION_UNOBSERVED`; UISC-04 remains blocked. No CEU work started.
+Hermes review, merge, and deploy are not yet claimed. At that time UISC-03 remained
+`PRODUCTION_UNOBSERVED` and UISC-04 was blocked; both were later resolved on
+2026-10-03 (see the closure gate note above).
 
 ---
 

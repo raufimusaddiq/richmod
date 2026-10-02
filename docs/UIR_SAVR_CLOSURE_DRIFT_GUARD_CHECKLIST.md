@@ -2,6 +2,11 @@
 
 A failed applicable item blocks closure.
 
+> This is a per-change review template for UISC PRs, not the closure record.
+> Closure and freeze evidence live in `docs/bdr/BDR-005-uir-savr-closure-before-ceu.md`
+> and `docs/plans/uir-savr-closure-execution.md`; UISC-01/02 were merged and
+> reviewed at `c5278a4` and `c2f08bc`.
+
 ## Scope
 
 - [ ] Change closes UISC-01, UISC-02, UISC-03, or UISC-04 only.
@@ -52,7 +57,7 @@ A failed applicable item blocks closure.
 - [ ] Existing multi-recipient regressions stay green without becoming the
       closure's primary product assumption.
 - [ ] No fake production transaction/email/household is created.
-- [x] Rare unobserved source families retain corpus proof.
+- [ ] Rare unobserved source families retain corpus proof.
 
 ## Owner-as-canary
 
@@ -61,16 +66,16 @@ A failed applicable item blocks closure.
 - [ ] Real correction/re-ask/unnecessary review is treated as a product finding.
 - [ ] Kill-switch rollback remains available.
 - [ ] No arbitrary tenant/event-volume quota is invented.
-- [x] Product owner acceptance is recorded before full freeze.
+- [ ] Product owner acceptance is recorded before full freeze.
 
 ## Freeze
 
-- [x] S08-08 is closed only after household-owned email projection lands.
-- [x] SAVR-09 is product-complete only after observability + production
+- [ ] S08-08 is closed only after household-owned email projection lands.
+- [ ] SAVR-09 is product-complete only after observability + production
       observation evidence.
-- [x] SAVR-10 is full freeze only after SAVR-09 closure.
-- [x] UIR + SAVR stop after this gate.
-- [x] CEU starts only after merged/deployed closure acceptance.
+- [ ] SAVR-10 is full freeze only after SAVR-09 closure.
+- [ ] UIR + SAVR stop after this gate.
+- [ ] CEU starts only after merged/deployed closure acceptance.
 
 ## Final questions
 
