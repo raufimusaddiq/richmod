@@ -338,11 +338,11 @@ test("document source and status labels cover the values the API returns", () =>
   assert.match(page, /EXTRACTED: "Terbaca"/);
 });
 
-test("tablets keep the transaction table columns; compact rows are phone-only", () => {
+test("tablets keep the transaction table columns; compact rows stop below 720px", () => {
   const blocks = css().split(/\n@media /);
   const block = query => blocks.filter(item => item.startsWith(query)).join(" "); // several stylesheets share a breakpoint
   const tablet = block("(max-width: 1100px)");
-  const phone = block("(max-width: 680px)");
+  const phone = block("(max-width: 719px)"); // the full table first fits at 720px: 621px table + 34px card padding + 64px gutter
   assert.ok(tablet && phone, "both media blocks exist");
   assert.doesNotMatch(tablet, /(?<!\.compact-table )\.transaction-meta \{ display: none; \}/, "category and source stay visible on tablets");
   assert.doesNotMatch(tablet, /(?<!\.compact-table )\.table-head \{ display: none; \}/);

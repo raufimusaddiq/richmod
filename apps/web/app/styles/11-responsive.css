@@ -53,8 +53,8 @@
   .wealth-snapshot-account { grid-template-columns: minmax(160px, .85fr) minmax(180px, 1fr) minmax(150px, .8fr); }
 }
 
-@media (max-width: 680px) {
-  /* compact transaction rows: phones only; from 681px the list keeps its category, source and status columns */
+/* Compact transaction rows below 720px. The full table needs 621px, plus 34px of card padding and the 64px tablet gutter, so it first fits at 720px; above that the list keeps its category, source and status columns. */
+@media (max-width: 719px) {
   .table-head { display: none; }
   .transaction-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 14px; min-height: 76px; padding: 11px 6px; }
   .transaction-main { grid-row: 1 / 3; }
@@ -63,6 +63,9 @@
   .transaction-state small { display: none; }
   .transaction-amount { grid-column: 2; grid-row: 1; }
   .transaction-state { grid-column: 2; grid-row: 2; }
+}
+
+@media (max-width: 680px) {
   button.wealth-history-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; }
   button.wealth-history-row small { grid-column: 1; text-align: left; }
   .app-main { padding: 22px 15px calc(94px + env(safe-area-inset-bottom)); }
