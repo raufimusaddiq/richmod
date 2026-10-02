@@ -6,7 +6,7 @@ An ADR records a decision that changes architecture, infrastructure, or a securi
 - **Current versus superseded:** the Status line of each record is authoritative. Where an ADR was amended, the Status names the amending ADR; read both.
 - **Duplicate number:** ADR-033 is used by two records on different topics. Both are current. References elsewhere in the docs use the full file name, so this index lists both rows rather than renaming either.
 
-This table is generated from each file's title and Status line. Regenerate it when an ADR is added or its Status changes.
+This table is generated from each file's title and Status by `scripts/generate-adr-index.mjs`; run `node scripts/generate-adr-index.mjs` after adding an ADR or changing a Status. A web unit test fails when it is out of date.
 
 | ADR | Title | Status |
 | --- | --- | --- |
@@ -30,14 +30,14 @@ This table is generated from each file's title and Status line. Regenerate it wh
 | [ADR-018](ADR-018-explicit-merchant-learning.md) | Explicit merchant category learning | Accepted. |
 | [ADR-019](ADR-019-routed-web-product.md) | Routed web product and dormant budgeting | Accepted. |
 | [ADR-020](ADR-020-telegram-finance-assistant.md) | Telegram finance assistant queries and inline review actions | Accepted — 2026-08-26. |
-| [ADR-021](ADR-021-multi-user-dashboard-auth.md) | Multi-user dashboard authentication |  |
+| [ADR-021](ADR-021-multi-user-dashboard-auth.md) | Multi-user dashboard authentication | Not recorded |
 | [ADR-022](ADR-022-telegram-interactive-callback-lane.md) | Dedicated Telegram interactive callback lane | Superseded by ADR-026. |
 | [ADR-023](ADR-023-universal-review-items.md) | Universal review items | Accepted — V3 P0. Amended by ADR-046 on 2026-09-25. |
 | [ADR-024](ADR-024-native-finance-tool-calls.md) | Native finance tool-call harness | Accepted — V3 P0 conversational agent. |
 | [ADR-025](ADR-025-config-driven-bank-email-ingestion.md) | Config-driven bank-email ingestion | Accepted — V4. |
 | [ADR-026](ADR-026-durable-telegram-ingress-and-job-lanes.md) | Durable Telegram ingress and isolated job lanes | Accepted — availability remediation Release 1. |
 | [ADR-027](ADR-027-single-protocol-bounded-llm-calls.md) | Single-protocol bounded LLM calls and redacted observability | Accepted — correctness/performance remediation Release 2. **Amended by ADR-033 for Telegram free-text conversation.** |
-| [ADR-028](ADR-028-canonical-universal-review-orchestration.md) | Canonical universal review orchestration | Accepted — correctness/performance remediation Release 2. Amended by ADR-046 on |
+| [ADR-028](ADR-028-canonical-universal-review-orchestration.md) | Canonical universal review orchestration | Accepted — correctness/performance remediation Release 2. Amended by ADR-046 on 2026-09-25. |
 | [ADR-029](ADR-029-s3-compatible-off-host-storage.md) | S3-compatible off-host storage | Accepted — 2026-08-30 |
 | [ADR-030](ADR-030-native-only-model-tool-contract.md) | Native-only model tool contract | Accepted — 2026-09-01. **Partially superseded by ADR-033 for the Telegram conversational lane.** |
 | [ADR-031](ADR-031-conversational-telegram-turn-and-review-binding.md) | Conversational Telegram turns and contextual review binding | Accepted — 2026-09-01. **Amended by ADR-033 on 2026-09-12.** |
@@ -46,15 +46,15 @@ This table is generated from each file's title and Status line. Regenerate it wh
 | [ADR-033](ADR-033-cloudflare-email-ingress-two-deploy-migration.md) | Cloudflare email ingress and two-deploy Gmail sunset | Accepted; Deploy 2 completed in production — 5 September 2026. |
 | [ADR-034](ADR-034-github-release-images-and-manual-deployment.md) | GitHub release images and manual production deployment | Accepted — 4 September 2026. |
 | [ADR-035](ADR-035-one-active-household-per-user.md) | One active household per user | Accepted — 5 September 2026. |
-| [ADR-036](ADR-036-wealth-savings-cycle-reconciliation.md) | Wealth, Savings, and Cycle Reconciliation |  |
-| [ADR-037](ADR-037-intelligent-document-interpretation.md) | Bounded intelligent document interpretation | Accepted for staged implementation. Existing extraction remains the primary |
+| [ADR-036](ADR-036-wealth-savings-cycle-reconciliation.md) | Wealth, Savings, and Cycle Reconciliation | Accepted |
+| [ADR-037](ADR-037-intelligent-document-interpretation.md) | Bounded intelligent document interpretation | Accepted for staged implementation. Existing extraction remains the primary financial-state path until the documented rollout gate is met. |
 | [ADR-038](ADR-038-system-one-semantic-decision-plane.md) | System One semantic decision plane | Accepted for implementation — 2026-09-20. Amended by ADR-045 on 2026-09-24. |
 | [ADR-039](ADR-039-canonical-review-decision-contract.md) | Canonical ReviewDecision contract | Accepted for implementation — 2026-09-23. Implements PRD §7 (review contract). |
 | [ADR-040](ADR-040-bank-email-zero-touch.md) | Bank email zero-touch classification | Accepted for implementation — 2026-09-23. Implements PRD §9 (Stage 3). Amended by ADR-045 on 2026-09-24. |
 | [ADR-041](ADR-041-receipt-auto-confirm.md) | Receipt auto-confirm for clear new receipts | Accepted for implementation — 2026-09-23. Implements PRD §10 (Stage 4). Amended by ADR-045 on 2026-09-24. |
 | [ADR-042](ADR-042-screenshot-row-auto-confirm.md) | Per-row screenshot auto-confirm with one bounded ruling per image | Accepted for implementation — 2026-09-23. Implements PRD §11 (Stage 5). Amended by ADR-045 on 2026-09-24. |
 | [ADR-043](ADR-043-financial-email-partial-resolution.md) | Partial financial-email entity resolution | Accepted for implementation — 2026-09-24. Implements PRD §12 (Stage 6). |
-| [ADR-044](ADR-044-proposal-first-review-inbox.md) | Proposal-first Review Inbox | Accepted for implementation — 2026-09-24. Implements PRD §13-§14 (Stage 7). |
+| [ADR-044](ADR-044-proposal-first-review-inbox.md) | Proposal-first Review Inbox | Accepted for implementation — 2026-09-24. Implements PRD §13-§14 (Stage 7). Amended by ADR-046 on 2026-09-25 to make proposal-first rendering channel-independent. |
 | [ADR-045](ADR-045-single-intelligence-pass-routing.md) | Single-intelligence-pass routing with residual bounded rescue | Accepted architecture amendment — 2026-09-24. |
 | [ADR-046](ADR-046-universal-review-interaction-projection.md) | Universal review interaction projections | Accepted architecture direction — 2026-09-25. |
 | [ADR-047](ADR-047-semantic-fact-ownership.md) | Semantic Fact Ownership and Accepted-Fact Boundaries | Accepted — 2026-09-27. |

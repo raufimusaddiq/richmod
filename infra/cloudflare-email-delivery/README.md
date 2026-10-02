@@ -23,6 +23,10 @@ Copy [`wrangler.toml.example`](wrangler.toml.example) to an untracked
 | `RICHMOD_INGRESS_URL` | variable | Your Richmod API origin plus the fixed path `/finance/v1/email/inbond`. The example uses a placeholder hostname; replace it. |
 | `RICHMOD_INGRESS_SECRET` | secret | The HMAC signing secret. Set it with `wrangler secret put RICHMOD_INGRESS_SECRET`; never put it in `wrangler.toml`. It must be the same literal string as `EMAIL_INGRESS_HMAC_SECRET` in the Richmod API environment (see [`.env.example`](../../.env.example)). |
 
+The runbook below documents this project's own production deployment, so it shows that
+deployment's real hostnames. The example file uses a placeholder on purpose: use your own
+hostname in `wrangler.toml`.
+
 The queue consumer settings in the example are a batch of up to 10 messages, a
 5 second batch timeout, up to 5 retries, and a dead-letter queue
 (`richmod-email-delivery-dlq`) for messages that still fail.
