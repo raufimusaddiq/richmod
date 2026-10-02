@@ -64,12 +64,28 @@ max model phases per user turn:        5
 max read calls per model response:     5
 max read calls per user turn:          8
 max side effects per user turn:        1
-per model call timeout:                8 seconds
-overall Telegram free-text budget:    20 seconds
+per model call timeout (choose tools): 8 seconds
+per model call timeout (write answer): 25 seconds
+overall Telegram free-text turn:      45 seconds (queue budget 50 seconds)
+attempts after a model timeout:        2
 ```
 
 The limits are server-owned and may be tuned without changing the canonical
 ledger boundary.
+
+The answer call is the one that carries tool results. It gets the longer cap
+because long-form analytics prose measured 9 to 11 seconds on the production
+models, while tool-selection calls measure about 3.5 seconds at the median; the
+original 8-second cap made every analytics explanation time out. A timeout
+repeats with the same prompt and the same cap, so a typed message is tried
+twice, not five times.
+
+A typed message is never left without an answer. When it will not be retried
+again (a model timeout on the second attempt, or any failure on the last
+attempt), Go marks the source event `FAILED` and sends one plain reply saying the
+assistant was too slow and to try again. An event that already reached a final
+state is left alone, and the reply is claimed in the same transaction so two
+workers cannot both send it.
 
 Normal final responses and clarifying questions are ordinary model text. A fake
 `respond_to_user` or `ask_clarification` tool is not required merely to satisfy a

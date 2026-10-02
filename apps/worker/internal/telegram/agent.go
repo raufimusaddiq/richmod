@@ -257,6 +257,16 @@ func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
 	return func() { close(stop) }
 }
 
+// agentPhaseTimeout gives the call that carries tool results, which is the one
+// that writes the answer, the longer answer cap; every other call keeps the
+// short cap.
+func agentPhaseTimeout(state *agentState) time.Duration {
+	if len(state.PendingToolOutputs) > 0 {
+		return defaultAgentLimits.AnswerPhaseTimeout
+	}
+	return defaultAgentLimits.PerModelCallTimeout
+}
+
 func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGateway, state *agentState) error {
 	for state.ModelPhases < defaultAgentLimits.MaxModelPhases {
 		request := gateway.AgentRequest{
@@ -269,7 +279,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			ToolOutputs:        state.PendingToolOutputs,
 			RequiredTool:       state.RequiredTool,
 		}
-		phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
+		phaseCtx, cancel := context.WithTimeout(ctx, agentPhaseTimeout(state))
 		response, err := model.AgentTurn(phaseCtx, state.SourceEventID, request)
 		cancel()
 		if err != nil {

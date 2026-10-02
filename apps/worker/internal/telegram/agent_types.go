@@ -17,9 +17,25 @@ type agentLimits struct {
 	MaxReadCallsPerResponse int
 	MaxReadCallsPerTurn     int
 	MaxSideEffectsPerTurn   int
-	PerModelCallTimeout     time.Duration
-	TotalTurnTimeout        time.Duration
+	// PerModelCallTimeout bounds a model call that chooses tools or answers a
+	// simple message (measured p50 about 3.5 s, p90 about 6 s).
+	PerModelCallTimeout time.Duration
+	// AnswerPhaseTimeout bounds a model call that writes the answer from tool
+	// results, such as an analytics explanation. Long-form output on the same
+	// models takes 9 to 11 s, so the 8 s cap made it fail every time.
+	AnswerPhaseTimeout time.Duration
+	TotalTurnTimeout   time.Duration
 }
+
+// TextJobBudget is the queue budget for one PROCESS_TELEGRAM_TEXT attempt: the
+// turn timeout plus room for reads, writes, and the reply. It must stay above
+// TotalTurnTimeout, and well below the five-minute job lease.
+const TextJobBudget = 50 * time.Second
+
+// MaxModelTimeoutAttempts is how many times a typed message is tried when the
+// model call times out. A timeout repeats with the same prompt and the same cap,
+// so more attempts only delay the answer the user is waiting for.
+const MaxModelTimeoutAttempts = 2
 
 var defaultAgentLimits = agentLimits{
 	MaxModelPhases:          5,
@@ -27,7 +43,8 @@ var defaultAgentLimits = agentLimits{
 	MaxReadCallsPerTurn:     8,
 	MaxSideEffectsPerTurn:   1,
 	PerModelCallTimeout:     8 * time.Second,
-	TotalTurnTimeout:        20 * time.Second,
+	AnswerPhaseTimeout:      25 * time.Second,
+	TotalTurnTimeout:        45 * time.Second,
 }
 
 type agentToolResult struct {

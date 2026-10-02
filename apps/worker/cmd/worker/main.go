@@ -341,6 +341,16 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
+// textSourceEventID reads the source event out of a typed-message job, or ""
+// when the payload cannot be decoded.
+func textSourceEventID(job queue.Job) string {
+	payload, err := telegram.DecodeProcessPayload(job.Payload)
+	if err != nil {
+		return ""
+	}
+	return payload.SourceEventID
+}
+
 func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string) error {
 	processed := 0
 	for {
@@ -356,8 +366,19 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			}
 		} else {
 			logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
+			// A model timeout repeats with the same prompt and cap, so a typed
+			// message is retried once and then stopped.
+			if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsModelTimeout(err) && job.Attempts >= telegram.MaxModelTimeoutAttempts {
+				err = telegram.TerminalError(err)
+			}
 			if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
 				return fmt.Errorf("reschedule job: %w", finishErr)
+			}
+			if job.Type == "PROCESS_TELEGRAM_TEXT" && queue.Final(job, err) {
+				// The household must not be left with silence: tell them.
+				if notifyErr := processor.HandleTerminalTextFailure(ctx, textSourceEventID(job)); notifyErr != nil {
+					logger.Error("terminal text failure notice failed", "job_id", job.ID, "error", notifyErr)
+				}
 			}
 			if job.Type == "PROCESS_DOCUMENT" && job.Attempts >= job.MaxAttempts {
 				payload, decodeErr := workerDocument.DecodePayload(job.Payload)
@@ -378,7 +399,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 	budget := time.Duration(0)
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
-		budget = 20 * time.Second
+		budget = telegram.TextJobBudget
 	case "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
 		budget = 45 * time.Second
 	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "FETCH_TELEGRAM_IMAGE":

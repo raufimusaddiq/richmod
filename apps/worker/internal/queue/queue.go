@@ -60,9 +60,15 @@ func (q *Queue) Succeed(ctx context.Context, jobID string) error {
 	return err
 }
 
+// Final reports whether a failed attempt is the job's last: it either used its
+// attempts or failed with an error that must not be retried.
+func Final(job Job, processErr error) bool {
+	return job.Attempts >= job.MaxAttempts || isPermanent(processErr)
+}
+
 func (q *Queue) Fail(ctx context.Context, job Job, processErr error) error {
 	status := "PENDING"
-	if job.Attempts >= job.MaxAttempts || isPermanent(processErr) {
+	if Final(job, processErr) {
 		status = "FAILED"
 	}
 	delaySeconds := int(time.Duration(1<<min(job.Attempts, 8)) * time.Second / time.Second)
