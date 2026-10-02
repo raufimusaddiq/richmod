@@ -64,9 +64,8 @@ max model phases per user turn:        5
 max read calls per model response:     5
 max read calls per user turn:          8
 max side effects per user turn:        1
-per model call timeout (choose tools): 8 seconds
-per model call timeout (write answer): 25 seconds
-overall Telegram free-text turn:     120 seconds (queue budget 150 seconds)
+per model call timeout:               25 seconds
+overall Telegram free-text turn:     130 seconds (queue budget 160 seconds)
 progress notice after:                10 seconds
 attempts after a model timeout:        2
 ```
@@ -74,16 +73,18 @@ attempts after a model timeout:        2
 The limits are server-owned and may be tuned without changing the canonical
 ledger boundary.
 
-The answer call is the one that carries tool results. It gets the longer cap
-because long-form analytics prose measured 9 to 11 seconds on the production
-models, while tool-selection calls measure about 3.5 seconds at the median; the
-original 8-second cap made every analytics explanation time out. A timeout
-repeats with the same prompt and the same cap, so a typed message is tried
-twice, not five times.
+Every model call has the same cap. An earlier version capped the first call
+(choosing tools) at 8 seconds and only the answer call at 25, on the assumption
+that tool selection is fast (p50 about 3.5 seconds). That failed in use: a short
+follow-up carries the previous answer as context, its first call measured 6
+seconds, and it timed out twice in a row at 8 seconds without ever choosing a
+tool. Long-form analytics prose measures 9 to 11 seconds. The cap exists to bound
+a hung call, not to ration a slow one. A timeout repeats with the same prompt and
+the same cap, so a typed message is tried twice, not five times.
 
 The turn is bounded by its phases, not by a wall clock tuned to one question: the
-turn timeout covers one tool-selection call plus every remaining phase at the
-answer cap (8 s + 4 x 25 s), so a multi-read analytics turn is not cut short.
+turn timeout covers every phase at the call cap (5 x 25 s = 125 s), so a
+multi-read analytics turn is not cut short.
 Because such a turn can run for a while, a turn still running after 10 seconds
 sends the household one plain reply, "Masih kuproses ya, analisis seperti ini
 butuh waktu lebih lama. Jawabannya menyusul di sini.", and the answer follows as
@@ -92,6 +93,32 @@ yet, which makes it idempotent across retries and keeps it from landing after th
 answer; turns that finish within 10 seconds (single-phase turns measure p90 about
 6 s) never send one. Typed messages are handled by two chat workers by default,
 so a long turn holds one of them for its duration.
+
+### Conversation memory
+
+Each message is its own turn: there is no session, so nothing expires with the
+conversation and the time limits above reset with every message. What the agent
+remembers is the stored turns of the same chat inside a window, loaded oldest
+first and compacted:
+
+```text
+window:                  24 hours   (was 60 minutes)
+rows read per turn:      40         (was 20)
+kept whole:              the newest 6 rows, including tool results
+older rows:              user and assistant text only, clipped to 200 / 300
+                         characters, tool results dropped, marked "compacted"
+text budget:             6,000 characters; the oldest compacted rows go first,
+                         the newest rows are never dropped
+```
+
+A follow-up the next morning still works, and the prompt stays bounded however
+long the chat is. The compaction is deterministic on purpose. A model-written
+summary would put untrusted numbers into later prompts in a finance product, add a
+model call to every turn, and add one more call that can time out; Go trims text
+and drops bulky tool data instead, and exact figures are fetched again by READ
+tools when they are needed. A retried message is saved once: the USER and
+ASSISTANT rows are written once per source event, while TOOL rows (one per call)
+are not deduplicated.
 
 A typed message is never left without an answer. When it will not be retried
 again (a model timeout on the second attempt, or any failure on the last
@@ -174,9 +201,9 @@ allowed to use different LLM contracts.
 - ADR-031's consequence that one native tool decision terminates a free-text
   model phase/turn is superseded. Multiple bounded model phases are allowed.
 - ADR-027's 10-second Telegram budget is amended for free-text conversation to a
-  120-second overall turn backstop with an 8-second limit for a tool-selection
-  call and a 25-second limit for the answer call, plus a progress notice after 10
-  seconds (see the limits above). Other task budgets remain unchanged.
+  130-second overall turn backstop with one 25-second limit per model call, plus a
+  progress notice after 10 seconds (see the limits above). Other task budgets
+  remain unchanged.
 
 ## ADR-038 amendment
 

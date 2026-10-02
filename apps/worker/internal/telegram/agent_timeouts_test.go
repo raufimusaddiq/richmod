@@ -11,20 +11,17 @@ import (
 )
 
 // A turn is bounded by its phases, not by a wall clock tuned to one question:
-// the turn timeout must cover one tool-selection call plus every remaining
-// phase at the answer cap, so a multi-read turn is never cut short by the
-// backstop. The household is told the answer is coming after ProgressNoticeDelay.
+// every model call gets the same cap, and the turn backstop must cover all of
+// the phases at that cap, so a multi-read turn is never cut short. The household
+// is told the answer is coming after ProgressNoticeDelay.
 func TestAgentTimeoutsCoverTheWholePhaseChain(t *testing.T) {
 	limits := defaultAgentLimits
-	if limits.AnswerPhaseTimeout <= limits.PerModelCallTimeout {
-		t.Fatal("the answer phase must get more time than a tool-selection call")
+	// Long-form analytics output measured 9 to 11 s and a first call 6 s; the old
+	// 8 s cap failed both, so the cap needs real headroom over the slowest seen.
+	if limits.ModelCallTimeout < 20*time.Second {
+		t.Fatalf("model call cap %s leaves no headroom over a 10.7 s measured call", limits.ModelCallTimeout)
 	}
-	// Long-form analytics output on the production models measured 9 to 11 s; the
-	// old 8 s cap failed it every time, so the answer cap needs real headroom.
-	if limits.AnswerPhaseTimeout < 20*time.Second {
-		t.Fatalf("answer phase cap %s leaves no headroom over a 10.7 s measured answer", limits.AnswerPhaseTimeout)
-	}
-	chain := limits.PerModelCallTimeout + time.Duration(limits.MaxModelPhases-1)*limits.AnswerPhaseTimeout
+	chain := time.Duration(limits.MaxModelPhases) * limits.ModelCallTimeout
 	if limits.TotalTurnTimeout < chain {
 		t.Fatalf("turn timeout %s is shorter than the full phase chain %s, so a multi-read turn could be cut off", limits.TotalTurnTimeout, chain)
 	}
@@ -48,19 +45,8 @@ func TestProgressNoticeWaitsLongEnoughToStaySilentForFastTurnsButNotMuchLonger(t
 	if ProgressNoticeDelay > 15*time.Second {
 		t.Fatalf("notice delay %s leaves the household waiting in silence", ProgressNoticeDelay)
 	}
-	if ProgressNoticeDelay >= defaultAgentLimits.AnswerPhaseTimeout {
-		t.Fatal("the notice must arrive before a single slow answer call can time out")
-	}
-}
-
-func TestAgentPhaseTimeoutLengthensOnlyTheAnswerCall(t *testing.T) {
-	first := &agentState{}
-	if got := agentPhaseTimeout(first); got != defaultAgentLimits.PerModelCallTimeout {
-		t.Fatalf("the first call chooses tools and keeps the short cap, got %s", got)
-	}
-	answer := &agentState{PendingToolOutputs: []gateway.AgentToolOutput{{CallID: "c1", Output: map[string]any{"ok": true}}}}
-	if got := agentPhaseTimeout(answer); got != defaultAgentLimits.AnswerPhaseTimeout {
-		t.Fatalf("the call that carries tool results writes the answer and gets the long cap, got %s", got)
+	if ProgressNoticeDelay >= defaultAgentLimits.ModelCallTimeout {
+		t.Fatal("the notice must arrive before a single slow call can time out")
 	}
 }
 

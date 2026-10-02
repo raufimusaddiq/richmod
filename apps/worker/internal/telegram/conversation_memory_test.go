@@ -1,0 +1,136 @@
+package telegram
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+)
+
+func turnsOf(n int) []PublicTurn {
+	var turns []PublicTurn
+	for i := 0; i < n; i++ {
+		turns = append(turns,
+			PublicTurn{Role: "USER", Text: fmt.Sprintf("pertanyaan %d %s", i, strings.Repeat("x", 400))},
+			PublicTurn{Role: "TOOL", Tool: "get_cycle_changes", Context: map[string]any{"rows": strings.Repeat("d", 5000)}},
+			PublicTurn{Role: "ASSISTANT", Text: fmt.Sprintf("jawaban %d %s", i, strings.Repeat("y", 600))},
+		)
+	}
+	return turns
+}
+
+func TestCompactionKeepsTheNewestTurnsWholeAndShrinksTheRest(t *testing.T) {
+	input := turnsOf(6) // 18 rows
+	got := compactConversation(input)
+
+	// The newest verbatimTurns rows are untouched, including their tool results.
+	tail := got[len(got)-verbatimTurns:]
+	for i, turn := range tail {
+		want := input[len(input)-verbatimTurns+i]
+		if turn.Role != want.Role || turn.Text != want.Text || turn.Compacted {
+			t.Fatalf("verbatim row %d was changed: %+v", i, turn)
+		}
+		if want.Role == "TOOL" && turn.Context == nil {
+			t.Fatal("a verbatim tool row must keep its result for follow-ups")
+		}
+	}
+	// Older rows are clipped, marked, stripped of tool data, and never TOOL rows.
+	for _, turn := range got[:len(got)-verbatimTurns] {
+		if !turn.Compacted || turn.Context != nil || turn.Role == "TOOL" {
+			t.Fatalf("older turn was not compacted: %+v", turn)
+		}
+		limit := olderUserChars
+		if turn.Role == "ASSISTANT" {
+			limit = olderAssistantChars
+		}
+		if len([]rune(turn.Text)) > limit {
+			t.Fatalf("older %s text exceeds %d: %d", turn.Role, limit, len([]rune(turn.Text)))
+		}
+	}
+}
+
+func TestCompactionKeepsChronologicalOrder(t *testing.T) {
+	got := compactConversation(turnsOf(5))
+	var order []string
+	for _, turn := range got {
+		if turn.Role == "USER" {
+			order = append(order, turn.Text[:12])
+		}
+	}
+	for i := 1; i < len(order); i++ {
+		if order[i-1] >= order[i] {
+			t.Fatalf("turns must stay oldest first: %v", order)
+		}
+	}
+}
+
+func TestCompactionBudgetDropsTheOldestCompactedTurnsFirstAndNeverTheNewest(t *testing.T) {
+	input := turnsOf(40) // many exchanges: older text alone exceeds the budget
+	got := compactConversation(input)
+	total := 0
+	for _, turn := range got {
+		total += len(turn.Text)
+	}
+	tailText := 0
+	for _, turn := range input[len(input)-verbatimTurns:] {
+		tailText += len(turn.Text)
+	}
+	if total > conversationCharBudget && total > tailText {
+		t.Fatalf("text %d exceeds the budget %d even though older turns could still be dropped", total, conversationCharBudget)
+	}
+	last := got[len(got)-1]
+	if last.Role != "ASSISTANT" || !strings.HasPrefix(last.Text, "jawaban 39") {
+		t.Fatalf("the newest turn must survive the budget, got %+v", last)
+	}
+	// Whatever older turns remain are the most recent of the older ones.
+	older := got[:len(got)-verbatimTurns]
+	if len(older) > 0 && !strings.HasPrefix(older[len(older)-1].Text, "jawaban 3") {
+		t.Fatalf("budget must drop the oldest first, kept %q last", older[len(older)-1].Text)
+	}
+}
+
+func TestCompactionNeverDropsVerbatimTurnsEvenOverBudget(t *testing.T) {
+	huge := []PublicTurn{{Role: "USER", Text: strings.Repeat("z", conversationCharBudget*3)}}
+	got := compactConversation(huge)
+	if len(got) != 1 || got[0].Text != huge[0].Text || got[0].Compacted {
+		t.Fatalf("a recent turn must survive even when it alone exceeds the budget: %+v", got)
+	}
+}
+
+func TestCompactionHandlesShortAndEmptyConversations(t *testing.T) {
+	if got := compactConversation(nil); len(got) != 0 {
+		t.Fatalf("nil must stay empty, got %v", got)
+	}
+	short := turnsOf(1)
+	got := compactConversation(short)
+	if len(got) != len(short) {
+		t.Fatalf("a short conversation is kept whole, got %d of %d rows", len(got), len(short))
+	}
+	for _, turn := range got {
+		if turn.Compacted {
+			t.Fatal("nothing in a short conversation should be marked compacted")
+		}
+	}
+}
+
+func TestClipRunesDoesNotSplitMultibyteCharacters(t *testing.T) {
+	text := strings.Repeat("é", 50)
+	clipped := clipRunes(text, 10)
+	if len([]rune(clipped)) != 10 || !strings.HasSuffix(clipped, "…") {
+		t.Fatalf("clip must keep 10 characters ending in an ellipsis, got %q", clipped)
+	}
+	if clipRunes("pendek", 10) != "pendek" {
+		t.Fatal("text under the limit must be unchanged")
+	}
+}
+
+func TestMemoryWindowIsLongerThanAnHourButBounded(t *testing.T) {
+	// The old window was 60 minutes and 20 rows. A follow-up the next morning must
+	// still work; the scan and the budget keep the prompt from growing with it.
+	if conversationWindow <= time.Hour {
+		t.Fatalf("window %s is not longer than the old one hour", conversationWindow)
+	}
+	if conversationScanRows < 20 || verbatimTurns < 2 || conversationCharBudget < 2000 {
+		t.Fatal("memory limits are too small to carry a follow-up")
+	}
+}

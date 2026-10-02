@@ -12,3 +12,11 @@ func TestConversationalAgentPromptTargetsTelegramReplies(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptTellsTheModelNotToQuoteFiguresFromCompactedTurns(t *testing.T) {
+	for _, phrase := range []string{"recent_turns are listed oldest first", "marked compacted", "never quote a financial figure"} {
+		if !strings.Contains(conversationalAgentPrompt, phrase) {
+			t.Fatalf("prompt missing %q", phrase)
+		}
+	}
+}
