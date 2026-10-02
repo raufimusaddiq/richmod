@@ -342,14 +342,33 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
-// textSourceEventID reads the source event out of a typed-message job, or ""
-// when the payload cannot be decoded.
-func textSourceEventID(job queue.Job) string {
-	payload, err := telegram.DecodeProcessPayload(job.Payload)
-	if err != nil {
-		return ""
+// terminalStep returns what must happen in the same transaction that marks a job
+// FAILED for its last attempt: finalize the source event, tell the household when
+// there is a chat to tell, and leave a dismissable item in the Inbox. Other job
+// types have no step. A payload that cannot be decoded yields an empty ID, which
+// every step treats as a no-op.
+func terminalStep(job queue.Job, processor *telegram.Processor, bankProcessor *bankemail.Processor) func(context.Context, pgx.Tx) error {
+	switch job.Type {
+	case "PROCESS_TELEGRAM_TEXT":
+		id := ""
+		if payload, err := telegram.DecodeProcessPayload(job.Payload); err == nil {
+			id = payload.SourceEventID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalTextFailureTx(ctx, tx, id) }
+	case "PROCESS_TELEGRAM_CALLBACK":
+		id := ""
+		if payload, err := telegram.DecodeCallbackPayload(job.Payload); err == nil {
+			id = payload.SourceEventID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalCallbackFailureTx(ctx, tx, id) }
+	case "PROCESS_BANK_EMAIL":
+		id := ""
+		if payload, err := bankemail.DecodePayload(job.Payload); err == nil {
+			id = payload.SourceEventID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error { return bankProcessor.TerminalFailureTx(ctx, tx, id) }
 	}
-	return payload.SourceEventID
+	return nil
 }
 
 func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string) error {
@@ -375,13 +394,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			// A typed message that will not be retried again must not end in
 			// silence, so the notice is queued in the same transaction that marks
 			// the job FAILED.
-			var onFinal func(context.Context, pgx.Tx) error
-			if job.Type == "PROCESS_TELEGRAM_TEXT" {
-				sourceEventID := textSourceEventID(job)
-				onFinal = func(ctx context.Context, tx pgx.Tx) error {
-					return processor.TerminalTextFailureTx(ctx, tx, sourceEventID)
-				}
-			}
+			onFinal := terminalStep(job, processor, bankProcessor)
 			if finishErr := jobs.FailWithHook(ctx, job, err, onFinal); finishErr != nil {
 				return fmt.Errorf("reschedule job: %w", finishErr)
 			}

@@ -223,7 +223,7 @@ func loadReviewQuality(ctx context.Context, tx pgx.Tx, household string, facts *
 	}
 	facts.block("OPEN_REVIEWS", open, nil, "/inbox")
 	facts.block("UNCATEGORIZED_EXPENSE", uncategorized, &amount, "/transactions")
-	facts.block("PROCESSING_INCOMPLETE", processing, nil, "/inbox")
+	facts.block("PROCESSING_INCOMPLETE", processing, nil, "/inbox?view=actions")
 	return nil
 }
 

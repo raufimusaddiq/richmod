@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
@@ -564,7 +565,53 @@ func (p *Processor) persistExtractionFailure(ctx context.Context, sourceID, list
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='bank-email-generic',parser_version=$3 WHERE id=$1`, sourceID, status, ToolSchemaVersion); err != nil {
 		return err
 	}
+	// An unusable extraction is final: the job succeeds and nothing will retry
+	// it, so tell the household now (ADR-048 keeps it out of the review queue, it
+	// is not a fact question). Retryable failures wait for the job to give up,
+	// see TerminalFailureTx, so a retry that succeeds leaves no stale item.
+	if status == "FAILED" && policy == "REPAIR" {
+		if err = recordFailedBankEmail(ctx, tx, sourceID, validation); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
+}
+
+// TerminalFailureTx runs inside the transaction that marks a bank-email job
+// FAILED because its attempts ran out. The event is finalized as FAILED and a
+// dismissable item is left in the Inbox; an event that already finished
+// (PROCESSED, NEEDS_REVIEW, IGNORED) is left alone.
+func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
+	if !reviewdomain.IsSourceEventID(sourceEventID) {
+		return nil
+	}
+	var claimed string
+	err := tx.QueryRow(ctx, `UPDATE source_event SET processing_status='FAILED' WHERE id=$1 AND source_type='BANK_EMAIL' AND processing_status IN ('RECEIVED','PROCESSING','FAILED') RETURNING id::text`, sourceEventID).Scan(&claimed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	validation := "ERROR"
+	var latest string
+	err = tx.QueryRow(ctx, `SELECT validation_status FROM bank_email_extraction WHERE source_event_id=$1 ORDER BY created_at DESC LIMIT 1`, sourceEventID).Scan(&latest)
+	if err == nil && latest != "" {
+		validation = latest
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	return recordFailedBankEmail(ctx, tx, sourceEventID, validation)
+}
+
+func recordFailedBankEmail(ctx context.Context, tx pgx.Tx, sourceID, reason string) error {
+	var household string
+	if err := tx.QueryRow(ctx, `SELECT household_id::text FROM source_event WHERE id=$1`, sourceID).Scan(&household); err != nil {
+		return err
+	}
+	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
+		HouseholdID: household, SourceEventID: sourceID, SourceType: "BANK_EMAIL", Reason: reason,
+	})
 }
 
 func (p *Processor) persist(ctx context.Context, listener Listener, sourceID string, extraction Extraction, result PolicyResult) error {
