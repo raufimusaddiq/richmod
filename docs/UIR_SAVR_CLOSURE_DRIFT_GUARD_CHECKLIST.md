@@ -52,7 +52,7 @@ A failed applicable item blocks closure.
 - [ ] Existing multi-recipient regressions stay green without becoming the
       closure's primary product assumption.
 - [ ] No fake production transaction/email/household is created.
-- [ ] Rare unobserved source families retain corpus proof.
+- [x] Rare unobserved source families retain corpus proof.
 
 ## Owner-as-canary
 
@@ -61,16 +61,16 @@ A failed applicable item blocks closure.
 - [ ] Real correction/re-ask/unnecessary review is treated as a product finding.
 - [ ] Kill-switch rollback remains available.
 - [ ] No arbitrary tenant/event-volume quota is invented.
-- [ ] Product owner acceptance is recorded before full freeze.
+- [x] Product owner acceptance is recorded before full freeze.
 
 ## Freeze
 
-- [ ] S08-08 is closed only after household-owned email projection lands.
-- [ ] SAVR-09 is product-complete only after observability + production
+- [x] S08-08 is closed only after household-owned email projection lands.
+- [x] SAVR-09 is product-complete only after observability + production
       observation evidence.
-- [ ] SAVR-10 is full freeze only after SAVR-09 closure.
-- [ ] UIR + SAVR stop after this gate.
-- [ ] CEU starts only after merged/deployed closure acceptance.
+- [x] SAVR-10 is full freeze only after SAVR-09 closure.
+- [x] UIR + SAVR stop after this gate.
+- [x] CEU starts only after merged/deployed closure acceptance.
 
 ## Final questions
 

@@ -117,3 +117,16 @@ on merged/deployed main.
 
 After that point, UIR and SAVR are frozen except for production defects against
 their approved contracts.
+
+## Closure record
+
+**2026-10-03 (UISC-04):** the product owner accepted the owner-household
+observation. Email-origin projection and the Jago/Bibit rechecks were not
+naturally observed and remain `PRODUCTION_UNOBSERVED` with green corpus evidence.
+
+```text
+UIR frozen
+SAVR frozen
+owner-household production observation accepted
+CEU may start
+```

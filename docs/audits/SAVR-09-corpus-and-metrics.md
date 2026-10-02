@@ -1,7 +1,7 @@
 # SAVR-09 — Corpus, Canary, and Product Metrics
 
-**Status:** corpus measured; UISC-01/02 merged into `main@c5278a4`;
-**product observation open — the real owner household is the canary**
+**Status:** product-complete (UISC-04, 2026-10-03); UISC-01/02 merged into
+`main@c5278a4`; owner-household observation accepted by the product owner
 
 **Date:** 2026-09-28
 **Method:** disposable PostgreSQL 17.4, goose to migration 72, then
@@ -118,5 +118,11 @@ induced review, semantic re-decision, and Residual Contract Fidelity. Historical
 rows lacking required provenance remain unknown/coverage-incomplete, never
 synthetic zero. **Open exit item:** owner-household production observation and
 product-owner acceptance. SAVR-09 remains
-*corpus-complete*, not *product-complete*, until the combined closure gate is
-accepted.
+*corpus-complete* until the combined closure gate was accepted. **UISC-04
+(2026-10-03):** the product owner accepted the owner-household observation recorded
+in `CORE-INTELLIGENCE-BOUNDARY-REPAIR.md` (Telegram fallthrough and a canonical
+READ observed; no human work created by route uncertainty). Email-origin review
+projection and the Jago/Bibit rechecks were not naturally observed and stay
+`PRODUCTION_UNOBSERVED` with green corpus evidence, as BDR-005 permits. SAVR-09
+is therefore **product-complete**. Any later production defect is handled
+against the approved SAVR contract, not by reopening it.
