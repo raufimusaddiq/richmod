@@ -54,7 +54,6 @@ export function buildAdrIndex(adrDir = path.join(repoRoot, "docs", "adr")) {
   const duplicates = [...counts].filter(([, count]) => count > 1).map(([number]) => number);
   const pad = number => String(number).padStart(3, "0");
   const next = Math.max(...rows.map(row => row.number)) + 1;
-  const escape = value => value.replace(/\|/g, "\\|");
 
   const out = [
     "# Architecture decision records",
