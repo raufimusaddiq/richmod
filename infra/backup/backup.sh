@@ -14,8 +14,19 @@ fi
 backup_tmp="$(mktemp -d)"
 trap 'rm -rf "$backup_tmp"' EXIT INT TERM
 
-if ! restic snapshots >/dev/null 2>&1; then
-    restic init
+# Initialise only when restic says the repository is missing. Any other failure
+# (network, credentials, lock) must surface as itself, not as a failed init.
+if ! probe_output="$(restic cat config 2>&1)"; then
+    case "$probe_output" in
+    *"does not exist"*|*"Is there a repository"*|*"no such file"*|*"NoSuchKey"*|*"NoSuchBucket"*)
+        restic init
+        ;;
+    *)
+        echo "restic repository check failed:" >&2
+        echo "$probe_output" >&2
+        exit 1
+        ;;
+    esac
 fi
 
 pg_dump --format=custom --no-owner --no-privileges --file="$backup_tmp/database.dump" "$DATABASE_URL"
