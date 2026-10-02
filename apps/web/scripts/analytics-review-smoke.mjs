@@ -215,6 +215,11 @@ try {
     await page.getByRole("heading", { name: "Belanja rumah", exact: true }).waitFor();
     assert.equal(new URL(page.url()).searchParams.get("category"), "11111111-1111-4111-8111-111111111111");
     assert.equal(await page.locator("#drivers > details").evaluate(element => element.open), true, "a matrix row opens the category evidence");
+    assert.equal(await matrixRow.evaluate(element => element === document.activeElement), true, "choosing a category leaves focus on the row instead of jumping to the evidence");
+    const selection = page.locator(".ledger-selection");
+    assert.match(await selection.textContent(), /Belanja rumah/, "the choice is announced next to the ledger");
+    await selection.getByRole("link", { name: "Lihat bukti", exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.id === "drivers-title");
     assert.equal(await page.locator("#category-drivers").getByRole("link", { name: "Kembali ke ringkasan siklus", exact: true }).isVisible(), true, "the evidence links back to the ledger");
     await matrixRow.focus();
     await page.keyboard.press("Enter");

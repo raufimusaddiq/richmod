@@ -215,3 +215,11 @@
 /* Calendar view: a section keeps its previous range, dimmed, while a new one loads. */
 .calendar-section[data-stale] { opacity: .5; pointer-events: none; transition: opacity .15s; }
 .calendar-body th small { display: block; color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
+
+.ledger-selection { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
+.ledger-selection button { min-height: 44px; }
+#spending-shape { container-type: inline-size; }
+.shape-charts { display: grid; gap: var(--space-4); }
+.shape-charts > * { min-width: 0; }
+@container (min-width: 820px) { .shape-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: no-preference) { .ledger-table td[data-selected], .ledger-table th[data-selected], .ledger-table th[data-selected] button { transition: background-color .2s ease; } }

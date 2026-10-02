@@ -303,3 +303,18 @@ test("mobile ribbon: whole columns beside the label, snapping, the selected colu
   assert.match(component, /figure\.scrollLeft = Math\.max\(0, active\.offsetLeft - \(label \? label\.offsetWidth : 0\)\)/, "the selected column starts after the label instead of being centred at an arbitrary offset");
   assert.equal(component.split('"--cols": ledger.columns.length').length - 1, 2, "both ledger tables tell the CSS how many columns they have");
 });
+
+test("choosing a category opens its evidence without moving the reader; length and waiting are stated", () => {
+  const page = text("app/analytics/page.js");
+  assert.doesNotMatch(page, /if \(!selection\.category \|\| step \|\| loading\) return;/, "no effect pulls focus to the evidence after a choice");
+  assert.match(page, /className="ledger-selection" role="status"/, "the choice is announced where it was made");
+  assert.match(page, /onClick=\{showEvidence\}/, "moving to the evidence is an explicit request");
+  assert.match(page, /className="shape-charts"/);
+  const css = globalCss();
+  assert.match(css, /#spending-shape \{ container-type: inline-size; \}/);
+  assert.match(css, /@container \(min-width: 820px\) \{ \.shape-charts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \}/, "the two daily charts sit side by side when the section is wide");
+  assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{ \.ledger-table td\[data-selected\]/, "the selected column eases in only when motion is allowed");
+  const insight = text("app/components/InsightCard.js");
+  assert.match(insight, /tiap 5 detik hingga sekitar 7 menit/);
+  assert.match(text("app/lib/insightData.js"), /attempts = 90[^]*wait\(5000, signal\)/, "the stated wait matches the polling budget: 90 x 5s");
+});
