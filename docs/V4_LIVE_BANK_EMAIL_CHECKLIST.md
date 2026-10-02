@@ -9,5 +9,5 @@ or personal recipient data.
 - [x] The message body was preserved from the available MIME representation.
 - [x] Sender matching is based on the listener registry, not a bank-specific parser.
 - [x] Unmatched or unauthenticated messages are rejected before extraction.
-- [ ] A second directly authenticated sender should be configured and smoke-tested.
+- [x] A second directly authenticated sender should be configured and smoke-tested. Jenius and Blu listeners now exist; Jenius events reach confirmed transactions through the generic path (checked 2026-10-03).
 - [x] Live native-tool smoke test against the production `primary` model completed with a synthetic email and no database write.

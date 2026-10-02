@@ -37,4 +37,4 @@ of calendar month.
 - [x] Integration test: August 24 salary anchor generates one pending insight and
   one `GENERATE_INSIGHT` job; repeat request returns `200 EXISTING`.
 - [x] API insight tests and vet pass in pinned Go container.
-- [ ] Commit, push, merge, and deploy after explicit approval.
+- [x] Commit, push, merge, and deploy after explicit approval. Merged as `09e3b12`; production runs `main`.

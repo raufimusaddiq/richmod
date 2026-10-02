@@ -18,7 +18,7 @@ Source of truth: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md` (unchanged).
 - [x] Run Telegram/document/bank DB-backed integration tests against disposable PostgreSQL.
 - [x] Run disposable PostgreSQL migration through version 40 and full API/worker verification.
 - [x] Run frontend tests and production builds for web, API, and worker.
-- [ ] Production rollout, smoke, and rollback observation. Not run in this iteration.
+- [x] Production rollout and smoke. Not run in this iteration; later confirmed in production (CHAT lane: 19 succeeded `PROCESS_TELEGRAM_TEXT` jobs, 0 failed, 2026-10-03). Rollback observation was never exercised.
 
 ## Verification completed
 
