@@ -190,3 +190,35 @@ func TestConcurrentSavesOfTheSameTurnLeaveOneRow(t *testing.T) {
 		}
 	}
 }
+
+// A replayed tool result keeps its names and figures but not the analytics refs
+// that were valid only in the turn that issued them.
+func TestReplayedToolResultsCarryNoExpiredCategoryRefs(t *testing.T) {
+	f := newTerminalFixture(t)
+	processor := NewProcessor(f.pool, nil)
+	event := f.event(95)
+	update := f.updateFor(95)
+	context := map[string]any{"categories": []any{map[string]any{"ref": "category.5", "name": "Makan di Luar", "amount": "413392"}}, "transactions": []any{map[string]any{"ref": "tx_2"}}}
+	if err := processor.persistTurn(f.ctx, f.householdID, event, update, "TOOL", "", "get_cycle_changes", context); err != nil {
+		t.Fatal(err)
+	}
+	got, err := processor.recentConversation(f.ctx, f.householdID, f.chatID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded string
+	for _, turn := range got {
+		if turn.Role == "TOOL" {
+			encoded = fmt.Sprint(turn.Context)
+		}
+	}
+	if encoded == "" {
+		t.Fatal("the tool turn must be replayed")
+	}
+	if strings.Contains(encoded, "category.5") {
+		t.Fatalf("an expired analytics ref must not be replayed: %s", encoded)
+	}
+	if !strings.Contains(encoded, "Makan di Luar") || !strings.Contains(encoded, "413392") || !strings.Contains(encoded, "tx_2") {
+		t.Fatalf("names, figures, and tx refs must survive: %s", encoded)
+	}
+}

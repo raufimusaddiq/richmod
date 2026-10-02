@@ -130,6 +130,28 @@ stale-lock reclaim) through a transaction-scoped advisory lock on the event and
 role; a unique index would need a migration that deletes the duplicates retries
 already left behind, so it is not used.
 
+### Turn-scoped analytics refs
+
+The analytics READ tools issue opaque refs (`category.3`, `category.3.merchant.1`).
+They are positions in one turn's fact snapshot, so they are valid only in the turn
+whose `get_cycle_changes` issued them: reusing one in a later turn could point at
+a different category after the data changed, which in a finance product must never
+work silently. Three rules keep follow-ups working without that risk:
+
+- **Replay.** A stored tool result is replayed to the model without its analytics
+  refs; names, figures, and the server-bound `tx_`/`review_` refs stay, so
+  "makan di luar lumayan gede juga?" can still refer to what was just said.
+- **Prompt.** The model is told refs from earlier turns are expired and to call
+  `get_cycle_changes` again before `get_category_drivers` or
+  `get_supporting_transactions`.
+- **Recoverable error.** A ref the session never issued returns a tool result
+  (`REFERENCE_NOT_ISSUED`, with the next step) instead of failing the turn, so the
+  model fixes it inside the phase budget. Other read errors still end the turn.
+
+A turn that still fails tells the household the cause: a model timeout says the
+assistant was slow, any other failure asks them to rephrase, and the Tindakan item
+records `TIMEOUT` or `ERROR` accordingly (ADR-049).
+
 A typed message is never left without an answer. When it will not be retried
 again (a model timeout on the second attempt, or any failure on the last
 attempt), the notice is queued in the same transaction that marks the job

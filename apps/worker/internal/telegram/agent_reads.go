@@ -15,6 +15,9 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolRead, Status: "OK"}
 	if analyticscore.IsRead(call.Name) {
 		facts, err := state.Analytics.Read(ctx, call.Name, call.Arguments)
+		if recovered, ok := recoverableAnalyticsRead(result, err); ok {
+			return recovered, nil
+		}
 		if err != nil {
 			return result, err
 		}
@@ -335,4 +338,21 @@ func agentPeriodFact(r assistantRange) map[string]any {
 		"to_exclusive": r.To.In(jakartaLocation()).Format(time.RFC3339),
 		"label":        r.label(),
 	}
+}
+
+// recoverableAnalyticsRead turns a read the model can correct into a tool result
+// it can act on, instead of an error that ends the turn. A category_ref is valid
+// only in the turn that issued it, so a ref copied from an earlier answer is not
+// a failure of the household's question: the model is told to fetch the refs for
+// this turn and try again, within the turn's phase budget.
+func recoverableAnalyticsRead(result agentToolResult, err error) (agentToolResult, bool) {
+	if !errors.Is(err, analyticscore.ErrCategoryRefNotIssued) {
+		return result, false
+	}
+	result.Status = "REFERENCE_NOT_ISSUED"
+	result.Facts = map[string]any{
+		"error":     "that category_ref was not issued in this turn; refs from earlier turns are expired",
+		"next_step": "call get_cycle_changes for the same cycle, then use a category_ref from its result",
+	}
+	return result, true
 }

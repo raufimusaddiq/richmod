@@ -39,8 +39,12 @@ type FailedSource struct {
 func FailedSourceCopy(sourceType, reason string) (title, description string) {
 	switch sourceType {
 	case "TELEGRAM_TEXT":
+		if reason == "TIMEOUT" {
+			return "Pesan Telegram belum terjawab",
+				"Richmod terlalu lambat memproses pesanmu. Kirim ulang bila masih perlu, lalu tutup tindakan ini."
+		}
 		return "Pesan Telegram belum terjawab",
-			"Richmod tidak berhasil memproses pesanmu. Kirim ulang bila masih perlu, lalu tutup tindakan ini."
+			"Richmod tidak berhasil memproses pesanmu. Kirim ulang atau tulis ulang dengan kata lain bila masih perlu, lalu tutup tindakan ini."
 	case "TELEGRAM_CALLBACK":
 		return "Tombol Telegram belum bisa diproses",
 			"Penekanan tombol tidak berhasil diproses. Coba lagi dari Telegram, lalu tutup tindakan ini."
