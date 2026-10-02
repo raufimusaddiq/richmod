@@ -286,3 +286,7 @@ test("pace chart source: curves from the served series; levels only when no curv
   assert.match(tree("app/analytics"), /pace=\{facts\.pace\}/);
   assert.doesNotMatch(charts, /cumulativeValue|AreaChart/, "still a separate single-purpose line chart");
 });
+
+test("the category change ratio is not shrunk below the 11px floor", () => {
+  assert.match(globalCss(), /\.change-ranking small \{ font-size: var\(--text-xs\); \}/);
+});
