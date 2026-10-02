@@ -129,16 +129,14 @@ function AnalyticsReview() {
   useEffect(() => {
     if (step) document.getElementById(step)?.querySelector("h2")?.focus();
   }, [step, facts]);
-  useEffect(() => {
-    if (!selection.category || step || loading) return;
-    document.getElementById("drivers-title")?.focus();
-  }, [selection.category, step, loading]);
 
   if (!user) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   const selectedCategory = selection.category ? facts?.categoryChanges.find(item => (item.id || "uncategorized") === selection.category) : null;
   const adjacent = adjacentCycles(facts?.cycles, facts?.period?.start);
   // Choosing the selected category again clears it; in a meeting, choosing one moves on to its evidence.
   const chooseCategory = category => navigate({ category: category === selection.category ? "" : category, ...(meeting && category !== selection.category ? { step: "drivers" } : {}) });
+  // Choosing a category opens its evidence below without moving the reader; this is the one place focus follows an explicit request.
+  const showEvidence = event => { event.preventDefault(); const panel = document.querySelector("#drivers > details"); if (panel) panel.open = true; const title = document.getElementById("drivers-title"); title?.focus(); title?.scrollIntoView({ block: "start" }); };
   const refreshing = selection.view === "cycle" && loading && Boolean(facts);
   return <AppShell user={user} eyebrow="Analisis" title={selection.view === "calendar" ? "Analisis kalender" : "Laporan siklus"}>
     <div className="analytics-flow cycle-review" data-meeting-step={step || undefined} data-stale={refreshing ? "true" : undefined} aria-busy={refreshing || undefined}>
@@ -175,11 +173,14 @@ function AnalyticsReview() {
           </div>
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
           {facts.history?.length > 0 && <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={verdictPairs(facts)} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>}
+          {selectedCategory && !meeting && <p className="ledger-selection" role="status"><span>Bukti kategori <strong>{selectedCategory.name}</strong> terbuka di bagian bawah.</span> <a href="#drivers-title" onClick={showEvidence}>Lihat bukti</a><button type="button" className="secondary" onClick={() => navigate({ category: "" })}>Hapus pilihan</button></p>}
           <CyclePosition facts={facts}/>
           <section id="spending-shape" className="review-section analytics-chart" aria-labelledby="shape-title">
             <SectionTitle id="shape-title" about="pola pengeluaran" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
-            <CycleSpendingPatternChart items={facts.daily} average={facts.spendingShape.averageDailyExpense} height={260}/>
-            <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={facts.pace} height={220}/>
+            <div className="shape-charts">
+              <CycleSpendingPatternChart items={facts.daily} average={facts.spendingShape.averageDailyExpense} height={260}/>
+              <CyclePaceChart items={facts.daily} references={paceReferences(facts)} pace={facts.pace} height={260}/>
+            </div>
             <dl className="review-context">
               <Metric label="Rata-rata per hari" value={money(String(Math.round(Number(facts.spendingShape.averageDailyExpense))))}/>
               <Metric label="Hari tertinggi" value={facts.spendingShape.peakDay ? `${dayLabel(facts.spendingShape.peakDay)} · ${money(facts.spendingShape.peakExpense)}` : "Belum ada"}/>
@@ -197,7 +198,7 @@ function AnalyticsReview() {
             </details>
           </section>
           <section id="drivers" className="review-section" aria-labelledby="drivers-title">
-            <details className="report-disclosure" open={Boolean(selectedCategory) || step === "drivers"}>
+            <details key={selection.category || "none"} className="report-disclosure" open={Boolean(selectedCategory) || step === "drivers"}>
             <summary><h2 id="drivers-title" tabIndex={-1}>Bukti kategori</h2><span>{selectedCategory?.name || "Pilih kategori"}</span></summary>
             <label className="driver-selector">Kategori
               <select value={selectedCategory ? selectedCategory.id || "uncategorized" : ""} onChange={event => navigate({ category: event.target.value })}><option value="">Pilih kategori</option>{facts.categoryChanges.map(item => <option key={item.id || "uncategorized"} value={item.id || "uncategorized"}>{item.name}</option>)}</select>
