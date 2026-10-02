@@ -1,3 +1,7 @@
+# Example only. Copy to the untracked wrangler.toml before deploying; see
+# README.md in this folder and docs/runbooks/cloudflare-email-ingress.md.
+# The R2 bucket and the Queue below must already exist in your Cloudflare account.
+# This Worker holds no secret: it stores the raw message in R2 and enqueues metadata.
 name = "richmod-email-ingress"
 main = "src/index.js"
 compatibility_date = "2026-09-04"

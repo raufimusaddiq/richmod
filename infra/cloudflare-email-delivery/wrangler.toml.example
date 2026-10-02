@@ -1,9 +1,17 @@
+# Example only. Copy to the untracked wrangler.toml before deploying; see
+# ../cloudflare-email-ingress/README.md and docs/runbooks/cloudflare-email-ingress.md.
+#
+# Secret (never put it in this file):
+#   wrangler secret put RICHMOD_INGRESS_SECRET
+# Its value must be the same literal string as EMAIL_INGRESS_HMAC_SECRET in the
+# Richmod API environment (see .env.example).
 name = "richmod-email-delivery-worker"
 main = "src/index.js"
 compatibility_date = "2026-09-04"
 
 [vars]
-RICHMOD_INGRESS_URL = "https://api.investdx.biz.id/finance/v1/email/inbond"
+# Replace with your own Richmod API origin; the path is fixed.
+RICHMOD_INGRESS_URL = "https://api.example.com/finance/v1/email/inbond"
 
 [[r2_buckets]]
 binding = "RICHMOD_EMAIL_RAW"
