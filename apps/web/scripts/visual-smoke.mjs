@@ -35,10 +35,10 @@ const review = [{ id: "review-1", reason: "AMBIGUOUS_CATEGORY", amount: "750000"
 const members = [{ id: "member-1", displayName: "Rafi", email: "rafi@example.test", role: "OWNER", active: true, telegramConnected: true }, { id: "member-2", displayName: "Dina", email: "dina@example.test", role: "MEMBER", active: true, telegramConnected: false }];
 const document = { id: "doc-1", status: "SUCCEEDED", documentType: "RECEIPT", sourceType: "WEB_IMAGE", createdAt: "2026-09-06T10:00:00+07:00", confidence: 0.93, linkedTransactionIds: ["tx-1"], summary: { merchant: "Pasar Minggu", amount: "185000" }, needsReview: false };
 
-function fixture(path) {
+function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/auth/me") return user;
   // The analytics page reads one authoritative cycle-review response (the same synthetic facts the smoke test uses).
-  if (path === "/api/v1/analytics/cycle-review") return cycleFacts();
+  if (path === "/api/v1/analytics/cycle-review") return cycleReviewFixture(search.get("cycle_start") || undefined, scenario);
   if (path === "/api/v1/analytics/cycle-decisions") return { items: [], previous: [], previousCycleStart: "2026-08-26" };
   if (path === "/api/v1/analytics/overview") return { income: "12500000", expense: "2590000", netCashflow: "9910000", savingsAllocated: "6500000", unallocatedSurplus: "3410000", reviewCount: 1, periodKind: "CURRENT_CYCLE" };
   if (path === "/api/v1/wealth/snapshots/latest") return { id: "wealth-1", netWorthIdr: "48250000", observedAt: "2026-09-06T10:00:00+07:00" };
@@ -75,13 +75,25 @@ function fixture(path) {
   return [];
 }
 
-async function intercept(page, authenticated = true, requests = []) {
+// The same synthetic cycle facts as the smoke test; `fewCycles` keeps the last two ledger entries so the page shows the card layout.
+function cycleReviewFixture(start, scenario) {
+  const facts = cycleFacts(start);
+  if (scenario.fewCycles) {
+    facts.history = facts.history.slice(-2);
+    const rows = facts.categoryHistory;
+    facts.categoryHistory = { cycleStarts: rows.cycleStarts.slice(-2), rows: rows.rows.map(row => ({ ...row, amounts: row.amounts.slice(-2) })), other: { ...rows.other, amounts: rows.other.amounts.slice(-2) } };
+  }
+  return facts;
+}
+
+async function intercept(page, authenticated = true, requests = [], scenario = {}) {
   await page.route("**/api/v1/**", route => {
-    const path = new URL(route.request().url()).pathname;
+    const url = new URL(route.request().url());
+    const path = url.pathname;
     requests.push({ path, method: route.request().method() });
     if (!authenticated && path === "/api/v1/auth/me") return route.fulfill({ status: 401, contentType: "application/json", body: "{}" });
     if (/\/api\/v1\/documents\/[^/]+\/(content|pages\/\d+\/content)$/.test(path)) return route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture(path)) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture(path, url.searchParams, scenario)) });
   });
 }
 
@@ -242,6 +254,19 @@ async function run() {
       await regressionPage.locator(".chart-tooltip").waitFor();
       await compareScreenshot(regressionPage, "analytics-cycle-tooltip-desktop");
       await regressionPage.close();
+      // Cycle-view states the default capture does not reach: a closed cycle, a selected category row, and too few cycles for the ribbon.
+      for (const [name, path, scenario, ready] of [
+        ["analytics-cycle-closed-desktop", "/analytics?cycle=2026-08-26", {}, page => page.getByRole("heading", { name: "Pola pengeluaran siklus terpilih" })],
+        ["analytics-cycle-category-desktop", "/analytics?category=11111111-1111-4111-8111-111111111111", {}, page => page.getByRole("heading", { name: "Belanja rumah", exact: true })],
+        ["analytics-cycle-few-desktop", "/analytics", { fewCycles: true }, page => page.locator(".ledger-cards")],
+      ]) {
+        const statePage = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
+        await intercept(statePage, true, [], scenario);
+        await statePage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
+        await ready(statePage).waitFor();
+        await compareScreenshot(statePage, name);
+        await statePage.close();
+      }
       const wideRegressionPage = await browser.newPage({ viewport: { width: 1920, height: 1080 }, locale: "id-ID", timezoneId: "Asia/Jakarta" });
       await intercept(wideRegressionPage);
       await wideRegressionPage.goto(`${baseURL}/`, { waitUntil: "networkidle" });
