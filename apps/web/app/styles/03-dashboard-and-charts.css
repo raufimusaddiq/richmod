@@ -60,3 +60,7 @@
 .chart-tooltip-row strong { color: var(--ink); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .chart-tooltip-net { padding-top: 7px; border-top: 1px solid var(--line); color: var(--ink-soft); }
 
+
+/* The dashboard daily chart grows to the height of its card instead of leaving blank space under the line. */
+.overview-trend { display: flex; flex-direction: column; }
+.chart-fill { flex: 1 1 auto; }

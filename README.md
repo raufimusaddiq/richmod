@@ -42,7 +42,7 @@ Forward financial notifications, send a message or image through Telegram, or up
 
 The same app adapts from desktop to tablet to phone: a bottom tab bar replaces the sidebar, cards stack, and the transaction list switches between a full table and compact rows.
 
-Screenshots use synthetic household data. No production financial data is included. The desktop images are 1440x1050; the phone and tablet images are 390x844 and 768x1024.
+Screenshots use synthetic household data. No production financial data is included. The desktop images are 1440x1050; the phone and tablet images are 390x844 and 768x1024. The cycle comparison chart in the Analytics image appears once a household has four closed salary cycles; with fewer, Richmod shows one summary card per cycle instead, so a new household will see the card layout first.
 For reproducible capture, verification, and disposable cleanup, see the
 [README visual showcase runbook](docs/runbooks/readme-showcase.md).
 

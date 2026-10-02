@@ -7,6 +7,7 @@ import { ErrorNotice, Toast } from "../components/Feedback";
 import useAuth from "../components/useAuth";
 import useDrawerA11y from "../components/useDrawerA11y";
 import { dateTime, percent } from "../lib/format";
+import { documentTypeLabels, label } from "../lib/labels";
 
 export default function DocumentsPage() {
   const user = useAuth(); const [items, setItems] = useState([]); const [visibleCount, setVisibleCount] = useState(12); const [selected, setSelected] = useState(null); const [extractions, setExtractions] = useState([]); const [pages,setPages]=useState([]); const [page,setPage]=useState(0); const [working, setWorking] = useState(false); const [error, setError] = useState(""); const [toast,setToast]=useState(""); const [fileInfo,setFileInfo]=useState(""); const detailRequest=useRef(null);
@@ -37,4 +38,4 @@ function summaryText(summary) {
 
 function statusLabel(value) { return ({ PENDING: "Menunggu", PROCESSING: "Diproses", SUCCEEDED: "Berhasil", EXTRACTED: "Terbaca", FAILED: "Gagal" }[value] || value || "—"); }
 function sourceLabel(value) { return ({ WEB_UPLOAD: "Unggahan web", WEB_IMAGE: "Unggahan web", TELEGRAM_IMAGE: "Gambar Telegram", TELEGRAM_TEXT: "Pesan Telegram", EMAIL: "Email" }[value] || value || "—"); }
-function documentTypeLabel(value) { return ({ TRANSACTION_SCREENSHOT: "Bukti transaksi", PAYSLIP: "Slip gaji", RECEIPT: "Struk", BILL_OR_INVOICE: "Tagihan atau faktur", BANK_STATEMENT: "Mutasi rekening" }[value] || value || ""); }
+function documentTypeLabel(value) { return label(documentTypeLabels, value); }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { cycleFacts } from "../tests/fixtures/cycle-review.mjs";
 
@@ -185,10 +186,10 @@ async function run() {
           const smallText = await page.evaluate(() => [...document.querySelectorAll("body *")]
             .filter(element => element.children.length === 0 && (element.textContent || "").trim().length > 1)
             .map(element => ({ text: element.textContent.trim().slice(0, 30), size: Number.parseFloat(getComputedStyle(element).fontSize) }))
-            .filter(entry => entry.size < 11));
-          assert.deepEqual(smallText, [], `${name} ${path} renders text below 11px ${JSON.stringify(smallText)}`);
+            .filter(entry => entry.size < 12));
+          assert.deepEqual(smallText, [], `${name} ${path} renders text below 12px ${JSON.stringify(smallText)}`);
           const slug = path === "/" ? "overview" : path.slice(1);
-          await page.screenshot({ path: new URL(`${name}-${slug}.png`, output).pathname, fullPage: true });
+          await page.screenshot({ path: fileURLToPath(new URL(`${name}-${slug}.png`, output)), fullPage: true });
           if (path === "/transactions") {
             const row = page.locator(".transaction-row").first();
             await row.hover();
@@ -210,7 +211,7 @@ async function run() {
             assert.notEqual(link.display, "flex", `${name} admin ID inherited button flex layout`);
             assert.equal(link.background, "rgba(0, 0, 0, 0)", `${name} admin ID has button background`);
             assert.equal(link.minHeight, "0px", `${name} admin ID has button minimum height`);
-            await page.screenshot({ path: new URL(`${name}-admin-jobs.png`, output).pathname, fullPage: true });
+            await page.screenshot({ path: fileURLToPath(new URL(`${name}-admin-jobs.png`, output)), fullPage: true });
             await page.locator("button.admin-link").first().click();
             await page.locator("aside[role='dialog']").waitFor();
             assert.equal(await page.locator("aside[role='dialog']").count(), 1, `${name} admin job drawer is a modal dialog`);
@@ -223,21 +224,21 @@ async function run() {
         await page.getByRole("button", { name: "Kalender" }).click();
         await page.getByRole("heading", { name: "Pemasukan vs pengeluaran" }).waitFor();
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} analytics calendar has horizontal overflow`);
-        await page.screenshot({ path: new URL(`${name}-analytics-calendar.png`, output).pathname, fullPage: true });
+        await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-calendar.png`, output)), fullPage: true });
         await page.getByRole("button", { name: "Siklus Gaji" }).click();
         await page.getByRole("heading", { name: "Pola pengeluaran siklus ini" }).waitFor();
         await page.locator(".recharts-bar-rectangle").first().hover();
         await page.locator(".chart-tooltip").waitFor();
-        await page.screenshot({ path: new URL(`${name}-analytics-tooltip.png`, output).pathname, fullPage: true });
+        await page.screenshot({ path: fileURLToPath(new URL(`${name}-analytics-tooltip.png`, output)), fullPage: true });
         await page.goto(`${baseURL}/transactions`, { waitUntil: "networkidle" });
         await page.locator(".transaction-row").first().click();
         await page.getByRole("button", { name: "Tutup detail" }).waitFor();
         assert.equal(await page.locator("aside[role='dialog'][aria-label='Detail transaksi']").count(), 1, `${name} transaction drawer is a modal dialog`);
-        await page.screenshot({ path: new URL(`${name}-transaction-drawer.png`, output).pathname, fullPage: true });
+        await page.screenshot({ path: fileURLToPath(new URL(`${name}-transaction-drawer.png`, output)), fullPage: true });
         await page.getByRole("button", { name: "Tutup detail" }).click();
         await page.getByRole("button", { name: /Tambah transaksi|Catat transaksi|Transaksi manual/i }).click();
         await page.locator("dialog[open]").waitFor();
-        await page.screenshot({ path: new URL(`${name}-transaction-dialog.png`, output).pathname, fullPage: true });
+        await page.screenshot({ path: fileURLToPath(new URL(`${name}-transaction-dialog.png`, output)), fullPage: true });
         await page.locator("dialog[open]").getByRole("button", { name: "Batal" }).click();
         await page.goto(`${baseURL}/documents`, { waitUntil: "networkidle" });
         const documentCard = page.locator(".document-card").first();
@@ -245,15 +246,15 @@ async function run() {
         const documentHover = await documentCard.evaluate(element => { const style = getComputedStyle(element); return { background: style.backgroundColor, color: style.color }; });
         assert.notEqual(documentHover.background, "rgb(86, 52, 72)", `${name} document card uses primary hover background`);
         assert.equal(documentHover.color, "rgb(37, 58, 54)", `${name} document card text stays the brand ink on hover`);
-        await page.screenshot({ path: new URL(`${name}-documents-hover.png`, output).pathname, fullPage: true });
+        await page.screenshot({ path: fileURLToPath(new URL(`${name}-documents-hover.png`, output)), fullPage: true });
         await documentCard.click();
         await page.getByRole("dialog", { name: "Detail dokumen" }).waitFor();
-        await page.screenshot({ path: new URL(`${name}-document-drawer.png`, output).pathname, fullPage: true });
+        await page.screenshot({ path: fileURLToPath(new URL(`${name}-document-drawer.png`, output)), fullPage: true });
         if (name === "mobile") {
           await page.getByRole("button", { name: "Tutup detail" }).click();
           await page.getByRole("button", { name: "Lainnya" }).click();
           await page.getByRole("dialog", { name: "Menu lainnya" }).waitFor();
-          await page.screenshot({ path: new URL("mobile-more-menu.png", output).pathname, fullPage: true });
+          await page.screenshot({ path: fileURLToPath(new URL("mobile-more-menu.png", output)), fullPage: true });
         }
         assert.deepEqual(errors, [], `${name} browser errors:\n${errors.join("\n")}`);
         await page.close();
@@ -308,7 +309,7 @@ async function run() {
       await intercept(login, false);
       await login.goto(`${baseURL}/login`, { waitUntil: "networkidle" });
       await login.getByRole("button", { name: "Masuk ke Richmod" }).waitFor();
-      await login.screenshot({ path: new URL("mobile-login.png", output).pathname, fullPage: true });
+      await login.screenshot({ path: fileURLToPath(new URL("mobile-login.png", output)), fullPage: true });
       assert.equal(await login.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, "mobile login has horizontal overflow");
       await login.close();
 
@@ -321,7 +322,7 @@ async function run() {
         await publicPage.goto(`${baseURL}${path}`, { waitUntil: "networkidle" });
         await publicPage.getByRole("heading", { name: target }).waitFor();
         assert.equal(await publicPage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1), false, `${name} has horizontal overflow`);
-        await publicPage.screenshot({ path: new URL(`${name}.png`, output).pathname, fullPage: true });
+        await publicPage.screenshot({ path: fileURLToPath(new URL(`${name}.png`, output)), fullPage: true });
         await compareScreenshot(publicPage, name);
         if (path === "/" && name === "landing-desktop") {
           await publicPage.getByRole("link", { name: "Privasi" }).first().click();

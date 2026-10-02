@@ -85,6 +85,7 @@ img { max-width: 100%; }
 h1, h2, h3, p { text-wrap: pretty; }
 h1, h2, h3, b, strong { letter-spacing: -.015em; }
 h1, h2, h3 { font-family: var(--font-display); font-optical-sizing: auto; letter-spacing: 0; text-wrap: balance; }
+small { font-size: var(--text-xs); } /* the browser default (83%) is 11.67px, below the 12px floor */
 /* Softer, rounder Fraunces: matches the 2px-outline, rounded-card theme. The bundled file carries the weight and SOFT axes only. */
 h1, h2, h3, .brand div, .public-brand strong, .workflow-number { font-variation-settings: "SOFT" var(--font-display-soft); }
 strong, .transaction-amount, .detail-amount, .admin-metric b, .system-metrics b { font-variant-numeric: tabular-nums; }

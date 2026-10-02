@@ -194,3 +194,15 @@
 @media (min-width: 681px) and (max-width: 1100px) {
   .app-main { padding-inline: 32px; }
 }
+
+/* The upload card stacks below 1100px so the file picker has the full width (it was cramped to "No ...sen" on tablets). */
+@media (max-width: 1100px) {
+  .upload-card { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+
+/* Small links outside the earlier tap-target list keep a 32px hit area (44px on touch). */
+.cycle-review details > a, .public-legal-links a { display: inline-flex; align-items: center; min-height: 32px; }
+.settings-index a { min-width: 32px; justify-content: center; }
+@media (pointer: coarse) {
+  .cycle-review details > a, .public-legal-links a { min-height: 44px; }
+}
