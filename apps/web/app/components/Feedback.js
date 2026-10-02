@@ -20,5 +20,5 @@ export function Toast({ message, onClose }) {
 }
 
 export function Skeleton({ cards = 4, rows = 3, label = "Memuat data" }) {
-  return <div className="skeleton-page" role="status" aria-live="polite" aria-label={label} aria-busy="true"><div className="skeleton-cards">{Array.from({ length: cards }, (_, index) => <i key={index}/>)}</div><div className="skeleton-panel">{Array.from({ length: rows }, (_, index) => <i key={index}/>)}</div></div>;
+  return <div className="skeleton-page" role="status" aria-live="polite" aria-label={label} aria-busy="true"><p className="skeleton-note" aria-hidden="true">{label}…</p><div className="skeleton-cards">{Array.from({ length: cards }, (_, index) => <i key={index}/>)}</div><div className="skeleton-panel">{Array.from({ length: rows }, (_, index) => <i key={index}/>)}</div></div>;
 }
