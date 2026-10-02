@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildAdrIndex, readStatus } from "../../../scripts/generate-adr-index.mjs";
+import { buildAdrIndex, escapeCell, readStatus } from "../../../scripts/generate-adr-index.mjs";
+
+test("a table cell escapes the backslash before the pipe, so the escaping cannot be undone", () => {
+  assert.equal(escapeCell("plain"), "plain");
+  assert.equal(escapeCell("a|b"), "a\\|b");
+  assert.equal(escapeCell("a\\b"), "a\\\\b");
+  assert.equal(escapeCell("a\\|b"), "a\\\\\\|b", "an existing backslash before a pipe stays a literal backslash followed by an escaped pipe");
+  assert.equal(escapeCell("\\"), "\\\\");
+});
 
 test("the ADR index is generated from the records and is up to date", () => {
   const committed = readFileSync(new URL("../../../docs/adr/README.md", import.meta.url), "utf8").replace(/\r\n/g, "\n");

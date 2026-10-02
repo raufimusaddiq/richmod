@@ -12,6 +12,12 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// A Markdown table cell: escape the backslash first, then the pipe, so the escaping
+// cannot be undone by a backslash that is already in the text.
+export function escapeCell(value) {
+  return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+}
+
 // The Status is one of three shapes in this repository:
 //   "## Status" heading followed by a paragraph (possibly several lines),
 //   a "- Status: ..." bullet near the top, or no Status at all.
@@ -68,7 +74,7 @@ export function buildAdrIndex(adrDir = path.join(repoRoot, "docs", "adr")) {
     "| ADR | Title | Status |",
     "| --- | --- | --- |",
   );
-  for (const row of rows) out.push(`| [ADR-${pad(row.number)}](${row.file}) | ${escape(row.title)} | ${escape(row.status) || "Not recorded"} |`);
+  for (const row of rows) out.push(`| [ADR-${pad(row.number)}](${row.file}) | ${escapeCell(row.title)} | ${escapeCell(row.status) || "Not recorded"} |`);
   out.push("");
   return out.join("\n");
 }
