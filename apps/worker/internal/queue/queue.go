@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -67,15 +68,57 @@ func Final(job Job, processErr error) bool {
 }
 
 func (q *Queue) Fail(ctx context.Context, job Job, processErr error) error {
+	return q.FailWithHook(ctx, job, processErr, nil)
+}
+
+// FailWithHook is Fail plus a step that runs in the same transaction when the
+// attempt is the job's last. A caller that must tell someone the job is
+// giving up (queue a reply) can do it atomically: either the job is marked
+// FAILED and the notice is queued, or neither happens and the stale-lock claim
+// retries the job. If the hook itself cannot succeed (bad payload, say), the
+// job is still marked FAILED without it, because a job that can never be
+// failed would be reclaimed forever.
+func (q *Queue) FailWithHook(ctx context.Context, job Job, processErr error, onFinal func(context.Context, pgx.Tx) error) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if onFinal != nil && Final(job, processErr) {
+		err := q.failTx(ctx, job, processErr, onFinal)
+		if err == nil {
+			return q.logRetry(ctx, job, processErr)
+		}
+		slog.Default().Error("final job failure step failed; failing the job without it", "job_id", job.ID, "type", job.Type, "error", err)
+	}
+	if err := q.failTx(ctx, job, processErr, nil); err != nil {
+		return err
+	}
+	return q.logRetry(ctx, job, processErr)
+}
+
+func (q *Queue) failTx(ctx context.Context, job Job, processErr error, onFinal func(context.Context, pgx.Tx) error) error {
 	status := "PENDING"
 	if Final(job, processErr) {
 		status = "FAILED"
 	}
 	delaySeconds := int(time.Duration(1<<min(job.Attempts, 8)) * time.Second / time.Second)
-	_, err := q.pool.Exec(ctx, `UPDATE job SET status=$2,run_after=now()+$3*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$4,finished_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND status='RUNNING'`, job.ID, status, delaySeconds, truncate(processErr.Error(), 1000))
+	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE job SET status=$2,run_after=now()+$3*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$4,finished_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND status='RUNNING'`, job.ID, status, delaySeconds, truncate(processErr.Error(), 1000))
+	if err != nil {
+		return err
+	}
+	// Only the worker that still owns the job may run the final step.
+	if onFinal != nil && status == "FAILED" && tag.RowsAffected() == 1 {
+		if err := onFinal(ctx, tx); err != nil {
+			return fmt.Errorf("final failure step: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (q *Queue) logRetry(ctx context.Context, job Job, processErr error) error {
 	if _, logErr := q.pool.Exec(ctx, `INSERT INTO job_retry_log(job_id,attempt,lane,job_type,error_class,duration_ms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (job_id,attempt) DO NOTHING`, job.ID, job.Attempts, classifyLane(job.Type), job.Type, classifyError(processErr), durationMillis(processErr)); logErr != nil {
 		return fmt.Errorf("write job retry log: %w", logErr)
 	}

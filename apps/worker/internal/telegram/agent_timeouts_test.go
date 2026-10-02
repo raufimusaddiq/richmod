@@ -10,7 +10,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func TestAgentTimeoutsAreConsistent(t *testing.T) {
+// The relationships hold for a turn of one tool-selection call and one answer
+// call, which is what an analytics question needs. A turn that chains several
+// reads can still reach the turn deadline; that lands in the terminal notice
+// path, not in silence.
+func TestAgentTimeoutsFitOneToolCallPlusOneAnswer(t *testing.T) {
 	limits := defaultAgentLimits
 	if limits.AnswerPhaseTimeout <= limits.PerModelCallTimeout {
 		t.Fatal("the answer phase must get more time than a tool-selection call")
@@ -46,19 +50,22 @@ func TestAgentPhaseTimeoutLengthensOnlyTheAnswerCall(t *testing.T) {
 	}
 }
 
-func TestIsModelTimeoutOnlyMatchesTheConversationalModelCall(t *testing.T) {
-	phase := fmt.Errorf("conversational model phase: %w", fmt.Errorf("call chat completion gateway: %w", context.DeadlineExceeded))
-	unwrapped := errors.New(`conversational model phase: call chat completion gateway: Post "http://router/v1/chat/completions": context deadline exceeded`)
-	for _, err := range []error{phase, unwrapped} {
+func TestIsModelTimeoutKeysOnTheTypedSentinelNotMessageText(t *testing.T) {
+	wrapped := fmt.Errorf("%w: %w", errModelPhase, fmt.Errorf("call chat completion gateway: %w", context.DeadlineExceeded))
+	stringyDeadline := fmt.Errorf("%w: %w", errModelPhase, errors.New(`Post "http://router/v1/chat/completions": context deadline exceeded`))
+	for _, err := range []error{wrapped, stringyDeadline} {
 		if !IsModelTimeout(err) {
 			t.Errorf("%v must be a model timeout", err)
 		}
 	}
 	for _, err := range []error{
 		nil,
-		errors.New("conversational model phase: call chat completion gateway: connection refused"),
-		errors.New("conversational read batch: context deadline exceeded"),
+		fmt.Errorf("%w: %w", errModelPhase, errors.New("connection refused")),
+		fmt.Errorf("conversational read batch: %w", context.DeadlineExceeded),
 		context.DeadlineExceeded,
+		// Message text alone is not enough, so rewording a wrap cannot silently
+		// change the retry rule in either direction.
+		errors.New("conversational model phase: context deadline exceeded"),
 	} {
 		if IsModelTimeout(err) {
 			t.Errorf("%v must not count as a model timeout", err)
@@ -66,8 +73,29 @@ func TestIsModelTimeoutOnlyMatchesTheConversationalModelCall(t *testing.T) {
 	}
 }
 
+type timingOutModel struct{}
+
+func (timingOutModel) AgentTurn(context.Context, string, gateway.AgentRequest) (gateway.AgentResponse, error) {
+	return gateway.AgentResponse{}, fmt.Errorf("call chat completion gateway: %w", context.DeadlineExceeded)
+}
+
+// The error the loop really returns must satisfy the check the worker uses, so
+// a refactor of the wrap cannot quietly bring back five identical retries.
+func TestAgentLoopReturnsARecognizableModelTimeout(t *testing.T) {
+	err := (&Processor{}).runAgentLoop(context.Background(), timingOutModel{}, &agentState{})
+	if err == nil {
+		t.Fatal("expected the model failure to be returned")
+	}
+	if !IsModelTimeout(err) {
+		t.Fatalf("the loop's model timeout is not recognized: %v", err)
+	}
+	if got := err.Error(); len(got) < 27 || got[:27] != "conversational model phase:" {
+		t.Fatalf("the message must keep its prefix for logs, got %q", got)
+	}
+}
+
 func TestTerminalErrorIsPermanentAndKeepsItsCause(t *testing.T) {
-	cause := fmt.Errorf("conversational model phase: %w", context.DeadlineExceeded)
+	cause := fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded)
 	wrapped := TerminalError(cause)
 	var permanent interface{ Permanent() bool }
 	if !errors.As(wrapped, &permanent) || !permanent.Permanent() {

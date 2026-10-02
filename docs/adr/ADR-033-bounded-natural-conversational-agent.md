@@ -82,10 +82,15 @@ twice, not five times.
 
 A typed message is never left without an answer. When it will not be retried
 again (a model timeout on the second attempt, or any failure on the last
-attempt), Go marks the source event `FAILED` and sends one plain reply saying the
-assistant was too slow and to try again. An event that already reached a final
-state is left alone, and the reply is claimed in the same transaction so two
-workers cannot both send it.
+attempt), the notice is queued in the same transaction that marks the job
+`FAILED`: Go marks the source event `FAILED` and queues one plain reply saying
+the assistant was too slow and to try again. Either both happen or neither does
+(the stale-lock claim then retries the job). An event that already reached a
+final state is left alone, the event is claimed in that transaction so two
+workers cannot both send the reply, and only the worker that still owns the job
+may run the step. If the step itself cannot succeed, the job is still marked
+`FAILED` without it, because a job that can never be failed would be reclaimed
+forever.
 
 Normal final responses and clarifying questions are ordinary model text. A fake
 `respond_to_user` or `ask_clarification` tool is not required merely to satisfy a

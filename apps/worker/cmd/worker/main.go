@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/bankemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
@@ -371,14 +372,18 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsModelTimeout(err) && job.Attempts >= telegram.MaxModelTimeoutAttempts {
 				err = telegram.TerminalError(err)
 			}
-			if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
-				return fmt.Errorf("reschedule job: %w", finishErr)
-			}
-			if job.Type == "PROCESS_TELEGRAM_TEXT" && queue.Final(job, err) {
-				// The household must not be left with silence: tell them.
-				if notifyErr := processor.HandleTerminalTextFailure(ctx, textSourceEventID(job)); notifyErr != nil {
-					logger.Error("terminal text failure notice failed", "job_id", job.ID, "error", notifyErr)
+			// A typed message that will not be retried again must not end in
+			// silence, so the notice is queued in the same transaction that marks
+			// the job FAILED.
+			var onFinal func(context.Context, pgx.Tx) error
+			if job.Type == "PROCESS_TELEGRAM_TEXT" {
+				sourceEventID := textSourceEventID(job)
+				onFinal = func(ctx context.Context, tx pgx.Tx) error {
+					return processor.TerminalTextFailureTx(ctx, tx, sourceEventID)
 				}
+			}
+			if finishErr := jobs.FailWithHook(ctx, job, err, onFinal); finishErr != nil {
+				return fmt.Errorf("reschedule job: %w", finishErr)
 			}
 			if job.Type == "PROCESS_DOCUMENT" && job.Attempts >= job.MaxAttempts {
 				payload, decodeErr := workerDocument.DecodePayload(job.Payload)
