@@ -147,6 +147,8 @@ jobs:
         run: docker compose config --quiet
       - name: Test deployment image retention
         run: sh infra/deploy/post-deploy_test.sh
+      - name: Test backup repository bootstrap
+        run: sh infra/backup/backup_test.sh
       - name: Build production images
         run: |
           docker build -f infra/docker/api.Dockerfile -t family-finance-api:ci .
