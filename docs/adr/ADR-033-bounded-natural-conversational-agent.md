@@ -94,6 +94,13 @@ answer; turns that finish within 10 seconds (single-phase turns measure p90 abou
 6 s) never send one. Typed messages are handled by two chat workers by default,
 so a long turn holds one of them for its duration.
 
+The queue budget (160 s) and the five-minute job lease hold per attempt, not per
+turn: a message whose first attempt times out is tried once more, so the worst
+case is about 322 s end to end, which is past the lease. If the first worker is
+still finishing when the lease expires, a second attempt can run alongside it;
+that is safe for the turn rows (see Conversation memory) and for the terminal
+notice, which is claimed in one transaction.
+
 ### Conversation memory
 
 Each message is its own turn: there is no session, so nothing expires with the
