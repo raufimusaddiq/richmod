@@ -12,9 +12,20 @@ import (
 )
 
 // terminalTextFailureMessage is what the household sees when a typed message
-// could not be answered. It says what happened and what to do, so a failure is
-// never silence.
-const terminalTextFailureMessage = "Richmod lagi lambat menjawab, jadi pertanyaanmu belum terjawab. Coba kirim ulang sebentar lagi."
+// could not be answered because the model was too slow; terminalTextErrorMessage
+// when it failed for another reason. Each says what happened and what to do, so a
+// failure is never silence, and a failure that is not slowness is not blamed on it.
+const (
+	terminalTextFailureMessage = "Richmod lagi lambat menjawab, jadi pertanyaanmu belum terjawab. Coba kirim ulang sebentar lagi."
+	terminalTextErrorMessage   = "Richmod belum bisa menjawab pertanyaan ini. Coba tulis ulang pertanyaannya dengan kata lain."
+)
+
+func terminalTextFailureCopy(timedOut bool) (message, reason string) {
+	if timedOut {
+		return terminalTextFailureMessage, "TIMEOUT"
+	}
+	return terminalTextErrorMessage, "ERROR"
+}
 
 // errModelPhase marks a failure of the conversational model call. runAgentLoop
 // wraps it, so the retry rule keys on this value and not on message text.
@@ -53,7 +64,7 @@ func TerminalError(err error) error {
 //
 // It only issues statements that cannot abort the transaction: a malformed ID or
 // a missing event is a no-op, never an SQL error.
-func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
+func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string, timedOut bool) error {
 	if !reviewdomain.IsSourceEventID(sourceEventID) {
 		return nil
 	}
@@ -85,25 +96,26 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 	// Unconditional on purpose: an earlier progress notice must never suppress the
 	// failure notice (the household would be left with "still working" and then
 	// nothing). Only the progress notice checks for existing replies.
-	if err := enqueueReply(ctx, tx, update, terminalTextFailureMessage); err != nil {
+	message, reason := terminalTextFailureCopy(timedOut)
+	if err := enqueueReply(ctx, tx, update, message); err != nil {
 		return err
 	}
 	// Leave a dismissable record in the Inbox, so the failure is visible after
 	// the chat scrolls away and analytics has somewhere honest to point.
 	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
-		HouseholdID: householdID, SourceEventID: sourceEventID, SourceType: "TELEGRAM_TEXT", Reason: "ERROR",
+		HouseholdID: householdID, SourceEventID: sourceEventID, SourceType: "TELEGRAM_TEXT", Reason: reason,
 	})
 }
 
 // HandleTerminalTextFailure applies TerminalTextFailureTx in its own
 // transaction, for callers that are not already inside one.
-func (p *Processor) HandleTerminalTextFailure(ctx context.Context, sourceEventID string) error {
+func (p *Processor) HandleTerminalTextFailure(ctx context.Context, sourceEventID string, timedOut bool) error {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := p.TerminalTextFailureTx(ctx, tx, sourceEventID); err != nil {
+	if err := p.TerminalTextFailureTx(ctx, tx, sourceEventID, timedOut); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

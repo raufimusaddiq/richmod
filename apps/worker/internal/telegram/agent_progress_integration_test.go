@@ -101,7 +101,9 @@ func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
 	}
 
 	job := f.job(event, 2)
-	hook := func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalTextFailureTx(ctx, tx, event) }
+	hook := func(ctx context.Context, tx pgx.Tx) error {
+		return processor.TerminalTextFailureTx(ctx, tx, event, true)
+	}
 	if err := jobs.FailWithHook(f.ctx, job, timeoutError(), hook); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +222,9 @@ func TestDeadTypedMessageLeavesADismissableItem(t *testing.T) {
 	jobs := queue.New(f.pool)
 	event := f.event(51)
 	job := f.job(event, 2)
-	hook := func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalTextFailureTx(ctx, tx, event) }
+	hook := func(ctx context.Context, tx pgx.Tx) error {
+		return processor.TerminalTextFailureTx(ctx, tx, event, true)
+	}
 	if err := jobs.FailWithHook(f.ctx, job, timeoutError(), hook); err != nil {
 		t.Fatal(err)
 	}

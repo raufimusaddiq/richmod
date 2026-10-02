@@ -20,3 +20,11 @@ func TestPromptTellsTheModelNotToQuoteFiguresFromCompactedTurns(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptTellsTheModelThatEarlierCategoryRefsAreExpired(t *testing.T) {
+	for _, phrase := range []string{"valid only in the turn whose get_cycle_changes issued it", "call get_cycle_changes again", "never reuse a ref from an earlier turn"} {
+		if !strings.Contains(conversationalAgentPrompt, phrase) {
+			t.Fatalf("prompt missing %q", phrase)
+		}
+	}
+}

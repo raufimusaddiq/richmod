@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 	"unicode/utf8"
 )
@@ -93,6 +94,7 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 			return nil, err
 		}
 		_ = json.Unmarshal(raw, &turn.Context)
+		dropExpiredAnalyticsRefs(turn.Context)
 		newestFirst = append(newestFirst, turn)
 	}
 	if err := rows.Err(); err != nil {
@@ -103,6 +105,42 @@ func (p *Processor) recentConversation(ctx context.Context, householdID string, 
 		chronological[len(newestFirst)-1-i] = turn
 	}
 	return compactConversation(chronological), nil
+}
+
+// expiredAnalyticsRef matches the opaque refs analytics READ tools issue
+// ("category.3", "category.3.merchant.1"). They are positions in one turn's fact
+// snapshot, valid only in the turn that issued them, so a replayed turn must not
+// carry them: the model would reuse one and the read would be rejected, or worse,
+// a position could point at a different category after the data changed.
+// Transaction and review refs (tx_1, review_2) are bound server-side across turns
+// and are left alone.
+var expiredAnalyticsRef = regexp.MustCompile(`^category\.[0-9]+(\.[a-z_]+\.[0-9]+)*$`)
+
+// dropExpiredAnalyticsRefs removes analytics refs from a stored tool context in
+// place: map entries whose value is such a ref, and list items that are one. The
+// names and figures next to them stay, so a follow-up can still refer to them.
+func dropExpiredAnalyticsRefs(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, item := range v {
+			if text, ok := item.(string); ok && expiredAnalyticsRef.MatchString(text) {
+				delete(v, key)
+				continue
+			}
+			v[key] = dropExpiredAnalyticsRefs(item)
+		}
+		return v
+	case []any:
+		kept := v[:0]
+		for _, item := range v {
+			if text, ok := item.(string); ok && expiredAnalyticsRef.MatchString(text) {
+				continue
+			}
+			kept = append(kept, dropExpiredAnalyticsRefs(item))
+		}
+		return kept
+	}
+	return value
 }
 
 // compactConversation takes turns oldest first. The newest verbatimTurns stay

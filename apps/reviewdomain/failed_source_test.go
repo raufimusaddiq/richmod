@@ -7,7 +7,7 @@ import (
 
 func TestFailedSourceCopyIsPlainAndSaysWhatToDo(t *testing.T) {
 	for _, sourceType := range []string{"TELEGRAM_TEXT", "TELEGRAM_CALLBACK", "BANK_EMAIL", "SOMETHING_ELSE"} {
-		for _, reason := range []string{"INVALID", "TRANSPORT_FAILED", "ERROR", ""} {
+		for _, reason := range []string{"INVALID", "TRANSPORT_FAILED", "TIMEOUT", "ERROR", ""} {
 			title, description := FailedSourceCopy(sourceType, reason)
 			if strings.TrimSpace(title) == "" || strings.TrimSpace(description) == "" {
 				t.Fatalf("%s/%s needs a title and description", sourceType, reason)
