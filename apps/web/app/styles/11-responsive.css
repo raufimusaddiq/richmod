@@ -37,7 +37,7 @@
   .compact-table .transaction-state small { display: none; }
   .compact-table .transaction-amount { grid-column: 2; grid-row: 1; }
   .analytics-detail-layout, .admin-grid { grid-template-columns: minmax(0, 1fr); }
-  .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-metrics, .analytics-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
   .admin-metric:nth-child(-n + 2) { border-top: 0; }
   .admin-metric:nth-child(2n + 1) { border-left: 0; }
@@ -139,7 +139,7 @@
   .kpi-grid article + article { border-top: 1px solid var(--line); border-left: 0; }
   .filter-bar { grid-template-columns: minmax(0, 1fr); }
   .filter-bar button { grid-column: auto; }
-  .admin-metrics, .analytics-kpis, .system-metrics { grid-template-columns: minmax(0, 1fr); }
+  .admin-metrics, .analytics-kpis { grid-template-columns: minmax(0, 1fr); }
   .admin-metric:nth-child(n) { border-top: 1px solid var(--line); border-left: 0; }
   .admin-metric:first-child { border-top: 0; }
   .transaction-main { grid-template-columns: 31px minmax(0, 1fr); gap: 9px; }
@@ -205,4 +205,10 @@
 .settings-index a { min-width: 32px; justify-content: center; }
 @media (pointer: coarse) {
   .cycle-review details > a, .public-legal-links a { min-height: 44px; }
+}
+
+/* Phones stack the row actions full width, so the desktop gap before a destructive button would only indent it. */
+@media (max-width: 719px) {
+  .settings-list .danger, .member-actions .danger, .row-actions .danger { margin-inline-start: 0; }
+  .inline-form select { grid-column: 1 / -1; }
 }

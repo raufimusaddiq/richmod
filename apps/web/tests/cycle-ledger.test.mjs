@@ -295,7 +295,7 @@ test("mobile ribbon: whole columns beside the label, snapping, the selected colu
   const css = globalCss();
   const component = text("app/components/CycleLedger.js");
   assert.match(css, /\.ledger-figure \{[^}]*container-type: inline-size/, "column widths come from the figure's own width");
-  assert.match(css, /@container \(max-width: 520px\) \{[\s\S]*?--visible: 4;[\s\S]*?--col: calc\(\(100cqw - var\(--label\)\) \/ var\(--visible\)\)/, "four whole columns fit beside the label on a phone");
+  assert.match(css, /@container \(max-width: 520px\) \{[\s\S]*?--visible: 4;[\s\S]*?--shown: min\(var\(--visible\), var\(--cols, 6\)\);[\s\S]*?--col: calc\(\(100cqw - var\(--label\)\) \/ var\(--shown\)\)/, "four whole columns fit beside the label on a phone, and fewer cycles share the full width");
   assert.match(css, /@container \(max-width: 319px\) \{ \.ledger-table \{ --visible: 3; \} \}/, "three on the narrowest screens");
   assert.match(css, /scroll-snap-type: x mandatory; scroll-padding-inline-start: 5\.5rem/, "a column stops right after the sticky label");
   assert.match(css, /\.ledger-table thead th:not\(:first-child\) \{ scroll-snap-align: start; \}/);

@@ -56,3 +56,8 @@
 .extraction pre { max-width: 100%; overflow: auto; padding: 12px; border-radius: 8px; background: var(--ink); color: var(--surface-strong); font-size: var(--text-xs); }
 .extraction pre { background-color: var(--ink); background-image: linear-gradient(to right, var(--ink) 30%, rgb(37 58 54 / 0)), linear-gradient(to left, var(--ink) 30%, rgb(37 58 54 / 0)), radial-gradient(farthest-side at 0 50%, rgb(255 252 244 / .35), rgb(255 252 244 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(255 252 244 / .35), rgb(255 252 244 / 0)); background-position: left center, right center, left center, right center; background-size: 28px 100%, 28px 100%, 10px 100%, 10px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; } /* the edge shadow shows only while the text overflows */
 
+
+/* Date fields carry a visible label: iOS draws an empty date input as a blank box, and its intrinsic width overflowed the card. */
+.filter-date { display: grid; gap: 4px; min-width: 150px; flex: 1 1 170px; color: var(--muted); font-size: var(--text-xs); }
+.filter-date input { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none; }
+.filter-date input::-webkit-date-and-time-value { min-height: 1.4em; text-align: left; }
