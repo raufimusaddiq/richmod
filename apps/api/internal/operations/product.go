@@ -77,10 +77,15 @@ type productAggregate struct {
 	ResidualViolations          int            `json:"residualViolations"`
 	ResidualUnknownReviews      int            `json:"residualUnknownReviews"`
 	ResidualFidelityRate        float64        `json:"residualFidelityRate"`
+	// CEUBinding counts conversational-evidence binding outcomes in the window by
+	// bounded action name (EXACT_REPLY_BINDING, RECENT_CONTEXT_BINDING,
+	// AMBIGUOUS_CONTEXT, REFERENCE_EXPIRED, ...). Counters only: no text, value, or
+	// identifier is stored, and rows from before CEU simply do not exist.
+	CEUBinding map[string]int `json:"ceuBinding"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
-	aggregate := productAggregate{WindowDays: 30, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}, AutoConfirmCorrectionFields: map[string]int{}, AutoConfirmCorrectionSource: map[string]int{}}
+	aggregate := productAggregate{WindowDays: 30, CEUBinding: map[string]int{}, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}, AutoConfirmCorrectionFields: map[string]int{}, AutoConfirmCorrectionSource: map[string]int{}}
 
 	// Source-event processing states in the window, plus the distinct reviewed
 	// events counted over the exact same cohort so the human-touch ratio is
@@ -358,6 +363,7 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		sql string
 		dst map[string]int
 	}{
+		{`SELECT action,count(*) FROM product_telemetry_event WHERE household_id=$1 AND event_type='CEU_BINDING' AND occurred_at >= now()-interval '30 days' GROUP BY action`, aggregate.CEUBinding},
 		{`SELECT field,count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id CROSS JOIN LATERAL unnest(e.changed_fields) AS changed(field) WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY field`, aggregate.AutoConfirmCorrectionFields},
 		{`SELECT COALESCE(e.source_type,'unknown'),count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY 1`, aggregate.AutoConfirmCorrectionSource},
 	} {

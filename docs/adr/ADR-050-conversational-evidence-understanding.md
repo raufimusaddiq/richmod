@@ -74,6 +74,9 @@ context**. It adds no decision authority.
 - Telegram image/document evidence only. Email evidence reaches a conversation
   only through a review or transaction link.
 
+Corpus, metrics, known limits and the freeze condition are recorded in
+[CEU-07](../audits/CEU-07-corpus-and-metrics.md).
+
 ## Rejected alternatives
 
 - **A CEU agent or decision system.** Duplicates SAVR/ReviewDomain authority.

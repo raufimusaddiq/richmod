@@ -1,6 +1,6 @@
 # CEU Execution Plan
 
-**Status:** accepted (ADR-050); CEU-01 in progress
+**Status:** CEU-01 through CEU-07 implemented; **corpus-complete, production observation open** (see [CEU-07](../audits/CEU-07-corpus-and-metrics.md)). Not frozen until the owner accepts the observation.
 **Baseline:** `main@be6be45e1b813bbee80de67577386c93193c2035`
 **Audit:** [`audits/CEU-00-architecture-audit.md`](../audits/CEU-00-architecture-audit.md)
 **ADR:** [`adr/ADR-050-conversational-evidence-understanding.md`](../adr/ADR-050-conversational-evidence-understanding.md)
@@ -18,7 +18,22 @@ same branch and is applied to disposable PostgreSQL from zero.
 
 ---
 
-## CEU-00 — audit and design (this PR)
+## Delivery
+
+| Slice | PR | Notes |
+| --- | --- | --- |
+| CEU-00 | #283 | audit, ADR-050, this plan |
+| CEU-01 | #284 | evidence refs, context package, untrusted boundary |
+| CEU-02 | #285 | reply binding, bindable notices, upload chat id |
+| CEU-03 | next | recent evidence, `get_evidence_context`, per-document ref keys |
+| CEU-04 | next | recent-evidence review binding, no duplicate harvest, correction guidance |
+| CEU-05 | next | duplicate candidates, `MERGE_EXISTING` through the canonical merge |
+| CEU-06 | next | a reply to an upload or notice continues its open review |
+| CEU-07 | next | corpus, Operations counters, correction e2e, freeze record |
+
+One deviation from the original slice text: `search_transactions` is **not** extended with evidence summaries (CEU-03 plan item). Evidence reaches a transaction conversation through `bound_evidence` and `get_evidence_context`, which was enough; extending a second tool was YAGNI.
+
+## CEU-00 — audit and design
 
 Docs only: audit, ADR-050 (Proposed → Accepted on merge), this plan. No runtime
 code.
