@@ -2,7 +2,7 @@
 
 An ADR records a decision that changes architecture, infrastructure, or a security boundary. `AGENTS.md` requires one before any material architecture change or new infrastructure. Product decisions live in [`../bdr/`](../bdr/) as Business Decision Records.
 
-- **Adding one:** use the next number, **ADR-050**, and the file name `ADR-050-short-title.md` with Context, Decision and Status sections like the existing records.
+- **Adding one:** use the next number, **ADR-051**, and the file name `ADR-051-short-title.md` with Context, Decision and Status sections like the existing records.
 - **Current versus superseded:** the Status line of each record is authoritative. Where an ADR was amended, the Status names the amending ADR; read both.
 - **Duplicate number:** ADR-033 is used by two records on different topics. Both are current. References elsewhere in the docs use the full file name, so this index lists both rows rather than renaming either.
 
@@ -60,3 +60,4 @@ This table is generated from each file's title and Status by `scripts/generate-a
 | [ADR-047](ADR-047-semantic-fact-ownership.md) | Semantic Fact Ownership and Accepted-Fact Boundaries | Accepted — 2026-09-27. |
 | [ADR-048](ADR-048-validation-consequence-domain-continuity.md) | Validation Consequences, Residual Fidelity, and Domain Continuity | Accepted — 2026-09-27. |
 | [ADR-049](ADR-049-failed-sources-surface-as-actions.md) | Failed Sources Surface as Dismissable Actions | Accepted — 2026-10-02. |
+| [ADR-050](ADR-050-conversational-evidence-understanding.md) | Conversational Evidence Understanding (CEU) | Proposed — 2026-10-03. Accepted when the CEU-00 design PR is approved and merged. |
