@@ -79,6 +79,18 @@ func (p *Processor) resolveReplyEvidence(ctx context.Context, householdID string
 // and resolves it through the same exact-reply binder a reply to the card uses, so
 // there is one binding implementation and one authority.
 func (p *Processor) reviewBindingForDocument(ctx context.Context, householdID string, chatID int64, document canonicalDocumentID) (*agentReviewBinding, error) {
+	messageID, err := p.reviewCardMessageForDocument(ctx, householdID, chatID, document)
+	if err != nil || messageID == 0 {
+		return nil, err
+	}
+	return p.exactAgentReviewBinding(ctx, householdID, chatID, messageID)
+}
+
+// reviewCardMessageForDocument returns the Telegram message id of the open review
+// card that is about a document in this chat, or 0. It follows the document's own
+// review, a review on any of its source events, or a review on a transaction the
+// document is linked to.
+func (p *Processor) reviewCardMessageForDocument(ctx context.Context, householdID string, chatID int64, document canonicalDocumentID) (int64, error) {
 	var messageID int64
 	err := p.pool.QueryRow(ctx, `SELECT rr.telegram_message_id
 		FROM review_request r
@@ -91,12 +103,33 @@ func (p *Processor) reviewBindingForDocument(ctx context.Context, householdID st
 		            SELECT source_event_id FROM document WHERE id=$3::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$3::uuid)))
 		ORDER BY r.created_at DESC LIMIT 1`, householdID, chatID, string(document)).Scan(&messageID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return 0, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("find review for evidence: %w", err)
+		return 0, fmt.Errorf("find review for evidence: %w", err)
 	}
-	return p.exactAgentReviewBinding(ctx, householdID, chatID, messageID)
+	return messageID, nil
+}
+
+// replyTargetForEvidenceReview treats a reply to an upload, or to a bound evidence
+// notice, as a reply to that document's open review card, so the deterministic
+// review lanes (date, amount, policy) answer it exactly as if the household had
+// replied to the card. A reply to anything else, or to a document with no open
+// review in this chat, is returned unchanged. It never searches for "the latest"
+// review: the document is resolved from the exact message the user replied to.
+func (p *Processor) replyTargetForEvidenceReview(ctx context.Context, householdID string, update telegramUpdate) telegramUpdate {
+	document, found, err := p.resolveReplyEvidence(ctx, householdID, update)
+	if err != nil || !found {
+		return update
+	}
+	card, err := p.reviewCardMessageForDocument(ctx, householdID, update.Message.Chat.ID, document)
+	if err != nil || card == 0 {
+		return update
+	}
+	update.Message.ReplyToMessage = &struct {
+		MessageID int64 `json:"message_id"`
+	}{MessageID: card}
+	return update
 }
 
 // documentForReviewBinding returns the document an already-bound review is about.
