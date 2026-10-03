@@ -284,9 +284,17 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Prefer the chat the upload came from; the household's first active identity is
+	// only the fallback for evidence that did not record one (CEU-02).
 	var chatID int64
 	hasChat := true
-	if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err != nil {
+	var sourceChat *int64
+	if err := tx.QueryRow(ctx, `SELECT telegram_chat_id FROM source_event WHERE id=$1`, sourceID).Scan(&sourceChat); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if sourceChat != nil {
+		chatID = *sourceChat
+	} else if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -387,7 +395,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	// PRD §11.4: one batch summary, so a many-row screenshot never floods the
 	// chat with one message per row.
 	if hasChat {
-		if err := enqueueScreenshotSummary(ctx, tx, chatID, screenshotSummary(len(rows), recorded, linked, pending)); err != nil {
+		if err := enqueueScreenshotSummary(ctx, tx, chatID, documentID, screenshotSummary(len(rows), recorded, linked, pending)); err != nil {
 			return err
 		}
 	}

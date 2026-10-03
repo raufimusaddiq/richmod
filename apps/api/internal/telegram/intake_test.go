@@ -11,6 +11,7 @@ import (
 
 type fakeStore struct {
 	input CaptureInput
+	image ImageInput
 	err   error
 	calls int
 }
@@ -24,6 +25,7 @@ func (s *fakeStore) Link(_ context.Context, input CaptureInput, _ string) (bool,
 func (s *fakeStore) CaptureImage(_ context.Context, input ImageInput) (bool, error) {
 	s.calls++
 	s.input = input.CaptureInput
+	s.image = input
 	return true, s.err
 }
 
@@ -54,11 +56,11 @@ func TestWebhookRoutesStartTokenToLinking(t *testing.T) {
 func TestWebhookCapturesLargestPrivatePhoto(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewHandler(store, "webhook-secret")
-	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":44,"message":{"from":{"id":789},"chat":{"type":"private"},"caption":"slip gaji","photo":[{"file_id":"small","width":100,"height":100},{"file_id":"large","width":1000,"height":1000}]}}`))
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":44,"message":{"message_id":55,"from":{"id":789},"chat":{"id":789,"type":"private"},"caption":"slip gaji","photo":[{"file_id":"small","width":100,"height":100},{"file_id":"large","width":1000,"height":1000}]}}`))
 	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
 	response := httptest.NewRecorder()
 	handler.Webhook(response, request)
-	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 789 {
+	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 789 || store.image.ChatID != 789 || store.image.MessageID != 55 {
 		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
 	}
 }

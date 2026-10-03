@@ -129,8 +129,10 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 
 	var missing, actions []byte
 	err = p.pool.QueryRow(ctx, `SELECT review_type,COALESCE(decision->'missingFacts','[]'::jsonb),COALESCE(decision->'allowedActions','[]'::jsonb)
-		FROM review_item WHERE household_id=$1 AND (document_id=$2::uuid OR source_event_id=$3::uuid)
-		  AND status IN ('OPEN','PENDING_SEND') ORDER BY created_at DESC LIMIT 1`, householdID, string(document), sourceEventID).
+		FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')
+		  AND (document_id=$2::uuid OR source_event_id IN (SELECT source_event_id FROM document WHERE id=$2::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$2::uuid)
+		       OR transaction_id IN (SELECT te.transaction_id FROM transaction_evidence te WHERE te.source_event_id IN (SELECT source_event_id FROM document WHERE id=$2::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$2::uuid)))
+		ORDER BY created_at DESC LIMIT 1`, householdID, string(document)).
 		Scan(&f.ReviewType, &missing, &actions)
 	switch {
 	case err == nil:

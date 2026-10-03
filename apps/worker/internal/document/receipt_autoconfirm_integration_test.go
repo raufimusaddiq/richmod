@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -568,5 +569,73 @@ func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
 	}
 	if status != "NEEDS_REVIEW" || reviewType != "AMBIGUOUS_CATEGORY" || len(missingFacts) != 1 || missingFacts[0] != "category" {
 		t.Fatalf("disabled rollout must preserve category-only review: status=%s reason=%s missing=%v", status, reviewType, missingFacts)
+	}
+}
+
+// CEU-02: a receipt that resolves without a human tells the chat it came from,
+// as a reply to the upload, and the notice is bound to the document.
+func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt notice")
+	ctx := context.Background()
+	chat := time.Now().UnixNano() % 9_000_000_000
+	if _, err := fixture.pool.Exec(ctx, `UPDATE source_event SET telegram_chat_id=$2,telegram_message_id=555 WHERE id=$1`, fixture.sourceID, chat); err != nil {
+		t.Fatal(err)
+	}
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.35}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}); err != nil {
+		t.Fatal(err)
+	}
+	var jobs int
+	var gotChat, replyTo int64
+	var text, bind string
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) OVER(),(payload_json->>'chat_id')::bigint,(payload_json->>'reply_to_message_id')::bigint,payload_json->>'text',payload_json->>'bind_document_id'
+		FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'bind_document_id'=$1`, fixture.documentID).Scan(&jobs, &gotChat, &replyTo, &text, &bind); err != nil {
+		t.Fatalf("no bound notice queued: %v", err)
+	}
+	if jobs != 1 || gotChat != chat || replyTo != 555 || bind != fixture.documentID {
+		t.Fatalf("notice jobs=%d chat=%d reply=%d bind=%s", jobs, gotChat, replyTo, bind)
+	}
+	if !strings.HasPrefix(text, "Struk Indomaret Rp57.500 sudah tercatat.") {
+		t.Fatalf("notice text = %q", text)
+	}
+}
+
+func TestLinkedReceiptQueuesALinkedNoticeAndStillCreatesNoDuplicate(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Receipt link notice")
+	ctx := context.Background()
+	slug := fixture.categorySlug
+	value := receiptExtraction{Merchant: "Indomaret", Total: "57500", Subtotal: ptr("50000"), Tax: ptr("7500"), Currency: "IDR", CategorySlug: &slug, CategoryConfidence: 0.95, Confidence: 0.95}
+	validation := receiptValidation{TransactionAt: receiptTime(), DateKnown: true, ArithmeticAvailable: true, ArithmeticOK: true}
+	category := []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", validation, category); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UnixNano()
+	chat := stamp % 9_000_000_000
+	var secondSource, attachmentID, secondDocument string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_chat_id,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSING',$4,556) RETURNING id`, fixture.householdID, fmt.Sprintf("link-notice-%d", stamp), []byte(fmt.Sprintf("link-notice-%d", stamp)), chat).Scan(&secondSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/jpeg',3,1,1,$3) RETURNING id`, fixture.householdID, []byte(fmt.Sprintf("link-hash-%d", stamp)), fmt.Sprintf("test/link-%d.jpg", stamp)).Scan(&attachmentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status,document_type) VALUES($1,$2,$3,'RECEIVED','RECEIPT') RETURNING id`, fixture.householdID, secondSource, attachmentID).Scan(&secondDocument); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Processor{pool: fixture.pool}).persistReceipt(ctx, secondDocument, fixture.householdID, secondSource, value, "test-model", validation, category); err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	if err := fixture.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'bind_document_id'=$1`, secondDocument).Scan(&text); err != nil {
+		t.Fatalf("no linked notice queued: %v", err)
+	}
+	if !strings.HasPrefix(text, "Struk Indomaret Rp57.500 dilampirkan ke transaksi yang sudah ada.") {
+		t.Fatalf("linked notice = %q", text)
+	}
+	var transactions int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&transactions); err != nil || transactions != 1 {
+		t.Fatalf("transactions=%d err=%v, want the notice to add no ledger row", transactions, err)
 	}
 }

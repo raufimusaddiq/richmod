@@ -494,6 +494,11 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 				return err
 			}
 		}
+		if payload.BindDocumentID != "" {
+			if err := processor.BindEvidenceMessage(ctx, payload.ChatID, messageID, payload.BindDocumentID); err != nil {
+				return err
+			}
+		}
 		if payload.CallbackQueryID != "" {
 			return bot.AnswerCallback(ctx, payload.CallbackQueryID)
 		}

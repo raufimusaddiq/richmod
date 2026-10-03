@@ -262,7 +262,9 @@ func screenshotSummary(found, recorded, linked, pending int) string {
 	return strings.Join(lines, "\n")
 }
 
-func enqueueScreenshotSummary(ctx context.Context, tx pgx.Tx, chatID int64, summary string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text',$2::text))`, chatID, summary)
+// enqueueScreenshotSummary queues the batch summary. It is bound to the document so a
+// reply to it resolves to the screenshot it described (CEU-02).
+func enqueueScreenshotSummary(ctx context.Context, tx pgx.Tx, chatID int64, documentID, summary string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text',$2::text,'bind_document_id',$3::text))`, chatID, summary, documentID)
 	return err
 }
