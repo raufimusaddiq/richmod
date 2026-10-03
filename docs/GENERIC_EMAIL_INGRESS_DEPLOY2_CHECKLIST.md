@@ -15,4 +15,4 @@ Source of truth: ADR-033 and the current repository state.
 - [x] Reclaim merged worktree and disposable caches after image publication.
 - [x] Submit production deployment approval.
 - [x] Verify `/healthz`, `/readyz`, and active Cloudflare ingestion after deployment. Merged as `b42493a` (migration `00044` applied, `gmail_integration` table gone); 109 deliveries `INGESTED` in production; Deploy Production runs succeed (checked 2026-10-03).
-- [ ] Revoke obsolete external Google OAuth/PubSub resources separately.
+- [x] Revoke obsolete external Google OAuth/PubSub resources separately. Done 2026-10-03 by the owner by deleting the Google Cloud project that held the Pub/Sub topic and subscriptions, the push service account, the OAuth client and the Gmail API configuration (reported by the owner; not independently verifiable from the host, which has no Google credentials). Locally, `google-oauth-client.json` and all `GMAIL_*` settings are already gone.
