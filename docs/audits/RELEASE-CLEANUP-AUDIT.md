@@ -1,9 +1,8 @@
 # Release cleanup audit: dead code, dead features, comments and tests
 
 **Baseline:** `10d1793` (`main`, 2026-10-03)
-**Status:** Audit only. Nothing below has been changed yet. Each section ends
-with a proposed disposition; items marked **DECIDE** need the owner's call
-before any change.
+**Status:** Executed on branch `chore/release-dead-code-audit` (see section 13).
+Sections 3-10 are the audit as written before any change.
 
 Goal for the release tag: the tree contains only code that production runs or
 that tests a behaviour production runs, comments that explain *why* without
@@ -281,3 +280,22 @@ One branch per slice so each PR stays reviewable and revertible:
 
 Each slice re-runs the analysers from section 1; the release tag is cut when
 they report only the items in section 11.
+
+## 13. Execution record
+
+Owner decisions (2026-10-03): remove budgets (E1); keep void, confirm and
+reverse-merge and remove the other uncalled routes (E2); remove the
+`shadow`/`primary` interpretation stages (E3); clean tests as suggested (G).
+Section H (docs archive) was not decided and is **deferred**.
+
+| Slice | Result |
+| --- | --- |
+| Dead code (A-D) | Removed as listed. `ActiveReasons`, `NewCycleHandler` and `FailedSourceInboxLink` turned out to be cross-package or contract test seams and were kept. `TenantContext` and `ErrHouseholdRequired` became dead with `TenantFromPrincipal` and were removed. `document.Handler` lost its unused `root` field and lazy local-storage fallbacks. The two Telegram test wrappers moved into their test files. |
+| Dead features (E) | ADR-051 records the retirement; ADR-014 superseded, ADR-037 partially superseded. `RICHMOD_DOCUMENT_INTERPRETATION` removed from `.env.example` and Compose. `sanitizeEvidenceText` (still used by payslips) moved to `payslip.go`. A test that asserted an otherwise unused `maxRepairAttempts` constant was removed with it. No migration. |
+| Comments (F) | No sprint tag, PRD section number or review-round reference remains in Go or JS. Sprint/PRD-named test files and functions renamed by subject. `CEU` stays where it is a persisted name (`CEU_BINDING`, `ceuBinding`). |
+| Tests (G) | Two sprint lock files folded into `ui-audit-locks.test.mjs`; pure CSS/markup pins removed; accessibility, security, role, contract and computed checks kept. The fast-path period guard became `routeConsumesPeriod`, tested over every route. |
+
+After the cleanup, `deadcode` (production) lists only the five kept seams
+(`ContextWithPrincipal`, `NewCycleHandler`, `TelegramCallbackSamples`,
+`ActiveReasons`, `AgentFinanceTools`); `deadcode -test` and `staticcheck` U1000
+report nothing.
