@@ -25,7 +25,9 @@ var (
 // exists exactly when the result does. It goes to the chat the upload came from,
 // as a reply to the upload, and only for Telegram uploads that recorded their
 // chat. At most one notice is ever queued per document, which keeps a retried
-// processor from announcing the same result twice.
+// processor from announcing the same result twice. That guarantee rests on a
+// durable marker on the document (document.evidence_notice_at), not on job rows,
+// because job rows are pruned.
 func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, documentID, text string) error {
 	var chatID, messageID *int64
 	err := tx.QueryRow(ctx, `SELECT telegram_chat_id,telegram_message_id FROM source_event WHERE id=$1 AND source_type='TELEGRAM_IMAGE'`, sourceEventID).Scan(&chatID, &messageID)
@@ -35,15 +37,23 @@ func enqueueEvidenceNotice(ctx context.Context, tx pgx.Tx, sourceEventID, docume
 	if err != nil {
 		return err
 	}
+	// Claim the document's one notice. The marker and the job commit or roll back
+	// together with the mutation they announce.
+	var claimed string
+	err = tx.QueryRow(ctx, `UPDATE document SET evidence_notice_at=now() WHERE id=$1::uuid AND evidence_notice_at IS NULL RETURNING id::text`, documentID).Scan(&claimed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	var replyTo int64
 	if messageID != nil {
 		replyTo = *messageID
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json)
-		SELECT 'SEND_TELEGRAM_MESSAGE',
-		       jsonb_build_object('chat_id',$1::bigint,'text',$2::text,'bind_document_id',$3::text)
-		       || CASE WHEN $4::bigint>0 THEN jsonb_build_object('reply_to_message_id',$4::bigint) ELSE '{}'::jsonb END
-		WHERE NOT EXISTS (SELECT 1 FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'bind_document_id'=$3::text)`,
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',
+		jsonb_build_object('chat_id',$1::bigint,'text',$2::text,'bind_document_id',$3::text)
+		|| CASE WHEN $4::bigint>0 THEN jsonb_build_object('reply_to_message_id',$4::bigint) ELSE '{}'::jsonb END)`,
 		*chatID, text, documentID, replyTo)
 	return err
 }
@@ -80,8 +90,9 @@ func noticeAmount(amount string) string {
 	if !digitsOnly.MatchString(amount) {
 		return ""
 	}
+	// amount is ASCII digits (checked above), so byte positions are digit positions.
 	var grouped []byte
-	for index := range amount {
+	for index := 0; index < len(amount); index++ {
 		if index > 0 && (len(amount)-index)%3 == 0 {
 			grouped = append(grouped, '.')
 		}

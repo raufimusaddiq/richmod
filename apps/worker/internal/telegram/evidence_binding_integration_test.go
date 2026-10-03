@@ -258,12 +258,24 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 	}
 
 	unlinked, scope := applyEvidenceToolPolicy(general, filtered, agentWorkflowExplicitUnbound, &agentEvidenceBinding{})
-	if scope != agentWorkflowExactEvidence {
-		t.Fatalf("unlinked scope = %s", scope)
+	if scope != agentWorkflowEvidenceReadOnly {
+		t.Fatalf("unlinked scope = %s, want EVIDENCE_READ_ONLY", scope)
 	}
 	for _, tool := range unlinked {
 		if sideEffects(tool.Name) {
 			t.Fatalf("evidence with no linked transaction exposes mutation tool %s", tool.Name)
+		}
+	}
+	// The scope must describe the real catalog: with mutation authority unavailable
+	// the correction tool is absent, so even linked evidence is bound read-only.
+	readOnlyGeneral := readOnlyAgentTools(general)
+	degraded, scope := applyEvidenceToolPolicy(readOnlyGeneral, filtered, agentWorkflowExplicitUnbound, linked)
+	if scope != agentWorkflowEvidenceReadOnly {
+		t.Fatalf("degraded scope = %s, want EVIDENCE_READ_ONLY", scope)
+	}
+	for _, tool := range degraded {
+		if sideEffects(tool.Name) {
+			t.Fatalf("a degraded catalog exposes mutation tool %s", tool.Name)
 		}
 	}
 	// Any other scope, or no evidence, is returned untouched.
@@ -272,5 +284,33 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 	}
 	if same, s := applyEvidenceToolPolicy(general, filtered, agentWorkflowExplicitUnbound, nil); s != agentWorkflowExplicitUnbound || len(same) != len(filtered) {
 		t.Fatalf("a turn without evidence was altered: %s %d", s, len(same))
+	}
+}
+
+// The reply router trusts telegram_message_binding's (chat, message) key, so the
+// database itself must refuse a row that points at a missing document or at
+// another household's document, whoever the writer is.
+func TestMessageBindingRejectsDanglingAndCrossHouseholdDocuments(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "binding-fk")
+	other := newAgentIntegrationFixture(t, "binding-fk-other")
+	mine := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota"})
+	theirs := seedEvidence(t, ctx, other, "b", evidenceSeedOptions{amount: "83000", merchant: "Gacoan"})
+
+	insert := func(household string, chat, message int64, document string) error {
+		_, err := f.pool.Exec(ctx, `INSERT INTO telegram_message_binding(household_id,telegram_chat_id,telegram_message_id,entity_type,entity_id) VALUES($1,$2,$3,'DOCUMENT',$4::uuid)`, household, chat, message, document)
+		return err
+	}
+	if err := insert(f.householdID, f.chatID, 1, mine.documentID); err != nil {
+		t.Fatalf("a valid binding was refused: %v", err)
+	}
+	if err := insert(f.householdID, f.chatID, 2, "00000000-0000-0000-0000-00000000dead"); err == nil {
+		t.Fatal("a binding to a missing document was accepted")
+	}
+	if err := insert(f.householdID, f.chatID, 3, theirs.documentID); err == nil {
+		t.Fatal("a binding to another household's document was accepted")
+	}
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM telegram_message_binding WHERE telegram_chat_id=$1`, f.chatID); n != 1 {
+		t.Fatalf("binding rows = %d, want only the valid one", n)
 	}
 }
