@@ -258,7 +258,7 @@ dependence on PRD section numbers, which makes this move safe.)
 
 | Item | Reason |
 | --- | --- |
-| `processBoundReview` and its typed branches | The P0 audit listed it as the next candidate, but `agent.go:70` now calls it on the live agent path. |
+| `processBoundReview` | Reachable for proposal-keyed reviews and transfer buttons. **Corrected 2026-10-04:** its typed-text branches for transaction-keyed and bank-fact reviews run only in tests; see `TELEGRAM-REPLY-PATH-AUDIT.md`. |
 | Env-gated test skips (`TEST_DATABASE_URL`, live LLM/OSS smoke, canary corpus) | Intended opt-in gates; CI supplies the database. |
 | `reviewdec` vocabulary constants | Closed, documented vocabularies; see section 4. |
 | Historical migrations, including job types from section 5 | Migrations are immutable. |
