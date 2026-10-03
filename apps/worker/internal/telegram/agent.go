@@ -52,6 +52,26 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
+	// An exact reply to a proposal-keyed review (payslip pay date, missing amount) is
+	// answered by the deterministic review lane, whether it replies to the card, to
+	// the document's upload, or to a bound evidence notice (CEU-06). The agent has no
+	// binding for those review kinds. Only exact replies take this lane: chat state
+	// alone never owns a turn, and transaction-keyed reviews stay with the agent.
+	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+		target, err := p.replyTargetForEvidenceReview(ctx, householdID, update)
+		if err != nil {
+			return err
+		}
+		proposalReview, err := p.repliesToProposalReview(ctx, householdID, target)
+		if err != nil {
+			return err
+		}
+		if proposalReview {
+			if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, target); handled || err != nil {
+				return err
+			}
+		}
+	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
 	// The turn trace lives in the context so concurrent turns on the shared
