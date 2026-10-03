@@ -117,4 +117,9 @@ type agentState struct {
 	// Analytics is the request-scoped shared cycle-review READ session over the
 	// same deterministic fact engine as the analytics API. It never mutates.
 	Analytics *analyticscore.Session
+
+	// FreshEvidenceDocuments are the canonical ids of documents the user sent in the
+	// immediate window. Server-only; the record_transaction guard reads them so the
+	// ledger, not the model, refuses a second row for the same real event.
+	FreshEvidenceDocuments []string
 }

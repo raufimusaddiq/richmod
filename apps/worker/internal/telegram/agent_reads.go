@@ -174,9 +174,15 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 			result.Facts = map[string]any{"outcome": string(outcome), "hint": "use bound_evidence or recent_evidence from this turn, or ask which document"}
 			return result, nil
 		}
+		// Reading changes no financial or review state. It does refresh the evidence
+		// ref in this turn's bounded reference table (an idempotent upsert keyed by the
+		// document), so the ref the model holds stays valid for its lifetime.
 		contexts, err := p.loadEvidenceContexts(ctx, state.HouseholdID, state.SourceEventID, state.Update, []canonicalDocumentID{document})
-		if err != nil || len(contexts) != 1 {
-			return result, fmt.Errorf("read evidence context")
+		if err != nil {
+			return result, fmt.Errorf("read evidence context: %w", err)
+		}
+		if len(contexts) != 1 {
+			return result, fmt.Errorf("read evidence context: expected one package, got %d", len(contexts))
 		}
 		result.Facts = map[string]any{"evidence": contexts[0]}
 

@@ -25,7 +25,7 @@ Baseline: `3545de2`
 - [x] Live encrypted backup uploaded to provisioned OSS (`d30d4eb6`).
 - [x] Live snapshot restored into disposable PostgreSQL 17.
 - [x] Production backup timer succeeds against OSS after code deployment. `family-finance-backup.service` finished successfully every day 2026-09-10 through 2026-09-27 (journal).
-- [ ] **Regression:** the daily backup has failed every run since 2026-09-28 with `restic: create key in repository ... repository master key and config already initialized` (still failing 2026-10-02). Needs a fix before backups can be called healthy.
+- [x] **Regression resolved 2026-10-03.** The daily backup failed every run from 2026-09-28 because a stale exclusive restic lock left by the 2026-09-27 run (killed mid-prune) blocked every command, and `backup.sh` misreported it as an init failure. Fixed in #281 and #286 (probe with `restic cat config`, init only for a missing repository, clear stale locks). The stale lock was removed with `restic unlock`; the next run completed, `restic check` reported no errors and the repository holds 34 snapshots.
 
 ## Verification
 

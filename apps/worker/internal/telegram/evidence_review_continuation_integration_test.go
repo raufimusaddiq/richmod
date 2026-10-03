@@ -9,13 +9,30 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
+
+// contGateway serves both entry points a typed reply can reach: the date extraction
+// the deterministic review lane uses (NativeToolCall) and the conversational agent
+// (AgentTurn). It counts agent calls, so a test can prove the deterministic lane
+// answered a reply and the model was never asked.
+type contGateway struct{ agentCalls int }
+
+func (*contGateway) NativeToolCall(ctx context.Context, a, b string, c any, d []gateway.ToolDefinition, o ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	return payslipDateGateway{}.NativeToolCall(ctx, a, b, c, d, o...)
+}
+
+func (g *contGateway) AgentTurn(context.Context, string, gateway.AgentRequest) (gateway.AgentResponse, error) {
+	g.agentCalls++
+	return gateway.AgentResponse{Text: "model-answer"}, nil
+}
 
 type payslipReviewWorld struct {
 	pool                                           *pgxpool.Pool
 	householdID                                    string
 	chatID                                         int64
 	imageID, documentID, proposalID, itemID, reqID string
+	gw                                             *contGateway
 }
 
 // seedPayslipReview builds a payslip whose pay date is missing: the upload was
@@ -39,7 +56,7 @@ func seedPayslipReview(t *testing.T, ctx context.Context) payslipReviewWorld {
 		}
 	}
 	stamp := time.Now().UnixNano()
-	w := payslipReviewWorld{pool: pool, chatID: stamp}
+	w := payslipReviewWorld{pool: pool, chatID: stamp, gw: &contGateway{}}
 	var userID, attachmentID string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Continuation %d", stamp)).Scan(&w.householdID))
 	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("cont-%d@example.test", stamp)).Scan(&userID))
@@ -86,8 +103,8 @@ func (w payslipReviewWorld) answerPolicy(t *testing.T, ctx context.Context) {
 	}
 }
 
-// reply delivers one typed message through the real Process entry and returns its
-// error, so a test can also assert what happens when the reply binds to nothing.
+// reply delivers one typed message through ProcessAgent, the production entry for
+// typed text (PROCESS_TELEGRAM_TEXT), and returns its error.
 func (w payslipReviewWorld) reply(t *testing.T, ctx context.Context, text string, replyTo int64, messageID int64) error {
 	t.Helper()
 	update := telegramUpdate{}
@@ -108,7 +125,7 @@ func (w payslipReviewWorld) reply(t *testing.T, ctx context.Context, text string
 	if _, err := w.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw)); err != nil {
 		t.Fatal(err)
 	}
-	return NewProcessor(w.pool, payslipDateGateway{}).Process(ctx, sourceID)
+	return NewProcessor(w.pool, w.gw).ProcessAgent(ctx, sourceID)
 }
 
 func (w payslipReviewWorld) resolved(t *testing.T, ctx context.Context) (itemStatus, payDate, amount string) {
@@ -131,6 +148,9 @@ func TestDateReplyToTheUploadResolvesTheReviewWithoutReaskingKnownFacts(t *testi
 		t.Fatal(err)
 	}
 	item, payDate, amount := w.resolved(t, ctx)
+	if w.gw.agentCalls != 0 {
+		t.Fatalf("the model answered a reply the review lane owns: %d agent call(s)", w.gw.agentCalls)
+	}
 	if item != "RESOLVED" || payDate != "2026-09-25" || amount != "1000000" {
 		t.Fatalf("review=%s pay date=%s amount=%s; want it resolved with the known amount untouched", item, payDate, amount)
 	}
@@ -151,8 +171,8 @@ func TestDateReplyToABoundNoticeResolvesTheReview(t *testing.T) {
 	if err := w.reply(t, ctx, "25 September 2026", 88, 71); err != nil {
 		t.Fatal(err)
 	}
-	if item, payDate, _ := w.resolved(t, ctx); item != "RESOLVED" || payDate != "2026-09-25" {
-		t.Fatalf("review=%s pay date=%s after replying to the bound notice", item, payDate)
+	if item, payDate, _ := w.resolved(t, ctx); item != "RESOLVED" || payDate != "2026-09-25" || w.gw.agentCalls != 0 {
+		t.Fatalf("review=%s pay date=%s agent calls=%d after replying to the bound notice", item, payDate, w.gw.agentCalls)
 	}
 }
 
@@ -160,9 +180,13 @@ func TestReplyToUnrelatedMessageDoesNotAnswerTheReview(t *testing.T) {
 	ctx := context.Background()
 	w := seedPayslipReview(t, ctx)
 	// Message 999 is neither the upload, nor a bound notice, nor the card. The turn
-	// falls through to the agent lane, which this fixture does not wire, so its
-	// error is expected; the point is that the review stays unanswered.
-	_ = w.reply(t, ctx, "25 September 2026", 999, 72)
+	// goes to the agent, and the review stays unanswered.
+	if err := w.reply(t, ctx, "25 September 2026", 999, 72); err != nil {
+		t.Fatal(err)
+	}
+	if w.gw.agentCalls != 1 {
+		t.Fatalf("an unrelated reply reached the agent %d times, want 1", w.gw.agentCalls)
+	}
 	var item string
 	if err := w.pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, w.itemID).Scan(&item); err != nil {
 		t.Fatal(err)
@@ -188,7 +212,7 @@ func TestReplyTargetForEvidenceReviewOnlyRedirectsExactEvidenceReplies(t *testin
 		}
 		return u
 	}
-	if got := p.replyTargetForEvidenceReview(ctx, w.householdID, mk(55, w.chatID)); got.Message.ReplyToMessage == nil || got.Message.ReplyToMessage.MessageID != 61 {
+	if got, err := p.replyTargetForEvidenceReview(ctx, w.householdID, mk(55, w.chatID)); err != nil || got.Message.ReplyToMessage == nil || got.Message.ReplyToMessage.MessageID != 61 {
 		t.Fatalf("a reply to the upload was not redirected to the card: %+v", got.Message.ReplyToMessage)
 	}
 	for name, update := range map[string]telegramUpdate{
@@ -197,7 +221,10 @@ func TestReplyTargetForEvidenceReviewOnlyRedirectsExactEvidenceReplies(t *testin
 		"reply to an unknown message":     mk(999, w.chatID),
 		"the upload id from another chat": mk(55, w.chatID+1),
 	} {
-		got := p.replyTargetForEvidenceReview(ctx, w.householdID, update)
+		got, err := p.replyTargetForEvidenceReview(ctx, w.householdID, update)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
 		want, have := int64(0), int64(0)
 		if update.Message.ReplyToMessage != nil {
 			want = update.Message.ReplyToMessage.MessageID
@@ -208,5 +235,61 @@ func TestReplyTargetForEvidenceReviewOnlyRedirectsExactEvidenceReplies(t *testin
 		if have != want {
 			t.Fatalf("%s: reply target changed from %d to %d", name, want, have)
 		}
+	}
+}
+
+// The agent has no binding for proposal-keyed reviews, so a typed reply to the card
+// of one used to reach the model and leave the review open. It is answered by the
+// deterministic lane at the production entry.
+func TestDateReplyToTheProposalReviewCardIsAnsweredWithoutTheModel(t *testing.T) {
+	ctx := context.Background()
+	w := seedPayslipReview(t, ctx)
+	w.answerPolicy(t, ctx)
+	if err := w.reply(t, ctx, "25 September 2026", 61, 73); err != nil {
+		t.Fatal(err)
+	}
+	if item, payDate, amount := w.resolved(t, ctx); item != "RESOLVED" || payDate != "2026-09-25" || amount != "1000000" || w.gw.agentCalls != 0 {
+		t.Fatalf("review=%s pay date=%s amount=%s agent calls=%d", item, payDate, amount, w.gw.agentCalls)
+	}
+}
+
+func TestOnlyExactRepliesToProposalReviewsTakeTheDeterministicLane(t *testing.T) {
+	ctx := context.Background()
+	w := seedPayslipReview(t, ctx)
+	p := NewProcessor(w.pool, nil)
+	mk := func(replyTo int64) telegramUpdate {
+		u := telegramUpdate{}
+		u.Message.Chat.ID, u.Message.From.ID = w.chatID, w.chatID
+		if replyTo != 0 {
+			u.Message.ReplyToMessage = &struct {
+				MessageID int64 `json:"message_id"`
+			}{MessageID: replyTo}
+		}
+		return u
+	}
+	for name, c := range map[string]struct {
+		replyTo int64
+		want    bool
+	}{"the proposal review's card": {61, true}, "no reply": {0, false}, "the upload (not a card)": {55, false}, "an unknown message": {999, false}} {
+		got, err := p.repliesToProposalReview(ctx, w.householdID, mk(c.replyTo))
+		if err != nil || got != c.want {
+			t.Fatalf("%s: got %v (%v), want %v", name, got, err, c.want)
+		}
+	}
+}
+
+// A transaction-keyed review stays with the agent: the deterministic lane must not
+// take it over just because the reply is exact.
+func TestTransactionKeyedReviewRepliesStayWithTheAgent(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "cont-tx-review")
+	createAgentTransactionReview(t, ctx, f, "70000", 301)
+	model := &capturingGateway{}
+	p, _ := evidenceTurnProcessor(f, model, "NEEDS_GENERATIVE_AGENT")
+	if _, err := runEvidenceTurn(t, ctx, f, p, "makan", 301); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.requests) == 0 {
+		t.Fatal("the deterministic lane took a transaction-keyed review reply away from the agent")
 	}
 }

@@ -317,6 +317,18 @@ and 12 monthly snapshots.
    service result. A successful daily service run is the backup-freshness
    signal.
 
+The backup image copies `infra/backup/*.sh` at build time, and the systemd unit
+only runs `compose run`, which does not rebuild an existing image. After a
+change to those scripts, rebuild it on the host:
+
+```bash
+docker compose --env-file /opt/family-finance/finance.env -f compose.yaml \
+  -f compose.production.yaml --profile operations build backup
+```
+
+If a run fails with "repository is already locked", `backup.sh` clears stale
+locks itself; a lock held by a live process is never removed.
+
 Never print the restic password or repository credentials in logs.
 
 ### Current deployment state (2026-08-30)

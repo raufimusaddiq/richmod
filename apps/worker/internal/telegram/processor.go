@@ -215,9 +215,7 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
-	// A reply to the upload (or to a bound notice) of a document with an open review
-	// is a reply to that review (CEU-06); other replies keep their own target.
-	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, p.replyTargetForEvidenceReview(ctx, householdID, update)); handled {
+	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
 		return err
 	}
 	// Typed finance messages are answered by the conversational agent. Process

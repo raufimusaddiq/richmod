@@ -14,6 +14,13 @@ import (
 // correction to the transaction the evidence is already linked to.
 const agentWorkflowExactEvidence agentWorkflowScope = "EXACT_EVIDENCE"
 
+// agentWorkflowEvidenceReadOnly is a reply bound to evidence for which the catalog
+// has no mutation lane: the evidence is not linked to a transaction, or the
+// correction tool is absent (for example when mutation authority is unavailable).
+// The scope string reaches the model and the judgment plane, so it must describe
+// the real catalog.
+const agentWorkflowEvidenceReadOnly agentWorkflowScope = "EVIDENCE_READ_ONLY"
+
 // agentEvidenceBinding is the server-owned result of binding a turn to evidence.
 // Document is canonical and never leaves the server; Context is the model-safe
 // Evidence Context Package.
@@ -113,23 +120,48 @@ func (p *Processor) reviewCardMessageForDocument(ctx context.Context, householdI
 
 // replyTargetForEvidenceReview treats a reply to an upload, or to a bound evidence
 // notice, as a reply to that document's open review card, so the deterministic
-// review lanes (date, amount, policy) answer it exactly as if the household had
+// review lane (date, amount, policy) answers it exactly as if the household had
 // replied to the card. A reply to anything else, or to a document with no open
 // review in this chat, is returned unchanged. It never searches for "the latest"
 // review: the document is resolved from the exact message the user replied to.
-func (p *Processor) replyTargetForEvidenceReview(ctx context.Context, householdID string, update telegramUpdate) telegramUpdate {
+// A failed lookup is returned, not swallowed: this feeds a deterministic answer path,
+// so a transient failure must retry the job instead of silently rerouting the reply.
+func (p *Processor) replyTargetForEvidenceReview(ctx context.Context, householdID string, update telegramUpdate) (telegramUpdate, error) {
 	document, found, err := p.resolveReplyEvidence(ctx, householdID, update)
-	if err != nil || !found {
-		return update
+	if err != nil {
+		return update, err
+	}
+	if !found {
+		return update, nil
 	}
 	card, err := p.reviewCardMessageForDocument(ctx, householdID, update.Message.Chat.ID, document)
 	if err != nil || card == 0 {
-		return update
+		return update, err
 	}
 	update.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: card}
-	return update
+	return update, nil
+}
+
+// repliesToProposalReview reports whether the update replies to the card of an open
+// review that is keyed on a proposal rather than a transaction (payslip pay date,
+// missing amount, document reviews). The conversational agent has no binding for
+// those kinds, so an exact reply to one is answered by the deterministic review
+// lane; transaction-keyed reviews stay with the agent.
+func (p *Processor) repliesToProposalReview(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
+	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
+		return false, nil
+	}
+	var found bool
+	err := p.pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM review_request r
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		JOIN review_item ri ON ri.id=r.review_item_id
+		WHERE r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
+		  AND ri.proposal_id IS NOT NULL AND ri.transaction_id IS NULL AND r.transaction_id IS NULL)`,
+		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&found)
+	return found, err
 }
 
 // documentForReviewBinding returns the document an already-bound review is about.
@@ -218,8 +250,9 @@ func (p *Processor) bindTurnEvidence(ctx context.Context, householdID, sourceEve
 
 // applyEvidenceToolPolicy widens an unbound explicit reply to an evidence-bound
 // one. The model gets exactly one mutation lane, and only when the evidence is
-// already linked to a transaction: correcting that transaction. Everything else
-// stays read-only; an unlinked, review-less document has nothing to mutate here.
+// already linked to a transaction and the correction tool is in the catalog:
+// correcting that transaction. Otherwise the reply is bound read-only, and the
+// scope says so; an unlinked, review-less document has nothing to mutate here.
 func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope agentWorkflowScope, evidence *agentEvidenceBinding) ([]gateway.ToolDefinition, agentWorkflowScope) {
 	if evidence == nil || scope != agentWorkflowExplicitUnbound {
 		return filtered, scope
@@ -227,24 +260,9 @@ func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope a
 	if evidence.HasLinkedTransaction {
 		for _, tool := range general {
 			if tool.Name == "propose_transaction_correction" {
-				filtered = append(append([]gateway.ToolDefinition{}, filtered...), tool)
-				break
+				return append(append([]gateway.ToolDefinition{}, filtered...), tool), agentWorkflowExactEvidence
 			}
 		}
 	}
-	return filtered, agentWorkflowExactEvidence
-}
-
-// evidenceWorkflow reports the workflow block of a bound evidence context and
-// whether it has an open review. It reads the model-safe package only.
-func evidenceWorkflow(evidence *agentEvidenceBinding) (map[string]any, bool) {
-	if evidence == nil {
-		return nil, false
-	}
-	workflow, _ := evidence.Context["workflow"].(map[string]any)
-	if workflow == nil {
-		return nil, false
-	}
-	open, _ := workflow["review_open"].(bool)
-	return workflow, open
+	return filtered, agentWorkflowEvidenceReadOnly
 }
