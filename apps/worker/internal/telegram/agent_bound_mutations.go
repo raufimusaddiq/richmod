@@ -147,7 +147,15 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		return result, true, nil
 	}
 
-	if field, value, required := requiredNativeReviewDetail(review.reviewType, review.conversationState, review.merchantID, merchant, description); required {
+	// The model may carry a proposed date in any of its date-shaped arguments; Go
+	// validates whichever one it used.
+	proposedDate := transactionAt
+	for _, candidate := range []string{payDate, description} {
+		if strings.TrimSpace(proposedDate) == "" {
+			proposedDate = candidate
+		}
+	}
+	if field, value, required := requiredNativeReviewDetail(review.reviewType, review.conversationState, review.merchantID, merchant, description, proposedDate); required {
 		if strings.TrimSpace(value) == "" {
 			result.Status = "MISSING_REVIEW_DETAIL"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{field}}

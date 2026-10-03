@@ -20,10 +20,11 @@ const unknownReviewPrompt = "🟡 Perlu detail transaksi"
 // Telegram prompt. It never introduces a fact the decision did not name: the
 // missing fact decides the question, the allowed actions decide the buttons.
 func renderReviewPresentation(decision reviewdec.Decision, reviewType, context string) (state, reviewMessage, markupMode string) {
-	// A producer may supply no subject summary. The card body still has to be
-	// non-empty or Telegram rejects the send, so fall back to the decision's own
-	// prompt for the category/transfer modes that otherwise pass context verbatim.
-	if strings.TrimSpace(context) == "" && (isCategoryOnly(decision) || contains(decision.MissingFacts, "transfer_relationship") || contains(decision.MissingFacts, "salary_classification") || contains(decision.MissingFacts, "transaction_at")) {
+	// A producer may supply no subject summary. The category chooser sends the
+	// summary verbatim and Telegram rejects an empty body, so it falls back to the
+	// decision's own prompt. Every other card already leads with that prompt as its
+	// title, so using it again as the summary would print it twice.
+	if strings.TrimSpace(context) == "" && isCategoryOnly(decision) {
 		context = promptTitle(decision)
 	}
 	switch {

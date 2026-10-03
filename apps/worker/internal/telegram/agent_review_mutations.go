@@ -101,6 +101,7 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		return result, true, err
 	}
 	rememberedCategoryID := ""
+	dateCompleted := false
 	if field == "merchant" {
 		var merchantID string
 		match, lookupErr := merchantmemory.Lookup(ctx, tx, state.HouseholdID, value)
@@ -124,6 +125,18 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		if err = recordReviewMerchantFact(ctx, tx, state.HouseholdID, review.reviewID, value); err != nil {
 			return result, true, err
 		}
+	} else if field == "transaction_at" {
+		date, parseErr := parseSuppliedReviewDate(value)
+		if parseErr != nil || date == nil {
+			// Not a calendar date: store nothing and keep the review on the date.
+			result.Status = "INVALID_TRANSACTION_DATE"
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"transaction_at"}, "format": "YYYY-MM-DD"}
+			return result, true, nil
+		}
+		value = *date
+		if dateCompleted, err = p.applyReviewTransactionDate(ctx, tx, state.HouseholdID, userID, review.reviewID, review.transactionID, value); err != nil {
+			return result, true, err
+		}
 	} else {
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, review.transactionID, value, state.HouseholdID); err != nil {
 			return result, true, err
@@ -140,6 +153,14 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_DETAIL','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'field',$5::text,'value',$6::text,'agent_sprint',1))`, state.HouseholdID, userID, review.transactionID, review.reviewID, field, value); err != nil {
 		return result, true, err
+	}
+	if dateCompleted {
+		if err = tx.Commit(ctx); err != nil {
+			return result, true, err
+		}
+		result.Status = "RESOLVED"
+		result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED_AND_CONFIRMED", "field": field, "value": value}
+		return result, true, nil
 	}
 	if rememberedCategoryID != "" {
 		if err = p.agentConfirmReviewTx(ctx, tx, state, review, rememberedCategoryID, reviewExtraction{Confidence: 1}, userID); err != nil {

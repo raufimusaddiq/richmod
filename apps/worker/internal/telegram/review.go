@@ -78,16 +78,54 @@ func reviewNeedsFactsMessage(facts []string) string {
 	return "Tinjauan ini masih menunggu " + strings.Join(labels, " dan ") + ". Balas dengan nilai itu untuk menyelesaikan."
 }
 
+// parseSuppliedReviewDate reads a household-supplied transaction date as a
+// Jakarta calendar date. It accepts YYYY-MM-DD with or without zero padding, and
+// an RFC3339 timestamp, which is what a model proposing the date may send.
 func parseSuppliedReviewDate(value string) (*string, error) {
-	if strings.TrimSpace(value) == "" {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return nil, nil
 	}
-	parsed, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(value), jakartaLocation())
+	parsed, err := time.ParseInLocation("2006-1-2", value, jakartaLocation())
 	if err != nil {
-		return nil, err
+		var stamp time.Time
+		if stamp, err = time.Parse(time.RFC3339, value); err != nil {
+			return nil, err
+		}
+		parsed = stamp.In(jakartaLocation())
 	}
 	canonical := parsed.Format("2006-01-02")
 	return &canonical, nil
+}
+
+// applyReviewTransactionDate stores a validated YYYY-MM-DD date on the reviewed
+// transaction and its proposal. When the date was the last missing fact and the
+// shared confirm rule accepts the transaction without a category, it confirms
+// through the canonical operation and reports completed, so no resolved review is
+// left behind an open transaction.
+func (p *Processor) applyReviewTransactionDate(ctx context.Context, tx pgx.Tx, householdID, userID, reviewID, transactionID, date string) (bool, error) {
+	if _, err := tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, date, householdID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, date); err != nil {
+		return false, err
+	}
+	if reviewNeedsCategory(ctx, tx, reviewID) || !p.transactionConfirmableWithoutCategory(ctx, tx, transactionID) {
+		return false, nil
+	}
+	dateAt, err := time.ParseInLocation("2006-01-02", date, jakartaLocation())
+	if err != nil {
+		return false, err
+	}
+	if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
+		Action: "TELEGRAM_DATE_SET", TransactionAt: &dateAt,
+		ResolveReview: true,
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 type categoryChoice struct {
@@ -615,33 +653,11 @@ func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, hou
 			}
 			return tx.Commit(ctx)
 		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, *parsed, householdID); err != nil {
-			return err
+		completed, dateErr := p.applyReviewTransactionDate(ctx, tx, householdID, userID, reviewID, transactionID, *parsed)
+		if dateErr != nil {
+			return dateErr
 		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, *parsed); err != nil {
-			return err
-		}
-		// When the decision has no category fact and the shared confirm rule
-		// accepts this transaction without one, the date was the last missing fact: go
-		// straight through the canonical confirm so no resolved review is left behind
-		// an open transaction.
-		if !reviewNeedsCategory(ctx, tx, reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, transactionID) {
-			var dateRequestID string
-			if err = tx.QueryRow(ctx, `SELECT id::text FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&dateRequestID); err != nil {
-				return err
-			}
-			dateAt, parseErr := time.ParseInLocation("2006-01-02", *parsed, jakartaLocation())
-			if parseErr != nil {
-				return parseErr
-			}
-			if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
-				HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
-				ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: dateRequestID,
-				Action: "TELEGRAM_DATE_SET", TransactionAt: &dateAt,
-				ResolveReview: true,
-			}); err != nil {
-				return err
-			}
+		if completed {
 			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 				return err
 			}
