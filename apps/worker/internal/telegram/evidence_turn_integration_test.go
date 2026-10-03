@@ -325,7 +325,9 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 
 			// The CEU guard itself only applies to fresh evidence: for an old receipt it
 			// stands down, and the existing same-merchant edit guard answers instead.
-			guard := p.evidenceAlreadyRecorded(ctx, f.householdID, f.chatID, f.chatID, "EXPENSE", "125000", fmt.Sprint(c.merchant))
+			candidates, err := p.recentEvidenceCandidates(ctx, f.householdID, f.chatID, f.chatID)
+			mustAgentTest(t, err)
+			guard := p.evidenceAlreadyRecorded(ctx, f.householdID, freshEvidenceDocuments(candidates), "EXPENSE", "125000", fmt.Sprint(c.merchant))
 			if wantGuard := c.ageMinutes == 0 && c.name != "a different merchant, same price"; guard != wantGuard && c.merchant != nil {
 				t.Fatalf("%s: evidenceAlreadyRecorded = %v, want %v", c.name, guard, wantGuard)
 			}
@@ -347,15 +349,55 @@ func TestOnlyFreshEvidenceSuppressesHarvest(t *testing.T) {
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
 	p := NewProcessor(f.pool, nil)
 
-	if !p.hasFreshEvidence(ctx, f.householdID, f.chatID, f.chatID) {
+	fresh := func(user int64) []string {
+		candidates, err := p.recentEvidenceCandidates(ctx, f.householdID, f.chatID, user)
+		mustAgentTest(t, err)
+		return freshEvidenceDocuments(candidates)
+	}
+	if len(fresh(f.chatID)) != 1 {
 		t.Fatal("evidence from the last minute is not fresh")
 	}
 	ageEvidence(t, ctx, f, a.documentID, 30)
-	if p.hasFreshEvidence(ctx, f.householdID, f.chatID, f.chatID) {
+	if len(fresh(f.chatID)) != 0 {
 		t.Fatal("evidence from 30 minutes ago still suppresses the fast path")
 	}
 	ageEvidence(t, ctx, f, a.documentID, 0)
-	if p.hasFreshEvidence(ctx, f.householdID, f.chatID, f.chatID+9) {
+	if len(fresh(f.chatID+9)) != 0 {
 		t.Fatal("another user's evidence counted as fresh")
+	}
+}
+
+// When the model call fails, the user must still be able to tell a refusal from a
+// recording (AGENTS.md: deterministic flows survive an unavailable model).
+func TestRefusedDuplicateHasADeterministicMessageThatIsNotTheGenericOne(t *testing.T) {
+	refused := agentMutationFallback(agentToolResult{Status: "ALREADY_RECORDED_FROM_EVIDENCE"})
+	generic := agentMutationFallback(agentToolResult{Status: "OK"})
+	if refused == generic || !strings.Contains(refused, "sudah tercatat") || !strings.Contains(refused, "tidak dicatat lagi") {
+		t.Fatalf("refusal message = %q (generic = %q)", refused, generic)
+	}
+}
+
+// The merchant match is bounded: whole words only, and the shorter name must
+// carry a distinctive word, so an unrelated merchant at the same price is not
+// refused as a duplicate.
+func TestMerchantEquivalenceIsBoundedToWholeDistinctiveWords(t *testing.T) {
+	words := func(s string) []string { return strings.Fields(strings.ToLower(s)) }
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"Mirota", "Mirota Swalayan", true},
+		{"mirota swalayan", "MIROTA", true},
+		{"Indomaret", "Indomaret", true},
+		{"Indo", "Indomaret", false},
+		{"Toko", "Toko Jaya", false},
+		{"Kopi Kenangan", "Kopi Tuku", false},
+		{"Roti", "Roti", true},
+		{"Gacoan", "Mirota", false},
+		{"", "Mirota", false},
+	} {
+		if got := sameMerchantTokens(words(c.a), words(c.b)); got != c.want {
+			t.Fatalf("sameMerchantTokens(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
 	}
 }

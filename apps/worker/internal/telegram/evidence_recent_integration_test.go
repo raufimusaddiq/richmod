@@ -272,7 +272,13 @@ func TestBrokenRecentEvidenceLookupDegradesToNoContext(t *testing.T) {
 	if _, _, err := p.bindRecentEvidence(ctx, f.householdID, f.sourceID, f.update); err == nil {
 		t.Fatal("the poisoned row did not break the lookup; the test would prove nothing")
 	}
-	evidence, candidates := p.recentEvidenceContext(ctx, f.householdID, f.sourceID, f.update)
+	// The turn loads candidates once and ignores a failed load, so a broken lookup
+	// reaches the wrapper as "no candidates".
+	loaded, loadErr := p.recentEvidenceCandidates(ctx, f.householdID, f.chatID, f.chatID)
+	if loadErr == nil {
+		t.Fatal("the poisoned row did not break the candidates load")
+	}
+	evidence, candidates := p.recentEvidenceContext(ctx, f.householdID, f.sourceID, f.update, loaded)
 	if evidence != nil || candidates != nil {
 		t.Fatalf("a failed lookup produced context: %+v %v", evidence, candidates)
 	}

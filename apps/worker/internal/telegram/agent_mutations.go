@@ -51,7 +51,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	}
 	// The user just sent evidence that already produced this transaction: a second
 	// ledger row for the same real event is refused here, whatever the model asked.
-	if p.evidenceAlreadyRecorded(ctx, state.HouseholdID, state.Update.Message.Chat.ID, state.Update.Message.From.ID, value.Type, value.Amount, value.Merchant) {
+	if p.evidenceAlreadyRecorded(ctx, state.HouseholdID, state.FreshEvidenceDocuments, value.Type, value.Amount, value.Merchant) {
 		result.Status = "ALREADY_RECORDED_FROM_EVIDENCE"
 		result.Facts = map[string]any{"hint": "the document you just sent is already recorded; correct that transaction instead, or ask the user for what differs"}
 		return result, true, nil
