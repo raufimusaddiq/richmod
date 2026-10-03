@@ -112,8 +112,20 @@ duplicate delivery.
 
 ## CEU-06 — natural review continuation
 
-- Evidence-backed review replies like "tanggal 25" resolve against the stored
-  ReviewDecision `missing` set only.
+**As delivered.** No new lane and no new tool.
+
+- Reply-less continuation of a proposal-keyed review (payslip pay date, screenshot
+  amount, date) already worked deterministically: `processBoundReview` binds the one
+  qualifying review in the chat. CEU-06 closes the remaining gap: a reply to the
+  **upload**, or to a bound evidence notice, of a document whose review is open is
+  treated as a reply to that review's card (`replyTargetForEvidenceReview`), so the
+  same deterministic date/amount/policy lane answers it, with the same state checks.
+- The target comes only from the exact message replied to (upload or bound notice,
+  scoped to household + chat); it never searches for "the latest" review. A reply to
+  anything else, or to a document with no open review in this chat, is unchanged and
+  falls through to the agent.
+- Known facts are not re-decided: the lane only supplies the missing fact, and the
+  tests assert the amount stays untouched and exactly one transaction exists.
 
 Tests: missing `transaction_at` does not re-ask amount/category.
 
