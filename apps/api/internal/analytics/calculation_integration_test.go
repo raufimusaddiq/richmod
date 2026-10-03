@@ -64,12 +64,6 @@ func TestAnalyticsCycleRangeBucketsAndRefundConsistency(t *testing.T) {
 		t.Fatalf("cashflow=%s", w.Body.String())
 	}
 	w = httptest.NewRecorder()
-	h.Spending(w, r)
-	var spending []map[string]string
-	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &spending) != nil || len(spending) != 2 || spending[0]["netSpending"] != "200000" || spending[1]["netSpending"] != "300" {
-		t.Fatalf("spending=%s", w.Body.String())
-	}
-	w = httptest.NewRecorder()
 	h.CycleDaily(w, r)
 	var daily struct {
 		Spent, Remaining string

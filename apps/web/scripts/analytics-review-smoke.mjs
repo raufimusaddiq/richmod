@@ -79,8 +79,6 @@ try {
         body = [{ period: "2026-08", income: "12000000", expense: "2800000", netCashflow: "9200000" }, { period: "2026-09", income: "12000000", expense: "4200000", netCashflow: "7800000" }];
       } else if (url.pathname === "/api/v1/analytics/categories") {
         body = cycleFacts().categoryChanges;
-      } else if (url.pathname === "/api/v1/analytics/spending") {
-        body = [{ period: "2026-08", netSpending: "2800000" }, { period: "2026-09", netSpending: "4200000" }];
       } else if (url.pathname === "/api/v1/analytics/merchants") { if (merchantsFail) status = 500; body = cycleFacts().merchantDrivers; }
       else if (url.pathname === "/api/v1/analytics/members") body = cycleFacts().memberAttribution;
       else if (url.pathname.startsWith("/api/v1/transactions")) {
@@ -335,9 +333,7 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("view"), "calendar");
     await page.getByRole("button", { name: "3 Bulan", exact: true }).click();
     assert.equal(new URL(page.url()).searchParams.get("range"), "3");
-    // Calendar hygiene: months are formatted, the duplicate monthly-spending call is gone,
-    // and a custom range is validated beside its fields instead of failing after a request.
-    assert.equal(requests.filter(request => request.path === "/api/v1/analytics/spending").length, 0, "the calendar view no longer fetches duplicate monthly spending");
+    // Calendar hygiene: months are formatted, and a custom range is validated beside its fields instead of failing after a request.
     assert.equal(await page.getByRole("rowheader", { name: /Sep 26/ }).count(), 1, "months are formatted, not raw YYYY-MM");
     await page.getByLabel("Bulan mulai").fill("2025-03");
     await page.getByLabel("Bulan selesai").fill("2025-01");

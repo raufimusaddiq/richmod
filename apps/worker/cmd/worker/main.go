@@ -130,7 +130,6 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("configure document storage: %w", err)
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
-	documentProcessor.Interpretation = workerDocument.ParseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
 	// PRD §33 operational kill-switch: an operator must be able to park screenshot
 	// rows in review without a deploy. Unset keeps auto-confirm on.
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))

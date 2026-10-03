@@ -131,3 +131,11 @@ func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
 		t.Fatal("payslip must not replay the extraction through Jev")
 	}
 }
+
+
+func TestSanitizeEvidenceTextCapsAndStripsControl(t *testing.T) {
+	long := strings.Repeat("a", 900)
+	if got := sanitizeEvidenceText("\x07  a\n\tb  " + long); len([]rune(got)) != 500 || strings.ContainsAny(got, "\x07\n\t") {
+		t.Fatalf("sanitize = %q (len %d)", got[:min(20, len(got))], len([]rune(got)))
+	}
+}

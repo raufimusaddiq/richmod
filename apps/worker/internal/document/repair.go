@@ -10,12 +10,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// ADR-037: repair is a single bounded call. The model sees validator feedback
-// for flagged fields only and may return values for those fields only. Go
-// applies the patch, revalidates with the same validator, and owns every
-// decision. A failed repair keeps the invalid-review path.
-const maxRepairAttempts = 1
-
 type repairableField struct {
 	Field string `json:"field"`
 	Issue string `json:"issue"`

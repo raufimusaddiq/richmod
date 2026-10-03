@@ -343,3 +343,20 @@ func jakarta() *time.Location {
 	}
 	return location
 }
+
+// sanitizeEvidenceText removes control characters and caps user-provided
+// evidence so untrusted captions or filenames cannot inflate the prompt or
+// smuggle terminal control sequences.
+func sanitizeEvidenceText(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(value))
+	value = strings.Join(strings.Fields(value), " ")
+	if len([]rune(value)) <= 500 {
+		return value
+	}
+	return string([]rune(value)[:500])
+}
