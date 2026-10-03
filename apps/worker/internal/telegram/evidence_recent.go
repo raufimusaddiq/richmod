@@ -62,6 +62,18 @@ func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID st
 	return out, rows.Err()
 }
 
+// recentEvidenceContext is the turn-facing wrapper around bindRecentEvidence. The
+// context is optional, so any failure yields no context rather than an error: a
+// broken lookup (a bad row, a transient database error) must never abort the
+// household's message.
+func (p *Processor) recentEvidenceContext(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (*agentEvidenceBinding, []map[string]any) {
+	evidence, candidates, err := p.bindRecentEvidence(ctx, householdID, sourceEventID, update)
+	if err != nil {
+		return nil, nil
+	}
+	return evidence, candidates
+}
+
 // bindRecentEvidence is the no-reply, no-workflow binding. It never chooses among
 // evidence: it binds only when exactly one candidate qualifies, and otherwise it
 // hands the model the bounded candidate set with an explicit ambiguity flag so the

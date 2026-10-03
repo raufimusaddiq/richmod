@@ -133,9 +133,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// CEU: bind the evidence this turn is about. A reply to the user's upload or to a
 	// bound notice binds that document (and its open review); a review binding gains
 	// its evidence as context. Nothing here is chosen by the model.
-	evidence, evidenceReview, err := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
-	if err != nil {
-		return err
+	// Evidence is context. A failure to resolve it must never fail the user's
+	// message: the turn proceeds without it, and an unresolved explicit reply is
+	// already handled as "unbound", which asks instead of guessing.
+	evidence, evidenceReview, evidenceErr := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
+	if evidenceErr != nil {
+		evidence, evidenceReview = nil, nil
 	}
 	if reviewBinding == nil && evidenceReview != nil {
 		reviewBinding = evidenceReview
@@ -147,10 +150,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	var recentEvidence []map[string]any
 	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
-		evidence, recentEvidence, err = p.bindRecentEvidence(ctx, householdID, sourceEventID, update)
-		if err != nil {
-			return err
-		}
+		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update)
 	}
 
 	contextState.ActiveReview = reviewPublic

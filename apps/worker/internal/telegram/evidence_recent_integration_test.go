@@ -257,3 +257,23 @@ func TestRecentEvidenceIsScopedToTheSendingUser(t *testing.T) {
 		t.Fatalf("a row without a recorded sender was not matched through the chat id: %+v", evidence)
 	}
 }
+
+// Recent evidence is optional context. A broken lookup must degrade to "no
+// context", never fail the household's message.
+func TestBrokenRecentEvidenceLookupDegradesToNoContext(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "recent-broken")
+	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
+	// A non-numeric sender makes the lookup's ::bigint cast fail.
+	_, err := f.pool.Exec(ctx, `UPDATE source_event_payload SET payload_json=payload_json||'{"telegram_user_id":"not-a-number"}'::jsonb WHERE source_event_id=$1`, a.sourceID)
+	mustAgentTest(t, err)
+	p := NewProcessor(f.pool, nil)
+
+	if _, _, err := p.bindRecentEvidence(ctx, f.householdID, f.sourceID, f.update); err == nil {
+		t.Fatal("the poisoned row did not break the lookup; the test would prove nothing")
+	}
+	evidence, candidates := p.recentEvidenceContext(ctx, f.householdID, f.sourceID, f.update)
+	if evidence != nil || candidates != nil {
+		t.Fatalf("a failed lookup produced context: %+v %v", evidence, candidates)
+	}
+}
