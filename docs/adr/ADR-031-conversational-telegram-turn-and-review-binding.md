@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-09-01. **Amended by ADR-033 on 2026-09-12.**
+Accepted — 2026-09-01. **Amended by ADR-033 on 2026-09-12;** evidence binding extends it in ADR-050.
 
 ## Decision
 

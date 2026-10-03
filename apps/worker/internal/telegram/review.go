@@ -788,7 +788,7 @@ func (p *Processor) incomeReviewChoice(ctx context.Context, sourceEventID, text 
 		"OTHER_OR_UNCLEAR": "the message does not answer this bounded choice",
 	}
 	result, err := p.evaluate(ctx, judgmentTaskReviewAction, sourceEventID, judgment.Request{
-		State:     map[string]any{"user_text": "<untrusted_user_message>" + text + "</untrusted_user_message>", "bound_workflow": "INCOME_REVIEW"},
+		State:     map[string]any{"user_text": untrustedUser(text), "bound_workflow": "INCOME_REVIEW"},
 		Questions: map[string]judgment.Question{"income_action": {Type: "choice", Instructions: "Choose whether this exact bound transaction review is household income. Do not infer missing financial facts.", Criteria: judgment.ChoiceCriteria(criteria)}},
 	})
 	if err != nil {

@@ -157,7 +157,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 // Speculative transaction answers are ignored when the route is unrelated.
 func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextState, candidate simpleTransactionCandidate) judgment.Request {
 	statePayload := map[string]any{
-		"user_text":              "<untrusted_user_message>" + text + "</untrusted_user_message>",
+		"user_text":              untrustedUser(text),
 		"allowed_routes":         judgmentRoutes,
 		"allowed_category_slugs": state.Categories,
 	}

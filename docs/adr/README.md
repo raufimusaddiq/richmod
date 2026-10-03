@@ -40,9 +40,9 @@ This table is generated from each file's title and Status by `scripts/generate-a
 | [ADR-028](ADR-028-canonical-universal-review-orchestration.md) | Canonical universal review orchestration | Accepted — correctness/performance remediation Release 2. Amended by ADR-046 on 2026-09-25. |
 | [ADR-029](ADR-029-s3-compatible-off-host-storage.md) | S3-compatible off-host storage | Accepted — 2026-08-30 |
 | [ADR-030](ADR-030-native-only-model-tool-contract.md) | Native-only model tool contract | Accepted — 2026-09-01. **Partially superseded by ADR-033 for the Telegram conversational lane.** |
-| [ADR-031](ADR-031-conversational-telegram-turn-and-review-binding.md) | Conversational Telegram turns and contextual review binding | Accepted — 2026-09-01. **Amended by ADR-033 on 2026-09-12.** |
+| [ADR-031](ADR-031-conversational-telegram-turn-and-review-binding.md) | Conversational Telegram turns and contextual review binding | Accepted — 2026-09-01. **Amended by ADR-033 on 2026-09-12;** evidence binding extends it in ADR-050. |
 | [ADR-032](ADR-032-telegram-chat-job-lane.md) | Dedicated Telegram CHAT lane | Accepted — 2026-09-01. |
-| [ADR-033](ADR-033-bounded-natural-conversational-agent.md) | Bounded natural conversational finance agent | Accepted — 2026-09-12; amended by ADR-038. |
+| [ADR-033](ADR-033-bounded-natural-conversational-agent.md) | Bounded natural conversational finance agent | Accepted — 2026-09-12; amended by ADR-038; evidence context extends it in ADR-050. |
 | [ADR-033](ADR-033-cloudflare-email-ingress-two-deploy-migration.md) | Cloudflare email ingress and two-deploy Gmail sunset | Accepted; Deploy 2 completed in production — 5 September 2026. |
 | [ADR-034](ADR-034-github-release-images-and-manual-deployment.md) | GitHub release images and manual production deployment | Accepted — 4 September 2026. |
 | [ADR-035](ADR-035-one-active-household-per-user.md) | One active household per user | Accepted — 5 September 2026. |
@@ -60,4 +60,4 @@ This table is generated from each file's title and Status by `scripts/generate-a
 | [ADR-047](ADR-047-semantic-fact-ownership.md) | Semantic Fact Ownership and Accepted-Fact Boundaries | Accepted — 2026-09-27. |
 | [ADR-048](ADR-048-validation-consequence-domain-continuity.md) | Validation Consequences, Residual Fidelity, and Domain Continuity | Accepted — 2026-09-27. |
 | [ADR-049](ADR-049-failed-sources-surface-as-actions.md) | Failed Sources Surface as Dismissable Actions | Accepted — 2026-10-02. |
-| [ADR-050](ADR-050-conversational-evidence-understanding.md) | Conversational Evidence Understanding (CEU) | Proposed — 2026-10-03. Accepted when the CEU-00 design PR is approved and merged. |
+| [ADR-050](ADR-050-conversational-evidence-understanding.md) | Conversational Evidence Understanding (CEU) | Accepted — 2026-10-03 (design merged in PR #283; owner decisions recorded below). |

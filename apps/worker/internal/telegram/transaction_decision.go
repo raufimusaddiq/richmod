@@ -113,7 +113,7 @@ func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requ
 		return TransactionSemanticDecision{}, nil
 	}
 	state := map[string]any{
-		"user_text":              "<untrusted_user_message>" + userText + "</untrusted_user_message>",
+		"user_text":              untrustedUser(userText),
 		"amount_candidates":      []string{value.Amount},
 		"merchant":               value.Merchant,
 		"description":            value.Description,

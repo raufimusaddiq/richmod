@@ -1,6 +1,6 @@
 # CEU Execution Plan
 
-**Status:** proposed with the CEU-00 design PR
+**Status:** accepted (ADR-050); CEU-01 in progress
 **Baseline:** `main@be6be45e1b813bbee80de67577386c93193c2035`
 **Audit:** [`audits/CEU-00-architecture-audit.md`](../audits/CEU-00-architecture-audit.md)
 **ADR:** [`adr/ADR-050-conversational-evidence-understanding.md`](../adr/ADR-050-conversational-evidence-understanding.md)
@@ -44,8 +44,12 @@ Tests: lifetime-class separation, canonical-id leak walk, expired / cross-househ
   (`source_event.telegram_message_id` + chat; album → its `document`) and existing
   review cards. Terminal when it resolves to nothing.
 - Add the evidence summary to `active_review` for evidence-backed reviews.
-- Decide §14 items 1 and 3 with the owner: outbound-message binding table or none,
-  and the indexed chat id.
+- Owner decided yes to both: add the outbound-message binding table and the
+  indexed `source_event.telegram_chat_id` (nullable, backfilled from the stored
+  payload).
+- Send a short "recorded" notice for auto-resolved receipts/payslips to the chat the
+  evidence came from (replacing the first-active-identity destination), recorded in
+  the binding table so a reply to it binds.
 
 Tests: receipt A/B reply-to-A, unresolved reply does not fall back, album reply.
 
@@ -54,8 +58,8 @@ Tests: receipt A/B reply-to-A, unresolved reply does not fall back, album reply.
 - Binding levels 4–6 with named, single-location constants.
 - Turn context carries `bound_evidence` / `recent_evidence`; one READ tool
   `get_evidence_context(evidence_ref)`; `search_transactions` shows linked evidence.
-- One clarification on ambiguity. Decide with the owner whether a bounded Jev
-  choice is wanted (§14 item 2).
+- One clarification on ambiguity (owner decision: no bounded Jev choice in v1;
+  the 10-minute window is the default).
 - Optional USER-side evidence turn for conversation history.
 
 Tests: unique bound, ambiguous → clarification, no recency spill across users/chats,
