@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactCategories, cycleProgressLabel, dayLabel, deriveCycleSpendingMetrics, elapsedDaily, mapMonthlyCashflow, rankCategories } from "../app/lib/chartData.js";
+import { compactCategories, dayLabel, elapsedDaily, mapMonthlyCashflow, rankCategories } from "../app/lib/chartData.js";
 
 const categories = count => Array.from({ length: count }, (_, index) => ({ id: String(index), name: `Kategori ${index}`, amount: String((count - index) * 100) }));
 
@@ -25,22 +25,6 @@ test("category ranking keeps real category names without synthetic remainder", (
   assert.equal(ranked.length, 10);
   assert.equal(ranked.some(item => item.name === "Lainnya"), false);
   assert.ok(Math.abs(ranked.reduce((sum, item) => sum + item.share, 0) - 1) < 0.000001);
-});
-
-test("cycle metrics use elapsed calendar days and find the peak", () => {
-  const metrics = deriveCycleSpendingMetrics({ daily: [{ period: "2026-08-27", expense: "100" }, { period: "2026-08-28", expense: "0" }, { period: "2026-08-29", expense: "300" }], spent: "400", daysElapsed: 3, daysTotal: 31 });
-  assert.equal(metrics.average, 400 / 3);
-  assert.equal(metrics.peak.period, "2026-08-29");
-  assert.equal(metrics.peak.expenseValue, 300);
-  assert.equal(metrics.zeroSpendDays, 1);
-  assert.equal(metrics.daysTotal, 31);
-});
-
-test("cycle metrics handle zero elapsed days and all-zero cycles", () => {
-  const metrics = deriveCycleSpendingMetrics({ daily: [{ period: "2026-08-29", expense: "0" }], spent: "0", daysElapsed: 0, daysTotal: 1 });
-  assert.equal(metrics.average, 0);
-  assert.equal(metrics.zeroSpendDays, 0);
-  assert.equal(metrics.peak.expenseValue, 0);
 });
 
 test("elapsedDaily hides future cycle dates but preserves older API responses", () => {
@@ -68,9 +52,4 @@ test("monthly mapping marks only the running month as partial", () => {
 test("dayLabel includes the complete Indonesian date", () => {
   assert.match(dayLabel("2026-08-29"), /2026/);
   assert.equal(dayLabel(null), "");
-});
-
-test("cycle progress never invents a cycle denominator", () => {
-  assert.equal(cycleProgressLabel(6), "Hari ke-6");
-  assert.equal(cycleProgressLabel(0), "Belum dimulai");
 });

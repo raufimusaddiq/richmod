@@ -35,7 +35,7 @@ export function Badge({ value }) {
   );
 }
 
-export const badgeLabel = { ACTIVE: "Aktif", INACTIVE: "Nonaktif", DISABLED: "Dinonaktifkan", PENDING: "Menunggu", RUNNING: "Berjalan", SUCCEEDED: "Berhasil", FAILED: "Gagal", HEALTHY: "Sehat", WARN: "Peringatan", ERROR: "Galat" };
+const badgeLabel = { ACTIVE: "Aktif", INACTIVE: "Nonaktif", DISABLED: "Dinonaktifkan", PENDING: "Menunggu", RUNNING: "Berjalan", SUCCEEDED: "Berhasil", FAILED: "Gagal", HEALTHY: "Sehat", WARN: "Peringatan", ERROR: "Galat" };
 
 export function Metric({ label, value, note }) {
   return (

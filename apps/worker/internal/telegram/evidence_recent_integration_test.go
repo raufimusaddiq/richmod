@@ -283,3 +283,12 @@ func TestBrokenRecentEvidenceLookupDegradesToNoContext(t *testing.T) {
 		t.Fatalf("a failed lookup produced context: %+v %v", evidence, candidates)
 	}
 }
+
+// bindRecentEvidence loads the candidates and binds them, as a live turn does.
+func (p *Processor) bindRecentEvidence(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (*agentEvidenceBinding, []map[string]any, error) {
+	candidates, err := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return p.bindRecentEvidenceFrom(ctx, householdID, sourceEventID, update, candidates)
+}

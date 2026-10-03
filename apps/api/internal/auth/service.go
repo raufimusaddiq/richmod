@@ -17,7 +17,6 @@ import (
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrUnauthenticated = errors.New("unauthenticated")
 var ErrTenantInvariantViolation = errors.New("user has multiple active household memberships")
-var ErrHouseholdRequired = errors.New("household membership required")
 
 const SessionIdleTimeout = 24 * time.Hour
 
@@ -38,19 +37,6 @@ type Principal struct {
 	// Memberships is retained only for internal test/legacy construction. Runtime
 	// tenant selection uses the canonical fields above.
 	Memberships []Membership `json:"-"`
-}
-
-type TenantContext struct {
-	UserID      string
-	HouseholdID string
-	Role        string
-}
-
-func TenantFromPrincipal(principal Principal) (TenantContext, error) {
-	if !principal.HasHousehold || principal.HouseholdID == "" || principal.HouseholdRole == "" {
-		return TenantContext{}, ErrHouseholdRequired
-	}
-	return TenantContext{UserID: principal.UserID, HouseholdID: principal.HouseholdID, Role: principal.HouseholdRole}, nil
 }
 
 type Service struct {

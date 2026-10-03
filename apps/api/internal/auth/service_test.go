@@ -52,13 +52,3 @@ func TestPrincipalJSONExposesOneHousehold(t *testing.T) {
 		t.Fatalf("principal JSON = %s", got)
 	}
 }
-
-func TestTenantFromPrincipalRequiresHousehold(t *testing.T) {
-	if _, err := TenantFromPrincipal(Principal{UserID: "user-1"}); !errors.Is(err, ErrHouseholdRequired) {
-		t.Fatalf("zero-household error = %v", err)
-	}
-	tenant, err := TenantFromPrincipal(Principal{UserID: "user-1", HouseholdID: "household-1", HouseholdRole: "OWNER", HasHousehold: true})
-	if err != nil || tenant.HouseholdID != "household-1" || tenant.Role != "OWNER" {
-		t.Fatalf("tenant = %#v, err=%v", tenant, err)
-	}
-}

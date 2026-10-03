@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
 )
 
 func testPNG(t *testing.T, width, height int) []byte {
@@ -50,12 +52,19 @@ func TestMaliciousFilenameCannotControlStoragePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	handler := &Handler{root: root}
-	ref, path, err := handler.store("household-id", normalized, extension)
+	storage, err := blob.NewLocal(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(path)
+	handler := &Handler{storage: storage}
+	ref, err := handler.store("household-id", normalized, extension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, filepath.FromSlash(ref))
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stored file is not under the storage root: %v", err)
+	}
 	relative, err := filepath.Rel(root, path)
 	if err != nil || relative == ".." || filepath.IsAbs(ref) || filepath.Base(path) == "outside.png" {
 		t.Fatalf("unsafe storage result: ref=%q path=%q relative=%q", ref, path, relative)

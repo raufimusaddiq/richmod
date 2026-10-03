@@ -5,7 +5,7 @@ import { monthLabel } from "./format.js";
 // enforces (so the user sees the reason beside the field), labels the running
 // month, and turns the API's English 400 reasons into guidance.
 
-export const MAX_CUSTOM_MONTHS = 24;
+const MAX_CUSTOM_MONTHS = 24;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 // "YYYY-MM" in Asia/Jakarta. Used only to label the running month and to bound the

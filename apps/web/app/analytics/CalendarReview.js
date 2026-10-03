@@ -83,6 +83,6 @@ function CalendarSection({ state, title, description, about, rows, className = "
   </section>;
 }
 
-export function ValueList({ items }) {
+function ValueList({ items }) {
   return items.length ? <dl className="review-values">{items.map((item, index) => <Metric key={item.id || `${item.name}:${index}`} label={item.name} value={money(item.amount)}/>)}</dl> : <p className="empty compact">Belum ada data pada rentang ini.</p>;
 }

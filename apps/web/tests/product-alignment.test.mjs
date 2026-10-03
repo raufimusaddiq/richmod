@@ -76,8 +76,8 @@ test("analytics commentary is selected-cycle tool-first prose, safely rendered a
 test("analytics insight card owns its spacing", () => {
   const styles = globalCss();
   assert.match(styles, /\.insight-card \{ padding: 22px; \}/);
-  assert.match(styles, /\.analytics-detail-layout, \.admin-grid \{ display: grid; grid-template-columns: minmax\(0, 1\.55fr\) minmax\(280px, \.75fr\);/);
-  assert.match(styles, /@media \(max-width: 1100px\) \{[\s\S]*?\.analytics-detail-layout, \.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(styles, /\.admin-grid \{ display: grid; grid-template-columns: minmax\(0, 1\.55fr\) minmax\(280px, \.75fr\);/);
+  assert.match(styles, /@media \(max-width: 1100px\) \{[\s\S]*?\.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 });
 
 test("analytics components own semantics, spacing, controls, and chart colors", () => {
@@ -91,7 +91,6 @@ test("analytics components own semantics, spacing, controls, and chart colors", 
   assert.match(analytics, /aria-controls="category-drivers"/);
   assert.match(analytics, /className="range-control-group"/);
   assert.match(analytics, /className="custom-range"/);
-  assert.match(styles, /\.analytics-ranked-card \{ padding: 22px; \}/);
   assert.match(styles, /\.custom-range input \{ width: 142px;/);
   assert.match(charts, /var\(--chart-income\)/);
   assert.match(charts, /var\(--chart-expense\)/);
@@ -155,8 +154,8 @@ test("mobile shell keeps navigation and dense actions usable", () => {
   assert.match(shell, /event\.key === "Escape"/);
   assert.match(shell, /aria-controls="mobile-more-panel"/);
   assert.match(styles, /\.mobile-nav a, \.mobile-nav button \{[\s\S]*?min-height: 50px;/);
-  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
-  assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.member-list article, \.settings-list article, \.integration-grid article \{ grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
+  assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.settings-list article, \.integration-grid article \{ grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styles, /max-height: 82dvh; overflow-y: auto;/);
 });
 
@@ -164,7 +163,7 @@ test("email ingress controls stay grouped inside the integration card", () => {
   const settings = text("app/settings/page.js");
   const styles = globalCss();
   assert.match(settings, /className="integration-actions"/);
-  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
+  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
   assert.match(styles, /\.integration-grid small \{ margin-top: 3px; color: var\(--ink-soft\); font-size: var\(--text-md\); \}/);
 });
 

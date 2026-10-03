@@ -286,7 +286,7 @@ test("legal pages put the brand on its own line above the page label", () => {
 });
 
 test("secondary list lines and heat-table numbers stay readable", () => {
-  assert.match(css(), /\.member-list small, \.settings-list small, \.integration-grid small \{[^}]*color: var\(--ink-soft\); font-size: var\(--text-md\);/);
+  assert.match(css(), /\.settings-list small, \.integration-grid small \{[^}]*color: var\(--ink-soft\); font-size: var\(--text-md\);/);
   assert.match(css(), /\.ledger-cell \{[^}]*font-size: var\(--text-base\); font-weight: var\(--weight-semibold\);/);
 });
 
@@ -308,7 +308,7 @@ test("the login form sits close to the top on phones and is not centred in a voi
 });
 
 test("destructive row actions keep clear space from neighbouring controls", () => {
-  assert.match(css(), /\.settings-list \.danger, \.member-actions \.danger, \.row-actions \.danger \{ margin-inline-start: var\(--space-4\); \}/);
+  assert.match(css(), /\.settings-list \.danger, \.row-actions \.danger \{ margin-inline-start: var\(--space-4\); \}/);
 });
 
 test("loading skeletons follow their props, use rounded tiles and say they are loading", () => {

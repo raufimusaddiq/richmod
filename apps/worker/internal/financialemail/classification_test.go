@@ -104,9 +104,6 @@ func TestWealthValueIsNotACashMovement(t *testing.T) {
 	if !verified || classification.cashAllowed() {
 		t.Fatalf("a wealth value must not authorize a cash movement: %+v", classification)
 	}
-	if !classification.wealthAllowed() {
-		t.Fatalf("a supported wealth value must be allowed: %+v", classification)
-	}
 }
 
 func TestMovementTypeRequiredForCash(t *testing.T) {

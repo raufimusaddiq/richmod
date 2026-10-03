@@ -216,12 +216,6 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-func (h *Handler) currentPeriod() (time.Time, time.Time) {
-	local := h.now().In(clock.HouseholdLocation())
-	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
-	return start, start.AddDate(0, 1, 0)
-}
-
 func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, time.Time, error) {
 	local := h.now().In(clock.HouseholdLocation())
 	current := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())

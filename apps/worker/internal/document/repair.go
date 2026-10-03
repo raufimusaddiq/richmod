@@ -147,11 +147,9 @@ func repairExtracted[T any](ctx context.Context, gw Gateway, requestID, document
 		issues.append(ValidationIssue{"", repairFailedCode})
 		return *value, metadata, nil
 	}
-	fieldsRaw, ok := arguments["fields"]
-	if !ok {
+	if _, ok := arguments["fields"]; !ok {
 		// Schema-valid tools may return the patch directly.
-		fieldsRaw = json.RawMessage(rawFields)
-		arguments = map[string]json.RawMessage{"fields": fieldsRaw}
+		arguments = map[string]json.RawMessage{"fields": rawFields}
 	}
 	var patch map[string]json.RawMessage
 	if err := json.Unmarshal(arguments["fields"], &patch); err != nil {

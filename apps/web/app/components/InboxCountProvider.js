@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useAuthContext } from "./AuthProvider";
 
 const InboxCountContext = createContext(0);
-export const INBOX_COUNT_EVENT = "richmod:inbox-count";
+const INBOX_COUNT_EVENT = "richmod:inbox-count";
 
 // Publish the exact number of open items from a page that already holds both
 // lists, so the badge matches the inbox without another request.

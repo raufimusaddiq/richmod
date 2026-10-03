@@ -29,7 +29,7 @@ test("transaction date filters carry visible labels and fit the card on iOS", ()
 });
 
 test("stacked phone actions do not keep the desktop gap before a destructive button", () => {
-  assert.match(globalCss(), /@media \(max-width: 719px\) \{\s*\.settings-list \.danger, \.member-actions \.danger, \.row-actions \.danger \{ margin-inline-start: 0; \}/);
+  assert.match(globalCss(), /@media \(max-width: 719px\) \{\s*\.settings-list \.danger, \.row-actions \.danger \{ margin-inline-start: 0; \}/);
 });
 
 test("the cycle ledger fills the width with few cycles and card headings align with their rows", () => {

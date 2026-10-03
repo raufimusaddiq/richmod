@@ -14,9 +14,9 @@ export function ProposalFacts({ item, known, missing }) {
   return <>{knownRow.length > 0 && <dl className="review-proposal">{knownRow.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{text(value)}</dd></div>)}</dl>}{proposedRow.length > 0 && <><p className="review-source">Richmod mengusulkan</p><dl className="review-proposal">{proposedRow.map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{text(value)}</dd></div>)}</dl></>}{item.whyNotAutoConfirm && <p className="review-why"><b>Kenapa perlu kamu:</b> {item.whyNotAutoConfirm}</p>}{missing.length > 0 && <p className="review-missing">Yang belum pasti: {missing.map(label).join(", ")}</p>}</>;
 }
 
-export const fieldLabels = { amount_idr: "Jumlah", amount: "Jumlah", transaction_at: "Waktu", direction: "Arah", merchant: "Merchant", category: "Kategori", categorySlug: "Kategori", funding_account: "Rekening sumber", wealth_account: "Akun kekayaan", wealthAccountId: "Akun kekayaan", transfer_relationship: "Jenis transfer", duplicate_relationship: "Hubungan duplikat", transaction_semantics: "Jenis transaksi", evidence_support: "Dukungan bukti", observation_type: "Jenis observasi", cash_movement: "Pergerakan dana", transaction_ambiguity: "Ambiguitas transaksi", resolvedAccountId: "Rekening sumber", resolvedWealthAccountId: "Akun kekayaan" };
+const fieldLabels = { amount_idr: "Jumlah", amount: "Jumlah", transaction_at: "Waktu", direction: "Arah", merchant: "Merchant", category: "Kategori", categorySlug: "Kategori", funding_account: "Rekening sumber", wealth_account: "Akun kekayaan", wealthAccountId: "Akun kekayaan", transfer_relationship: "Jenis transfer", duplicate_relationship: "Hubungan duplikat", transaction_semantics: "Jenis transaksi", evidence_support: "Dukungan bukti", observation_type: "Jenis observasi", cash_movement: "Pergerakan dana", transaction_ambiguity: "Ambiguitas transaksi", resolvedAccountId: "Rekening sumber", resolvedWealthAccountId: "Akun kekayaan" };
 
-export function label(key) { return fieldLabels[key] || (reasons[key] || reviewTypes[key] || String(key).replaceAll("_", " ")); }
+function label(key) { return fieldLabels[key] || (reasons[key] || reviewTypes[key] || String(key).replaceAll("_", " ")); }
 
 export function MissingInputs(item) {
   // The decision contract uses missingFacts; a legacy transaction-backed review

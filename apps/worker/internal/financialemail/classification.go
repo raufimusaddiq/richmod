@@ -243,17 +243,6 @@ func (c ObservationClassification) cashAllowed() bool {
 		c.MovementAccepted && c.MovementType != ""
 }
 
-// wealthAllowed reports whether Go may treat this observation as a wealth value.
-func (c ObservationClassification) wealthAllowed() bool {
-	return c.TypeAccepted && c.ObservationType == "WEALTH_VALUE" && c.WealthSupported && c.EvidenceSufficient && c.AmbiguityDecidedNotAmbiguous
-}
-
-// nonActionable reports a decided NON_ACTIONABLE ruling, which is a terminal
-// no-op rather than a review.
-func (c ObservationClassification) nonActionable() bool {
-	return c.TypeAccepted && c.ObservationType == "NON_ACTIONABLE"
-}
-
 // noulSupported reports a decided, affirmative Noul answer. The middle band
 // fails closed, matching the Telegram decision plane.
 func noulSupported(answers map[string]judgment.Answer, key string) bool {
