@@ -40,6 +40,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		{Name: "search_transactions", Description: "Search household transactions by text and period. Go returns bounded results.", Parameters: objectSchema(map[string]any{"period": period, "from_date": nullString, "to_date": nullString, "search_text": stringType}, []string{"period", "from_date", "to_date", "search_text"})},
 		{Name: "list_review_items", Description: "List active household review items relevant to this Telegram user/chat.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "get_finance_insight", Description: "Read or start canonical aggregate-only insight for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
+		{Name: "get_evidence_context", Description: "Read the current state of one receipt or document Richmod already showed you, by its opaque evidence_ref. Go returns its observed, canonical and workflow blocks. It changes no financial or review state; it only refreshes the ref's expiry. Use it before answering about a document whose state may have changed.", Parameters: objectSchema(map[string]any{"evidence_ref": stringType}, []string{"evidence_ref"})},
 		{Name: "ask_clarification", Description: "Ask for missing finance details without guessing.", Parameters: objectSchema(map[string]any{"topic": map[string]any{"type": "string", "enum": []string{"TRANSACTION", "PERIOD", "TARGET", "CATEGORY", "REVIEW"}}, "missing_fields": map[string]any{"type": "array", "items": stringType}}, []string{"topic", "missing_fields"})},
 		{Name: "finance_help", Description: "Show Richmod finance command examples.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "finance_out_of_scope", Description: "Reject unsupported non-finance or out-of-MVP requests.", Parameters: objectSchema(map[string]any{"reason": map[string]any{"type": "string", "enum": []string{"NON_FINANCE", "INVESTMENT_ACTION_UNSUPPORTED", "SYSTEM_REQUEST", "UNSUPPORTED_LANGUAGE"}}}, []string{"reason"})},
@@ -132,6 +133,8 @@ func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
 		target = &transferArgs{}
 	case "search_transactions":
 		target = &searchArgs{}
+	case "get_evidence_context":
+		target = &evidenceArgs{}
 	case "list_review_items", "query_wealth", "list_wealth_accounts", "finance_help", "confirm_pending_action", "cancel_pending_action", "confirm_pending_batch", "cancel_pending_batch":
 		target = &emptyArgs{}
 	case "ask_clarification":
@@ -181,6 +184,10 @@ func decodeNativeArgs(call gateway.ToolCall, target any) (map[string]any, error)
 		return remarshal(out), err
 	case *searchArgs:
 		out, err := gateway.DecodeToolArguments[searchArgs](call, call.Name)
+		*v = out
+		return remarshal(out), err
+	case *evidenceArgs:
+		out, err := gateway.DecodeToolArguments[evidenceArgs](call, call.Name)
 		*v = out
 		return remarshal(out), err
 	case *emptyArgs:
@@ -255,6 +262,13 @@ type transferArgs struct {
 	LocalTime                    *string `json:"local_time"`
 	Description                  *string `json:"description"`
 }
+
+// evidenceArgs carries only an opaque evidence ref. The model can never name a
+// document by its database id: the argument is a lookup key Go must resolve.
+type evidenceArgs struct {
+	EvidenceRef string `json:"evidence_ref"`
+}
+
 type searchArgs struct {
 	Period     string  `json:"period"`
 	FromDate   *string `json:"from_date"`
@@ -349,6 +363,10 @@ func validateTypedArgs(value any) error {
 		// legitimately has none; the purpose resolver rules on which case applies.
 		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")
+		}
+	case *evidenceArgs:
+		if len(v.EvidenceRef) > 64 || !evidenceRefPattern.MatchString(v.EvidenceRef) {
+			return fmt.Errorf("evidence reference")
 		}
 	case *searchArgs:
 		if !validPeriod(v.Period) || strings.TrimSpace(v.SearchText) == "" {

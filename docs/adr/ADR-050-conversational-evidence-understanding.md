@@ -74,6 +74,12 @@ context**. It adds no decision authority.
 - Telegram image/document evidence only. Email evidence reaches a conversation
   only through a review or transaction link.
 
+## Rollout notes
+
+- Evidence ref keys moved from positional (`_ev<n>`) to per-document (`_ev<hash>`) in CEU-03. A ref issued by an earlier binary resolves as `REFERENCE_INVALID` after the upgrade; the model is told to fall back to the evidence bound that turn, and refs live at most 60 minutes, so the window is bounded and benign. No evidence ref had been deployed to production when the scheme changed.
+- `get_evidence_context` is classified READ because it changes no financial or review state. It does write a bounded, idempotent ref row (serialized by an advisory lock), so it is not a pure read; this is recorded here instead of hidden.
+- Evidence context is optional: a failure to resolve it never fails a message.
+
 ## Rejected alternatives
 
 - **A CEU agent or decision system.** Duplicates SAVR/ReviewDomain authority.
