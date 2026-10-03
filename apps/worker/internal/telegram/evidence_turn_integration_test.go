@@ -19,6 +19,9 @@ type capturingGateway struct {
 	requests []gateway.AgentRequest
 	script   []gateway.AgentResponse
 	err      error
+	// respond, when set, decides each response from what the model was shown, so a
+	// test can act on a ref the server issued this turn.
+	respond func(call int, request gateway.AgentRequest) gateway.AgentResponse
 }
 
 func (*capturingGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -29,6 +32,9 @@ func (g *capturingGateway) AgentTurn(_ context.Context, _ string, request gatewa
 	g.requests = append(g.requests, request)
 	if g.err != nil {
 		return gateway.AgentResponse{}, g.err
+	}
+	if g.respond != nil {
+		return g.respond(len(g.requests)-1, request), nil
 	}
 	if len(g.requests) <= len(g.script) {
 		return g.script[len(g.requests)-1], nil

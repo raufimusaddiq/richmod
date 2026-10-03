@@ -96,6 +96,11 @@ func reviewActionsForType(reviewType string) []string {
 		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
 	case "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION":
 		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
+	case "POSSIBLE_DUPLICATE":
+		// A document that may repeat a recorded transaction can merge into one of the
+		// server-computed candidates (an opaque ref), be kept as a separate event, or
+		// be dismissed.
+		return []string{"MERGE_EXISTING", "CONFIRM", "IGNORE"}
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
 	case "FINANCIAL_EMAIL_FACTS":

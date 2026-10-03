@@ -28,6 +28,8 @@ type evidenceFacts struct {
 	LinkedTransactionID                        string
 	LinkedAmount, LinkedCategory, LinkedStatus string
 	ReviewType                                 string
+	ReviewTransactionID                        string
+	Candidates                                 []duplicateCandidate
 	Missing, AllowedActions                    []string
 }
 
@@ -62,7 +64,14 @@ func (p *Processor) loadEvidenceContexts(ctx context.Context, householdID, sourc
 		if err != nil {
 			return nil, err
 		}
-		if id := facts[index].LinkedTransactionID; id != "" {
+		ids := []string{facts[index].LinkedTransactionID}
+		for _, candidate := range facts[index].Candidates {
+			ids = append(ids, candidate.ID)
+		}
+		for _, id := range ids {
+			if id == "" {
+				continue
+			}
 			if _, ok := seen[id]; !ok {
 				seen[id] = len(transactionIDs)
 				transactionIDs = append(transactionIDs, id)
@@ -85,7 +94,11 @@ func (p *Processor) loadEvidenceContexts(ctx context.Context, householdID, sourc
 		if id := facts[index].LinkedTransactionID; id != "" {
 			txRef = transactionRefs[seen[id]].Ref
 		}
-		out[index] = facts[index].public(refs[index], txRef)
+		candidateRefs := make([]string, len(facts[index].Candidates))
+		for position, candidate := range facts[index].Candidates {
+			candidateRefs[position] = transactionRefs[seen[candidate.ID]].Ref
+		}
+		out[index] = facts[index].public(refs[index], txRef, candidateRefs)
 	}
 	return out, nil
 }
@@ -128,16 +141,24 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 	}
 
 	var missing, actions []byte
-	err = p.pool.QueryRow(ctx, `SELECT review_type,COALESCE(decision->'missingFacts','[]'::jsonb),COALESCE(decision->'allowedActions','[]'::jsonb)
+	err = p.pool.QueryRow(ctx, `SELECT review_type,COALESCE(transaction_id::text,''),COALESCE(decision->'missingFacts','[]'::jsonb),COALESCE(decision->'allowedActions','[]'::jsonb)
 		FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')
 		  AND (document_id=$2::uuid OR source_event_id IN (SELECT source_event_id FROM document WHERE id=$2::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$2::uuid)
 		       OR transaction_id IN (SELECT te.transaction_id FROM transaction_evidence te WHERE te.source_event_id IN (SELECT source_event_id FROM document WHERE id=$2::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$2::uuid)))
 		ORDER BY created_at DESC LIMIT 1`, householdID, string(document)).
-		Scan(&f.ReviewType, &missing, &actions)
+		Scan(&f.ReviewType, &f.ReviewTransactionID, &missing, &actions)
 	switch {
 	case err == nil:
 		_ = json.Unmarshal(missing, &f.Missing)
 		_ = json.Unmarshal(actions, &f.AllowedActions)
+		// A possible-duplicate document carries the existing transactions it may merge
+		// into, from the same query the Telegram flow uses. They reach the model only
+		// as opaque refs and labels.
+		if f.ReviewType == "POSSIBLE_DUPLICATE" {
+			if f.Candidates, err = p.duplicateCandidatesForTransaction(ctx, householdID, f.ReviewTransactionID); err != nil {
+				return f, fmt.Errorf("load evidence candidates: %w", err)
+			}
+		}
 	case errors.Is(err, pgx.ErrNoRows):
 	default:
 		return f, fmt.Errorf("load evidence review: %w", err)
@@ -147,7 +168,7 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 
 // public renders the model-visible package. Provenance is structural: observed,
 // canonical and workflow are separate blocks and are never merged.
-func (f evidenceFacts) public(ref evidenceRef, transactionRef string) map[string]any {
+func (f evidenceFacts) public(ref evidenceRef, transactionRef string, candidateRefs []string) map[string]any {
 	out := map[string]any{
 		"evidence_ref":    string(ref),
 		"source_type":     f.SourceType,
@@ -179,12 +200,25 @@ func (f evidenceFacts) public(ref evidenceRef, transactionRef string) map[string
 		}
 	}
 	if f.ReviewType != "" {
-		out["workflow"] = map[string]any{
+		workflow := map[string]any{
 			"review_open":     true,
 			"review_type":     f.ReviewType,
 			"missing":         nonNilStrings(f.Missing),
 			"allowed_actions": nonNilStrings(f.AllowedActions),
 		}
+		if len(f.Candidates) > 0 {
+			candidates := make([]map[string]any, 0, len(f.Candidates))
+			for position, candidate := range f.Candidates {
+				candidates = append(candidates, map[string]any{
+					"ref":            candidateRefs[position],
+					"merchant":       untrustedLedger(clipRunes(candidate.Merchant, evidenceMerchantChars)),
+					"amount_idr":     candidate.Amount,
+					"transaction_at": candidate.At.In(jakartaLocation()).Format(time.RFC3339),
+				})
+			}
+			workflow["candidates"] = candidates
+		}
+		out["workflow"] = workflow
 	}
 	return out
 }

@@ -138,6 +138,9 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		if _, err := p.pool.Exec(ctx, `UPDATE transaction SET amount=$2,transaction_at=$3,updated_at=now() WHERE id=$1 AND household_id=$4 AND status='NEEDS_REVIEW'`, review.transactionID, amountIDR, parsed, state.HouseholdID); err != nil {
 			return result, true, err
 		}
+	case "MERGE_EXISTING":
+		candidateRef, _ := args["candidate_ref"].(string)
+		return p.agentMergeDuplicateReview(ctx, state, call, *review, candidateRef)
 	case "CONFIRM":
 	default:
 		result.Status = "UNSUPPORTED_REVIEW_ACTION"
