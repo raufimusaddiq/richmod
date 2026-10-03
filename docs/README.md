@@ -38,6 +38,10 @@ then current repository behavior, then current docs and ADRs, then older specs.
 - [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md): what the MVP covers and how it was verified.
 - [`ANALYTICS_CYCLE_REVIEW_UI.md`](ANALYTICS_CYCLE_REVIEW_UI.md): the current Analytics contract. Older analytics insight and chart-refinement documents are historical.
 
+## Next initiative
+
+- [`audits/CEU-00-architecture-audit.md`](audits/CEU-00-architecture-audit.md): CEU (Conversational Evidence Understanding) architecture audit, binding precedence and risks. Decision: [ADR-050](adr/ADR-050-conversational-evidence-understanding.md). Slices: [`plans/ceu-execution.md`](plans/ceu-execution.md).
+
 ## Interface and quality
 
 - [`brand-guidelines.md`](brand-guidelines.md): colors, type scale, hit areas and shape, enforced by `apps/web/tests/ui-audit-locks.test.mjs`.
