@@ -112,8 +112,32 @@ duplicate delivery.
 
 ## CEU-06 — natural review continuation
 
-- Evidence-backed review replies like "tanggal 25" resolve against the stored
-  ReviewDecision `missing` set only.
+**As delivered.** No new lane and no new tool; an existing deterministic lane is
+reached from the production entry.
+
+- **Finding.** Typed text is queued as `PROCESS_TELEGRAM_TEXT` and handled by
+  `ProcessAgent`; `Process` is entered only for callbacks. The conversational agent has
+  no binding for **proposal-keyed** reviews (payslip pay date, missing amount, document
+  reviews), and the deterministic lane that answers them (`processBoundReview`) was
+  reachable from callbacks only. A typed date reply to such a card therefore reached the
+  model and left the review open, whether it replied to the card or to the upload.
+- **Fix, at `ProcessAgent`.** An **exact** reply to a proposal-keyed review is answered
+  by that deterministic lane, with its own state checks, when it replies to the card, to
+  the document's upload, or to a bound evidence notice
+  (`replyTargetForEvidenceReview`, `repliesToProposalReview`). The target comes only
+  from the exact message replied to, scoped to household + chat; it never searches for
+  "the latest" review. A lookup failure returns an error and the job retries instead of
+  silently rerouting the reply.
+- **Scope kept narrow.** Only explicit replies, and only proposal-keyed reviews.
+  Transaction-keyed reviews stay with the agent (tested), and a reply-less message is
+  never taken by this lane: chat state alone does not own a turn.
+- **Known difference.** An expired review is not continued from an upload or notice,
+  and a typed reply to an expired card is not revived either: the agent entry has no
+  projection renewal (`renewExpiredReviewProjection` runs only in `Process`, i.e. for
+  callbacks). Reviving an expired review remains a button/callback action.
+- Known facts are not re-decided: the lane supplies only the missing fact, and the tests
+  assert the amount is untouched, exactly one transaction exists, and the model was
+  never called.
 
 Tests: missing `transaction_at` does not re-ask amount/category.
 

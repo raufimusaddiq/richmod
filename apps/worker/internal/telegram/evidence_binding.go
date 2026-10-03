@@ -86,6 +86,18 @@ func (p *Processor) resolveReplyEvidence(ctx context.Context, householdID string
 // and resolves it through the same exact-reply binder a reply to the card uses, so
 // there is one binding implementation and one authority.
 func (p *Processor) reviewBindingForDocument(ctx context.Context, householdID string, chatID int64, document canonicalDocumentID) (*agentReviewBinding, error) {
+	messageID, err := p.reviewCardMessageForDocument(ctx, householdID, chatID, document)
+	if err != nil || messageID == 0 {
+		return nil, err
+	}
+	return p.exactAgentReviewBinding(ctx, householdID, chatID, messageID)
+}
+
+// reviewCardMessageForDocument returns the Telegram message id of the open review
+// card that is about a document in this chat, or 0. It follows the document's own
+// review, a review on any of its source events, or a review on a transaction the
+// document is linked to.
+func (p *Processor) reviewCardMessageForDocument(ctx context.Context, householdID string, chatID int64, document canonicalDocumentID) (int64, error) {
 	var messageID int64
 	err := p.pool.QueryRow(ctx, `SELECT rr.telegram_message_id
 		FROM review_request r
@@ -98,12 +110,58 @@ func (p *Processor) reviewBindingForDocument(ctx context.Context, householdID st
 		            SELECT source_event_id FROM document WHERE id=$3::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$3::uuid)))
 		ORDER BY r.created_at DESC LIMIT 1`, householdID, chatID, string(document)).Scan(&messageID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return 0, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("find review for evidence: %w", err)
+		return 0, fmt.Errorf("find review for evidence: %w", err)
 	}
-	return p.exactAgentReviewBinding(ctx, householdID, chatID, messageID)
+	return messageID, nil
+}
+
+// replyTargetForEvidenceReview treats a reply to an upload, or to a bound evidence
+// notice, as a reply to that document's open review card, so the deterministic
+// review lane (date, amount, policy) answers it exactly as if the household had
+// replied to the card. A reply to anything else, or to a document with no open
+// review in this chat, is returned unchanged. It never searches for "the latest"
+// review: the document is resolved from the exact message the user replied to.
+// A failed lookup is returned, not swallowed: this feeds a deterministic answer path,
+// so a transient failure must retry the job instead of silently rerouting the reply.
+func (p *Processor) replyTargetForEvidenceReview(ctx context.Context, householdID string, update telegramUpdate) (telegramUpdate, error) {
+	document, found, err := p.resolveReplyEvidence(ctx, householdID, update)
+	if err != nil {
+		return update, err
+	}
+	if !found {
+		return update, nil
+	}
+	card, err := p.reviewCardMessageForDocument(ctx, householdID, update.Message.Chat.ID, document)
+	if err != nil || card == 0 {
+		return update, err
+	}
+	update.Message.ReplyToMessage = &struct {
+		MessageID int64 `json:"message_id"`
+	}{MessageID: card}
+	return update, nil
+}
+
+// repliesToProposalReview reports whether the update replies to the card of an open
+// review that is keyed on a proposal rather than a transaction (payslip pay date,
+// missing amount, document reviews). The conversational agent has no binding for
+// those kinds, so an exact reply to one is answered by the deterministic review
+// lane; transaction-keyed reviews stay with the agent.
+func (p *Processor) repliesToProposalReview(ctx context.Context, householdID string, update telegramUpdate) (bool, error) {
+	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
+		return false, nil
+	}
+	var found bool
+	err := p.pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM review_request r
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		JOIN review_item ri ON ri.id=r.review_item_id
+		WHERE r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
+		  AND ri.proposal_id IS NOT NULL AND ri.transaction_id IS NULL AND r.transaction_id IS NULL)`,
+		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&found)
+	return found, err
 }
 
 // documentForReviewBinding returns the document an already-bound review is about.
