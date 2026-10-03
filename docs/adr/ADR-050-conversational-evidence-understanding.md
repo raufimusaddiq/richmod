@@ -80,6 +80,9 @@ context**. It adds no decision authority.
 - `get_evidence_context` is classified READ because it changes no financial or review state. It does write a bounded, idempotent ref row (serialized by an advisory lock), so it is not a pure read; this is recorded here instead of hidden.
 - Evidence context is optional: a failure to resolve it never fails a message.
 
+Corpus, metrics, known limits and the freeze condition are recorded in
+[CEU-07](../audits/CEU-07-corpus-and-metrics.md).
+
 ## Rejected alternatives
 
 - **A CEU agent or decision system.** Duplicates SAVR/ReviewDomain authority.

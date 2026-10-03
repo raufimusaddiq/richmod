@@ -40,7 +40,7 @@ then current repository behavior, then current docs and ADRs, then older specs.
 
 ## Next initiative
 
-- [`audits/CEU-00-architecture-audit.md`](audits/CEU-00-architecture-audit.md): CEU (Conversational Evidence Understanding) architecture audit, binding precedence and risks. Decision: [ADR-050](adr/ADR-050-conversational-evidence-understanding.md). Slices: [`plans/ceu-execution.md`](plans/ceu-execution.md).
+- [`audits/CEU-00-architecture-audit.md`](audits/CEU-00-architecture-audit.md): CEU (Conversational Evidence Understanding) architecture audit, binding precedence and risks. Decision: [ADR-050](adr/ADR-050-conversational-evidence-understanding.md). Slices: [`plans/ceu-execution.md`](plans/ceu-execution.md). Corpus, metrics and freeze status: [`audits/CEU-07-corpus-and-metrics.md`](audits/CEU-07-corpus-and-metrics.md).
 
 ## Interface and quality
 
