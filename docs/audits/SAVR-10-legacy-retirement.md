@@ -1,7 +1,7 @@
 # SAVR-10 — Legacy Reinterpretation Retirement
 
-**Status:** corpus-proven removals complete; UISC-01/02 merged (`c5278a4`);
-full freeze conditional on owner-household production observation.
+**Status:** FULL FREEZE (UISC-04, 2026-10-03); corpus-proven removals complete;
+UISC-01/02 merged (`c5278a4`); owner-household observation accepted.
 **Date:** 2026-09-28
 
 SAVR-10 removes only what the corpus proves unreachable. Everything retained
@@ -64,9 +64,18 @@ human input is policy or irreducible fact only
 - UISC-02 Operations observability for validator-induced review, Residual
   Contract Fidelity, and semantic re-decision — merged, with old rows kept
   coverage-incomplete rather than zero;
-- UISC-03 owner-household production observation under BDR-005 — **open**,
-  using normal real usage and no seeded production financial data;
-- UISC-04 final docs freeze — **not yet**; it follows UISC-03 evidence and
-  product-owner acceptance.
+- UISC-03 owner-household production observation under BDR-005 — **accepted by
+  the product owner on 2026-10-03**, using normal real usage and no seeded
+  production financial data; email-origin projection and Jago/Bibit rechecks
+  remain `PRODUCTION_UNOBSERVED` with green corpus evidence;
+- UISC-04 final docs freeze — **done** (this change).
 
-Next initiative: CEU, only after UISC-03 observation is accepted.
+```text
+UIR frozen
+SAVR frozen
+owner-household production observation accepted
+CEU may start
+```
+
+UIR and SAVR change from here only for production defects against their
+approved contracts. Next initiative: CEU.

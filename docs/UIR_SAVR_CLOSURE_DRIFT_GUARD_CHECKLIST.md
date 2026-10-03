@@ -2,6 +2,11 @@
 
 A failed applicable item blocks closure.
 
+> This is a per-change review template for UISC PRs, not the closure record.
+> Closure and freeze evidence live in `docs/bdr/BDR-005-uir-savr-closure-before-ceu.md`
+> and `docs/plans/uir-savr-closure-execution.md`; UISC-01/02 were merged and
+> reviewed at `c5278a4` and `c2f08bc`.
+
 ## Scope
 
 - [ ] Change closes UISC-01, UISC-02, UISC-03, or UISC-04 only.
