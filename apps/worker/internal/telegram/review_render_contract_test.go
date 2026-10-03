@@ -328,3 +328,19 @@ func TestBankFactsReplyParserAndCapability(t *testing.T) {
 		}
 	}
 }
+
+// A card with no subject summary leads with its prompt once; only the category
+// chooser, which sends the summary verbatim, falls back to the prompt as body.
+func TestEmptySummaryCardShowsItsTitleOnce(t *testing.T) {
+	decision, ok := reviewdec.Preset("MISSING_TRANSACTION_DATE", "transaction", "00000000-0000-0000-0000-000000000000")
+	if !ok {
+		t.Fatal("no preset")
+	}
+	state, message, _ := renderReviewPresentation(decision, "MISSING_TRANSACTION_DATE", "")
+	if state != "AWAITING_DATE" {
+		t.Fatalf("state=%s", state)
+	}
+	if got := strings.Count(message, "Tanggal transaksi belum ada"); got != 1 {
+		t.Fatalf("title appears %d times in %q", got, message)
+	}
+}

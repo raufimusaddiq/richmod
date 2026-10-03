@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
@@ -234,7 +235,35 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
 		return err
 	}
+	// Document and email producers send no summary. Describe the transaction from
+	// canonical state so the card says what it is about. The category chooser
+	// sends its summary verbatim, so it keeps the decision prompt instead.
+	if strings.TrimSpace(message) == "" && transactionID != "" && !isCategoryOnly(decision) {
+		if message, err = transactionReviewSummary(ctx, tx, householdID, transactionID); err != nil {
+			return err
+		}
+	}
 	return projectReviewRequest(ctx, tx, reviewID, itemID, reviewType, decision, replyTo, message, originatingChatID)
+}
+
+// transactionReviewSummary names a reviewed transaction by its amount and its
+// merchant (or description when no merchant is known).
+func transactionReviewSummary(ctx context.Context, tx pgx.Tx, householdID, transactionID string) (string, error) {
+	var amount, merchant string
+	err := tx.QueryRow(ctx, `SELECT round(t.amount)::text,COALESCE(NULLIF(m.normalized_name,''),NULLIF(t.description,''),'')
+		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id
+		WHERE t.id=$1 AND t.household_id=$2`, transactionID, householdID).Scan(&amount, &merchant)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	summary := "Nominal: Rp" + FormatIDR(amount)
+	if merchant != "" {
+		summary += "\nMerchant: " + merchant
+	}
+	return summary, nil
 }
 
 // ProjectReviewMessage is the message-free convenience for producers that do
