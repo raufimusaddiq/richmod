@@ -64,24 +64,14 @@ func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, house
 	if err := tx.QueryRow(ctx, `SELECT type::text,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, householdID).Scan(&sourceType, &sourceAmount, &sourceCurrency, &sourceAt); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT t.id::text,t.amount::text FROM transaction t WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED' AND t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 9`, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
+	candidates, err := duplicateCandidateRows(ctx, tx, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
 	if err != nil {
 		return err
 	}
 	var candidateIDs, candidateAmounts []string
-	for rows.Next() {
-		var candidateID, candidateAmount string
-		if err := rows.Scan(&candidateID, &candidateAmount); err != nil {
-			rows.Close()
-			return err
-		}
-		candidateIDs = append(candidateIDs, candidateID)
-		candidateAmounts = append(candidateAmounts, candidateAmount)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
+	for _, candidate := range candidates {
+		candidateIDs = append(candidateIDs, candidate.ID)
+		candidateAmounts = append(candidateAmounts, candidate.Amount)
 	}
 	// ponytail: one page of up to 9 candidates; page the list when a review can
 	// legitimately carry more (the API caps financial-email candidates at 10).
@@ -133,4 +123,34 @@ func reviewNeedsCategory(ctx context.Context, tx pgx.Tx, reviewID string) bool {
 		return true
 	}
 	return contains(stored.MissingFacts, "category")
+}
+
+// duplicateCandidate is one confirmed transaction that a possible duplicate may
+// merge into.
+type duplicateCandidate struct {
+	ID, Amount, Merchant string
+	At                   time.Time
+}
+
+// duplicateCandidateRows is the single source of duplicate candidates: the
+// Telegram callback flow, and the conversational evidence flow, read the same
+// rows in the same order. Same type, currency and amount within 72 hours, nearest
+// first, at most nine.
+func duplicateCandidateRows(ctx context.Context, q interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}, householdID, transactionID, sourceType, sourceCurrency, sourceAmount string, sourceAt time.Time) ([]duplicateCandidate, error) {
+	rows, err := q.Query(ctx, `SELECT t.id::text,t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),t.transaction_at FROM transaction t WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED' AND t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 9`, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []duplicateCandidate
+	for rows.Next() {
+		var candidate duplicateCandidate
+		if err := rows.Scan(&candidate.ID, &candidate.Amount, &candidate.Merchant, &candidate.At); err != nil {
+			return nil, err
+		}
+		out = append(out, candidate)
+	}
+	return out, rows.Err()
 }

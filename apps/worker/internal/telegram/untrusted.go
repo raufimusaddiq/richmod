@@ -24,4 +24,5 @@ func wrapUntrusted(tag, value string) string {
 }
 
 func untrustedUser(value string) string     { return wrapUntrusted(untrustedUserTag, value) }
+func untrustedLedger(value string) string   { return wrapUntrusted(untrustedLedgerTag, value) }
 func untrustedEvidence(value string) string { return wrapUntrusted(untrustedEvidenceTag, value) }
