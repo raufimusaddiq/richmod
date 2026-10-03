@@ -141,6 +141,17 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		reviewBinding = evidenceReview
 		reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
 	}
+	// With no reply, no review and no pending workflow owning the turn, evidence the
+	// user just sent is offered as context: bound when exactly one qualifies, a
+	// bounded ambiguous set otherwise. Context only; it never narrows the tools.
+	var recentEvidence []map[string]any
+	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
+		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
+		evidence, recentEvidence, err = p.bindRecentEvidence(ctx, householdID, sourceEventID, update)
+		if err != nil {
+			return err
+		}
+	}
 
 	contextState.ActiveReview = reviewPublic
 	contextState.ActiveReviewCount = reviewCount
@@ -201,6 +212,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	if evidence != nil {
 		turnContext["bound_evidence"] = evidence.Context
+	}
+	if len(recentEvidence) > 0 {
+		turnContext["recent_evidence"] = recentEvidence
+		turnContext["evidence_ambiguous"] = true
 	}
 	if merchantBinding != nil {
 		turnContext["merchant_learning"] = map[string]any{"merchant": merchantBinding.Merchant, "category": merchantBinding.Category}

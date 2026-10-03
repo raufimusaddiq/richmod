@@ -2,10 +2,13 @@ package telegram
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -80,11 +83,20 @@ func (p *Processor) recordCEUOutcome(ctx context.Context, householdID, sourceEve
 		VALUES($1,NULLIF($2,'')::uuid,'CEU_BINDING',$3)`, householdID, sourceEventID, string(outcome))
 }
 
+// evidenceRefKey is the deterministic key for one document within one turn's
+// scope. It depends only on the issuing source event and the document, never on
+// position or call order, so loading a different set of documents later in the
+// same turn can never re-point a ref the model already holds.
+func evidenceRefKey(prefix string, document canonicalDocumentID) string {
+	sum := sha256.Sum256([]byte(document))
+	return prefix + "_ev" + strconv.FormatUint(binary.BigEndian.Uint64(sum[:8]), 10)
+}
+
 // issueEvidenceRefs persists opaque refs for the given documents and returns them
 // in input order. It is idempotent: a retried or duplicate-delivered turn reuses
 // the same TOOL turn and re-upserts the same keys, so it never multiplies rows or
-// re-points a ref. Refs are keyed by the source event of the issuing turn and by
-// the document's position, so the same inputs always produce the same refs.
+// re-points a ref. A ref is keyed by the issuing source event and the document, so
+// the same inputs always produce the same refs.
 func (p *Processor) issueEvidenceRefs(ctx context.Context, householdID, sourceEventID string, update telegramUpdate, documents []canonicalDocumentID) ([]evidenceRef, error) {
 	if len(documents) == 0 {
 		return nil, nil
@@ -111,8 +123,8 @@ func issueEvidenceRefsTx(ctx context.Context, tx pgx.Tx, householdID, sourceEven
 	prefix := agentScopedRefPrefix(sourceEventID, evidenceRefPhase)
 	refs := make([]evidenceRef, len(documents))
 	keys := make([]string, len(documents))
-	for index := range documents {
-		keys[index] = fmt.Sprintf("%s_ev%d", prefix, index+1)
+	for index, document := range documents {
+		keys[index] = evidenceRefKey(prefix, document)
 		refs[index] = evidenceRef(keys[index])
 	}
 	encoded, _ := json.Marshal(keys)

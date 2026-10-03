@@ -161,6 +161,25 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 		result.Facts = map[string]any{"period": agentPeriodFact(r), "transactions": items}
 		result.References = refs
 
+	case "get_evidence_context":
+		ref, _ := args["evidence_ref"].(string)
+		document, outcome, err := p.resolveEvidenceRef(ctx, state.HouseholdID, state.SourceEventID, state.Update, evidenceRef(ref))
+		if err != nil {
+			return result, err
+		}
+		if outcome != ceuResolved {
+			// A stale, expired or foreign ref is a bounded, recoverable answer, not a
+			// failure: the model is told to use the evidence Richmod bound this turn.
+			result.Status = string(outcome)
+			result.Facts = map[string]any{"outcome": string(outcome), "hint": "use bound_evidence or recent_evidence from this turn, or ask which document"}
+			return result, nil
+		}
+		contexts, err := p.loadEvidenceContexts(ctx, state.HouseholdID, state.SourceEventID, state.Update, []canonicalDocumentID{document})
+		if err != nil || len(contexts) != 1 {
+			return result, fmt.Errorf("read evidence context")
+		}
+		result.Facts = map[string]any{"evidence": contexts[0]}
+
 	case "search_transactions":
 		r, err := p.resolveAgentRange(ctx, state.HouseholdID, state.Now, args)
 		if err != nil {
