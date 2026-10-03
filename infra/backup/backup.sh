@@ -14,6 +14,10 @@ fi
 backup_tmp="$(mktemp -d)"
 trap 'rm -rf "$backup_tmp"' EXIT INT TERM
 
+# A run killed mid-prune leaves an exclusive lock that blocks every later restic
+# command. `unlock` removes only stale locks, never one held by a live process.
+restic unlock
+
 # Initialise only when restic says the repository is missing. Any other failure
 # (network, credentials, lock) must surface as itself, not as a failed init.
 if ! probe_output="$(restic cat config 2>&1)"; then

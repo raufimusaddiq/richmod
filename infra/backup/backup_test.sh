@@ -48,4 +48,6 @@ if run broken; then fail "broken repository access must fail"; fi
 grep -qx init "$work/log" && fail "broken repository access must not run init"
 grep -q "i/o timeout" "$work/out" || fail "real restic error must be shown"
 
+grep -qx unlock "$work/log" || fail "stale locks should be cleared before the repository check"
+
 echo "backup bootstrap tests passed"
