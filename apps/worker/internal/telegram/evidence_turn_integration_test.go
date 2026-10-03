@@ -280,3 +280,124 @@ func TestModelFailureOnAnEvidenceTurnCreatesNoReviewAndNoTransaction(t *testing.
 		t.Fatalf("a model failure changed ledger/review state: %d -> %d", before, after)
 	}
 }
+
+// The prompt asks the model not to record a second transaction for a document that
+// already has one. This proves the ledger, not the prompt: a model that records
+// the receipt's amount again anyway must not produce a second ledger row, while a
+// genuinely different purchase is left alone.
+func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
+	cases := []struct {
+		name          string
+		merchant      any
+		ageMinutes    int
+		wantExtraRows int
+	}{
+		{"same merchant", "Mirota", 0, 0},
+		{"merchant spelled differently", "mirota swalayan", 0, 0},
+		{"no merchant", nil, 0, 0},
+		{"a different merchant, same price", "Gacoan", 0, 1},
+		{"an old receipt is left to the existing edit-confirmation guard", "Mirota", 30, 0},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := newAgentIntegrationFixture(t, "turn-dup-"+strings.ReplaceAll(c.name, " ", "-"))
+			a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
+			// A real receipt-created transaction carries its merchant.
+			_, err := f.pool.Exec(ctx, "UPDATE transaction SET counterparty_name='Mirota' WHERE id=$1", a.transactionID)
+			mustAgentTest(t, err)
+			if c.ageMinutes > 0 {
+				ageEvidence(t, ctx, f, a.documentID, c.ageMinutes)
+			}
+			args, _ := json.Marshal(map[string]any{
+				"type": "EXPENSE", "amount_idr": "125000", "merchant": c.merchant, "category_slug": "dining-a",
+				"description": "nominalnya 125 ribu", "note": nil, "date_reference": "TODAY", "date_provenance": "USER_STATED",
+				"explicit_date": nil, "local_time": "12:30", "ambiguous": false, "confidence": 1.0, "category_confidence": 1.0,
+			})
+			model := &capturingGateway{respond: func(call int, request gateway.AgentRequest) gateway.AgentResponse {
+				if call == 0 {
+					return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "again", Name: "record_transaction", Arguments: args}}}
+				}
+				return gateway.AgentResponse{Text: "Sudah dicatat."}
+			}}
+			p, _ := evidenceTurnProcessor(f, model, "CREATE_TRANSACTION")
+
+			// The CEU guard itself only applies to fresh evidence: for an old receipt it
+			// stands down, and the existing same-merchant edit guard answers instead.
+			candidates, err := p.recentEvidenceCandidates(ctx, f.householdID, f.chatID, f.chatID)
+			mustAgentTest(t, err)
+			guard := p.evidenceAlreadyRecorded(ctx, f.householdID, freshEvidenceDocuments(candidates), "EXPENSE", "125000", fmt.Sprint(c.merchant))
+			if wantGuard := c.ageMinutes == 0 && c.name != "a different merchant, same price"; guard != wantGuard && c.merchant != nil {
+				t.Fatalf("%s: evidenceAlreadyRecorded = %v, want %v", c.name, guard, wantGuard)
+			}
+			live := "SELECT count(*) FROM transaction WHERE household_id=$1 AND status IN ('CONFIRMED','NEEDS_REVIEW')"
+			before := countRows(t, ctx, f, live, f.householdID)
+			_, _ = runEvidenceTurn(t, ctx, f, p, "nominalnya 125 ribu", 0)
+			if extra := countRows(t, ctx, f, live, f.householdID) - before; extra != c.wantExtraRows {
+				t.Fatalf("%s: %d extra live transaction(s), want %d", c.name, extra, c.wantExtraRows)
+			}
+		})
+	}
+}
+
+// Only evidence from the immediate window takes the fast path away: an ordinary
+// new expense typed long after an upload must not be slowed by it.
+func TestOnlyFreshEvidenceSuppressesHarvest(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "turn-fresh")
+	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
+	p := NewProcessor(f.pool, nil)
+
+	fresh := func(user int64) []string {
+		candidates, err := p.recentEvidenceCandidates(ctx, f.householdID, f.chatID, user)
+		mustAgentTest(t, err)
+		return freshEvidenceDocuments(candidates)
+	}
+	if len(fresh(f.chatID)) != 1 {
+		t.Fatal("evidence from the last minute is not fresh")
+	}
+	ageEvidence(t, ctx, f, a.documentID, 30)
+	if len(fresh(f.chatID)) != 0 {
+		t.Fatal("evidence from 30 minutes ago still suppresses the fast path")
+	}
+	ageEvidence(t, ctx, f, a.documentID, 0)
+	if len(fresh(f.chatID+9)) != 0 {
+		t.Fatal("another user's evidence counted as fresh")
+	}
+}
+
+// When the model call fails, the user must still be able to tell a refusal from a
+// recording (AGENTS.md: deterministic flows survive an unavailable model).
+func TestRefusedDuplicateHasADeterministicMessageThatIsNotTheGenericOne(t *testing.T) {
+	refused := agentMutationFallback(agentToolResult{Status: "ALREADY_RECORDED_FROM_EVIDENCE"})
+	generic := agentMutationFallback(agentToolResult{Status: "OK"})
+	if refused == generic || !strings.Contains(refused, "sudah tercatat") || !strings.Contains(refused, "tidak dicatat lagi") {
+		t.Fatalf("refusal message = %q (generic = %q)", refused, generic)
+	}
+}
+
+// The merchant match is bounded: whole words only, and the shorter name must
+// carry a distinctive word, so an unrelated merchant at the same price is not
+// refused as a duplicate.
+func TestMerchantEquivalenceIsBoundedToWholeDistinctiveWords(t *testing.T) {
+	words := func(s string) []string { return strings.Fields(strings.ToLower(s)) }
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"Mirota", "Mirota Swalayan", true},
+		{"mirota swalayan", "MIROTA", true},
+		{"Indomaret", "Indomaret", true},
+		{"Indo", "Indomaret", false},
+		{"Toko", "Toko Jaya", false},
+		{"Kopi Kenangan", "Kopi Tuku", false},
+		{"Roti", "Roti", true},
+		{"Gacoan", "Mirota", false},
+		{"", "Mirota", false},
+	} {
+		if got := sameMerchantTokens(words(c.a), words(c.b)); got != c.want {
+			t.Fatalf("sameMerchantTokens(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
