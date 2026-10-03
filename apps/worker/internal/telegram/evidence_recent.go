@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -127,4 +128,76 @@ func (p *Processor) bindRecentEvidence(ctx context.Context, householdID, sourceE
 	}
 	p.recordCEUOutcome(ctx, householdID, sourceEventID, ceuAmbiguousContext)
 	return nil, contexts, nil
+}
+
+// hasFreshEvidence reports whether this user sent evidence in this chat within the
+// immediate window. It decides only whether a bare amount may be harvested as a
+// new transaction (older evidence must not slow an ordinary expense), and it
+// fails open: on any error the turn simply keeps its ordinary fast path.
+func (p *Processor) hasFreshEvidence(ctx context.Context, householdID string, chatID, userID int64) bool {
+	candidates, err := p.recentEvidenceCandidates(ctx, householdID, chatID, userID)
+	if err != nil {
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidate.Age <= immediateEvidenceWindow {
+			return true
+		}
+	}
+	return false
+}
+
+// evidenceAlreadyRecorded reports whether a proposed new transaction repeats one
+// that the user's fresh evidence already produced: same type and amount, and the
+// proposed merchant is either absent or the same as the recorded one. It is the
+// deterministic backstop behind the prompt rule "never record a second transaction
+// for a document that already has one": the ledger, not the model, decides. A
+// different merchant is left alone so a genuine second purchase of the same price
+// is not blocked. Fresh evidence only (the immediate window), and it fails open.
+func (p *Processor) evidenceAlreadyRecorded(ctx context.Context, householdID string, chatID, userID int64, transactionType, amount, merchant string) bool {
+	candidates, err := p.recentEvidenceCandidates(ctx, householdID, chatID, userID)
+	if err != nil {
+		return false
+	}
+	var documents []string
+	for _, candidate := range candidates {
+		if candidate.Age <= immediateEvidenceWindow {
+			documents = append(documents, string(candidate.Document))
+		}
+	}
+	if len(documents) == 0 {
+		return false
+	}
+	rows, err := p.pool.Query(ctx, `SELECT COALESCE(m.normalized_name,''),COALESCE(t.counterparty_name,'')
+		FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id AND t.household_id=$1
+		LEFT JOIN merchant m ON m.id=t.merchant_id
+		WHERE t.status<>'VOIDED' AND t.type=$2 AND t.amount=$3::numeric
+		  AND te.source_event_id IN (
+		       SELECT source_event_id FROM document WHERE id=ANY($4::uuid[])
+		       UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($4::uuid[]))`,
+		householdID, transactionType, amount, documents)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	proposed := normalizeForMerchantMatch(merchant)
+	for rows.Next() {
+		var recordedMerchant, recordedName string
+		if err := rows.Scan(&recordedMerchant, &recordedName); err != nil {
+			return false
+		}
+		if proposed == "" {
+			return true
+		}
+		for _, recorded := range []string{recordedMerchant, recordedName} {
+			if r := normalizeForMerchantMatch(recorded); r != "" && (r == proposed || strings.Contains(r, proposed) || strings.Contains(proposed, r)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeForMerchantMatch(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(value), " "))
 }

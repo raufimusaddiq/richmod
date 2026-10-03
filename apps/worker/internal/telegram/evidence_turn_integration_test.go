@@ -19,6 +19,9 @@ type capturingGateway struct {
 	requests []gateway.AgentRequest
 	script   []gateway.AgentResponse
 	err      error
+	// respond, when set, decides each response from what the model was shown, so a
+	// test can act on a ref the server issued this turn.
+	respond func(call int, request gateway.AgentRequest) gateway.AgentResponse
 }
 
 func (*capturingGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -29,6 +32,9 @@ func (g *capturingGateway) AgentTurn(_ context.Context, _ string, request gatewa
 	g.requests = append(g.requests, request)
 	if g.err != nil {
 		return gateway.AgentResponse{}, g.err
+	}
+	if g.respond != nil {
+		return g.respond(len(g.requests)-1, request), nil
 	}
 	if len(g.requests) <= len(g.script) {
 		return g.script[len(g.requests)-1], nil
@@ -272,5 +278,84 @@ func TestModelFailureOnAnEvidenceTurnCreatesNoReviewAndNoTransaction(t *testing.
 	_, _ = runEvidenceTurn(t, ctx, f, p, "makan", 101) // a model failure is not human work
 	if after := countRows(t, ctx, f, state, f.householdID); after != before {
 		t.Fatalf("a model failure changed ledger/review state: %d -> %d", before, after)
+	}
+}
+
+// The prompt asks the model not to record a second transaction for a document that
+// already has one. This proves the ledger, not the prompt: a model that records
+// the receipt's amount again anyway must not produce a second ledger row, while a
+// genuinely different purchase is left alone.
+func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
+	cases := []struct {
+		name          string
+		merchant      any
+		ageMinutes    int
+		wantExtraRows int
+	}{
+		{"same merchant", "Mirota", 0, 0},
+		{"merchant spelled differently", "mirota swalayan", 0, 0},
+		{"no merchant", nil, 0, 0},
+		{"a different merchant, same price", "Gacoan", 0, 1},
+		{"an old receipt is left to the existing edit-confirmation guard", "Mirota", 30, 0},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := newAgentIntegrationFixture(t, "turn-dup-"+strings.ReplaceAll(c.name, " ", "-"))
+			a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
+			// A real receipt-created transaction carries its merchant.
+			_, err := f.pool.Exec(ctx, "UPDATE transaction SET counterparty_name='Mirota' WHERE id=$1", a.transactionID)
+			mustAgentTest(t, err)
+			if c.ageMinutes > 0 {
+				ageEvidence(t, ctx, f, a.documentID, c.ageMinutes)
+			}
+			args, _ := json.Marshal(map[string]any{
+				"type": "EXPENSE", "amount_idr": "125000", "merchant": c.merchant, "category_slug": "dining-a",
+				"description": "nominalnya 125 ribu", "note": nil, "date_reference": "TODAY", "date_provenance": "USER_STATED",
+				"explicit_date": nil, "local_time": "12:30", "ambiguous": false, "confidence": 1.0, "category_confidence": 1.0,
+			})
+			model := &capturingGateway{respond: func(call int, request gateway.AgentRequest) gateway.AgentResponse {
+				if call == 0 {
+					return gateway.AgentResponse{ToolCalls: []gateway.ToolCall{{CallID: "again", Name: "record_transaction", Arguments: args}}}
+				}
+				return gateway.AgentResponse{Text: "Sudah dicatat."}
+			}}
+			p, _ := evidenceTurnProcessor(f, model, "CREATE_TRANSACTION")
+
+			// The CEU guard itself only applies to fresh evidence: for an old receipt it
+			// stands down, and the existing same-merchant edit guard answers instead.
+			guard := p.evidenceAlreadyRecorded(ctx, f.householdID, f.chatID, f.chatID, "EXPENSE", "125000", fmt.Sprint(c.merchant))
+			if wantGuard := c.ageMinutes == 0 && c.name != "a different merchant, same price"; guard != wantGuard && c.merchant != nil {
+				t.Fatalf("%s: evidenceAlreadyRecorded = %v, want %v", c.name, guard, wantGuard)
+			}
+			live := "SELECT count(*) FROM transaction WHERE household_id=$1 AND status IN ('CONFIRMED','NEEDS_REVIEW')"
+			before := countRows(t, ctx, f, live, f.householdID)
+			_, _ = runEvidenceTurn(t, ctx, f, p, "nominalnya 125 ribu", 0)
+			if extra := countRows(t, ctx, f, live, f.householdID) - before; extra != c.wantExtraRows {
+				t.Fatalf("%s: %d extra live transaction(s), want %d", c.name, extra, c.wantExtraRows)
+			}
+		})
+	}
+}
+
+// Only evidence from the immediate window takes the fast path away: an ordinary
+// new expense typed long after an upload must not be slowed by it.
+func TestOnlyFreshEvidenceSuppressesHarvest(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "turn-fresh")
+	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
+	p := NewProcessor(f.pool, nil)
+
+	if !p.hasFreshEvidence(ctx, f.householdID, f.chatID, f.chatID) {
+		t.Fatal("evidence from the last minute is not fresh")
+	}
+	ageEvidence(t, ctx, f, a.documentID, 30)
+	if p.hasFreshEvidence(ctx, f.householdID, f.chatID, f.chatID) {
+		t.Fatal("evidence from 30 minutes ago still suppresses the fast path")
+	}
+	ageEvidence(t, ctx, f, a.documentID, 0)
+	if p.hasFreshEvidence(ctx, f.householdID, f.chatID, f.chatID+9) {
+		t.Fatal("another user's evidence counted as fresh")
 	}
 }

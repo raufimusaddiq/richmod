@@ -209,16 +209,3 @@ func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope a
 	return filtered, agentWorkflowEvidenceReadOnly
 }
 
-// evidenceWorkflow reports the workflow block of a bound evidence context and
-// whether it has an open review. It reads the model-safe package only.
-func evidenceWorkflow(evidence *agentEvidenceBinding) (map[string]any, bool) {
-	if evidence == nil {
-		return nil, false
-	}
-	workflow, _ := evidence.Context["workflow"].(map[string]any)
-	if workflow == nil {
-		return nil, false
-	}
-	open, _ := workflow["review_open"].(bool)
-	return workflow, open
-}

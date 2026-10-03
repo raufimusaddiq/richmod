@@ -148,19 +148,16 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// user just sent is offered as context: bound when exactly one qualifies, a
 	// bounded ambiguous set otherwise. Context only; it never narrows the tools.
 	var recentEvidence []map[string]any
+	freshEvidence := false
 	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
 		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update)
-		// Recent evidence that has an open review brings that review with it, so the
-		// household's natural reply can resolve it. The binding stays route-gated:
-		// chat state alone never owns a turn the route says is something else. Like all
-		// evidence context it is best-effort: a lookup failure leaves the review unbound.
-		if _, open := evidenceWorkflow(evidence); open && reviewBinding == nil {
-			if review, reviewErr := p.reviewBindingForDocument(ctx, householdID, update.Message.Chat.ID, evidence.Document); reviewErr == nil && review != nil {
-				reviewBinding = review
-				reviewPublic, reviewCount = agentReviewBindingPublic(review), 1
-			}
-		}
+		// Recent evidence is context only. It deliberately does not bind its open review:
+		// a no-reply review binding is route-gated, and the route that would use it
+		// (REVIEW_INTERACTION) is answered terminally by the fast path, so such a binding
+		// would never reach the model. A review is resolved by an exact reply (CEU-02,
+		// CEU-06) or by the existing deterministic reply lane.
+		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && p.hasFreshEvidence(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
 	}
 
 	contextState.ActiveReview = reviewPublic
@@ -183,7 +180,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasSalaryChoice:     contextState.HasSalaryChoice,
 		HasMerchantLearning: contextState.HasMerchantLearning,
 		HasPendingWorkflow:  contextState.HasPendingAction || contextState.HasPendingBatch || contextState.HasSalaryChoice || contextState.HasMerchantLearning,
-		HasRecentEvidence:   evidence != nil || len(recentEvidence) > 0,
+		HasRecentEvidence:   freshEvidence,
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
 	}
