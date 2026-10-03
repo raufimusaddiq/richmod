@@ -12,6 +12,12 @@ echo pw > "$work/pw"
 cat > "$work/bin/restic" <<'STUB'
 #!/bin/sh
 echo "$1" >> "$STUB_LOG"
+if [ "$1" = unlock ]; then
+    case "$STUB_REPO" in
+    missing) exit 10 ;;
+    broken) exit 1 ;;
+    esac
+fi
 if [ "$1" = cat ]; then
     case "$STUB_REPO" in
     missing) echo "Fatal: unable to open config file: Stat: file does not exist" >&2; exit 10 ;;
@@ -47,5 +53,7 @@ grep -qx backup "$work/log" || fail "missing repository should run backup"
 if run broken; then fail "broken repository access must fail"; fi
 grep -qx init "$work/log" && fail "broken repository access must not run init"
 grep -q "i/o timeout" "$work/out" || fail "real restic error must be shown"
+
+grep -qx unlock "$work/log" || fail "stale locks should be cleared before the repository check"
 
 echo "backup bootstrap tests passed"
