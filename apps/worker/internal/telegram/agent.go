@@ -560,6 +560,11 @@ func agentMutationFallback(result agentToolResult) string {
 		// when the model call that would have worded it fails.
 		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda."
 	}
+	if result.Status == "INVALID_CANDIDATE" {
+		// A refused merge, not a merge: said deterministically so a failed model call
+		// cannot read as success.
+		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud."
+	}
 	if result.Status == "DEFERRED" {
 		return "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau sebutkan item yang ingin diubah."
 	}
@@ -578,6 +583,8 @@ func agentMutationFallback(result agentToolResult) string {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
 			return "Transaksi sudah tercatat."
+		case "DUPLICATE_MERGED":
+			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru."
 		case "POSSIBLE_EXISTING_TRANSACTION":
 			return "Saya menemukan transaksi serupa. Ingin mengubah transaksi yang sudah ada?"
 		case "TRANSFER_RECORDED":

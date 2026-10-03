@@ -210,3 +210,18 @@ func TestMergeExistingIsOnlyAvailableForPossibleDuplicateReviews(t *testing.T) {
 		t.Fatalf("a non-duplicate review was merged: status=%s", status)
 	}
 }
+
+// A merge and a refused merge must read differently even when the model call that
+// would have worded them fails (AGENTS.md: deterministic flows survive an
+// unavailable model).
+func TestMergeOutcomesHaveDistinctDeterministicMessages(t *testing.T) {
+	merged := agentMutationFallback(agentToolResult{Status: "RESOLVED", Mutation: map[string]any{"action": "DUPLICATE_MERGED"}})
+	refused := agentMutationFallback(agentToolResult{Status: "INVALID_CANDIDATE"})
+	generic := agentMutationFallback(agentToolResult{Status: "OK"})
+	if merged == generic || refused == generic || merged == refused {
+		t.Fatalf("merged=%q refused=%q generic=%q; each must be distinct", merged, refused, generic)
+	}
+	if !strings.Contains(merged, "digabung") || !strings.Contains(refused, "belum ada yang diubah") {
+		t.Fatalf("merged=%q refused=%q", merged, refused)
+	}
+}

@@ -92,10 +92,20 @@ transaction, SAVR corpus unchanged.
 
 ## CEU-05 — evidence ↔ existing transaction
 
-- Use the existing candidate generator and candidate-choice path for "struk ini buat
-  transaksi yang tadi". Candidates are anonymous; the model never sees ids.
+**As delivered.** No new finalizer.
+
+- A possible-duplicate document's evidence context lists its candidates (the existing
+  `duplicateCandidateRows` query, now shared with the Telegram callback flow) as
+  opaque expiring refs with untrusted-wrapped labels; no ids reach the model.
+- `resolve_review` gains `MERGE_EXISTING` for a `POSSIBLE_DUPLICATE` review only. Go
+  resolves the ref for this household, user and chat, requires the target to be one of
+  the review's current server-computed candidates, then runs the single canonical merge
+  (`reviewdomain.MergeDuplicateReview`). Stale, foreign, made-up or non-candidate refs
+  change nothing.
+- Merged and refused outcomes have distinct deterministic messages, so they stay
+  distinguishable when the model call fails.
 - A follow-up correction on evidence already linked through `transaction_evidence`
-  targets that transaction.
+  targets that transaction (CEU-04 tool scope; staged, not applied).
 
 Tests: link without duplication, category correction on a linked receipt,
 duplicate delivery.
