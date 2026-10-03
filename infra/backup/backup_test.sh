@@ -12,6 +12,12 @@ echo pw > "$work/pw"
 cat > "$work/bin/restic" <<'STUB'
 #!/bin/sh
 echo "$1" >> "$STUB_LOG"
+if [ "$1" = unlock ]; then
+    case "$STUB_REPO" in
+    missing) exit 10 ;;
+    broken) exit 1 ;;
+    esac
+fi
 if [ "$1" = cat ]; then
     case "$STUB_REPO" in
     missing) echo "Fatal: unable to open config file: Stat: file does not exist" >&2; exit 10 ;;
