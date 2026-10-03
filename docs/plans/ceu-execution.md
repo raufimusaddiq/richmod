@@ -24,12 +24,12 @@ same branch and is applied to disposable PostgreSQL from zero.
 | --- | --- | --- |
 | CEU-00 | #283 | audit, ADR-050, this plan |
 | CEU-01 | #284 | evidence refs, context package, untrusted boundary |
-| CEU-02 | #285 | reply binding, bindable notices, upload chat id |
-| CEU-03 | next | recent evidence, `get_evidence_context`, per-document ref keys |
-| CEU-04 | next | recent-evidence review binding, no duplicate harvest, correction guidance |
-| CEU-05 | next | duplicate candidates, `MERGE_EXISTING` through the canonical merge |
-| CEU-06 | next | a reply to an upload or notice continues its open review |
-| CEU-07 | next | corpus, Operations counters, correction e2e, freeze record |
+| CEU-02 | #285, fixes #287 | reply binding, bindable notices, upload chat id; review fixes in `00077` |
+| CEU-03 | #288 | recent evidence, `get_evidence_context`, per-document ref keys, per-user scope |
+| CEU-04 | #291 | no duplicate ledger row (Go guard), harvest suppression for fresh evidence, correction guidance |
+| CEU-05 | #292 | duplicate candidates, `MERGE_EXISTING` through the canonical merge |
+| CEU-06 | #293 | exact replies to proposal-keyed reviews answered at the production entry |
+| CEU-07 | this PR | corpus, Operations counters, correction e2e, freeze record |
 
 One deviation from the original slice text: `search_transactions` is **not** extended with evidence summaries (CEU-03 plan item). Evidence reaches a transaction conversation through `bound_evidence` and `get_evidence_context`, which was enough; extending a second tool was YAGNI.
 
