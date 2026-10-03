@@ -208,4 +208,3 @@ func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope a
 	}
 	return filtered, agentWorkflowEvidenceReadOnly
 }
-
