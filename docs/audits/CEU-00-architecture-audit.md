@@ -381,9 +381,12 @@ SIDE-EFFECT tool for CEU. Anything beyond this list needs an ADR.
 
 ---
 
-## 14. Open items for the owner
+## 14. Owner decisions
 
-These do not block this PR but must be answered before the named slice:
+Answered 2026-10-03 (see ADR-050). All three are **yes**: (1) short "recorded"
+notices for auto-resolved receipts/payslips, bindable by reply; (2) 10-minute
+"immediately preceding" window with one clarification as the ambiguity default;
+(3) indexed `source_event.telegram_chat_id`. The original questions:
 
 1. **CEU-02:** should the pipeline send a short "evidence recorded" notice for
    receipts and payslips that auto-resolve (today silent), or are reply-to-upload

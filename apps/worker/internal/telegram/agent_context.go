@@ -133,7 +133,7 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 // untrustedField delimits a user-controlled string so the model treats it as
 // data, mirroring the <untrusted_user_message> boundary used for user text.
 func untrustedField(value string) string {
-	return "<untrusted_ledger_text>" + value + "</untrusted_ledger_text>"
+	return wrapUntrusted(untrustedLedgerTag, value)
 }
 
 func (p *Processor) loadAgentPendingAction(ctx context.Context, householdID string, update telegramUpdate) (map[string]any, error) {
@@ -198,7 +198,7 @@ func (p *Processor) loadAgentPendingBatch(ctx context.Context, householdID strin
 
 func buildAgentTurnContext(text string, now time.Time, categories []string, contextState agentContextState) map[string]any {
 	return map[string]any{
-		"current_user_text":        "<untrusted_user_message>" + text + "</untrusted_user_message>",
+		"current_user_text":        untrustedUser(text),
 		"current_jakarta_datetime": now.In(jakartaLocation()).Format(time.RFC3339),
 		"recent_turns":             contextState.Conversation,
 		"recent_transactions":      contextState.RecentTransactions,

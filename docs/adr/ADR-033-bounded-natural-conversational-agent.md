@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-09-12; amended by ADR-038.
+Accepted — 2026-09-12; amended by ADR-038; evidence context extends it in ADR-050.
 
 ## Context
 

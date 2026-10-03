@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — 2026-10-03. Accepted when the CEU-00 design PR is approved and merged.
+Accepted — 2026-10-03 (design merged in PR #283; owner decisions recorded below).
 
 ## Context
 
@@ -52,10 +52,16 @@ context**. It adds no decision authority.
 6. **Storage is minimal.** One additive migration widens
    `telegram_turn_reference` to hold evidence refs. Recording the bot's outbound
    message id for evidence notices, and an indexed chat id on `source_event`, are
-   decided in CEU-02 and may not be needed. No evidence-memory table.
+   needed by CEU-02 per the owner decisions below. No evidence-memory table.
 7. **Failure is not human work.** A CEU interpretation or provider failure opens
    no review item; a material household decision does.
 8. **Telemetry is bounded**: binding-level and resolver-outcome counters only.
+
+## Owner decisions (2026-10-03)
+
+1. **Evidence notices: yes.** Auto-resolved receipts and payslips send a short "recorded" notice to the chat the evidence came from, and the notice is bindable so a reply to it resolves the evidence (CEU-02). This adds the outbound-message binding.
+2. **Binding window and ambiguity.** "Immediately preceding" evidence is the newest from this user in this chat within 10 minutes. Ambiguity defaults to one clarification question, not a bounded Jev choice (CEU-03).
+3. **Indexed chat id: yes.** `source_event` gains a nullable indexed `telegram_chat_id` so a reply to an upload binds by household + chat + message id (CEU-02). Because notices must reach the originating chat, this also replaces the first-active-identity destination the document pipeline uses today.
 
 ## Consequences
 
@@ -63,9 +69,8 @@ context**. It adds no decision authority.
   ambiguity yields one question instead of a guess.
 - Conversation memory remains deterministic and compact; compaction cannot
   resurrect an expired ref.
-- Reply-to-notice binding depends on a product decision about notices
-  (audit §14, item 1). Until then, reply-to-upload and reply-to-review-card are
-  the exact-binding surfaces.
+- Exact-binding surfaces are: reply to the user's upload, reply to a bound
+  evidence notice, and reply to a review card.
 - Telegram image/document evidence only. Email evidence reaches a conversation
   only through a review or transaction link.
 

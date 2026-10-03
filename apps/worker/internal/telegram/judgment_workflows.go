@@ -167,7 +167,7 @@ var judgmentTypeCriteria = map[string]any{
 func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task judgmentTask, text, key, instructions string, criteria map[string]any) (string, bool, error) {
 	result, err := p.evaluate(ctx, task, state.SourceEventID, judgment.Request{
 		State: map[string]any{
-			"user_text":       "<untrusted_user_message>" + text + "</untrusted_user_message>",
+			"user_text":       untrustedUser(text),
 			"workflow":        state.TurnContext["workflow_scope"],
 			"active_review":   state.TurnContext["active_review"],
 			"pending_batch":   state.TurnContext["pending_batch"],
