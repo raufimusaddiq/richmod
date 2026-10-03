@@ -151,6 +151,19 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		if err != nil {
 			return err
 		}
+		// Recent evidence that has an open review brings that review with it, so the
+		// household's natural reply can resolve it. The binding stays route-gated:
+		// chat state alone never owns a turn the route says is something else.
+		if _, open := evidenceWorkflow(evidence); open && reviewBinding == nil {
+			review, err := p.reviewBindingForDocument(ctx, householdID, update.Message.Chat.ID, evidence.Document)
+			if err != nil {
+				return err
+			}
+			if review != nil {
+				reviewBinding = review
+				reviewPublic, reviewCount = agentReviewBindingPublic(review), 1
+			}
+		}
 	}
 
 	contextState.ActiveReview = reviewPublic
@@ -173,6 +186,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasSalaryChoice:     contextState.HasSalaryChoice,
 		HasMerchantLearning: contextState.HasMerchantLearning,
 		HasPendingWorkflow:  contextState.HasPendingAction || contextState.HasPendingBatch || contextState.HasSalaryChoice || contextState.HasMerchantLearning,
+		HasRecentEvidence:   evidence != nil || len(recentEvidence) > 0,
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
 	}
