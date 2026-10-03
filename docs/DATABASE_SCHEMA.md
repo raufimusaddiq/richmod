@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00076_ceu_reply_binding.sql`.
+forward migration set through `db/migrations/00077_ceu_review_hardening.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -88,6 +88,8 @@ erDiagram
     REVIEW_ITEM ||--o{ REVIEW_REQUEST : delivered_as
     REVIEW_REQUEST ||--o{ REVIEW_CONVERSATION : records
     REVIEW_REQUEST ||--o{ REVIEW_REQUEST_RECIPIENT : sends_to
+    HOUSEHOLD ||--o{ TELEGRAM_MESSAGE_BINDING : records
+    DOCUMENT ||--o{ TELEGRAM_MESSAGE_BINDING : bound_to
     HOUSEHOLD ||--o{ BANK_EMAIL_LISTENER : configures
     BANK_EMAIL_LISTENER ||--o{ BANK_EMAIL_EVENT : receives
     BANK_EMAIL_EVENT ||--o{ BANK_EMAIL_EXTRACTION : extracts
@@ -146,7 +148,7 @@ erDiagram
 | `source_event` | Immutable intake envelope for bank email, Telegram, web, or system evidence. | Household-scoped; external-ID/payload-hash deduplication; Telegram message/album metadata. CEU-02 (migration `00076`): nullable `telegram_chat_id` (backfilled from the stored update) with a partial index on household + chat + message id, so a reply to an upload binds to its evidence; message ids are only unique per chat. |
 | `source_event_payload` | Inline source payload storage. | One-to-one with `source_event`. |
 | `attachment` | Stored uploaded or fetched binary metadata. | Household-scoped; object key/hash/content metadata. |
-| `document` | Evidence document derived from a source event and attachment. | One source event per document; links `attachment`. |
+| `document` | Evidence document derived from a source event and attachment. | One source event per document; links `attachment`. `evidence_notice_at` (migration `00077`) is the durable marker that the document's one "recorded" notice was queued, so the guarantee does not depend on prunable job rows; `(id, household_id)` is unique to support the binding foreign key. |
 | `document_page` | Page/image record for a multi-page document. | `document_id → document`; ordered page content. |
 | `document_extraction` | Structured extraction attempt/result. | `document_id → document`; extraction state, facts, and model metadata. `stage` values include `CLASSIFICATION`, per-family extraction stages, `INTERPRETATION_SHADOW` (redacted shadow classification), and `INTERPRETATION_SHADOW_METRIC` (redacted agreement/counter/error-class/latency row). Primary interpretation is disabled pending its rollout gate, so no `INTERPRETATION_PRIMARY` rows are written. |
 | `wealth_observation` | Accepted per-account evidence or unresolved wealth residual; distinct from complete snapshots. | Household-scoped; optional resolved Wealth Account; `ACCEPTED` is visible account-level evidence, `PENDING` requires residual resolution, `APPLIED` means consumed by a complete snapshot, `DISMISSED` means rejected. Accepted observations do not affect snapshot totals. |
@@ -169,7 +171,7 @@ erDiagram
 | `telegram_pending_batch` | Pending multi-expense Telegram batch. | Household/Telegram scoped; binds batch selection safely. |
 | `telegram_conversation_turn` | Bounded finance conversation turn. | Household/Telegram scoped; optional source event; tool turns hold public context only. |
 | `telegram_turn_reference` | Short-lived reference usable in a Telegram turn: `TRANSACTION`, `REVIEW`, or `EVIDENCE` (CEU-01, migration `00075`). | `turn_id → telegram_conversation_turn`; typed target ID is intentionally polymorphic and server-only. An `EVIDENCE` ref (`a<hash8>_p<n>r<n>_ev<n>`) holds a `document.id`, is household + Telegram user + chat scoped, expires after 60 minutes, and is resolved only by Go; the id is never model-visible. |
-| `telegram_message_binding` | The bot's own outbound message about a document (CEU-02), so a reply to it binds to that evidence. | `household_id → household`; `(telegram_chat_id, telegram_message_id)` unique; `entity_type` is `DOCUMENT`; `entity_id` is a server-only `document.id`. Written by the worker after a send whose job carries `bind_document_id`; idempotent. Review cards keep binding through `review_request_recipient`. |
+| `telegram_message_binding` | The bot's own outbound message about a document (CEU-02), so a reply to it binds to that evidence. | `household_id → household`; `(telegram_chat_id, telegram_message_id)` unique; `entity_type` is `DOCUMENT`; `entity_id` is a server-only `document.id`, enforced by a composite foreign key `(entity_id, household_id) → document(id, household_id)` so a row can never dangle or cross households (migration `00077`). Written by the worker after a send whose job carries `bind_document_id`; idempotent. Review cards keep binding through `review_request_recipient`. |
 
 ### Jobs, insights, LLM observability, and administration
 

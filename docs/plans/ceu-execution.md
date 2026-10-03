@@ -67,20 +67,45 @@ provider failure creates no review.
 
 ## CEU-04 — conversational evidence correction
 
-- Interpret residuals ("125 ribu", "kemarin", "merchantnya Mirota") against the
-  bound evidence and hand them to the existing evidence-backed review /
-  `resolve_review` / `propose_transaction_correction` paths.
-- No new finalizer; known dimensions are not re-decided.
+**As delivered.** No new finalizer and no new tool.
+
+- Prompt rules for evidence corrections: category/description/date go through
+  `propose_transaction_correction` with `canonical.transaction_ref`; facts for a receipt
+  with an open workflow go through the review tool for the missing facts only; shown
+  facts are never re-asked or overwritten; the amount or merchant of an already
+  recorded transaction cannot be changed from chat and the model must say so.
+- **No duplicate ledger row, enforced by Go.** With evidence in the immediate window,
+  a bare amount is not harvested as a standalone transaction (`HasRecentEvidence`,
+  immediate window only, so an ordinary new expense keeps its fast path), and
+  `record_transaction` refuses (`ALREADY_RECORDED_FROM_EVIDENCE`) a proposal with the
+  same type and amount as a transaction that fresh evidence already produced, when
+  the merchant is absent or the same. A different merchant at the same price is
+  allowed; an old receipt is left to the existing same-merchant edit guard.
+- **Deliberately not done:** binding a recent document's open review without a reply.
+  The route that would use such a binding (`REVIEW_INTERACTION`) is answered
+  terminally by the fast path, so the binding would never reach the model; it was
+  built, found unreachable in review, and removed. Reviews are resolved by an exact
+  reply (CEU-02/06) or by the existing deterministic reply lane.
 
 Tests: known amount + date only, amount correction without a duplicate
 transaction, SAVR corpus unchanged.
 
 ## CEU-05 — evidence ↔ existing transaction
 
-- Use the existing candidate generator and candidate-choice path for "struk ini buat
-  transaksi yang tadi". Candidates are anonymous; the model never sees ids.
+**As delivered.** No new finalizer.
+
+- A possible-duplicate document's evidence context lists its candidates (the existing
+  `duplicateCandidateRows` query, now shared with the Telegram callback flow) as
+  opaque expiring refs with untrusted-wrapped labels; no ids reach the model.
+- `resolve_review` gains `MERGE_EXISTING` for a `POSSIBLE_DUPLICATE` review only. Go
+  resolves the ref for this household, user and chat, requires the target to be one of
+  the review's current server-computed candidates, then runs the single canonical merge
+  (`reviewdomain.MergeDuplicateReview`). Stale, foreign, made-up or non-candidate refs
+  change nothing.
+- Merged and refused outcomes have distinct deterministic messages, so they stay
+  distinguishable when the model call fails.
 - A follow-up correction on evidence already linked through `transaction_evidence`
-  targets that transaction.
+  targets that transaction (CEU-04 tool scope; staged, not applied).
 
 Tests: link without duplication, category correction on a linked receipt,
 duplicate delivery.

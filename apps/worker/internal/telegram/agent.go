@@ -133,9 +133,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// CEU: bind the evidence this turn is about. A reply to the user's upload or to a
 	// bound notice binds that document (and its open review); a review binding gains
 	// its evidence as context. Nothing here is chosen by the model.
-	evidence, evidenceReview, err := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
-	if err != nil {
-		return err
+	// Evidence is context. A failure to resolve it must never fail the user's
+	// message: the turn proceeds without it, and an unresolved explicit reply is
+	// already handled as "unbound", which asks instead of guessing.
+	evidence, evidenceReview, evidenceErr := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
+	if evidenceErr != nil {
+		evidence, evidenceReview = nil, nil
 	}
 	if reviewBinding == nil && evidenceReview != nil {
 		reviewBinding = evidenceReview
@@ -145,25 +148,20 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// user just sent is offered as context: bound when exactly one qualifies, a
 	// bounded ambiguous set otherwise. Context only; it never narrows the tools.
 	var recentEvidence []map[string]any
+	freshEvidence := false
+	// One candidates query per turn serves the context, the harvest decision and the
+	// ledger guard. It is optional: a failure leaves no evidence context and no guard.
+	recentCandidates, _ := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
+	freshDocuments := freshEvidenceDocuments(recentCandidates)
 	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
-		evidence, recentEvidence, err = p.bindRecentEvidence(ctx, householdID, sourceEventID, update)
-		if err != nil {
-			return err
-		}
-		// Recent evidence that has an open review brings that review with it, so the
-		// household's natural reply can resolve it. The binding stays route-gated:
-		// chat state alone never owns a turn the route says is something else.
-		if _, open := evidenceWorkflow(evidence); open && reviewBinding == nil {
-			review, err := p.reviewBindingForDocument(ctx, householdID, update.Message.Chat.ID, evidence.Document)
-			if err != nil {
-				return err
-			}
-			if review != nil {
-				reviewBinding = review
-				reviewPublic, reviewCount = agentReviewBindingPublic(review), 1
-			}
-		}
+		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update, recentCandidates)
+		// Recent evidence is context only. It deliberately does not bind its open review:
+		// a no-reply review binding is route-gated, and the route that would use it
+		// (REVIEW_INTERACTION) is answered terminally by the fast path, so such a binding
+		// would never reach the model. A review is resolved by an exact reply (CEU-02,
+		// CEU-06) or by the existing deterministic reply lane.
+		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && len(freshDocuments) > 0
 	}
 
 	contextState.ActiveReview = reviewPublic
@@ -186,7 +184,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasSalaryChoice:     contextState.HasSalaryChoice,
 		HasMerchantLearning: contextState.HasMerchantLearning,
 		HasPendingWorkflow:  contextState.HasPendingAction || contextState.HasPendingBatch || contextState.HasSalaryChoice || contextState.HasMerchantLearning,
-		HasRecentEvidence:   evidence != nil || len(recentEvidence) > 0,
+		HasRecentEvidence:   freshEvidence,
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
 	}
@@ -250,6 +248,9 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		ReviewType:       contextState.ReviewType,
 		ReviewMode:       contextState.ReviewMode,
 		Analytics:        analyticscore.NewSession(p.pool, householdID, now),
+		// Server-only: documents the user sent in the immediate window, for the
+		// record_transaction duplicate guard. Never model-visible.
+		FreshEvidenceDocuments: freshDocuments,
 	}
 	// An implicit binding is attached only when the route says this turn is that
 	// interaction. Chat state alone never gets to own the turn (ADR-038
@@ -554,6 +555,16 @@ func agentMutationFallback(result agentToolResult) string {
 		}
 		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid."
 	}
+	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
+		// A refusal, not a recording: the user must be able to tell the two apart even
+		// when the model call that would have worded it fails.
+		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda."
+	}
+	if result.Status == "INVALID_CANDIDATE" {
+		// A refused merge, not a merge: said deterministically so a failed model call
+		// cannot read as success.
+		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud."
+	}
 	if result.Status == "DEFERRED" {
 		return "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau sebutkan item yang ingin diubah."
 	}
@@ -572,6 +583,8 @@ func agentMutationFallback(result agentToolResult) string {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
 			return "Transaksi sudah tercatat."
+		case "DUPLICATE_MERGED":
+			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru."
 		case "POSSIBLE_EXISTING_TRANSACTION":
 			return "Saya menemukan transaksi serupa. Ingin mengubah transaksi yang sudah ada?"
 		case "TRANSFER_RECORDED":
