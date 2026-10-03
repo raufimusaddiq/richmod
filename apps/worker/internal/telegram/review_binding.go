@@ -74,7 +74,7 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	if err != nil {
 		return err
 	}
-	// PRD 7/37: every Telegram review carries the same ReviewDecision contract
+	// Every Telegram review carries the same ReviewDecision contract
 	// the Inbox renders, written at the one place all reviews are created, so a
 	// Telegram review and a web review ask for exactly the same unresolved fact.
 	decision, err := telegramReviewDecision(ctx, tx, transactionID, reviewType)
@@ -97,7 +97,7 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 }
 
 // projectReviewRequest is the one place a review_item becomes an actionable
-// Telegram message (UIR-02). Every producer routes through it: the transaction
+// Telegram message. Every producer routes through it: the transaction
 // adapter creates the item first, the source/document adapter inserts a
 // source-event item, and both then call this with the same decision-driven
 // renderer. A review that has no eligible recipient produces no projection.
@@ -183,7 +183,7 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 }
 
 // ProjectReviewItem creates the single Telegram projection for an already
-// inserted review_item (UIR-02), whatever its subject: transaction, document,
+// inserted review_item, whatever its subject: transaction, document,
 // proposal, source event, wealth observation, or financial email. Every
 // producer calls this after it writes the item and its ReviewDecision. The
 // request carries the item's transaction_id (when the subject has one) so the
@@ -247,5 +247,5 @@ func ProjectReviewMessage(ctx context.Context, tx pgx.Tx, householdID, itemID st
 // to completion from Telegram today. A review whose completion path still lives
 // only in the Review Inbox (document classification, bank-fact completion,
 // payslip policy) must not be projected, or the user gets a card whose buttons
-// cannot finish the work. The producers call this before projecting; the family
-// is enabled here when its UIR-06/UIR-07 resolver lands.
+// cannot finish the work. The producers call this before projecting; a family
+// is enabled here once Telegram can resolve it.

@@ -2,10 +2,10 @@ export const reasons = { AMBIGUOUS_CATEGORY: "Kategori belum pasti", MISSING_TRA
 
 export const reviewTypes = { PAYSLIP_CONFIRMATION: "Konfirmasi slip gaji", MISSING_PAY_DATE: "Tanggal pembayaran belum ada", MISSING_AMOUNT: "Jumlah transaksi belum terlihat", FINANCIAL_EMAIL_RESOLUTION: "Email finansial perlu konfirmasi", FINANCIAL_EMAIL_FACTS: "Bukti email finansial belum pasti", TRANSFER_CLASSIFICATION: "Transfer perlu klasifikasi", WEALTH_OBSERVATION_CONFIRMATION: "Observasi kekayaan", CYCLE_RESIDUAL_ALLOCATION: "Alokasi sisa siklus" };
 
-// PRD §13.1: every card answers the same four questions — what happened, what
+// Every card answers the same four questions — what happened, what
 // Richmod thinks, why it needs you, and the one primary action. Full editing
-// controls appear only after "Ubah" (PRD §13.3), and `missingFacts` from the
-// stored ReviewDecision decides which inputs a card may require (PRD §13.4).
+// controls appear only after "Ubah", and `missingFacts` from the
+// stored ReviewDecision decides which inputs a card may require.
 export function ProposalFacts({ item, known, missing }) {
   const text = value => value === undefined || value === null || value === "" ? null : String(value);
   const knownRow = known.filter(([, value]) => text(value));
@@ -22,7 +22,7 @@ export function MissingInputs(item) {
   // The decision contract uses missingFacts; a legacy transaction-backed review
   // carries missingFields from the API instead and never gets a decision. Read
   // whichever the server actually sent; an absent list means the server computed
-  // nothing missing, so the card must not invent a required field (PRD 13.4).
+  // nothing missing, so the card must not invent a required field.
   const missing = item.missingFacts || item.missingFields || [];
   return { category: missing.includes("category"), merchant: missing.includes("merchant"), transactionAt: missing.includes("transaction_at") };
 }

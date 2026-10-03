@@ -33,7 +33,7 @@ import (
 // The asserted model id is the *concrete* version the alias resolved to (for
 // example jev-1.13.0). typesafe/jev-latest is deliberately an alias; the concrete
 // version is what belongs on a stored judgment_decision row so a decision stays
-// reproducible after the alias advances (PRD §18).
+// reproducible after the alias advances.
 //
 // Only the LiteRouter client key is read here. No upstream provider key (for
 // example a TypeSafe key) is configured in Richmod, by design.
@@ -68,7 +68,7 @@ func TestRealLiteRouterSystemOneSmoke(t *testing.T) {
 		t.Fatalf("real LiteRouter call failed: %v", err)
 	}
 	// The real provider must return its actual versioned model id so a stored
-	// decision stays attributable to the model that produced it (PRD §18).
+	// decision stays attributable to the model that produced it.
 	if strings.TrimSpace(result.Model) == "" {
 		t.Fatal("real LiteRouter response carried no model id")
 	}

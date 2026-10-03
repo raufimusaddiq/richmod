@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PRD 37: a Telegram review must carry the same ReviewDecision contract the Inbox
+// A Telegram review must carry the same ReviewDecision contract the Inbox
 // renders, so the card asks for the unresolved dimension only. This drives the one
 // place reviews are created and reads the stored decision back.
 func TestTelegramReviewStoresTheReviewDecisionContract(t *testing.T) {

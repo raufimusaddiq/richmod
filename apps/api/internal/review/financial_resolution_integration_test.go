@@ -21,7 +21,7 @@ type financialResolutionFixture struct {
 	account, wealthAccount, otherWealth  string
 }
 
-// seedFinancialResolution models the PRD §12 state: the evidence resolved the
+// seedFinancialResolution models the partially resolved state: the evidence resolved the
 // funding account, the provider Wealth Account is still unresolved, and one
 // observation-scoped review is open.
 func seedFinancialResolution(t *testing.T, resolved bool) financialResolutionFixture {
@@ -78,7 +78,7 @@ func seedFinancialResolutionValues(t *testing.T, resolved bool) financialResolut
 	return seedFinancialResolution(t, resolved)
 }
 
-// UIRC-02 B: a partial first pick must persist, stay pending, and not close the
+// A partial first pick must persist, stay pending, and not close the
 // review; the same canonical operation is what Telegram calls.
 func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
 	fixture := seedFinancialResolutionValues(t, true)
@@ -95,8 +95,8 @@ func TestFinancialResolutionPartialPickStaysOpen(t *testing.T) {
 	}
 }
 
-// UIRC-02 B: Web IGNORE must take the same lifecycle as the Telegram callback.
-// UIRC-02 B: a genuinely partial first turn (one entity still unresolved)
+// Web IGNORE must take the same lifecycle as the Telegram callback.
+// A genuinely partial first turn (one entity still unresolved)
 // persists the supplied entity, stays 202 with the item OPEN and asks for the
 // remaining entity; only the second turn completes the review.
 func TestFinancialResolutionGenuinePartialTurnThenSecondTurnCompletes(t *testing.T) {
@@ -195,7 +195,7 @@ func (f financialResolutionFixture) resolve(t *testing.T, body string) *httptest
 	return w
 }
 
-// PRD §12: the request supplies only the unresolved entity, and the persisted
+// The request supplies only the unresolved entity, and the persisted
 // entity is merged back in rather than asked for again.
 func TestFinancialResolutionAcceptsOnlyTheUnresolvedEntity(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
@@ -272,8 +272,8 @@ func TestFinancialResolutionRejectsEmptyValues(t *testing.T) {
 }
 
 // The list must expose the already resolved entity, so the Inbox can render a
-// partial card and ask only for what is missing (PRD §12, §13.4).
-// PRD §28 F1/F2: the review must name exactly the one unresolved entity, never
+// partial card and ask only for what is missing.
+// The review must name exactly the one unresolved entity, never
 // both. F1 has the funding account resolved; F2 the Wealth Account.
 func TestFinancialProviderEmailAsksOnlyTheUnresolvedEntity(t *testing.T) {
 	for _, test := range []struct {
@@ -362,7 +362,7 @@ func TestFinancialResolutionListItemExposesPartialState(t *testing.T) {
 // only financial_email_observation_id, so source_event_id is NULL. Web IGNORE
 // must still settle the owning source event instead of leaving it parked as
 // NEEDS_REVIEW, exactly like the Telegram lane and the shared financial-email
-// resolver (SAVR-06, Hermes round 4).
+// resolver.
 func TestFinancialEmailFactsIgnoreSettlesSourceEvent(t *testing.T) {
 	fixture := seedFinancialResolution(t, true)
 	ctx := context.Background()

@@ -35,7 +35,7 @@ func TestPossibleDuplicatePresetOffersOnlyReceiptReviewChoices(t *testing.T) {
 	}
 }
 
-// UIRC-01 D: preparing a full snapshot is voluntary navigation, so the wealth
+// Preparing a full snapshot is voluntary navigation, so the wealth
 // review's ordinary allowed actions must contain no Web-only action.
 func TestWealthObservationPresetHasNoWebOnlyAction(t *testing.T) {
 	decision, ok := Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", "subject")

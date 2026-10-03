@@ -12,17 +12,17 @@ import (
 
 // errJudgmentUnavailable is the single sentinel for "the bounded decision plane
 // could not answer". Callers must fail closed: it is infrastructure state, not
-// semantic uncertainty (PRD §9).
+// semantic uncertainty.
 var errJudgmentUnavailable = errors.New("judgment plane is not configured")
 
 // judgmentPolicyVersion identifies the threshold policy set that produced a
 // decision. Reproducibility requires model version + policy version + bounded
-// answers, so every persisted decision carries this (PRD §18).
+// answers, so every persisted decision carries this.
 const judgmentPolicyVersion = "2026-09-jev3"
 
 // judgmentTask names one bounded decision task. Telemetry and provenance group
 // by task so review/clarification rates can be computed per decision task
-// (PRD §17) instead of only per protocol call.
+// instead of only per protocol call.
 type judgmentTask string
 
 const (
@@ -38,7 +38,7 @@ const (
 
 // judgmentOutcome classifies what Go policy did with a bounded answer. The
 // provider-failure outcomes are separate from the semantic ones on purpose:
-// a timeout is not the same product event as an uncertain model (PRD §9).
+// a timeout is not the same product event as an uncertain model.
 type judgmentOutcome string
 
 const (
@@ -51,7 +51,7 @@ const (
 
 // judgmentPolicy is the single source of truth for every threshold this worker
 // applies. Values live here, in one place, with one version, instead of being
-// scattered across call sites where they can drift apart (PRD §25).
+// scattered across call sites where they can drift apart.
 var judgmentPolicy = struct {
 	Version string
 	Route   judgment.ChoicePolicy
@@ -68,7 +68,7 @@ var judgmentPolicy = struct {
 	DateSupport   judgment.NoulPolicy
 	// Ambiguity answers "is this request materially ambiguous?". Its High
 	// threshold is also the ceiling above which generative self-reported
-	// confidence stops being usable as a signal at all (PRD §6).
+	// confidence stops being usable as a signal at all.
 	Ambiguity judgment.NoulPolicy
 	Consent   judgment.NoulPolicy
 }{
@@ -148,7 +148,7 @@ func errorClassFrom(err error) string {
 // `systemone` with the task name, and each consumed decision is reported as a
 // zero-duration DECISION row carrying the product outcome. Only task, model,
 // status, error class, and outcome are reported: no prompt, answer text, or
-// financial value (PRD §16/§17).
+// financial value.
 //
 // The turn context supplies the household so the row is attributable; the
 // recorder is process-wide and would otherwise write household-less rows that
@@ -212,7 +212,7 @@ func metricCtx(ctx context.Context) context.Context {
 
 // evaluate runs one bounded judgment call with task attribution. Every call goes
 // through this wrapper so latency, status, and error class are recorded per
-// decision task without touching prompt or answer content (PRD §17).
+// decision task without touching prompt or answer content.
 func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID string, request judgment.Request) (judgment.Result, error) {
 	return p.evaluateWithAccepted(ctx, task, requestID, request, nil)
 }
@@ -220,7 +220,7 @@ func (p *Processor) evaluate(ctx context.Context, task judgmentTask, requestID s
 // evaluateWithAccepted is evaluate for a phase that knows which semantic
 // dimensions were already accepted at entry (nil = unknown/uninstrumented). It
 // exists so the semantic-re-decision metric can be derived honestly instead of
-// inferring acceptance from the answer set (SAVR closure UISC-02B).
+// inferring acceptance from the answer set.
 func (p *Processor) evaluateWithAccepted(ctx context.Context, task judgmentTask, requestID string, request judgment.Request, accepted []string) (judgment.Result, error) {
 	purpose := phasePurpose(string(task))
 	if task == judgmentTaskTransaction && len(request.Questions) == 1 {
@@ -238,7 +238,7 @@ func (p *Processor) evaluateWithAccepted(ctx context.Context, task judgmentTask,
 	}
 	result, err := p.judgment.Evaluate(ctx, requestID, request)
 	// Track which bounded tasks this turn consumed for turn-level value
-	// telemetry (PRD §23). The trace rides in the turn context, so concurrent
+	// telemetry. The trace rides in the turn context, so concurrent
 	// turns never share it. Only a call that actually answered counts: a provider
 	// failure is not a consumed Jev decision and must not read as one when the
 	// turn lane is classified. Only the task name and model are kept.

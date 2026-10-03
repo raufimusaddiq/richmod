@@ -642,7 +642,7 @@ func seedFinancialEmailFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	return source
 }
 
-// TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite proves SAVR-06 for
+// TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite proves the evidence-review rule for
 // provider email: a cash observation whose typed evidence predicates failed is
 // parked as FINANCIAL_EMAIL_FACTS with only IGNORE allowed, names the exact
 // unsupported dimension, keeps the accepted amount/date/hint facts, and writes
@@ -702,7 +702,7 @@ func TestEvidenceReviewParksProviderFactsWithoutCanonicalWrite(t *testing.T) {
 	}
 	// The residual is evidence_support, so the email does not fully support these
 	// value facts: they must be proposed, not recorded as known, or the Web card
-	// would show an unsupported amount as "Tercatat" (SAVR-06, Hermes round 6).
+	// would show an unsupported amount as "Tercatat".
 	if _, known := decision.KnownFacts["amount_idr"]; known {
 		t.Fatalf("an unsupported amount must not be a known fact: %+v", decision.KnownFacts)
 	}

@@ -223,7 +223,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		result.Review = map[string]any{"required": true, "reason": "TRANSACTION_NEEDS_REVIEW"}
 	}
 	// The result is fully deterministic and already contains the committed facts.
-	// Do not spend a second generative turn to paraphrase it (IR-04 call budget).
+	// Do not spend a second generative turn to paraphrase it (one generative call per turn).
 	return result, false, nil
 }
 
@@ -574,7 +574,7 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 	}
 	// The user already reviewed these staged items, so their displayed facts are
 	// accepted: explicit CONFIRM must not re-run semantic approval for them
-	// (SAVR-05A). Only structural/canonical invariants and deterministic
+	//. Only structural/canonical invariants and deterministic
 	// merchant-category policy still apply, and every check happens before any
 	// canonical write.
 	allowedCategories, err := p.categorySlugs(ctx, state.HouseholdID)

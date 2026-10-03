@@ -45,7 +45,7 @@ func TestPayrollDeductionsDoNotBecomeTransactions(t *testing.T) {
 	}
 }
 
-// SAVR-03B: real payroll forms carry a display period, may omit gross pay, and
+// Real payroll forms carry a display period, may omit gross pay, and
 // may contain component lines the net/gross/deduction formula cannot explain.
 // Those are representable without fabricating a gross or a deduction.
 func TestPayslipPeriodRequiresCanonicalMonth(t *testing.T) {

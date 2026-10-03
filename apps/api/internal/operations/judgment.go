@@ -2,7 +2,7 @@ package operations
 
 import "context"
 
-// judgmentAggregate is the PRD §23 "is Jev actually saving work" scoreboard:
+// judgmentAggregate is the "is Jev actually saving work" scoreboard:
 // how many Telegram turns each decision lane resolved, and how many bounded
 // generative tool calls the decision plane made unnecessary. It is computed on
 // read from the two tables the worker already writes, so no new pipeline exists

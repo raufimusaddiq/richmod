@@ -60,7 +60,7 @@ func TestUnresolvedReplyNeverFallsBackToRecentEvidence(t *testing.T) {
 	if evidence != nil || review != nil {
 		t.Fatalf("an unresolved explicit reply fell back to recent evidence: %+v %+v", evidence, review)
 	}
-	// With no reply this slice binds nothing either: recency binding is CEU-03.
+	// With no reply this slice binds nothing either: recency binding is tested separately.
 	evidence, _, err = p.bindTurnEvidence(ctx, f.householdID, f.sourceID, f.update, nil, false, false)
 	mustAgentTest(t, err)
 	if evidence != nil {

@@ -104,7 +104,7 @@ func TestHarvestSimpleTransaction(t *testing.T) {
 		t.Fatal("multiple amounts must use generative extraction")
 	}
 	// The k shorthand is a currency suffix only when it stands alone. A unit
-	// glued to the number (5kg) is a quantity, not Rp5.000 (PRD §24 T1).
+	// glued to the number (5kg) is a quantity, not Rp5.000.
 	if got, ok := harvestSimpleTransaction("beras 5kg"); ok {
 		t.Fatalf("a glued unit must not harvest a currency amount: %#v", got)
 	}

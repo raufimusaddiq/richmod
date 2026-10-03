@@ -1,6 +1,6 @@
 package telegram
 
-// UIR-10 regression matrix: multi-recipient race for a bank-fact review. One
+// Regression matrix: multi-recipient race for a bank-fact review. One
 // UNKNOWN_BANK_TEMPLATE review_item can be delivered to several household
 // members. The first valid reply must queue the shared completion job once; once
 // the job resolves the item, a second recipient's reply on the same card must be

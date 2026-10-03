@@ -36,7 +36,7 @@ type ImageInput struct {
 	MediaGroupID string
 	MessageID    int64
 	// ChatID is the private chat the upload arrived in. Message ids are unique
-	// only per chat, so reply binding needs it (CEU-02).
+	// only per chat, so reply binding needs it.
 	ChatID int64
 }
 

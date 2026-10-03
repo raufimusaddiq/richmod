@@ -12,8 +12,8 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
-// A transaction-backed bank review must reach the PRD §7 contract on the row the
-// Inbox reads, not just return it from a helper (Hermes #126 round 3). The
+// A transaction-backed bank review must reach the ReviewDecision contract on the row the
+// Inbox reads, not just return it from a helper. The
 // decision is written after EnqueueReviewRequest creates the review_item, so this
 // pins the ordering that a silent zero-row UPDATE previously broke.
 func TestTransactionReviewDecisionIsPersistedOnTheReviewRow(t *testing.T) {

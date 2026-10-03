@@ -12,7 +12,7 @@ import (
 // old channel_supported claim rejected 'kartu debit' because it could not match
 // the token DEBIT_CARD, stamping a merchant-less debit-card notification
 // UNKNOWN_BANK_TEMPLATE instead of flowing to the normal UNKNOWN_MERCHANT
-// review; SAVR-06 replaced that predicate with the material class ruling.
+// review; the material class ruling replaced that predicate.
 func TestSemanticGroundedAcceptsIndonesianMethodWord(t *testing.T) {
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
 		"transaction_observed": noul(0.99),

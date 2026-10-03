@@ -10,7 +10,7 @@ import (
 
 // producibleReviewTypes reads the review reason set from the production package
 // that also owns the presets, so a new producer cannot be added to a second
-// hand-maintained list here (UIRC-05).
+// hand-maintained list here.
 var producibleReviewTypes = reviewdec.ActiveReasons()
 
 func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
@@ -137,7 +137,7 @@ func TestActiveReasonsArePresetBacked(t *testing.T) {
 // type-level check below only proves the review can be projected; this one proves
 // each ordinary action it offers can actually be carried out from Telegram.
 // CONFIRM_REVIEW is the preset spelling of the reply/callback confirm lane, which
-// the Telegram and agent resolvers handle as CONFIRM (UIRC-05).
+// the Telegram and agent resolvers handle as CONFIRM.
 // telegramReviewLanes is the ordinary-action vocabulary with a Telegram terminal
 // or continuation path. CONFIRM_REVIEW and CLASSIFY_TRANSFER are the preset
 // spellings the surfaces translate to their own callback vocabulary, so the entry
@@ -179,7 +179,7 @@ func TestEveryOrdinaryAllowedActionHasATelegramLane(t *testing.T) {
 	}
 }
 
-// TestEveryProducedReviewTypeIsTelegramCompletable pins UIR-10 exit criterion 1:
+// TestEveryProducedReviewTypeIsTelegramCompletable pins the completability rule:
 // every review_type a producer can emit must be resolvable to completion from
 // Telegram. Adding a producer without a completion lane fails here.
 func TestEveryProducedReviewTypeIsTelegramCompletable(t *testing.T) {
@@ -210,7 +210,7 @@ func TestUnregisteredProducerFailsTheGate(t *testing.T) {
 }
 
 // TestUnregisteredOrdinaryActionFailsTheGate pins the action-level half of
-// UIRC-05: a registered review type whose ordinary allowed action has no
+// A registered review type whose ordinary allowed action has no
 // Telegram lane must fail independently of the type-level gate, or a bounded
 // chooser could offer a button nothing can complete.
 func TestUnregisteredOrdinaryActionFailsTheGate(t *testing.T) {
@@ -235,7 +235,7 @@ func TestUnregisteredOrdinaryActionFailsTheGate(t *testing.T) {
 	}
 }
 
-// TestSuppliedContextKeepsItsMarkupMode proves the UIR-02 shared projection does
+// TestSuppliedContextKeepsItsMarkupMode proves the shared projection does
 // not drop a review's supplied prompt: when a producer supplies its own message,
 // the decision still selects the markup and state, so a source/document review
 // arrives as an actionable card instead of an unanswerable notice. A category or
@@ -295,7 +295,7 @@ func TestFinancialEmailEntityMarkupPagesLargeAccountSets(t *testing.T) {
 	}
 }
 
-// TestBankFactsReplyParserAndCapability pins the UIR-10 bank-email fix: the
+// TestBankFactsReplyParserAndCapability pins the bank-email fix: the
 // UNKNOWN_BANK_TEMPLATE card must be completable from Telegram, and a natural
 // reply ("54000 2026-09-23T13:45:00+07:00", either order) must yield both facts.
 func TestBankFactsReplyParserAndCapability(t *testing.T) {

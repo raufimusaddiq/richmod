@@ -1,4 +1,4 @@
-// Wealth observation resolution (UIR-01). The Review Inbox and the Telegram
+// Wealth observation resolution. The Review Inbox and the Telegram
 // review lanes all mutate wealth_observation the same way; this operation owns
 // those mutations so the Web and Telegram paths cannot drift.
 package reviewdomain

@@ -252,10 +252,10 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
 	categoryDecision := receiptCategoryProvenance{}
-	// The receipt kill-switch governs the whole PRD §17 scope for this source:
+	// The receipt kill-switch governs the whole auto-confirm scope for this source:
 	// direct auto-confirm *and* the residual category rescue. With it off, the
 	// receipt keeps asking, so a bad bounded rollout can be reverted without
-	// touching the screenshot, bank, or Telegram switches (PRD §17/§33).
+	// touching the screenshot, bank, or Telegram switches.
 	if !p.receiptAutoConfirmOff && categoryID == nil && len(candidates) == 0 && validation.DateKnown {
 		// The category is the only bounded residual left. One Jev rescue can turn
 		// a category-only review into a confirmed expense; undecided or failure
@@ -271,11 +271,11 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 		}
 	}
 	// A clear new receipt must not become a review merely because no existing
-	// transaction matched (PRD §10, example D). With no candidate ambiguity, a
+	// transaction matched. With no candidate ambiguity, a
 	// category resolved, and a printed date, the facts are complete enough to
 	// confirm. Component arithmetic is quality metadata, not a missing total.
 	// A receipt with no printed date is not confirmed here: upload time is not the
-	// receipt's transaction time (PRD §18.4).
+	// receipt's transaction time.
 	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown {
 		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, categoryDecision)
 	}
@@ -284,7 +284,7 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 
 // confirmReceipt writes a CONFIRMED expense for a clear new receipt. It mirrors
 // createReceiptReview's persistence but commits the canonical transaction, since
-// there is nothing left for a human to decide (PRD §10, §34). Duplicate safety is
+// there is nothing left for a human to decide. Duplicate safety is
 // handled by the caller: this path is only taken when no candidate matched.
 func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID string, categoryDecision receiptCategoryProvenance) error {
 	output, _ := json.Marshal(value)
@@ -428,7 +428,7 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 // receiptReviewReason names the exact residual dimension(s). The arithmetic
 // quality signal is independent of the category/date facts, so a reconciled-
 // looking receipt that fails its own arithmetic is not reported as a category
-// ambiguity (ADR-048, SAVR-06).
+// ambiguity (ADR-048).
 func receiptReviewReason(possibleDuplicate, categoryKnown, dateKnown, arithmeticSignal bool) string {
 	if possibleDuplicate {
 		return "POSSIBLE_DUPLICATE"
@@ -502,17 +502,17 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_RECEIPT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'possible_duplicate',$4::boolean))`, householdID, transactionID, documentID, possibleDuplicate); err != nil {
 		return err
 	}
-	// PRD 7/ADR-045: the stored reason names the exact residual dimension(s). A
+	// ADR-045: the stored reason names the exact residual dimension(s). A
 	// fallback received time is provenance, never an observed transaction date.
 	arithmeticSignal := validation.ArithmeticAvailable && !validation.ArithmeticOK
 	reviewType := receiptReviewReason(possibleDuplicate, categoryID != nil, validation.DateKnown, arithmeticSignal)
-	// PRD 7: persist the contract even without a Telegram recipient; the Inbox
+	// Persist the contract even without a Telegram recipient; the Inbox
 	// must not depend on notification configuration.
 	decision, ok := reviewdec.Preset(reviewType, "transaction", transactionID)
 	if !ok {
 		return fmt.Errorf("no review decision preset for %s", reviewType)
 	}
-	// PRD 18.3: a fallback time keeps its provenance instead of pretending the
+	// A fallback time keeps its provenance instead of pretending the
 	// receipt printed it.
 	decision.KnownFacts = receiptKnownFacts(value, validation)
 	if categoryID != nil {

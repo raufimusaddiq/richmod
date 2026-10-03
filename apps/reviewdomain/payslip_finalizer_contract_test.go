@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// SAVR-07: the worker autonomous path and the household-resolved path must mint
+// The worker autonomous path and the household-resolved path must mint
 // canonical salary state through one operation, and a duplicate period/employer
 // salary may only link when amount and pay date also agree.
 func TestPayslipPathsShareFinalizer(t *testing.T) {

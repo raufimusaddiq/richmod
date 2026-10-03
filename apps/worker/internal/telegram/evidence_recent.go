@@ -8,8 +8,8 @@ import (
 )
 
 // Recency policy for evidence a message is not explicitly replying to (ADR-050
-// binding levels 4-6). The windows live here and nowhere else; CEU-07 tunes them
-// from the binding-level counters.
+// binding levels 4-6). The windows live here and nowhere else; tune them from the
+// binding-level counters.
 const (
 	// immediateEvidenceWindow is how recent evidence must be to count as "the one
 	// just sent".

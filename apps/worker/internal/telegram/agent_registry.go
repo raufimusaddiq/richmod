@@ -77,7 +77,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	cycleResidual := hasActiveReview && (reviewMode == "CYCLE_RESIDUAL" || reviewType == "CYCLE_RESIDUAL_ALLOCATION")
 	// When the judgment plane is unavailable, no bounded semantic mutation is
 	// authorized. The conversational surface keeps READ tools only, so a
-	// provider outage can never turn into a hidden LLM auto-mutation (PRD §8).
+	// provider outage can never turn into a hidden LLM auto-mutation.
 	readOnly := !judgmentConfigured
 	for _, tool := range base {
 		if readOnly {

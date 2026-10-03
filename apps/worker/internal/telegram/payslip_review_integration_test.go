@@ -110,7 +110,7 @@ func (payslipDateGateway) NativeToolCall(context.Context, string, string, any, [
 	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"","description":"","note":"","confidence":0,"ambiguous":false,"pay_date":"2026-09-25"}`)}, gateway.Metadata{}, nil
 }
 
-// TestTelegramDocumentReviewResolvesWithoutWeb proves the UIR-06 close for the
+// TestTelegramDocumentReviewResolvesWithoutWeb proves Telegram can close the
 // document-bound families: a DOCUMENT_CLASSIFICATION card resolves in Telegram
 // (reprocess enqueues the shared pipeline, ignore parks the document) instead of
 // dead-ending in the Review Inbox.
@@ -181,7 +181,7 @@ func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
 	}
 }
 
-// TestTelegramFinancialEmailEntityResolvesWithoutWeb proves the UIR-07 close for
+// TestTelegramFinancialEmailEntityResolvesWithoutWeb proves Telegram can close
 // FINANCIAL_EMAIL_RESOLUTION: the entity chooser resolves the still-unresolved
 // dimension through the shared resolver and enqueues the provider-email replay,
 // with no Review Inbox round-trip.
@@ -316,7 +316,7 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	}
 }
 
-// TestQueuedReviewSendSkipsResolvedProjection pins UIR-08's "queued delivery
+// TestQueuedReviewSendSkipsResolvedProjection pins the "queued delivery
 // after resolution" rule: a review card that resolves between enqueue and send
 // must not be delivered as a live card, while an open projection still sends.
 func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {

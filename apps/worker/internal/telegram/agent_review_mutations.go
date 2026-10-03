@@ -220,7 +220,7 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 
 func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *agentState, review agentTransactionReview, categoryID string, value reviewExtraction, userID string) error {
 	var merchantID *string
-	// IR-02: the conversational lane can reach the same canonical confirm as the
+	// The conversational lane can reach the same canonical confirm as the
 	// generic reply lane, so the stored residual contract is enforced here too.
 	// The agent's native action handlers already refused undated or uncategorized
 	// input, so only an explicitly supplied date satisfies the residual date.
@@ -294,7 +294,7 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	if askRemember {
 		// The review item completes now, not on the optional merchant answer: a
 		// follow-up question the user may never send must not strand the review
-		// (UIR-08). AWAITING_MERCHANT_DECISION marks the pending question without
+		//. AWAITING_MERCHANT_DECISION marks the pending question without
 		// depending on review_request.status staying OPEN.
 		if err := resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
 			return err

@@ -1,6 +1,6 @@
 package financialemail
 
-// UISC-01 / acceptance A2, A4: an observation-scoped FINANCIAL_EMAIL review
+// An observation-scoped FINANCIAL_EMAIL review
 // projects to the household's eligible Telegram identity even when the source
 // event carries no Telegram chat payload.
 

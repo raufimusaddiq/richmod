@@ -102,7 +102,7 @@ func TestAgentPendingBatchConfirmationUsesHumanAuthority(t *testing.T) {
 
 // Every Jev-influenced mutation must be explainable from bounded provenance:
 // model version, policy version, question keys, bounded answers, and outcome
-// must be persisted in the same transaction as the canonical write (PRD §15/§16),
+// must be persisted in the same transaction as the canonical write,
 // and no raw user text may be stored there.
 func TestJudgmentDecisionProvenanceIsRecordedWithTheMutation(t *testing.T) {
 	ctx := context.Background()

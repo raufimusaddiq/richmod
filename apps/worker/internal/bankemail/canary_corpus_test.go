@@ -10,7 +10,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// PRD §23 semantic canary corpus.
+// Semantic canary corpus.
 //
 // PR #120 showed that prompt-text regression tests do not protect against
 // semantic provider drift: the prompt can be byte-identical while the model
@@ -74,7 +74,7 @@ var canaryCases = []canaryCase{
 		shape: func(t *testing.T, got Extraction) {
 			// A promo is not a transaction at all. A nil-amount "transaction" is
 			// also wrong: it would park a review for an email that is not a
-			// financial event, which is the review-by-default the PRD removes.
+			// financial event, which is the review-by-default the product removes.
 			if got.Kind == "TRANSACTION" {
 				t.Fatalf("promo email was read as a transaction: %+v", got)
 			}
@@ -116,7 +116,7 @@ var canaryCases = []canaryCase{
 		body: "Transaksi Berhasil\nJenis: Pembelian Reksa Dana\nProduk: Reksa Dana Pasar Uang\nNominal: Rp 3.000.000\nWaktu: 28-08-2026 10:00:00\n" +
 			"Dana dipotong dari RDN kamu.",
 		shape: func(t *testing.T, got Extraction) {
-			// PRD §9 SPENDING_ONLY: an investment/internal move is not a household
+			// SPENDING_ONLY: an investment/internal move is not a household
 			// expense. The deterministic policy owns that call, not the model.
 			if got.Kind == "TRANSACTION" {
 				if verdict := bankPolicyVerdict(got); verdict.Type != "IGNORE" {
@@ -131,7 +131,7 @@ var canaryCases = []canaryCase{
 			"Referensi: 2026082808301234\n" +
 			"Saldo kamu bertambah.",
 		shape: func(t *testing.T, got Extraction) {
-			// PRD §9 SPENDING_ONLY: incoming money on a spending account is not
+			// SPENDING_ONLY: incoming money on a spending account is not
 			// household income, whatever the model reports as direction. The guard
 			// must not depend on the model getting the direction right: drifting to
 			// OUTGOING here is exactly the regression this case exists to catch, so
@@ -212,7 +212,7 @@ func wantTransaction(t *testing.T, got Extraction, amount string) {
 	}
 }
 
-// assertMerchantNotFabricated guards PRD §9.5: a footer that quotes a support
+// assertMerchantNotFabricated guards against fabrication: a footer that quotes a support
 // phone number must not become the merchant.
 func assertMerchantNotFabricated(t *testing.T, got Extraction, forbidden ...string) {
 	t.Helper()

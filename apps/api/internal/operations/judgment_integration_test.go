@@ -24,7 +24,7 @@ func integrationPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// TestJudgmentAggregateCountsLanesAndAvoidedCalls is the PRD §23 completion
+// TestJudgmentAggregateCountsLanesAndAvoidedCalls is the judgment-plane completion
 // criterion 13: telemetry must report Jev-only vs mixed vs generative turns and
 // the native tool calls the decision plane avoided. The aggregate is derived
 // from the two tables the worker already writes, so a household's scoreboard is
@@ -109,7 +109,7 @@ func TestJudgmentAggregateCountsLanesAndAvoidedCalls(t *testing.T) {
 }
 
 // TestJudgmentAggregateMeasuresPhaseOrderWithoutConfusingTransportForPolicy is
-// the IR-09 exit gate: model-order counts, latency, double-pass shape, and
+// the judgment exit gate: model-order counts, latency, double-pass shape, and
 // rescue outcome must come from the rows that actually prove them. Transport
 // success is never reported as policy acceptance.
 func TestJudgmentAggregateMeasuresPhaseOrder(t *testing.T) {

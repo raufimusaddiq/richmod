@@ -117,10 +117,10 @@ func run(logger *slog.Logger) error {
 		processor.SetJudgment(judgmentEngine)
 		// Task-attributed bounded telemetry: the client records the transport call,
 		// and the decision counter records what policy did with the answer, which
-		// is what makes review rate per decision task measurable (PRD §17).
+		// is what makes review rate per decision task measurable.
 		processor.SetJudgmentMetrics(telegram.JudgmentMetricsFor(recordLLMCall))
 		// Turn-level value: records which lane resolved each turn and how many
-		// bounded generative decisions the judgment plane replaced (PRD §23).
+		// bounded generative decisions the judgment plane replaced.
 		processor.SetTurnTelemetry(true)
 	}
 	processor.SetPostGenerativeAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_TELEGRAM"))
@@ -130,14 +130,14 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("configure document storage: %w", err)
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
-	// PRD §33 operational kill-switch: an operator must be able to park screenshot
+	// Operational kill-switch: an operator must be able to park screenshot
 	// rows in review without a deploy. Unset keeps auto-confirm on.
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
 	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
 	if judgmentEngine.Record != nil {
 		// Row-level category rulings let a clear screenshot row reach the ledger
 		// without a review; the bounded plane, not generative confidence, is what
-		// authorises that write (PRD §11.2).
+		// authorises that write.
 		documentProcessor.SetVerifier(judgmentEngine)
 	}
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
@@ -149,12 +149,12 @@ func run(logger *slog.Logger) error {
 	}
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
-	// PRD §33: each auto-confirm source has its own operational kill-switch. The
+	// Each auto-confirm source has its own operational kill-switch. The
 	// default is on; an operator disables one source without touching the others.
 	bankProcessor.SetCategoryAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_BANK_CATEGORY"))
 	// Evidence-channel semantic verification: the bounded plane rules on claims Go
 	// already holds, so neither email channel trusts generative self-confidence as
-	// its semantic gate (ADR-038, PRD §20/§21).
+	// its semantic gate (ADR-038).
 	if judgmentEngine.Record != nil {
 		bankProcessor.SetVerifier(judgmentEngine)
 	}
@@ -248,7 +248,7 @@ func phaseOutcome(status string) string {
 
 // requireJudgmentModel enforces the production invariant that bounded mutation
 // semantics cannot be silently disabled by omitting the model. Only an explicit
-// opt-out outside production is allowed (PRD §Configuration).
+// opt-out outside production is allowed.
 func requireJudgmentModel(mode, model string) error {
 	if mode == "disabled-dev" || strings.TrimSpace(model) != "" {
 		return nil
@@ -265,7 +265,7 @@ func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxp
 
 // envEnabled reads a kill-switch. Any value other than an explicit negative
 // keeps the switch enabled, so an unset or mistyped variable never silently
-// changes auto-confirm behavior (PRD §33).
+// changes auto-confirm behavior.
 func envEnabled(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "0", "false", "off", "no", "disabled":
@@ -469,7 +469,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
-		// UIR-08: a review card resolved (or cancelled/expired) between enqueue and
+		// A review card resolved (or cancelled/expired) between enqueue and
 		// send must not arrive as a fresh live card; skip the send but still answer a
 		// pending callback so the client spinner clears.
 		if payload.ReviewRequestID != "" {

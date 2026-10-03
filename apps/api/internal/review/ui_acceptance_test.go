@@ -15,11 +15,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// PRD section 29 required Review UI acceptance tests.
+// Review UI acceptance tests.
 //
 // U1-U4 are properties of the payload the API hands the Inbox: the client must
 // render only what the stored decision named as missing, because the server is
-// the authority on what is unresolved (PRD 3.3, 13.4). They are asserted here
+// the authority on what is unresolved. They are asserted here
 // rather than in the browser so they hold for every client, Telegram included.
 type reviewUIItem struct {
 	ID               string         `json:"id"`
@@ -96,7 +96,7 @@ func reviewUIFixture(t *testing.T) (*pgxpool.Pool, string, string) {
 	return pool, household, user
 }
 
-// seedCategoryReview writes the PRD 29 U1 state: a bank expense whose only
+// seedCategoryReview writes the U1 state: a bank expense whose only
 // unresolved fact is the category, with that fact recorded in the decision.
 func seedCategoryReview(t *testing.T, pool *pgxpool.Pool, household string) string {
 	t.Helper()

@@ -43,13 +43,13 @@ type Processor struct {
 	// rulings on transaction screenshots. A nil verifier disables auto-confirm
 	// and keeps the review path, so intake still works without the gateway.
 	verifier jeverifier
-	// rowAutoConfirmOff is this source's PRD §33 operational kill-switch, stored
+	// rowAutoConfirmOff is this source's operational kill-switch, stored
 	// inverted so the zero-value Processor keeps the documented default
 	// (auto-confirm on). When set, a clear row parks a review instead of
 	// confirming, so this source can be rolled back without touching the bank or
 	// receipt switches.
 	rowAutoConfirmOff bool
-	// receiptAutoConfirmOff is the receipt source's PRD §33 operational
+	// receiptAutoConfirmOff is the receipt source's operational
 	// kill-switch, stored inverted so the zero-value Processor keeps the
 	// documented default (auto-confirm on). When set, a clear receipt parks a
 	// review instead of confirming, so this source can be rolled back without
@@ -83,14 +83,14 @@ func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Stor
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
 
-// SetRowAutoConfirm is the screenshot row kill-switch (PRD §33). Passing false
+// SetRowAutoConfirm is the screenshot row kill-switch. Passing false
 // disables auto-confirm for this source.
 func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !enabled }
 
-// SetVerifier wires the bounded judgment plane (PRD §11.2).
+// SetVerifier wires the bounded judgment plane.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
-// SetReceiptAutoConfirm is the receipt new-transaction kill-switch (PRD §33).
+// SetReceiptAutoConfirm is the receipt new-transaction kill-switch.
 // Passing false disables auto-confirm for this source.
 func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
 
@@ -268,7 +268,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 					return err
 				}
 			}
-			// UIR-02: keep the observation actionable in both Inbox and Telegram.
+			// Keep the observation actionable in both Inbox and Telegram.
 			if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
 				return err
 			}

@@ -159,7 +159,7 @@ func (p *Processor) resolveReview(ctx context.Context, sourceEventID, householdI
 func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID, categoryID string, update telegramUpdate, value reviewExtraction, userID string, offerMerchantLearning bool) error {
 	var err error
 	var merchantID *string
-	// IR-02: a legacy card or a client that omits a field must not confirm while
+	// A legacy card or a client that omits a field must not confirm while
 	// the stored ReviewDecision still reports a canonical-required residual fact.
 	// The date check uses the parsed pay date only; a fallback timestamp never
 	// satisfies it.
@@ -232,7 +232,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""
 	if askRemember {
 		// Complete the review item now so a merchant-learning question the user
-		// never answers cannot leave the review open (UIR-08). The pending question
+		// never answers cannot leave the review open. The pending question
 		// is tracked by conversation state, not by review_request.status.
 		if err := resolveCanonicalReviewItem(ctx, tx, reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
 			return err

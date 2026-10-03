@@ -195,7 +195,7 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task 
 
 type simpleTransactionCandidate struct {
 	// Amount is an exact syntactic candidate only. Date and merchant meaning is
-	// never established here; intelligence owns it (SAVR §9). Text is the raw
+	// never established here; intelligence owns it. Text is the raw
 	// turn, carried only so Jev can judge whether a purchase label is supported;
 	// Go writes it as merchant/description only after that bounded ruling.
 	Amount string
@@ -211,7 +211,7 @@ func judgmentSupported(answer judgment.Answer, policy judgment.NoulPolicy) bool 
 
 // transferPurposes is the canonical possibility space for a household-internal
 // transfer purpose. Go owns the option set; the judgment plane only picks inside
-// it (PRD §13).
+// it.
 var transferPurposes = []string{
 	"SAVINGS_TRANSFER",
 	"INVESTMENT_CONTRIBUTION",
@@ -233,7 +233,7 @@ var transferPurposeCriteria = map[string]string{
 
 // resolveTransferPurpose decides the canonical purpose for a transfer whose
 // source and destination Go has already resolved. It is deliberately the LAST
-// step of the permitted flow (PRD §13): Go's deterministic account and
+// step of the permitted flow: Go's deterministic account and
 // reconciliation rules run first, and only an unresolved purpose reaches the
 // bounded judgment plane.
 //

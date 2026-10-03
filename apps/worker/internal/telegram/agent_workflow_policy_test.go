@@ -225,7 +225,7 @@ func TestCycleResidualToolUsesWealthHintsNotUUIDs(t *testing.T) {
 	}
 }
 
-// PRD §26 / completion criterion 15: the bounded generative tools for
+// The bounded generative tools for
 // server-owned workflows are fallback-only. When the judgment plane is
 // configured, tryJudgmentBoundWorkflow consumes these turns before the
 // generative loop runs, so the generative tool definition is never reached.

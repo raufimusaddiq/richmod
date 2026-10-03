@@ -315,7 +315,7 @@ func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType stri
 }
 
 // projectDocumentReview gives a document/proposal review the same Telegram
-// projection as a transaction review (UIR-02), routed to the Telegram chat that
+// projection as a transaction review, routed to the Telegram chat that
 // sent the source image when one exists. Non-Telegram sources keep the Inbox-only
 // behavior because there is no originating chat to bind a reply to.
 func (p *Processor) projectDocumentReview(ctx context.Context, tx pgx.Tx, householdID, sourceID, reviewItemID string) error {

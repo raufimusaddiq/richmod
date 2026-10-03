@@ -19,7 +19,7 @@ var (
 
 // enqueueEvidenceNotice queues one short "recorded" message for a document that
 // resolved without a human, so a reply to it binds back to that document
-// (CEU-02, ADR-050).
+// (ADR-050).
 //
 // It runs in the same transaction as the mutation it announces, so the notice
 // exists exactly when the result does. It goes to the chat the upload came from,

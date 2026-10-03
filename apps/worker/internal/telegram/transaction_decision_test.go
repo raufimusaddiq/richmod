@@ -88,8 +88,7 @@ func TestUndecidedAmbiguityDoesNotAuthorizeConfirmation(t *testing.T) {
 }
 
 // The harvested fast path must ask for route, period, and the transaction
-// sub-bundle in ONE request (PRD §10) and must reuse already-loaded categories
-// (PRD §11).
+// sub-bundle in ONE request and must reuse already-loaded categories.
 func TestInitialJudgmentRequestBundlesSpeculativeTransaction(t *testing.T) {
 	processor := &Processor{}
 	candidate, ok := harvestSimpleTransaction("catat makan siang 50rb hari ini")
@@ -145,7 +144,7 @@ func TestHarvestingIsSuppressedForServerBoundTurns(t *testing.T) {
 }
 
 // When the judgment plane is unavailable the conversational surface must lose
-// every mutation tool while keeping the deterministic READ tools (PRD §8).
+// every mutation tool while keeping the deterministic READ tools.
 func TestDegradedToolSurfaceHasNoMutationAuthority(t *testing.T) {
 	tools := agentFinanceTools([]string{"dining"}, false, true, true, "TRANSFER_CLASSIFICATION", true, true, "TRANSFER_CLASSIFICATION", false)
 	for _, tool := range tools {
@@ -207,7 +206,7 @@ func (s *stubPurposeEngine) Evaluate(_ context.Context, _ string, request judgme
 
 // The canonical transfer purpose must come from the bounded decision, never from
 // the tool contract, and an unclear answer must fail closed instead of picking a
-// purpose (PRD §13/§14).
+// purpose.
 func TestTransferPurposeComesFromJudgmentNotToolArguments(t *testing.T) {
 	engine := &stubPurposeEngine{choice: "INVESTMENT_CONTRIBUTION"}
 	processor := &Processor{judgment: engine}

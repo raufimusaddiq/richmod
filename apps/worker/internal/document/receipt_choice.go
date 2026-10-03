@@ -11,7 +11,7 @@ import (
 )
 
 // ReceiptCategoryPolicyVersion marks the bar behind a receipt category rescue, so
-// a stored decision stays reproducible (PRD §21). It reuses the same decisive
+// a stored decision stays reproducible. It reuses the same decisive
 // answer policy as the screenshot row rescue and the Telegram category rescue.
 const ReceiptCategoryPolicyVersion = "2026-09-receipt-category1"
 
@@ -33,7 +33,7 @@ type receiptCategoryProvenance struct {
 // receipt whose only unresolved fact is the category. It returns the matched
 // category ID only for a decisive, well-separated answer; anything undecided or
 // a provider failure returns nil so the receipt keeps its category-only review
-// (PRD §9, BDR-001 IR-05). A missing date is never a rescue input.
+// (BDR-001). A missing date is never a rescue input.
 func (p *Processor) receiptCategoryRescue(ctx context.Context, sourceEventID string, value receiptExtraction, categories []categoryOption) (string, receiptCategoryProvenance) {
 	if p.verifier == nil || len(categories) < 2 {
 		return "", receiptCategoryProvenance{}
@@ -59,7 +59,7 @@ func (p *Processor) receiptCategoryRescue(ctx context.Context, sourceEventID str
 		}
 	}
 	// Category is the single open semantic dimension; this phase does not
-	// re-decide an already accepted category (SAVR closure UISC-02B).
+	// re-decide an already accepted category.
 	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", ReceiptCategoryPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-receipt-category", judgment.Request{State: state, Questions: map[string]judgment.Question{
 		"category": {Type: "choice", Instructions: "Which single household category best describes this receipt expense? Answer with the closest supplied category slug, or OTHER_OR_UNCLEAR when no category is safe.", Criteria: criteria},

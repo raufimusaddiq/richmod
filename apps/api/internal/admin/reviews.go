@@ -9,13 +9,13 @@ import (
 )
 
 // ReviewOpsSummary, ReviewOpsBreakdown, and ReviewOpsProjections are the
-// read-only Super Admin aggregates for rollout health (UIR-09). They answer the
+// read-only Super Admin aggregates for rollout health. They answer the
 // rollout/DoD questions from the Admin surface instead of manual SQL. Nothing
 // here returns financial evidence: amounts, merchants, counterparties, email
 // bodies, document content, and prompt text are never selected.
 
 // telegramCapabilitySQL reports whether a stored ReviewDecision's ordinary
-// allowed_actions are all completable from Telegram (UIRC-04, PRD 7.3). It
+// allowed_actions are all completable from Telegram. It
 // mirrors the action-level gate in the worker, so a delivered card whose only
 // button lives on Web is not counted as actionable coverage.
 const telegramCapabilitySQL = `jsonb_path_exists(ri.decision,'$.allowedActions[*]') AND NOT EXISTS (
@@ -26,7 +26,7 @@ const telegramCapabilitySQL = `jsonb_path_exists(ri.decision,'$.allowedActions[*
 // webEscapeByTypeSQL counts Web resolutions of reviews that also had a Telegram
 // path and whose ordinary actions could not all be completed in Telegram. A
 // review that was fully Telegram-capable and was still resolved on Web is a
-// voluntary switch, not a mandatory escape (PRD 7.2).
+// voluntary switch, not a mandatory escape.
 var webEscapeByTypeSQL = `SELECT count(*) FROM review_item ri
 	LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true
 	WHERE ri.review_type=$2 AND ri.resolved_at>=$1 AND s.surface='USER'
@@ -99,7 +99,7 @@ func (h *Handler) ReviewOpsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	// Resolution surface comes from the canonical audit row the surface wrote,
 	// never from the resolver's Telegram identity: one person may resolve from
-	// either channel (UIRC-04). Latency still uses the canonical review window.
+	// either channel. Latency still uses the canonical review window.
 	if err := h.pool.QueryRow(ctx, `SELECT count(DISTINCT ri.id) FILTER(WHERE s.surface='TELEGRAM'),count(DISTINCT ri.id) FILTER(WHERE s.surface='USER'),count(DISTINCT ri.id) FILTER(WHERE s.surface='SYSTEM'),percentile_cont(.5) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL),percentile_cont(.95) within group(order by extract(epoch FROM ri.resolved_at-ri.created_at)*1000) FILTER(WHERE ri.resolved_at IS NOT NULL) FROM review_item ri LEFT JOIN LATERAL (SELECT a.actor_type AS surface FROM audit_log a WHERE a.action IN ('RESOLVE_REVIEW','CLASSIFY_TRANSFER','RECONCILE_TELEGRAM_TRANSFER') AND a.entity_id IN (ri.id,ri.transaction_id,ri.source_event_id) ORDER BY a.created_at DESC LIMIT 1) s ON true WHERE ri.resolved_at>=$1`, start).Scan(&out.ResolvedByTelegram, &out.ResolvedByWeb, &out.ResolvedBySystem, &out.ResolutionLatencyP50Ms, &out.ResolutionLatencyP95Ms); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
