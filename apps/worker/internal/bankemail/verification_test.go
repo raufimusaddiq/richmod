@@ -59,7 +59,7 @@ func testExtraction() Extraction {
 
 // 1) An undecided QR-vs-debit/merchant payment mechanism is evidence metadata,
 // not a required human fact, so it must not create a review: the material
-// predicates only concern the transaction itself (SAVR-06).
+// predicates only concern the transaction itself.
 func TestUndecidedPaymentMechanismDoesNotCreateReview(t *testing.T) {
 	// The extraction channel is irrelevant to the bounded ruling: the verifier
 	// answers the same bundle for every mechanism, so an uncertain QR-vs-debit
@@ -110,7 +110,7 @@ func TestAmountConflictStillBlocks(t *testing.T) {
 		t.Fatal("an amount conflict must block confirmation")
 	}
 	// The disputed amount is evidence-supported but contested, so it must not
-	// surface as a known fact the Web card would prefill (SAVR-06, Hermes round 5).
+	// surface as a known fact the Web card would prefill.
 	decision := verificationReviewDecision("household", "source", testExtraction(), verification, "amount_idr", true)
 	if _, known := decision.KnownFacts["amount_idr"]; known {
 		t.Fatalf("a conflicted amount must not stay a known fact: %+v", decision.KnownFacts)
@@ -146,7 +146,7 @@ func TestMaterialResidualKeepsKnownFacts(t *testing.T) {
 
 // An undecided material predicate is a missing fact, not a conflict: nothing
 // disagreed, the plane just could not decide, so the review must request the
-// fact rather than claim an independent-evidence conflict (SAVR-06).
+// fact rather than claim an independent-evidence conflict.
 func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 	verification := EvidenceVerification{
 		TransactionObserved: true, DirectionSupported: true, SemanticGrounded: true,
@@ -180,7 +180,7 @@ func TestNonMaterialMetadataAddsNoExtraPass(t *testing.T) {
 }
 
 // The whole point of the bundle: a fully supported ruling is accepted even when
-// the extractor's own confidence is far below the legacy 0.80 gate (PRD §20).
+// the extractor's own confidence is far below the legacy 0.80 gate.
 func TestEvidenceVerificationSupportsLowExtractorConfidence(t *testing.T) {
 	verifier := &stubVerifier{answers: supportedRuling()}
 	processor := &Processor{verifier: verifier}

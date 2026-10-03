@@ -216,9 +216,6 @@ test("data marks are neutral or chart-coloured; decreases are hatched, never ano
   assert.doesNotMatch(styles, /\.comparison-track i[^{]*\{[^}]*var\(--accent\)/, "baseline bars are data, not interaction");
   assert.doesNotMatch(styles, /i\[data-negative\] \{ background: var\(--expense\)/, "a decrease is not a good/bad hue");
   assert.match(styles, /i\[data-negative\] \{ background: repeating-linear-gradient/, "a decrease is a hatched neutral bar");
-  assert.match(styles, /\.change-ranking > li\[data-selected="true"\] \{ background: var\(--butter\); \}/, "selection is butter, as in the ledger");
-  assert.doesNotMatch(styles, /Tabel lengkap · geser/, "no permanent scroll caption on tables that do not scroll");
-  assert.match(styles, /background-attachment: local, local, scroll, scroll/, "scroll shadows appear only while a table overflows");
   assert.match(text("app/components/Charts.js"), /dataKey="amountValue" fill="var\(--chart-category-2\)"/, "chart colour comes from the chart ramp");
   const page = tree("app/analytics");
   assert.match(page, /Total sampai hari ini<\/th>/, "the pace chart has a table equivalent");
@@ -235,16 +232,13 @@ test("the analytics page is a composition shell over named modules", () => {
   assert.doesNotMatch(text("app/analytics/page.js"), /function (CyclePosition|ChangesTable|CalendarReview|MerchantTable)\b/, "section components live in their modules");
 });
 
-test("an active cycle leads with spending so far; the wide layout leaves no empty column", () => {
+test("an active cycle leads with spending so far", () => {
   const sections = text("app/analytics/CycleSections.js");
   assert.match(sections, /const active = facts\.period\.state === "ACTIVE"/);
   assert.match(sections, /<dt>Pengeluaran bersih sejauh ini<\/dt><dd>\{money\(facts\.cashflow\.expense\)\}<\/dd>/, "active cycles lead with spending");
   assert.match(sections, /<dt>Arus kas bersih<\/dt><dd>\{money\(facts\.cashflow\.netCashflow\)\}<\/dd>/, "closed cycles still lead with net cashflow");
   assert.match(sections, /Arus kas bersih sejauh ini/, "net cashflow stays visible, as a regular metric, while the cycle runs");
   for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(sections, new RegExp(`money\\(facts\\.cashflow\\.${field}\\)`), field);
-  const wide = globalCss();
-  assert.doesNotMatch(wide, /> #spending-shape \{ grid-column: 1; \}/, "no half-width column beside a collapsed section");
-  assert.doesNotMatch(wide, /> #changes \{ grid-column: 2; \}/);
 });
 
 test("UX audit fixes: toggling, one vocabulary, specific explainers, a way back, the limit up front", () => {
@@ -287,34 +281,11 @@ test("pace chart source: curves from the served series; levels only when no curv
   assert.doesNotMatch(charts, /cumulativeValue|AreaChart/, "still a separate single-purpose line chart");
 });
 
-test("the category change ratio is not shrunk below the 11px floor", () => {
-  assert.match(globalCss(), /\.change-ranking small \{ font-size: var\(--text-xs\); \}/);
-});
-
-test("mobile ribbon: whole columns beside the label, snapping, the selected column starts after the label", () => {
-  const css = globalCss();
-  const component = text("app/components/CycleLedger.js");
-  assert.match(css, /\.ledger-figure \{[^}]*container-type: inline-size/, "column widths come from the figure's own width");
-  assert.match(css, /@container \(max-width: 520px\) \{[\s\S]*?--visible: 4;[\s\S]*?--shown: min\(var\(--visible\), var\(--cols, 6\)\);[\s\S]*?--col: calc\(\(100cqw - var\(--label\)\) \/ var\(--shown\)\)/, "four whole columns fit beside the label on a phone, and fewer cycles share the full width");
-  assert.match(css, /@container \(max-width: 319px\) \{ \.ledger-table \{ --visible: 3; \} \}/, "three on the narrowest screens");
-  assert.match(css, /scroll-snap-type: x mandatory; scroll-padding-inline-start: 5\.5rem/, "a column stops right after the sticky label");
-  assert.match(css, /\.ledger-table thead th:not\(:first-child\) \{ scroll-snap-align: start; \}/);
-  assert.match(css, /\.ledger-figure \{ background-image:[^}]*background-attachment: local, local, scroll, scroll; \}/, "an edge cue that appears only while the figure overflows");
-  assert.match(component, /figure\.scrollLeft = Math\.max\(0, active\.offsetLeft - \(label \? label\.offsetWidth : 0\)\)/, "the selected column starts after the label instead of being centred at an arbitrary offset");
-  assert.equal(component.split('"--cols": ledger.columns.length').length - 1, 2, "both ledger tables tell the CSS how many columns they have");
-});
-
 test("choosing a category opens its evidence without moving the reader; length and waiting are stated", () => {
   const page = text("app/analytics/page.js");
   assert.doesNotMatch(page, /if \(!selection\.category \|\| step \|\| loading\) return;/, "no effect pulls focus to the evidence after a choice");
   assert.match(page, /className="ledger-selection" role="status"/, "the choice is announced where it was made");
   assert.match(page, /onClick=\{showEvidence\}/, "moving to the evidence is an explicit request");
-  assert.match(page, /className="shape-charts"/);
-  const css = globalCss();
-  assert.match(css, /#spending-shape \{ container-type: inline-size; \}/);
-  assert.match(css, /@container \(min-width: 820px\) \{ \.shape-charts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \}/, "the two daily charts sit side by side when the section is wide");
-  assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{ \.ledger-table td\[data-selected\]/, "the selected column eases in only when motion is allowed");
-  assert.match(css, /\.shape-charts > \.cycle-pace \{ margin-top: 0; \}/, "the grid gap spaces the charts, so the pace chart does not sit lower than its neighbour");
   const insight = text("app/components/InsightCard.js");
   assert.match(insight, /tiap 5 detik hingga sekitar 7 menit/);
   assert.match(text("app/lib/insightData.js"), /attempts = 90[^]*wait\(5000, signal\)/, "the stated wait matches the polling budget: 90 x 5s");

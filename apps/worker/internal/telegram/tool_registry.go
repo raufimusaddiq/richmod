@@ -107,7 +107,7 @@ func reviewActionsForType(reviewType string) []string {
 		// The provider email did not support a required fact and no canonical
 		// transaction was written, so the only bounded action is to acknowledge it.
 		// Without this case the default offered CONFIRM, which boundedReviewAction
-		// rejects, leaving the agent lane unreachable (SAVR-06, Hermes).
+		// rejects, leaving the agent lane unreachable.
 		return []string{"IGNORE"}
 	default:
 		return []string{"CONFIRM", "IGNORE"}
@@ -364,7 +364,7 @@ func validateTypedArgs(value any) error {
 		n, ok := new(big.Int).SetString(v.Amount, 10)
 		// Purpose is deliberately absent: it is a bounded semantic Choice owned by
 		// the judgment plane, not an argument the generative model gets to assert
-		// (PRD §13). A missing destination hint is fine here because INTERNAL_TRANSFER
+		//. A missing destination hint is fine here because INTERNAL_TRANSFER
 		// legitimately has none; the purpose resolver rules on which case applies.
 		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")

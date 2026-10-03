@@ -54,7 +54,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	// An exact reply to a proposal-keyed review (payslip pay date, missing amount) is
 	// answered by the deterministic review lane, whether it replies to the card, to
-	// the document's upload, or to a bound evidence notice (CEU-06). The agent has no
+	// the document's upload, or to a bound evidence notice. The agent has no
 	// binding for those review kinds. Only exact replies take this lane: chat state
 	// alone never owns a turn, and transaction-keyed reviews stay with the agent.
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
@@ -75,13 +75,13 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
 	// The turn trace lives in the context so concurrent turns on the shared
-	// Processor cannot contaminate each other's value telemetry (PRD §23).
+	// Processor cannot contaminate each other's value telemetry.
 	ctx, trace := withTurnTrace(ctx)
 	trace.householdID = householdID
 	trace.sourceEventID = sourceEventID
 	generativeRan := false
 	defer func() {
-		// Turn-level Jev value (PRD §23): classify how this turn was resolved so
+		// Turn-level Jev value: classify how this turn was resolved so
 		// Jev-only, Jev-then-generative, and generative-only turns are countable.
 		lane := judgmentLaneGenerativeOnly
 		avoided := 0
@@ -179,8 +179,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		// Recent evidence is context only. It deliberately does not bind its open review:
 		// a no-reply review binding is route-gated, and the route that would use it
 		// (REVIEW_INTERACTION) is answered terminally by the fast path, so such a binding
-		// would never reach the model. A review is resolved by an exact reply (CEU-02,
-		// CEU-06) or by the existing deterministic reply lane.
+		// would never reach the model. A review is resolved by an exact reply or by the existing deterministic reply lane.
 		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && len(freshDocuments) > 0
 	}
 
@@ -196,7 +195,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	now := p.now().In(jakartaLocation())
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
 	// The initial bounded bundle consumes the already-loaded category set and
-	// pending-workflow state; the fast path must not re-query them (PRD §11).
+	// pending-workflow state; the fast path must not re-query them.
 	judgmentState := turnAgentContextState{
 		Categories:          categories,
 		HasPendingAction:    contextState.HasPendingAction,
@@ -226,7 +225,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// Jev owns bounded mutation authorization. A provider failure, undecided
 	// route, or out-of-scope route leaves conversation and canonical READ tools
 	// available but withholds every side effect. Exact review replies retain
-	// their server-bound decision capability (PRD #144 + SAVR §10.3).
+	// their server-bound decision capability.
 	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
 		generalTools = readOnlyAgentTools(generalTools)
 	}

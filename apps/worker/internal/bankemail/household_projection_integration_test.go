@@ -1,6 +1,6 @@
 package bankemail
 
-// UISC-01 / acceptance A1, A4: a Cloudflare-origin BANK_EMAIL review is owned by
+// A Cloudflare-origin BANK_EMAIL review is owned by
 // its household before projection, so an actionable review must reach the
 // household's eligible Telegram identity without any Telegram chat payload on
 // the source event. Source provenance is evidence only; it never decides who may

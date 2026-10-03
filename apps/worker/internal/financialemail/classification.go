@@ -11,7 +11,7 @@ import (
 // ObservationClassification is the bounded ruling over one already-extracted
 // provider-email observation. It replaces the generative self-confidence gate:
 // the extractor produces arbitrary facts, this object says whether the evidence
-// supports the semantic claims those facts depend on (PRD §21).
+// supports the semantic claims those facts depend on.
 type ObservationClassification struct {
 	ObservationType    string
 	TypeAccepted       bool
@@ -26,7 +26,7 @@ type ObservationClassification struct {
 	// unsupported case into transfer classification. Noul predicates store
 	// YES/NO/UNDECIDED; choice predicates store the accepted option label when
 	// AcceptChoice passes and UNDECIDED otherwise, so a rejected choice never reads
-	// as a passing predicate (SAVR-06).
+	// as a passing predicate.
 	ClaimOutcomes map[string]string
 	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
 	// question, which is the favourable answer. The middle band means the plane
@@ -38,7 +38,7 @@ type ObservationClassification struct {
 }
 
 // ProviderEmailClassificationPolicyVersion marks the thresholds behind these
-// rulings so a stored decision stays reproducible (PRD §18).
+// rulings so a stored decision stays reproducible.
 const ProviderEmailClassificationPolicyVersion = "2026-09-jev4"
 
 // jeverifier is the seam onto the bounded judgment plane, expressed in the terms
@@ -111,7 +111,7 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 	}
 	// This is an evidence check over extracted prose, not a re-decision of a
 	// semantic dimension, so the accepted set is explicitly empty. It must never
-	// read as a semantic re-decision (SAVR closure UISC-02B).
+	// read as a semantic re-decision.
 	ctx = judgment.WithPhaseMetadata(ctx, "EVIDENCE_SUPPORT", ProviderEmailClassificationPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, requestID, judgment.Request{State: state, Questions: questions})
 	if err != nil {
@@ -146,7 +146,7 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 			// like the booleans below and the ObservationType/MovementType fields
 			// above. Recording the raw label regardless made a rejected choice read
 			// as a passing predicate, so cashResidual() came back empty and the case
-			// fell through to a bogus transfer classification (SAVR-06, Hermes B1).
+			// fell through to a bogus transfer classification.
 			criteria, policy := observationTypeCriteria, classificationPolicy.Type
 			if key == "movement_type" {
 				criteria, policy = movementTypeCriteria, classificationPolicy.Movement
@@ -160,7 +160,7 @@ func (p *Processor) classifyObservation(ctx context.Context, requestID string, v
 		// material_ambiguity is an inverted claim read through the Ambiguity policy,
 		// so it must use that same policy here; judging it with Supported would make
 		// a noul in the (Low, High) band read as a decided negative to cashResidual
-		// while the boolean gate still treats it as undecided (SAVR-06).
+		// while the boolean gate still treats it as undecided.
 		policy := classificationPolicy.Supported
 		if key == "material_ambiguity" {
 			policy = classificationPolicy.Ambiguity
@@ -204,19 +204,19 @@ func (c ObservationClassification) eachFailedClaim(report func(fact string)) {
 	}
 }
 
-// reviewFacts returns the SAVR-06 review contract for this classification: the
+// reviewFacts returns the review contract for this classification: the
 // exact unsupported dimensions, the validator consequence that follows from
 // them, and whether a rule (rather than a predicate) ruled. Derived here so no
 // call site can hand-roll a contradicting contract.
 func (c ObservationClassification) reviewFacts(residual []string) (missing, affected []string, consequence reviewdec.Consequence, provenance map[string]any) {
 	// Only a bounded ruling that actually ran reaches here, so it may name
 	// predicate-level facts. A case with no bounded ruling never parks a facts
-	// residual: it takes the recovery lane instead (SAVR-06).
+	// residual: it takes the recovery lane instead.
 	missing = residual
 	if len(missing) == 0 {
 		// Defensive: derive the contract from the actual claim outcomes rather
 		// than fabricating a fact. A rejected observation_type must be named as
-		// such, never as generic evidence_support (SAVR-06, Hermes round 6).
+		// such, never as generic evidence_support.
 		c.eachFailedClaim(func(fact string) { missing = append(missing, fact) })
 		if len(missing) == 0 {
 			missing = []string{"evidence_support"}
@@ -241,17 +241,6 @@ func (c ObservationClassification) reviewFacts(residual []string) (missing, affe
 func (c ObservationClassification) cashAllowed() bool {
 	return c.TypeAccepted && c.ObservationType == "CASH_MOVEMENT" && c.CashSupported && c.EvidenceSufficient && c.AmbiguityDecidedNotAmbiguous &&
 		c.MovementAccepted && c.MovementType != ""
-}
-
-// wealthAllowed reports whether Go may treat this observation as a wealth value.
-func (c ObservationClassification) wealthAllowed() bool {
-	return c.TypeAccepted && c.ObservationType == "WEALTH_VALUE" && c.WealthSupported && c.EvidenceSufficient && c.AmbiguityDecidedNotAmbiguous
-}
-
-// nonActionable reports a decided NON_ACTIONABLE ruling, which is a terminal
-// no-op rather than a review.
-func (c ObservationClassification) nonActionable() bool {
-	return c.TypeAccepted && c.ObservationType == "NON_ACTIONABLE"
 }
 
 // noulSupported reports a decided, affirmative Noul answer. The middle band

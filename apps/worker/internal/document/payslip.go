@@ -315,7 +315,7 @@ func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType stri
 }
 
 // projectDocumentReview gives a document/proposal review the same Telegram
-// projection as a transaction review (UIR-02), routed to the Telegram chat that
+// projection as a transaction review, routed to the Telegram chat that
 // sent the source image when one exists. Non-Telegram sources keep the Inbox-only
 // behavior because there is no originating chat to bind a reply to.
 func (p *Processor) projectDocumentReview(ctx context.Context, tx pgx.Tx, householdID, sourceID, reviewItemID string) error {
@@ -342,4 +342,21 @@ func jakarta() *time.Location {
 		panic(err)
 	}
 	return location
+}
+
+// sanitizeEvidenceText removes control characters and caps user-provided
+// evidence so untrusted captions or filenames cannot inflate the prompt or
+// smuggle terminal control sequences.
+func sanitizeEvidenceText(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(value))
+	value = strings.Join(strings.Fields(value), " ")
+	if len([]rune(value)) <= 500 {
+		return value
+	}
+	return string([]rune(value)[:500])
 }

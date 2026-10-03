@@ -28,22 +28,13 @@ const maxImagesPerDocument = 10
 
 type Handler struct {
 	pool    *pgxpool.Pool
-	root    string
 	storage *blob.Store
 }
 type normalizedPage struct {
-	normalized                  []byte
-	mediaType                   string
-	width, height               int
-	extension, storageRef, path string
-}
-
-func NewHandler(pool *pgxpool.Pool, root string) (*Handler, error) {
-	storage, err := blob.NewLocal(root)
-	if err != nil {
-		return nil, err
-	}
-	return &Handler{pool: pool, root: filepath.Clean(root), storage: storage}, nil
+	normalized            []byte
+	mediaType             string
+	width, height         int
+	extension, storageRef string
 }
 
 func NewHandlerWithStorage(pool *pgxpool.Pool, storage *blob.Store) *Handler {
@@ -84,13 +75,13 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "total normalized document exceeds 10 MB"})
 			return
 		}
-		ref, path, storeErr := h.store(household, normalized, extension)
+		ref, storeErr := h.store(household, normalized, extension)
 		if storeErr != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to store document"})
 			return
 		}
 		combined.Write(normalized)
-		pages = append(pages, normalizedPage{normalized, mediaType, width, height, extension, ref, path})
+		pages = append(pages, normalizedPage{normalized, mediaType, width, height, extension, ref})
 	}
 	removeNew := true
 	defer func() {
@@ -230,53 +221,15 @@ func normalizeImage(raw []byte, filename string) ([]byte, string, int, int, stri
 	return output.Bytes(), mediaType, config.Width, config.Height, extension, nil
 }
 
-func (h *Handler) store(household string, content []byte, extension string) (string, string, error) {
-	if h.storage == nil {
-		storage, err := blob.NewLocal(h.root)
-		if err != nil {
-			return "", "", err
-		}
-		h.storage = storage
-	}
+func (h *Handler) store(household string, content []byte, extension string) (string, error) {
 	ref, err := h.storage.Ref(household, extension)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	if err := h.storage.Put(context.Background(), ref, content, http.DetectContentType(content)); err != nil {
-		return "", "", err
+		return "", err
 	}
-	return ref, filepath.Join(h.root, filepath.FromSlash(ref)), nil
-}
-
-func (h *Handler) persist(ctx context.Context, p auth.Principal, household string, digest, content []byte, mediaType string, width, height int, storageRef string) (string, string, error) {
-	tx, err := h.pool.Begin(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	defer tx.Rollback(ctx)
-	var sourceID string
-	if err := tx.QueryRow(ctx, `INSERT INTO source_event (household_id,source_type,received_at,payload_hash,processing_status) VALUES ($1,'WEB_IMAGE',now(),$2,'RECEIVED') RETURNING id`, household, digest).Scan(&sourceID); err != nil {
-		return "", "", err
-	}
-	metadata, _ := json.Marshal(map[string]any{"media_type": mediaType, "byte_size": len(content), "width": width, "height": height})
-	if _, err := tx.Exec(ctx, `INSERT INTO source_event_payload (source_event_id,payload_json) VALUES ($1,$2::jsonb)`, sourceID, string(metadata)); err != nil {
-		return "", "", err
-	}
-	var attachmentID, actualRef string
-	if err := tx.QueryRow(ctx, `INSERT INTO attachment (household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (household_id,content_hash) DO UPDATE SET content_hash=excluded.content_hash RETURNING id,storage_ref`, household, digest, mediaType, len(content), width, height, storageRef).Scan(&attachmentID, &actualRef); err != nil {
-		return "", "", err
-	}
-	var documentID string
-	if err := tx.QueryRow(ctx, `INSERT INTO document (household_id,source_event_id,attachment_id,status) VALUES ($1,$2,$3,'RECEIVED') RETURNING id`, household, sourceID, attachmentID).Scan(&documentID); err != nil {
-		return "", "", err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_DOCUMENT',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
-		return "", "", err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES ($1,'USER',$2,'UPLOAD_DOCUMENT','source_event',$3,jsonb_build_object('document_id',$4::uuid,'media_type',$5::text,'byte_size',$6::bigint))`, household, p.UserID, sourceID, documentID, mediaType, len(content)); err != nil {
-		return "", "", err
-	}
-	return documentID, actualRef, tx.Commit(ctx)
+	return ref, nil
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -400,14 +353,6 @@ func (h *Handler) PageContent(w http.ResponseWriter, r *http.Request) {
 	} else if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to load document"})
 		return
-	}
-	if h.storage == nil {
-		storage, storageErr := blob.NewLocal(h.root)
-		if storageErr != nil {
-			writeJSON(w, 500, map[string]string{"error": "document content unavailable"})
-			return
-		}
-		h.storage = storage
 	}
 	location, remote, err := h.storage.PresignedGet(r.Context(), ref, media)
 	if err != nil {

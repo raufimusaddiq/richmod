@@ -8,8 +8,8 @@ import (
 )
 
 // Recency policy for evidence a message is not explicitly replying to (ADR-050
-// binding levels 4-6). The windows live here and nowhere else; CEU-07 tunes them
-// from the binding-level counters.
+// binding levels 4-6). The windows live here and nowhere else; tune them from the
+// binding-level counters.
 const (
 	// immediateEvidenceWindow is how recent evidence must be to count as "the one
 	// just sent".
@@ -73,26 +73,6 @@ func (p *Processor) recentEvidenceContext(ctx context.Context, householdID, sour
 		return nil, nil
 	}
 	return evidence, ambiguous
-}
-
-// bindRecentEvidence is the no-reply, no-workflow binding. It never chooses among
-// evidence: it binds only when exactly one candidate qualifies, and otherwise it
-// hands the model the bounded candidate set with an explicit ambiguity flag so the
-// answer is one clarification question, not a guess.
-//
-//	exactly one candidate in the immediate window            -> bound IMMEDIATE
-//	none in the immediate window, exactly one in the hour    -> bound RECENT
-//	two or more candidates and no single qualifying one      -> ambiguous
-//
-// Binding here is context, not authority: it does not change the tool catalog.
-// Only an exact reply narrows tools (CEU-02), because an inferred binding must
-// not own a turn the route says is something else.
-func (p *Processor) bindRecentEvidence(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (*agentEvidenceBinding, []map[string]any, error) {
-	candidates, err := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
-	if err != nil {
-		return nil, nil, err
-	}
-	return p.bindRecentEvidenceFrom(ctx, householdID, sourceEventID, update, candidates)
 }
 
 // bindRecentEvidenceFrom applies the binding rules to candidates the caller already

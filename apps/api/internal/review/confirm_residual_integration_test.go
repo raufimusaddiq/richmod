@@ -15,7 +15,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
 
-// IR-02 accepts the partial supply of a compound stored residual only once both
+// Confirmation accepts the partial supply of a compound stored residual only once both
 // dimensions are present, and the canonical transaction stays NEEDS_REVIEW until
 // then. This is the API path a legacy or stale card would use, so it must be
 // proven at the handler boundary rather than through the blocker helper alone.

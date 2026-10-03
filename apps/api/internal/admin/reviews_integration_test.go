@@ -46,7 +46,7 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&openItem))
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3) RETURNING id`, householdID, sourceID, userID).Scan(&resolvedItem))
 	// The resolution surface is recorded by the surface's own audit row: the
-	// Telegram resolve records actor_type TELEGRAM (UIRC-04).
+	// Telegram resolve records actor_type TELEGRAM.
 	mustExec(pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'RESOLVE_REVIEW','review_item',$3)`, householdID, userID, resolvedItem))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, openItem, householdID).Scan(&openRequest))
 	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,99)`, openRequest, chatID))
@@ -99,7 +99,7 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	if summary.StaleActionAttempts < 1 {
 		t.Fatalf("stale actions not counted: %+v", summary)
 	}
-	// UIRC-04: the surface split is asserted against this fixture's own items in
+	// The surface split is asserted against this fixture's own items in
 	// TestReviewOpsSurfaceComesFromTheSharedResolver, which resolves through the
 	// real shared operations. The aggregate totals below are household-wide, so a
 	// shared test database can already contain both surfaces.
@@ -147,7 +147,7 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 
 // createResolvedReviewForSurface seeds one resolved review_item plus the audit
 // row that records which surface resolved it, which is the canonical source the
-// Admin aggregates read (UIRC-04).
+// Admin aggregates read.
 func createResolvedReviewForSurface(t *testing.T, pool *pgxpool.Pool, householdID, sourceID, userID, surface string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -185,7 +185,7 @@ func seedReviewOpsHousehold(t *testing.T, pool *pgxpool.Pool, stamp int64) (admi
 	return adminID, observerID, householdID, chatID
 }
 
-// TestReviewOpsSurfaceComesFromTheSharedResolver proves the UIRC-04 surface is
+// TestReviewOpsSurfaceComesFromTheSharedResolver proves the review-ops surface is
 // written by the resolution itself. The earlier fixture seeded audit rows by
 // hand, so the metric would have looked correct even if no production path wrote
 // the row the aggregate reads. This routes a real financial-email resolution
@@ -274,7 +274,7 @@ func TestReviewOpsSurfaceComesFromTheSharedResolver(t *testing.T) {
 	}
 }
 
-// TestReviewOpsTARCAndWebEscapeUseCompletionCapability pins the two UIRC-04
+// TestReviewOpsTARCAndWebEscapeUseCompletionCapability pins the two review-ops
 // metric definitions: a delivered card whose current decision has an action with
 // no Telegram lane does not increase TARC, and a fully Telegram-capable review
 // voluntarily finished on Web is not a mandatory Web escape.

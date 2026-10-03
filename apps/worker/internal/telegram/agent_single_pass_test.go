@@ -25,7 +25,7 @@ func newRecordState(text string) *agentState {
 }
 
 // A complete constrained extraction is accepted directly: no Jev call, no
-// generative replay. This is the IR-04 budget the old path always violated.
+// generative replay. This is the one-generative-call budget.
 func TestDirectAcceptanceNeedsNoJudgmentCall(t *testing.T) {
 	engine := &stubJudgmentEngine{err: errors.New("must not be called")}
 	processor := &Processor{judgment: engine}
@@ -113,7 +113,7 @@ func TestRecordTransactionRequiresMutationRoute(t *testing.T) {
 	}
 }
 
-// IR-10 rollback: disabling post-generative direct acceptance parks a complete
+// Rollback: disabling post-generative direct acceptance parks a complete
 // extraction in review without Jev replay and without losing the extracted facts.
 func TestPostGenerativeAutoConfirmSwitchParksReview(t *testing.T) {
 	engine := &stubJudgmentEngine{err: errors.New("rollback must not call Jev")}

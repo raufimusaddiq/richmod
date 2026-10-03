@@ -101,7 +101,7 @@ func TestImageReplayCreatesOneTelegramImageJob(t *testing.T) {
 	if sourceType != "TELEGRAM_IMAGE" || jobType != "FETCH_TELEGRAM_IMAGE" || jobs != 1 {
 		t.Fatalf("source=%s job=%s count=%d", sourceType, jobType, jobs)
 	}
-	// CEU-02: the upload records its chat and message id, so a reply to it binds.
+	// The upload records its chat and message id, so a reply to it binds.
 	var chatID, messageID int64
 	if err = pool.QueryRow(ctx, `SELECT telegram_chat_id,telegram_message_id FROM source_event WHERE household_id=$1 AND external_id=$2`, householdID, fmt.Sprintf("telegram:update:%d", stamp)).Scan(&chatID, &messageID); err != nil {
 		t.Fatal(err)

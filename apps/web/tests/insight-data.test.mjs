@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { completenessLabel, insightPeriod, insightQuality, pollInsight, selectCycleInsight } from "../app/lib/insightData.js";
-
-test("completeness labels use Indonesian thresholds", () => {
-  assert.equal(completenessLabel("0.96"), "Tinggi");
-  assert.equal(completenessLabel("0.82"), "Cukup");
-  assert.equal(completenessLabel("0.64"), "Perlu dilengkapi");
-});
+import { insightPeriod, pollInsight, selectCycleInsight } from "../app/lib/insightData.js";
 
 test("cycle insight matches active cycle, not array position", () => {
   const insight = selectCycleInsight([
@@ -40,10 +34,6 @@ test("active commentary retains a dated earlier snapshot, never future or malfor
   }
   assert.equal(selectCycleInsight([{ ...old, historical: true }], cycle), null);
   assert.equal(selectCycleInsight([{ ...old, metrics: { ...old.metrics, period_start: "2026-08-25" } }], cycle), null);
-});
-
-test("insight quality accepts API strings", () => {
-  assert.deepEqual(insightQuality({ dataCompleteness: "0.96" }), { value: 0.96, label: "Tinggi" });
 });
 
 test("closed-cycle commentary shares cycle binding but excludes historical advice", () => {

@@ -155,7 +155,7 @@ func (g *degradedChatGateway) AgentTurn(_ context.Context, _ string, request gat
 }
 
 // A Jev route failure keeps ordinary conversation available but grants no
-// mutation capability and creates no fake household review (SAVR §10.3).
+// mutation capability and creates no fake household review.
 func TestJevFailureChatWorksButMutationCapabilityIsWithheld(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -241,7 +241,7 @@ func (prdUnclearReviewActionJudgment) Evaluate(_ context.Context, _ string, requ
 	}}, nil
 }
 
-func TestPRDTelegramT4ToT6RoutesReachTheirAgentTools(t *testing.T) {
+func TestTelegramT4ToT6RoutesReachTheirAgentTools(t *testing.T) {
 	for _, test := range []struct {
 		route string
 		want  []string
@@ -279,7 +279,7 @@ func TestPRDTelegramT4ToT6RoutesReachTheirAgentTools(t *testing.T) {
 	}
 }
 
-func TestPRDTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing.T) {
+func TestTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -335,7 +335,7 @@ func runIR04ComplexTransaction(t *testing.T, categorySlug string, wantJevCalls i
 		t.Fatal(err)
 	}
 	if jev.calls != wantJevCalls || agent.calls != 1 {
-		t.Fatalf("IR-04 call budget: Jev=%d (want %d), generative=%d (want 1)", jev.calls, wantJevCalls, agent.calls)
+		t.Fatalf("call budget: Jev=%d (want %d), generative=%d (want 1)", jev.calls, wantJevCalls, agent.calls)
 	}
 	if wantJevCalls == 2 {
 		if len(jev.questionSets[1]) != 1 {
@@ -357,17 +357,17 @@ func runIR04ComplexTransaction(t *testing.T, categorySlug string, wantJevCalls i
 	}
 }
 
-func TestIR04ComplexClearExtractionSkipsSemanticReplay(t *testing.T) {
+func TestTelegramComplexClearExtractionSkipsSemanticReplay(t *testing.T) {
 	runIR04ComplexTransaction(t, "food-drink", 1, string(judgmentLaneJevThenGenerative), nil)
 }
 
-func TestIR04CategoryResidualUsesOneCategoryOnlyRescue(t *testing.T) {
+func TestTelegramCategoryResidualUsesOneCategoryOnlyRescue(t *testing.T) {
 	runIR04ComplexTransaction(t, "", 2, string(judgmentLaneResidualJev), []string{"category"})
 }
 
-// PRD §8.1: a simple harvestable transaction is fully decided inside the one
+// A simple harvestable transaction is fully decided inside the one
 // initial Jev route+bundle call. Any generative turn here is a call-budget bug.
-func TestIR04SimpleHarvestableTransactionUsesNoGenerativeCall(t *testing.T) {
+func TestTelegramSimpleHarvestableTransactionUsesNoGenerativeCall(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -400,8 +400,8 @@ func TestIR04SimpleHarvestableTransactionUsesNoGenerativeCall(t *testing.T) {
 	}
 }
 
-// PRD §24 T2: a real open review must survive a new expense in the same chat.
-func TestPRDTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
+// A real open review must survive a new expense in the same chat.
+func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -431,8 +431,8 @@ func TestPRDTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	}
 }
 
-// PRD §24 T3: an exact reply to a category review resolves that review only.
-func TestPRDTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
+// An exact reply to a category review resolves that review only.
+func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")

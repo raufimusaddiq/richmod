@@ -9,14 +9,14 @@ import (
 )
 
 // ReconciliationPolicyVersion marks the thresholds behind the same-event ruling
-// so a stored decision stays reproducible (PRD §18).
+// so a stored decision stays reproducible.
 const ReconciliationPolicyVersion = "2026-09-jev2"
 
 // sameEventAnswer is the bounded ruling over one already-narrowed candidate set:
 // does the provider email describe the same real event as the ledger row Go
 // already found? Go owns the narrowing (household, account, amount, direction,
 // 24h window); Jev only rules on the survivors, and never searches the ledger or
-// sees a hidden ID (PRD §20).
+// sees a hidden ID.
 type sameEventAnswer struct {
 	SameEvent bool
 	Model     string

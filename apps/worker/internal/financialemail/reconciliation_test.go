@@ -8,7 +8,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// TestReconcileSemanticallyOnlyAcceptsAnAffirmativeHighNoul is the PRD §20
+// TestReconcileSemanticallyOnlyAcceptsAnAffirmativeHighNoul is the
 // invariant: Go narrows candidates deterministically, and the bounded plane may
 // reuse a surviving ledger row only on an affirmative yes. An undecided middle
 // band must keep the case in Review, because reusing the wrong row silently

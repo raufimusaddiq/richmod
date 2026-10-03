@@ -1,7 +1,7 @@
 import { money } from "../../lib/format";
 
-// PRD §12: an entity that is already resolved is shown as known and is never
-// requested again; only the unresolved dimension is asked for (PRD §13.4).
+// An entity that is already resolved is shown as known and is never
+// requested again; only the unresolved dimension is asked for.
 export default function FinancialEmailResolutionCard({ item, accounts, wealthAccounts, disabled, resolve }) {
   const missing = item.missingFacts;
   // A review stored before the decision contract existed has no missingFacts;
@@ -10,7 +10,7 @@ export default function FinancialEmailResolutionCard({ item, accounts, wealthAcc
   const needsWealth = !missing || missing.includes("wealth_account") || missing.includes("wealthAccount");
   // The server surfaces what this review already resolved; read it from the item
   // root only. A second copy inside `decision` would be a second source of truth
-  // for the same fact (PRD §3.3: never ask again what the system already knows).
+  // for the same fact (never ask again what the system already knows).
   const resolvedAccountId = item.resolvedAccountId || '';
   const resolvedWealthAccountId = item.resolvedWealthAccountId || '';
   const knownAccount = needsAccount ? null : accounts.find(account => account.id === resolvedAccountId);

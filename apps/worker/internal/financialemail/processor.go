@@ -26,7 +26,7 @@ type Processor struct {
 	gateway Gateway
 	// verifier scores extracted observations against the source email through the
 	// bounded judgment plane, replacing generative self-confidence as the policy
-	// gate (PRD §21). Nil keeps the deterministic checks only.
+	// gate. Nil keeps the deterministic checks only.
 	verifier jeverifier
 }
 type Payload struct {
@@ -262,7 +262,7 @@ func (p *Processor) review(ctx context.Context, tx pgx.Tx, household, source, id
 
 // evidenceReview parks a cash case whose bounded evidence claims failed, naming
 // only the unsupported dimensions instead of reusing the human
-// transfer-relationship choice (SAVR-06).
+// transfer-relationship choice.
 func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, source, id string, observation observation, classification ObservationClassification) error {
 	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='REVIEW' WHERE id=$1`, id); err != nil {
 		return err
@@ -286,13 +286,12 @@ func (p *Processor) evidenceReview(ctx context.Context, tx pgx.Tx, household, so
 		accepted = append(accepted, "movement_type")
 	}
 	// Only independently accepted bounded classifications qualify; raw
-	// extracted values are not accepted facts (SAVR closure UISC-02A).
+	// extracted values are not accepted facts.
 	decision.Provenance["accepted_dimensions_at_validation"] = accepted
 	// A residual on `evidence_support` means the email does not fully support
 	// exactly these extracted value facts, so they must not render as recorded
 	// data (Web shows knownFacts as "Tercatat"). Carry them as proposed instead —
-	// the same known→proposed rule the bank lane uses for a disputed value
-	// (SAVR-06, Hermes round 6).
+	// the same known→proposed rule the bank lane uses for a disputed value.
 	valuesUnsupported := containsString(missing, "evidence_support")
 	declare := func(key, value string) {
 		if value == "" {
@@ -360,7 +359,7 @@ func (p *Processor) wealthReview(ctx context.Context, tx pgx.Tx, household, id, 
 	if v.ObservedDate != nil {
 		// An unreadable printed date must not discard the observed value: keep the
 		// wealth observation with a null date so the household can still bind the
-		// account and confirm the value (SAVR-06).
+		// account and confirm the value.
 		if d, err := time.Parse("2006-01-02", value(v.ObservedDate)); err == nil {
 			date = d
 		}
@@ -422,8 +421,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 		// A structurally incomplete observation cannot be adjudicated and Go
 		// cannot prove a single predicate about it, so park the recovery lane that
 		// lets the household supply the missing amount/relationship. That is the
-		// one residual a human can actually fix, unlike an IGNORE-only facts card
-		// (SAVR-06, Hermes recovery finding).
+		// one residual a human can actually fix, unlike an IGNORE-only facts card.
 		plan.review = "TRANSFER_CLASSIFICATION"
 		return plan, nil
 	}
@@ -441,7 +439,7 @@ func (p *Processor) planCash(ctx context.Context, tx pgx.Tx, household, financia
 		// evidence residual (its facts are cash-evidence dimensions). A ruling of
 		// WEALTH_VALUE/NON_ACTIONABLE on a cash observation is a classification the
 		// household can act on, so it takes the recovery lane rather than an
-		// IGNORE-only card (SAVR-06, Hermes round 5).
+		// IGNORE-only card.
 		if !classification.TypeAccepted || classification.ObservationType != "CASH_MOVEMENT" {
 			plan.review = "TRANSFER_CLASSIFICATION"
 			return plan, nil
@@ -691,7 +689,7 @@ func (p *Processor) conflictingReferenceReview(ctx context.Context, tx pgx.Tx, h
 }
 
 // resolutionReview parks a Financial Email whose entities Go could not fully
-// resolve (PRD 12/37, 7). It persists which entity the evidence already resolved
+// resolve. It persists which entity the evidence already resolved
 // on the observation -- the columns are the single source of truth the list API
 // and the resolver agree on -- and records only the unresolved dimension as
 // missing, so the Inbox asks for the one fact still open (13.4, 20.1).
@@ -749,7 +747,7 @@ func (p *Processor) reconcileReview(ctx context.Context, tx pgx.Tx, household, s
 }
 
 // insertReviewDecision writes an observation-scoped review together with its
-// canonical ReviewDecision contract (PRD 7, 37), so the Inbox can always
+// canonical ReviewDecision contract, so the Inbox can always
 // explain why the household's input is required. Idempotent on an open review.
 func (p *Processor) insertReviewDecision(ctx context.Context, tx pgx.Tx, household, observation, reason string) error {
 	decision, ok := reviewdec.Preset(reason, "financial_email_observation", observation)
@@ -764,7 +762,7 @@ func (p *Processor) insertReviewDecision(ctx context.Context, tx pgx.Tx, househo
 }
 
 // projectObservationReview writes the observation-scoped review item if no open
-// one exists and then gives it the shared Telegram projection (UIR-02), so a
+// one exists and then gives it the shared Telegram projection, so a
 // financial-email decision can finish in chat instead of only in the Inbox.
 func (p *Processor) projectObservationReview(ctx context.Context, tx pgx.Tx, household, observation, reason, decision string) error {
 	var itemID string

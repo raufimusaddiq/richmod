@@ -1,4 +1,4 @@
-// Bank fact completion (UIR-10). A bank email whose bounded verification could
+// Bank fact completion. A bank email whose bounded verification could
 // not confirm the extracted transaction semantics becomes a source-event review
 // (UNKNOWN_BANK_TEMPLATE). Web queues COMPLETE_BANK_REVIEW; this operation owns
 // the same account/household validation, missing-entity linkage, source refresh,

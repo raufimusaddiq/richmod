@@ -104,12 +104,6 @@ func TestReceiptValidationIssuesMapFieldCodes(t *testing.T) {
 	}
 }
 
-func TestRepairIsBoundedToOneAttempt(t *testing.T) {
-	if maxRepairAttempts != 1 {
-		t.Fatal("repair must stay bounded to one attempt")
-	}
-}
-
 func TestRepairIssueFieldsMapToTopLevelAllowlist(t *testing.T) {
 	for _, test := range []struct{ doc, issue, want string }{
 		{"RECEIPT", "items[2].amount", "items"},

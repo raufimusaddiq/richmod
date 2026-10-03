@@ -59,7 +59,7 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 			if status != "OPEN" {
 				t.Fatalf("status=%q; want OPEN", status)
 			}
-			// The PRD §7 contract must be stored so the Inbox can explain the review
+			// The ReviewDecision contract must be stored so the Inbox can explain the review
 			// without re-deriving it. Decision class, reason, and a why-not-auto-confirm
 			// reason are the minimum a client needs.
 			var decision reviewdec.Decision
@@ -82,8 +82,8 @@ func TestReviewIncompleteExtractionRecordsTheRealReason(t *testing.T) {
 
 // A verified-but-unsupported ruling must leave its audit row behind. That row is
 // the only record of what the plane actually claimed for exactly the case the
-// review path parks (every SAVR-06 bank residual), so persistence must run
-// before the review branch returns (SAVR-06, Hermes round 4).
+// review path parks (every bank residual), so persistence must run
+// before the review branch returns.
 func TestBankEvidenceVerificationIsPersistedForAnUnsupportedRuling(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

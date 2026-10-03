@@ -36,8 +36,8 @@
   .compact-table .transaction-state { justify-self: end; grid-column: 2; grid-row: 2; }
   .compact-table .transaction-state small { display: none; }
   .compact-table .transaction-amount { grid-column: 2; grid-row: 1; }
-  .analytics-detail-layout, .admin-grid { grid-template-columns: minmax(0, 1fr); }
-  .admin-metrics, .analytics-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-grid { grid-template-columns: minmax(0, 1fr); }
+  .admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
   .admin-metric:nth-child(-n + 2) { border-top: 0; }
   .admin-metric:nth-child(2n + 1) { border-left: 0; }
@@ -88,7 +88,7 @@
   .overview-lower { grid-template-columns: minmax(0, 1fr); }
   .review-alert { grid-template-columns: 22px minmax(0, 1fr); }
   .review-alert strong { grid-column: 2; }
-  .overview-trend, .overview-categories, .overview-activity, .overview-wealth, .analytics-chart, .analytics-category-panel, .analytics-ranked-card, .ledger-panel, .panel, .settings-section, .admin-panel { padding: 17px; }
+  .overview-trend, .overview-categories, .overview-activity, .overview-wealth, .analytics-chart, .ledger-panel, .panel, .settings-section, .admin-panel { padding: 17px; }
   .analytics-flow { gap: 14px; }
   .range-controls { display: grid; width: 100%; overflow: visible; }
   .range-control-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -114,11 +114,10 @@
   .action-card { align-items: stretch; flex-direction: column; padding: 18px; }
   .action-buttons { justify-content: stretch; }
   .action-buttons > * { flex: 1; }
-  .member-list article, .settings-list article, .integration-grid article { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 9px; }
-  .member-list .member-actions { grid-column: auto; justify-self: start; }
+  .settings-list article, .integration-grid article { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 9px; }
   .integration-grid article { grid-template-columns: 12px minmax(0, 1fr); }
   .integration-actions, .integration-grid article > .button { grid-column: 2; justify-self: start; }
-  .member-actions, .row-actions { justify-content: flex-start; }
+  .row-actions { justify-content: flex-start; }
   .filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-bar > * { min-width: 0 !important; width: 100% !important; }
   .filter-bar button { grid-column: 1 / -1; }
@@ -126,7 +125,7 @@
   .detail-drawer dl { grid-template-columns: minmax(0, 1fr); }
   .detail-drawer dl > div:nth-last-child(-n + 2) { border-bottom: 1px solid var(--line); }
   .detail-drawer dl > div:last-child { border-bottom: 0; }
-  .dialog-actions > *, .review-actions > *, .member-actions > *, .invite-actions > * { flex: 1 1 130px; }
+  .dialog-actions > *, .review-actions > *, .invite-actions > * { flex: 1 1 130px; }
   .public-legal { padding: 16px 12px; }
   .public-legal-card { padding: 26px 22px; }
   .admin-lane { grid-template-columns: minmax(0, 1fr); gap: 3px; }
@@ -135,11 +134,9 @@
 
 @media (max-width: 430px) {
   .overview-cashflow-parts strong, .overview-allocation strong { overflow-wrap: normal; white-space: nowrap; font-size: clamp(15px, 4.3vw, 19px); } /* an amount stays on one line; the size gives way instead */
-  .kpi-grid { grid-template-columns: minmax(0, 1fr); }
-  .kpi-grid article + article { border-top: 1px solid var(--line); border-left: 0; }
   .filter-bar { grid-template-columns: minmax(0, 1fr); }
   .filter-bar button { grid-column: auto; }
-  .admin-metrics, .analytics-kpis { grid-template-columns: minmax(0, 1fr); }
+  .admin-metrics { grid-template-columns: minmax(0, 1fr); }
   .admin-metric:nth-child(n) { border-top: 1px solid var(--line); border-left: 0; }
   .admin-metric:first-child { border-top: 0; }
   .transaction-main { grid-template-columns: 31px minmax(0, 1fr); gap: 9px; }
@@ -209,6 +206,6 @@
 
 /* Phones stack the row actions full width, so the desktop gap before a destructive button would only indent it. */
 @media (max-width: 719px) {
-  .settings-list .danger, .member-actions .danger, .row-actions .danger { margin-inline-start: 0; }
+  .settings-list .danger, .row-actions .danger { margin-inline-start: 0; }
   .inline-form select { grid-column: 1 / -1; }
 }

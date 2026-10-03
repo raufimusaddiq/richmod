@@ -107,20 +107,6 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 	})
 }
 
-// HandleTerminalTextFailure applies TerminalTextFailureTx in its own
-// transaction, for callers that are not already inside one.
-func (p *Processor) HandleTerminalTextFailure(ctx context.Context, sourceEventID string, timedOut bool) error {
-	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := p.TerminalTextFailureTx(ctx, tx, sourceEventID, timedOut); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
 // terminalCallbackFailureMessage is what the household sees when a button tap
 // could not be processed. It says what happened and what to do.
 const terminalCallbackFailureMessage = "Tombol itu belum bisa diproses. Coba tekan lagi, atau lanjutkan dari Kotak Tinjauan di web."

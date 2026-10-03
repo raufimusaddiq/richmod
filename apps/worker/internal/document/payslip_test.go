@@ -45,7 +45,7 @@ func TestPayrollDeductionsDoNotBecomeTransactions(t *testing.T) {
 	}
 }
 
-// SAVR-03B: real payroll forms carry a display period, may omit gross pay, and
+// Real payroll forms carry a display period, may omit gross pay, and
 // may contain component lines the net/gross/deduction formula cannot explain.
 // Those are representable without fabricating a gross or a deduction.
 func TestPayslipPeriodRequiresCanonicalMonth(t *testing.T) {
@@ -124,10 +124,18 @@ func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(content), "p.gateway.NativeToolCall(ctx, documentID, payslipPrompt") != 1 {
+	if strings.Count(string(content), "p.gateway.NativeToolCall(") != 1 {
 		t.Fatal("payslip must make exactly one generative extraction call")
 	}
 	if strings.Contains(string(content), "p.verifier") {
 		t.Fatal("payslip must not replay the extraction through Jev")
+	}
+}
+
+
+func TestSanitizeEvidenceTextCapsAndStripsControl(t *testing.T) {
+	long := strings.Repeat("a", 900)
+	if got := sanitizeEvidenceText("\x07  a\n\tb  " + long); len([]rune(got)) != 500 || strings.ContainsAny(got, "\x07\n\t") {
+		t.Fatalf("sanitize = %q (len %d)", got[:min(20, len(got))], len([]rune(got)))
 	}
 }

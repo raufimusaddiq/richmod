@@ -47,12 +47,10 @@ test("zero-filled months are marked and the running month says so", () => {
   assert.doesNotMatch(monthRowLabel("2026-09", october), /berjalan/);
 });
 
-test("calendar source: no duplicate request, controlled range, visible reason, formatted months", () => {
+test("calendar source: independent sections, controlled range, visible reason, formatted months", () => {
   const page = tree("app/analytics");
   for (const name of ["cashflow", "categories", "merchants", "members"]) assert.match(page, new RegExp(`useCalendarSection\\("${name}", queryString\\)`), `${name} loads on its own`);
   assert.doesNotMatch(page, /Promise\.all/, "one failing request must not blank the whole view");
-  assert.doesNotMatch(page, /"spending"/, "monthly spending duplicated the cashflow expense column");
-  assert.doesNotMatch(page, /Pengeluaran setelah refund/, "the redundant section is gone; its numbers are the cashflow expense column");
   assert.match(page, /calendarErrorMessage\(response\.status, body\?\.error\)/, "the API's reason is read, not replaced by a fixed sentence");
   assert.match(page, /onSubmit=\{submitRange\} noValidate/);
   assert.doesNotMatch(page, /defaultValue=\{selection\.(from|to)\}/, "range inputs follow the URL after Back or a preset");
@@ -66,6 +64,4 @@ test("calendar source: no duplicate request, controlled range, visible reason, f
   assert.match(page, /<ErrorNotice message=\{state\.error\} retry=\{state\.retry\}\/>/, "each failed section retries on its own");
   assert.match(page, /const allFailed = sections\.every\(section => section\.error\)/, "a range every section rejects shows one notice, not four");
   assert.match(page, /hideError/, "the table sharing the chart's request does not repeat its error");
-  assert.match(page, /Pengeluaran bersih<\/th><th scope="col">Refund<\/th>/);
-  assert.match(text("app/styles/06-analytics-and-cycle-review.css"), /\.calendar-section\[data-stale\]/);
 });

@@ -68,12 +68,12 @@ var judgmentPeriodCriteria = map[string]string{
 func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state *turnAgentContextState) (bool, error) {
 	// Explicit replies are already bound to server-owned workflow state by
 	// ProcessAgent. Generic route classification must not discard that target
-	// before the bound agent lane interprets the reply (PRD §8.3).
+	// before the bound agent lane interprets the reply.
 	if p.judgment == nil || state.ExactReply {
 		return false, nil
 	}
 	// Harvest generic candidates before the call so a common transaction can be
-	// decided inside the same System One request as the route (PRD §10).
+	// decided inside the same System One request as the route.
 	candidate, harvested := harvestSimpleTransaction(text)
 	if !harvested || !state.harvestable() {
 		candidate = simpleTransactionCandidate{}
@@ -91,7 +91,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		// A failed/undecided bounded route is not permission to declare the
 		// user's sentence unclear. Drop to the conversational agent with no
 		// route recorded, so no implicit workflow binding is narrowed and the
-		// capability policy decides what the model may do (SAVR PRD §3.3, ADR-045).
+		// capability policy decides what the model may do (ADR-045).
 		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeRejected)
 		return false, nil
 	}
@@ -110,7 +110,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	// Only the aggregate READ routes consume a reporting period. Every other
 	// route must keep working when the period is CUSTOM_OR_UNCLEAR.
 	var period assistantRange
-	if answer.Choice == "READ_SPENDING" || answer.Choice == "READ_CASHFLOW" || answer.Choice == "READ_SAVINGS" {
+	if routeConsumesPeriod(answer.Choice) {
 		var periodOK bool
 		period, periodOK = p.resolveJudgmentPeriod(ctx, householdID, now, result.Answers["period"])
 		if !periodOK {
@@ -138,7 +138,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		// CREATE_TRANSFER, SEARCH_TRANSACTIONS, CORRECT_TRANSACTION, FINANCE_HELP,
 		// NEEDS_GENERATIVE_AGENT, SALARY_INTERACTION, and
 		// MERCHANT_LEARNING_INTERACTION — falls through to the conversational agent
-		// (PRD §8.1). Terminating them as an unclear reply is prohibited. The
+		//. Terminating them as an unclear reply is prohibited. The
 		// classification is server-owned and exhaustive, so a future route cannot
 		// reach this branch without also being added to the lane table.
 		switch lane {
@@ -177,7 +177,7 @@ func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextS
 
 // finishJudgmentSimpleTransaction consumes transaction answers that were
 // returned by the initial bundle. It performs no second System One call and no
-// generative call (PRD §10).
+// generative call.
 func (p *Processor) finishJudgmentSimpleTransaction(ctx context.Context, sourceID, householdID string, update telegramUpdate, now time.Time, result judgment.Result, candidate simpleTransactionCandidate, categories []string) (bool, error) {
 	if candidate.Amount == "" {
 		return false, nil
@@ -256,10 +256,10 @@ func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTran
 }
 
 // "k" is the Indonesian/English shorthand for ribu (thousand) and is spelled
-// without punctuation in the PRD's canonical example ("jajan gorengan 5k").
+// without punctuation in the canonical example ("jajan gorengan 5k").
 // The suffix list is followed by a hard word boundary. Without it, a glued unit
 // such as "5kg" or "5jt-an" matched the optional suffix and harvested a
-// currency amount from a quantity (PRD §24 T1: only real amounts are harvested).
+// currency amount from a quantity (only real amounts are harvested).
 var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta|k)?\b(?:\s|$)`)
 
 func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
@@ -289,4 +289,11 @@ func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 	// resolved date is supported from the raw text, and a model-authored typed
 	// date is validated structurally rather than by Go re-reading the sentence.
 	return simpleTransactionCandidate{Amount: value.String(), Text: text}, true
+}
+
+// routeConsumesPeriod reports whether a route is an aggregate READ that needs a
+// reporting period. Every other route must keep working when the period is
+// CUSTOM_OR_UNCLEAR.
+func routeConsumesPeriod(route string) bool {
+	return route == "READ_SPENDING" || route == "READ_CASHFLOW" || route == "READ_SAVINGS"
 }

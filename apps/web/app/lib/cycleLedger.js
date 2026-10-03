@@ -9,7 +9,7 @@ import { inclusiveEnd, ratioLabel, signedMoney } from "./cycleReview.js";
 const millions = new Intl.NumberFormat("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const shortDay = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", timeZone: "UTC" });
 
-export function dayMonth(iso) {
+function dayMonth(iso) {
   if (!iso) return "";
   const date = new Date(`${iso}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? "" : shortDay.format(date);

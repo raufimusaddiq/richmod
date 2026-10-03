@@ -40,29 +40,6 @@ func (h *Handler) Cashflow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, rows)
 }
 
-func (h *Handler) Spending(w http.ResponseWriter, r *http.Request) {
-	household, ok := analyticsHousehold(w, r)
-	if !ok {
-		return
-	}
-	start, end, err := h.analyticsRange(household, r)
-	if err != nil {
-		writeJSON(w, 400, map[string]string{"error": err.Error()})
-		return
-	}
-	rows, err := h.monthly(r.Context(), household, start, end)
-	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to calculate spending"})
-		return
-	}
-	result := make([]map[string]string, 0, len(rows))
-	for _, row := range rows {
-		// Legacy expense is already net; refund is separate gross provenance.
-		result = append(result, map[string]string{"period": row.Period, "expense": row.Expense, "refund": row.Refund, "netSpending": row.Expense})
-	}
-	writeJSON(w, 200, result)
-}
-
 func (h *Handler) monthly(ctx context.Context, household string, start, end time.Time) ([]monthlyValue, error) {
 	rows, err := h.pool.Query(ctx, `
 		WITH months AS (SELECT generate_series(
@@ -214,12 +191,6 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 		result[index].Share, _ = ratio(result[index].Amount, total)
 	}
 	writeJSON(w, 200, result)
-}
-
-func (h *Handler) currentPeriod() (time.Time, time.Time) {
-	local := h.now().In(clock.HouseholdLocation())
-	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
-	return start, start.AddDate(0, 1, 0)
 }
 
 func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, time.Time, error) {

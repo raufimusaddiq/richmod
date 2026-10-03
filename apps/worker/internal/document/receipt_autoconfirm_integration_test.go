@@ -229,7 +229,7 @@ func receiptTime() time.Time {
 	return time.Date(2026, 9, 23, 13, 45, 0, 0, time.FixedZone("WIB", 7*3600))
 }
 
-// PRD §26 R2: when exactly one existing transaction is a strong match, the
+// When exactly one existing transaction is a strong match, the
 // receipt links to it as evidence instead of creating a second ledger row. The
 // second upload gets its own source event/document, because reprocessing one
 // document is already guarded by the persisted document status.
@@ -281,7 +281,7 @@ func TestReceiptR2StrongMatchLinksEvidenceWithoutDuplicate(t *testing.T) {
 }
 
 // R1: a clear new receipt with valid arithmetic, a known date, and a resolved
-// category must reach canonical state without a review (PRD §10, example D).
+// category must reach canonical state without a review.
 func TestClearNewReceiptAutoConfirmsWithoutReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt auto confirm")
 	ctx := context.Background()
@@ -362,7 +362,7 @@ func TestReceiptWithUnresolvedCategoryStaysInReview(t *testing.T) {
 	}
 }
 
-// IR-05 R-category-rescue: with a printed date, no duplicate candidate, and the
+// Category rescue: with a printed date, no duplicate candidate, and the
 // category as the only bounded residual, exactly one Jev category rescue makes a
 // decisive receipt confirm directly. Vision stays the only generative call.
 func TestReceiptCategoryRescueConfirmsOnDecisiveAnswer(t *testing.T) {
@@ -409,7 +409,7 @@ func TestReceiptCategoryRescueConfirmsOnDecisiveAnswer(t *testing.T) {
 	}
 }
 
-// IR-05 R-category-undecided: an undecided or failure answer must not confirm
+// Undecided category: an undecided or failure answer must not confirm
 // and must keep a category-only review, never a guessed category.
 func TestReceiptCategoryUndecidedStaysInCategoryReview(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt category undecided")
@@ -466,7 +466,7 @@ func (*stubReceiptFailureVerifier) Evaluate(context.Context, string, judgment.Re
 	return judgment.Result{}, fmt.Errorf("test judgment provider failure")
 }
 
-// IR-05 R-date-missing: a date that is genuinely absent must never be rescued by
+// Missing date: a date that is genuinely absent must never be rescued by
 // Jev. The rescue must not even run, and the review names only the date.
 func TestReceiptMissingDateIsNeverRescued(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt dateless rescue")
@@ -495,7 +495,7 @@ func TestReceiptMissingDateIsNeverRescued(t *testing.T) {
 	}
 }
 
-// Hermes review on PR #127, PRD §18.4: upload time is not the receipt's
+// Upload time is not the receipt's
 // transaction time, so a receipt without a printed date keeps asking for it
 // instead of confirming against the moment it arrived.
 func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
@@ -516,7 +516,7 @@ func TestReceiptWithoutPrintedDateStaysInReview(t *testing.T) {
 	}
 }
 
-// PRD §33: the receipt auto-confirm must be independently disable-able, so a
+// The receipt auto-confirm must be independently disable-able, so a
 // bad rollout can roll back this source without touching bank or screenshot
 // auto-confirm. With the switch off, the same clear receipt parks a review.
 func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
@@ -542,7 +542,7 @@ func TestReceiptAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	}
 }
 
-// PRD §17: the receipt switch covers residual category rescue as well as direct
+// The receipt switch covers residual category rescue as well as direct
 // confirmation. Disabled rescue leaves the category-only review untouched.
 func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt kill switch rescue")
@@ -572,7 +572,7 @@ func TestReceiptKillSwitchAlsoDisablesCategoryRescue(t *testing.T) {
 	}
 }
 
-// CEU-02: a receipt that resolves without a human tells the chat it came from,
+// A receipt that resolves without a human tells the chat it came from,
 // as a reply to the upload, and the notice is bound to the document.
 func TestAutoConfirmedReceiptQueuesABindableNoticeToTheUploadChat(t *testing.T) {
 	fixture := seedReceiptFixture(t, "Receipt notice")

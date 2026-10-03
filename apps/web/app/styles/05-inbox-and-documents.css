@@ -15,7 +15,7 @@
 .state-line { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0; padding: 11px 0; border-block: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); }
 .review-card form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .review-card form > p, .review-card form > .review-actions { grid-column: 1 / -1; }
-.review-actions, .transfer-options, .action-buttons, .dialog-actions, .row-actions, .member-actions, .invite-actions, .integration-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.review-actions, .transfer-options, .action-buttons, .dialog-actions, .row-actions, .invite-actions, .integration-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .review-actions, .transfer-options { margin-top: 15px; }
 .transfer-options button { min-height: 36px; }
 .action-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
@@ -59,7 +59,7 @@ button.document-card:active:not(:disabled) { transform: none; }
 
 
 /* A destructive action keeps clear space from the selects and buttons beside it. */
-.settings-list .danger, .member-actions .danger, .row-actions .danger { margin-inline-start: var(--space-4); }
+.settings-list .danger, .row-actions .danger { margin-inline-start: var(--space-4); }
 
 /* The native file picker takes the theme: rounded, outlined button instead of the browser default. */
 input[type="file"] { padding: 6px; cursor: pointer; }

@@ -136,7 +136,7 @@ erDiagram
 | `transaction_evidence` | Many-to-many evidence link for a transaction. | `transaction_id → transaction`, `source_event_id → source_event`; preserves source linkage. |
 | `reconciliation_merge` | Audited merge from duplicate source transaction to target transaction. | Household-scoped; source/target both reference `transaction`. |
 | `reconciliation_merge_evidence` | Evidence copied during a reconciliation merge. | `merge_id → reconciliation_merge`; original/copied transaction evidence references. |
-| `budget` | Household category budget for a period. | `household_id`, `category_id`, `created_by_user_id`; active period/category uniqueness. |
+| `budget` | Retired (ADR-051): no code reads or writes it. Kept so historical rows are not destroyed. | `household_id`, `category_id`, `created_by_user_id`; active period/category uniqueness. |
 | `salary_source` | Configured salary source and cycle anchor. | Household-scoped; optional associated user and one active primary source per household. |
 | `salary_event` | Observed or confirmed salary event. | `salary_source_id → salary_source`; links source evidence/transaction where available. |
 | `salary_pending_choice` | Pending human choice for salary attribution. | Household-scoped; references canonical `transaction`. |
@@ -205,13 +205,7 @@ When adding or changing a migration:
    rollback/down-migration behavior explicitly.
 5. Include the schema-document update in the same commit as the migration.
 
-No database schema change accompanies ADR-037's initial interpretation
-interface. Classification/interpretation telemetry remains metadata-only through
-the existing `llm_call` boundary; no document observation or field-level
-uncertainty columns are introduced until a later reviewed migration.
-
-Shadow-stage rows (stage `INTERPRETATION_SHADOW` and
-`INTERPRETATION_SHADOW_METRIC` in `document_extraction`) stay classification-only
-metadata: bounded `agree`/`disagree`/`malformed` counters per document type, one
-bounded error class, and latency. No prompt, caption, filename, amount, merchant,
-or identifier string is persisted in these rows.
+Historical `document_extraction` rows with stage `INTERPRETATION_SHADOW` or
+`INTERPRETATION_SHADOW_METRIC` come from the retired ADR-037 shadow stage
+(ADR-051). Nothing writes or reads them any more; they hold only bounded
+classification-agreement counters, an error class and latency.

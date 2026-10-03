@@ -34,7 +34,7 @@ func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, revie
 	return decision, nil
 }
 
-// insertSourceEventReviewDecision writes the shared PRD §7 contract with the
+// insertSourceEventReviewDecision writes the shared ReviewDecision contract with the
 // source-event review. Unknown reasons fail closed instead of storing a zero
 // decision.
 func insertSourceEventReviewDecision(ctx context.Context, tx pgx.Tx, household, source, reason string, known, provenance map[string]any) error {

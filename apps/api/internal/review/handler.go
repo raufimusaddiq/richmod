@@ -115,7 +115,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The persisted ReviewDecision is the single source of truth for what a
-		// review asks (PRD 13.4, 37): a Telegram card and the Inbox read the same
+		// review asks: a Telegram card and the Inbox read the same
 		// contract instead of deriving the unresolved fact independently. Rows
 		// written before the contract existed keep the derived fallback.
 		stored := proposalFacts(value.Decision)
@@ -150,7 +150,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		stored := proposalFacts(value.Decision)
 		// The persisted observation columns are the single source of truth for what
 		// this review already resolved; the stored decision is only a fallback for
-		// reviews written before those columns existed (PRD 12, 13.4).
+		// reviews written before those columns existed.
 		resolvedWealth := firstNonEmpty(value.ResolvedWealthAccountID, stored.resolvedEntity("resolvedWealthAccountId"))
 		resolvedAccount := firstNonEmpty(value.ResolvedAccountID, stored.resolvedEntity("resolvedAccountId"))
 		hasPrimarySalary, _ := stored.Provenance["hasPrimarySalary"].(bool)

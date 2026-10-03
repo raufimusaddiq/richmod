@@ -1,4 +1,4 @@
-// Cycle residual reconciliation (UIR-01). Web and both Telegram lanes recomputed
+// Cycle residual reconciliation. Web and both Telegram lanes recomputed
 // the same cycle basis and applied the same stale/allocation rules inline; this
 // operation owns that logic so a change cannot drift between surfaces.
 package reviewdomain

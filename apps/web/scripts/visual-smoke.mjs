@@ -48,7 +48,6 @@ function fixture(path, search = new URLSearchParams(), scenario = {}) {
   if (path === "/api/v1/analytics/cycle" || path === "/api/v1/analytics/cycle/daily") return { kind: "CURRENT_CYCLE", start: "2026-09-01", end: "2026-09-30", cycleStart: "2026-09-01", salary: "12500000", spent: "2590000", remaining: "9910000", daysElapsed: 6, daysTotal: 30, daily };
   if (path.startsWith("/api/v1/analytics/categories")) return categories;
   if (path.startsWith("/api/v1/analytics/cashflow")) return [{ period: "2026-07", income: "11800000", expense: "7200000", netCashflow: "4600000" }, { period: "2026-08", income: "12500000", expense: "8100000", netCashflow: "4400000" }, { period: "2026-09", income: "12500000", expense: "2590000", netCashflow: "9910000" }];
-  if (path.startsWith("/api/v1/analytics/spending")) return daily.map(item => ({ period: item.period, expense: item.expense, refund: "0", netSpending: item.expense }));
   if (path.startsWith("/api/v1/analytics/merchants")) return [{ name: "Pasar Minggu", amount: "1250000" }, { name: "Grab", amount: "640000" }];
   if (path.startsWith("/api/v1/analytics/members")) return [{ name: "Rafi", amount: "2590000" }];
   if (path === "/api/v1/insights") return [];

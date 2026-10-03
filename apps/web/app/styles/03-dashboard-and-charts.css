@@ -37,7 +37,7 @@
 .review-alert strong { display: inline-flex; align-items: center; gap: 5px; color: var(--warning); font-size: var(--text-xs); }
 
 .overview-insights { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr); gap: 18px; margin-bottom: 18px; }
-.overview-trend, .overview-categories, .overview-activity, .analytics-chart, .analytics-category-panel, .ledger-panel { padding: 22px; }
+.overview-trend, .overview-categories, .overview-activity, .analytics-chart, .ledger-panel { padding: 22px; }
 .overview-categories { background: var(--pastel-mint); }
 .overview-lower { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(250px, .45fr); gap: 18px; }
 .overview-activity { min-width: 0; overflow: hidden; }

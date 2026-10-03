@@ -231,3 +231,17 @@ func TestTerminalNoticeNamesTheCause(t *testing.T) {
 		}
 	}
 }
+
+// HandleTerminalTextFailure runs TerminalTextFailureTx in its own transaction,
+// as the worker does when it fails a job.
+func (p *Processor) HandleTerminalTextFailure(ctx context.Context, sourceEventID string, timedOut bool) error {
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := p.TerminalTextFailureTx(ctx, tx, sourceEventID, timedOut); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

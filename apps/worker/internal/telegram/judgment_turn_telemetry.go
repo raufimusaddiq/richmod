@@ -79,7 +79,7 @@ func (t turnTrace) consumed() bool { return len(t.tasks) > 0 }
 // judgmentTurnLane classifies how a Telegram turn was resolved, which is what
 // makes the Jev value claim measurable: a turn the bounded decision plane
 // answered alone spends no generative call, and that is the thing worth
-// counting (PRD §23).
+// counting.
 type judgmentTurnLane string
 
 const (
@@ -101,7 +101,7 @@ type judgmentTurnObservation struct {
 	NativeToolCallsAvoided int
 }
 
-// SetTurnTelemetry enables turn-level value recording (PRD §23). Disabled keeps
+// SetTurnTelemetry enables turn-level value recording. Disabled keeps
 // the previous behaviour: no rows are written.
 func (p *Processor) SetTurnTelemetry(enabled bool) { p.turnTelemetryEnabled = enabled }
 

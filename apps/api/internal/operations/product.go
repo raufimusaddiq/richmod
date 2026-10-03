@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// productAggregate is the PRD §22 product scoreboard computed from canonical
+// productAggregate is the product scoreboard computed from canonical
 // state that already exists: source events, transactions, and review items. It
 // is read-only and stores nothing, so it cannot drift from the ledger and needs
 // no new pipeline. Amounts and free text are never selected.
@@ -32,7 +32,7 @@ type productAggregate struct {
 	ReviewBySource map[string]int `json:"reviewRateBySource"`
 	ReviewByReason map[string]int `json:"reviewRateByReason"`
 
-	// RHICE is the PRD 2.2 north-star metric: explicit human inputs required before
+	// RHICE is the north-star metric: explicit human inputs required before
 	// each canonical financial event reached a valid canonical state, divided by
 	// the number of canonical financial events. The numerator is the recorded
 	// review turns, so a form that submits several fields counts each supplied
@@ -269,7 +269,7 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 
 	// Every metric below is derived from canonical state plus the append-only
 	// review-turn telemetry the writers already emit, so it cannot drift from the
-	// ledger. PRD IR-03: RHICE counts each supplied field or bounded choice; turns
+	// ledger. RHICE counts each supplied field or bounded choice; turns
 	// may contain multiple fields. Values merged from known server state are not
 	// counted. Residual allocation is review metadata, not a canonical transaction
 	// input, so it is excluded.

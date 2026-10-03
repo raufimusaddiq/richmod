@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// UISC-02: the three SAVR closure metrics must be measurable from stored state,
+// The three semantic-authority closure metrics must be measurable from stored state,
 // must ignore missing provenance instead of counting it as zero, and must not
 // treat an independent evidence check as a semantic re-decision.
-func TestSavrClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
+func TestClosureMetricsAreMeasurableAndHistoricallyHonest(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
 	stamp := time.Now().UnixNano()

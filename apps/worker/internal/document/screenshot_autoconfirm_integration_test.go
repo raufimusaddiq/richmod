@@ -70,7 +70,7 @@ func screenshotRowTime() time.Time {
 	return time.Date(2026, 9, 23, 15, 30, 0, 0, time.FixedZone("WIB", 7*3600))
 }
 
-// PRD S3 / 17: a row that plausibly matches an existing transaction must link
+// A row that plausibly matches an existing transaction must link
 // evidence, never write a second CONFIRMED transaction beside it. A row with
 // candidates but no single decisive match is exactly that case.
 func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
@@ -179,7 +179,7 @@ func TestScreenshotMissingAmountCanBeIgnoredWithoutInventingAmount(t *testing.T)
 	}
 }
 
-// Hermes Review: an income row whose amount is not visible must reach a
+// An income row whose amount is not visible must reach a
 // completable Telegram card, and a duplicate the ingest-time matcher could see
 // must still be found when the household supplies a day-only date.
 func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
@@ -223,7 +223,7 @@ func TestMissingAmountIncomeProjectsAndKeepsDuplicateReview(t *testing.T) {
 	}
 }
 
-// PRD §33: the screenshot row auto-confirm must be independently disable-able.
+// The screenshot row auto-confirm must be independently disable-able.
 // With the switch off, the same clear row waits for a human instead of writing.
 func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot kill switch")
@@ -244,7 +244,7 @@ func TestScreenshotRowAutoConfirmKillSwitchGatesConfirmation(t *testing.T) {
 	}
 }
 
-// PRD §17: disabling screenshot auto-confirm also skips its selective rescue,
+// Disabling screenshot auto-confirm also skips its selective rescue,
 // keeping the residual category in review rather than spending Jev.
 func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot kill switch residual")
@@ -270,7 +270,7 @@ func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testin
 	}
 }
 
-// PRD §11.1: an unmatched row with a decisive bounded category and a printed date
+// An unmatched row with a decisive bounded category and a printed date
 // is a new transaction, not an ambiguous one, so it must reach the ledger while
 // the genuinely uncertain rows still ask exactly one question.
 func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
@@ -317,7 +317,7 @@ func TestScreenshotRowsAutoConfirmClearRowsOnly(t *testing.T) {
 	}
 }
 
-// PRD §11.4: a fully clear image records everything and asks for nothing.
+// A fully clear image records everything and asks for nothing.
 func TestScreenshotBatchWithOnlyClearRowsNeedsNoReview(t *testing.T) {
 	fixture := seedScreenshotFixture(t, "Screenshot clean batch")
 	categoryID := fixture.categoryID
@@ -408,7 +408,7 @@ func assertScreenshotSummary(t *testing.T, fixture screenshotFixture, wants ...s
 	}
 }
 
-// PRD §7/§13.4: an unresolved row stores the decision contract, so the Inbox can
+// An unresolved row stores the decision contract, so the Inbox can
 // ask only about the dimension that is genuinely unresolved.
 func assertScreenshotReviewDecisions(t *testing.T, fixture screenshotFixture, want int) {
 	t.Helper()

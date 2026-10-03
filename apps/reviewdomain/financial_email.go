@@ -1,4 +1,4 @@
-// Financial email entity resolution (UIR-01). The Review Inbox resolves a
+// Financial email entity resolution. The Review Inbox resolves a
 // financial email observation by supplying only the entities that are still
 // unresolved; this operation owns that merge, validation, alias learning, and
 // replay enqueue so the resolved-fact rules cannot drift per channel.
@@ -38,7 +38,7 @@ type FinancialEmailCommand struct {
 	SourceEventID string
 	ActorUserID   string
 	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for
-	// the chat lanes); empty defaults to USER (UIRC-04).
+	// the chat lanes); empty defaults to USER.
 	ActorType string
 }
 
@@ -84,7 +84,7 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 	if err != nil {
 		return result, err
 	}
-	// PRD §12/§20.1: the request supplies only the unresolved entities. Already
+	// The request supplies only the unresolved entities. Already
 	// resolved entities are reloaded from persisted state and merged here, so a
 	// review that already knows the funding account never asks for it again. An
 	// entity that is still unresolved must be supplied: a partial resolution that
@@ -193,7 +193,7 @@ func ResolveFinancialEmailReview(ctx context.Context, tx pgx.Tx, cmd FinancialEm
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
 		return result, err
 	}
-	// UIRC-04: record the resolving surface on the canonical review item.
+	// Record the resolving surface on the canonical review item.
 	actorType := cmd.ActorType
 	if actorType == "" {
 		actorType = "USER"
@@ -238,7 +238,7 @@ func invalidEntityIDError(err, invalid error) error {
 
 // LearnEntityAlias records the alias a user supplied for an entity, refusing to
 // overwrite an alias the household set itself: an explicit user choice outranks
-// an inferred one (PRD §19). entityType is ACCOUNT or WEALTH_ACCOUNT.
+// an inferred one. entityType is ACCOUNT or WEALTH_ACCOUNT.
 func LearnEntityAlias(ctx context.Context, tx pgx.Tx, householdID, entityType, entityID, alias string) error {
 	normalized := normalizeAlias(alias)
 	if normalized == "" {
@@ -256,7 +256,7 @@ func LearnEntityAlias(ctx context.Context, tx pgx.Tx, householdID, entityType, e
 // known before this request. An empty known entity means the alias is new.
 func LearnEntityAliasIfNew(ctx context.Context, tx pgx.Tx, householdID, entityType, entityID, alias, known string) error {
 	// A partial turn leaves the other entity unbound; an empty id must not reach
-	// the alias insert as ''::uuid (UIRC-02 B).
+	// the alias insert as ''::uuid.
 	if strings.TrimSpace(entityID) == "" {
 		return nil
 	}

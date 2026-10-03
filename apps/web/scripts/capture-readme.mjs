@@ -46,7 +46,6 @@ const responses = new Map([
   ["/api/v1/analytics/cycle", { kind: "CURRENT_CYCLE", start: "1 Sep 2026", end: "30 Sep 2026" }],
   ["/api/v1/analytics/cycle/daily", { configured: true, daily, salary: "18500000", spent: "2094500", remaining: "16405500", daysElapsed: 6, daysTotal: 30, cycleStart: "2026-09-01", cycleEnd: "2026-09-30" }],
   ["/api/v1/analytics/categories", categories], ["/api/v1/analytics/cashflow", daily],
-  ["/api/v1/analytics/spending", daily.map(item => ({ ...item, refund: "0", netSpending: item.expense }))],
   ["/api/v1/analytics/merchants", [{ name: "Super Indo", amount: "438500" }, { name: "Kopi Tuku", amount: "332000" }, { name: "Grab", amount: "274500" }]],
   ["/api/v1/analytics/members", [{ name: "Dimas", amount: "1320000" }, { name: "Maya", amount: "774500" }]],
   ["/api/v1/transactions", transactions], ["/api/v1/reviews", reviews], ["/api/v1/integration-actions", actions], ["/api/v1/categories", categories],

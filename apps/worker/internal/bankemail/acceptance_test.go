@@ -13,11 +13,11 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// PRD section 25 required Bank Email acceptance tests, named by their PRD case so
+// Bank Email acceptance tests, named by their acceptance case so
 // a reviewer can map each one to the requirement.
 //
 // Every case here is offline and deterministic except B2, which touches the real
-// category table through TEST_DATABASE_URL because the PRD (9.3) makes the
+// category table through TEST_DATABASE_URL because policy makes the
 // canonical ID resolution a Go responsibility. The bounded *verdict* is stubbed:
 // asserting what a decisive or undecided answer must land on is the deterministic
 // half this file owns. The answers themselves are exercised against the real
@@ -35,7 +35,7 @@ func TestBankEmailB1LearnedMerchantConfirmsWithoutReview(t *testing.T) {
 	}
 }
 
-// B1 also pins the zero-human-touch property the PRD states as RHICE = 0: the
+// B1 also pins the zero-human-touch property (RHICE = 0): the
 // confirm path must not be a review wearing a different status.
 func TestBankEmailB1LearnedMerchantCreatesNoReviewWork(t *testing.T) {
 	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Toko Sumber Rejeki"), nil, MerchantMemory{MerchantID: "m-1", CategoryID: "cat-food", AutoApply: true})
@@ -102,7 +102,7 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 
 // B3 - a new merchant whose category the bounded plane could not decide stays a
 // review, and that review is category-only: the amount and the time are already
-// known and must never be re-requested (PRD 3.3, 18.1).
+// known and must never be re-requested.
 func TestBankEmailB3UndecidedCategoryAsksOnlyForCategory(t *testing.T) {
 	result := EvaluateBankEmail(spendingListener(), outgoingCard("54000", "Warung Baru"), nil)
 	if result.Status != "NEEDS_REVIEW" || result.ReviewType != "AMBIGUOUS_CATEGORY" {
@@ -113,7 +113,7 @@ func TestBankEmailB3UndecidedCategoryAsksOnlyForCategory(t *testing.T) {
 	}
 	// The undecided path is a transaction-backed category review: the message the
 	// user sees states the amount and time as context and asks only for a category
-	// (PRD 9.6). Asserting the rendered message is what proves the amount and date
+	//. Asserting the rendered message is what proves the amount and date
 	// are not re-requested; asserting a hand-built decision's missingFacts would
 	// only echo the input.
 	message := bankReviewMessage(result.ReviewType, "54000", time.Date(2026, 9, 23, 13, 45, 0, 0, time.UTC), "Warung Baru")
@@ -160,7 +160,7 @@ func TestBankEmailMerchantlessExpenseCollectsMerchantBeforeCategory(t *testing.T
 }
 
 // B4, second half: the merchant value is nullable in the tool contract, so the
-// model is never forced to invent one (PRD 9.5). Every property is listed in
+// model is never forced to invent one. Every property is listed in
 // `required` because a native tool call must be structurally complete; it is the
 // nullable *type* that keeps the value un-fabricated.
 func TestBankEmailB4MerchantValueIsNullable(t *testing.T) {

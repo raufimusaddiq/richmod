@@ -1,9 +1,9 @@
 package telegram
 
 // agentRouteLane is the single server-owned classification of every route in
-// judgmentRoutes (PRD §8.1/§8.2). Each route maps to exactly one lane. Adding a
+// judgmentRoutes. Each route maps to exactly one lane. Adding a
 // new route to judgmentRoutes without a lane here fails
-// TestEveryServerOwnedRouteMapsToExactlyOneLane, which is the guard the PRD
+// TestEveryServerOwnedRouteMapsToExactlyOneLane, which is the guard the design
 // requires: a future route cannot silently fall into a generic "unclear" reply.
 type agentRouteLane string
 
@@ -14,7 +14,7 @@ const (
 	laneWorkflow agentRouteLane = "WORKFLOW"
 	// laneAgentFallthrough: the fast path declines, so the conversational agent
 	// handles the turn with its full tool surface. Terminating these as unclear
-	// is the defect PRD §8.1 prohibits.
+	// is the defect this prevents.
 	laneAgentFallthrough agentRouteLane = "AGENT_FALLTHROUGH"
 )
 

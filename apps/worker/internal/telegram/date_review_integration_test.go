@@ -12,7 +12,7 @@ import (
 )
 
 // A date-only review must ask for the transaction date, persist it on the bound
-// reply, and complete the review. Before the UIR-03 renderer the bound reply lane
+// reply, and complete the review. Before the shared renderer the bound reply lane
 // routed AWAITING_DETAIL to the description field, so the date was never stored.
 func TestTelegramBoundDateReviewPersistsTransactionDate(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

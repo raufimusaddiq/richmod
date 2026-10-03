@@ -44,13 +44,13 @@ type Processor struct {
 	// judgmentPlaneConfigured records configuration, not runtime provider
 	// health. A configured-but-unreachable engine still reports true so a
 	// temporary outage degrades per turn instead of silently shrinking the tool
-	// surface and reopening hidden LLM mutation authority (PRD §7/§8).
+	// surface and reopening hidden LLM mutation authority.
 	judgmentPlaneConfigured bool
 	// metrics records bounded-call telemetry and per-task decision outcomes so
-	// review/clarification rates stay measurable per decision task (PRD §17).
+	// review/clarification rates stay measurable per decision task.
 	// The zero value is a no-op recorder.
 	metrics judgmentMetrics
-	// turnTelemetryEnabled records one value row per Telegram turn (PRD §23).
+	// turnTelemetryEnabled records one value row per Telegram turn.
 	turnTelemetryEnabled         bool
 	postGenerativeAutoConfirmOff bool
 	now                          func() time.Time
@@ -413,7 +413,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 			return true, err
 		}
 		// Explicit human CONFIRM is the authority for the facts already shown to
-		// the user (SAVR-05A). Structural checks and deterministic
+		// the user. Structural checks and deterministic
 		// merchant-category policy still run, and every check happens before any
 		// canonical write.
 		allowedCategories, err := p.categorySlugs(ctx, householdID)

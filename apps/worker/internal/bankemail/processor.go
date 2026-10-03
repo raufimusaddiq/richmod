@@ -24,10 +24,9 @@ type Processor struct {
 	extractor *Extractor
 	// verifier scores the already-extracted facts against the original email
 	// through the bounded judgment plane. Production requires LLM_MODEL_JUDGMENT:
-	// nil verifier is a machine retry, never a review or semantic approval
-	// (PRD §20).
+	// nil verifier is a machine retry, never a review or semantic approval.
 	verifier jeverifier
-	// categoryAutoConfirmOff is this source's PRD §33 operational kill-switch,
+	// categoryAutoConfirmOff is this source's operational kill-switch,
 	// stored inverted so the zero-value Processor keeps the documented default
 	// (auto-confirm on) — the same convention document.Processor uses. When set, a
 	// bounded category decision still runs and still rides on the review card, but
@@ -44,11 +43,11 @@ func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
 // same configured judgment plane the Telegram decision plane uses.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
-// SetCategoryAutoConfirm is the bank-email category kill-switch (PRD §33).
+// SetCategoryAutoConfirm is the bank-email category kill-switch.
 // Passing false disables auto-confirm for this source.
 func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirmOff = !enabled }
 
-// applyCategoryAutoConfirmSwitch is the PRD §33 gate on this source's
+// applyCategoryAutoConfirmSwitch is the kill-switch gate on this source's
 // *category* auto-confirm. With the switch off, an expense whose category the
 // policy would have applied parks as a category-carrying review instead; the
 // decided category still travels on the result so the card can propose it.
@@ -271,7 +270,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
-	// PRD §33: the deterministic policy auto-confirms a remembered merchant
+	// The deterministic policy auto-confirms a remembered merchant
 	// category. The kill-switch governs that category auto-confirm, so it is
 	// applied to the policy result the deterministic rules already produced,
 	// before the bounded classifier gets a chance to decide a category.
@@ -308,7 +307,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// Structural completeness is a deterministic Go check and always applies. The
 	// semantic gate then asks the bounded plane whether the email actually supports
 	// the extracted facts; the extractor's self-reported confidence is no longer
-	// allowed to authorize (or to hide) a semantic claim (ADR-038, PRD §20).
+	// allowed to authorize (or to hide) a semantic claim (ADR-038).
 	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") {
 		// List every absent required fact, not just the first: both amount and time
 		// can be missing, and the review must request exactly what is unresolved.
@@ -330,8 +329,8 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	}
 	// Persist the bounded ruling before any review branch: the audit row is the
 	// only record of what the plane actually claimed, and a verified-but-
-	// unsupported ruling (every SAVR-06 bank residual) is exactly the case the row
-	// exists to explain (SAVR-06, Hermes round 4).
+	// unsupported ruling (every bank residual) is exactly the case the row
+	// exists to explain.
 	if verified {
 		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
 			return persistErr
@@ -341,7 +340,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		fact, conflict, material := verification.materialResidual()
 		if !material {
 			// An unsupported verification without failed material claims is an
-			// inconsistent ruling, not a human fact to fabricate (SAVR-06).
+			// inconsistent ruling, not a human fact to fabricate.
 			return fmt.Errorf("bank email verification has no failed material predicate")
 		}
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
@@ -360,7 +359,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 // reviewIncompleteExtraction parks a notification whose facts are structurally
 // incomplete or semantically unsupported. It never mutates the ledger. The
 // decision records why the review exists so the Inbox can request only the
-// unresolved fact (PRD §7).
+// unresolved fact.
 func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, sourceEventID, schemaVersion, reviewType string, decision reviewdec.Decision) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -436,8 +435,7 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 // verificationReviewDecision keeps every independently supported fact and names
 // only the material predicate the bounded evidence check did not clear. A
 // non-material ordering predicate (an uncertain payment mechanism) never appears
-// here because materialResidual drops it, so it cannot add a required human fact
-// (SAVR-06).
+// here because materialResidual drops it, so it cannot add a required human fact.
 func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification, fact string, conflict bool) reviewdec.Decision {
 	missing := []string{fact}
 	why := "the email did not support a material transaction fact the household must confirm"
@@ -466,8 +464,7 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 		decision.Consequence = reviewdec.IndependentEvidenceConflict
 		// The disputed value is evidence-supported but contested, so it must not
 		// render as a known fact the household would prefill. Move it to proposed
-		// facts, the same known→proposed move the base decision made (SAVR-06,
-		// Hermes round 5).
+		// facts, the same known→proposed move the base decision made.
 		if disputed, ok := decision.KnownFacts[fact]; ok {
 			decision.ProposedFacts[fact] = disputed
 			delete(decision.KnownFacts, fact)
@@ -475,7 +472,7 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 	default:
 		// transaction_semantics and any other bounded material residual: a
 		// predicate did not clear, so the consequence is the bounded residual the
-		// shared contract names (SAVR-06, Hermes round 4).
+		// shared contract names.
 		decision.Consequence = reviewdec.BoundedResidual
 	}
 	return decision
@@ -483,7 +480,7 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 
 // persistEvidenceVerification records the bounded ruling next to the extraction
 // so an operator can see what the decision plane actually claimed, without
-// storing the email body again (PRD §15/§20).
+// storing the email body again.
 func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEventID, listenerID, model string, verification EvidenceVerification) error {
 	summary, err := json.Marshal(map[string]any{
 		"transaction_observed": verification.TransactionObserved,
@@ -502,7 +499,7 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 }
 
 // applyCategoryDecision lets a new merchant confirm without a review when the
-// bounded plane decides its category (PRD 9.3). The bounded question is answered
+// bounded plane decides its category. The bounded question is answered
 // by the same plane that rules on the rest of the event, Go resolves the
 // canonical ID, and a genuinely undecided answer leaves the policy result
 // untouched so the category-only review still applies. A machine failure
@@ -523,7 +520,7 @@ func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, ho
 	result.CategoryID, result.AutoConfirm = categoryID, true
 	result.Status, result.ReviewType = "CONFIRMED", ""
 	// A Jev-chosen category is a category we now know, so the row must not keep
-	// the review-flavoured placeholder as its ledger description (Hermes #133).
+	// the review-flavoured placeholder as its ledger description.
 	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
 	result.CategoryProvenance = &provenance
 	return result, nil

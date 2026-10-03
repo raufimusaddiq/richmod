@@ -53,7 +53,7 @@ type transferReviewCandidate struct {
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
-	// UIR-08: transaction-bound items are normally delivered over Telegram, so the
+	// Transaction-bound items are normally delivered over Telegram, so the
 	// web Inbox excludes them to avoid double work. Include the orphaned ones — a
 	// transaction-bound item whose transaction is already CONFIRMED (no live work)
 	// — so a stranded review still surfaces where it can be resolved.
@@ -95,7 +95,7 @@ func canonicalActions(kind string) []string {
 	}
 	if kind == "MISSING_PAY_DATE" {
 		// The item mapper adds salary choices only when current household policy
-		// leaves classification unresolved (PRD §7.6, E1/E2).
+		// leaves classification unresolved.
 		return []string{"SET_PAY_DATE", "IGNORE"}
 	}
 	if kind == "MISSING_AMOUNT" {
@@ -105,7 +105,7 @@ func canonicalActions(kind string) []string {
 		return []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED"}
 	}
 	if kind == "WEALTH_OBSERVATION_CONFIRMATION" {
-		// UIRC-01 D: the snapshot editor is optional navigation, so it is not an
+		// The snapshot editor is optional navigation, so it is not an
 		// allowed completion action and never counts as a mandatory Web escape.
 		return []string{"SET_WEALTH_ACCOUNT", "IGNORE"}
 	}
@@ -294,7 +294,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if transaction != nil {
-		// UIR-08: an orphaned transaction-bound item — one whose transaction is no
+		// An orphaned transaction-bound item — one whose transaction is no
 		// longer awaiting review — has no remaining financial work. Acknowledge it
 		// (IGNORE) so it stops surfacing without touching the confirmed transaction.
 		if in.Action == "IGNORE" {
@@ -581,7 +581,7 @@ func (h *Handler) resolvePayslip(r *http.Request, tx pgx.Tx, household, user, re
 }
 
 // resolveMissingAmount completes a screenshot row whose image never showed an
-// amount (SAVR-03). The proposal stays unresolved until the household supplies
+// amount. The proposal stays unresolved until the household supplies
 // the value, so no canonical transaction exists without a positive amount. The
 // shared domain operation owns the mutation and the review completion.
 func (h *Handler) resolveMissingAmount(ctx context.Context, tx pgx.Tx, household, user, reviewItem, proposal, source string, amount *string, categoryID, transactionDate string, incomeConfirmed bool) (reviewdomain.MissingAmountResult, error) {

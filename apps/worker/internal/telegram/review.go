@@ -98,7 +98,7 @@ type categoryChoice struct {
 
 // ReviewProjectionOpen reports whether a queued review card is still worth
 // sending. A review resolved (or cancelled/expired) between enqueue and send must
-// not produce a fresh live card with buttons that can only answer stale (UIR-08).
+// not produce a fresh live card with buttons that can only answer stale.
 // An unknown request id is treated as still-open so non-review sends are unaffected.
 func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
 	var err error
@@ -812,7 +812,7 @@ func (p *Processor) incomeReviewChoice(ctx context.Context, sourceEventID, text 
 // email did not support a required financial fact, so no canonical transaction
 // exists and the only bounded action is to acknowledge it. It binds the open
 // observation review by the replied/callback Telegram message, marks the
-// observation IGNORED, and completes the review item (SAVR-06).
+// observation IGNORED, and completes the review item.
 func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -993,8 +993,8 @@ func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID
 		return err
 	}
 	if itemID != "" && transaction == "" {
-		// Specialized non-transaction flows keep their subject-specific transition
-		// until UIR-07 migrates them; this avoids inventing a transaction binding.
+		// Specialized non-transaction flows keep their subject-specific transition;
+		// this avoids inventing a transaction binding.
 		_, err := tx.Exec(ctx, `UPDATE review_item ri SET status='RESOLVED',resolved_at=now(),resolution_action=$2,updated_at=now() FROM review_request rr WHERE rr.id=$1 AND ri.id=rr.review_item_id AND ri.status IN ('PENDING_SEND','OPEN')`, reviewID, action)
 		return err
 	}

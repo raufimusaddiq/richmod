@@ -14,7 +14,7 @@ import (
 // TransactionSemanticDecision is the single authority for mutating a Telegram
 // (or, later, email) transaction candidate. Extraction produces facts; this
 // object is the semantic ruling over those facts; Go persistence only checks
-// this object (PRD §4/§5).
+// this object.
 type TransactionSemanticDecision struct {
 	RouteAccepted     bool
 	TransactionType   string
@@ -32,7 +32,7 @@ type TransactionSemanticDecision struct {
 
 	// ResidualCategory records the one named dimension a bounded rescue still had
 	// to decide after a generative extraction. It is what lets telemetry tell a
-	// valid residual rescue apart from a redundant re-decide (PRD §14.3).
+	// valid residual rescue apart from a redundant re-decide.
 	ResidualCategory bool
 
 	DecisionSource string // JEV | DETERMINISTIC_POLICY | GENERATIVE_EXTRACTION | GENERATIVE_PLUS_JEV
@@ -52,7 +52,7 @@ func (d TransactionSemanticDecision) decisionAllowed() bool {
 	// it. An exact merchant-category match is decided by deterministic policy
 	// without ever asking the plane, and that path is already unambiguous by
 	// construction, so it is exempt rather than forced to answer a question it
-	// never asked (PRD 6).
+	// never asked.
 	if d.DecisionSource != "DETERMINISTIC_POLICY" && !d.AmbiguityDecidedNotAmbiguous {
 		return false
 	}
@@ -64,7 +64,7 @@ func (d TransactionSemanticDecision) decisionAllowed() bool {
 
 // transactionQuestions builds the one shared bounded bundle. The harvested fast
 // path (inside the initial route request) and the post-extraction evaluator both
-// use it, so a transaction decision cannot diverge by channel (PRD §5/§10).
+// use it, so a transaction decision cannot diverge by channel.
 func transactionQuestions(categories []string, typeHint string) map[string]judgment.Question {
 	questions := map[string]judgment.Question{
 		"transaction_type":   {Type: "choice", Instructions: "Choose the transaction direction. Use INCOME for money received and EXPENSE for money spent. Use OTHER_OR_UNCLEAR if ambiguous.", Criteria: judgmentTypeCriteria},
@@ -153,7 +153,7 @@ func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requ
 // semanticDecisionForRecord is the post-generation routing for one Telegram
 // record_transaction call. It accepts a complete extraction directly, and spends
 // a Jev call only on dimensions that remain genuinely unresolved, so a clear
-// generative result never pays a full second semantic pass (PRD §7.2, ADR-045).
+// generative result never pays a full second semantic pass (ADR-045).
 //
 // It deliberately does NOT send the whole bundle (direction, amount/date support,
 // ambiguity, category) in one call, which is the redundant replay. Residual-first
@@ -261,7 +261,7 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 	}
 	// Date provenance must be explicit. OBSERVED_AT_PROCESSING means the caller
 	// fell back to processing time, which is not an observed transaction time and
-	// must never be canonicalized as one (PRD §9).
+	// must never be canonicalized as one.
 	if !acceptableDateProvenance(value.DateProvenance) || value.TransactionAt.IsZero() || now.IsZero() {
 		return TransactionSemanticDecision{}, false
 	}
@@ -305,7 +305,7 @@ func acceptableDateProvenance(provenance string) bool {
 }
 
 // turnAgentContextState is the loaded server state shared by the initial
-// judgment bundle (PRD §11): categories and pending-workflow flags are read
+// judgment bundle: categories and pending-workflow flags are read
 // once by ProcessAgent and must not be re-queried per fast path.
 type turnAgentContextState struct {
 	Categories          []string
@@ -339,7 +339,7 @@ func (s turnAgentContextState) harvestable() bool {
 
 // recordJudgmentDecision persists bounded decision provenance in the same
 // transaction as the canonical mutation, so a decision can never be recorded
-// without its outcome (PRD §15/§16). Only bounded decision values are stored —
+// without its outcome. Only bounded decision values are stored —
 // never raw user text, email bodies, or model state.
 func (p *Processor) recordJudgmentDecision(ctx context.Context, tx pgx.Tx, householdID, sourceEventID string, decision TransactionSemanticDecision, confirmed bool) error {
 	outcome := "NEEDS_REVIEW"

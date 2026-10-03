@@ -37,7 +37,7 @@ type payslipReviewWorld struct {
 
 // seedPayslipReview builds a payslip whose pay date is missing: the upload was
 // message 55 in the chat, the review card is message 61, and the review is still
-// waiting for an answer. It is the shape a CEU-06 reply must reach.
+// waiting for an answer. It is the shape an exact reply must reach.
 func seedPayslipReview(t *testing.T, ctx context.Context) payslipReviewWorld {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

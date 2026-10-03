@@ -65,7 +65,7 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 			return err
 		}
 	}
-	// PRD §7: the review carries the canonical contract, so the Inbox renders the
+	// The review carries the canonical contract, so the Inbox renders the
 	// policy choice and the residual amount without re-deriving them.
 	decision, ok := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", caseID)
 	if !ok {
@@ -84,7 +84,7 @@ func (p *Processor) Generate(ctx context.Context, v Payload) error {
 		}
 		return err
 	}
-	// UIR-02: the cycle residual review is a first-class Telegram review. Let the
+	// The cycle residual review is a first-class Telegram review. Let the
 	// shared projection create the request, pick the recipients, and render the
 	// policy card, so this path has no hand-rolled request/recipient SQL.
 	if err = workerTelegram.ProjectReviewMessage(ctx, tx, v.HouseholdID, reviewID, 0, 0); err != nil {

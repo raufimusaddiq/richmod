@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// CEU-07: binding outcomes are counted per household over the 30-day window, by
+// Binding outcomes are counted per household over the 30-day window, by
 // bounded action name only, and never leak across households.
 func TestCEUBindingOutcomesAreCountedPerHouseholdInTheWindow(t *testing.T) {
 	pool := integrationPool(t)

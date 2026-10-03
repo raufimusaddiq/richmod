@@ -106,28 +106,18 @@ test("review page keeps month-end inclusive bounds and no browser-side totals", 
 
 test("cycle explanations use native disclosures without hiding financial facts", () => {
   const page = tree("app/analytics");
-  assert.match(page, /<details className="review-explainer"><summary>Tentang \{about \|\| "data ini"\}<\/summary><p>\{description\}<\/p><\/details>/);
-  assert.match(page, /<span>Refund <strong>\{money\(facts.cashflow.refund\)\}<\/strong><\/span>/);
   assert.match(page, /Hari yang sama, bukan siklus penuh/);
   for (const field of ["netCashflow", "income", "expense", "savingsAllocated", "unallocatedSurplus"]) assert.match(page, new RegExp(`money\\(facts.cashflow.${field}\\)`));
   assert.match(page, /Tentang rekonsiliasi/);
 });
 
-test("insight card hides historical advice rows and the quality percentage", () => {
+test("insight card hides historical advice rows and any quality score", () => {
   const card = text("app/components/InsightCard.js");
   const data = text("app/lib/insightData.js");
-  assert.doesNotMatch(card, /insightQuality|Kualitas data|skor/i);
+  assert.doesNotMatch(card, /Kualitas data|skor/i);
   assert.doesNotMatch(card, /✦/);
   assert.match(data, /historical !== true/);
   assert.match(data, /SALARY_CYCLE/);
-});
-
-test("review styles keep deterministic chart colours and a single accent", () => {
-  const styles = globalCss();
-  assert.match(styles, /\.cycle-review \{ gap: 0; \}/);
-  assert.match(styles, /\.cycle-outcome \{ display: grid; grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
-  assert.match(styles, /\.change-track i \{ display: block; height: 100%; border-radius: 999px; background: var\(--ink-soft\); \}/);
-  assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.cycle-outcome, \.cycle-review \.cycle-outcome \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });
 
 test("scan-first report keeps every comparison and evidence behind native drill-downs", () => {
