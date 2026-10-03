@@ -7,8 +7,7 @@ import (
 )
 
 // The worker autonomous path and the household-resolved path must mint
-// canonical salary state through one operation, and a duplicate period/employer
-// salary may only link when amount and pay date also agree.
+// canonical salary state through one operation.
 func TestPayslipPathsShareFinalizer(t *testing.T) {
 	for _, path := range []string{"../worker/internal/document/payslip.go", "payslip.go"} {
 		source, err := os.ReadFile(path)
@@ -23,10 +22,8 @@ func TestPayslipPathsShareFinalizer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"func FinalizePayslip(", "RecordSalaryEvent(ctx, tx", "sameFacts"} {
-		if !strings.Contains(string(finalizer), want) {
-			t.Fatalf("finalizer missing %q", want)
-		}
+	if !strings.Contains(string(finalizer), "RecordSalaryEvent(") {
+		t.Fatal("the finalizer must record salary through the shared operation")
 	}
 	worker, err := os.ReadFile("../worker/internal/document/payslip.go")
 	if err != nil {

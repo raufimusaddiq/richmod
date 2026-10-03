@@ -110,7 +110,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	// Only the aggregate READ routes consume a reporting period. Every other
 	// route must keep working when the period is CUSTOM_OR_UNCLEAR.
 	var period assistantRange
-	if answer.Choice == "READ_SPENDING" || answer.Choice == "READ_CASHFLOW" || answer.Choice == "READ_SAVINGS" {
+	if routeConsumesPeriod(answer.Choice) {
 		var periodOK bool
 		period, periodOK = p.resolveJudgmentPeriod(ctx, householdID, now, result.Answers["period"])
 		if !periodOK {
@@ -289,4 +289,11 @@ func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 	// resolved date is supported from the raw text, and a model-authored typed
 	// date is validated structurally rather than by Go re-reading the sentence.
 	return simpleTransactionCandidate{Amount: value.String(), Text: text}, true
+}
+
+// routeConsumesPeriod reports whether a route is an aggregate READ that needs a
+// reporting period. Every other route must keep working when the period is
+// CUSTOM_OR_UNCLEAR.
+func routeConsumesPeriod(route string) bool {
+	return route == "READ_SPENDING" || route == "READ_CASHFLOW" || route == "READ_SAVINGS"
 }

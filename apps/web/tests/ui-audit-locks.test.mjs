@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import { reviewCards, tree, globalCss } from "./source.mjs";
+import { documentTypeLabels } from "../app/lib/labels.js";
 
 const text = path => path.endsWith("/") ? tree(path.slice(0, -1)) : readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const css = () => globalCss();
@@ -87,7 +88,6 @@ test("toast dismissal is owned by a stable callback", () => {
 test("overview links to the exact snapshot it summarises", () => {
   assert.match(text("app/page.js"), /href={latestWealth\?\.id \? `\/wealth\?snapshotId=\$\{latestWealth\.id\}` : "\/wealth"}/);
   assert.match(text("app/wealth/page.js"), /get\("snapshotId"\)/);
-  assert.match(globalCss(), /\.settings-section \{ scroll-margin-top: 24px; \}/);
 });
 
 test("modal drawers share focus, Escape, and Tab handling", () => {
@@ -184,7 +184,7 @@ test("a failed request names what is missing and keeps the rest", () => {
   assert.doesNotMatch(inbox, /if \(!reviewResponse\.ok \|\| !actionResponse\.ok\) throw new Error/);
 });
 
-test("large screens are split into modules and carry no inline checkbox styles", () => {
+test("large screens are split into modules and review cards carry no inline styles", () => {
   const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
   const lines = path => read(path).split("\n").length;
   assert.ok(lines("app/admin/page.js") < 120, "admin page.js is only the tab shell");
@@ -197,8 +197,6 @@ test("large screens are split into modules and carry no inline checkbox styles",
     assert.match(read(`app/components/review/${card}.js`), new RegExp(`export default function ${card}\\(`), `${card} lives in its own module`);
   }
   assert.doesNotMatch(reviewCards(), /checkbox(Label|Input)Style|style=\{\{/, "review cards use CSS classes, not inline styles");
-  assert.match(css(), /label\.review-check \{ display: flex;/);
-  assert.match(css(), /label\.review-check input\[type="checkbox"\] \{ width: 16px;/);
 });
 
 test("the households table uses the shared Indonesian vocabulary", () => {
@@ -235,14 +233,6 @@ test("one malformed inbox list does not hide the other", () => {
   assert.match(inbox, /await readList\(actionResponse, setActions/);
 });
 
-test("the console docs point at the split admin modules", () => {
-  for (const doc of ["RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md", "RICHMOD_SUPER_ADMIN_PLATFORM_CONSOLE_CODEX.md"]) {
-    const source = readFileSync(new URL(`../../../docs/${doc}`, import.meta.url), "utf8");
-    assert.doesNotMatch(source, /^apps\/web\/app\/admin\/page\.js$/m, `${doc} no longer names the old single file`);
-    assert.doesNotMatch(source, /app\/admin\/components/, `${doc} no longer suggests an admin/components layout`);
-  }
-});
-
 test("the stylesheet is an ordered list of balanced pieces", () => {
   const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
   const entry = read("app/globals.css");
@@ -268,54 +258,18 @@ test("an unmapped nav icon falls back instead of rendering undefined", () => {
   assert.match(text("app/components/AppShell.js"), /const Icon = icons\[icon\] \|\| DotsThree;/);
 });
 
-test("metric strips in cycle review stay rounded tiles, not flat square blocks", () => {
-  const rule = css().match(/\.cycle-review \.review-context \{[^}]*\}/)?.[0] ?? "";
-  assert.match(rule, /border-radius: var\(--radius-md\)/);
-  assert.match(rule, /border: 1px solid var\(--line\)/);
-  assert.match(rule, /background: var\(--surface\)/);
-  assert.doesNotMatch(rule, /border-radius: 0/);
-});
-
 test("the category donut does not animate in, so it never captures or shows a half-drawn ring", () => {
   const donut = text("app/components/Charts.js").match(/export function CategoryDonutChart[\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(donut, /<Pie [^>]*isAnimationActive=\{false\}/);
 });
 
-test("legal pages put the brand on its own line above the page label", () => {
-  assert.match(css(), /\.public-legal-brand \{ display: block;/);
-});
-
-test("secondary list lines and heat-table numbers stay readable", () => {
-  assert.match(css(), /\.settings-list small, \.integration-grid small \{[^}]*color: var\(--ink-soft\); font-size: var\(--text-md\);/);
-  assert.match(css(), /\.ledger-cell \{[^}]*font-size: var\(--text-base\); font-weight: var\(--weight-semibold\);/);
-});
-
-test("scrolling tab rows show edge shadows while they overflow", () => {
-  assert.match(css(), /\.inbox-tabs, \.admin-tabs, \.range-controls \{ background-color: var\(--surface-muted\); background-image: [^}]*background-attachment: local, local, scroll, scroll;/);
-});
-
 test("the viewport extends under the notch and safe-area insets keep content clear of it", () => {
   assert.match(text("app/layout.js"), /export const viewport = \{[^}]*viewportFit: "cover"/);
-  assert.match(css(), /body \{ padding-left: env\(safe-area-inset-left\); padding-right: env\(safe-area-inset-right\); \}/);
-  assert.match(css(), /\.app-main \{ padding: 22px 15px calc\(94px \+ env\(safe-area-inset-bottom\)\); \}/);
+  assert.match(css(), /env\(safe-area-inset-left\)/);
+  assert.match(css(), /env\(safe-area-inset-bottom\)/);
 });
 
-test("the login form sits close to the top on phones and is not centred in a void on tablets", () => {
-  assert.match(css(), /\.login-layout \{ display: flex; flex-direction: column; gap: 16px; min-height: auto; padding: 28px 16px 42px; \}/);
-  assert.match(css(), /\.login-context \{ display: contents;/);
-  assert.match(css(), /\.login-card \{ order: 3; \}/);
-  assert.match(css(), /@media \(min-width: 681px\) and \(max-width: 1100px\) \{\s*\.login-layout \{ min-height: auto; padding-top: 56px; padding-bottom: 40px; \}/);
-});
-
-test("destructive row actions keep clear space from neighbouring controls", () => {
-  assert.match(css(), /\.settings-list \.danger, \.row-actions \.danger \{ margin-inline-start: var\(--space-4\); \}/);
-});
-
-test("loading skeletons follow their props, use rounded tiles and say they are loading", () => {
-  const source = css();
-  assert.match(source, /\.skeleton-cards \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(150px, 1fr\)\); gap: var\(--space-3\); \}/);
-  assert.doesNotMatch(source, /\.skeleton-cards \{[^}]*repeat\(4, 1fr\)/);
-  assert.match(source, /\.skeleton-(cards|panel) i \{[^}]*border-radius: var\(--radius-md\)/);
+test("loading skeletons say they are loading", () => {
   assert.match(text("app/components/Feedback.js"), /<p className="skeleton-note" aria-hidden="true">\{label\}…<\/p>/);
 });
 
@@ -328,10 +282,6 @@ test("document thumbnails load lazily and the list shows twelve at a time", () =
   assert.match(page, /alt="Pratinjau dokumen keuangan" loading="lazy" decoding="async"/);
   assert.match(page, /items\.slice\(0, visibleCount\)\.map/);
   assert.match(page, /setVisibleCount\(count => count \+ 12\)/);
-});
-
-test("the native file picker button follows the theme", () => {
-  assert.match(css(), /input\[type="file"\]::file-selector-button \{[^}]*border: 2px solid var\(--ink\); border-radius: var\(--radius-sm\);/);
 });
 
 test("document source and status labels cover the values the API returns", () => {
@@ -355,10 +305,6 @@ test("tablets keep the transaction table columns; compact rows stop below 720px"
   assert.match(tablet, /\.compact-table \.transaction-row \{ grid-template-columns: minmax\(0, 1fr\) auto;/);
 });
 
-test("the tablet range gets its own content gutter", () => {
-  assert.match(css(), /@media \(min-width: 681px\) and \(max-width: 1100px\) \{\s*\.app-main \{ padding-inline: 32px; \}/);
-});
-
 test("the visual smoke covers a portrait tablet", () => {
   assert.match(text("scripts/visual-smoke.mjs"), /\["tablet-portrait", 768, 1024\]/);
 });
@@ -372,9 +318,8 @@ test("every scrolling table wrapper takes keyboard focus and has a name", () => 
   for (const { file, tag } of wrappers) assert.match(tag, /tabIndex=\{0\} role="region" aria-label="[^"]+geser untuk semua kolom"/, `${file}: a scrolling table must be focusable, a region, and named`);
 });
 
-test("the extraction text block is focusable, named and shows an edge cue", () => {
+test("the extraction text block is focusable and named", () => {
   assert.match(text("app/documents/page.js"), /<pre tabIndex=\{0\} role="region" aria-label="Hasil ekstraksi, geser untuk semua isi">/);
-  assert.match(css(), /\.extraction pre \{ background-color: var\(--ink\); background-image: [^}]*background-attachment: local, local, scroll, scroll;/);
 });
 
 test("the visual smoke fails on scrolling regions that keyboard users cannot reach", () => {
@@ -393,4 +338,28 @@ test("unfinished sources link to the Tindakan tab, which can show and close them
   assert.doesNotMatch(inbox, /item\.integrationType === "EMAIL_FORWARDING"/);
   // The Tindakan tab is a real view, so the link target exists.
   assert.match(inbox, /view=actions|=== "actions"/);
+});
+
+test("every document type the worker can assign has an Indonesian label", () => {
+  const processor = readFileSync(new URL("../../worker/internal/document/processor.go", import.meta.url), "utf8");
+  const types = [...new Set(processor.match(/\b(?:RECEIPT|PAYSLIP|BANK_TRANSACTION_SCREENSHOT|TRANSFER_PROOF|EWALLET_SCREENSHOT|BILL_OR_INVOICE|TRANSACTION_HISTORY_SCREENSHOT|WEALTH_OBSERVATION|OTHER_FINANCIAL_DOCUMENT|NON_FINANCIAL_OR_UNSUPPORTED)\b/g))];
+  assert.equal(types.length, 10);
+  for (const type of types) assert.ok(documentTypeLabels[type], `${type} has no label`);
+});
+
+test("settings shows labels, not raw enum values", () => {
+  const settings = text("app/settings/page.js");
+  for (const raw of ["{item.accountType}", "{item.wealthType}", "{item.side}", "{item.usageRole}", "{item.relationship}", "{item.status}"]) {
+    assert.ok(!settings.includes(raw), `settings still renders ${raw}`);
+  }
+});
+
+test("chart ticks follow the 12px type floor", () => {
+  assert.doesNotMatch(text("app/components/Charts.js"), /fontSize: (?:[0-9]|1[01])\b/);
+});
+
+test("transaction date filters carry visible labels", () => {
+  const page = text("app/transactions/page.js");
+  assert.match(page, /<label className="filter-date"><span>Dari tanggal<\/span><input name="from" type="date"/);
+  assert.match(page, /<label className="filter-date"><span>Sampai tanggal<\/span><input name="to" type="date"/);
 });

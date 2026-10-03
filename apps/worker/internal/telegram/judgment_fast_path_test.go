@@ -1,8 +1,6 @@
 package telegram
 
 import (
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,16 +52,13 @@ func TestJudgmentPeriodChoiceMapsToExactRange(t *testing.T) {
 }
 
 func TestOnlyAggregateReadRoutesConsumePeriod(t *testing.T) {
-	// Guard the ordering bug: only the aggregate READ routes may be gated on a
-	// usable reporting period, so an unclear period can never block wealth,
+	// An unclear period may only block the aggregate READ routes, never wealth,
 	// transaction, or review routes.
-	source, err := os.ReadFile("judgment_fast_path.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	guard := `if answer.Choice == "READ_SPENDING" || answer.Choice == "READ_CASHFLOW" || answer.Choice == "READ_SAVINGS" {`
-	if !strings.Contains(string(source), guard) {
-		t.Fatal("period resolution must be restricted to the aggregate READ routes")
+	aggregate := map[string]bool{"READ_SPENDING": true, "READ_CASHFLOW": true, "READ_SAVINGS": true}
+	for _, route := range judgmentRoutes {
+		if got := routeConsumesPeriod(route); got != aggregate[route] {
+			t.Fatalf("routeConsumesPeriod(%q) = %v", route, got)
+		}
 	}
 }
 

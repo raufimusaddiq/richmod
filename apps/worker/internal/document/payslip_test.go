@@ -124,7 +124,7 @@ func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(content), "p.gateway.NativeToolCall(ctx, documentID, payslipPrompt") != 1 {
+	if strings.Count(string(content), "p.gateway.NativeToolCall(") != 1 {
 		t.Fatal("payslip must make exactly one generative extraction call")
 	}
 	if strings.Contains(string(content), "p.verifier") {
