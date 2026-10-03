@@ -316,6 +316,13 @@ type turnAgentContextState struct {
 	HasPendingWorkflow  bool
 	ActiveReviewCount   int
 	ExactReply          bool
+	// HasRecentEvidence is true when evidence the user sent within the immediate
+	// window (10 minutes) is in this turn's context (CEU). A bare amount, date or
+	// merchant then may be a correction to that evidence, so no standalone
+	// transaction candidate is harvested: a second ledger row for the same real event
+	// is the failure to avoid. Older evidence in the hour does not take the fast path
+	// away from an ordinary new expense.
+	HasRecentEvidence bool
 	// Route is the decided Jev route for this turn, filled by the fast path and
 	// read back by ProcessAgent so implicit workflow bindings are narrowed only
 	// when the route names that interaction (ADR-038 amendment).
@@ -327,7 +334,7 @@ func mutationAuthorityUnavailable(configured bool, state turnAgentContextState) 
 }
 
 func (s turnAgentContextState) harvestable() bool {
-	return !s.HasPendingWorkflow && !s.ExactReply && s.ActiveReviewCount == 0
+	return !s.HasPendingWorkflow && !s.ExactReply && s.ActiveReviewCount == 0 && !s.HasRecentEvidence
 }
 
 // recordJudgmentDecision persists bounded decision provenance in the same

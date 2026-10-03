@@ -67,10 +67,25 @@ provider failure creates no review.
 
 ## CEU-04 — conversational evidence correction
 
-- Interpret residuals ("125 ribu", "kemarin", "merchantnya Mirota") against the
-  bound evidence and hand them to the existing evidence-backed review /
-  `resolve_review` / `propose_transaction_correction` paths.
-- No new finalizer; known dimensions are not re-decided.
+**As delivered.** No new finalizer and no new tool.
+
+- Prompt rules for evidence corrections: category/description/date go through
+  `propose_transaction_correction` with `canonical.transaction_ref`; facts for a receipt
+  with an open workflow go through the review tool for the missing facts only; shown
+  facts are never re-asked or overwritten; the amount or merchant of an already
+  recorded transaction cannot be changed from chat and the model must say so.
+- **No duplicate ledger row, enforced by Go.** With evidence in the immediate window,
+  a bare amount is not harvested as a standalone transaction (`HasRecentEvidence`,
+  immediate window only, so an ordinary new expense keeps its fast path), and
+  `record_transaction` refuses (`ALREADY_RECORDED_FROM_EVIDENCE`) a proposal with the
+  same type and amount as a transaction that fresh evidence already produced, when
+  the merchant is absent or the same. A different merchant at the same price is
+  allowed; an old receipt is left to the existing same-merchant edit guard.
+- **Deliberately not done:** binding a recent document's open review without a reply.
+  The route that would use such a binding (`REVIEW_INTERACTION`) is answered
+  terminally by the fast path, so the binding would never reach the model; it was
+  built, found unreachable in review, and removed. Reviews are resolved by an exact
+  reply (CEU-02/06) or by the existing deterministic reply lane.
 
 Tests: known amount + date only, amount correction without a duplicate
 transaction, SAVR corpus unchanged.
