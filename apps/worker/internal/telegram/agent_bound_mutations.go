@@ -122,6 +122,10 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		}
 		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "", categoryID)
 	case "SET_PAY_DATE":
+		// The prompt steers any supplied date into transaction_at, so accept it here.
+		if strings.TrimSpace(payDate) == "" {
+			payDate = transactionAt
+		}
 		if !validReviewDate(payDate) {
 			result.Status = "INVALID_PAY_DATE"
 			result.Review = map[string]any{"required": true, "missing_fields": []string{"pay_date"}}

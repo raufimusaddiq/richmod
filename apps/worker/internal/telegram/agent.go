@@ -706,6 +706,8 @@ func agentMutationFallback(result agentToolResult) string {
 		return "Nominal dan waktu transaksi masih perlu dilengkapi."
 	case "INVALID_PAY_DATE":
 		return "Tanggal pembayaran belum terbaca. Tulis tanggalnya, misalnya 25 Agu 2026."
+	case "INVALID_TRANSACTION_DATE":
+		return "Tanggal transaksi belum terbaca, jadi belum ada yang disimpan. Balas kartu tinjauan dengan tanggalnya, misalnya 2026-10-03."
 	case "TRANSFER_RECONCILIATION_REQUIRED":
 		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi."
 	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":

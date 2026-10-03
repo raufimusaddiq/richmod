@@ -161,3 +161,13 @@ func TestReceiptReviewCardNamesItsTransaction(t *testing.T) {
 		t.Fatalf("title appears %d times in %q", got, text)
 	}
 }
+
+// A refused date review is worded as a refusal even when the model call that
+// would have phrased it fails, so the household never reads it as saved.
+func TestRefusedReviewDetailIsNotReportedAsDone(t *testing.T) {
+	generic := agentMutationFallback(agentToolResult{Status: "SOME_UNKNOWN_STATUS"})
+	text := agentMutationFallback(agentToolResult{Status: "INVALID_TRANSACTION_DATE"})
+	if text == generic || !strings.Contains(text, "belum ada yang disimpan") {
+		t.Fatalf("INVALID_TRANSACTION_DATE fallback reads as success: %q", text)
+	}
+}
