@@ -31,13 +31,21 @@ type recentEvidenceCandidate struct {
 // inside the recent window, newest first. It reads one more row than the carry
 // limit so "more than the limit" is distinguishable from "exactly the limit".
 // Ages come from the database clock, never from model text.
-func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID string, chatID int64) ([]recentEvidenceCandidate, error) {
+//
+// Evidence is scoped to the household, the chat and the Telegram user who sent it
+// (ADR-050: "the newest from this user in this chat"). Ingress only accepts
+// private chats, where the chat id equals the user id, so for older rows that lack
+// the recorded sender the chat id stands in for the user; that fallback is
+// explicit here rather than an invariant this query silently relies on.
+func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID string, chatID, userID int64) ([]recentEvidenceCandidate, error) {
 	rows, err := p.pool.Query(ctx, `SELECT d.id::text,extract(epoch FROM now()-d.created_at)::float8
 		FROM document d JOIN source_event s ON s.id=d.source_event_id AND s.household_id=d.household_id
+		LEFT JOIN source_event_payload pl ON pl.source_event_id=s.id
 		WHERE d.household_id=$1 AND s.telegram_chat_id=$2 AND s.source_type='TELEGRAM_IMAGE'
+		  AND COALESCE((pl.payload_json->>'telegram_user_id')::bigint,s.telegram_chat_id)=$5
 		  AND d.status<>'FAILED' AND d.created_at > now()-make_interval(secs => $3::double precision)
 		ORDER BY d.created_at DESC LIMIT $4::int`,
-		householdID, chatID, recentEvidenceWindow.Seconds(), maxRecentEvidence+1)
+		householdID, chatID, recentEvidenceWindow.Seconds(), maxRecentEvidence+1, userID)
 	if err != nil {
 		return nil, fmt.Errorf("load recent evidence: %w", err)
 	}
@@ -67,7 +75,7 @@ func (p *Processor) recentEvidenceCandidates(ctx context.Context, householdID st
 // Only an exact reply narrows tools (CEU-02), because an inferred binding must
 // not own a turn the route says is something else.
 func (p *Processor) bindRecentEvidence(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) (*agentEvidenceBinding, []map[string]any, error) {
-	candidates, err := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID)
+	candidates, err := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
 	if err != nil || len(candidates) == 0 {
 		return nil, nil, err
 	}
