@@ -158,3 +158,62 @@ func TestEvidenceNoticeRollsBackWithItsMutation(t *testing.T) {
 		t.Fatalf("a rolled-back mutation left %d notices (err=%v)", n, err)
 	}
 }
+
+// The one-notice guarantee must not depend on job rows: they are pruned after 30
+// days, and a retry after that must not announce the same document twice.
+func TestEvidenceNoticeStaysOnePerDocumentAfterJobsArePruned(t *testing.T) {
+	ctx := context.Background()
+	pool, sourceID, documentID, _ := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
+	enqueue := func() {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, receiptRecordedNotice("Mirota", "125000")); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	enqueue()
+	if _, err := pool.Exec(ctx, `DELETE FROM job WHERE payload_json->>'bind_document_id'=$1`, documentID); err != nil {
+		t.Fatal(err)
+	}
+	enqueue() // a processor retry after the first notice's job row was pruned
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE payload_json->>'bind_document_id'=$1`, documentID).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a notice was re-queued after its job was pruned: %d (err=%v)", n, err)
+	}
+	var marked bool
+	if err := pool.QueryRow(ctx, `SELECT evidence_notice_at IS NOT NULL FROM document WHERE id=$1`, documentID).Scan(&marked); err != nil || !marked {
+		t.Fatalf("the durable marker is missing: marked=%v err=%v", marked, err)
+	}
+}
+
+func TestEvidenceNoticeMarkerRollsBackWithItsMutation(t *testing.T) {
+	ctx := context.Background()
+	pool, sourceID, documentID, _ := noticeFixture(t, ctx, true, "TELEGRAM_IMAGE")
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var marked bool
+	if err := pool.QueryRow(ctx, `SELECT evidence_notice_at IS NOT NULL FROM document WHERE id=$1`, documentID).Scan(&marked); err != nil || marked {
+		t.Fatalf("a rolled-back mutation left the notice marker set: marked=%v err=%v", marked, err)
+	}
+}
+
+func TestNoticeAmountGroupingIsPositionalForPlainDigits(t *testing.T) {
+	for in, want := range map[string]string{"1": " Rp1", "12": " Rp12", "123": " Rp123", "1234": " Rp1.234", "123456": " Rp123.456", "1234567890": " Rp1.234.567.890"} {
+		if got := noticeAmount(in); got != want {
+			t.Fatalf("noticeAmount(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

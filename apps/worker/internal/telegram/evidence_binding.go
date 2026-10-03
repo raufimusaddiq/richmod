@@ -14,6 +14,13 @@ import (
 // correction to the transaction the evidence is already linked to.
 const agentWorkflowExactEvidence agentWorkflowScope = "EXACT_EVIDENCE"
 
+// agentWorkflowEvidenceReadOnly is a reply bound to evidence for which the catalog
+// has no mutation lane: the evidence is not linked to a transaction, or the
+// correction tool is absent (for example when mutation authority is unavailable).
+// The scope string reaches the model and the judgment plane, so it must describe
+// the real catalog.
+const agentWorkflowEvidenceReadOnly agentWorkflowScope = "EVIDENCE_READ_ONLY"
+
 // agentEvidenceBinding is the server-owned result of binding a turn to evidence.
 // Document is canonical and never leaves the server; Context is the model-safe
 // Evidence Context Package.
@@ -185,8 +192,9 @@ func (p *Processor) bindTurnEvidence(ctx context.Context, householdID, sourceEve
 
 // applyEvidenceToolPolicy widens an unbound explicit reply to an evidence-bound
 // one. The model gets exactly one mutation lane, and only when the evidence is
-// already linked to a transaction: correcting that transaction. Everything else
-// stays read-only; an unlinked, review-less document has nothing to mutate here.
+// already linked to a transaction and the correction tool is in the catalog:
+// correcting that transaction. Otherwise the reply is bound read-only, and the
+// scope says so; an unlinked, review-less document has nothing to mutate here.
 func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope agentWorkflowScope, evidence *agentEvidenceBinding) ([]gateway.ToolDefinition, agentWorkflowScope) {
 	if evidence == nil || scope != agentWorkflowExplicitUnbound {
 		return filtered, scope
@@ -194,12 +202,11 @@ func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope a
 	if evidence.HasLinkedTransaction {
 		for _, tool := range general {
 			if tool.Name == "propose_transaction_correction" {
-				filtered = append(append([]gateway.ToolDefinition{}, filtered...), tool)
-				break
+				return append(append([]gateway.ToolDefinition{}, filtered...), tool), agentWorkflowExactEvidence
 			}
 		}
 	}
-	return filtered, agentWorkflowExactEvidence
+	return filtered, agentWorkflowEvidenceReadOnly
 }
 
 // evidenceWorkflow reports the workflow block of a bound evidence context and
