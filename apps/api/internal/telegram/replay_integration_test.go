@@ -83,7 +83,7 @@ func TestImageReplayCreatesOneTelegramImageJob(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, telegramID, householdID, userID); err != nil {
 		t.Fatal(err)
 	}
-	input := ImageInput{CaptureInput: CaptureInput{UpdateID: stamp, TelegramUserID: telegramID, RawPayload: []byte(fmt.Sprintf(`{"update_id":%d}`, stamp))}, FileID: "telegram-file-id", FileName: "receipt.jpg", MIMEType: "image/jpeg", Caption: "struk"}
+	input := ImageInput{CaptureInput: CaptureInput{UpdateID: stamp, TelegramUserID: telegramID, RawPayload: []byte(fmt.Sprintf(`{"update_id":%d}`, stamp))}, FileID: "telegram-file-id", FileName: "receipt.jpg", MIMEType: "image/jpeg", Caption: "struk", MessageID: 4242, ChatID: telegramID}
 	store := NewPostgreSQLStore(pool)
 	created, err := store.CaptureImage(ctx, input)
 	if err != nil || !created {
@@ -100,5 +100,13 @@ func TestImageReplayCreatesOneTelegramImageJob(t *testing.T) {
 	}
 	if sourceType != "TELEGRAM_IMAGE" || jobType != "FETCH_TELEGRAM_IMAGE" || jobs != 1 {
 		t.Fatalf("source=%s job=%s count=%d", sourceType, jobType, jobs)
+	}
+	// CEU-02: the upload records its chat and message id, so a reply to it binds.
+	var chatID, messageID int64
+	if err = pool.QueryRow(ctx, `SELECT telegram_chat_id,telegram_message_id FROM source_event WHERE household_id=$1 AND external_id=$2`, householdID, fmt.Sprintf("telegram:update:%d", stamp)).Scan(&chatID, &messageID); err != nil {
+		t.Fatal(err)
+	}
+	if chatID != telegramID || messageID != 4242 {
+		t.Fatalf("recorded chat=%d message=%d, want %d/4242", chatID, messageID, telegramID)
 	}
 }

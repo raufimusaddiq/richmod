@@ -19,12 +19,15 @@ type Bot struct {
 }
 
 type SendPayload struct {
-	ChatID           int64                 `json:"chat_id"`
-	ReplyToMessageID int64                 `json:"reply_to_message_id"`
-	Text             string                `json:"text"`
-	ReviewRequestID  string                `json:"review_request_id,omitempty"`
-	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
-	CallbackQueryID  string                `json:"callback_query_id,omitempty"`
+	ChatID           int64  `json:"chat_id"`
+	ReplyToMessageID int64  `json:"reply_to_message_id"`
+	Text             string `json:"text"`
+	ReviewRequestID  string `json:"review_request_id,omitempty"`
+	// BindDocumentID, when set, records the sent message as about this document so
+	// a reply to it binds to the evidence (CEU-02).
+	BindDocumentID  string                `json:"bind_document_id,omitempty"`
+	ReplyMarkup     *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	CallbackQueryID string                `json:"callback_query_id,omitempty"`
 }
 
 type EditPayload struct {

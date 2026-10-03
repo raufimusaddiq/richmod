@@ -130,6 +130,18 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		}
 	}
 
+	// CEU: bind the evidence this turn is about. A reply to the user's upload or to a
+	// bound notice binds that document (and its open review); a review binding gains
+	// its evidence as context. Nothing here is chosen by the model.
+	evidence, evidenceReview, err := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
+	if err != nil {
+		return err
+	}
+	if reviewBinding == nil && evidenceReview != nil {
+		reviewBinding = evidenceReview
+		reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
+	}
+
 	contextState.ActiveReview = reviewPublic
 	contextState.ActiveReviewCount = reviewCount
 	contextState.ReviewType, contextState.ReviewMode = "", ""
@@ -176,6 +188,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		generalTools = readOnlyAgentTools(generalTools)
 	}
 	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
+	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
@@ -183,8 +196,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		turnContext["mutation_authority_unavailable"] = true
 	}
 	turnContext["merchant_learning_count"] = merchantCount
-	if explicitReply && reviewBinding == nil && merchantBinding == nil {
+	if explicitReply && reviewBinding == nil && merchantBinding == nil && evidence == nil {
 		turnContext["explicit_reply_unbound"] = true
+	}
+	if evidence != nil {
+		turnContext["bound_evidence"] = evidence.Context
 	}
 	if merchantBinding != nil {
 		turnContext["merchant_learning"] = map[string]any{"merchant": merchantBinding.Merchant, "category": merchantBinding.Category}

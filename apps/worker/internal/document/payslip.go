@@ -284,6 +284,9 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 	if _, err := reviewdomain.FinalizePayslip(ctx, tx, reviewdomain.PayslipFinalization{HouseholdID: householdID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, Choice: "HOUSEHOLD_POLICY", Auto: true}); err != nil {
 		return err
 	}
+	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, payslipRecordedNotice(value.Employer, value.NetPay)); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 

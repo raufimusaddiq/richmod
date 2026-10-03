@@ -26,8 +26,8 @@ func seedEvidence(t *testing.T, ctx context.Context, f agentIntegrationFixture, 
 	t.Helper()
 	var s evidenceSeed
 	stamp := time.Now().UnixNano()
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED',NULLIF($4::bigint,0)) RETURNING id`,
-		f.householdID, fmt.Sprintf("ev-%s-%d", label, stamp), []byte(fmt.Sprintf("ev-%s-%d", label, stamp)), o.messageID).Scan(&s.sourceID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED',NULLIF($4::bigint,0),CASE WHEN $4::bigint>0 THEN $5::bigint END) RETURNING id`,
+		f.householdID, fmt.Sprintf("ev-%s-%d", label, stamp), []byte(fmt.Sprintf("ev-%s-%d", label, stamp)), o.messageID, f.chatID).Scan(&s.sourceID))
 	payload, _ := json.Marshal(map[string]any{"caption": o.caption, "telegram_user_id": f.chatID})
 	_, err := f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, s.sourceID, string(payload))
 	mustAgentTest(t, err)
