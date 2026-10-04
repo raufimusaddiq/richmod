@@ -429,21 +429,25 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 			JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
 			WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type IN ('PAYSLIP_CONFIRMATION','MISSING_PAY_DATE') FOR UPDATE OF ri,p`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&itemID, &proposalID, &sourceID, &documentID, &userID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
+			// Not a payslip: continue to the transaction-bound ignore lane.
+			if err = tx.Rollback(ctx); err != nil {
+				return true, err
+			}
+		} else {
+			if err != nil {
+				return true, err
+			}
+			if _, err = reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ActorType: "TELEGRAM", Action: "IGNORE"}); err != nil {
+				return true, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+				return true, err
+			}
+			if err = enqueueReply(ctx, tx, update, "Slip gaji diabaikan."); err != nil {
+				return true, err
+			}
+			return true, tx.Commit(ctx)
 		}
-		if err != nil {
-			return true, err
-		}
-		if _, err = reviewdomain.ResolvePayslipProposal(ctx, tx, reviewdomain.PayslipCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID, ProposalID: proposalID, SourceEventID: sourceID, DocumentID: documentID, ActorType: "TELEGRAM", Action: "IGNORE"}); err != nil {
-			return true, err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-			return true, err
-		}
-		if err = enqueueReply(ctx, tx, update, "Slip gaji diabaikan."); err != nil {
-			return true, err
-		}
-		return true, tx.Commit(ctx)
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {

@@ -10,6 +10,42 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
+func (p *Processor) ignoreBankReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return true, err
+	}
+	defer tx.Rollback(ctx)
+	var itemID, userID string
+	err = tx.QueryRow(ctx, `SELECT ri.id::text,ti.user_id::text
+		FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
+		JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active
+		JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
+		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
+		AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND')
+		AND ri.review_type='UNKNOWN_BANK_TEMPLATE' AND ri.transaction_id IS NULL FOR UPDATE OF ri`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.CallbackQuery.From.ID).Scan(&itemID, &userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	if err = reviewdomain.IgnoreBankReview(ctx, tx, reviewdomain.BankFactCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: itemID}, "TELEGRAM"); err != nil {
+		if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) {
+			return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		return true, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1 AND household_id=$2`, sourceEventID, householdID); err != nil {
+		return true, err
+	}
+	if err = enqueueReply(ctx, tx, update, "Bukti email bank diabaikan."); err != nil {
+		return true, err
+	}
+	return true, tx.Commit(ctx)
+}
+
 func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, householdID, reviewID, userID, bankSourceID string, update telegramUpdate) error {
 	amountIDR, transactionAt := parseBankFactsReply(update.Message.Text)
 	if reviewdomain.ValidateBankFactValues(amountIDR, transactionAt) != nil {
