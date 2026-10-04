@@ -158,6 +158,11 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 			return p.processReviewCategoryCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data)
 		}
 		if update.CallbackQuery.Data == "review:reprocess" || update.CallbackQuery.Data == "review:ignore" {
+			if update.CallbackQuery.Data == "review:ignore" {
+				if handled, err := p.ignoreBankReview(ctx, sourceEventID, householdID, update); handled {
+					return err
+				}
+			}
 			if handled, err := p.processDocumentReviewCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 				return err
 			}

@@ -8,6 +8,7 @@ package reviewdomain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -46,6 +47,44 @@ var (
 	// household funding account.
 	ErrBankAccountInvalid = errors.New("reviewdomain: selected bank account is not available")
 )
+
+// IgnoreBankReview dismisses source-only bank evidence through the same operation
+// on Web and Telegram. No transaction is created or deleted.
+func IgnoreBankReview(ctx context.Context, tx pgx.Tx, cmd BankFactCommand, actorType string) error {
+	var sourceID string
+	var decision []byte
+	err := tx.QueryRow(ctx, `SELECT s.id::text,ri.decision FROM review_item ri
+		JOIN source_event s ON s.id=ri.source_event_id AND s.household_id=ri.household_id
+		WHERE ri.id=$1 AND ri.household_id=$2 AND ri.review_type='UNKNOWN_BANK_TEMPLATE'
+		AND ri.transaction_id IS NULL AND s.source_type='BANK_EMAIL'
+		AND ri.status IN ('OPEN','PENDING_SEND') FOR UPDATE OF ri,s`, cmd.ReviewItemID, cmd.HouseholdID).Scan(&sourceID, &decision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrBankReviewUnavailable
+	}
+	if err != nil {
+		return err
+	}
+	var contract struct {
+		AllowedActions []string `json:"allowedActions"`
+	}
+	if len(decision) > 0 && string(decision) != "null" && (json.Unmarshal(decision, &contract) != nil || !containsAction(contract.AllowedActions, "IGNORE")) {
+		return ErrBankReviewUnavailable
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='IGNORE',resolution_values='{}'::jsonb,updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ReviewItemID, cmd.UserID, cmd.HouseholdID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{cmd.ReviewItemID}); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE'))`, cmd.HouseholdID, actorType, cmd.UserID, cmd.ReviewItemID)
+	return err
+}
 
 // ListBankSourceAccountChoices returns the bounded active household funding
 // accounts a user may link to an unlinked bank source, keyed by real account ID

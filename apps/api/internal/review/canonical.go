@@ -419,6 +419,14 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if in.Action == "IGNORE" && kind == "UNKNOWN_BANK_TEMPLATE" && transaction == nil {
+		if err = reviewdomain.IgnoreBankReview(r.Context(), tx, reviewdomain.BankFactCommand{HouseholdID: household, UserID: p.UserID, ReviewItemID: r.PathValue("id")}, "USER"); err != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 409, map[string]string{"error": "bank review is unavailable"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if in.Action == "IGNORE" && kind == "TRANSFER_CLASSIFICATION" && financialObservation != nil {
 		_, err = reviewdomain.ResolveFinancialEmailReview(r.Context(), tx, reviewdomain.FinancialEmailCommand{HouseholdID: household, ObservationID: *financialObservation, ReviewItemID: r.PathValue("id"), ActorUserID: p.UserID, ActorType: "USER", Ignore: true})
 		if err != nil || tx.Commit(r.Context()) != nil {
