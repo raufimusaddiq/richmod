@@ -190,7 +190,22 @@ func agentReviewBindingPublic(binding *agentReviewBinding) map[string]any {
 	if binding.TelegramMessageID != 0 {
 		out["binding"] = "reply_or_server_message"
 	}
+	// Name the one value the card asked the household for, so the model puts the
+	// reply in that argument instead of guessing.
+	if field := awaitedReviewField(binding.ConversationState); field != "" {
+		out["awaiting_field"] = field
+	}
 	return out
+}
+
+func awaitedReviewField(conversationState string) string {
+	switch conversationState {
+	case "AWAITING_DATE":
+		return "transaction_at"
+	case "AWAITING_MERCHANT":
+		return "merchant"
+	}
+	return ""
 }
 
 func (p *Processor) loadAgentMerchantLearningBinding(ctx context.Context, householdID string, update telegramUpdate) (*agentMerchantLearningBinding, int, error) {

@@ -122,6 +122,10 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		}
 		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "", categoryID)
 	case "SET_PAY_DATE":
+		// The prompt steers any supplied date into transaction_at, so accept it here.
+		if strings.TrimSpace(payDate) == "" {
+			payDate = transactionAt
+		}
 		if !validReviewDate(payDate) {
 			result.Status = "INVALID_PAY_DATE"
 			result.Review = map[string]any{"required": true, "missing_fields": []string{"pay_date"}}
@@ -147,7 +151,15 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		return result, true, nil
 	}
 
-	if field, value, required := requiredNativeReviewDetail(review.reviewType, review.conversationState, review.merchantID, merchant, description); required {
+	// The model may carry a proposed date in any of its date-shaped arguments; Go
+	// validates whichever one it used.
+	proposedDate := transactionAt
+	for _, candidate := range []string{payDate, description} {
+		if strings.TrimSpace(proposedDate) == "" {
+			proposedDate = candidate
+		}
+	}
+	if field, value, required := requiredNativeReviewDetail(review.reviewType, review.conversationState, review.merchantID, merchant, description, proposedDate); required {
 		if strings.TrimSpace(value) == "" {
 			result.Status = "MISSING_REVIEW_DETAIL"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{field}}

@@ -47,12 +47,15 @@ type residualAllocation struct {
 	Note            string `json:"note"`
 }
 
-func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description string) (field, value string, required bool) {
+// requiredNativeReviewDetail names the one free-form fact a bound transaction
+// review still needs and the value the model proposed for it. For a date review
+// the value is the proposed date, whichever date argument carried it.
+func requiredNativeReviewDetail(reviewType, state, merchantID, merchant, description, date string) (field, value string, required bool) {
 	if state == "AWAITING_MERCHANT" || (reviewType == "UNKNOWN_MERCHANT" && merchantID == "" && strings.TrimSpace(merchant) != "") {
 		return "merchant", clean(strings.TrimSpace(merchant), 500), true
 	}
 	if state == "AWAITING_DATE" {
-		return "transaction_at", clean(strings.TrimSpace(description), 500), true
+		return "transaction_at", strings.TrimSpace(date), true
 	}
 	if reviewType == "UNKNOWN_PURPOSE" || state == "AWAITING_DETAIL" {
 		return "description", clean(strings.TrimSpace(description), 500), true
