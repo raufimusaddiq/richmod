@@ -60,6 +60,9 @@ func TestScreenshotDifferentPrintedTimeCreatesSeparateTransaction(t *testing.T) 
 			if _, err := pool.Exec(ctx, `DELETE FROM transaction WHERE id=$1`, id); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := pool.Exec(ctx, `DELETE FROM merchant WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM transaction t WHERE t.merchant_id=merchant.id)`, merchantID); err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }
