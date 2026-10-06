@@ -403,6 +403,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			state.SideEffects++
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
+			if len(state.FreshEvidenceDocuments) > 0 {
+				if _, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent',parser_version='1'
+					WHERE id=ANY(SELECT source_event_id FROM document WHERE id=ANY($1::uuid[]) UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($1::uuid[]))
+					AND processing_status = 'NEEDS_REVIEW'`, state.FreshEvidenceDocuments); err != nil {
+					return fmt.Errorf("finalize stale evidence source: %w", err)
+				}
+			}
 			if !synthesize {
 				return p.finishAgentText(ctx, state, agentMutationFallback(result))
 			}
