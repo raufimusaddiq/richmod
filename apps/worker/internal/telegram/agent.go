@@ -410,11 +410,10 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 					return fmt.Errorf("finalize stale evidence source: %w", err)
 				}
 			}
-		}
-		if !synthesize {
-			return p.finishAgentText(ctx, state, agentMutationFallback(result))
-		}
-		return p.synthesizeMutationResult(ctx, model, state, result)
+			if !synthesize {
+				return p.finishAgentText(ctx, state, agentMutationFallback(result))
+			}
+			return p.synthesizeMutationResult(ctx, model, state, result)
 
 		default:
 			return p.finishAgentFailure(ctx, state, "Richmod tidak bisa menentukan aksi yang aman untuk pesan ini.")
