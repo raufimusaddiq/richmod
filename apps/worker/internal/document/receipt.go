@@ -353,7 +353,7 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 		// different merchant 12-72h away alone cannot justify human review;
 		// same merchant or near-simultaneous same-amount events still fail closed.
 		merchantMatch := sameMerchant(candidate.Merchant, merchant)
-		if merchantMatch || hours <= 1 {
+		if (merchantMatch && !screenshotTimeConflict(hours)) || hours <= 1 {
 			candidate.Score = documentMatchScore(hours, merchantMatch)
 			result = append(result, candidate)
 			if len(result) == 10 {
@@ -379,6 +379,12 @@ func documentMatchScore(hours float64, merchantMatch bool) float64 {
 	}
 	return math.Round(score*100) / 100
 }
+
+// screenshotTimeConflict reports two same-amount, same-merchant rows whose
+// printed times materially differ: a QR screenshot reprints its original time,
+// so 10:13 and 15:34 are two purchases, not one event photographed twice. The
+// window guard stays for clock drift on a genuinely re-sent screenshot.
+func screenshotTimeConflict(hours float64) bool { return hours >= 1 }
 
 func sameMerchant(left, right string) bool {
 	return normalizeMerchant(left) != "" && normalizeMerchant(left) == normalizeMerchant(right)
