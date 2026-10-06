@@ -28,20 +28,25 @@ func TestScreenshotDifferentPrintedTimeCreatesSeparateTransaction(t *testing.T) 
 	}
 	processor := &Processor{pool: pool}
 	for _, tt := range []struct {
-		name   string
-		hours  float64
-		linked bool
+		name     string
+		hours    float64
+		merchant string
+		linked   bool
 	}{
-		{"same merchant near time links", 0.25, true},
-		{"same merchant different time links nothing", 5.4, false},
-		{"different merchant near time still links", 12, true},
+		{"same merchant near time links", 0.25, "Calorie Snacks & Desserts", true},
+		{"same merchant different time links nothing", 5.4, "Calorie Snacks & Desserts", false},
+		{"different merchant 12h links nothing", 12, "Other Merchant", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			var id string
-			if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7500,'IDR',now() - make_interval(secs => $2::float8),'Calorie Snacks & Desserts',now()) RETURNING id::text`, householdID, tt.hours*3600).Scan(&id); err != nil {
+			var merchantID string
+			if err := pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET normalized_name=EXCLUDED.normalized_name RETURNING id::text`, householdID, tt.merchant).Scan(&merchantID); err != nil {
 				t.Fatal(err)
 			}
-			matches, err := processor.findMatches(ctx, householdID, "EXPENSE", "7500", time.Now(), "Calorie Snacks & Desserts", true)
+			var id string
+			if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7500,'IDR',now() - make_interval(secs => $2::float8),$3,'Calorie Snacks & Desserts',now()) RETURNING id::text`, householdID, tt.hours*3600, merchantID).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			matches, err := processor.findScreenshotMatches(ctx, householdID, "EXPENSE", "7500", time.Now(), "Calorie Snacks & Desserts", true)
 			if err != nil {
 				t.Fatal(err)
 			}
