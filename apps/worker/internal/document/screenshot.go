@@ -26,7 +26,7 @@ type screenshotRow struct {
 	Direction string `json:"direction"`
 	// Amount is nil when the screenshot genuinely does not show it. Canonical
 	// records still require a positive amount, so a nil row reaches review and is
-	// materialized only after the household supplies the value (SAVR-03).
+	// materialized only after the household supplies the value.
 	Amount             *string `json:"amount"`
 	Currency           string  `json:"currency"`
 	TransactionAt      *string `json:"transaction_at"`
@@ -53,7 +53,7 @@ type validatedScreenshotRow struct {
 	CategoryID    *string
 	// CategoryDecided marks a policy-accepted source category or bounded ruling,
 	// which can authorise auto-confirm; CategoryConflict marks disagreement
-	// between independent semantic sources (PRD §11.2, §17).
+	// between independent semantic sources.
 	CategoryDecided  bool
 	CategoryConflict bool
 	Candidates       []matchCandidate
@@ -61,15 +61,14 @@ type validatedScreenshotRow struct {
 }
 
 // autoConfirmable reports the conditions this source can check before writing
-// canonical state without a human (PRD §17, §11.1). An unmatched OUT row needs a
+// canonical state without a human. An unmatched OUT row needs a
 // decisive bounded category and a printed date; generic extraction confidence
 // is quality metadata, not an independent semantic veto;
-// the merchant may be absent (PRD §18.1). Incoming rows never auto-confirm
-// because evidence cannot separate income from an own-account transfer yet
-// (PRD §11.5).
+// the merchant may be absent. Incoming rows never auto-confirm
+// because evidence cannot separate income from an own-account transfer yet.
 func (row validatedScreenshotRow) autoConfirmable() bool {
 	// A matched row links evidence; a row with candidates it could not resolve is
-	// exactly the duplicate ambiguity PRD 17/10.3 refuses to auto-confirm, so it
+	// exactly the duplicate ambiguity that must not auto-confirm, so it
 	// must still go to review rather than writing a second CONFIRMED transaction.
 	return row.Value.Amount != nil && row.Matched == nil && len(row.Candidates) == 0 && row.Type == "EXPENSE" && row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict && row.DateKnown
 }
@@ -162,7 +161,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		if rows[index].Value.Amount == nil {
 			continue // No amount means no safe duplicate match; reconcile after the user supplies it.
 		}
-		matches, err := p.findMatches(ctx, householdID, rows[index].Type, *rows[index].Value.Amount, rows[index].TransactionAt, rows[index].Value.Merchant, rows[index].DateKnown)
+		matches, err := p.findScreenshotMatches(ctx, householdID, rows[index].Type, *rows[index].Value.Amount, rows[index].TransactionAt, rows[index].Value.Merchant, rows[index].DateKnown)
 		if err != nil {
 			return err
 		}
@@ -187,7 +186,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 			usedMatches[match.ID] = true
 		}
 	}
-	// One bounded request rules on every unmatched OUT row's category (PRD §11.3)
+	// One bounded request rules on every unmatched OUT row's category
 	// so an unmatched row means "new transaction", not "ambiguous transaction".
 	// The screenshot kill-switch also disables this residual batch.
 	decided, provenance, err := p.resolveScreenshotResidualCategories(ctx, sourceID, rows, categories)
@@ -196,7 +195,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 	}
 	for index, categoryID := range decided {
 		if rows[index].CategoryID != nil && *rows[index].CategoryID != categoryID {
-			// Two independent semantic sources disagree; PRD §17 forbids
+			// Two independent semantic sources disagree; policy forbids
 			// confirming through an unresolved evidence conflict.
 			rows[index].CategoryConflict = true
 			continue
@@ -284,9 +283,17 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Prefer the chat the upload came from; the household's first active identity is
+	// only the fallback for evidence that did not record one.
 	var chatID int64
 	hasChat := true
-	if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err != nil {
+	var sourceChat *int64
+	if err := tx.QueryRow(ctx, `SELECT telegram_chat_id FROM source_event WHERE id=$1`, sourceID).Scan(&sourceChat); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if sourceChat != nil {
+		chatID = *sourceChat
+	} else if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -375,7 +382,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message); err != nil {
 				return err
 			}
-			// PRD §7/§13: store the decision contract so the Inbox can ask only
+			// Store the decision contract so the Inbox can ask only
 			// about the dimension that is genuinely unresolved.
 			if encoded, encodeErr := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row, slices.Contains(provenance.QuestionKeys, rowQuestionKey(index))).JSON(); encodeErr == nil {
 				if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, householdID, string(encoded), transactionID); err != nil {
@@ -384,10 +391,10 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			}
 		}
 	}
-	// PRD §11.4: one batch summary, so a many-row screenshot never floods the
+	// One batch summary, so a many-row screenshot never floods the
 	// chat with one message per row.
 	if hasChat {
-		if err := enqueueScreenshotSummary(ctx, tx, chatID, screenshotSummary(len(rows), recorded, linked, pending)); err != nil {
+		if err := enqueueScreenshotSummary(ctx, tx, chatID, documentID, screenshotSummary(len(rows), recorded, linked, pending)); err != nil {
 			return err
 		}
 	}
@@ -399,7 +406,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	if provenance.Questions > 0 {
-		// ADR-038/PRD §21: every Jev-influenced canonical mutation keeps its
+		// ADR-038: every Jev-influenced canonical mutation keeps its
 		// bounded decision provenance, not just its audit entry.
 		summary, _ := json.Marshal(map[string]any{"questioned_rows": provenance.Questions, "decided_rows": provenance.Decided, "jev_confirmed_rows": jevRecorded})
 		outcome := "REVIEW"

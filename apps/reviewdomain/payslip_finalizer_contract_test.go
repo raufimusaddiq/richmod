@@ -1,0 +1,35 @@
+package reviewdomain
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+// The worker autonomous path and the household-resolved path must mint
+// canonical salary state through one operation.
+func TestPayslipPathsShareFinalizer(t *testing.T) {
+	for _, path := range []string{"../worker/internal/document/payslip.go", "payslip.go"} {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body := string(source); strings.Contains(body, "INSERT INTO salary_event") || strings.Contains(body, "INSERT INTO salary_source") {
+			t.Fatalf("%s still owns salary mutation SQL", path)
+		}
+	}
+	finalizer, err := os.ReadFile("payslip.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(finalizer), "RecordSalaryEvent(") {
+		t.Fatal("the finalizer must record salary through the shared operation")
+	}
+	worker, err := os.ReadFile("../worker/internal/document/payslip.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(worker), "reviewdomain.FinalizePayslip(") {
+		t.Fatal("worker autonomous payslip must finalize through the shared salary finalizer")
+	}
+}

@@ -33,11 +33,13 @@ Repository file changes use a dedicated branch and linked worktree.
 ```bash
 git switch main
 git pull
-git worktree add -b feat/short-description ../richmod-worktrees/short-description main
-cd ../richmod-worktrees/short-description
+git worktree add -b feat/short-description ../family-finance-worktrees/short-description main
+cd ../family-finance-worktrees/short-description
 ```
 
 Keep unrelated changes out of the branch. Do not rewrite historical migrations; add a new migration when schema changes are required.
+
+`main` is protected. Push the branch, open a pull request, and wait for the required checks (CI and the automated Hermes Review) to pass; the pull request is then merged with a merge commit. Never push to `main` directly. The full sequence, including release images and deployment approval, is the [sprint delivery runbook](docs/runbooks/sprint-delivery.md).
 
 ## Before opening a pull request
 
@@ -59,7 +61,9 @@ npm run build
 docker compose config
 ```
 
-Not every change needs every command, but the PR should state what was run and what was not.
+Not every change needs every command, but the PR should state what was run and what was not. [`docs/runbooks/disposable-test-matrix.md`](docs/runbooks/disposable-test-matrix.md) has the exact commands for isolated database, web and browser runs.
+
+Interface changes also run the visual smoke: `cd apps/web && npm run test:visual`. When a change is meant to alter the screenshots, regenerate the baselines with `UPDATE_VISUAL_BASELINES=1`, look at the images, and commit only the ones that should change. Keep interface text at 12px or larger, label every control, and give any scrolling region a name and keyboard focus; the smoke and `apps/web/tests/ui-audit-locks.test.mjs` enforce the text floor and keyboard-reachable scrolling regions. Check the page at phone, tablet and desktop widths. [`docs/brand-guidelines.md`](docs/brand-guidelines.md) has the tokens.
 
 ## Pull requests
 

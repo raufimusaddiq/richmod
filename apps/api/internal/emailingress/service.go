@@ -79,33 +79,30 @@ func (s *Service) Provision(ctx context.Context, householdID, userID string) (Ad
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Address{}, err
 	}
-	var local string
-	for attempt := 0; attempt < 3; attempt++ {
-		local, err = randomLocalPart()
-		if err != nil {
-			return Address{}, err
-		}
-		var id string
-		err = tx.QueryRow(ctx, `INSERT INTO email_ingress_address(household_id,local_part,purpose,provider,status,created_by_user_id) VALUES($1,$2,'BANK_EMAIL','CLOUDFLARE_EMAIL','PROVISIONED',$3) ON CONFLICT DO NOTHING RETURNING id`, householdID, local, userID).Scan(&id)
-		if err == nil {
-			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'PROVISION_EMAIL_INGRESS','email_ingress_address',$3,jsonb_build_object('local_part',$4::text,'provider','CLOUDFLARE_EMAIL','status','PROVISIONED'))`, householdID, userID, id, local); err != nil {
-				return Address{}, err
-			}
-			if err = tx.Commit(ctx); err != nil {
-				return Address{}, err
-			}
-			return Address{ID: id, HouseholdID: householdID, LocalPart: local, Address: local + "@" + s.domain, Status: StatusProvisioned, Provider: "CLOUDFLARE_EMAIL"}, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return Address{}, err
-		}
+	local, err := randomLocalPart()
+	if err != nil {
+		return Address{}, err
+	}
+	var id string
+	err = tx.QueryRow(ctx, `INSERT INTO email_ingress_address(household_id,local_part,purpose,provider,status,created_by_user_id) VALUES($1,$2,'BANK_EMAIL','CLOUDFLARE_EMAIL','PROVISIONED',$3) ON CONFLICT DO NOTHING RETURNING id`, householdID, local, userID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A concurrent request provisioned this household's address first.
 		_ = tx.Rollback(ctx)
 		if current, found, currentErr := s.Current(ctx, householdID); currentErr != nil || found {
 			return current, currentErr
 		}
 		return Address{}, fmt.Errorf("provision email ingress address conflict")
 	}
-	return Address{}, fmt.Errorf("generate unique ingress address")
+	if err != nil {
+		return Address{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'PROVISION_EMAIL_INGRESS','email_ingress_address',$3,jsonb_build_object('local_part',$4::text,'provider','CLOUDFLARE_EMAIL','status','PROVISIONED'))`, householdID, userID, id, local); err != nil {
+		return Address{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Address{}, err
+	}
+	return Address{ID: id, HouseholdID: householdID, LocalPart: local, Address: local + "@" + s.domain, Status: StatusProvisioned, Provider: "CLOUDFLARE_EMAIL"}, nil
 }
 
 func (s *Service) Rotate(ctx context.Context, householdID, userID string) (Address, error) {
@@ -360,13 +357,6 @@ func (s *Service) persistControlAction(ctx context.Context, tx pgx.Tx, household
 	return err
 }
 
-func (s *Service) mustCurrent(ctx context.Context, householdID string) (Address, error) {
-	address, found, err := s.Current(ctx, householdID)
-	if err != nil || !found {
-		return Address{}, fmt.Errorf("load current ingress address: %w", err)
-	}
-	return address, nil
-}
 func randomLocalPart() (string, error) {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {

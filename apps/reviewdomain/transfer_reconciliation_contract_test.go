@@ -9,8 +9,7 @@ import (
 
 // The shared operation is the only place allowed to mutate a reconciliation
 // case or confirm its candidate. Adapters pass a candidate id/action; if a
-// surface relearns the case update it can drift from the shared policy again
-// (UIRC-02 A).
+// surface relearns the case update it can drift from the shared policy again.
 func TestReconcileTransferOwnsCaseMutation(t *testing.T) {
 	source := sourceFile(t, "transfer_reconciliation.go")
 	if !strings.Contains(source, "FOR UPDATE OF ri,trc") {
@@ -42,7 +41,6 @@ func TestTransferIgnoreBypassesTheCandidateCap(t *testing.T) {
 func TestTransferAdaptersDelegateReconciliation(t *testing.T) {
 	adapters := map[string]string{
 		"../api/internal/review/canonical.go":                       "reviewdomain.ReconcileTransfer",
-		"../worker/internal/telegram/review.go":                     "reviewdomain.ReconcileTransfer",
 		"../worker/internal/telegram/agent_review_mutations.go":     "reviewdomain.ReconcileTransfer",
 		"../worker/internal/telegram/agent_review_binding_guard.go": "reviewdomain.ReconcileTransfer",
 	}

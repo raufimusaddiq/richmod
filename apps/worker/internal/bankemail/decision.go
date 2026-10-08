@@ -5,12 +5,11 @@ import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 // materialResidual names only the bounded predicate that did not clear, and only
 // when it is material to the canonical decision being attempted. Non-material
 // metadata (an uncertain payment mechanism) never reaches here, so it cannot
-// independently block an otherwise safe expense (SAVR-06).
+// independently block an otherwise safe expense.
 func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok bool) {
 	if len(v.ClaimOutcomes) == 0 {
 		// No bounded ruling: nothing was evaluated, so no predicate failed. Callers
-		// treat this as no-material-residual rather than defaulting to amount_idr
-		// (SAVR-06, Hermes round 6).
+		// treat this as no-material-residual rather than defaulting to amount_idr.
 		return "", false, false
 	}
 	switch {
@@ -38,7 +37,7 @@ func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok
 }
 
 // reviewPolicyVersion names the policy that actually decided each review type,
-// so the stored contract stays reproducible (PRD §18).
+// so the stored contract stays reproducible.
 func reviewPolicyVersion(reviewType string) string {
 	switch reviewType {
 	case "TRANSFER_CLASSIFICATION", "UNKNOWN_PURPOSE", "UNKNOWN_MERCHANT":
@@ -49,11 +48,11 @@ func reviewPolicyVersion(reviewType string) string {
 	}
 }
 
-// transactionReviewDecision builds the PRD §7 contract for a bank expense that
+// transactionReviewDecision builds the ReviewDecision contract for a bank expense that
 // parked a review. Which facts are missing is derived from the review reason, so
 // the Inbox asks only what is genuinely unresolved: a new merchant with an
 // undecided category is a category gap, not a request to re-enter amount, time,
-// or direction (PRD §3.3, §9.1).
+// or direction.
 func transactionReviewDecision(household, sourceEventID string, extraction Extraction, result PolicyResult, transactionID string) reviewdec.Decision {
 	known := map[string]any{}
 	if amount := value(extraction.AmountIDR); amount != "" {
@@ -81,7 +80,7 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		DecisionSource: reviewdec.SourceDeterministic,
 		// The version names the policy that actually decided this review type: the
 		// bounded verification/category plane for evidence gaps, the deterministic
-		// account-match policy for transfer classification (PRD §18).
+		// account-match policy for transfer classification.
 		PolicyVersion:   reviewPolicyVersion(result.ReviewType),
 		Provenance:      map[string]any{"pipeline": "bank-email-generic", "household": household},
 		EvidenceRefs:    []reviewdec.EvidenceRef{{Kind: "source_event", ID: sourceEventID}},
@@ -98,7 +97,7 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 		decision.WhyNotAuto = "the bounded category decision did not reach a confident, well-separated choice"
 	case "UNKNOWN_MERCHANT":
 		decision.DecisionClass = reviewdec.ClassEvidenceGap
-		decision.MissingFacts = []string{"category"}
+		decision.MissingFacts = []string{"merchant", "category"}
 		decision.AllowedActions = []string{"CONFIRM_REVIEW", "IGNORE"}
 		decision.WhyNotAuto = "no supported merchant-to-category mapping or decisive category ruling was available"
 	case "TRANSFER_CLASSIFICATION":

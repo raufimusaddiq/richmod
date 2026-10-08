@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -20,8 +21,16 @@ const (
 var agentReadTools = map[string]struct{}{
 	"query_spending": {}, "query_cashflow": {}, "query_savings": {},
 	"query_wealth": {}, "list_wealth_accounts": {}, "search_transactions": {},
-	"list_review_items": {}, "get_finance_insight": {},
+	"list_review_items": {}, "get_finance_insight": {}, "get_evidence_context": {},
 	"get_category_breakdown": {}, "get_largest_transactions": {}, "get_transaction_details": {},
+}
+
+// The shared analytical READ catalog is a channel-neutral capability. Telegram
+// reuses the exact tool set and fact engine as the analytics API (BDR-006).
+func init() {
+	for _, tool := range analyticscore.Tools() {
+		agentReadTools[tool.Name] = struct{}{}
+	}
 }
 
 var agentSideEffectTools = map[string]struct{}{
@@ -53,6 +62,8 @@ func readOnlyAgentTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition
 	return readOnly
 }
 
+// AgentFinanceTools is the default live catalog; the policy tests build it to
+// assert which tools the model can see in each server state.
 func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode, true)
 }
@@ -66,7 +77,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	cycleResidual := hasActiveReview && (reviewMode == "CYCLE_RESIDUAL" || reviewType == "CYCLE_RESIDUAL_ALLOCATION")
 	// When the judgment plane is unavailable, no bounded semantic mutation is
 	// authorized. The conversational surface keeps READ tools only, so a
-	// provider outage can never turn into a hidden LLM auto-mutation (PRD §8).
+	// provider outage can never turn into a hidden LLM auto-mutation.
 	readOnly := !judgmentConfigured
 	for _, tool := range base {
 		if readOnly {

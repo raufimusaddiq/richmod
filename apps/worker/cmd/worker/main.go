@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/bankemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
@@ -95,6 +96,13 @@ func run(logger *slog.Logger) error {
 	bot := telegram.NewBot(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	processor := telegram.NewProcessor(pool, llm)
 	processor.SetBot(bot)
+	func() {
+		commandsCtx, cancelCommands := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelCommands()
+		if err := bot.SetCommands(commandsCtx); err != nil {
+			logger.Warn("telegram command menu not registered", "error", err)
+		}
+	}()
 	// The judgment plane owns bounded semantic mutation authority (ADR-038), so
 	// production must not be able to disable it by leaving the model unset.
 	// Non-production environments opt out explicitly with JUDGMENT_MODE=disabled-dev.
@@ -109,10 +117,10 @@ func run(logger *slog.Logger) error {
 		processor.SetJudgment(judgmentEngine)
 		// Task-attributed bounded telemetry: the client records the transport call,
 		// and the decision counter records what policy did with the answer, which
-		// is what makes review rate per decision task measurable (PRD §17).
+		// is what makes review rate per decision task measurable.
 		processor.SetJudgmentMetrics(telegram.JudgmentMetricsFor(recordLLMCall))
 		// Turn-level value: records which lane resolved each turn and how many
-		// bounded generative decisions the judgment plane replaced (PRD §23).
+		// bounded generative decisions the judgment plane replaced.
 		processor.SetTurnTelemetry(true)
 	}
 	processor.SetPostGenerativeAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_TELEGRAM"))
@@ -122,24 +130,18 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("configure document storage: %w", err)
 	}
 	documentProcessor := workerDocument.NewProcessorWithStorage(pool, documentLLM, documentStorage)
-	documentProcessor.Interpretation = workerDocument.ParseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
-	// PRD §33 operational kill-switch: an operator must be able to park screenshot
+	// Operational kill-switch: an operator must be able to park screenshot
 	// rows in review without a deploy. Unset keeps auto-confirm on.
 	documentProcessor.SetRowAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_SCREENSHOT"))
 	documentProcessor.SetReceiptAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_RECEIPT"))
 	if judgmentEngine.Record != nil {
 		// Row-level category rulings let a clear screenshot row reach the ledger
 		// without a review; the bounded plane, not generative confidence, is what
-		// authorises that write (PRD §11.2).
+		// authorises that write.
 		documentProcessor.SetVerifier(judgmentEngine)
 	}
 	insightLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_INSIGHTS")).WithRecorder("GENERATE_INSIGHT", recordLLMCall)
 	insightProcessor := workerInsight.NewProcessor(pool, insightLLM)
-	if judgmentEngine.Record != nil {
-		// Insight prose is only generated when a bounded selection says the
-		// aggregates contain something worth narrating (PRD §23).
-		insightProcessor.SetVerifier(judgmentEngine)
-	}
 	residualProcessor := residual.New(pool)
 	bankModel := os.Getenv("LLM_MODEL_BANK_EXTRACT")
 	if bankModel == "" {
@@ -147,12 +149,12 @@ func run(logger *slog.Logger) error {
 	}
 	bankLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), bankModel).WithRecorder("BANK_EXTRACTION", recordLLMCall)
 	bankProcessor := bankemail.NewProcessor(pool, bankemail.NewExtractor(bankLLM))
-	// PRD §33: each auto-confirm source has its own operational kill-switch. The
+	// Each auto-confirm source has its own operational kill-switch. The
 	// default is on; an operator disables one source without touching the others.
 	bankProcessor.SetCategoryAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_BANK_CATEGORY"))
 	// Evidence-channel semantic verification: the bounded plane rules on claims Go
 	// already holds, so neither email channel trusts generative self-confidence as
-	// its semantic gate (ADR-038, PRD §20/§21).
+	// its semantic gate (ADR-038).
 	if judgmentEngine.Record != nil {
 		bankProcessor.SetVerifier(judgmentEngine)
 	}
@@ -246,7 +248,7 @@ func phaseOutcome(status string) string {
 
 // requireJudgmentModel enforces the production invariant that bounded mutation
 // semantics cannot be silently disabled by omitting the model. Only an explicit
-// opt-out outside production is allowed (PRD §Configuration).
+// opt-out outside production is allowed.
 func requireJudgmentModel(mode, model string) error {
 	if mode == "disabled-dev" || strings.TrimSpace(model) != "" {
 		return nil
@@ -263,7 +265,7 @@ func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxp
 
 // envEnabled reads a kill-switch. Any value other than an explicit negative
 // keeps the switch enabled, so an unset or mistyped variable never silently
-// changes auto-confirm behavior (PRD §33).
+// changes auto-confirm behavior.
 func envEnabled(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "0", "false", "off", "no", "disabled":
@@ -339,6 +341,37 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 	}
 }
 
+// terminalStep returns what must happen in the same transaction that marks a job
+// FAILED for its last attempt: finalize the source event, tell the household when
+// there is a chat to tell, and leave a dismissable item in the Inbox. Other job
+// types have no step. A payload that cannot be decoded yields an empty ID, which
+// every step treats as a no-op.
+func terminalStep(job queue.Job, cause error, processor *telegram.Processor, bankProcessor *bankemail.Processor) func(context.Context, pgx.Tx) error {
+	switch job.Type {
+	case "PROCESS_TELEGRAM_TEXT":
+		id := ""
+		if payload, err := telegram.DecodeProcessPayload(job.Payload); err == nil {
+			id = payload.SourceEventID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error {
+			return processor.TerminalTextFailureTx(ctx, tx, id, telegram.IsModelTimeout(cause))
+		}
+	case "PROCESS_TELEGRAM_CALLBACK":
+		id := ""
+		if payload, err := telegram.DecodeCallbackPayload(job.Payload); err == nil {
+			id = payload.SourceEventID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalCallbackFailureTx(ctx, tx, id) }
+	case "PROCESS_BANK_EMAIL":
+		id := ""
+		if payload, err := bankemail.DecodePayload(job.Payload); err == nil {
+			id = payload.SourceEventID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error { return bankProcessor.TerminalFailureTx(ctx, tx, id) }
+	}
+	return nil
+}
+
 func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string) error {
 	processed := 0
 	for {
@@ -354,7 +387,16 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			}
 		} else {
 			logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
-			if finishErr := jobs.Fail(ctx, job, err); finishErr != nil {
+			// A model timeout repeats with the same prompt and cap, so a typed
+			// message is retried once and then stopped.
+			if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsModelTimeout(err) && job.Attempts >= telegram.MaxModelTimeoutAttempts {
+				err = telegram.TerminalError(err)
+			}
+			// A typed message that will not be retried again must not end in
+			// silence, so the notice is queued in the same transaction that marks
+			// the job FAILED.
+			onFinal := terminalStep(job, err, processor, bankProcessor)
+			if finishErr := jobs.FailWithHook(ctx, job, err, onFinal); finishErr != nil {
 				return fmt.Errorf("reschedule job: %w", finishErr)
 			}
 			if job.Type == "PROCESS_DOCUMENT" && job.Attempts >= job.MaxAttempts {
@@ -376,12 +418,14 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 	budget := time.Duration(0)
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
-		budget = 20 * time.Second
+		budget = telegram.TextJobBudget
 	case "PROCESS_BANK_EMAIL", "PROCESS_FINANCIAL_EMAIL", "PROCESS_FINANCIAL_EMAIL_PREVIEW":
 		budget = 45 * time.Second
 	case "PROCESS_DOCUMENT", "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT", "FETCH_TELEGRAM_IMAGE":
 		budget = 60 * time.Second
-	case "GENERATE_INSIGHT", "GENERATE_CYCLE_RESIDUAL_REVIEW":
+	case "GENERATE_INSIGHT":
+		budget = workerInsight.Timeout + 5*time.Second
+	case "GENERATE_CYCLE_RESIDUAL_REVIEW":
 		budget = 30 * time.Second
 	}
 	if budget > 0 {
@@ -425,7 +469,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
-		// UIR-08: a review card resolved (or cancelled/expired) between enqueue and
+		// A review card resolved (or cancelled/expired) between enqueue and
 		// send must not arrive as a fresh live card; skip the send but still answer a
 		// pending callback so the client spinner clears.
 		if payload.ReviewRequestID != "" {
@@ -446,6 +490,11 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		}
 		if payload.ReviewRequestID != "" {
 			if err := processor.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID); err != nil {
+				return err
+			}
+		}
+		if payload.BindDocumentID != "" {
+			if err := processor.BindEvidenceMessage(ctx, payload.ChatID, messageID, payload.BindDocumentID); err != nil {
 				return err
 			}
 		}
@@ -520,7 +569,7 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
-		return insightProcessor.Process(ctx, payload.InsightID)
+		return insightProcessor.Process(ctx, payload.InsightID, job.Attempts >= job.MaxAttempts)
 	case "GENERATE_CYCLE_RESIDUAL_REVIEW":
 		payload, err := residual.Decode(job.Payload)
 		if err != nil {

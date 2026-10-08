@@ -2,8 +2,11 @@
 
 ## Status
 
-Accepted for staged implementation. Existing extraction remains the primary
-financial-state path until the documented rollout gate is met.
+Partially superseded by ADR-051 (2026-10-03): the `shadow` and `primary`
+stages, the six-tool interpretation call and `RICHMOD_DOCUMENT_INTERPRETATION`
+are removed. The validator-feedback, one-pass field repair described below
+remains in force on the classify-then-extract pipeline. The rollout notes below
+are historical.
 
 ## Decision
 

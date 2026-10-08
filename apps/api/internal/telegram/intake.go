@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 const maxWebhookBytes = 1 << 20
@@ -34,6 +35,9 @@ type ImageInput struct {
 	Caption      string
 	MediaGroupID string
 	MessageID    int64
+	// ChatID is the private chat the upload arrived in. Message ids are unique
+	// only per chat, so reply binding needs it.
+	ChatID int64
 }
 
 type Store interface {
@@ -89,6 +93,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 				ID int64 `json:"id"`
 			} `json:"from"`
 			Chat struct {
+				ID   int64  `json:"id"`
 				Type string `json:"type"`
 			} `json:"chat"`
 		} `json:"message"`
@@ -146,7 +151,7 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if image, ok := imageFromUpdate(update.Message.Photo, update.Message.Document); ok {
-		_, err = h.store.CaptureImage(r.Context(), ImageInput{CaptureInput: CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.Message.From.ID, RawPayload: raw}, FileID: image.fileID, FileName: image.fileName, MIMEType: image.mimeType, Caption: update.Message.Caption, MediaGroupID: update.Message.MediaGroupID, MessageID: update.Message.MessageID})
+		_, err = h.store.CaptureImage(r.Context(), ImageInput{CaptureInput: CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.Message.From.ID, RawPayload: raw}, FileID: image.fileID, FileName: image.fileName, MIMEType: image.mimeType, Caption: update.Message.Caption, MediaGroupID: update.Message.MediaGroupID, MessageID: update.Message.MessageID, ChatID: update.Message.Chat.ID})
 		if errors.Is(err, ErrUnauthorized) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -179,45 +184,10 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// validCallbackAction admits only the callback grammar the system issues; the
+// grammar is shared with the worker so the two cannot drift apart.
 func validCallbackAction(value string) bool {
-	switch value {
-	case "review:expense", "review:asset", "review:own", "review:household", "review:confirm", "review:change", "review:remember", "review:once":
-		return true
-	}
-	for _, action := range []string{"edit", "merchant", "description", "category", "ignore"} {
-		if value == "review:"+action {
-			return true
-		}
-	}
-	if strings.HasPrefix(value, "review:cat:") {
-		return validCallbackToken(strings.TrimPrefix(value, "review:cat:"), 64)
-	}
-	if strings.HasPrefix(value, "review:catpage:") {
-		page := strings.TrimPrefix(value, "review:catpage:")
-		if len(page) == 0 || len(page) > 4 {
-			return false
-		}
-		for _, r := range page {
-			if r < '0' || r > '9' {
-				return false
-			}
-		}
-		_, err := strconv.Atoi(page)
-		return err == nil
-	}
-	return strings.HasPrefix(value, "review:category:") && validCallbackToken(strings.TrimPrefix(value, "review:category:"), 64)
-}
-
-func validCallbackToken(value string, max int) bool {
-	if value == "" || len(value) > max {
-		return false
-	}
-	for _, r := range value {
-		if !(r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
-			return false
-		}
-	}
-	return true
+	return reviewdomain.ValidTelegramCallback(value)
 }
 
 type telegramImage struct{ fileID, fileName, mimeType string }
@@ -348,7 +318,7 @@ func (s *PostgreSQLStore) CaptureImage(ctx context.Context, input ImageInput) (b
 	}
 	payloadHash := sha256.Sum256(input.RawPayload)
 	var sourceID string
-	err = tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_media_group_id,telegram_message_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED',NULLIF($4,''),NULLIF($5,0)) ON CONFLICT DO NOTHING RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), payloadHash[:], input.MediaGroupID, input.MessageID).Scan(&sourceID)
+	err = tx.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_media_group_id,telegram_message_id,telegram_chat_id) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED',NULLIF($4,''),NULLIF($5,0),NULLIF($6::bigint,0)) ON CONFLICT DO NOTHING RETURNING id`, householdID, "telegram:update:"+strconv.FormatInt(input.UpdateID, 10), payloadHash[:], input.MediaGroupID, input.MessageID, input.ChatID).Scan(&sourceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

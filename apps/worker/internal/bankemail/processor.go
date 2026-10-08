@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
@@ -22,11 +23,10 @@ type Processor struct {
 	pool      *pgxpool.Pool
 	extractor *Extractor
 	// verifier scores the already-extracted facts against the original email
-	// through the bounded judgment plane. It is optional: a nil verifier keeps the
-	// deterministic structural gate and never silently invents semantic approval
-	// (PRD §20).
+	// through the bounded judgment plane. Production requires LLM_MODEL_JUDGMENT:
+	// nil verifier is a machine retry, never a review or semantic approval.
 	verifier jeverifier
-	// categoryAutoConfirmOff is this source's PRD §33 operational kill-switch,
+	// categoryAutoConfirmOff is this source's operational kill-switch,
 	// stored inverted so the zero-value Processor keeps the documented default
 	// (auto-confirm on) — the same convention document.Processor uses. When set, a
 	// bounded category decision still runs and still rides on the review card, but
@@ -43,11 +43,11 @@ func NewProcessor(pool *pgxpool.Pool, extractor *Extractor) *Processor {
 // same configured judgment plane the Telegram decision plane uses.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
-// SetCategoryAutoConfirm is the bank-email category kill-switch (PRD §33).
+// SetCategoryAutoConfirm is the bank-email category kill-switch.
 // Passing false disables auto-confirm for this source.
 func (p *Processor) SetCategoryAutoConfirm(enabled bool) { p.categoryAutoConfirmOff = !enabled }
 
-// applyCategoryAutoConfirmSwitch is the PRD §33 gate on this source's
+// applyCategoryAutoConfirmSwitch is the kill-switch gate on this source's
 // *category* auto-confirm. With the switch off, an expense whose category the
 // policy would have applied parks as a category-carrying review instead; the
 // decided category still travels on the result so the card can propose it.
@@ -87,7 +87,6 @@ func applyVerificationGate(result PolicyResult, verified bool) PolicyResult {
 
 type Payload struct {
 	SourceEventID  string  `json:"source_event_id"`
-	Shadow         bool    `json:"shadow"`
 	ReviewID       string  `json:"review_id,omitempty"`
 	AmountIDR      *string `json:"amount_idr,omitempty"`
 	TransactionAt  *string `json:"transaction_at,omitempty"`
@@ -243,9 +242,6 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	listener := Listener{ID: listenerID, HouseholdID: household, BankName: bank, SenderAddress: sender, AccountID: accountID, TrackingPolicy: "SPENDING_ONLY", Active: true}
 	extraction, meta, err := p.extractor.Extract(ctx, payload.SourceEventID, listener, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
 	if err != nil {
-		if payload.Shadow {
-			return err
-		}
 		var schemaErr SchemaError
 		if errors.As(err, &schemaErr) {
 			// Malformed machine output is repair/retry state, not a household fact
@@ -274,36 +270,22 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, knownAccounts, memory)
-	// PRD §33: the deterministic policy auto-confirms a remembered merchant
+	// The deterministic policy auto-confirms a remembered merchant
 	// category. The kill-switch governs that category auto-confirm, so it is
 	// applied to the policy result the deterministic rules already produced,
 	// before the bounded classifier gets a chance to decide a category.
 	result = applyCategoryAutoConfirmSwitch(result, !p.categoryAutoConfirmOff)
 	// The kill-switch also disables the bounded category path, so the switch
 	// cannot be re-opened by the very decision it exists to gate.
-	if !payload.Shadow && !p.categoryAutoConfirmOff {
-		result = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
+	if !p.categoryAutoConfirmOff {
+		result, err = p.applyCategoryDecision(ctx, payload.SourceEventID, household, extraction, result)
+		if err != nil {
+			return err
+		}
 	}
 	status := result.Status
 	if status == "" {
 		status = "NEEDS_REVIEW"
-	}
-	if payload.Shadow {
-		baseline, baselineErr := p.shadowBaseline(ctx, payload.SourceEventID)
-		shadowOutput := "null"
-		agreement := "NO_BASELINE"
-		if baselineErr == nil {
-			fields, equal := CompareShadow(extraction, result, baseline)
-			encoded, _ := json.Marshal(map[string]any{"baseline": baseline, "fields": fields})
-			shadowOutput = string(encoded)
-			if equal {
-				agreement = "AGREE"
-			} else {
-				agreement = "DISAGREE"
-			}
-		}
-		_, err = p.pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,gateway_model,tool_schema_version,output_json,validation_status,policy_result,shadow_output_json,shadow_agreement) VALUES($1,$2,'native_tool',$3,$4,$5::jsonb,'VALID',$6,$7::jsonb,$8) ON CONFLICT(source_event_id) DO UPDATE SET output_json=excluded.output_json,gateway_model=excluded.gateway_model,validation_status=excluded.validation_status,policy_result=excluded.policy_result,shadow_output_json=excluded.shadow_output_json,shadow_agreement=excluded.shadow_agreement`, payload.SourceEventID, listenerID, meta.Model, ToolSchemaVersion, string(output), status, shadowOutput, agreement)
-		return err
 	}
 	if status == "IGNORED" {
 		tx, beginErr := p.pool.Begin(ctx)
@@ -325,7 +307,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	// Structural completeness is a deterministic Go check and always applies. The
 	// semantic gate then asks the bounded plane whether the email actually supports
 	// the extracted facts; the extractor's self-reported confidence is no longer
-	// allowed to authorize (or to hide) a semantic claim (ADR-038, PRD §20).
+	// allowed to authorize (or to hide) a semantic claim (ADR-038).
 	if missing(extraction, "amount_idr") || missing(extraction, "transaction_at") {
 		// List every absent required fact, not just the first: both amount and time
 		// can be missing, and the review must request exactly what is unresolved.
@@ -347,8 +329,8 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	}
 	// Persist the bounded ruling before any review branch: the audit row is the
 	// only record of what the plane actually claimed, and a verified-but-
-	// unsupported ruling (every SAVR-06 bank residual) is exactly the case the row
-	// exists to explain (SAVR-06, Hermes round 4).
+	// unsupported ruling (every bank residual) is exactly the case the row
+	// exists to explain.
 	if verified {
 		if persistErr := p.persistEvidenceVerification(ctx, payload.SourceEventID, listenerID, meta.Model, verification); persistErr != nil {
 			return persistErr
@@ -358,7 +340,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 		fact, conflict, material := verification.materialResidual()
 		if !material {
 			// An unsupported verification without failed material claims is an
-			// inconsistent ruling, not a human fact to fabricate (SAVR-06).
+			// inconsistent ruling, not a human fact to fabricate.
 			return fmt.Errorf("bank email verification has no failed material predicate")
 		}
 		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
@@ -377,7 +359,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 // reviewIncompleteExtraction parks a notification whose facts are structurally
 // incomplete or semantically unsupported. It never mutates the ledger. The
 // decision records why the review exists so the Inbox can request only the
-// unresolved fact (PRD §7).
+// unresolved fact.
 func (p *Processor) reviewIncompleteExtraction(ctx context.Context, household, sourceEventID, schemaVersion, reviewType string, decision reviewdec.Decision) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -453,8 +435,7 @@ func partialDecision(household, sourceEventID string, extraction Extraction, rev
 // verificationReviewDecision keeps every independently supported fact and names
 // only the material predicate the bounded evidence check did not clear. A
 // non-material ordering predicate (an uncertain payment mechanism) never appears
-// here because materialResidual drops it, so it cannot add a required human fact
-// (SAVR-06).
+// here because materialResidual drops it, so it cannot add a required human fact.
 func verificationReviewDecision(household, sourceEventID string, extraction Extraction, verification EvidenceVerification, fact string, conflict bool) reviewdec.Decision {
 	missing := []string{fact}
 	why := "the email did not support a material transaction fact the household must confirm"
@@ -483,8 +464,7 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 		decision.Consequence = reviewdec.IndependentEvidenceConflict
 		// The disputed value is evidence-supported but contested, so it must not
 		// render as a known fact the household would prefill. Move it to proposed
-		// facts, the same known→proposed move the base decision made (SAVR-06,
-		// Hermes round 5).
+		// facts, the same known→proposed move the base decision made.
 		if disputed, ok := decision.KnownFacts[fact]; ok {
 			decision.ProposedFacts[fact] = disputed
 			delete(decision.KnownFacts, fact)
@@ -492,7 +472,7 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 	default:
 		// transaction_semantics and any other bounded material residual: a
 		// predicate did not clear, so the consequence is the bounded residual the
-		// shared contract names (SAVR-06, Hermes round 4).
+		// shared contract names.
 		decision.Consequence = reviewdec.BoundedResidual
 	}
 	return decision
@@ -500,7 +480,7 @@ func verificationReviewDecision(household, sourceEventID string, extraction Extr
 
 // persistEvidenceVerification records the bounded ruling next to the extraction
 // so an operator can see what the decision plane actually claimed, without
-// storing the email body again (PRD §15/§20).
+// storing the email body again.
 func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEventID, listenerID, model string, verification EvidenceVerification) error {
 	summary, err := json.Marshal(map[string]any{
 		"transaction_observed": verification.TransactionObserved,
@@ -519,27 +499,31 @@ func (p *Processor) persistEvidenceVerification(ctx context.Context, sourceEvent
 }
 
 // applyCategoryDecision lets a new merchant confirm without a review when the
-// bounded plane decides its category (PRD 9.3). The bounded question is answered
+// bounded plane decides its category. The bounded question is answered
 // by the same plane that rules on the rest of the event, Go resolves the
-// canonical ID, and an undecided answer or provider failure leaves the policy
-// result untouched so the category-only review still applies. It is a pure
-// function of the resolver so the confirm-no-review half is testable without a
-// full email fixture.
-func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) PolicyResult {
-	if result.ReviewType != "AMBIGUOUS_CATEGORY" && result.ReviewType != "UNKNOWN_MERCHANT" {
-		return result
+// canonical ID, and a genuinely undecided answer leaves the policy result
+// untouched so the category-only review still applies. A machine failure
+// (provider or category DB error) is NOT semantic uncertainty: it is returned so
+// the job becomes retryable and no category review reaches the household.
+func (p *Processor) applyCategoryDecision(ctx context.Context, sourceEventID, household string, extraction Extraction, result PolicyResult) (PolicyResult, error) {
+	// Collect an unknown merchant before category inference, regardless of channel.
+	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
+		return result, nil
 	}
-	categoryID, provenance := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
+	categoryID, provenance, err := p.resolveNewMerchantCategory(ctx, sourceEventID, household, extraction)
+	if err != nil {
+		return result, err
+	}
 	if categoryID == "" {
-		return result
+		return result, nil
 	}
 	result.CategoryID, result.AutoConfirm = categoryID, true
 	result.Status, result.ReviewType = "CONFIRMED", ""
 	// A Jev-chosen category is a category we now know, so the row must not keep
-	// the review-flavoured placeholder as its ledger description (Hermes #133).
+	// the review-flavoured placeholder as its ledger description.
 	result.Description = "Pengeluaran dengan kategori yang dipilih otomatis."
 	result.CategoryProvenance = &provenance
-	return result
+	return result, nil
 }
 
 func applyEmailReceivedTimeFallback(extraction *Extraction, receivedAt time.Time) bool {
@@ -578,37 +562,53 @@ func (p *Processor) persistExtractionFailure(ctx context.Context, sourceID, list
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='bank-email-generic',parser_version=$3 WHERE id=$1`, sourceID, status, ToolSchemaVersion); err != nil {
 		return err
 	}
+	// An unusable extraction is final: the job succeeds and nothing will retry
+	// it, so tell the household now (ADR-048 keeps it out of the review queue, it
+	// is not a fact question). Retryable failures wait for the job to give up,
+	// see TerminalFailureTx, so a retry that succeeds leaves no stale item.
+	if status == "FAILED" && policy == "REPAIR" {
+		if err = recordFailedBankEmail(ctx, tx, sourceID, validation); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) shadowBaseline(ctx context.Context, sourceEventID string) (ShadowBaseline, error) {
-	var baseline ShadowBaseline
-	var channel string
-	var status, transactionType string
-	if err := p.pool.QueryRow(ctx, `SELECT t.type,t.status,regexp_replace(t.amount::text,'[.]0+$',''),t.transaction_at,COALESCE(m.normalized_name,''),COALESCE(te.metadata_json->>'channel','') FROM transaction t JOIN transaction_evidence te ON te.transaction_id=t.id LEFT JOIN merchant m ON m.id=t.merchant_id WHERE te.source_event_id=$1 ORDER BY t.created_at LIMIT 1`, sourceEventID).Scan(&transactionType, &status, &baseline.Amount, &baseline.TransactionAt, &baseline.Merchant, &channel); err != nil {
-		return ShadowBaseline{}, err
+// TerminalFailureTx runs inside the transaction that marks a bank-email job
+// FAILED because its attempts ran out. The event is finalized as FAILED and a
+// dismissable item is left in the Inbox; an event that already finished
+// (PROCESSED, NEEDS_REVIEW, IGNORED) is left alone.
+func (p *Processor) TerminalFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string) error {
+	if !reviewdomain.IsSourceEventID(sourceEventID) {
+		return nil
 	}
-	baseline.Direction = "OUTGOING"
-	if transactionType == "INCOME" {
-		baseline.Direction = "INCOMING"
+	var claimed string
+	err := tx.QueryRow(ctx, `UPDATE source_event SET processing_status='FAILED' WHERE id=$1 AND source_type='BANK_EMAIL' AND processing_status IN ('RECEIVED','PROCESSING','FAILED') RETURNING id::text`, sourceEventID).Scan(&claimed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
 	}
-	switch strings.ToUpper(channel) {
-	case "MERCHANT":
-		baseline.Channel = "MERCHANT_PAYMENT"
-	default:
-		baseline.Channel = strings.ToUpper(channel)
+	if err != nil {
+		return err
 	}
-	switch {
-	case status == "VOIDED":
-		baseline.Policy = "IGNORE"
-	case transactionType == "TRANSFER":
-		baseline.Policy = "TRANSFER"
-	case transactionType == "EXPENSE":
-		baseline.Policy = "EXPENSE"
-	default:
-		baseline.Policy = "NEEDS_REVIEW"
+	validation := "ERROR"
+	var latest string
+	err = tx.QueryRow(ctx, `SELECT validation_status FROM bank_email_extraction WHERE source_event_id=$1 ORDER BY created_at DESC LIMIT 1`, sourceEventID).Scan(&latest)
+	if err == nil && latest != "" {
+		validation = latest
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
 	}
-	return baseline, nil
+	return recordFailedBankEmail(ctx, tx, sourceEventID, validation)
+}
+
+func recordFailedBankEmail(ctx context.Context, tx pgx.Tx, sourceID, reason string) error {
+	var household string
+	if err := tx.QueryRow(ctx, `SELECT household_id::text FROM source_event WHERE id=$1`, sourceID).Scan(&household); err != nil {
+		return err
+	}
+	return reviewdomain.RecordFailedSourceAction(ctx, tx, reviewdomain.FailedSource{
+		HouseholdID: household, SourceEventID: sourceID, SourceType: "BANK_EMAIL", Reason: reason,
+	})
 }
 
 func (p *Processor) persist(ctx context.Context, listener Listener, sourceID string, extraction Extraction, result PolicyResult) error {
@@ -674,21 +674,9 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
-			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message); err != nil {
+			decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
+			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message, decision); err != nil {
 				return err
-			}
-			// Persist the PRD §7 contract on the review that line above just created,
-			// so the Inbox can show only the unresolved facts. The decision must be
-			// written after the review exists —
-			// updating first matched zero rows and was silently dropped.
-			encoded, encodeErr := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID).JSON()
-			if encodeErr != nil {
-				return encodeErr
-			}
-			if tag, execErr := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, listener.HouseholdID, string(encoded), transactionID); execErr != nil {
-				return execErr
-			} else if tag.RowsAffected() == 0 {
-				return fmt.Errorf("bank review decision not attached: %d review items matched", tag.RowsAffected())
 			}
 		}
 	}

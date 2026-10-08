@@ -107,16 +107,44 @@ func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
 	}
 }
 
-func TestPendingCorrectionOutranksOtherImplicitWrites(t *testing.T) {
+func TestPendingCorrectionRequiresSemanticRoute(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"}, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"}, "READ_CASHFLOW")
 	writes := sideEffectNames(filtered)
-	if scope != agentWorkflowPendingAction {
+	if scope != agentWorkflowGeneral {
 		t.Fatalf("scope=%s", scope)
 	}
-	if len(writes) != 2 || !writes["confirm_pending_action"] || !writes["cancel_pending_action"] {
-		t.Fatalf("writes=%v; want pending correction writes only", writes)
+	if !writes["record_transaction"] || writes["confirm_pending_action"] || writes["cancel_pending_action"] {
+		t.Fatalf("unrelated route got wrong catalog: %v", writes)
+	}
+	filtered, scope = applyAgentWorkflowToolPolicy(tools, update, nil, nil, "PENDING_ACTION_INTERACTION")
+	writes = sideEffectNames(filtered)
+	if scope != agentWorkflowPendingAction || len(writes) != 2 || !writes["confirm_pending_action"] || !writes["cancel_pending_action"] {
+		t.Fatalf("semantic pending-action route scope=%s writes=%v", scope, writes)
+	}
+}
+
+func TestSalaryChoiceRequiresSalaryRoute(t *testing.T) {
+	tools := AgentFinanceTools(nil, false, false, false, "", true, false, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil, "READ_SPENDING")
+	if scope != agentWorkflowGeneral || sideEffectNames(filtered)["resolve_salary_choice"] {
+		t.Fatalf("unrelated route scope=%s writes=%v", scope, sideEffectNames(filtered))
+	}
+	filtered, scope = applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil, "SALARY_INTERACTION")
+	if scope != agentWorkflowSalaryChoice || !sideEffectNames(filtered)["resolve_salary_choice"] {
+		t.Fatalf("salary route scope=%s writes=%v", scope, sideEffectNames(filtered))
+	}
+}
+
+func TestSalaryChoiceMapsOnlyCanonicalEnums(t *testing.T) {
+	for _, choice := range []string{"PRIMARY", "ORDINARY", "IGNORE"} {
+		if got := salaryChoiceFromJudgment(choice); string(got) != choice {
+			t.Fatalf("%q mapped to %q", choice, got)
+		}
+	}
+	if got := salaryChoiceFromJudgment("gaji utama"); got == salaryChoicePrimary {
+		t.Fatal("natural language must not become canonical salary choice")
 	}
 }
 
@@ -197,13 +225,13 @@ func TestCycleResidualToolUsesWealthHintsNotUUIDs(t *testing.T) {
 	}
 }
 
-// PRD §26 / completion criterion 15: the bounded generative tools for
+// The bounded generative tools for
 // server-owned workflows are fallback-only. When the judgment plane is
 // configured, tryJudgmentBoundWorkflow consumes these turns before the
 // generative loop runs, so the generative tool definition is never reached.
 // This test pins that pre-emption so a future change cannot silently reopen a
 // second mutation authority for the same workflow.
-func TestJevOwnedWorkflowsPreemptTheirGenerativeTools(t *testing.T) {
+func TestSalaryWorkflowNeedsSemanticRoute(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "jev-preempt-salary")
 	// A pending payslip is a server-owned workflow: the bounded plane owns the
@@ -216,15 +244,15 @@ func TestJevOwnedWorkflowsPreemptTheirGenerativeTools(t *testing.T) {
 
 	processor := NewProcessor(f.pool, nil)
 	processor.SetJudgment(eagerEngine{})
-	state := &agentState{HouseholdID: f.householdID, SourceEventID: f.sourceID, Update: f.update, HasSalaryChoice: true}
-	handled, err := processor.tryJudgmentBoundWorkflow(ctx, state, "gaji pokok")
+	state := &agentState{HouseholdID: f.householdID, SourceEventID: f.sourceID, Update: f.update, HasSalaryChoice: true, Route: "READ_SPENDING"}
+	handled, err := processor.tryJudgmentBoundWorkflow(ctx, state, "pengeluaran terbesar bulan ini apa?")
 	mustAgentTest(t, err)
-	if !handled {
-		t.Fatal("the bounded salary workflow must consume the turn before the generative loop")
+	if handled {
+		t.Fatal("unrelated turn must not be consumed by pending salary")
 	}
 	var status string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM salary_pending_choice WHERE transaction_id=$1`, transactionID).Scan(&status))
-	if status == "PENDING" {
-		t.Fatal("the bounded workflow claimed the turn but did not resolve the pending payslip")
+	if status != "PENDING" {
+		t.Fatalf("unrelated turn resolved pending salary: %s", status)
 	}
 }

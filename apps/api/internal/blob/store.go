@@ -126,16 +126,6 @@ func (s *Store) Read(ctx context.Context, ref string) ([]byte, error) {
 	}
 	return raw, nil
 }
-func (s *Store) EvictLocal(ref string) error {
-	path, err := s.localPath(ref)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
 func (s *Store) PresignedGet(ctx context.Context, ref, mediaType string) (string, bool, error) {
 	if _, err := s.localPath(ref); err != nil {
 		return "", false, err

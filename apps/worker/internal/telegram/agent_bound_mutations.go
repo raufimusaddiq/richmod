@@ -33,6 +33,8 @@ func (p *Processor) agentResolveBoundReview(ctx context.Context, state *agentSta
 	switch state.ReviewBinding.Kind {
 	case "TRANSACTION":
 		return p.agentResolveBoundTransactionReview(ctx, state, call, args, state.ReviewBinding)
+	case "BANK_FACTS":
+		return p.agentResolveBoundBankFacts(ctx, state, call, args, state.ReviewBinding)
 	case "TRANSFER_RECONCILIATION":
 		return p.agentResolveBoundTransferReconciliation(ctx, state, call, args, state.ReviewBinding)
 	case "WEALTH_OBSERVATION":
@@ -122,6 +124,10 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		}
 		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "", categoryID)
 	case "SET_PAY_DATE":
+		// The prompt steers any supplied date into transaction_at, so accept it here.
+		if strings.TrimSpace(payDate) == "" {
+			payDate = transactionAt
+		}
 		if !validReviewDate(payDate) {
 			result.Status = "INVALID_PAY_DATE"
 			result.Review = map[string]any{"required": true, "missing_fields": []string{"pay_date"}}
@@ -138,13 +144,24 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		if _, err := p.pool.Exec(ctx, `UPDATE transaction SET amount=$2,transaction_at=$3,updated_at=now() WHERE id=$1 AND household_id=$4 AND status='NEEDS_REVIEW'`, review.transactionID, amountIDR, parsed, state.HouseholdID); err != nil {
 			return result, true, err
 		}
+	case "MERGE_EXISTING":
+		candidateRef, _ := args["candidate_ref"].(string)
+		return p.agentMergeDuplicateReview(ctx, state, call, *review, candidateRef)
 	case "CONFIRM":
 	default:
 		result.Status = "UNSUPPORTED_REVIEW_ACTION"
 		return result, true, nil
 	}
 
-	if field, value, required := requiredNativeReviewDetail(review.reviewType, review.conversationState, review.merchantID, merchant, description); required {
+	// The model may carry a proposed date in any of its date-shaped arguments; Go
+	// validates whichever one it used.
+	proposedDate := transactionAt
+	for _, candidate := range []string{payDate, description} {
+		if strings.TrimSpace(proposedDate) == "" {
+			proposedDate = candidate
+		}
+	}
+	if field, value, required := requiredNativeReviewDetail(review.reviewType, review.conversationState, review.merchantID, merchant, description, proposedDate); required {
 		if strings.TrimSpace(value) == "" {
 			result.Status = "MISSING_REVIEW_DETAIL"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{field}}
@@ -353,7 +370,7 @@ func (p *Processor) agentResolveBoundWealthAssetPurchase(ctx context.Context, st
 	local := parsed.In(jakartaLocation())
 	// No purpose argument: this is a fixed asset-purchase reclassification, and the
 	// transfer semantics are the caller's own deterministic decision, not a model
-	// assertion (PRD §13).
+	// assertion.
 	transferArgs := map[string]any{"amount_idr": amount, "source_account_hint": sourceHint, "destination_wealth_account_hint": wealthHint, "reclassification_purpose": "ASSET_PURCHASE", "date_reference": "EXPLICIT", "explicit_date": local.Format("2006-01-02"), "local_time": local.Format("15:04"), "description": "Pembelian investasi dari bukti Telegram"}
 	transferResult, _, err := p.agentRecordTransfer(ctx, state, gateway.ToolCall{CallID: call.CallID, Name: "record_transfer"}, transferArgs)
 	if err != nil {

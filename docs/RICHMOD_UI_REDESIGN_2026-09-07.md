@@ -2,6 +2,33 @@
 
 ## Scope
 
+### Retro Ledger brand refinement — October 1, 2026
+
+The current palette and typography supersede the initial retro refresh below:
+cream paper, deep teal actions, charcoal-green ink, butter and muted coral
+illustrations, self-hosted Fraunces headings and Inter UI. Shared chart bars and
+donut slices use ink outlines; overview and wealth trends use straight lines.
+The icon, social card, evidence-flow and login landscape follow the same palette.
+[Brand guidelines](brand-guidelines.md) document the existing CSS token source;
+no second token system, dependencies, backend or finance behavior is introduced.
+
+Cycle review keeps its complete dataset and actions but puts repeated explanatory
+prose behind native disclosures; comparison context becomes a concise strip.
+See [cycle-review UI](ANALYTICS_CYCLE_REVIEW_UI.md) for the preserved boundaries.
+
+### Soft-colorful retro refresh — October 1, 2026
+
+The shared CSS tokens now use warm paper, peach, mint, and lilac surfaces,
+dark ink outlines, rounded display typography with local font fallbacks, and
+offset shadows. Existing layouts, API data, review actions, auto-confirm
+behavior, and financial color meanings remain unchanged. No dependencies or
+backend endpoints were added. Shared controls have a 44px minimum height;
+mobile inputs retain a 16px font size to avoid focus zoom.
+
+Contrast tests cover the pastel surfaces, button hover text, input outlines,
+focus rings, and categorical chart colors. Browser captures use synthetic
+fixtures rather than production household data.
+
 This redesign is a frontend-only product refinement. It preserves existing
 routes, API contracts, evidence records, review flows, household scoping, and
 the Go-owned financial mutation boundary.

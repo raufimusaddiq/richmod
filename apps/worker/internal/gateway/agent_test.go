@@ -8,6 +8,66 @@ import (
 	"testing"
 )
 
+func TestAgentChatReplaysAllCompletedNativeReadPhases(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				CallID  string `json:"tool_call_id"`
+				Content any    `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		want := []string{"system", "user", "assistant", "tool", "assistant", "tool", "assistant", "tool"}
+		if len(body.Messages) != len(want) {
+			t.Errorf("native phases lost: messages=%+v", body.Messages)
+			w.WriteHeader(400)
+			return
+		}
+		for i, role := range want {
+			if body.Messages[i].Role != role {
+				t.Errorf("message %d role=%s", i, body.Messages[i].Role)
+			}
+		}
+		for i, id := range []string{"overview", "changes", "drivers"} {
+			msg := body.Messages[3+i*2]
+			if msg.CallID != id || msg.Content != `{"fact":"`+id+`"}` {
+				t.Errorf("READ result missing: %+v", msg)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chat-final","choices":[{"message":{"content":"Natural answer."}}]}`))
+	}))
+	defer server.Close()
+	phase := func(id string) AgentReadPhase {
+		return AgentReadPhase{ToolCalls: []ToolCall{{CallID: id, Name: "get_cycle_overview", Arguments: json.RawMessage(`{}`)}}, ToolOutputs: []AgentToolOutput{{CallID: id, Output: map[string]string{"fact": id}}}}
+	}
+	latest := phase("drivers")
+	response, err := NewWithProtocol(server.URL, "test-key", "test-model", "chat_completions").AgentTurn(context.Background(), "test-request", AgentRequest{
+		SystemPrompt: "system", Content: "selected cycle", PreviousResponseID: "previous", PreviousToolCalls: latest.ToolCalls, ToolOutputs: latest.ToolOutputs,
+		ReadHistory: []AgentReadPhase{phase("overview"), phase("changes")},
+	})
+	if err != nil || response.Text != "Natural answer." {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
+}
+
+func TestAgentRejectsMalformedNativeReadHistory(t *testing.T) {
+	for _, history := range [][]AgentReadPhase{
+		{{}},
+		{{ToolCalls: []ToolCall{{CallID: "a"}}, ToolOutputs: []AgentToolOutput{{CallID: "other"}}}},
+	} {
+		err := validateAgentContinuation(AgentRequest{ReadHistory: history, PreviousResponseID: "response", PreviousToolCalls: []ToolCall{{CallID: "latest"}}, ToolOutputs: []AgentToolOutput{{CallID: "latest", Output: "facts"}}})
+		if err == nil {
+			t.Fatal("malformed READ history accepted")
+		}
+	}
+}
+
 func TestAgentTurnAllowsTextWithoutToolsAndOmitsToolContract(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any

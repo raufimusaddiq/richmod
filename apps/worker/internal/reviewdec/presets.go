@@ -2,7 +2,7 @@ package reviewdec
 
 // activeReasons is the review reason set with a live producer, in one place so
 // the Telegram capability gate can read the same list the presets are written
-// from instead of a hand-maintained copy (UIRC-05). Add a reason here when a
+// from instead of a hand-maintained copy. Add a reason here when a
 // producer starts emitting it, and add the matching Preset case below.
 var activeReasons = []string{
 	"CYCLE_RESIDUAL_ALLOCATION",
@@ -24,7 +24,7 @@ var activeReasons = []string{
 	"CONFLICTING_EVIDENCE",
 	"POSSIBLE_DUPLICATE",
 	// A receipt whose printed lines do not add up to its printed total is a
-	// quality signal, not a category gap (SAVR-06).
+	// quality signal, not a category gap.
 	"RECEIPT_MISMATCH",
 }
 
@@ -33,8 +33,7 @@ var activeReasons = []string{
 func ActiveReasons() []string { return append([]string(nil), activeReasons...) }
 
 // Presets are the ReviewDecision contracts for review reasons whose unresolved
-// dimension is fixed by product policy rather than by per-event evidence (PRD
-// §7, §16). Each review-creating path calls the preset instead of hand-rolling a
+// dimension is fixed by product policy rather than by per-event evidence. Each review-creating path calls the preset instead of hand-rolling a
 // Decision, so every review explains the same way why it exists and no path can
 // add a required field the others do not have.
 //
@@ -64,7 +63,7 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.MissingFacts = []string{"wealth_snapshot_confirmation"}
 		// PREPARE_SNAPSHOT is voluntary richer-workflow navigation, not a
 		// canonical completion: it must not appear in allowed_actions or the
-		// remaining actions would look unavailable (UIRC-01 D).
+		// remaining actions would look unavailable.
 		base.AllowedActions = []string{"SET_WEALTH_ACCOUNT", "IGNORE"}
 		base.InteractionMode = ModeBoundedChoice
 		base.WhyNotAuto = "a wealth value is an observation; the complete active account set must be confirmed"
@@ -99,7 +98,7 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.InteractionMode = ModeSingleField
 		base.WhyNotAuto = "the pay date is not present in the evidence"
 	case "MISSING_TRANSACTION_DATE":
-		// PRD §10: a source fact that is genuinely absent. The internal
+		// A source fact that is genuinely absent. The internal
 		// received-at fallback is provenance, not a known transaction time.
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"transaction_at"}
@@ -148,8 +147,9 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 		base.DecisionClass = ClassEvidenceGap
 		base.MissingFacts = []string{"category"}
 		if reason == "UNKNOWN_MERCHANT" {
+			base.MissingFacts = []string{"merchant", "category"}
 			base.KnownFacts["merchant"] = nil
-			base.WhyNotAuto = "merchant is not present in the evidence; category still requires a human decision"
+			base.WhyNotAuto = "merchant is not present in the evidence; collect it before resolving the category"
 		} else {
 			base.WhyNotAuto = "the category is not supported strongly enough to confirm"
 		}

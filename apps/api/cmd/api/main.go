@@ -16,7 +16,6 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/analytics"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/budget"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/config"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/document"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/emailingress"
@@ -36,6 +35,7 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
 		logger.Error("api stopped", "error", err)
 		os.Exit(1)
@@ -60,7 +60,6 @@ func run(logger *slog.Logger) error {
 	mux := http.NewServeMux()
 	authHandler := auth.NewHandler(auth.NewService(pool), cfg.SecureCookie)
 	analyticsHandler := analytics.NewHandler(pool)
-	budgetHandler := budget.NewHandler(pool)
 	ledgerHandler := ledger.NewHandler(pool)
 	reviewHandler := review.NewHandler(pool)
 	settingsHandler := settings.NewHandler(pool)
@@ -110,8 +109,6 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/admin/users", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Users))))
 	mux.Handle("PATCH /api/v1/admin/users/{id}", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.PatchUser))))
 	mux.Handle("GET /api/v1/admin/households", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Households))))
-	mux.Handle("GET /api/v1/admin/households/{householdId}/members", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Members))))
-	mux.Handle("POST /api/v1/admin/households/{householdId}/members", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.AddMember))))
 	mux.Handle("GET /api/v1/admin/households/{householdId}/overview", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.HouseholdOverview))))
 	mux.Handle("GET /api/v1/admin/overview", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Overview))))
 	mux.Handle("GET /api/v1/admin/jobs", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Jobs))))
@@ -151,9 +148,6 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
 	mux.Handle("POST /api/v1/categories", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Categories)))
 	mux.Handle("PATCH /api/v1/categories/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchCategory)))
-	mux.Handle("GET /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
-	mux.Handle("POST /api/v1/merchants", authHandler.RequireSession(http.HandlerFunc(settingsHandler.Merchants)))
-	mux.Handle("POST /api/v1/merchants/{id}/aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.CreateMerchantAlias)))
 	mux.Handle("GET /api/v1/merchant-aliases", authHandler.RequireSession(http.HandlerFunc(settingsHandler.MerchantAliases)))
 	mux.Handle("PATCH /api/v1/merchant-aliases/{id}", authHandler.RequireSession(http.HandlerFunc(settingsHandler.PatchMerchantAlias)))
 	mux.Handle("GET /api/v1/known-accounts", authHandler.RequireSession(http.HandlerFunc(settingsHandler.KnownAccounts)))
@@ -174,11 +168,14 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/integration-actions", authHandler.RequireSession(http.HandlerFunc(integrationActionHandler.List)))
 	mux.Handle("POST /api/v1/integration-actions/{id}/resolve", authHandler.RequireSession(http.HandlerFunc(integrationActionHandler.Resolve)))
 	mux.Handle("GET /api/v1/analytics/overview", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Overview)))
-	mux.Handle("GET /api/v1/analytics/spending", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Spending)))
 	mux.Handle("GET /api/v1/analytics/cashflow", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cashflow)))
 	mux.Handle("GET /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
 	mux.Handle("POST /api/v1/salary/sources", authHandler.RequireSession(http.HandlerFunc(salaryHandler.Sources)))
 	mux.Handle("GET /api/v1/analytics/cycle", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Cycle)))
+	mux.Handle("GET /api/v1/analytics/cycle-review", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.CycleReview)))
+	mux.Handle("GET /api/v1/analytics/cycle-decisions", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Decisions)))
+	mux.Handle("POST /api/v1/analytics/cycle-decisions", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.CreateDecision)))
+	mux.Handle("POST /api/v1/analytics/cycle-decisions/{id}/revoke", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.RevokeDecision)))
 	mux.Handle("GET /api/v1/analytics/cycle/daily", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.CycleDaily)))
 	mux.Handle("GET /api/v1/analytics/categories", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Categories)))
 	mux.Handle("GET /api/v1/analytics/merchants", authHandler.RequireSession(http.HandlerFunc(analyticsHandler.Merchants)))
@@ -194,11 +191,9 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/wealth/summary", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Summary)))
 	mux.Handle("GET /api/v1/wealth/history", authHandler.RequireSession(http.HandlerFunc(wealthHandler.History)))
 	mux.Handle("GET /api/v1/wealth/observations/{id}", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Observation)))
+	mux.Handle("GET /api/v1/wealth/observations", authHandler.RequireSession(http.HandlerFunc(wealthHandler.Observations)))
 	mux.Handle("GET /api/v1/wealth/cycle-recaps", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CycleRecaps)))
 	mux.Handle("GET /api/v1/wealth/current-cycle-savings", authHandler.RequireSession(http.HandlerFunc(wealthHandler.CurrentCycleSavings)))
-	mux.Handle("GET /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.List)))
-	mux.Handle("POST /api/v1/budgets", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Create)))
-	mux.Handle("PATCH /api/v1/budgets/{id}", authHandler.RequireSession(http.HandlerFunc(budgetHandler.Patch)))
 	mux.Handle("GET /api/v1/insights", authHandler.RequireSession(http.HandlerFunc(insightHandler.List)))
 	mux.Handle("POST /api/v1/insights/generate", authHandler.RequireSession(http.HandlerFunc(insightHandler.Generate)))
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))

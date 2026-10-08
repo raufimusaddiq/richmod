@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
 import useAuth from "../components/useAuth";
+import useDrawerA11y from "../components/useDrawerA11y";
 import { ErrorNotice, Skeleton } from "../components/Feedback";
 import { money, dateTime } from "../lib/format";
 import { NetWorthHistoryChart } from "../components/Charts";
+import { usageRoleLabel, wealthTypeLabel } from "../lib/labels";
 
-const empty = { accounts: [], snapshots: [], latest: null, previous: null, summary: null, currentCycle: null, cycleRecaps: [], observation: null };
-const wealthTypeLabel = { BANK: "Bank", CASH: "Tunai", EWALLET: "Dompet digital", MUTUAL_FUND: "Reksa dana", GOLD: "Emas", BROKERAGE: "Rekening efek", DEPOSIT: "Deposito", CRYPTO: "Kripto", LOAN: "Pinjaman", OTHER: "Lainnya" };
-const usageRoleLabel = { TRANSACTIONAL: "Transaksional", SAVINGS: "Tabungan", INVESTMENT: "Investasi", OTHER: "Lainnya" };
+const empty = { accounts: [], snapshots: [], latest: null, previous: null, summary: null, currentCycle: null, cycleRecaps: [], observation: null, observations: [] };
 const reviewStatusLabel = { CURRENT: "Perlu direkonsiliasi", RESOLVED: "Sudah direkonsiliasi", STALE: "Perlu diperbarui", LEFT_UNALLOCATED: "Dibiarkan belum dialokasikan", NO_LONGER_APPLICABLE: "Tidak berlaku", NOT_REVIEWED: "Belum ditinjau" };
 
 export function jakartaDateTimeLocal(date = new Date()) {
@@ -53,17 +53,18 @@ export default function WealthPage() {
   const user = useAuth();
   const [data, setData] = useState(empty), [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null), [working, setWorking] = useState(false), [correcting, setCorrecting] = useState(false);
+  const drawerRef = useDrawerA11y(Boolean(selected), () => closeSnapshot());
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const observationId = new URLSearchParams(window.location.search).get("observationId");
-      const [accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse, observationResponse] = await Promise.all([
-        fetch("/api/v1/wealth/accounts"), fetch("/api/v1/wealth/summary"), fetch("/api/v1/wealth/snapshots/latest"), fetch("/api/v1/wealth/history"), fetch("/api/v1/wealth/current-cycle-savings"), fetch("/api/v1/wealth/cycle-recaps"), observationId ? fetch(`/api/v1/wealth/observations/${observationId}`) : Promise.resolve(null),
+      const [accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse, observationResponse, observationsResponse] = await Promise.all([
+        fetch("/api/v1/wealth/accounts"), fetch("/api/v1/wealth/summary"), fetch("/api/v1/wealth/snapshots/latest"), fetch("/api/v1/wealth/history"), fetch("/api/v1/wealth/current-cycle-savings"), fetch("/api/v1/wealth/cycle-recaps"), observationId ? fetch(`/api/v1/wealth/observations/${observationId}`) : Promise.resolve(null), fetch("/api/v1/wealth/observations"),
       ]);
-      if (![accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse].every(response => response.ok) || observationResponse && !observationResponse.ok) throw new Error();
-      const [accounts, summary, latest, snapshots, currentCycle, cycleRecaps, observation] = await Promise.all([accountsResponse.json(), summaryResponse.json(), latestResponse.json(), historyResponse.json(), currentCycleResponse.json(), cycleRecapsResponse.json(), observationResponse ? observationResponse.json() : null]);
-      setData({ ...empty, accounts: Array.isArray(accounts) ? accounts : [], snapshots: Array.isArray(snapshots) ? snapshots : [], latest: latest || summary?.latest || null, previous: summary?.previous || null, summary, currentCycle, cycleRecaps: Array.isArray(cycleRecaps) ? cycleRecaps : [], observation });
+      if (![accountsResponse, summaryResponse, latestResponse, historyResponse, currentCycleResponse, cycleRecapsResponse, observationsResponse].every(response => response.ok) || observationResponse && !observationResponse.ok) throw new Error();
+      const [accounts, summary, latest, snapshots, currentCycle, cycleRecaps, observation, observations] = await Promise.all([accountsResponse.json(), summaryResponse.json(), latestResponse.json(), historyResponse.json(), currentCycleResponse.json(), cycleRecapsResponse.json(), observationResponse ? observationResponse.json() : null, observationsResponse.json()]);
+      setData({ ...empty, accounts: Array.isArray(accounts) ? accounts : [], snapshots: Array.isArray(snapshots) ? snapshots : [], latest: latest || summary?.latest || null, previous: summary?.previous || null, summary, currentCycle, cycleRecaps: Array.isArray(cycleRecaps) ? cycleRecaps : [], observation, observations: Array.isArray(observations) ? observations : [] });
     } catch { setError("Data kekayaan belum dapat dimuat. Coba lagi."); } finally { setLoading(false); }
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
@@ -165,6 +166,7 @@ export default function WealthPage() {
             <div className="wealth-snapshot-actions"><p>Menyimpan catatan lengkap untuk semua akun aktif.</p><button disabled={working || !data.accounts.length}>{working ? "Menyimpan…" : "Simpan catatan lengkap"}</button></div>
           </form>}
         </section>
+        {data.observations.length > 0 && <section className="surface wealth-records"><div className="section-title"><div><span className="eyebrow">OBSERVASI PER AKUN</span><h2>Bukti saldo yang diterima</h2><p className="section-copy">Observasi ini terikat ke akun, tetapi bukan snapshot lengkap dan tidak dihitung ke total kekayaan bersih.</p></div></div><div className="wealth-history">{data.observations.map(item => <article className="wealth-history-row" key={item.id}><span>{item.name}{item.observedDate ? ` · ${shortDate(item.observedDate)}` : ""}</span><strong>{money(item.observedValueIdr)}</strong><small>Diterima {dateTime(item.createdAt)}</small></article>)}</div></section>}
 
         {data.cycleRecaps.length > 0 && <section className="surface wealth-records"><div className="section-title"><div><span className="eyebrow">SIKLUS TABUNGAN</span><h2>Rekap siklus tertutup</h2></div></div><div className="wealth-cycle-history">{data.cycleRecaps.map(cycle => <article className="wealth-cycle-row" key={`${cycle.cycleStart}-${cycle.cycleEnd}`}><header><div><span>{shortDate(cycle.cycleStart)} – {shortDate(cycle.cycleEnd)}</span><small className={`wealth-review-status status-${String(cycle.residualReviewStatus || "").toLowerCase()}`}>{reviewStatusLabel[cycle.residualReviewStatus] || cycle.residualReviewStatus}</small></div><strong>Surplus {money(cycle.cashflowSurplus)}</strong></header><dl><div><dt>Dialokasikan</dt><dd>{money(cycle.savingsAllocated)}</dd></div><div><dt>Belum dialokasikan</dt><dd>{money(cycle.rawResidual)}</dd></div><div><dt>Tujuan tabungan</dt><dd>{(cycle.savingsByDestination || []).map(item => `${item.name} ${money(item.amountIdr)}`).join(" · ") || "Belum ada"}</dd></div></dl></article>)}</div></section>}
 
@@ -172,7 +174,7 @@ export default function WealthPage() {
       </>}
     </div>
 
-    {selected && <div className="drawer-backdrop" onClick={closeSnapshot}><aside className="detail-drawer wealth-drawer" role="dialog" aria-modal="true" aria-labelledby="wealth-snapshot-title" onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeSnapshot}>×</button><span className="eyebrow">DETAIL CATATAN POSISI</span><h2 id="wealth-snapshot-title">{dateTime(selected.observedAt)}</h2><p className="muted">Waktu observasi tidak dapat diubah setelah catatan dibuat.</p>
+    {selected && <div className="drawer-backdrop" onClick={closeSnapshot}><aside ref={drawerRef} tabIndex={-1} className="detail-drawer wealth-drawer" role="dialog" aria-modal="true" aria-labelledby="wealth-snapshot-title" onClick={event => event.stopPropagation()}><button className="drawer-close" aria-label="Tutup detail" onClick={closeSnapshot}>×</button><span className="eyebrow">DETAIL CATATAN POSISI</span><h2 id="wealth-snapshot-title">{dateTime(selected.observedAt)}</h2><p className="muted">Waktu observasi tidak dapat diubah setelah catatan dibuat.</p>
       {!correcting ? <><div className="wealth-drawer-summary"><div><span>Kekayaan bersih</span><strong>{money(selected.netWorthIdr)}</strong></div><div><span>Aset</span><strong className="positive">{money(selected.assetTotalIdr)}</strong></div><div><span>Kewajiban</span><strong className="negative">{money(selected.liabilityTotalIdr)}</strong></div></div><div className="wealth-drawer-items">{(selected.items || []).map(item => <div className="wealth-detail-row" key={item.id || item.wealthAccountId}><div><span>{item.name || item.accountName}</span><small>{[wealthTypeLabel[item.wealthType], usageRoleLabel[item.usageRole], item.source].filter(Boolean).join(" · ")}</small>{item.note && <small>{item.note}</small>}</div><strong>{money(item.valueIdr)}</strong></div>)}</div><button className="button secondary" onClick={() => setCorrecting(true)}>Koreksi catatan</button></> : <form className="wealth-correction-form" onSubmit={correctSnapshot}>{(selected.items || []).map(item => <fieldset className="wealth-correction-account" key={item.id || item.wealthAccountId}><legend>{item.name || item.accountName}</legend><label><span>Nilai</span><input name={`value-${item.wealthAccountId}`} inputMode="numeric" pattern="[0-9]+" required defaultValue={item.valueIdr}/></label><div className="wealth-correction-grid"><label><span>Jumlah unit</span><input name={`quantity-${item.wealthAccountId}`} inputMode="decimal" defaultValue={item.quantity || ""}/></label><label><span>Satuan</span><input name={`unit-${item.wealthAccountId}`} defaultValue={item.unit || ""}/></label><label><span>Harga per unit</span><input name={`unitPrice-${item.wealthAccountId}`} inputMode="numeric" defaultValue={item.unitPriceIdr || ""}/></label><label><span>Sumber</span><input name={`source-${item.wealthAccountId}`} defaultValue={item.source || "MANUAL"}/></label></div><label><span>Catatan</span><input name={`note-${item.wealthAccountId}`} defaultValue={item.note || ""}/></label></fieldset>)}<div className="wealth-drawer-actions"><button type="button" className="secondary" onClick={() => setCorrecting(false)}>Batal</button><button disabled={working}>{working ? "Menyimpan…" : "Simpan koreksi"}</button></div></form>}
     </aside></div>}
   </AppShell>;

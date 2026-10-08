@@ -89,7 +89,7 @@ func TestInvestmentTransferAmbiguityOffersChooser(t *testing.T) {
 		t.Fatal(err)
 	}
 	var choosers int
-	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'text'='Pilih Wealth Account investasi tujuan:' AND payload_json->>'chat_id'=$1`, fmt.Sprint(chat)).Scan(&choosers))
+	must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'text'='Pilih akun kekayaan investasi tujuan:' AND payload_json->>'chat_id'=$1`, fmt.Sprint(chat)).Scan(&choosers))
 	if choosers != 2 {
 		t.Fatalf("zero and multiple mapping produced %d choosers, want 2", choosers)
 	}

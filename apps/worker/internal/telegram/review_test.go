@@ -10,28 +10,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func TestParseReviewPayDate(t *testing.T) {
-	if got := parseReviewPayDate("BENAR, gaji masuk tanggal 24 agustus 2026"); got != "2026-08-24" {
-		t.Fatalf("pay date = %q", got)
-	}
-	if got := parseReviewPayDate("25 September 2026"); got != "2026-09-25" {
-		t.Fatalf("unprefixed pay date = %q", got)
-	}
-	if got := parseReviewPayDate("tanggal 25 November 2026"); got != "2026-11-25" {
-		t.Fatalf("English month = %q", got)
-	}
-	if got := parseReviewPayDate("BENAR, gunakan tanggal 31 februari 2026"); got != "" {
-		t.Fatalf("invalid pay date = %q", got)
-	}
-	if got := parseLabeledReviewPayDate("penghasilan 25 September 2026"); got != "" {
-		t.Fatalf("generic income reply inferred an unlabelled date: %q", got)
-	}
-	if got := parseLabeledReviewPayDate("penghasilan dibayar tanggal 25 September 2026"); got != "2026-09-25" {
-		t.Fatalf("generic income reply missed a labelled date: %q", got)
-	}
-}
-
-// IR-02: Telegram must request exactly the stored residual fact and must not
+// Telegram must request exactly the stored residual fact and must not
 // treat an internal received-at timestamp as the supplied transaction date.
 func TestResidualConfirmationBlockersRequestOnlyMissingFacts(t *testing.T) {
 	decision := []byte(`{"missingFacts":["category","transaction_at"]}`)
@@ -147,7 +126,7 @@ func TestReviewQuestionUsesIndonesianIDRFormat(t *testing.T) {
 func TestAssistantRangeLabelUsesInclusiveJakartaDates(t *testing.T) {
 	location := jakartaLocation()
 	r := assistantRange{From: time.Date(2026, 8, 1, 0, 0, 0, 0, location), To: time.Date(2026, 9, 1, 0, 0, 0, 0, location)}
-	if got := r.label(); got != "01 Aug 2026–31 Aug 2026" {
+	if got := r.label(); got != "01 Agu 2026–31 Agu 2026" {
 		t.Fatalf("label = %q", got)
 	}
 }
@@ -158,39 +137,26 @@ func TestFormatIDRSupportsNegativeCashflow(t *testing.T) {
 	}
 }
 
-func TestIncomeReviewIntentIsDeterministic(t *testing.T) {
-	if got := incomeReviewIntent("ini transfer sendiri"); got != "REJECT" {
-		t.Fatalf("expected rejection, got %q", got)
-	}
-	if got := incomeReviewIntent("ya, ini penghasilan"); got != "CONFIRM" {
-		t.Fatalf("expected confirmation, got %q", got)
-	}
-	if got := incomeReviewIntent("mungkin dari teman"); got != "" {
-		t.Fatalf("ambiguous reply must remain open, got %q", got)
-	}
-}
-
-func TestTransferReviewIntentIsDeterministic(t *testing.T) {
-	tests := map[string]string{"rekeningku sendiri": "OWN_ACCOUNT", "transfer ke istri": "HOUSEHOLD_ACCOUNT", "masuk RDN investasi": "INVESTMENT_ACCOUNT", "abaikan saja": "IGNORE", "buat bayar tukang renovasi": "EXPENSE", "tidak yakin": ""}
-	for input, want := range tests {
-		if got := transferReviewIntent(input); got != want {
-			t.Fatalf("%q = %q, want %q", input, got, want)
+func TestTransferReviewCallbacksMapDirectlyToCanonicalActions(t *testing.T) {
+	tests := map[string]string{"review:own": "OWN_ACCOUNT", "review:household": "HOUSEHOLD_ACCOUNT", "review:investment": "INVESTMENT_ACCOUNT", "review:ignore": "IGNORE", "review:expense": "EXPENSE", "review:asset": "ASSET_PURCHASE", "review:unknown": ""}
+	for callback, want := range tests {
+		if got := transferReviewCallbackAction(callback); got != want {
+			t.Fatalf("%q = %q, want %q", callback, got, want)
 		}
 	}
 }
 
-func TestMerchantRememberIntentRequiresExplicitReply(t *testing.T) {
-	tests := map[string]string{
-		"ingat merchant": "REMEMBER",
-		"ya ingat":       "REMEMBER",
-		"tidak":          "DECLINE",
-		"sekali saja":    "DECLINE",
-		"oke":            "",
-		"mungkin":        "",
+func TestPayslipReviewSchemaAcceptsCanonicalPayDateWithoutCategoryOptions(t *testing.T) {
+	schema := reviewSchema(nil, false)
+	properties := schema["properties"].(map[string]any)
+	if _, ok := properties["pay_date"]; !ok {
+		t.Fatal("pay_date missing from schema")
 	}
-	for input, want := range tests {
-		if got := merchantRememberIntent(input); got != want {
-			t.Fatalf("%q = %q, want %q", input, got, want)
-		}
+	if _, ok := properties["category_slug"]; ok {
+		t.Fatal("empty category enum must be omitted")
+	}
+	required := schema["required"].([]string)
+	if !contains(required, "pay_date") {
+		t.Fatalf("required=%v", required)
 	}
 }

@@ -7,11 +7,23 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
 func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any, refPrefix string) (agentToolResult, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolRead, Status: "OK"}
+	if analyticscore.IsRead(call.Name) {
+		facts, err := state.Analytics.Read(ctx, call.Name, call.Arguments)
+		if recovered, ok := recoverableAnalyticsRead(result, err); ok {
+			return recovered, nil
+		}
+		if err != nil {
+			return result, err
+		}
+		result.Facts = facts
+		return result, nil
+	}
 
 	switch call.Name {
 	case "query_spending":
@@ -67,24 +79,27 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 			return result, err
 		}
 		rows, err := p.pool.Query(ctx, `
-			SELECT COALESCE(c.slug,''),COALESCE(c.name,'Tanpa kategori'),
-			       sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)::text,count(*)::text
+			WITH categories AS (SELECT COALESCE(c.slug,'') AS slug,COALESCE(c.name,'Tanpa kategori') AS name,
+			       sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END) AS amount,count(*)::text AS count
 			FROM transaction t
-			LEFT JOIN category c ON c.id=t.category_id
+			LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id
 			WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN('EXPENSE','REFUND')
 			  AND t.transaction_at >= $2 AND t.transaction_at < $3
 			GROUP BY COALESCE(c.slug,''),COALESCE(c.name,'Tanpa kategori')
-			HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)>0
-			ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END) DESC
+			HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)<>0)
+			SELECT slug,name,amount::text,count,(SELECT count(*)::int FROM categories),
+			(SELECT COALESCE(sum(amount),0)::text FROM categories)
+			FROM categories ORDER BY abs(amount) DESC,name,slug
 			LIMIT 20`, state.HouseholdID, r.From, r.To)
 		if err != nil {
 			return result, err
 		}
 		defer rows.Close()
 		items := make([]map[string]any, 0, 20)
+		totalCategories, totalExpense := 0, "0"
 		for rows.Next() {
 			var slug, name, amount, count string
-			if err := rows.Scan(&slug, &name, &amount, &count); err != nil {
+			if err := rows.Scan(&slug, &name, &amount, &count, &totalCategories, &totalExpense); err != nil {
 				return result, err
 			}
 			items = append(items, map[string]any{"slug": slug, "name": name, "amount_idr": amount, "transaction_count": count})
@@ -92,7 +107,7 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 		if err := rows.Err(); err != nil {
 			return result, err
 		}
-		result.Facts = map[string]any{"period": agentPeriodFact(r), "categories": items}
+		result.Facts = map[string]any{"period": agentPeriodFact(r), "categories": items, "total_categories": totalCategories, "net_expense_idr": totalExpense, "truncated": totalCategories > len(items)}
 
 	case "get_largest_transactions":
 		r, err := p.resolveAgentRange(ctx, state.HouseholdID, state.Now, args)
@@ -145,6 +160,31 @@ func (p *Processor) executeAgentRead(ctx context.Context, state *agentState, cal
 		}
 		result.Facts = map[string]any{"period": agentPeriodFact(r), "transactions": items}
 		result.References = refs
+
+	case "get_evidence_context":
+		ref, _ := args["evidence_ref"].(string)
+		document, outcome, err := p.resolveEvidenceRef(ctx, state.HouseholdID, state.SourceEventID, state.Update, evidenceRef(ref))
+		if err != nil {
+			return result, err
+		}
+		if outcome != ceuResolved {
+			// A stale, expired or foreign ref is a bounded, recoverable answer, not a
+			// failure: the model is told to use the evidence Richmod bound this turn.
+			result.Status = string(outcome)
+			result.Facts = map[string]any{"outcome": string(outcome), "hint": "use bound_evidence or recent_evidence from this turn, or ask which document"}
+			return result, nil
+		}
+		// Reading changes no financial or review state. It does refresh the evidence
+		// ref in this turn's bounded reference table (an idempotent upsert keyed by the
+		// document), so the ref the model holds stays valid for its lifetime.
+		contexts, err := p.loadEvidenceContexts(ctx, state.HouseholdID, state.SourceEventID, state.Update, []canonicalDocumentID{document})
+		if err != nil {
+			return result, fmt.Errorf("read evidence context: %w", err)
+		}
+		if len(contexts) != 1 {
+			return result, fmt.Errorf("read evidence context: expected one package, got %d", len(contexts))
+		}
+		result.Facts = map[string]any{"evidence": contexts[0]}
 
 	case "search_transactions":
 		r, err := p.resolveAgentRange(ctx, state.HouseholdID, state.Now, args)
@@ -323,4 +363,21 @@ func agentPeriodFact(r assistantRange) map[string]any {
 		"to_exclusive": r.To.In(jakartaLocation()).Format(time.RFC3339),
 		"label":        r.label(),
 	}
+}
+
+// recoverableAnalyticsRead turns a read the model can correct into a tool result
+// it can act on, instead of an error that ends the turn. A category_ref is valid
+// only in the turn that issued it, so a ref copied from an earlier answer is not
+// a failure of the household's question: the model is told to fetch the refs for
+// this turn and try again, within the turn's phase budget.
+func recoverableAnalyticsRead(result agentToolResult, err error) (agentToolResult, bool) {
+	if !errors.Is(err, analyticscore.ErrCategoryRefNotIssued) {
+		return result, false
+	}
+	result.Status = "REFERENCE_NOT_ISSUED"
+	result.Facts = map[string]any{
+		"error":     "that category_ref was not issued in this turn; refs from earlier turns are expired",
+		"next_step": "call get_cycle_changes for the same cycle, then use a category_ref from its result",
+	}
+	return result, true
 }

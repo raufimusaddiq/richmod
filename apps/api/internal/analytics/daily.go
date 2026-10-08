@@ -1,12 +1,16 @@
 package analytics
 
 import (
+	"errors"
 	"math/big"
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
 )
 
 func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +37,11 @@ func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
 		end = &e
 	}
 	var salary string
-	_ = h.pool.QueryRow(r.Context(), `SELECT COALESCE(net_pay,0)::text FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date=$2::date ORDER BY se.created_at DESC LIMIT 1`, household, start).Scan(&salary)
+	err = h.pool.QueryRow(r.Context(), `SELECT COALESCE(net_pay,0)::text FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id AND ss.household_id=se.household_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED' AND se.pay_date=$2::date ORDER BY se.created_at DESC LIMIT 1`, household, start).Scan(&salary)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, 500, map[string]string{"error": "unable to load cycle salary"})
+		return
+	}
 	rows, err := h.pool.Query(r.Context(), `WITH days AS (SELECT generate_series($2::date,$3::date-1,interval '1 day')::date AS day) SELECT to_char(days.day,'YYYY-MM-DD'),COALESCE(sum(t.amount) FILTER(WHERE t.type='INCOME'),0)::text,COALESCE(sum(t.amount) FILTER(WHERE t.type='EXPENSE'),0)::text,COALESCE(sum(t.amount) FILTER(WHERE t.type='REFUND'),0)::text,COALESCE(sum(CASE WHEN t.type='INCOME' THEN t.amount WHEN t.type='EXPENSE' THEN -t.amount WHEN t.type='REFUND' THEN t.amount ELSE 0 END),0)::text FROM days LEFT JOIN transaction t ON t.household_id=$1 AND t.status='CONFIRMED' AND (t.transaction_at AT TIME ZONE 'Asia/Jakarta')::date=days.day GROUP BY days.day ORDER BY days.day`, household, start, end)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate daily cycle"})
@@ -49,10 +57,15 @@ func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"error": "unable to calculate daily cycle"})
 			return
 		}
-		amount, _ := new(big.Int).SetString(expense, 10)
+		netExpense := financialmath.Subtract(expense, refund)
+		amount, _ := new(big.Int).SetString(netExpense, 10)
 		spent.Add(spent, amount)
 		cumulative.Add(cumulative, amount)
-		result = append(result, map[string]string{"period": period, "income": income, "expense": expense, "refund": refund, "netCashflow": net, "cumulativeExpense": cumulative.String()})
+		result = append(result, map[string]string{"period": period, "income": income, "grossExpense": expense, "expense": netExpense, "refund": refund, "netCashflow": net, "cumulativeExpense": cumulative.String()})
+	}
+	if rows.Err() != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to calculate daily cycle"})
+		return
 	}
 	days := calendarDays(*start, *end)
 	elapsed := calendarDays(*start, now) + 1
@@ -62,13 +75,21 @@ func (h *Handler) CycleDaily(w http.ResponseWriter, r *http.Request) {
 	if elapsed > days {
 		elapsed = days
 	}
-	remaining := new(big.Int)
-	salaryValue, ok := new(big.Int).SetString(salary, 10)
-	if !ok {
-		salaryValue = big.NewInt(0)
+	salaryValue := new(big.Rat)
+	if salary != "" {
+		if _, ok := salaryValue.SetString(salary); !ok {
+			writeJSON(w, 500, map[string]string{"error": "invalid cycle salary"})
+			return
+		}
 	}
-	remaining.Sub(salaryValue, spent)
-	writeJSON(w, 200, map[string]any{"configured": true, "daily": result, "salary": salaryValue.String(), "spent": spent.String(), "remaining": remaining.String(), "daysElapsed": elapsed, "daysTotal": days, "cycleStart": start.Format("2006-01-02"), "cycleEnd": end.Format("2006-01-02")})
+	remaining := new(big.Rat).Sub(salaryValue, new(big.Rat).SetInt(spent))
+	format := func(value *big.Rat) string {
+		if value.IsInt() {
+			return value.Num().String()
+		}
+		return value.FloatString(2)
+	}
+	writeJSON(w, 200, map[string]any{"configured": true, "daily": result, "salary": format(salaryValue), "spent": spent.String(), "remaining": format(remaining), "daysElapsed": elapsed, "daysTotal": days, "cycleStart": start.Format("2006-01-02"), "cycleEnd": end.Format("2006-01-02")})
 }
 
 func calendarDays(start, end time.Time) int {

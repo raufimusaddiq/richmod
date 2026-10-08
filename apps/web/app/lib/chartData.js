@@ -22,20 +22,6 @@ export function elapsedDaily(items = [], daysElapsed) {
   return items.slice(0, Math.max(Number(daysElapsed || 0), 0));
 }
 
-export function deriveCycleSpendingMetrics({ daily = [], spent = "0", daysElapsed, daysTotal = 0 }) {
-  const elapsed = Math.max(Number(daysElapsed || 0), 0);
-  const normalized = daily.map(item => ({ ...item, expenseValue: Number(item.expense || 0) }));
-  const visible = elapsedDaily(normalized, daysElapsed);
-  const peak = visible.reduce((best, item) => item.expenseValue > best.expenseValue ? item : best, { period: null, expenseValue: 0 });
-  return {
-    average: Number(spent || 0) / Math.max(elapsed, 1),
-    peak,
-    zeroSpendDays: visible.filter(item => item.expenseValue === 0).length,
-    daysElapsed: elapsed,
-    daysTotal: Math.max(Number(daysTotal || 0), 0),
-  };
-}
-
 export function mapDailySpending(items = []) {
   return items.map(item => ({ ...item, label: item.period?.slice(8) || "", expenseValue: Number(item.expense || 0) }));
 }
@@ -45,11 +31,7 @@ export function dayLabel(value) {
   return new Date(`${value}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", year: "numeric" });
 }
 
-export function cycleProgressLabel(daysElapsed) {
-  const day = Math.max(Number(daysElapsed || 0), 0);
-  return day > 0 ? `Hari ke-${day}` : "Belum dimulai";
-}
-
-export function mapMonthlyCashflow(items = []) {
-  return items.map(item => ({ ...item, label: monthLabel(item.period), incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
+// `partialPeriod` ("YYYY-MM") marks the running month so the tooltip can say it is not complete.
+export function mapMonthlyCashflow(items = [], partialPeriod = "") {
+  return items.map(item => ({ ...item, partial: Boolean(partialPeriod) && item.period === partialPeriod, label: monthLabel(item.period), incomeValue: Number(item.income || 0), expenseValue: Number(item.expense || 0), netValue: Number(item.netCashflow || 0) }));
 }

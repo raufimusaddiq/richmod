@@ -69,6 +69,11 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
         run: go test ./...
+      - name: Test shared finance domain
+        working-directory: apps/reviewdomain
+        env:
+          TEST_DATABASE_URL: postgres://family_finance_test:test-only-password@localhost:5432/family_finance_test?sslmode=disable
+        run: go test ./...
       - name: Test worker
         working-directory: apps/worker
         env:
@@ -76,6 +81,9 @@ jobs:
         run: go test ./...
       - name: Vet API
         working-directory: apps/api
+        run: go vet ./...
+      - name: Vet shared finance domain
+        working-directory: apps/reviewdomain
         run: go vet ./...
       - name: Vet worker
         working-directory: apps/worker
@@ -101,6 +109,29 @@ jobs:
       - name: Test web
         working-directory: apps/web
         run: npm test
+      - name: Install browser for synthetic cycle-review checks
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify transaction date inputs with synthetic data
+        working-directory: apps/web
+        run: node scripts/transaction-date-smoke.mjs
+      - name: Upload transaction date screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: transaction-date-screenshots
+          path: apps/web/test-results/transaction-date
+          if-no-files-found: ignore
+      - name: Verify cycle-review UI with synthetic data
+        working-directory: apps/web
+        run: node scripts/analytics-review-smoke.mjs
+      - name: Upload synthetic cycle-review screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cycle-review-screenshots
+          path: apps/web/test-results/cycle-review
+          if-no-files-found: ignore
 
   containers:
     runs-on: ubuntu-latest
@@ -116,6 +147,8 @@ jobs:
         run: docker compose config --quiet
       - name: Test deployment image retention
         run: sh infra/deploy/post-deploy_test.sh
+      - name: Test backup repository bootstrap
+        run: sh infra/backup/backup_test.sh
       - name: Build production images
         run: |
           docker build -f infra/docker/api.Dockerfile -t family-finance-api:ci .

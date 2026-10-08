@@ -5,14 +5,13 @@ import (
 	"time"
 )
 
-// A missing merchant must not become a required text field (PRD §9.4/§9.5):
-// what the review actually asks for is a category, and the known facts stay
-// read-only so the user is never asked to re-enter amount, time, or direction.
-func TestUnknownMerchantDecisionAsksForCategoryOnly(t *testing.T) {
+// An unknown merchant is collected first on any channel; amount/time remain
+// known and are never requested again.
+func TestUnknownMerchantDecisionAsksForMerchantFirst(t *testing.T) {
 	amount, direction, channel := "54000", "OUTGOING", "DEBIT_CARD"
 	d := transactionReviewDecision("h", "s", Extraction{AmountIDR: &amount, Direction: &direction, Channel: &channel, TransactionAt: &time.Time{}}, PolicyResult{ReviewType: "UNKNOWN_MERCHANT"}, "t")
-	if len(d.MissingFacts) != 1 || d.MissingFacts[0] != "category" {
-		t.Fatalf("an undecided category is the missing fact, got %v", d.MissingFacts)
+	if len(d.MissingFacts) != 2 || d.MissingFacts[0] != "merchant" || d.MissingFacts[1] != "category" {
+		t.Fatalf("merchant must precede category, got %v", d.MissingFacts)
 	}
 	if d.PolicyVersion != ToolSchemaVersion {
 		t.Fatalf("deterministic merchant policy version=%q", d.PolicyVersion)
@@ -44,7 +43,7 @@ func TestAmbiguousCategoryDecisionMatchesInbox(t *testing.T) {
 
 // The missing-facts list must name every absent required fact, not just the
 // first: an email with neither amount nor time must ask for both, so the Inbox
-// does not silently leave one unresolved (PRD §7.3).
+// does not silently leave one unresolved.
 func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 	decision := partialDecision("household", "source", Extraction{}, "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", []string{"amount", "transaction_at"}, "facts absent")
 	if len(decision.MissingFacts) != 2 {

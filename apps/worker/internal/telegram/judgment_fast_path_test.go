@@ -1,8 +1,6 @@
 package telegram
 
 import (
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,16 +52,13 @@ func TestJudgmentPeriodChoiceMapsToExactRange(t *testing.T) {
 }
 
 func TestOnlyAggregateReadRoutesConsumePeriod(t *testing.T) {
-	// Guard the ordering bug: only the aggregate READ routes may be gated on a
-	// usable reporting period, so an unclear period can never block wealth,
+	// An unclear period may only block the aggregate READ routes, never wealth,
 	// transaction, or review routes.
-	source, err := os.ReadFile("judgment_fast_path.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	guard := `if answer.Choice == "READ_SPENDING" || answer.Choice == "READ_CASHFLOW" || answer.Choice == "READ_SAVINGS" {`
-	if !strings.Contains(string(source), guard) {
-		t.Fatal("period resolution must be restricted to the aggregate READ routes")
+	aggregate := map[string]bool{"READ_SPENDING": true, "READ_CASHFLOW": true, "READ_SAVINGS": true}
+	for _, route := range judgmentRoutes {
+		if got := routeConsumesPeriod(route); got != aggregate[route] {
+			t.Fatalf("routeConsumesPeriod(%q) = %v", route, got)
+		}
 	}
 }
 
@@ -71,11 +66,17 @@ func TestBoundedJudgmentWorkflowsOnlyHandleFactFreeChoices(t *testing.T) {
 	// A pending-batch UPDATE needs arbitrary replacement values, so Jev must not
 	// own it: the bounded handler reports "not handled" and the generative
 	// update_pending_batch path keeps its server-bound validation.
-	if boundedReviewAction("UPDATE") {
+	if isReviewAction("TRANSFER_CLASSIFICATION", "UPDATE") {
 		t.Fatal("UPDATE is not a bounded review action")
 	}
-	if !boundedReviewAction("CONFIRM") || !boundedReviewAction("IGNORE") {
+	if !isReviewAction("AMBIGUOUS_CATEGORY", "CONFIRM") || !isReviewAction("TRANSFER_CLASSIFICATION", "IGNORE") {
 		t.Fatal("fact-free review actions must stay bounded")
+	}
+	if reviewActionNeedsArguments("CONFIRM") || reviewActionNeedsArguments("IGNORE") {
+		t.Fatal("fact-free actions must not require generative argument extraction")
+	}
+	if !reviewActionNeedsArguments("ASSET_PURCHASE") || !reviewActionNeedsArguments("EXPENSE") {
+		t.Fatal("argument-bearing actions must defer to generative extraction")
 	}
 }
 
@@ -98,7 +99,7 @@ func TestHarvestSimpleTransaction(t *testing.T) {
 		t.Fatal("multiple amounts must use generative extraction")
 	}
 	// The k shorthand is a currency suffix only when it stands alone. A unit
-	// glued to the number (5kg) is a quantity, not Rp5.000 (PRD §24 T1).
+	// glued to the number (5kg) is a quantity, not Rp5.000.
 	if got, ok := harvestSimpleTransaction("beras 5kg"); ok {
 		t.Fatalf("a glued unit must not harvest a currency amount: %#v", got)
 	}

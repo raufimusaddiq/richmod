@@ -1,6 +1,6 @@
 # UIR-SAVR Closure Sprint Execution Plan
 
-**Status:** READY  
+**Status:** CLOSED (2026-10-03, UISC-04)  
 **Baseline:** `main@f6b2d374fe7c45bdb8d69507c39596f6945e906a`  
 **PRD:** `docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md`  
 **BDR:** `docs/bdr/BDR-005-uir-savr-closure-before-ceu.md`
@@ -19,7 +19,7 @@ For every implementation slice:
 6. bundle fixes before pushing;
 7. wait for review of the exact latest PR head before another push.
 
-No CEU implementation begins until UISC-04.
+CEU may begin only after UISC-04, which is now recorded.
 
 ---
 
@@ -142,6 +142,11 @@ Remove the three permanent `notYetMeasurable` entries only when their real
 aggregates exist.
 
 Exit: Operations can measure all closure metrics prospectively.
+
+**Done (UISC-02, `c5278a4`):** the three permanent `notYetMeasurable` entries are
+removed. `aggregate.Coverage` starts empty and only reports
+`pre_migration_telemetry_history`; history lacking provenance is listed under
+`coverageIncomplete`, never as zero.
 
 ---
 

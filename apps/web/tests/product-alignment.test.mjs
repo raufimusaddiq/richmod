@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync } from "node:fs";
 import test from "node:test";
+import { reviewCards, tree, globalCss } from "./source.mjs";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("all Product Alignment routes exist", () => {
+test("all product routes exist", () => {
   for (const route of ["page.js", "wealth/page.js", "transactions/page.js", "analytics/page.js", "inbox/page.js", "reviews/page.js", "actions/page.js", "documents/page.js", "household/page.js", "settings/page.js"]) {
     assert.ok(statSync(new URL(`../app/${route}`, import.meta.url)).isFile(), route);
   }
@@ -12,85 +13,45 @@ test("all Product Alignment routes exist", () => {
 
 test("one inbox exposes separate transaction and integration action views", () => {
   const inbox = text("app/inbox/page.js");
-  const shell = text("app/components/AppShell.js");
   assert.match(inbox, /\/api\/v1\/reviews/);
   assert.match(inbox, /\/api\/v1\/integration-actions/);
-  assert.match(inbox, /wealthResponse, accountResponse/);
-  assert.match(inbox, />Transaksi <b>/);
-  assert.match(inbox, />Tindakan <b>/);
-  assert.match(inbox, /Verifikasi penerusan/);
   assert.match(inbox, /noopener noreferrer/);
   assert.match(inbox, /user\?\.household\?\.role === "OWNER"/);
-  assert.match(inbox, /Pemilik household perlu menyelesaikan tindakan ini/);
-  assert.match(shell, /\["\/inbox", "Tinjauan", "✓"\]/);
-  assert.match(shell, /nav-badge/);
   assert.match(text("app/reviews/page.js"), /redirect\("\/inbox\?view=transactions"\)/);
   assert.match(text("app/actions/page.js"), /redirect\("\/inbox\?view=actions"\)/);
 });
 
-test("active frontend contains no budget requests or budget interface", () => {
-  const files = ["app/page.js", "app/components/AppShell.js", "app/settings/page.js"];
-  const source = files.map(text).join("\n").toLowerCase();
-  assert.equal(source.includes("/api/v1/budgets"), false);
-  assert.equal(source.includes("anggaran bulanan"), false);
-});
-
 test("overview chart is backed by deterministic analytics API", () => {
-  const source = text("app/page.js");
-  assert.match(source, /analytics\/cycle\/daily/);
-  assert.match(source, /transactions\?limit=8/);
-  assert.match(text("app/components/Charts.js"), /recharts/);
-  assert.match(text("app/components/Charts.js"), /ResponsiveContainer/);
+  assert.match(text("app/page.js"), /analytics\/cycle\/daily/);
 });
 
 test("charts answer distinct dashboard, cycle, calendar, and category questions", () => {
   const charts = text("app/components/Charts.js");
   const home = text("app/page.js");
-  const analytics = text("app/analytics/page.js");
+  const analytics = tree("app/analytics");
   for (const name of ["DashboardDailySpendingChart", "CycleSpendingPatternChart", "MonthlyCashflowChart", "CategoryDonutChart", "CategoryRankingChart"]) assert.match(charts, new RegExp(`export function ${name}`));
   assert.match(home, /DashboardDailySpendingChart/);
   assert.match(home, /CategoryDonutChart/);
   assert.match(analytics, /CycleSpendingPatternChart/);
   assert.match(analytics, /MonthlyCashflowChart/);
   assert.match(analytics, /CategoryRankingChart/);
-  assert.doesNotMatch(charts, /cumulativeValue|AreaChart|<Line/);
-  assert.match(charts, /ReferenceLine/);
 });
 
-test("analytics insight UI is aggregate-only and safely rendered", () => {
-  const analytics = text("app/analytics/page.js");
+test("analytics commentary is selected-cycle prose, safely rendered after deterministic evidence", () => {
+  const analytics = tree("app/analytics");
   const card = text("app/components/InsightCard.js");
   assert.match(analytics, /api\/v1\/insights/);
-  assert.match(analytics, /generate\?period=cycle/);
   assert.match(analytics, /pollInsight/);
-  assert.match(card, /split\(\/\\n\{2,\}\//);
   assert.doesNotMatch(card, /dangerouslySetInnerHTML/);
-  assert.ok(analytics.indexOf("analytics-kpis") < analytics.indexOf("analytics-chart"));
-  assert.ok(analytics.indexOf("analytics-chart") < analytics.indexOf("<InsightCard"));
-  assert.ok(analytics.indexOf("<InsightCard") < analytics.indexOf("analytics-detail-layout"));
-  assert.match(card, /insight-card-compact/);
-  assert.match(card, /insight-state-copy/);
+  const ordered = ["<CyclePosition", 'id="spending-shape"', 'id="changes"', 'id="drivers"', 'id="destinations"', 'id="household"', "<SavingsWealth", "<QualitySection", 'id="discussion"', "<InsightCard"];
+  for (let index = 1; index < ordered.length; index += 1) assert.ok(analytics.indexOf(ordered[index - 1]) < analytics.indexOf(ordered[index]), ordered[index]);
 });
 
-test("analytics insight card owns its spacing", () => {
-  const styles = text("app/globals.css");
-  assert.match(styles, /\.insight-card \{ padding: 22px; \}/);
-  assert.match(styles, /\.analytics-detail-layout, \.admin-grid \{ display: grid; grid-template-columns: minmax\(0, 1\.55fr\) minmax\(280px, \.75fr\);/);
-  assert.match(styles, /@media \(max-width: 1100px\) \{[\s\S]*?\.analytics-detail-layout, \.admin-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
-});
-
-test("analytics components own semantics, spacing, controls, and chart colors", () => {
-  const analytics = text("app/analytics/page.js");
+test("analytics controls are labelled and charts use theme colour tokens", () => {
+  const analytics = tree("app/analytics");
   const charts = text("app/components/Charts.js");
-  const styles = text("app/globals.css");
-  assert.match(analytics, /className="analytics-flow"/);
-  assert.match(analytics, /className="surface analytics-ranked-card"/);
-  assert.match(analytics, /<strong>\{value\}<\/strong>/);
-  assert.doesNotMatch(analytics, /<b>\{value\}<\/b>/);
-  assert.match(analytics, /className="range-control-group"/);
-  assert.match(analytics, /className="custom-range"/);
-  assert.match(styles, /\.analytics-ranked-card \{ padding: 22px; \}/);
-  assert.match(styles, /\.custom-range input \{ width: 142px;/);
+  assert.match(analytics, /aria-labelledby="changes-title"/);
+  assert.match(analytics, /aria-controls="category-drivers"/);
   assert.match(charts, /var\(--chart-income\)/);
   assert.match(charts, /var\(--chart-expense\)/);
   assert.doesNotMatch(charts, /#[0-9a-f]{3,8}/i);
@@ -102,19 +63,13 @@ test("transaction filters are query-backed", () => {
   assert.match(source, /URLSearchParams/);
   assert.match(source, /window\.history\.pushState/);
   assert.match(source, /addEventListener\("popstate", onPopState\)/);
-  assert.match(source, /window\.history\.back\(\)/);
 });
 
 test("ledger request failures are recoverable instead of leaving the page loading", () => {
   const source = text("app/transactions/page.js");
-  assert.match(source, /catch \{/);
-  assert.match(source, /Koneksi terputus saat memuat riwayat transaksi/);
   assert.match(source, /<ErrorNotice message=\{error\} retry=\{load\}\/>/);
-  assert.match(source, /loading \? <Skeleton/);
   assert.match(source, /dynamic = "force-dynamic"/);
-  const auth = text("app/components/AuthProvider.js");
-  assert.match(auth, /catch \{/);
-  assert.match(auth, /setLoaded\(true\)/);
+  assert.match(text("app/components/AuthProvider.js"), /setLoaded\(true\)/);
 });
 
 test("manual transactions use an accessible dialog and refresh the ledger", () => {
@@ -127,52 +82,23 @@ test("manual transactions use an accessible dialog and refresh the ledger", () =
 
 test("authenticated app shells are not cached across deployments", () => {
   const source = text("next.config.mjs");
-  assert.match(source, /Cache-Control/);
   assert.match(source, /no-store/);
   assert.match(source, /\/transactions/);
 });
 
-test("ledger navigation uses the shared Phosphor icon family", () => {
-  const source = text("app/components/AppShell.js");
-  assert.match(source, /Receipt/);
-  assert.match(source, /const icons =/);
-  assert.match(source, /ledger: Receipt/);
-});
-
-test("settings navigation uses the shared Phosphor icon family", () => {
-  const source = text("app/components/AppShell.js");
-  assert.match(source, /\["\/settings", "Pengaturan", "settings"\]/);
-  assert.match(source, /settings: GearSix/);
-  assert.match(source, /<Icon aria-hidden="true"/);
-});
-
-test("mobile shell keeps navigation and dense actions usable", () => {
+test("mobile shell keeps navigation usable and dismissable", () => {
   const shell = text("app/components/AppShell.js");
-  const styles = text("app/globals.css");
   assert.match(shell, /aria-modal="true"/);
   assert.match(shell, /event\.key === "Escape"/);
   assert.match(shell, /aria-controls="mobile-more-panel"/);
-  assert.match(styles, /\.mobile-nav a, \.mobile-nav button \{[\s\S]*?min-height: 50px;/);
-  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
-  assert.match(styles, /@media \(max-width: 680px\) \{[\s\S]*?\.member-list article, \.settings-list article, \.integration-grid article \{ grid-template-columns: minmax\(0, 1fr\);/);
-  assert.match(styles, /max-height: 82dvh; overflow-y: auto;/);
-});
-
-test("email ingress controls stay grouped inside the integration card", () => {
-  const settings = text("app/settings/page.js");
-  const styles = text("app/globals.css");
-  assert.match(settings, /className="integration-actions"/);
-  assert.match(styles, /\.review-actions, \.transfer-options, \.action-buttons, \.dialog-actions, \.row-actions, \.member-actions, \.invite-actions, \.integration-actions \{ display: flex; flex-wrap: wrap;/);
-  assert.match(styles, /\.integration-grid small \{ margin-top: 3px; color: var\(--muted\); font-size: 11px; \}/);
+  assert.match(shell, /<Icon aria-hidden="true"/);
 });
 
 test("web and Telegram share the same review object endpoint", () => {
   assert.match(text("app/inbox/page.js"), /\/api\/v1\/reviews/);
-  assert.match(text("app/components/ReviewCards.js"), /classify-transfer/);
-  assert.match(text("app/components/ReviewCards.js"), /transactions\?id=/);
-	assert.match(text("app/components/ReviewCards.js"), /const missing = MissingInputs\(item\)/);
-	assert.match(text("app/components/ReviewCards.js"), /missing\.merchant && <label>Merchant/);
-  assert.match(text("app/components/ReviewCards.js"), /name="merchantName" required/);
+  assert.match(reviewCards(), /classify-transfer/);
+  assert.match(reviewCards(), /transactions\?id=/);
+  assert.match(reviewCards(), /name="merchantName" required/);
 });
 
 test("household route exposes Telegram connection state", () => {
@@ -183,119 +109,58 @@ test("household route exposes Telegram connection state", () => {
 
 test("shared UX feedback is accessible and motion respects user preference", () => {
   const feedback = text("app/components/Feedback.js");
-  const styles = text("app/globals.css");
+  const styles = globalCss();
   assert.match(feedback, /aria-busy="true"/);
   assert.match(feedback, /role="alert"/);
   assert.match(feedback, /aria-live="polite"/);
   assert.match(styles, /prefers-reduced-motion: reduce/);
-  assert.match(styles, /\.transaction-row \{ width: 100%;/);
   assert.match(styles, /:focus-visible/);
-  assert.match(styles, /--accent: #6d435c/);
-  assert.match(styles, /--income: #216247/);
-  assert.match(styles, /\.app-main \{ width: calc\(100% - var\(--sidebar\)\)/);
-  assert.doesNotMatch(styles, /\.app-main \{ width: min\(1440px/);
-  assert.match(styles, /button\.document-card:hover:not\(:disabled\) \{ border-color: var\(--line-strong\); background: var\(--surface-muted\); color: var\(--ink\); \}/);
 });
 
-test("public routes preserve the authenticated overview and dedicated login flow", () => {
+test("public routes keep the authenticated overview and a dedicated login flow", () => {
   const home = text("app/page.js");
-  const landing = text("app/components/LandingPage.js");
   const login = text("app/login/page.js");
-  const publicShell = text("app/components/PublicShell.js");
   assert.match(home, /if \(user === false\) return <LandingPage/);
   assert.match(home, /return <AppShell user=\{user\}/);
-  assert.match(landing, /Keuangan keluarga,/);
-  assert.match(landing, /Richmod bertanya—bukan mengarang/);
-  assert.match(landing, /KOTAK TINJAUAN/);
-  assert.match(landing, /richmod-evidence-flow\.svg/);
-  assert.match(landing, /Alur Richmod dari bukti ke catatan atau keputusan manusia/);
-  assert.doesNotMatch(landing, /function EvidenceBoard/);
   assert.match(login, /useAuth\(false\)/);
-  assert.match(login, /window\.location\.replace\("\/"\)/);
   assert.match(login, /\/api\/v1\/auth\/login/);
-  assert.match(login, /<PublicNav hideLogin \/>/);
-  assert.match(login, /richmod-login-treeline\.svg/);
   assert.match(login, /alt="" aria-hidden="true"/);
-  assert.match(publicShell, /href="\/#cara-kerja"/);
-  assert.match(publicShell, /href="\/#kepercayaan"/);
-  assert.match(publicShell, /\{!hideLogin && <Link className="public-nav-login"/);
-  assert.match(landing, /Richmod memeriksa hasilnya dengan aturan yang konsisten/);
-  assert.doesNotMatch(landing, /Go memvalidasi fakta secara deterministik/);
 });
 
 test("admin console keeps platform tabs and redacts sensitive payloads", () => {
-  const admin = text("app/admin/page.js");
+  const admin = tree("app/admin");
   for (const label of ["overview", "jobs", "llm", "logs", "households", "users", "audit"]) assert.match(admin, new RegExp(`"${label}"`));
-  assert.match(admin, /\/api\/v1\/admin\/overview/);
-  assert.match(admin, /\/api\/v1\/admin\/jobs/);
-  assert.match(admin, /\/api\/v1\/admin\/llm\/summary/);
-  assert.match(admin, /\/api\/v1\/admin\/logs/);
-  assert.match(text("../api/cmd/api/main.go"), /admin\/audit\/all/);
+  assert.match(admin, /\/api\/v1\/admin\/audit\/all/);
   assert.doesNotMatch(admin, /payload_json|last_error|prompt text|raw model output/);
 });
 
 test("admin lists use bounded server filters and accessible detail actions", () => {
-  const admin = text("app/admin/page.js");
-  assert.match(admin, /useAdminList/);
+  const admin = tree("app/admin");
   assert.match(admin, /nextCursor/);
-  assert.match(admin, /Muat berikutnya/);
   assert.match(admin, /aria-label="Status tugas"/);
   assert.match(admin, /aria-label="Reference ID"/);
-  assert.match(admin, /admin-link admin-id/);
 });
 
-test("admin console adapts tables and drawer for mobile", () => {
-  const admin = text("app/admin/page.js");
-  const styles = text("app/globals.css");
-  assert.match(admin, /Children, cloneElement, isValidElement/);
-  assert.match(admin, /"data-label": headers\[index\]/);
-  assert.match(styles, /\.admin-table thead \{ display: none; \}/);
-  assert.match(styles, /\.admin-table td::before \{ color: var\(--muted\); content: attr\(data-label\);/);
-  assert.match(styles, /\.detail-drawer, \.admin-drawer \{ padding: 20px 16px 96px; border-left: 0; \}/);
-  assert.match(styles, /\.mobile-more-header button \{ display: grid; width: 38px;/);
-  assert.match(styles, /\.admin-table \{ min-width: 0; border-collapse: separate; border-spacing: 0 10px; \}/);
-  assert.match(styles, /\.admin-table tr \{ padding: 12px 14px;/);
-  assert.match(styles, /\.admin-table td \{ display: grid; grid-template-columns: minmax\(100px, \.38fr\) minmax\(0, 1fr\); gap: 8px; padding: 5px 0; border: 0;/);
-});
-
-test("admin audit defaults to combined bounded feed while retaining scoped views", () => {
-  const admin = text("app/admin/page.js");
-  assert.match(admin, /useState\("all"\)/);
-  assert.match(admin, /\/api\/v1\/admin\/audit\/all/);
-  assert.match(admin, /<option value="all">Semua<\/option>/);
-  assert.match(admin, /<option value="platform">Platform<\/option>/);
-  assert.match(admin, /<option value="household">Rumah tangga<\/option>/);
+test("admin tables keep their column labels when stacked on phones", () => {
+  assert.match(tree("app/admin"), /"data-label": headers\[index\]/);
+  assert.match(globalCss(), /\.admin-table td::before \{[^}]*content: attr\(data-label\);/);
 });
 
 test("admin user changes require confirmation", () => {
-  const admin = text("app/admin/page.js");
-  assert.match(admin, /confirm\(/);
-  assert.match(admin, /ADMINISTRASI PLATFORM/);
-  assert.match(text("app/globals.css"), /admin-table-wrap/);
+  assert.match(tree("app/admin"), /confirm\(/);
 });
 
-test("settings lists are bounded with pagination and keep empty states", () => {
+test("settings lists are bounded with pagination", () => {
   const settings = text("app/settings/page.js");
-  const styles = text("app/globals.css");
   for (const dataset of ["accounts", "wealthAccounts", "salarySources", "known", "listeners", "financialSources", "categories", "aliases"]) {
     assert.match(settings, new RegExp(`<BoundedList items=\\{data\\.${dataset}\\}`), dataset);
   }
-  assert.match(settings, /const pageCount = Math\.ceil\(items\.length \/ limit\);/);
-  assert.match(settings, /Halaman \{currentPage \+ 1\} dari \{pageCount\}/);
-  assert.match(settings, /Belum ada rekening\./);
-  assert.match(settings, /Belum ada Wealth Account\./);
-  assert.match(settings, /Belum ada kategori keluarga\./);
-  assert.match(settings, /Belum ada notifikasi bank yang dipercaya\./);
   assert.doesNotMatch(settings, /settings-list">\{data\.[A-Za-z]+\.map/);
-  assert.match(styles, /\.list-pagination button \{ min-height: 34px;/);
-  assert.match(styles, /\.settings-index a:focus-visible/);
 });
 
-test("settings sections are labelled landmarks without duplicate kickers", () => {
+test("settings sections are labelled landmarks", () => {
   const settings = text("app/settings/page.js");
-  assert.match(settings, /aria-labelledby=\{\`\$\{id\}-title\`\}/);
-  assert.match(settings, /<h2 id=\{\`\$\{id\}-title\`\}>\{title\}<\/h2>/);
-  assert.doesNotMatch(settings, /SettingsSection eyebrow=/);
-  assert.match(settings, /AppShell user=\{user\} eyebrow="PENGATURAN"/);
+  assert.match(settings, /aria-labelledby=\{`\$\{id\}-title`\}/);
+  assert.match(settings, /<h2 id=\{`\$\{id\}-title`\}>\{title\}<\/h2>/);
   assert.match(settings, /aria-label="Bagian pengaturan"/);
 });

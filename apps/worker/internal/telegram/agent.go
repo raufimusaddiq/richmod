@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -48,19 +49,44 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if text == "" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesan kosong diabaikan.")
 	}
-	if strings.HasPrefix(strings.ToLower(text), "/start") {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Kirim transaksi atau tanyakan kondisi keuangan rumah tangga. Contoh: makan siang 50rb, atau bulan ini lebih boros nggak?")
+	if isHelpCommand(text) {
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
+	}
+	// An exact reply to a proposal-keyed review (payslip pay date, missing amount) is
+	// answered by the deterministic review lane, whether it replies to the card, to
+	// the document's upload, or to a bound evidence notice. The agent has no
+	// binding for those review kinds. Only exact replies take this lane: chat state
+	// alone never owns a turn, and transaction-keyed reviews stay with the agent.
+	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+		// A card older than its 7-day projection window is still an open review;
+		// renew it as the button lane does, so a typed answer is not refused as stale.
+		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
+			return err
+		}
+		target, err := p.replyTargetForEvidenceReview(ctx, householdID, update)
+		if err != nil {
+			return err
+		}
+		proposalReview, err := p.repliesToProposalReview(ctx, householdID, target)
+		if err != nil {
+			return err
+		}
+		if proposalReview {
+			if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, target); handled || err != nil {
+				return err
+			}
+		}
 	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
 	// The turn trace lives in the context so concurrent turns on the shared
-	// Processor cannot contaminate each other's value telemetry (PRD §23).
+	// Processor cannot contaminate each other's value telemetry.
 	ctx, trace := withTurnTrace(ctx)
 	trace.householdID = householdID
 	trace.sourceEventID = sourceEventID
 	generativeRan := false
 	defer func() {
-		// Turn-level Jev value (PRD §23): classify how this turn was resolved so
+		// Turn-level Jev value: classify how this turn was resolved so
 		// Jev-only, Jev-then-generative, and generative-only turns are countable.
 		lane := judgmentLaneGenerativeOnly
 		avoided := 0
@@ -129,6 +155,38 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		}
 	}
 
+	// CEU: bind the evidence this turn is about. A reply to the user's upload or to a
+	// bound notice binds that document (and its open review); a review binding gains
+	// its evidence as context. Nothing here is chosen by the model.
+	// Evidence is context. A failure to resolve it must never fail the user's
+	// message: the turn proceeds without it, and an unresolved explicit reply is
+	// already handled as "unbound", which asks instead of guessing.
+	evidence, evidenceReview, evidenceErr := p.bindTurnEvidence(ctx, householdID, sourceEventID, update, reviewBinding, merchantBinding != nil, explicitReply)
+	if evidenceErr != nil {
+		evidence, evidenceReview = nil, nil
+	}
+	if reviewBinding == nil && evidenceReview != nil {
+		reviewBinding = evidenceReview
+		reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
+	}
+	// With no reply, no review and no pending workflow owning the turn, evidence the
+	// user just sent is offered as context: bound when exactly one qualifies, a
+	// bounded ambiguous set otherwise. Context only; it never narrows the tools.
+	var recentEvidence []map[string]any
+	freshEvidence := false
+	// One candidates query per turn serves the context, the harvest decision and the
+	// ledger guard. It is optional: a failure leaves no evidence context and no guard.
+	recentCandidates, _ := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
+	freshDocuments := freshEvidenceDocuments(recentCandidates)
+	if evidence == nil && !explicitReply && reviewBinding == nil && merchantBinding == nil &&
+		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
+		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update, recentCandidates)
+		// Recent evidence is context only. It deliberately does not bind its open review:
+		// a no-reply review binding is route-gated and must come from eligible chat
+		// reviews, not from recent evidence alone.
+		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && len(freshDocuments) > 0
+	}
+
 	contextState.ActiveReview = reviewPublic
 	contextState.ActiveReviewCount = reviewCount
 	contextState.ReviewType, contextState.ReviewMode = "", ""
@@ -141,7 +199,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	now := p.now().In(jakartaLocation())
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
 	// The initial bounded bundle consumes the already-loaded category set and
-	// pending-workflow state; the fast path must not re-query them (PRD §11).
+	// pending-workflow state; the fast path must not re-query them.
 	judgmentState := turnAgentContextState{
 		Categories:          categories,
 		HasPendingAction:    contextState.HasPendingAction,
@@ -149,8 +207,13 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasSalaryChoice:     contextState.HasSalaryChoice,
 		HasMerchantLearning: contextState.HasMerchantLearning,
 		HasPendingWorkflow:  contextState.HasPendingAction || contextState.HasPendingBatch || contextState.HasSalaryChoice || contextState.HasMerchantLearning,
+		HasRecentEvidence:   freshEvidence,
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
+	}
+	if reviewBinding != nil {
+		judgmentState.ReviewType = reviewBinding.ReviewType
+		judgmentState.ReviewConversationState = reviewBinding.ConversationState
 	}
 	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
 		return err
@@ -170,11 +233,13 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// Jev owns bounded mutation authorization. A provider failure, undecided
 	// route, or out-of-scope route leaves conversation and canonical READ tools
 	// available but withholds every side effect. Exact review replies retain
-	// their server-bound decision capability (PRD #144 + SAVR §10.3).
+	// their server-bound decision capability.
 	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
 		generalTools = readOnlyAgentTools(generalTools)
 	}
 	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
+	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
+	focusReviewArguments(tools, reviewBinding)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
@@ -182,8 +247,15 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		turnContext["mutation_authority_unavailable"] = true
 	}
 	turnContext["merchant_learning_count"] = merchantCount
-	if explicitReply && reviewBinding == nil && merchantBinding == nil {
+	if explicitReply && reviewBinding == nil && merchantBinding == nil && evidence == nil {
 		turnContext["explicit_reply_unbound"] = true
+	}
+	if evidence != nil {
+		turnContext["bound_evidence"] = evidence.Context
+	}
+	if len(recentEvidence) > 0 {
+		turnContext["recent_evidence"] = recentEvidence
+		turnContext["evidence_ambiguous"] = true
 	}
 	if merchantBinding != nil {
 		turnContext["merchant_learning"] = map[string]any{"merchant": merchantBinding.Merchant, "category": merchantBinding.Category}
@@ -201,7 +273,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasPendingAction: contextState.HasPendingAction,
 		HasPendingBatch:  contextState.HasPendingBatch,
 		HasSalaryChoice:  contextState.HasSalaryChoice,
+		ReviewType:       contextState.ReviewType,
 		ReviewMode:       contextState.ReviewMode,
+		Analytics:        analyticscore.NewSession(p.pool, householdID, now),
+		// Server-only: documents the user sent in the immediate window, for the
+		// record_transaction duplicate guard. Never model-visible.
+		FreshEvidenceDocuments: freshDocuments,
 	}
 	// An implicit binding is attached only when the route says this turn is that
 	// interaction. Chat state alone never gets to own the turn (ADR-038
@@ -225,6 +302,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()
 	generativeRan = true
+	// A turn that needs several model phases can take a while; say so once
+	// instead of leaving the household to wonder.
+	stopProgress := startProgressNotice(ProgressNoticeDelay, func(noticeCtx context.Context) error {
+		return p.enqueueProgressNotice(noticeCtx, state.Update)
+	})
+	defer stopProgress()
 	return p.runAgentLoop(turnCtx, agentGateway, state)
 }
 
@@ -266,11 +349,11 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			ToolOutputs:        state.PendingToolOutputs,
 			RequiredTool:       state.RequiredTool,
 		}
-		phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
+		phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.ModelCallTimeout)
 		response, err := model.AgentTurn(phaseCtx, state.SourceEventID, request)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("conversational model phase: %w", err)
+			return fmt.Errorf("%w: %w", errModelPhase, err)
 		}
 		// Continuation data is single-use. If this response asks for another READ
 		// phase, the new response/call IDs replace it below.
@@ -329,6 +412,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			state.SideEffects++
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
+			if len(state.FreshEvidenceDocuments) > 0 {
+				if _, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent',parser_version='1'
+					WHERE id=ANY(SELECT source_event_id FROM document WHERE id=ANY($1::uuid[]) UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($1::uuid[]))
+					AND processing_status = 'NEEDS_REVIEW'`, state.FreshEvidenceDocuments); err != nil {
+					return fmt.Errorf("finalize stale evidence source: %w", err)
+				}
+			}
 			if !synthesize {
 				return p.finishAgentText(ctx, state, agentMutationFallback(result))
 			}
@@ -394,6 +484,9 @@ func agentToolAvailable(tools []gateway.ToolDefinition, name string) bool {
 }
 
 func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState, calls []validatedAgentCall) ([]agentToolResult, error) {
+	if state.Analytics == nil {
+		state.Analytics = analyticscore.NewSession(p.pool, state.HouseholdID, state.Now)
+	}
 	results := make([]agentToolResult, len(calls))
 	errs := make([]error, len(calls))
 	var wg sync.WaitGroup
@@ -424,7 +517,8 @@ func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversa
 		"current_user_text":           state.TurnContext["current_user_text"],
 		"authoritative_action_result": result,
 	}
-	phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.PerModelCallTimeout)
+	// On failure the deterministic fallback below still answers.
+	phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.ModelCallTimeout)
 	response, err := model.AgentTurn(phaseCtx, state.SourceEventID, gateway.AgentRequest{SystemPrompt: conversationalAgentPrompt, Content: content})
 	cancel()
 	if err != nil || len(response.ToolCalls) != 0 || strings.TrimSpace(response.Text) == "" {
@@ -466,7 +560,12 @@ func (p *Processor) finishAgentText(ctx context.Context, state *agentState, mess
 		WHERE id=$1`, state.SourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, state.Update, message); err != nil {
+	if markup := agentPendingMarkup(state.History); markup != nil {
+		err = enqueueReplyMarkup(ctx, tx, state.Update, message, markup)
+	} else {
+		err = enqueueReply(ctx, tx, state.Update, message)
+	}
+	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -491,6 +590,16 @@ func agentMutationFallback(result agentToolResult) string {
 		}
 		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid."
 	}
+	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
+		// A refusal, not a recording: the user must be able to tell the two apart even
+		// when the model call that would have worded it fails.
+		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda."
+	}
+	if result.Status == "INVALID_CANDIDATE" {
+		// A refused merge, not a merge: said deterministically so a failed model call
+		// cannot read as success.
+		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud."
+	}
 	if result.Status == "DEFERRED" {
 		return "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau sebutkan item yang ingin diubah."
 	}
@@ -501,14 +610,20 @@ func agentMutationFallback(result agentToolResult) string {
 		case "TRANSACTION_RECORDED":
 			if result.Status == "NEEDS_REVIEW" {
 				if amount != "" {
-					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Review karena masih perlu konfirmasi."
+					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
 				}
-				return "Transaksi sudah masuk ke Review karena masih perlu konfirmasi."
+				return "Transaksi sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
 			}
 			if amount != "" {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
 			return "Transaksi sudah tercatat."
+		case "BANK_FACTS_QUEUED":
+			return bankFactsQueuedMessage
+		case "BANK_REVIEW_IGNORED":
+			return "Bukti email bank diabaikan."
+		case "DUPLICATE_MERGED":
+			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru."
 		case "POSSIBLE_EXISTING_TRANSACTION":
 			return "Saya menemukan transaksi serupa. Ingin mengubah transaksi yang sudah ada?"
 		case "TRANSFER_RECORDED":
@@ -566,19 +681,19 @@ func agentMutationFallback(result agentToolResult) string {
 		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
 			return "Detail review sudah diperbarui."
 		case "WEALTH_ACCOUNT_SET":
-			return "Wealth Account untuk observasi tersebut sudah diperbarui."
+			return "Akun kekayaan untuk observasi tersebut sudah diperbarui."
 		case "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE":
-			return "Observasi Wealth sudah direklasifikasi sebagai pembelian aset."
+			return "Observasi kekayaan sudah direklasifikasi sebagai pembelian aset."
 		case "WEALTH_OBSERVATION_IGNORED":
-			return "Observasi Wealth sudah diabaikan."
+			return "Observasi kekayaan sudah diabaikan."
 		case "CYCLE_RESIDUAL_RESOLVED":
-			return "Rekonsiliasi sisa salary cycle sudah diselesaikan."
+			return "Rekonsiliasi sisa siklus gaji sudah diselesaikan."
 		case "CYCLE_RESIDUAL_REFRESHED":
-			return "Nilai sisa salary cycle berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
+			return "Nilai sisa siklus gaji berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
 		case "CYCLE_RESIDUAL_CLOSED":
-			return "Rekonsiliasi sisa salary cycle ditutup karena tidak lagi berlaku."
+			return "Rekonsiliasi sisa siklus gaji ditutup karena tidak lagi berlaku."
 		case "ADD_MISSING_TRANSACTION_IN_TELEGRAM":
-			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu review). Setelah tersimpan, sisa salary cycle dihitung ulang; review tetap terbuka jika masih perlu tindakan."
+			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu tinjauan). Setelah tersimpan, sisa siklus gaji dihitung ulang; tinjauan tetap terbuka jika masih perlu tindakan."
 		}
 	}
 
@@ -602,17 +717,23 @@ func agentMutationFallback(result agentToolResult) string {
 	case "ACCOUNT_AMBIGUOUS":
 		return "Rekening sumber belum bisa dikenali secara unik. Sebutkan nama rekening yang lebih spesifik."
 	case "WEALTH_ACCOUNT_AMBIGUOUS", "MISSING_WEALTH_ACCOUNT":
-		return "Wealth Account belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
+		return "Akun kekayaan belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
 	case "MISSING_REVIEW_DETAIL":
 		return "Masih ada detail review yang perlu dilengkapi."
 	case "MISSING_CATEGORY", "INVALID_CATEGORY":
-		return "Kategori belum valid. Pilih kategori pengeluaran yang tersedia."
+		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia."
+	case "BANK_ACCOUNT_REQUIRED":
+		return "Pilih rekening untuk email bank ini dari tombol yang dikirim."
+	case "BANK_ACCOUNT_UNAVAILABLE":
+		return "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu."
 	case "MISSING_BANK_FACTS":
 		return "Nominal dan waktu transaksi masih perlu dilengkapi."
 	case "INVALID_PAY_DATE":
-		return "Tanggal pembayaran belum valid."
+		return "Tanggal pembayaran belum terbaca. Tulis tanggalnya, misalnya 25 Agu 2026."
+	case "INVALID_TRANSACTION_DATE":
+		return "Tanggal transaksi belum terbaca, jadi belum ada yang disimpan. Balas kartu tinjauan dengan tanggalnya, misalnya 2026-10-03."
 	case "TRANSFER_RECONCILIATION_REQUIRED":
-		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi Wealth bisa direklasifikasi."
+		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi."
 	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
 		return "Target review sudah berubah atau selesai. Buka atau balas review terbaru sebelum melanjutkan."
 	}

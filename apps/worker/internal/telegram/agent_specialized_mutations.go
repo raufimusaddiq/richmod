@@ -89,7 +89,7 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 	// Purpose is a bounded semantic Choice, so the generative model no longer
 	// asserts it. An in-process caller may already know it deterministically
 	// (a fixed asset-purchase reclassification) and pass it as
-	// reclassification_purpose; that value never comes from model arguments (PRD §13).
+	// reclassification_purpose; that value never comes from model arguments.
 	purpose, _ := args["reclassification_purpose"].(string)
 	if !contains(transferPurposes, purpose) {
 		if p.judgment == nil {
@@ -240,7 +240,7 @@ func (p *Processor) agentStageTransferReview(ctx context.Context, state *agentSt
 	if err = tx.QueryRow(ctx, `SELECT id::text FROM review_item WHERE household_id=$1 AND source_event_id=$2 AND status IN ('PENDING_SEND','OPEN') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, state.HouseholdID, state.SourceEventID).Scan(&itemID); err != nil {
 		return result, true, err
 	}
-	// UIR-02: project through the one shared path so the transfer review renders
+	// Project through the one shared path so the transfer review renders
 	// the same decision-driven card as every other review.
 	if err = ProjectReviewItem(ctx, tx, state.HouseholdID, itemID, state.Update.Message.MessageID, "", state.Update.Message.Chat.ID); err != nil {
 		return result, true, err

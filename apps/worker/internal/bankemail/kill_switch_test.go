@@ -6,7 +6,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// PRD §33: the bank-email category auto-confirm path has an independent
+// The bank-email category auto-confirm path has an independent
 // kill-switch. When off, a remembered merchant category must not confirm ledger
 // money; it parks a category-carrying review instead.
 func TestCategoryAutoConfirmKillSwitchParksRememberedMerchant(t *testing.T) {

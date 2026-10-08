@@ -3,12 +3,12 @@
   <desc id="desc">A subtle warm-gray treeline and small home silhouette used as a calm decorative footer for the Richmod login experience.</desc>
   <defs>
     <linearGradient id="fade" x1="600" y1="90" x2="600" y2="260" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#CFC9C2" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#CFC9C2" stop-opacity="0.55"/>
+      <stop stop-color="#C4CDB8" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#C4CDB8" stop-opacity="0.58"/>
     </linearGradient>
     <linearGradient id="ground" x1="600" y1="194" x2="600" y2="260" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#D8D3CC" stop-opacity="0.18"/>
-      <stop offset="1" stop-color="#D8D3CC" stop-opacity="0.55"/>
+      <stop stop-color="#D7DCCB" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#D7DCCB" stop-opacity="0.58"/>
     </linearGradient>
   </defs>
 
@@ -30,11 +30,11 @@
   </g>
 
   <g opacity="0.36">
-    <path d="M497 225V191L538 160L579 191V225H497Z" fill="#C7C0B8"/>
-    <path d="M487 192L538 151L589 192" stroke="#BDB5AD" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="531" y="198" width="16" height="27" rx="3" fill="#AFA69E"/>
-    <rect x="507" y="192" width="14" height="14" rx="2" fill="#F3F1EC"/>
-    <rect x="555" y="192" width="14" height="14" rx="2" fill="#F3F1EC"/>
+    <path d="M497 225V191L538 160L579 191V225H497Z" fill="#B9C4B0"/>
+    <path d="M487 192L538 151L589 192" stroke="#A9B5A0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="531" y="198" width="16" height="27" rx="3" fill="#9DA995"/>
+    <rect x="507" y="192" width="14" height="14" rx="2" fill="#F7F3E8"/>
+    <rect x="555" y="192" width="14" height="14" rx="2" fill="#F7F3E8"/>
   </g>
 
   <g fill="url(#fade)">
@@ -52,5 +52,5 @@
     <rect x="1144" y="203" width="8" height="37" rx="3" opacity="0.72"/>
   </g>
 
-  <path d="M0 237C156 228 292 247 420 232C541 218 652 214 761 232C891 254 1024 247 1200 229" stroke="#C9C3BC" stroke-width="1.5" opacity="0.42"/>
+  <path d="M0 237C156 228 292 247 420 232C541 218 652 214 761 232C891 254 1024 247 1200 229" stroke="#C2CCB6" stroke-width="1.5" opacity="0.45"/>
 </svg>

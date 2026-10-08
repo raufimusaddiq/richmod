@@ -122,7 +122,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 
 	// An IGNORE resolves a review without producing a canonical event, so it must
 	// not count as an explicit input: the metric would otherwise credit the system
-	// for friction that produced nothing (PRD 22.1).
+	// for friction that produced nothing.
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='IGNORE' WHERE household_id=$1 AND review_type='UNKNOWN_MERCHANT'`, householdID); err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.ExplicitInputs != 0 || aggregate.TypedFields != 0 {
 		t.Fatalf("an IGNORE must not count as an explicit input or typed field: %+v", aggregate)
 	}
-	// A fresh household has no full telemetry window yet. The three SAVR closure
+	// A fresh household has no full telemetry window yet. The three semantic-authority closure
 	// metrics are now measured, so only the historical-window gap remains a
 	// permanent coverage name; unknown per-metric history is reported separately.
 	if len(aggregate.Coverage) != 1 || aggregate.Coverage[0] != "pre_migration_telemetry_history" {
@@ -196,7 +196,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if aggregate.AcceptedWithoutEdit != 1 {
 		t.Fatalf("an accepted proposal is reviewable-without-edit: %+v", aggregate)
 	}
-	// IR-03: RHICE is now counted from append-only review-turn telemetry, so a
+	// RHICE is now counted from append-only review-turn telemetry, so a
 	// The bank resolution emitted two fields; the explicit proposal acceptance
 	// emitted one bounded choice.
 	if aggregate.ExplicitInputs != 3 || aggregate.TypedFields != 2 {

@@ -13,6 +13,7 @@ func TestEveryServerOwnedRouteMapsToExactlyOneLane(t *testing.T) {
 		"CREATE_TRANSFER":               laneAgentFallthrough,
 		"CORRECT_TRANSACTION":           laneAgentFallthrough,
 		"REVIEW_INTERACTION":            laneWorkflow,
+		"PENDING_ACTION_INTERACTION":    laneWorkflow,
 		"SALARY_INTERACTION":            laneWorkflow,
 		"MERCHANT_LEARNING_INTERACTION": laneWorkflow,
 		"PENDING_BATCH_INTERACTION":     laneWorkflow,

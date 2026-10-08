@@ -20,7 +20,7 @@ func TestPendingBatchConfirmationRejectsMissingCategory(t *testing.T) {
 	mustAgentTest(t, err)
 
 	processor := NewProcessor(f.pool, nil)
-	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, "ya")
+	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, true)
 	mustAgentTest(t, err)
 	if !handled {
 		t.Fatal("confirming a pending batch must be handled")
@@ -55,7 +55,7 @@ func TestPendingBatchConfirmationUsesHumanAuthority(t *testing.T) {
 	mustAgentTest(t, err)
 
 	processor := NewProcessor(f.pool, nil)
-	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, "ya")
+	handled, err := processor.processPendingBatch(ctx, f.householdID, f.update, f.sourceID, true)
 	mustAgentTest(t, err)
 	if !handled {
 		t.Fatal("confirming a pending batch must be handled")
@@ -102,7 +102,7 @@ func TestAgentPendingBatchConfirmationUsesHumanAuthority(t *testing.T) {
 
 // Every Jev-influenced mutation must be explainable from bounded provenance:
 // model version, policy version, question keys, bounded answers, and outcome
-// must be persisted in the same transaction as the canonical write (PRD §15/§16),
+// must be persisted in the same transaction as the canonical write,
 // and no raw user text may be stored there.
 func TestJudgmentDecisionProvenanceIsRecordedWithTheMutation(t *testing.T) {
 	ctx := context.Background()

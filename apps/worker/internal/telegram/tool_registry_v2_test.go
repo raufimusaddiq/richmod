@@ -51,7 +51,7 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 	if got := reviewActionsForType("AMBIGUOUS_CATEGORY"); strings.Join(got, ",") != "CONFIRM,ASSET_PURCHASE,IGNORE" {
 		t.Fatalf("expense review actions=%v", got)
 	}
-	for _, tool := range NativeFinanceTools(nil, false, false, true, "WEALTH_OBSERVATION_CONFIRMATION", false, false, "WEALTH_OBSERVATION") {
+	for _, tool := range NativeFinanceTools(nil, false, false, true, "WEALTH_OBSERVATION", false, false, "WEALTH_OBSERVATION") {
 		if tool.Name == "resolve_review" {
 			encoded, _ := json.Marshal(tool.Parameters)
 			if !strings.Contains(string(encoded), "RECORD_ASSET_PURCHASE") || !strings.Contains(string(encoded), "source_account_hint") {
@@ -64,7 +64,7 @@ func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
 }
 
 func TestNativeReviewSchemaUsesOpaqueReconciliationReferences(t *testing.T) {
-	tools := NativeFinanceTools(nil, false, false, true, "TRANSFER_CLASSIFICATION", false, false, "TRANSFER_RECONCILIATION")
+	tools := NativeFinanceTools(nil, false, false, true, "TRANSFER_RECONCILIATION", false, false, "TRANSFER_RECONCILIATION")
 	for _, tool := range tools {
 		if tool.Name != "resolve_review" {
 			continue
@@ -81,7 +81,7 @@ func TestNativeReviewSchemaUsesOpaqueReconciliationReferences(t *testing.T) {
 
 // The generative model supplies only arbitrary facts (amount, hints, time). The
 // canonical purpose is a bounded semantic Choice owned by Go + the judgment
-// plane, so it must not appear in the tool contract at all (PRD §13).
+// plane, so it must not appear in the tool contract at all.
 func TestRecordTransferContractCarriesNoPurpose(t *testing.T) {
 	internal := transferArgs{Amount: "3000000", SourceAccountHint: "Jago", DateReference: "TODAY"}
 	if err := validateTypedArgs(&internal); err != nil {

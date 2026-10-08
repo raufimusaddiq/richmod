@@ -49,6 +49,13 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 	if err != nil {
 		return result, true, fmt.Errorf("invalid transaction proposal: %w", err)
 	}
+	// The user just sent evidence that already produced this transaction: a second
+	// ledger row for the same real event is refused here, whatever the model asked.
+	if p.evidenceAlreadyRecorded(ctx, state.HouseholdID, state.FreshEvidenceDocuments, value.Type, value.Amount, value.Merchant) {
+		result.Status = "ALREADY_RECORDED_FROM_EVIDENCE"
+		result.Facts = map[string]any{"hint": "the document you just sent is already recorded; correct that transaction instead, or ask the user for what differs"}
+		return result, true, nil
+	}
 	if value.Type == "EXPENSE" {
 		if offered, err := p.offerExistingEdit(ctx, state.HouseholdID, state.Update, state.SourceEventID, value, false); offered {
 			if err != nil {
@@ -216,7 +223,7 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		result.Review = map[string]any{"required": true, "reason": "TRANSACTION_NEEDS_REVIEW"}
 	}
 	// The result is fully deterministic and already contains the committed facts.
-	// Do not spend a second generative turn to paraphrase it (IR-04 call budget).
+	// Do not spend a second generative turn to paraphrase it (one generative call per turn).
 	return result, false, nil
 }
 
@@ -567,7 +574,7 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 	}
 	// The user already reviewed these staged items, so their displayed facts are
 	// accepted: explicit CONFIRM must not re-run semantic approval for them
-	// (SAVR-05A). Only structural/canonical invariants and deterministic
+	//. Only structural/canonical invariants and deterministic
 	// merchant-category policy still apply, and every check happens before any
 	// canonical write.
 	allowedCategories, err := p.categorySlugs(ctx, state.HouseholdID)

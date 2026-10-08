@@ -26,8 +26,8 @@ Status is based on exit criteria, not PR names.
 | SAVR-06 | 🟡 merged, reconciliation required | PR #202 fixed bank payment-mechanism materiality and provider residual fidelity, but post-merge audit still finds cross-source hard-gate debt listed below |
 | SAVR-07 | ✅ delivered (commit `c70864f`) | payslip domain continuity; both paths share `FinalizePayslip` |
 | SAVR-08 | 🟡 audited, fixes delivered | semantic/source-family fixes delivered; S08-08 email-origin projection is owned by UISC-01 in the final combined closure |
-| SAVR-09 | 🟡 corpus-complete, product observation open | production deployed; UISC-02 completes three observability gaps and the real owner household is the production canary under BDR-005 |
-| SAVR-10 | 🟡 partial | corpus-proven removals done; full freeze waits on the UIR-SAVR Closure Sprint |
+| SAVR-09 | ✅ product-complete (UISC-04, 2026-10-03) | UISC-02 completes three observability gaps; owner-household observation accepted under BDR-005; unobserved families stay `PRODUCTION_UNOBSERVED` |
+| SAVR-10 | ✅ full freeze (UISC-04, 2026-10-03) | corpus-proven removals done; frozen except production defects against the approved contract |
 
 # Post-SAVR-06 reconciliation gate
 
@@ -556,9 +556,9 @@ SAVR improves interaction/semantic efficiency without worsening correction rate.
 # SAVR-10 — retire obsolete reinterpretation and freeze
 
 **Result:** corpus-proven removals are documented in
-`docs/audits/SAVR-10-legacy-retirement.md`. The freeze is **partial** until the
-UIR-SAVR Closure Sprint closes S08-08, completes observability, and passes
-owner-household production observation.
+`docs/audits/SAVR-10-legacy-retirement.md`. The freeze is **full** as of UISC-04
+(2026-10-03): the UIR-SAVR Closure Sprint closed S08-08, completed observability,
+and the owner-household production observation was accepted.
 
 Only after corpus/canary evidence:
 

@@ -1,3 +1,13 @@
+> **HISTORICAL — 2026-09-30**
+>
+> Superseded for new Analytics work. The current contract is
+> `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`,
+> `docs/bdr/BDR-006-analytics-household-cycle-review.md`,
+> `docs/ANALYTICS_CYCLE_REVIEW_UI.md` and
+> `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`. Kept as an execution
+> record; do not restore the point-in-time page composition it describes.
+
+
 # Analytics Current-Day and Category Ranking Fix — Checklist
 
 Execution record for production bugs reported on August 30, 2026.
@@ -23,5 +33,5 @@ Execution record for production bugs reported on August 30, 2026.
 - [x] API analytics tests and vet pass.
 - [x] Web tests pass (31 tests).
 - [x] Production web build passes.
-- [ ] Feature branch pushed and merged with `--no-ff`.
-- [ ] Deployment performed only if explicitly requested.
+- [x] Feature branch pushed and merged with `--no-ff` (`b1c7198`).
+- [x] Deployment performed only if explicitly requested. Included in the current production release (`main` @ `daab0b1`).

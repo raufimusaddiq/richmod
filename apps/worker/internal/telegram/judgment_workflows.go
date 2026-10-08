@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -13,27 +14,45 @@ import (
 // It deliberately handles only choices that need no extra free-form facts;
 // everything else stays on the conversational extraction path.
 func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentState, text string) (bool, error) {
+	if state.ReviewBinding != nil && state.ReviewBinding.Kind == "TRANSACTION" && (state.ReviewBinding.ConversationState == "AWAITING_MERCHANT" || (state.ReviewBinding.ReviewType == "UNKNOWN_MERCHANT" && state.ReviewBinding.MerchantID == "")) {
+		match, err := merchantmemory.Lookup(ctx, p.pool, state.HouseholdID, text)
+		if err != nil {
+			return true, err
+		}
+		if match != nil {
+			result, _, err := p.agentResolveBoundReview(ctx, state, gateway.ToolCall{Name: "resolve_review", CallID: "merchant-memory"}, map[string]any{"action": "CONFIRM", "merchant": text})
+			if err != nil {
+				return true, err
+			}
+			return true, p.finishAgentText(ctx, state, agentMutationFallback(result))
+		}
+	}
 	if p.judgment == nil {
 		return false, nil
 	}
-	if state.HasPendingAction {
+	if state.HasPendingAction && state.Route == "PENDING_ACTION_INTERACTION" {
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskPendingAction, text, "pending_action", "Choose the user's bounded response to the pending correction.", map[string]any{"CONFIRM": "save the pending correction", "CANCEL": "discard the pending correction", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
-			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan konfirmasi ini dengan aman. Balas iya untuk simpan atau tidak untuk batal.")
+			// Machine failure is not semantic uncertainty: leave the pending
+			// correction untouched and let the turn fall through to the
+			// conversational agent instead of asking the household to re-state it.
+			return false, nil
 		}
 		if !ok || choice == "OTHER_OR_UNCLEAR" {
-			return true, p.finishAgentText(ctx, state, "Balas iya untuk menyimpan perubahan, atau tidak untuk membatalkannya.")
+			// A bounded answer that does not address the correction means this turn
+			// was not about it: keep it pending, keep answering the user.
+			return false, nil
 		}
 		return true, p.finishPendingAction(ctx, state.HouseholdID, state.Update, state.SourceEventID, choice == "CONFIRM")
 	}
 	if state.HasPendingBatch && state.Route == "PENDING_BATCH_INTERACTION" {
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskPendingBatch, text, "pending_batch", "Choose one bounded action for the pending transaction batch.", map[string]any{"CONFIRM": "record every pending item", "CANCEL": "discard the batch", "UPDATE": "change one or more pending items", "DEFER": "decide later, keep the batch", "OTHER_OR_UNCLEAR": "no bounded action"})
 		if err != nil {
-			return true, p.finishAgentText(ctx, state, "Richmod belum bisa menentukan aksi batch dengan aman. Balas iya, batal, atau jelaskan item yang ingin diubah.")
+			return false, nil
 		}
 		switch {
 		case !ok || choice == "OTHER_OR_UNCLEAR", choice == "DEFER":
-			return true, p.finishAgentText(ctx, state, "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau gunakan pesan baru untuk mengubah item.")
+			return false, nil
 		case choice == "CONFIRM":
 			return true, p.finishPendingBatch(ctx, state.HouseholdID, state.Update, state.SourceEventID, true)
 		case choice == "UPDATE":
@@ -46,45 +65,50 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 			return true, p.finishPendingBatch(ctx, state.HouseholdID, state.Update, state.SourceEventID, false)
 		}
 	}
-	if state.HasSalaryChoice {
+	if state.HasSalaryChoice && state.Route == "SALARY_INTERACTION" {
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskSalaryChoice, text, "salary_choice", "Choose how to classify the pending payslip.", map[string]any{"PRIMARY": "the primary salary cycle income", "ORDINARY": "ordinary non-salary income", "IGNORE": "not household income", "OTHER_OR_UNCLEAR": "no bounded choice"})
 		if err != nil {
-			return true, p.finishAgentText(ctx, state, "Pilihan slip gaji belum cukup jelas. Pilih gaji utama, pemasukan biasa, atau abaikan.")
+			// Machine failure: keep the salary choice pending, answer normally.
+			return false, nil
 		}
 		if !ok || choice == "OTHER_OR_UNCLEAR" {
-			return true, p.finishAgentText(ctx, state, "Pilih gaji utama, pemasukan biasa, atau abaikan.")
+			return false, nil
 		}
-		_, err = p.processPendingSalaryChoice(ctx, state.HouseholdID, state.Update, state.SourceEventID, strings.ToLower(choice))
+		_, err = p.executePendingSalaryChoice(ctx, state.HouseholdID, state.Update, state.SourceEventID, salaryChoiceFromJudgment(choice))
 		return true, err
 	}
 	if state.MerchantLearningBinding != nil {
 		criteria := map[string]any{"REMEMBER": "consent to remember this merchant category rule", "SKIP": "do not remember the rule", "OTHER_OR_UNCLEAR": "not an answer to this confirmation"}
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskMerchantLearning, text, "merchant_learning", "Choose the user's bounded response to the pending merchant-category confirmation. Use OTHER_OR_UNCLEAR when the message is not answering this confirmation.", criteria)
-		if err != nil || !ok {
-			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
-		}
-		if choice == "OTHER_OR_UNCLEAR" {
-			return true, p.finishAgentText(ctx, state, "Balas ya jika aturan merchant ini ingin disimpan, atau tidak jika tidak ingin disimpan.")
+		if err != nil || !ok || choice == "OTHER_OR_UNCLEAR" {
+			// Provider failure or an unrelated message: never re-ask the same
+			// question, never convert machine failure into human work.
+			return false, nil
 		}
 		return true, p.resolveNativeMerchantLearning(ctx, state.SourceEventID, state.HouseholdID, state.Update, map[string]any{"remember": choice == "REMEMBER"})
 	}
 	if state.ReviewBinding != nil {
-		allowed := reviewActionsForType(state.ReviewMode)
+		// Semantic action vocabulary comes from the review type, never the
+		// binding kind (what canonical subject is bound).
+		allowed := reviewActionsForType(state.ReviewType)
 		allowed = append(allowed, "OTHER_OR_UNCLEAR")
 		choice, ok, err := p.judgmentChoice(ctx, state, judgmentTaskReviewAction, text, "review_action", "Choose one allowed action for the exact server-bound review. Do not invent facts or identifiers.", judgment.PlainCriteria(allowed))
 		if err != nil || !ok {
-			if exactReviewNeedsFreeform(state) {
-				return false, nil
-			}
-			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
+			return false, nil
 		}
 		if choice == "OTHER_OR_UNCLEAR" {
-			if exactReviewNeedsFreeform(state) {
-				return false, nil
-			}
-			return true, p.finishAgentText(ctx, state, "Aksi review belum cukup jelas. Sebutkan pilihan yang ingin dijalankan.")
+			return false, nil
 		}
-		if !boundedReviewAction(choice) {
+		if !isReviewAction(state.ReviewType, choice) {
+			return false, nil
+		}
+		if reviewActionNeedsArguments(choice) || (choice == "CONFIRM" && confirmNeedsTypedValue(state.ReviewBinding)) {
+			// The action is already decided. Hand the generative extraction tool
+			// only this action so the remaining freeform value (category, Wealth
+			// hint, pay date, bank facts) is extracted, not re-decided, and the
+			// user is never asked to restate it.
+			state.TurnContext["bounded_review_action"] = choice
+			narrowReviewActionTool(state.Tools, choice)
 			return false, nil
 		}
 		result, _, err := p.agentResolveBoundReview(ctx, state, gateway.ToolCall{CallID: "jev-review", Name: "resolve_review"}, map[string]any{"action": choice})
@@ -96,15 +120,50 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 	return false, nil
 }
 
-func exactReviewNeedsFreeform(state *agentState) bool {
-	return state != nil && state.ReviewBinding != nil && state.ReviewBinding.Kind == "TRANSACTION" &&
-		state.Update.Message.ReplyToMessage != nil && state.Update.Message.ReplyToMessage.MessageID != 0 &&
-		state.ReviewBinding.ConversationState == "AWAITING_CATEGORY"
+// confirmNeedsTypedValue reports a bound transaction review whose CONFIRM is only
+// complete with a value the household typed (a merchant, a date, a purpose). It
+// asks the executor rule itself, so Jev and the executor cannot disagree about
+// which cards need a value. Jev decides the action; the generative extraction
+// supplies the value.
+func confirmNeedsTypedValue(binding *agentReviewBinding) bool {
+	if binding.Kind != "TRANSACTION" {
+		return false
+	}
+	_, _, required := requiredNativeReviewDetail(binding.ReviewType, binding.ConversationState, binding.MerchantID, "", "", "")
+	return required
 }
 
-func boundedReviewAction(action string) bool {
+// isReviewAction accepts only a semantic action the bound review type offers.
+// The binding kind never widens this vocabulary.
+func isReviewAction(reviewType, action string) bool {
+	return slices.Contains(reviewActionsForType(reviewType), action)
+}
+
+// narrowReviewActionTool restricts the resolve_review action enum to the single
+// Jev-decided action so a generative extraction call can only supply the
+// missing argument, never choose a different semantic meaning.
+func narrowReviewActionTool(tools []gateway.ToolDefinition, action string) {
+	for index := range tools {
+		if tools[index].Name != "resolve_review" {
+			continue
+		}
+		properties, ok := tools[index].Parameters["properties"].(map[string]any)
+		if !ok {
+			return
+		}
+		actionSchema, ok := properties["action"].(map[string]any)
+		if !ok {
+			return
+		}
+		actionSchema["enum"] = []string{action}
+	}
+}
+
+// reviewActionNeedsArguments keeps freeform facts in the user's turn: Jev may
+// route the action, but the typed native tool extracts its required values.
+func reviewActionNeedsArguments(action string) bool {
 	switch action {
-	case "CONFIRM", "IGNORE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED", "PRIMARY_SALARY", "ORDINARY_INCOME":
+	case "EXPENSE", "ASSET_PURCHASE", "SET_PAY_DATE", "COMPLETE_BANK_FACTS":
 		return true
 	default:
 		return false
@@ -121,7 +180,7 @@ var judgmentTypeCriteria = map[string]any{
 func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task judgmentTask, text, key, instructions string, criteria map[string]any) (string, bool, error) {
 	result, err := p.evaluate(ctx, task, state.SourceEventID, judgment.Request{
 		State: map[string]any{
-			"user_text":       "<untrusted_user_message>" + text + "</untrusted_user_message>",
+			"user_text":       untrustedUser(text),
 			"workflow":        state.TurnContext["workflow_scope"],
 			"active_review":   state.TurnContext["active_review"],
 			"pending_batch":   state.TurnContext["pending_batch"],
@@ -149,7 +208,7 @@ func (p *Processor) judgmentChoice(ctx context.Context, state *agentState, task 
 
 type simpleTransactionCandidate struct {
 	// Amount is an exact syntactic candidate only. Date and merchant meaning is
-	// never established here; intelligence owns it (SAVR §9). Text is the raw
+	// never established here; intelligence owns it. Text is the raw
 	// turn, carried only so Jev can judge whether a purchase label is supported;
 	// Go writes it as merchant/description only after that bounded ruling.
 	Amount string
@@ -165,7 +224,7 @@ func judgmentSupported(answer judgment.Answer, policy judgment.NoulPolicy) bool 
 
 // transferPurposes is the canonical possibility space for a household-internal
 // transfer purpose. Go owns the option set; the judgment plane only picks inside
-// it (PRD §13).
+// it.
 var transferPurposes = []string{
 	"SAVINGS_TRANSFER",
 	"INVESTMENT_CONTRIBUTION",
@@ -187,7 +246,7 @@ var transferPurposeCriteria = map[string]string{
 
 // resolveTransferPurpose decides the canonical purpose for a transfer whose
 // source and destination Go has already resolved. It is deliberately the LAST
-// step of the permitted flow (PRD §13): Go's deterministic account and
+// step of the permitted flow: Go's deterministic account and
 // reconciliation rules run first, and only an unresolved purpose reaches the
 // bounded judgment plane.
 //
@@ -231,16 +290,4 @@ func transferDestinationKind(destinationWealthID *string) string {
 		return "NONE"
 	}
 	return "WEALTH_ACCOUNT"
-}
-
-// exactMerchantCategory resolves a confirmed merchant rule for this merchant.
-// That is deterministic server state, so the semantic decision short-circuits
-// instead of paying for a bounded call — and the matched slug is the category,
-// never an empty one (the rule already decided it).
-func (p *Processor) exactMerchantCategory(ctx context.Context, householdID, merchant string) (string, bool, error) {
-	match, err := merchantmemory.Lookup(ctx, p.pool, householdID, merchant)
-	if err != nil || match == nil {
-		return "", false, err
-	}
-	return match.Slug, true, nil
 }

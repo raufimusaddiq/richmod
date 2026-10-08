@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-09-12; amended by ADR-038.
+Accepted — 2026-09-12; amended by ADR-038; evidence context extends it in ADR-050.
 
 ## Context
 
@@ -64,12 +64,105 @@ max model phases per user turn:        5
 max read calls per model response:     5
 max read calls per user turn:          8
 max side effects per user turn:        1
-per model call timeout:                8 seconds
-overall Telegram free-text budget:    20 seconds
+per model call timeout:               25 seconds
+overall Telegram free-text turn:     130 seconds (queue budget 160 seconds)
+progress notice after:                10 seconds
+attempts after a model timeout:        2
 ```
 
 The limits are server-owned and may be tuned without changing the canonical
 ledger boundary.
+
+Every model call has the same cap. An earlier version capped the first call
+(choosing tools) at 8 seconds and only the answer call at 25, on the assumption
+that tool selection is fast (p50 about 3.5 seconds). That failed in use: a short
+follow-up carries the previous answer as context, its first call measured 6
+seconds, and it timed out twice in a row at 8 seconds without ever choosing a
+tool. Long-form analytics prose measures 9 to 11 seconds. The cap exists to bound
+a hung call, not to ration a slow one. A timeout repeats with the same prompt and
+the same cap, so a typed message is tried twice, not five times.
+
+The turn is bounded by its phases, not by a wall clock tuned to one question: the
+turn timeout covers every phase at the call cap (5 x 25 s = 125 s), so a
+multi-read analytics turn is not cut short.
+Because such a turn can run for a while, a turn still running after 10 seconds
+sends the household one plain reply, "Masih kuproses ya, analisis seperti ini
+butuh waktu lebih lama. Jawabannya menyusul di sini.", and the answer follows as
+a normal message. The notice is queued only if no reply to that message exists
+yet, which makes it idempotent across retries and keeps it from landing after the
+answer; turns that finish within 10 seconds (single-phase turns measure p90 about
+6 s) never send one. Typed messages are handled by two chat workers by default,
+so a long turn holds one of them for its duration.
+
+The queue budget (160 s) and the five-minute job lease hold per attempt, not per
+turn: a message whose first attempt times out is tried once more, so the worst
+case is about 322 s end to end, which is past the lease. If the first worker is
+still finishing when the lease expires, a second attempt can run alongside it;
+that is safe for the turn rows (see Conversation memory) and for the terminal
+notice, which is claimed in one transaction.
+
+### Conversation memory
+
+Each message is its own turn: there is no session, so nothing expires with the
+conversation and the time limits above reset with every message. What the agent
+remembers is the stored turns of the same chat inside a window, loaded oldest
+first and compacted:
+
+```text
+window:                  24 hours   (was 60 minutes)
+rows read per turn:      40         (was 20)
+kept whole:              the newest 6 rows, including tool results
+older rows:              user and assistant text only, clipped to 200 / 300
+                         characters, tool results dropped, marked "compacted"
+text budget:             6,000 characters (not bytes); the oldest compacted rows go first,
+                         the newest rows are never dropped
+```
+
+A follow-up the next morning still works, and the prompt stays bounded however
+long the chat is. The compaction is deterministic on purpose. A model-written
+summary would put untrusted numbers into later prompts in a finance product, add a
+model call to every turn, and add one more call that can time out; Go trims text
+and drops bulky tool data instead, and exact figures are fetched again by READ
+tools when they are needed. A retried message is saved once: the USER and
+ASSISTANT rows are written once per source event, while TOOL rows (one per call)
+are not deduplicated. The guarantee holds under concurrency (two workers after a
+stale-lock reclaim) through a transaction-scoped advisory lock on the event and
+role; a unique index would need a migration that deletes the duplicates retries
+already left behind, so it is not used.
+
+### Turn-scoped analytics refs
+
+The analytics READ tools issue opaque refs (`category.3`, `category.3.merchant.1`).
+They are positions in one turn's fact snapshot, so they are valid only in the turn
+whose `get_cycle_changes` issued them: reusing one in a later turn could point at
+a different category after the data changed, which in a finance product must never
+work silently. Three rules keep follow-ups working without that risk:
+
+- **Replay.** A stored tool result is replayed to the model without its analytics
+  refs; names, figures, and the server-bound `tx_`/`review_` refs stay, so
+  "makan di luar lumayan gede juga?" can still refer to what was just said.
+- **Prompt.** The model is told refs from earlier turns are expired and to call
+  `get_cycle_changes` again before `get_category_drivers` or
+  `get_supporting_transactions`.
+- **Recoverable error.** A ref the session never issued returns a tool result
+  (`REFERENCE_NOT_ISSUED`, with the next step) instead of failing the turn, so the
+  model fixes it inside the phase budget. Other read errors still end the turn.
+
+A turn that still fails tells the household the cause: a model timeout says the
+assistant was slow, any other failure asks them to rephrase, and the Tindakan item
+records `TIMEOUT` or `ERROR` accordingly (ADR-049).
+
+A typed message is never left without an answer. When it will not be retried
+again (a model timeout on the second attempt, or any failure on the last
+attempt), the notice is queued in the same transaction that marks the job
+`FAILED`: Go marks the source event `FAILED` and queues one plain reply saying
+the assistant was too slow and to try again. Either both happen or neither does
+(the stale-lock claim then retries the job). An event that already reached a
+final state is left alone, the event is claimed in that transaction so two
+workers cannot both send the reply, and only the worker that still owns the job
+may run the step. If the step itself cannot succeed, the job is still marked
+`FAILED` without it, because a job that can never be failed would be reclaimed
+forever.
 
 Normal final responses and clarifying questions are ordinary model text. A fake
 `respond_to_user` or `ask_clarification` tool is not required merely to satisfy a
@@ -140,8 +233,9 @@ allowed to use different LLM contracts.
 - ADR-031's consequence that one native tool decision terminates a free-text
   model phase/turn is superseded. Multiple bounded model phases are allowed.
 - ADR-027's 10-second Telegram budget is amended for free-text conversation to a
-  20-second overall turn budget with an 8-second per-model-call limit. Other
-  task budgets remain unchanged.
+  130-second overall turn backstop with one 25-second limit per model call, plus a
+  progress notice after 10 seconds (see the limits above). Other task budgets
+  remain unchanged.
 
 ## ADR-038 amendment
 

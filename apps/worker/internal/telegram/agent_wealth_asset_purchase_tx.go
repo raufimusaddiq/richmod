@@ -158,7 +158,7 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 				UPDATE transaction
 				SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose='ASSET_PURCHASE',
 				    related_wealth_account_id=$2::uuid,
-				    description=COALESCE(NULLIF(description,''),'Pembelian investasi dari observasi Wealth'),
+				    description=COALESCE(NULLIF(description,''),'Pembelian investasi dari observasi kekayaan'),
 				    confirmed_at=COALESCE(confirmed_at,now()),voided_at=NULL,updated_at=now()
 				WHERE id=$1 AND household_id=$3 AND status<>'VOIDED'`, transactionID, wealthID, state.HouseholdID)
 			if updateErr != nil {
@@ -179,7 +179,7 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	} else {
 		if err = tx.QueryRow(ctx, `
 			INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,created_by_user_id,purpose,related_wealth_account_id,confirmed_at)
-			VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Pembelian investasi dari observasi Wealth',$5,'ASSET_PURCHASE',$6::uuid,now())
+			VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Pembelian investasi dari observasi kekayaan',$5,'ASSET_PURCHASE',$6::uuid,now())
 			RETURNING id`, state.HouseholdID, accountID, amount, at, userID, wealthID).Scan(&transactionID); err != nil {
 			return result, true, err
 		}

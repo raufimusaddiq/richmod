@@ -8,7 +8,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// IR-02 root fix: the conversational agent lane reaches the same canonical
+// The conversational agent lane reaches the same canonical
 // confirm as the generic reply lane, so its CONFIRM must also refuse while the
 // stored ReviewDecision still names a required residual fact.
 func TestAgentConfirmRefusesWhenStoredResidualDateIsUnsupplied(t *testing.T) {

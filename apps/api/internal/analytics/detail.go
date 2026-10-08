@@ -3,7 +3,6 @@ package analytics
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +10,8 @@ import (
 
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/clock"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/financialperiod"
 )
 
 type monthlyValue struct {
@@ -39,37 +40,18 @@ func (h *Handler) Cashflow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, rows)
 }
 
-func (h *Handler) Spending(w http.ResponseWriter, r *http.Request) {
-	household, ok := analyticsHousehold(w, r)
-	if !ok {
-		return
-	}
-	start, end, err := h.analyticsRange(household, r)
-	if err != nil {
-		writeJSON(w, 400, map[string]string{"error": err.Error()})
-		return
-	}
-	rows, err := h.monthly(r.Context(), household, start, end)
-	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "unable to calculate spending"})
-		return
-	}
-	result := make([]map[string]string, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, map[string]string{"period": row.Period, "expense": row.Expense, "refund": row.Refund, "netSpending": subtract(row.Expense, row.Refund)})
-	}
-	writeJSON(w, 200, result)
-}
-
 func (h *Handler) monthly(ctx context.Context, household string, start, end time.Time) ([]monthlyValue, error) {
 	rows, err := h.pool.Query(ctx, `
-		WITH months AS (SELECT generate_series($2::timestamptz,$3::timestamptz-interval '1 month',interval '1 month') AS month)
-		SELECT to_char(months.month AT TIME ZONE 'Asia/Jakarta','YYYY-MM'),
+		WITH months AS (SELECT generate_series(
+			date_trunc('month',$2::timestamptz AT TIME ZONE 'Asia/Jakarta'),
+			date_trunc('month',($3::timestamptz-interval '1 microsecond') AT TIME ZONE 'Asia/Jakarta'),interval '1 month') AS month)
+		SELECT to_char(months.month,'YYYY-MM'),
 		       COALESCE(sum(t.amount) FILTER(WHERE t.type='INCOME'),0)::text,
 		       COALESCE(sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END),0)::text,
 		       COALESCE(sum(t.amount) FILTER(WHERE t.type='REFUND'),0)::text
 		FROM months LEFT JOIN transaction t ON t.household_id=$1 AND t.status='CONFIRMED'
-		 AND t.transaction_at>=months.month AND t.transaction_at<months.month+interval '1 month'
+		 AND t.transaction_at>=GREATEST(months.month AT TIME ZONE 'Asia/Jakarta',$2::timestamptz)
+		 AND t.transaction_at<LEAST((months.month+interval '1 month') AT TIME ZONE 'Asia/Jakarta',$3::timestamptz)
 		GROUP BY months.month ORDER BY months.month`, household, start, end)
 	if err != nil {
 		return nil, err
@@ -104,7 +86,7 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `SELECT c.id,COALESCE(c.name,'Belum dikategorikan'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY c.id,c.name HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)<>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC`, household, start, end)
+	rows, err := h.pool.Query(r.Context(), `SELECT c.id,COALESCE(c.name,'Belum dikategorikan'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY c.id,c.name HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)<>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC`, household, start, end)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate category spending"})
 		return
@@ -141,7 +123,14 @@ func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `SELECT m.id,COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)::text FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY m.id,COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui') HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC LIMIT 10`, household, start, end)
+	rows, err := h.pool.Query(r.Context(), `WITH merchants AS (
+		SELECT m.id,COALESCE(m.normalized_name,NULLIF(t.counterparty_name,''),'Merchant tidak diketahui') AS name,
+		sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) AS amount
+		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id
+		WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3
+		GROUP BY m.id,2
+	) SELECT id,name,amount::text,(SELECT COALESCE(sum(amount),0)::text FROM merchants)
+	FROM merchants WHERE amount>0 ORDER BY amount DESC,name,id LIMIT 10`, household, start, end)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate merchant spending"})
 		return
@@ -151,11 +140,10 @@ func (h *Handler) Merchants(w http.ResponseWriter, r *http.Request) {
 	total := "0"
 	for rows.Next() {
 		var value rankedValue
-		if err := rows.Scan(&value.ID, &value.Name, &value.Amount); err != nil {
+		if err := rows.Scan(&value.ID, &value.Name, &value.Amount, &total); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to calculate merchant spending"})
 			return
 		}
-		total = add(total, value.Amount)
 		result = append(result, value)
 	}
 	if rows.Err() != nil {
@@ -178,7 +166,7 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `SELECT u.id,COALESCE(u.display_name,'Otomatis / rumah tangga'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)::text FROM transaction t LEFT JOIN "user" u ON u.id=t.created_by_user_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY u.id,u.display_name HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)<>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC`, household, start, end)
+	rows, err := h.pool.Query(r.Context(), `SELECT u.id,COALESCE(u.display_name,'Otomatis / rumah tangga'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)::text FROM transaction t LEFT JOIN household_member hm ON hm.user_id=t.created_by_user_id AND hm.household_id=t.household_id LEFT JOIN "user" u ON u.id=hm.user_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN ('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY u.id,u.display_name HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END)<>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount WHEN t.type='REFUND' THEN -t.amount ELSE 0 END) DESC`, household, start, end)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to calculate member spending"})
 		return
@@ -205,29 +193,16 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-func (h *Handler) currentPeriod() (time.Time, time.Time) {
-	local := h.now().In(clock.HouseholdLocation())
-	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
-	return start, start.AddDate(0, 1, 0)
-}
-
 func (h *Handler) analyticsRange(household string, r *http.Request) (time.Time, time.Time, error) {
 	local := h.now().In(clock.HouseholdLocation())
 	current := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, clock.HouseholdLocation())
 	period := strings.TrimSpace(r.URL.Query().Get("period"))
 	if period == "current_cycle" {
-		var configured bool
-		var start, end *time.Time
-		if err := h.pool.QueryRow(r.Context(), `SELECT configured,starts_on,ends_on FROM salary_cycle_bounds($1,$2::date)`, household, local.Format("2006-01-02")).Scan(&configured, &start, &end); err != nil {
+		cycle, err := financialperiod.Current(r.Context(), h.pool, household, local)
+		if err != nil {
 			return time.Time{}, time.Time{}, err
 		}
-		if configured && start != nil {
-			if end != nil {
-				return *start, *end, nil
-			}
-			return *start, time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, clock.HouseholdLocation()), nil
-		}
-		return current, current.AddDate(0, 1, 0), nil
+		return cycle.Start, cycle.End, nil
 	}
 	if period != "" && period != "calendar" && period != "custom" {
 		return time.Time{}, time.Time{}, fmt.Errorf("period must be current_cycle, calendar, or custom")
@@ -276,7 +251,5 @@ func analyticsHousehold(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 func add(left, right string) string {
-	a, _ := new(big.Int).SetString(left, 10)
-	b, _ := new(big.Int).SetString(right, 10)
-	return new(big.Int).Add(a, b).String()
+	return financialmath.Add(left, right)
 }

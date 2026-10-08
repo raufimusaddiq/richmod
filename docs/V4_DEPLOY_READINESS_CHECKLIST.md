@@ -18,8 +18,8 @@ current deploy gate without changing historical iteration documentation.
 - [x] New worker/API/web images are deployed and restarted.
 - [x] Configured listener is verified in the production database.
 - [x] Existing spending bank accounts are reused by matching listeners; empty migration duplicates are deactivated without deleting transaction history.
-- [ ] One controlled configured-bank message completes generic extraction and audit verification.
-- [ ] A second configured-bank sender is verified through the same generic path.
+- [x] One controlled configured-bank message completes generic extraction and audit verification. Production has Bank Jago extractions with `VALID`/`CONFIRMED` (16) and linked transaction evidence (checked 2026-10-03).
+- [x] A second configured-bank sender is verified through the same generic path. Jenius (3 listeners active in total) has a `VALID`/`CONFIRMED` extraction and 10 events with linked transaction evidence (checked 2026-10-03).
 - [x] Telegram multi-recipient live verification passes; production bank-review runs delivered the same review to both active linked identities and a member callback resolved the shared review once.
 # Current remediation note (2026-08-29)
 
@@ -27,3 +27,7 @@ Application-side queue isolation, callback ingress, single-protocol gateway
 behavior, bank outcome persistence, and multipage document contracts are covered
 by automated/local verification. Real second-sender bank acceptance and off-host
 backup verification remain pending production acceptance items.
+
+Update (2026-10-03): second-sender acceptance is verified (Jenius) and off-host
+backups ran daily to OSS through 2026-09-27. The backup timer has failed daily
+since 2026-09-28 (restic init race); see `OFF_HOST_STORAGE_COMPLETION_CHECKLIST.md`.

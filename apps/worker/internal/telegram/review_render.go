@@ -4,7 +4,7 @@ package telegram
 // presentation: which conversation state the reply binds to, the prompt text,
 // and the markup mode. Rendering follows missing_facts/allowed_actions instead
 // of a review_type default, so a date, policy, or duplicate review can never be
-// mis-rendered as a category chooser (PRD §7.8, UIR-03).
+// mis-rendered as a category chooser.
 
 import (
 	"strings"
@@ -20,10 +20,11 @@ const unknownReviewPrompt = "🟡 Perlu detail transaksi"
 // Telegram prompt. It never introduces a fact the decision did not name: the
 // missing fact decides the question, the allowed actions decide the buttons.
 func renderReviewPresentation(decision reviewdec.Decision, reviewType, context string) (state, reviewMessage, markupMode string) {
-	// A producer may supply no subject summary. The card body still has to be
-	// non-empty or Telegram rejects the send, so fall back to the decision's own
-	// prompt for the category/transfer modes that otherwise pass context verbatim.
-	if strings.TrimSpace(context) == "" && (isCategoryOnly(decision) || contains(decision.MissingFacts, "transfer_relationship") || contains(decision.MissingFacts, "salary_classification") || contains(decision.MissingFacts, "transaction_at")) {
+	// A producer may supply no subject summary. The category chooser sends the
+	// summary verbatim and Telegram rejects an empty body, so it falls back to the
+	// decision's own prompt. Every other card already leads with that prompt as its
+	// title, so using it again as the summary would print it twice.
+	if strings.TrimSpace(context) == "" && isCategoryOnly(decision) {
 		context = promptTitle(decision)
 	}
 	switch {
@@ -42,8 +43,8 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 	case decision.ReasonCode == "FINANCIAL_EMAIL_FACTS":
 		// The email did not support a required financial fact, so no canonical
 		// transaction was written. The only bounded action is to acknowledge it;
-		// there is no fact the household must supply here (SAVR-06).
-		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Bukti email belum pasti", context, "Bukti email ini tidak didukung. Abaikan atau buka Review Inbox."), "financial_email_facts"
+		// there is no fact the household must supply here.
+		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Bukti email belum pasti", context, "Bukti email ini tidak didukung. Abaikan atau buka Kotak Tinjauan."), "financial_email_facts"
 	case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
 		// A document review's only bounded action is to retry the shared document
 		// pipeline; the summary is the document's own extraction context.
@@ -69,6 +70,8 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 	// dropped.
 	case contains(decision.MissingFacts, "transaction_at"):
 		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction(decision)), "reply"
+	case contains(decision.MissingFacts, "merchant"):
+		return "AWAITING_MERCHANT", reviewDetailMessage("Nama merchant belum tersedia", context, "Balas pesan ini dengan nama merchant."), "reply"
 	case requiresBoundReply(decision):
 		title := promptTitle(decision)
 		return "AWAITING_DETAIL", reviewDetailMessage(title, context, replyInstruction(decision)), "reply"

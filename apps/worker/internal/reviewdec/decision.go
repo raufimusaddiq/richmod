@@ -1,4 +1,4 @@
-// Package reviewdec holds the PRD §7 canonical ReviewDecision contract: the
+// Package reviewdec holds the canonical ReviewDecision contract: the
 // structured, bounded explanation of why a review exists. It is deliberately a
 // plain value with JSON tags — the storage shape is a jsonb column on
 // review_item — so every review-creating path can populate the same fields
@@ -6,7 +6,7 @@
 //
 // It carries no canonical IDs to the model and performs no mutation; it only
 // records what Go already decided so the Review Inbox can render the proposal,
-// the missing fact, and the reason without re-deriving them (PRD §7, §13, §20).
+// the missing fact, and the reason without re-deriving them.
 package reviewdec
 
 import "encoding/json"
@@ -15,7 +15,7 @@ import "encoding/json"
 // meaning of a field changes, not when a new optional field is added.
 const Version = 1
 
-// Decision classes (PRD §6).
+// Decision classes.
 const (
 	ClassEvidenceGap            = "EVIDENCE_GAP"
 	ClassEvidenceConflict       = "EVIDENCE_CONFLICT"
@@ -38,7 +38,7 @@ const (
 	CanonicalAmbiguity          Consequence = "CANONICAL_AMBIGUITY"
 )
 
-// Interaction modes (PRD §7.8). Generic FORM is intentionally absent so it
+// Interaction modes. Generic FORM is intentionally absent so it
 // cannot become the default by accident.
 const (
 	ModeOneTapConfirmation = "ONE_TAP_CONFIRMATION"
@@ -48,7 +48,7 @@ const (
 	ModePolicyChoice       = "POLICY_CHOICE"
 )
 
-// Decision sources (PRD §7.6).
+// Decision sources.
 const (
 	SourceDeterministic        = "DETERMINISTIC"
 	SourceJev                  = "JEV"
@@ -106,7 +106,7 @@ type Decision struct {
 }
 
 // EvidenceValue is one supported value plus the evidence that supports it, used
-// when two pieces of evidence disagree (PRD §7.4).
+// when two pieces of evidence disagree.
 type EvidenceValue struct {
 	Value    string `json:"value"`
 	Evidence string `json:"evidence"`

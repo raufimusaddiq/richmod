@@ -45,29 +45,22 @@ func TestPayrollDeductionsDoNotBecomeTransactions(t *testing.T) {
 	}
 }
 
-// SAVR-03B: real payroll forms carry a display period, may omit gross pay, and
+// Real payroll forms carry a display period, may omit gross pay, and
 // may contain component lines the net/gross/deduction formula cannot explain.
 // Those are representable without fabricating a gross or a deduction.
-func TestPayslipRepresentationAcceptsRealPayrollRange(t *testing.T) {
-	period, err := parsePayslipPeriod("September 2026 (01/09/26 - 30/09/26)")
+func TestPayslipPeriodRequiresCanonicalMonth(t *testing.T) {
+	period, err := parsePayslipPeriod("2026-09")
 	if err != nil || period.Format("2006-01") != "2026-09" {
-		t.Fatalf("real payroll range must normalize to its stored month: %v %v", period, err)
+		t.Fatalf("canonical month rejected: %v %v", period, err)
 	}
-	period, err = parsePayslipPeriod("Agustus 2026 (26/07/26 - 25/08/26)")
-	if err != nil || period.Format("2006-01") != "2026-08" {
-		t.Fatalf("Indonesian cross-month payroll range must normalize to its pay month: %v %v", period, err)
-	}
-	if _, err := parsePayslipPeriod("September 2026 (30/09/26 - 01/09/26)"); err == nil {
-		t.Fatal("a reversed range must be rejected")
-	}
-	if _, err := parsePayslipPeriod("September 2026 (01/09/26 - 30/10/26)"); err == nil {
-		t.Fatal("a range ending outside its labeled month must be rejected")
+	if _, err := parsePayslipPeriod("September 2026 (01/09/26 - 30/09/26)"); err == nil {
+		t.Fatal("Go must not parse localized payroll periods")
 	}
 	if _, err := parsePayslipPeriod("2026-13"); err == nil {
 		t.Fatal("an impossible month must be rejected")
 	}
 	date := "2026-09-25"
-	missingGross := payslipExtraction{Period: "September 2026 (01/09/26 - 30/09/26)", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "-250000"}}, Currency: "IDR", PayDate: &date, Confidence: .96}
+	missingGross := payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "-250000"}}, Currency: "IDR", PayDate: &date, Confidence: .96}
 	transactionAt, arithmeticOK, err := validatePayslip(missingGross)
 	if err != nil || transactionAt.IsZero() || transactionAt.Month() != 9 {
 		t.Fatalf("a real payroll range must survive validation: %v %v", transactionAt, err)
@@ -82,6 +75,19 @@ func TestPayslipRepresentationAcceptsRealPayrollRange(t *testing.T) {
 	}
 	if _, _, err := validatePayslip(payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "16000000", OtherComponents: []moneyLine{{Name: "Potongan lain", Amount: "250.000"}}, Currency: "IDR", Confidence: .96}); err == nil {
 		t.Fatal("a component amount that is not whole rupiah must be rejected")
+	}
+}
+
+func TestPayslipPayDateRequiresCanonicalISO(t *testing.T) {
+	for _, date := range []string{"2026-09-28", "gajian tanggal dua puluh delapan september", "salary was paid last Friday"} {
+		value := payslipExtraction{Period: "2026-09", Employer: "Example", NetPay: "1", Currency: "IDR", Confidence: .2, PayDate: &date}
+		_, _, err := validatePayslip(value)
+		if date == "2026-09-28" && err != nil {
+			t.Fatalf("canonical date rejected: %v", err)
+		}
+		if date != "2026-09-28" && err == nil {
+			t.Fatalf("raw-language date accepted: %q", date)
+		}
 	}
 }
 
@@ -118,10 +124,18 @@ func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(content), "p.gateway.NativeToolCall(ctx, documentID, payslipPrompt") != 1 {
+	if strings.Count(string(content), "p.gateway.NativeToolCall(") != 1 {
 		t.Fatal("payslip must make exactly one generative extraction call")
 	}
 	if strings.Contains(string(content), "p.verifier") {
 		t.Fatal("payslip must not replay the extraction through Jev")
+	}
+}
+
+
+func TestSanitizeEvidenceTextCapsAndStripsControl(t *testing.T) {
+	long := strings.Repeat("a", 900)
+	if got := sanitizeEvidenceText("\x07  a\n\tb  " + long); len([]rune(got)) != 500 || strings.ContainsAny(got, "\x07\n\t") {
+		t.Fatalf("sanitize = %q (len %d)", got[:min(20, len(got))], len([]rune(got)))
 	}
 }

@@ -15,7 +15,9 @@ latest main
 → inspect + implement + relevant docs
 → local verification
 → commit + feature-branch push
-→ no-ff merge + main push
+→ pull request to main
+→ PR checks (CI + Hermes Review) green
+→ merge the PR (merge commit)
 → main CI + immutable Release Images
 → reclaim disposable local artifacts
 → submit Deploy Production approval
@@ -67,6 +69,12 @@ Use [the disposable test matrix](disposable-test-matrix.md) for the exact
 isolated PostgreSQL, Go, web, Compose, image-build, Playwright, and reclaim
 commands.
 
+**Host capacity gate.** Before running any test or build on a shared host,
+check RAM, CPU, and disk (`free -m`, `df -h /`, `uptime`). If the host cannot
+safely absorb the load, or the check is uncertain, do not run it locally --
+delegate it to CI instead. Never risk starving or killing a shared server for
+a local build.
+
 | Change | Minimum verification |
 | --- | --- |
 | Go API | `go test ./...` and `go vet ./...` in `apps/api` |
@@ -95,18 +103,35 @@ or production evidence.
 
 ## 4. Integrate
 
+`main` is protected: changes must arrive through a pull request and the required
+status checks (including `Hermes Review`) must pass. Do not push to `main`
+directly and do not bypass the rules.
+
 1. Commit with a descriptive message.
 2. Push the feature branch.
 3. Fetch `origin/main`. If it advanced, rebase/merge only after checking the
    branch still satisfies the sprint scope and tests.
-4. From the clean root main worktree, merge with `--no-ff` and push main:
+4. Open a pull request against `main`:
 
    ```bash
-   git merge --no-ff <feature-branch>
-   git push origin main
+   gh pr create --base main --head <feature-branch> --title "<summary>" --body "<summary, verification, deployment state>"
    ```
 
-5. Record implementation commit, merge commit, and pushed main SHA.
+5. Wait for every required PR check, including `CI` and `Hermes Review`, to
+   pass. Read each failure; fix it on the same branch and push again. Never
+   merge with a failing, pending, or unknown required check.
+6. Merge the PR with a merge commit (no squash, no rebase) only when checks pass
+   and any required approval exists:
+
+   ```bash
+   gh pr merge <number> --merge
+   ```
+
+   If the merge needs an approval or rights you do not have, stop and ask the
+   owner.
+7. Fast-forward the clean root `main` worktree (`git pull --ff-only`) and record
+   the implementation commit, the PR number, the merge commit, and the `main`
+   SHA.
 
 Do not deploy from a feature worktree. Do not merge unrelated dirty root-worktree
 files as part of the sprint.
@@ -190,7 +215,7 @@ After the approved workflow finishes, record only observed facts:
 
 For non-deploy sprints, explicitly report `Deployment: not requested`.
 
-Every handoff reports: branch, worktree, base SHA, implementation commit, merge
-commit, pushed main SHA, tests run/results, deployment state, and cleanup state.
+Every handoff reports: branch, worktree, base SHA, implementation commit, pull
+request, merge commit, main SHA, tests run/results, deployment state, and cleanup state.
 Never say a manual production, provider, user-approval, or external verification
 step occurred unless it actually occurred.

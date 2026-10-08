@@ -7,13 +7,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
-	if reviewMode == "" {
-		reviewMode = reviewType
-	}
+func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, _ string) []gateway.ToolDefinition {
 	stringType := map[string]any{"type": "string"}
 	nullString := map[string]any{"type": []string{"string", "null"}}
 	localTime := map[string]any{"type": []string{"string", "null"}, "description": "Exact local HH:MM, or PAGI, SIANG, SORE, MALAM when the user named a time of day."}
@@ -42,6 +40,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		{Name: "search_transactions", Description: "Search household transactions by text and period. Go returns bounded results.", Parameters: objectSchema(map[string]any{"period": period, "from_date": nullString, "to_date": nullString, "search_text": stringType}, []string{"period", "from_date", "to_date", "search_text"})},
 		{Name: "list_review_items", Description: "List active household review items relevant to this Telegram user/chat.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "get_finance_insight", Description: "Read or start canonical aggregate-only insight for a bounded period.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
+		{Name: "get_evidence_context", Description: "Read the current state of one receipt or document Richmod already showed you, by its opaque evidence_ref. Go returns its observed, canonical and workflow blocks. It changes no financial or review state; it only refreshes the ref's expiry. Use it before answering about a document whose state may have changed.", Parameters: objectSchema(map[string]any{"evidence_ref": stringType}, []string{"evidence_ref"})},
 		{Name: "ask_clarification", Description: "Ask for missing finance details without guessing.", Parameters: objectSchema(map[string]any{"topic": map[string]any{"type": "string", "enum": []string{"TRANSACTION", "PERIOD", "TARGET", "CATEGORY", "REVIEW"}}, "missing_fields": map[string]any{"type": "array", "items": stringType}}, []string{"topic", "missing_fields"})},
 		{Name: "finance_help", Description: "Show Richmod finance command examples.", Parameters: objectSchema(map[string]any{}, []string{})},
 		{Name: "finance_out_of_scope", Description: "Reject unsupported non-finance or out-of-MVP requests.", Parameters: objectSchema(map[string]any{"reason": map[string]any{"type": "string", "enum": []string{"NON_FINANCE", "INVESTMENT_ACTION_UNSUPPORTED", "SYSTEM_REQUEST", "UNSUPPORTED_LANGUAGE"}}}, []string{"reason"})},
@@ -54,13 +53,18 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_batch", Description: "Confirm the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_batch", Description: "Cancel the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})})
 	}
 	if hasActiveReview {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionsForType(reviewMode)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": nullString, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_id": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_id", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionsForType(reviewType)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_id": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_id", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
 	}
 	if hasSalaryChoice {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
 	}
 	if hasMerchantLearning {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_merchant_learning", Description: "Confirm whether to remember this merchant category rule.", Parameters: objectSchema(map[string]any{"remember": map[string]any{"type": "boolean"}}, []string{"remember"})})
+	}
+	// Shared analytical READ tools over the same deterministic fact engine as the
+	// analytics API. Read-only; channel-neutral (BDR-006).
+	for _, tool := range analyticscore.Tools() {
+		tools = append(tools, gateway.ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
 	return tools
 }
@@ -69,15 +73,18 @@ func reviewActions() []string {
 	return []string{"CONFIRM", "IGNORE", "EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "PRIMARY_SALARY", "ORDINARY_INCOME", "SET_PAY_DATE", "COMPLETE_BANK_FACTS", "REPROCESS_DOCUMENT", "SET_FINANCIAL_EMAIL_ENTITIES", "ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE"}
 }
 
-func reviewActionsForType(kind string) []string {
-	switch kind {
+// reviewActionsForType maps a semantic review type to its bounded action
+// vocabulary. Binding kind (what canonical subject is bound) is a separate
+// axis and must never be passed here.
+func reviewActionsForType(reviewType string) []string {
+	switch reviewType {
 	case "TRANSFER_RECONCILIATION":
 		return []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
 	case "WEALTH_OBSERVATION":
 		return []string{"SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE", "IGNORE"}
 	case "TRANSFER_CLASSIFICATION":
 		return []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "IGNORE"}
-	case "AMBIGUOUS_CATEGORY":
+	case "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
 		return []string{"CONFIRM", "ASSET_PURCHASE", "IGNORE"}
 	case "CYCLE_RESIDUAL_ALLOCATION":
 		return []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}
@@ -89,13 +96,18 @@ func reviewActionsForType(kind string) []string {
 		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
 	case "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION":
 		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
+	case "POSSIBLE_DUPLICATE":
+		// A document that may repeat a recorded transaction can merge into one of the
+		// server-computed candidates (an opaque ref), be kept as a separate event, or
+		// be dismissed.
+		return []string{"MERGE_EXISTING", "CONFIRM", "IGNORE"}
 	case "FINANCIAL_EMAIL_RESOLUTION":
 		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
 	case "FINANCIAL_EMAIL_FACTS":
 		// The provider email did not support a required fact and no canonical
 		// transaction was written, so the only bounded action is to acknowledge it.
 		// Without this case the default offered CONFIRM, which boundedReviewAction
-		// rejects, leaving the agent lane unreachable (SAVR-06, Hermes).
+		// rejects, leaving the agent lane unreachable.
 		return []string{"IGNORE"}
 	default:
 		return []string{"CONFIRM", "IGNORE"}
@@ -107,6 +119,13 @@ func objectSchema(properties map[string]any, required []string) map[string]any {
 }
 
 func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
+	if analyticscore.IsRead(call.Name) {
+		args, err := analyticscore.DecodeArgs(call.Name, call.Arguments)
+		if err != nil {
+			return nil, err
+		}
+		return remarshal(args), nil
+	}
 	var target any
 	switch call.Name {
 	case "record_transaction":
@@ -119,6 +138,8 @@ func ValidateNativeToolCall(call gateway.ToolCall) (map[string]any, error) {
 		target = &transferArgs{}
 	case "search_transactions":
 		target = &searchArgs{}
+	case "get_evidence_context":
+		target = &evidenceArgs{}
 	case "list_review_items", "query_wealth", "list_wealth_accounts", "finance_help", "confirm_pending_action", "cancel_pending_action", "confirm_pending_batch", "cancel_pending_batch":
 		target = &emptyArgs{}
 	case "ask_clarification":
@@ -168,6 +189,10 @@ func decodeNativeArgs(call gateway.ToolCall, target any) (map[string]any, error)
 		return remarshal(out), err
 	case *searchArgs:
 		out, err := gateway.DecodeToolArguments[searchArgs](call, call.Name)
+		*v = out
+		return remarshal(out), err
+	case *evidenceArgs:
+		out, err := gateway.DecodeToolArguments[evidenceArgs](call, call.Name)
 		*v = out
 		return remarshal(out), err
 	case *emptyArgs:
@@ -242,6 +267,13 @@ type transferArgs struct {
 	LocalTime                    *string `json:"local_time"`
 	Description                  *string `json:"description"`
 }
+
+// evidenceArgs carries only an opaque evidence ref. The model can never name a
+// document by its database id: the argument is a lookup key Go must resolve.
+type evidenceArgs struct {
+	EvidenceRef string `json:"evidence_ref"`
+}
+
 type searchArgs struct {
 	Period     string  `json:"period"`
 	FromDate   *string `json:"from_date"`
@@ -332,10 +364,14 @@ func validateTypedArgs(value any) error {
 		n, ok := new(big.Int).SetString(v.Amount, 10)
 		// Purpose is deliberately absent: it is a bounded semantic Choice owned by
 		// the judgment plane, not an argument the generative model gets to assert
-		// (PRD §13). A missing destination hint is fine here because INTERNAL_TRANSFER
+		//. A missing destination hint is fine here because INTERNAL_TRANSFER
 		// legitimately has none; the purpose resolver rules on which case applies.
 		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")
+		}
+	case *evidenceArgs:
+		if len(v.EvidenceRef) > 64 || !evidenceRefPattern.MatchString(v.EvidenceRef) {
+			return fmt.Errorf("evidence reference")
 		}
 	case *searchArgs:
 		if !validPeriod(v.Period) || strings.TrimSpace(v.SearchText) == "" {

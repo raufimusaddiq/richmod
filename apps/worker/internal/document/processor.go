@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -45,16 +43,13 @@ type Processor struct {
 	// rulings on transaction screenshots. A nil verifier disables auto-confirm
 	// and keeps the review path, so intake still works without the gateway.
 	verifier jeverifier
-	// Interpretation selects the ADR-037 rollout stage. Empty keeps the
-	// legacy classify-then-extract path so existing deployments are unchanged.
-	Interpretation InterpretationMode
-	// rowAutoConfirmOff is this source's PRD §33 operational kill-switch, stored
+	// rowAutoConfirmOff is this source's operational kill-switch, stored
 	// inverted so the zero-value Processor keeps the documented default
 	// (auto-confirm on). When set, a clear row parks a review instead of
 	// confirming, so this source can be rolled back without touching the bank or
 	// receipt switches.
 	rowAutoConfirmOff bool
-	// receiptAutoConfirmOff is the receipt source's PRD §33 operational
+	// receiptAutoConfirmOff is the receipt source's operational
 	// kill-switch, stored inverted so the zero-value Processor keeps the
 	// documented default (auto-confirm on). When set, a clear receipt parks a
 	// review instead of confirming, so this source can be rolled back without
@@ -88,14 +83,14 @@ func NewProcessorWithStorage(pool *pgxpool.Pool, llm Gateway, storage *blob.Stor
 	return &Processor{pool: pool, gateway: llm, storage: storage}
 }
 
-// SetRowAutoConfirm is the screenshot row kill-switch (PRD §33). Passing false
+// SetRowAutoConfirm is the screenshot row kill-switch. Passing false
 // disables auto-confirm for this source.
 func (p *Processor) SetRowAutoConfirm(enabled bool) { p.rowAutoConfirmOff = !enabled }
 
-// SetVerifier wires the bounded judgment plane (PRD §11.2).
+// SetVerifier wires the bounded judgment plane.
 func (p *Processor) SetVerifier(verifier jeverifier) { p.verifier = verifier }
 
-// SetReceiptAutoConfirm is the receipt new-transaction kill-switch (PRD §33).
+// SetReceiptAutoConfirm is the receipt new-transaction kill-switch.
 // Passing false disables auto-confirm for this source.
 func (p *Processor) SetReceiptAutoConfirm(enabled bool) { p.receiptAutoConfirmOff = !enabled }
 
@@ -153,93 +148,28 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		content = append(content, map[string]any{"type": "input_image", "image_url": "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)})
 		pageCount = 1
 	}
-	mode := p.Interpretation
-	if mode == "" {
-		mode = parseInterpretationMode(os.Getenv("RICHMOD_DOCUMENT_INTERPRETATION"))
-	}
-	shadowStarted := map[string]shadowStart{}
-	var primary *Interpretation
-	var primaryNeedsReview bool
-	var primaryInterpretationErr error
-	if mode == InterpretationPrimary {
-		// ADR-037 primary: the unified bounded interpretation call selects the
-		// document type. Go still owns every canonical transition below; the
-		// legacy classify call is only used when interpretation is unavailable so
-		// the deterministic pipeline keeps working if the gateway is degraded.
-		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
-		if evidenceErr != nil {
-			return evidenceErr
-		}
-		interpretation, _, interpretationErr := p.interpretWithPrompt(ctx, documentID, evidence)
-		if interpretationErr == nil {
-			primary = &interpretation
-			primaryNeedsReview = interpretation.NeedsReview()
-		} else {
-			primaryInterpretationErr = interpretationErr
-			slog.WarnContext(ctx, "document primary interpretation failed; retrying job", "error_type", fmt.Sprintf("%T", interpretationErr))
-		}
-	}
-	if primaryInterpretationErr != nil {
-		return fmt.Errorf("primary document interpretation failed: %w", primaryInterpretationErr)
-	}
-	if mode == InterpretationShadow {
-		evidence, evidenceErr := p.loadEvidenceContext(ctx, documentID, householdID)
-		if evidenceErr != nil {
-			return evidenceErr
-		}
-		startedAt := time.Now()
-		interpretation, interpretationMeta, interpretationErr := p.interpretWithPrompt(ctx, documentID, evidence)
-		if interpretationErr == nil {
-			if err := p.recordShadowInterpretation(ctx, householdID, sourceID, documentID, interpretation, interpretationMeta.Model); err != nil {
-				slog.WarnContext(ctx, "document shadow interpretation persistence failed", "error_type", fmt.Sprintf("%T", err))
-			}
-			shadowStarted[documentID] = shadowStart{At: startedAt, Value: interpretation, Model: interpretationMeta.Model}
-		} else {
-			// Shadow failures never block the compatible legacy path; log only a
-			// bounded, redacted error category, not gateway text or evidence.
-			errorType := fmt.Sprintf("%T", interpretationErr)
-			slog.WarnContext(ctx, "document shadow interpretation failed", "error_type", errorType)
-			if metricErr := p.recordShadowFailure(ctx, documentID, errorType, time.Since(startedAt)); metricErr != nil {
-				slog.WarnContext(ctx, "document shadow metric persistence failed", "error_type", fmt.Sprintf("%T", metricErr))
-			}
-		}
-	}
 	var result documentClassification
 	var metadata gateway.Metadata
-	if primary != nil {
-		result = documentClassification{DocumentType: primary.DocumentType, Confidence: primary.Confidence}
-	} else {
-		result, metadata, err = p.classify(ctx, documentID, content)
-		if err != nil {
-			return err
-		}
+	result, metadata, err = p.classify(ctx, documentID, content)
+	if err != nil {
+		return err
 	}
 	if !allowedType(result.DocumentType) || result.Confidence < 0 || result.Confidence > 1 {
 		return fmt.Errorf("invalid document classification")
 	}
-	if start, ok := shadowStarted[documentID]; ok {
-		if err := p.recordShadowComparison(ctx, documentID, start.Value, start.Model, result, time.Since(start.At)); err != nil {
-			slog.WarnContext(ctx, "document shadow comparison persistence failed", "error_type", fmt.Sprintf("%T", err))
-		}
-	}
 	// Confidence is stored for audit/telemetry, not used as semantic authority.
-	validated := true
 	documentStatus, sourceStatus := "CLASSIFIED", "PROCESSED"
 	if result.DocumentType == "OTHER_FINANCIAL_DOCUMENT" {
 		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
-	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" && validated {
+	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" {
 		documentStatus, sourceStatus = "CLASSIFIED", "IGNORED"
-	}
-	if primary != nil && primaryNeedsReview {
-		validated = false
-		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
 	}
 	output, _ := json.Marshal(result)
 	var observation *wealthObservation
 	var observationMetadata gateway.Metadata
 	var observedDate *time.Time
-	if validated && result.DocumentType == "WEALTH_OBSERVATION" {
+	if result.DocumentType == "WEALTH_OBSERVATION" {
 		value, metadata, observationErr := p.extractWealthObservation(ctx, documentID, content)
 		if observationErr != nil {
 			return observationErr
@@ -258,7 +188,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction (document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES ($1,'CLASSIFICATION','1',$2::jsonb,$3,$4,$5) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(output), result.Confidence, metadata.Model, validated); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO document_extraction (document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES ($1,'CLASSIFICATION','1',$2::jsonb,$3,$4,$5) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(output), result.Confidence, metadata.Model, true); err != nil {
 		return err
 	}
 	if observation != nil {
@@ -279,64 +209,85 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO document_extraction(document_id,stage,schema_version,output_json,confidence,gateway_model,validated) VALUES($1,'WEALTH_OBSERVATION','1',$2::jsonb,$3,$4,true) ON CONFLICT (document_id,stage,schema_version) DO NOTHING`, documentID, string(observationOutput), observation.Confidence, observationMetadata.Model); err != nil {
 			return err
 		}
-		// Keep observations pending until the existing snapshot flow consumes them.
-		if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW' WHERE id=$1`, documentID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
-			return err
-		}
 		var observationID string
 		observationStatus := "PENDING"
+		// A unique, active, compatible Wealth Account is sufficient canonical
+		// binding: accept the observation instead of asking the household to
+		// confirm what Go already resolved deterministically. Unresolved account
+		// hints still become a review.
+		if resolvedWealthID != "" {
+			observationStatus = "ACCEPTED"
+		}
 		if err := tx.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr,quantity,unit,unit_price_idr,observed_date,status) VALUES($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,NULLIF($7,'')::numeric,NULLIF($8,''),NULLIF($9,'')::numeric,$10,$11) ON CONFLICT(document_id) DO UPDATE SET updated_at=now(),status=EXCLUDED.status RETURNING id`, householdID, documentID, resolvedWealthID, strings.TrimSpace(observation.Institution), strings.TrimSpace(observation.AccountHint), observation.ObservedValueIDR, nullableValue(observation.Quantity), nullableValue(observation.Unit), nullableValue(observation.UnitPriceIDR), observedDate, observationStatus).Scan(&observationID); err != nil {
 			return err
 		}
-		decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
-		if !ok {
-			return fmt.Errorf("no review decision preset for WEALTH_OBSERVATION_CONFIRMATION")
-		}
-		decision.KnownFacts["observed_value_idr"] = observation.ObservedValueIDR
-		if observation.Institution != "" {
-			decision.KnownFacts["institution"] = strings.TrimSpace(observation.Institution)
-		}
-		if observation.AccountHint != "" {
-			decision.KnownFacts["account_hint"] = strings.TrimSpace(observation.AccountHint)
-		}
-		if resolvedWealthID != "" {
-			decision.KnownFacts["wealth_account"] = resolvedWealthID
-		}
-		encoded, encodeErr := decision.JSON()
-		if encodeErr != nil {
-			return encodeErr
-		}
-		var reviewItemID string
-		if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, observationID, string(encoded)).Scan(&reviewItemID); err != nil {
-			if !errors.Is(err, pgx.ErrNoRows) {
+		if observationStatus == "ACCEPTED" {
+			if _, err := tx.Exec(ctx, `UPDATE document SET status='CLASSIFIED' WHERE id=$1`, documentID); err != nil {
 				return err
 			}
-			if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE wealth_observation_id=$1 AND review_type='WEALTH_OBSERVATION_CONFIRMATION' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, observationID).Scan(&reviewItemID); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceID); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW' WHERE id=$1`, documentID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1`, sourceID); err != nil {
 				return err
 			}
 		}
-		// UIR-02: keep the observation actionable in both Inbox and Telegram.
-		if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
-			return err
+		if observationStatus == "ACCEPTED" {
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','ACCEPT_WEALTH_OBSERVATION','wealth_observation',$2,jsonb_build_object('resolved_wealth_account_id',$3::uuid,'observed_value_idr',$4::text))`, householdID, observationID, resolvedWealthID, observation.ObservedValueIDR); err != nil {
+				return err
+			}
+		} else {
+			decision, ok := reviewdec.Preset("WEALTH_OBSERVATION_CONFIRMATION", "wealth_observation", observationID)
+			if !ok {
+				return fmt.Errorf("no review decision preset for WEALTH_OBSERVATION_CONFIRMATION")
+			}
+			decision.KnownFacts["observed_value_idr"] = observation.ObservedValueIDR
+			if observation.Institution != "" {
+				decision.KnownFacts["institution"] = strings.TrimSpace(observation.Institution)
+			}
+			if observation.AccountHint != "" {
+				decision.KnownFacts["account_hint"] = strings.TrimSpace(observation.AccountHint)
+			}
+			if resolvedWealthID != "" {
+				decision.KnownFacts["wealth_account"] = resolvedWealthID
+			}
+			encoded, encodeErr := decision.JSON()
+			if encodeErr != nil {
+				return encodeErr
+			}
+			var reviewItemID string
+			if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, householdID, observationID, string(encoded)).Scan(&reviewItemID); err != nil {
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+				if err := tx.QueryRow(ctx, `SELECT id FROM review_item WHERE wealth_observation_id=$1 AND review_type='WEALTH_OBSERVATION_CONFIRMATION' AND status IN ('PENDING_SEND','OPEN') LIMIT 1`, observationID).Scan(&reviewItemID); err != nil {
+					return err
+				}
+			}
+			// Keep the observation actionable in both Inbox and Telegram.
+			if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
+				return err
+			}
 		}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','CLASSIFY_DOCUMENT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'confidence',$5::numeric,'validated',$6::boolean))`, householdID, sourceID, documentID, result.DocumentType, result.Confidence, validated); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (household_id,actor_type,action,entity_type,entity_id,after_json) VALUES ($1,'WORKER','CLASSIFY_DOCUMENT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'confidence',$5::numeric,'validated',$6::boolean))`, householdID, sourceID, documentID, result.DocumentType, result.Confidence, true); err != nil {
 		return err
 	}
-	if validated && result.DocumentType == "PAYSLIP" {
+	if result.DocumentType == "PAYSLIP" {
 		if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_PAYSLIP',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
 			return err
 		}
 	}
-	if validated && result.DocumentType == "RECEIPT" {
+	if result.DocumentType == "RECEIPT" {
 		if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_RECEIPT',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
 			return err
 		}
 	}
-	if validated && screenshotType(result.DocumentType) {
+	if screenshotType(result.DocumentType) {
 		if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_TRANSACTION_SCREENSHOT',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
 			return err
 		}

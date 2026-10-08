@@ -18,6 +18,13 @@ type AgentToolOutput struct {
 	Output any
 }
 
+// AgentReadPhase preserves one completed native READ batch for stateless Chat
+// Completions replay. Responses retains the same history by response ID.
+type AgentReadPhase struct {
+	ToolCalls   []ToolCall
+	ToolOutputs []AgentToolOutput
+}
+
 // AgentRequest is the protocol-neutral contract used by the conversational
 // finance lane. Unlike NativeToolCall, a conversational response may contain
 // ordinary assistant text or multiple provider-native tool calls.
@@ -38,6 +45,7 @@ type AgentRequest struct {
 	PreviousResponseID string
 	PreviousToolCalls  []ToolCall
 	ToolOutputs        []AgentToolOutput
+	ReadHistory        []AgentReadPhase
 }
 
 // AgentResponse intentionally exposes only display text and native tool calls.
@@ -203,23 +211,27 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 		{"role": "user", "content": content},
 	}
 	if len(request.ToolOutputs) > 0 {
-		toolCalls := make([]map[string]any, 0, len(request.PreviousToolCalls))
-		for _, call := range request.PreviousToolCalls {
-			toolCalls = append(toolCalls, map[string]any{
-				"id":   call.CallID,
-				"type": "function",
-				"function": map[string]any{
-					"name": call.Name, "arguments": string(call.Arguments),
-				},
-			})
-		}
-		messages = append(messages, map[string]any{"role": "assistant", "content": nil, "tool_calls": toolCalls})
-		for _, output := range request.ToolOutputs {
-			encoded, encodeErr := encodeAgentToolOutput(output.Output)
-			if encodeErr != nil {
-				return AgentResponse{}, encodeErr
+		phases := append([]AgentReadPhase(nil), request.ReadHistory...)
+		phases = append(phases, AgentReadPhase{request.PreviousToolCalls, request.ToolOutputs})
+		for _, phase := range phases {
+			toolCalls := make([]map[string]any, 0, len(phase.ToolCalls))
+			for _, call := range phase.ToolCalls {
+				toolCalls = append(toolCalls, map[string]any{
+					"id":   call.CallID,
+					"type": "function",
+					"function": map[string]any{
+						"name": call.Name, "arguments": string(call.Arguments),
+					},
+				})
 			}
-			messages = append(messages, map[string]any{"role": "tool", "tool_call_id": output.CallID, "content": encoded})
+			messages = append(messages, map[string]any{"role": "assistant", "content": nil, "tool_calls": toolCalls})
+			for _, output := range phase.ToolOutputs {
+				encoded, encodeErr := encodeAgentToolOutput(output.Output)
+				if encodeErr != nil {
+					return AgentResponse{}, encodeErr
+				}
+				messages = append(messages, map[string]any{"role": "tool", "tool_call_id": output.CallID, "content": encoded})
+			}
 		}
 	}
 	payload := map[string]any{
@@ -252,8 +264,16 @@ func (c *Client) agentChatCompletion(ctx context.Context, requestID string, requ
 }
 
 func validateAgentContinuation(request AgentRequest) error {
+	for _, phase := range request.ReadHistory {
+		if len(phase.ToolCalls) == 0 || len(phase.ToolOutputs) == 0 {
+			return fmt.Errorf("agent READ history contains an empty phase")
+		}
+		if err := validateAgentContinuation(AgentRequest{PreviousResponseID: "replay", PreviousToolCalls: phase.ToolCalls, ToolOutputs: phase.ToolOutputs}); err != nil {
+			return err
+		}
+	}
 	if len(request.ToolOutputs) == 0 {
-		if request.PreviousResponseID != "" || len(request.PreviousToolCalls) != 0 {
+		if request.PreviousResponseID != "" || len(request.PreviousToolCalls) != 0 || len(request.ReadHistory) != 0 {
 			return fmt.Errorf("agent continuation metadata without tool outputs")
 		}
 		return nil

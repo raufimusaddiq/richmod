@@ -1,10 +1,14 @@
 import "./globals.css";
 import "./detail-drawer.css";
 import AuthProvider from "./components/AuthProvider";
+import InboxCountProvider from "./components/InboxCountProvider";
 
 // The browser-authenticated app must not reuse an HTML shell from an older
 // deployment whose client chunks may have been replaced.
 export const dynamic = "force-dynamic";
+
+// viewport-fit=cover makes the safe-area insets real (Home Screen app, landscape).
+export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 const socialTitle = "Richmod · Keuangan keluarga, tanpa menebak";
 const socialDescription = "Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan.";
@@ -39,7 +43,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
-      <body><AuthProvider>{children}</AuthProvider></body>
+      <body><AuthProvider><InboxCountProvider>{children}</InboxCountProvider></AuthProvider></body>
     </html>
   );
 }

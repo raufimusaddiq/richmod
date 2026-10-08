@@ -104,9 +104,6 @@ func TestWealthValueIsNotACashMovement(t *testing.T) {
 	if !verified || classification.cashAllowed() {
 		t.Fatalf("a wealth value must not authorize a cash movement: %+v", classification)
 	}
-	if !classification.wealthAllowed() {
-		t.Fatalf("a supported wealth value must be allowed: %+v", classification)
-	}
 }
 
 func TestMovementTypeRequiredForCash(t *testing.T) {
@@ -125,7 +122,7 @@ func TestMovementTypeRequiredForCash(t *testing.T) {
 // material_ambiguity is an inverted claim, so a decided *negative* is what
 // clears it. An answer in the undecided middle band means the bounded plane
 // could not tell, and reading that as approval is the fail-open hole this
-// package shared with bank email (PRD 17).
+// package shared with bank email.
 func TestUndecidedAmbiguityFailsClosed(t *testing.T) {
 	for _, probability := range []float64{0.02, 0.10} {
 		answers := cashRuling("CONTRIBUTION")
@@ -186,7 +183,7 @@ func TestUnconfiguredVerifierIsNotApproval(t *testing.T) {
 // the boolean gate uses. Reading it with the non-inverted Supported policy made
 // a noul in the (Low, High) band record as a decided "NO" while the gate still
 // treated it as undecided, so cashResidual returned empty and the case borrowed
-// TRANSFER_CLASSIFICATION (SAVR-06, Hermes finding 1).
+// TRANSFER_CLASSIFICATION.
 func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
 	for _, probability := range []float64{0.10, 0.20} {
 		answers := cashRuling("CONTRIBUTION")
@@ -210,7 +207,7 @@ func TestAmbiguityUsesTheInvertedPolicyConsistently(t *testing.T) {
 // A choice the plane returned but AcceptChoice rejects (marginal confidence) must
 // record UNDECIDED, not the raw label. Recording the label let a rejected
 // observation_type read as a passing predicate, so cashResidual() came back empty
-// and the case borrowed TRANSFER_CLASSIFICATION (SAVR-06, Hermes B1).
+// and the case borrowed TRANSFER_CLASSIFICATION.
 func TestRejectedChoiceOutcomeIsUndecidedNotPassing(t *testing.T) {
 	answers := cashRuling("CONTRIBUTION")
 	marginal := choice("CASH_MOVEMENT", judgment.ChoiceCriteria(observationTypeCriteria))

@@ -77,7 +77,7 @@ func TestIncomingScreenshotRowsRemainIncomeCandidates(t *testing.T) {
 	}
 }
 
-// SAVR-03: a genuinely invisible amount is representable as null and reaches
+// A genuinely invisible amount is representable as null and reaches
 // review. It is never coerced to a sentinel "0", and a still-invalid amount
 // (non-digits) is still rejected rather than silently accepted.
 func TestMissingScreenshotAmountIsRepresentable(t *testing.T) {

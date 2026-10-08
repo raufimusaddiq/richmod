@@ -22,6 +22,7 @@ var judgmentRoutes = []string{
 	"CREATE_TRANSFER",
 	"CORRECT_TRANSACTION",
 	"REVIEW_INTERACTION",
+	"PENDING_ACTION_INTERACTION",
 	"SALARY_INTERACTION",
 	"MERCHANT_LEARNING_INTERACTION",
 	"PENDING_BATCH_INTERACTION",
@@ -43,6 +44,7 @@ var judgmentRouteCriteria = map[string]string{
 	"CREATE_TRANSFER":               "record a transfer between accounts",
 	"CORRECT_TRANSACTION":           "change an existing transaction",
 	"REVIEW_INTERACTION":            "list or act on review items",
+	"PENDING_ACTION_INTERACTION":    "answer a pending correction confirmation",
 	"SALARY_INTERACTION":            "answer a pending payslip choice",
 	"MERCHANT_LEARNING_INTERACTION": "answer a merchant rule confirmation",
 	"PENDING_BATCH_INTERACTION":     "confirm, cancel, or update the pending transaction batch",
@@ -66,12 +68,12 @@ var judgmentPeriodCriteria = map[string]string{
 func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, householdID string, update telegramUpdate, text string, now time.Time, state *turnAgentContextState) (bool, error) {
 	// Explicit replies are already bound to server-owned workflow state by
 	// ProcessAgent. Generic route classification must not discard that target
-	// before the bound agent lane interprets the reply (PRD §8.3).
+	// before the bound agent lane interprets the reply.
 	if p.judgment == nil || state.ExactReply {
 		return false, nil
 	}
 	// Harvest generic candidates before the call so a common transaction can be
-	// decided inside the same System One request as the route (PRD §10).
+	// decided inside the same System One request as the route.
 	candidate, harvested := harvestSimpleTransaction(text)
 	if !harvested || !state.harvestable() {
 		candidate = simpleTransactionCandidate{}
@@ -89,7 +91,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 		// A failed/undecided bounded route is not permission to declare the
 		// user's sentence unclear. Drop to the conversational agent with no
 		// route recorded, so no implicit workflow binding is narrowed and the
-		// capability policy decides what the model may do (SAVR PRD §3.3, ADR-045).
+		// capability policy decides what the model may do (ADR-045).
 		p.metrics.recordDecision(ctx, judgmentTaskRoute, judgmentOutcomeRejected)
 		return false, nil
 	}
@@ -108,7 +110,7 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	// Only the aggregate READ routes consume a reporting period. Every other
 	// route must keep working when the period is CUSTOM_OR_UNCLEAR.
 	var period assistantRange
-	if answer.Choice == "READ_SPENDING" || answer.Choice == "READ_CASHFLOW" || answer.Choice == "READ_SAVINGS" {
+	if routeConsumesPeriod(answer.Choice) {
 		var periodOK bool
 		period, periodOK = p.resolveJudgmentPeriod(ctx, householdID, now, result.Answers["period"])
 		if !periodOK {
@@ -130,13 +132,16 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	case "READ_WEALTH":
 		return true, p.replyWealth(ctx, sourceID, householdID, update)
 	case "REVIEW_INTERACTION":
+		if state.ActiveReviewCount == 1 {
+			return false, nil // Let the server-bound workflow interpret the answer.
+		}
 		return true, p.replyReviews(ctx, sourceID, householdID, update)
 	default:
 		// Any decided route that the fast path does not terminally own — including
 		// CREATE_TRANSFER, SEARCH_TRANSACTIONS, CORRECT_TRANSACTION, FINANCE_HELP,
 		// NEEDS_GENERATIVE_AGENT, SALARY_INTERACTION, and
 		// MERCHANT_LEARNING_INTERACTION — falls through to the conversational agent
-		// (PRD §8.1). Terminating them as an unclear reply is prohibited. The
+		//. Terminating them as an unclear reply is prohibited. The
 		// classification is server-owned and exhaustive, so a future route cannot
 		// reach this branch without also being added to the lane table.
 		switch lane {
@@ -155,12 +160,20 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 // Speculative transaction answers are ignored when the route is unrelated.
 func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextState, candidate simpleTransactionCandidate) judgment.Request {
 	statePayload := map[string]any{
-		"user_text":              "<untrusted_user_message>" + text + "</untrusted_user_message>",
+		"user_text":              untrustedUser(text),
 		"allowed_routes":         judgmentRoutes,
 		"allowed_category_slugs": state.Categories,
+		"active_review_count":    state.ActiveReviewCount,
+	}
+	if state.ActiveReviewCount == 1 {
+		statePayload["active_review"] = map[string]any{
+			"review_type":        state.ReviewType,
+			"conversation_state": state.ReviewConversationState,
+			"awaiting_field":     awaitedReviewField(state.ReviewConversationState),
+		}
 	}
 	questions := map[string]judgment.Question{
-		"route":  {Type: "choice", Instructions: "Choose exactly one allowed finance workflow route. Use NEEDS_GENERATIVE_AGENT when arbitrary extraction, reasoning, or prose is required.", Criteria: judgment.ChoiceCriteria(judgmentRouteCriteria)},
+		"route":  {Type: "choice", Instructions: "Choose exactly one allowed finance workflow route. A short answer supplying the active review's awaiting field is REVIEW_INTERACTION. An unrelated new request must keep its own route even when a review is open. Use NEEDS_GENERATIVE_AGENT when arbitrary extraction, reasoning, or prose is required.", Criteria: judgment.ChoiceCriteria(judgmentRouteCriteria)},
 		"period": {Type: "choice", Instructions: "Choose the time period the user asked about. Use CUSTOM_OR_UNCLEAR when the user gave explicit dates or stated no period.", Criteria: judgment.ChoiceCriteria(judgmentPeriodCriteria)},
 	}
 	if candidate.Amount != "" {
@@ -175,7 +188,7 @@ func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextS
 
 // finishJudgmentSimpleTransaction consumes transaction answers that were
 // returned by the initial bundle. It performs no second System One call and no
-// generative call (PRD §10).
+// generative call.
 func (p *Processor) finishJudgmentSimpleTransaction(ctx context.Context, sourceID, householdID string, update telegramUpdate, now time.Time, result judgment.Result, candidate simpleTransactionCandidate, categories []string) (bool, error) {
 	if candidate.Amount == "" {
 		return false, nil
@@ -254,12 +267,11 @@ func transactionDecisionFromAnswers(result judgment.Result, candidate simpleTran
 }
 
 // "k" is the Indonesian/English shorthand for ribu (thousand) and is spelled
-// without punctuation in the PRD's canonical example ("jajan gorengan 5k").
+// without punctuation in the canonical example ("jajan gorengan 5k").
 // The suffix list is followed by a hard word boundary. Without it, a glued unit
 // such as "5kg" or "5jt-an" matched the optional suffix and harvested a
-// currency amount from a quantity (PRD §24 T1: only real amounts are harvested).
+// currency amount from a quantity (only real amounts are harvested).
 var simpleAmountPattern = regexp.MustCompile(`(?i)(?:^|\s)([0-9][0-9.,]*)\s*(rb|ribu|jt|juta|k)?\b(?:\s|$)`)
-var simpleDatePattern = regexp.MustCompile(`\b(20[0-9]{2}-[0-9]{2}-[0-9]{2})\b`)
 
 func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 	matches := simpleAmountPattern.FindAllStringSubmatch(text, -1)
@@ -288,4 +300,11 @@ func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 	// resolved date is supported from the raw text, and a model-authored typed
 	// date is validated structurally rather than by Go re-reading the sentence.
 	return simpleTransactionCandidate{Amount: value.String(), Text: text}, true
+}
+
+// routeConsumesPeriod reports whether a route is an aggregate READ that needs a
+// reporting period. Every other route must keep working when the period is
+// CUSTOM_OR_UNCLEAR.
+func routeConsumesPeriod(route string) bool {
+	return route == "READ_SPENDING" || route == "READ_CASHFLOW" || route == "READ_SAVINGS"
 }

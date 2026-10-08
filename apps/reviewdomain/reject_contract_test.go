@@ -1,7 +1,6 @@
 package reviewdomain
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -11,13 +10,9 @@ import (
 func TestRejectIsSharedAcrossSurfaces(t *testing.T) {
 	for _, path := range []string{
 		"../api/internal/review/handler.go",
-		"../worker/internal/telegram/review.go",
+		telegramReviewSourceGlob,
 	} {
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(source)
+		text := string(mustReadPaths(t, path))
 		start, end := "func (h *Handler) Reject(", "type mergeInput"
 		if strings.Contains(path, "worker") {
 			start, end = "func (p *Processor) rejectBoundReview(", "\nfunc "

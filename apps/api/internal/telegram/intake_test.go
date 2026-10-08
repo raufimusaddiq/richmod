@@ -11,6 +11,7 @@ import (
 
 type fakeStore struct {
 	input CaptureInput
+	image ImageInput
 	err   error
 	calls int
 }
@@ -24,6 +25,7 @@ func (s *fakeStore) Link(_ context.Context, input CaptureInput, _ string) (bool,
 func (s *fakeStore) CaptureImage(_ context.Context, input ImageInput) (bool, error) {
 	s.calls++
 	s.input = input.CaptureInput
+	s.image = input
 	return true, s.err
 }
 
@@ -54,11 +56,11 @@ func TestWebhookRoutesStartTokenToLinking(t *testing.T) {
 func TestWebhookCapturesLargestPrivatePhoto(t *testing.T) {
 	store := &fakeStore{}
 	handler := NewHandler(store, "webhook-secret")
-	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":44,"message":{"from":{"id":789},"chat":{"type":"private"},"caption":"slip gaji","photo":[{"file_id":"small","width":100,"height":100},{"file_id":"large","width":1000,"height":1000}]}}`))
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":44,"message":{"message_id":55,"from":{"id":789},"chat":{"id":789,"type":"private"},"caption":"slip gaji","photo":[{"file_id":"small","width":100,"height":100},{"file_id":"large","width":1000,"height":1000}]}}`))
 	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
 	response := httptest.NewRecorder()
 	handler.Webhook(response, request)
-	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 789 {
+	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 789 || store.image.ChatID != 789 || store.image.MessageID != 55 {
 		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
 	}
 }
@@ -122,13 +124,18 @@ func TestEveryWorkerReviewCallbackPassesIngressValidation(t *testing.T) {
 		"review:remember", "review:once", "review:edit", "review:merchant", "review:description", "review:asset",
 		"review:category", "review:ignore", "review:cat:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
 		"review:catpage:0", "review:catpage:12",
+		"pending:action:yes", "pending:action:no", "pending:batch:yes", "pending:batch:no",
+		"review:dup:new", "review:dup:merge:0", "review:dup:merge:8", "review:reprocess", "review:quality:confirm",
+		"review:salary:primary", "review:salary:ordinary", "review:investment", "review:fepage:0", "review:fepage:3",
+		"review:fe:account:8a97e069-0278-4f49-9195-fbbfe81fdfd5", "review:fe:wealth:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
+		"review:invest:8a97e069-0278-4f49-9195-fbbfe81fdfd5", "review:bank:8a97e069-0278-4f49-9195-fbbfe81fdfd5",
 	}
 	for _, action := range valid {
 		if !validCallbackAction(action) {
 			t.Errorf("generated callback %q was rejected", action)
 		}
 	}
-	for _, action := range []string{"review:cat:", "review:cat:../../admin", "review:catpage:-1", "review:catpage:99999", "admin:delete"} {
+	for _, action := range []string{"review:cat:", "review:cat:../../admin", "review:catpage:-1", "review:catpage:99999", "admin:delete", "pending:", "pending:action:maybe", "pending:batch:yes:1", "pending:action", "review:dup:merge:-1", "review:fepage:x", "review:salary:other", "review:fe:wealth:", "review:bank:a/b"} {
 		if validCallbackAction(action) {
 			t.Errorf("unsafe callback %q was accepted", action)
 		}

@@ -1,5 +1,11 @@
 # Richmod Conversational Native Tool V2 — Codex Implementation Plan
 
+> **Status note (2026-10-02):** `executeNativeTool`, `processAssistantIntent`, and
+> `resolveTransactionDecision` named in this document were removed as unreachable
+> for production traffic; see the addendum in
+> `docs/audits/P0_YAGNI_TECH_DEBT_CLEANUP.md`. The live typed-text path is
+> `ProcessAgent`.
+
 **Repository:** `raufimusaddiq/richmod`  
 **Baseline branch:** `main`  
 **Reviewed baseline commit:** `9b73b98bda1b3b7fe95af53669f7b1a18308f55c` (`merge: native document and insight tools`, 2026-09-01)  
@@ -713,8 +719,11 @@ Do not use this table as financial evidence. `source_event`/`transaction_evidenc
 
 For the model:
 
-- load at most ~20 recent public turns;
-- use a time horizon around 30–60 minutes for ordinary conversational references;
+- load at most 40 recent public turns, oldest first, compacted: the newest 6 whole,
+  older ones clipped and stripped of tool results (superseded the earlier "~20
+  turns"; see ADR-033, Conversation memory);
+- use a 24-hour time horizon for ordinary conversational references (superseded
+  the earlier 30–60 minutes);
 - active review/pending state is loaded independently and may survive much longer;
 - bound exact reply references override age heuristics.
 

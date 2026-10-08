@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
@@ -58,7 +59,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 		must(err)
 		return sourceID
 	}
-	processor := NewProcessor(pool, boundReviewGateway{})
+	processor := NewProcessor(pool, payslipDateGateway{})
 	callback := callbackUpdate(chatID, 61, "review:salary:primary")
 	must(processor.Process(ctx, seedReply("TELEGRAM_CALLBACK", callback)))
 	var state, requestStatus, itemStatus string
@@ -73,7 +74,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	dateReply.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 61}
-	must(processor.Process(ctx, seedReply("TELEGRAM_TEXT", dateReply)))
+	must(processor.ProcessAgent(ctx, seedReply("TELEGRAM_TEXT", dateReply)))
 	var transactionID, amount, payDate, transactionStatus, proposalStatus string
 	must(pool.QueryRow(ctx, `SELECT t.id::text,t.amount::text,(t.transaction_at AT TIME ZONE 'Asia/Jakarta')::date::text,t.status
 		FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id AND e.source_event_id=$1 AND e.evidence_type='PAYSLIP_IMAGE'`, imageID).Scan(&transactionID, &amount, &payDate, &transactionStatus))
@@ -103,7 +104,13 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	}
 }
 
-// TestTelegramDocumentReviewResolvesWithoutWeb proves the UIR-06 close for the
+type payslipDateGateway struct{}
+
+func (payslipDateGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
+	return gateway.ToolCall{Name: "resolve_review", Arguments: json.RawMessage(`{"category_slug":"","description":"","note":"","confidence":0,"ambiguous":false,"pay_date":"2026-09-25"}`)}, gateway.Metadata{}, nil
+}
+
+// TestTelegramDocumentReviewResolvesWithoutWeb proves Telegram can close the
 // document-bound families: a DOCUMENT_CLASSIFICATION card resolves in Telegram
 // (reprocess enqueues the shared pipeline, ignore parks the document) instead of
 // dead-ending in the Review Inbox.
@@ -174,7 +181,7 @@ func TestTelegramDocumentReviewResolvesWithoutWeb(t *testing.T) {
 	}
 }
 
-// TestTelegramFinancialEmailEntityResolvesWithoutWeb proves the UIR-07 close for
+// TestTelegramFinancialEmailEntityResolvesWithoutWeb proves Telegram can close
 // FINANCIAL_EMAIL_RESOLUTION: the entity chooser resolves the still-unresolved
 // dimension through the shared resolver and enqueues the provider-email replay,
 // with no Review Inbox round-trip.
@@ -309,7 +316,7 @@ func TestTelegramFinancialEmailEntityResolvesWithoutWeb(t *testing.T) {
 	}
 }
 
-// TestQueuedReviewSendSkipsResolvedProjection pins UIR-08's "queued delivery
+// TestQueuedReviewSendSkipsResolvedProjection pins the "queued delivery
 // after resolution" rule: a review card that resolves between enqueue and send
 // must not be delivered as a live card, while an open projection still sends.
 func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {

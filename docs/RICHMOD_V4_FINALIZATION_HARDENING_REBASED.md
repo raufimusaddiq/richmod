@@ -1705,6 +1705,8 @@ Cancellation must propagate into provider request.
 func jobBudget(jobType string) time.Duration {
     switch jobType {
     case "PROCESS_TELEGRAM_TEXT":
+        // Superseded: typed messages now have a 160-second queue budget (130-second
+        // turn backstop, progress notice after 10 seconds); see ADR-033.
         return 10 * time.Second
     case "PROCESS_BANK_EMAIL":
         return 45 * time.Second

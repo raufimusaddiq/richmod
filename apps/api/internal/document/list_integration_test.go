@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/blob"
 )
 
 func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
@@ -54,10 +55,11 @@ func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'DOCUMENT')`, transactionID, sourceID); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := NewHandler(pool, t.TempDir())
+	storage, err := blob.NewLocal(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	handler := NewHandlerWithStorage(pool, storage)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/documents", nil)
 	request = request.WithContext(auth.ContextWithPrincipal(request.Context(), auth.Principal{UserID: userID, Memberships: []auth.Membership{{HouseholdID: householdID, Role: "OWNER"}}}))
 	response := httptest.NewRecorder()

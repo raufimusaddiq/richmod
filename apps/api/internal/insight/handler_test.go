@@ -1,24 +1,12 @@
 package insight
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
-)
 
-func TestInsightFactArithmetic(t *testing.T) {
-	if got := completenessRatio("750000", "1000000", 0); got != "0.7500" {
-		t.Fatalf("completeness=%s", got)
-	}
-	if got := completenessRatio("750000", "1000000", 2); got != "0.6750" {
-		t.Fatalf("review-adjusted completeness=%s", got)
-	}
-	if got := changeRatio("120", "100"); got != "0.2000" {
-		t.Fatalf("change=%s", got)
-	}
-	if got := changeRatio("120", "0"); got != "unavailable" {
-		t.Fatalf("zero baseline=%s", got)
-	}
-}
+	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+)
 
 func TestPendingInsightRemainsIdempotent(t *testing.T) {
 	if !strings.Contains(existingInsightQuery, "status='PENDING'") {
@@ -30,7 +18,20 @@ func TestPendingInsightRemainsIdempotent(t *testing.T) {
 	if strings.Contains(existingInsightQuery, "OR created_at") || !strings.Contains(existingInsightQuery, "status='SUCCEEDED'") {
 		t.Fatal("failed insights must not block retry generation")
 	}
-	if insightPromptVersion != "finance-insight-v2" || !strings.Contains(existingInsightQuery, "prompt_version=$5") {
+	if insightPromptVersion != "cycle-analyst-v5" || !strings.Contains(existingInsightQuery, "prompt_version=$5") {
 		t.Fatal("successful cached insights must match the current prompt version")
+	}
+	if !strings.Contains(existingInsightQuery, "input_metrics_json->>'period_end'=$6") {
+		t.Fatal("cached commentary must match the measured cutoff")
+	}
+}
+
+func TestListRejectsInvalidCycleBeforeDatabase(t *testing.T) {
+	r := httptest.NewRequest("GET", "/api/v1/insights?cycle_start=bad", nil)
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: "u", HouseholdID: "h", HasHousehold: true}))
+	w := httptest.NewRecorder()
+	NewHandler(nil).List(w, r)
+	if w.Code != 400 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }

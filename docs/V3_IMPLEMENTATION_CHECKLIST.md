@@ -121,7 +121,7 @@ evidence by cohesive phase; unchecked items remain intentionally scheduled.
 - [x] Known-account hardening: owner-created and review-remembered hints now
   require 4–19 digits, matching strips non-digits from counterparties and uses
   a household-scoped suffix match, with existing audit coverage preserved.
-- [ ] Off-host backup.
+- [x] Off-host backup. Shipped via ADR-029; see `OFF_HOST_STORAGE_COMPLETION_CHECKLIST.md`.
 
 - [x] Final regression: API and worker Go test suites pass; Compose production
   configuration validates; web production build passes in Docker; live

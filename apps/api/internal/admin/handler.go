@@ -3,13 +3,11 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
@@ -180,100 +178,6 @@ func (h *Handler) Households(w http.ResponseWriter, r *http.Request) {
 		out = append(out, map[string]any{"id": id, "name": name, "timezone": tz, "createdAt": created, "members": members, "transactions": transactions, "openReviews": reviews, "lastActivityAt": last})
 	}
 	writeJSON(w, 200, out)
-}
-
-func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
-	hid := r.PathValue("householdId")
-	rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.email,u.display_name,hm.role,hm.active FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 ORDER BY u.email`, hid)
-	if err != nil {
-		writeError(w, 500, "ADMIN_QUERY_FAILED")
-		return
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		var id, email, name, role string
-		var active bool
-		if err := rows.Scan(&id, &email, &name, &role, &active); err != nil {
-			writeError(w, 500, "ADMIN_QUERY_FAILED")
-			return
-		}
-		out = append(out, map[string]any{"id": id, "email": email, "displayName": name, "role": role, "active": active})
-	}
-	writeJSON(w, 200, out)
-}
-
-func (h *Handler) AddMember(w http.ResponseWriter, r *http.Request) {
-	hid := r.PathValue("householdId")
-	var input struct {
-		Email       string `json:"email"`
-		DisplayName string `json:"displayName"`
-	}
-	if json.NewDecoder(r.Body).Decode(&input) != nil || !strings.Contains(input.Email, "@") || strings.TrimSpace(input.DisplayName) == "" {
-		writeError(w, 400, "INVALID_REQUEST")
-		return
-	}
-	principal, _ := auth.PrincipalFromContext(r.Context())
-	tx, err := h.pool.Begin(r.Context())
-	if err != nil {
-		writeError(w, 500, "ADMIN_UPDATE_FAILED")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var exists bool
-	if err := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM household WHERE id=$1)`, hid).Scan(&exists); err != nil || !exists {
-		writeError(w, 404, "HOUSEHOLD_NOT_FOUND")
-		return
-	}
-	var userID string
-	err = tx.QueryRow(r.Context(), `INSERT INTO "user"(email,display_name,password_hash) VALUES(lower(trim($1)),trim($2),'!') ON CONFLICT(email) DO UPDATE SET display_name="user".display_name RETURNING id`, input.Email, input.DisplayName).Scan(&userID)
-	if err != nil {
-		writeError(w, 409, "USER_CREATE_FAILED")
-		return
-	}
-	rows, err := tx.Query(r.Context(), `SELECT household_id FROM household_member WHERE user_id=$1 AND active FOR UPDATE`, userID)
-	if err != nil {
-		writeError(w, 500, "MEMBERSHIP_LOOKUP_FAILED")
-		return
-	}
-	for rows.Next() {
-		var activeHouseholdID string
-		if err := rows.Scan(&activeHouseholdID); err != nil {
-			rows.Close()
-			writeError(w, 500, "MEMBERSHIP_LOOKUP_FAILED")
-			return
-		}
-		if activeHouseholdID != hid {
-			rows.Close()
-			writeError(w, http.StatusConflict, "USER_ALREADY_HAS_HOUSEHOLD")
-			return
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		writeError(w, 500, "MEMBERSHIP_LOOKUP_FAILED")
-		return
-	}
-	rows.Close()
-	_, err = tx.Exec(r.Context(), `INSERT INTO household_member(household_id,user_id,role,active) VALUES($1,$2,'MEMBER',true) ON CONFLICT(household_id,user_id) DO UPDATE SET active=true`, hid, userID)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			writeError(w, http.StatusConflict, "USER_ALREADY_HAS_HOUSEHOLD")
-			return
-		}
-		writeError(w, 409, "MEMBERSHIP_CREATE_FAILED")
-		return
-	}
-	if err := h.audit(r.Context(), tx, principal.UserID, "ADMIN_ADD_HOUSEHOLD_MEMBER", "HOUSEHOLD", hid, map[string]any{"memberEmail": strings.ToLower(strings.TrimSpace(input.Email)), "role": "MEMBER"}, r.Header.Get("X-Request-ID")); err != nil {
-		writeError(w, 500, "ADMIN_AUDIT_FAILED")
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, 500, "ADMIN_UPDATE_FAILED")
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
 }
 
 func (h *Handler) audit(ctx context.Context, tx pgx.Tx, actor, action, entityType, entityID string, metadata map[string]any, requestID string) error {

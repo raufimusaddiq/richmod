@@ -115,7 +115,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The persisted ReviewDecision is the single source of truth for what a
-		// review asks (PRD 13.4, 37): a Telegram card and the Inbox read the same
+		// review asks: a Telegram card and the Inbox read the same
 		// contract instead of deriving the unresolved fact independently. Rows
 		// written before the contract existed keep the derived fallback.
 		stored := proposalFacts(value.Decision)
@@ -150,7 +150,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		stored := proposalFacts(value.Decision)
 		// The persisted observation columns are the single source of truth for what
 		// this review already resolved; the stored decision is only a fallback for
-		// reviews written before those columns existed (PRD 12, 13.4).
+		// reviews written before those columns existed.
 		resolvedWealth := firstNonEmpty(value.ResolvedWealthAccountID, stored.resolvedEntity("resolvedWealthAccountId"))
 		resolvedAccount := firstNonEmpty(value.ResolvedAccountID, stored.resolvedEntity("resolvedAccountId"))
 		hasPrimarySalary, _ := stored.Provenance["hasPrimarySalary"].(bool)
@@ -350,6 +350,8 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	categoryID := currentCategory
+	categorySupplied := input.CategoryID != nil
+	merchantName := clean(input.MerchantName, 160)
 	if input.CategoryID != nil {
 		if err := reviewdomain.ValidateCategoryForHousehold(r.Context(), tx, household, *input.CategoryID); err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid household category"})
@@ -357,11 +359,23 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		}
 		categoryID = input.CategoryID
 	}
+	// Recall only when no category was chosen; explicit user choices win.
+	if kind == "EXPENSE" && categoryID == nil && merchantName != "" {
+		learned, err := reviewdomain.LearnedMerchantCategory(r.Context(), tx, household, merchantName)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
+			return
+		}
+		if learned != "" {
+			categoryID = &learned
+			categorySupplied = true
+		}
+	}
 	if kind == "EXPENSE" && categoryID == nil {
-		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
+		writeJSON(w, 400, map[string]any{"error": "expense category is required", "missingFacts": []string{"category"}})
 		return
 	}
-	if blocked := confirmationBlockers(storedDecisionJSON, suppliedAt != nil, input.CategoryID != nil, strings.TrimSpace(clean(input.MerchantName, 160)) != ""); len(blocked) > 0 {
+	if blocked := confirmationBlockers(storedDecisionJSON, suppliedAt != nil, categorySupplied, merchantName != ""); len(blocked) > 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": blocked})
 		return
 	}
@@ -369,14 +383,13 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "use transfer classification for this review"})
 		return
 	}
-	merchantName := clean(input.MerchantName, 160)
 	result, err := reviewdomain.ConfirmTransactionReview(r.Context(), tx, reviewdomain.ConfirmCommand{
 		HouseholdID: household, ActorUserID: p.UserID, TransactionID: id,
-		Action: "CONFIRM_REVIEW", CategorySupplied: input.CategoryID != nil,
+		Action: "CONFIRM_REVIEW", CategorySupplied: categorySupplied,
 		CategoryID: stringValue(categoryID), Description: clean(input.Description, 500),
 		Note: clean(input.Note, 1000), MerchantName: merchantName,
 		RememberMerchant: input.RememberMerchant, TransactionAt: suppliedAt,
-		Blocked:       confirmationBlockers(storedDecisionJSON, suppliedAt != nil, input.CategoryID != nil, merchantName != ""),
+		Blocked:       confirmationBlockers(storedDecisionJSON, suppliedAt != nil, categorySupplied, merchantName != ""),
 		ResolveReview: true,
 	})
 	if errors.Is(err, reviewdomain.ErrMissingCategory) {

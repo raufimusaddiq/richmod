@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 type Handler struct{ pool *pgxpool.Pool }
@@ -77,8 +78,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var title string
-	err = tx.QueryRow(r.Context(), `UPDATE integration_action SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,updated_at=now() WHERE id=$1 AND household_id=$2 AND status='OPEN' RETURNING title`, r.PathValue("id"), householdID, p.UserID).Scan(&title)
+	var title, actionType, sourceEventID string
+	err = tx.QueryRow(r.Context(), `UPDATE integration_action SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$3,updated_at=now() WHERE id=$1 AND household_id=$2 AND status='OPEN' RETURNING title,action_type,COALESCE(metadata_json->>'source_event_id','')`, r.PathValue("id"), householdID, p.UserID).Scan(&title, &actionType, &sourceEventID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "integration action not found"})
 		return
@@ -90,6 +91,21 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'RESOLVE_INTEGRATION_ACTION','integration_action',$3,jsonb_build_object('status','RESOLVED','title',$4::text))`, householdID, p.UserID, r.PathValue("id"), title); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to resolve integration action"})
 		return
+	}
+	// Closing a failed-source action acknowledges the failure, so the source event
+	// is finalized in the same transaction and analytics stops counting it.
+	if actionType == reviewdomain.FailedSourceActionType {
+		ignored, err := reviewdomain.IgnoreFailedSource(r.Context(), tx, householdID, sourceEventID)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to resolve integration action"})
+			return
+		}
+		if ignored {
+			if _, err = tx.Exec(r.Context(), `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'USER',$2,'IGNORE_FAILED_SOURCE','source_event',$3::uuid,jsonb_build_object('processing_status','IGNORED','integration_action_id',$4::text))`, householdID, p.UserID, sourceEventID, r.PathValue("id")); err != nil {
+				writeJSON(w, 500, map[string]string{"error": "unable to resolve integration action"})
+				return
+			}
+		}
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to resolve integration action"})

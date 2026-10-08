@@ -43,7 +43,7 @@ func unmatchedOutRow(amount string) validatedScreenshotRow {
 }
 
 func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
-	// PRD §37: every screenshot reason code must store the one contract that
+	// Every screenshot reason code must store the one contract that
 	// reason resolves to, or the Inbox hides an action the API still accepts.
 	for _, reason := range []string{"POSSIBLE_DUPLICATE", "AMBIGUOUS_CATEGORY"} {
 		got := screenshotRowDecision("household", "event", "transaction", reason, 0, validatedScreenshotRow{Type: "EXPENSE", DateKnown: true}, false)
@@ -79,7 +79,7 @@ func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
 	}
 }
 
-// PRD §11.3: every unmatched row of one image shares a single bounded request.
+// Every unmatched row of one image shares a single bounded request.
 func TestResolveRowCategoriesBatchesOneRequestPerImage(t *testing.T) {
 	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_017": rowAnswerFor("food-and-drink", 0.9), "row_018": rowAnswerFor("groceries", 0.9), "row_019": {Type: "choice", Choice: "", Confidence: 0, HasConfidence: false}}}
 	rows := make([]validatedScreenshotRow, 20)
@@ -122,7 +122,7 @@ func TestClearScreenshotRowsNeverEnterBatch(t *testing.T) {
 	}
 }
 
-// A coin-flip answer is the EVIDENCE_GAP case the PRD wants one question for.
+// A coin-flip answer is the EVIDENCE_GAP case that gets exactly one question.
 func TestResolveRowCategoriesLeavesThinMarginUndecided(t *testing.T) {
 	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor("food-and-drink", 0.55)}}
 	decided, _, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
@@ -134,7 +134,7 @@ func TestResolveRowCategoriesLeavesThinMarginUndecided(t *testing.T) {
 	}
 }
 
-// Without the bounded plane nothing may auto-confirm (PRD §17, fail closed).
+// Without the bounded plane nothing may auto-confirm (fail closed).
 func TestResolveRowCategoriesWithoutVerifierDecidesNothing(t *testing.T) {
 	decided, provenance, err := (&Processor{}).resolveRowCategories(context.Background(), "evt", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
 	if err != nil || len(decided) != 0 || provenance.Questions != 0 {
@@ -142,9 +142,9 @@ func TestResolveRowCategoriesWithoutVerifierDecidesNothing(t *testing.T) {
 	}
 }
 
-// PRD §11.1/§17: an unmatched OUT row reaches canonical state only with a
+// An unmatched OUT row reaches canonical state only with a
 // decisive category, a printed date, and no unresolved conflict; an incoming row
-// never does (PRD §11.5).
+// never does.
 func TestScreenshotRowAutoConfirmConditions(t *testing.T) {
 	category := "cat-food"
 	decided := unmatchedOutRow("54000")

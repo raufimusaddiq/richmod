@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// PRD §13: the Inbox is proposal-first. These unit tests fix the render contract
+// The Inbox is proposal-first. These unit tests fix the render contract
 // on the API side, so the card always has a proposal, a single reason, and the
 // list of genuinely unresolved facts regardless of which pipeline created it.
 func TestProposalFactsFromDecisionCarriesClassAndMissingFacts(t *testing.T) {
@@ -50,7 +50,7 @@ func TestProposalFactsWithoutDecisionReturnsNoMissingFacts(t *testing.T) {
 
 // The card decides what to ask for from the server-provided missing facts, so an
 // interaction mode must never be able to request a field the decision did not
-// name (PRD §13.4).
+// name.
 func TestProposalFactsIgnoresFactsNotNamedAsMissing(t *testing.T) {
 	decision := []byte(`{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","decisionClass":"EVIDENCE_GAP","knownFacts":{},"missingFacts":["wealth_account"],"provenance":{},"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"],"interactionMode":"SINGLE_FIELD"}`)
 	missing := proposalFacts(decision).MissingFacts

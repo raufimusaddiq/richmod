@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00072_savr_closure_phase_provenance.sql`.
+forward migration set through `db/migrations/00077_ceu_review_hardening.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -88,6 +88,8 @@ erDiagram
     REVIEW_ITEM ||--o{ REVIEW_REQUEST : delivered_as
     REVIEW_REQUEST ||--o{ REVIEW_CONVERSATION : records
     REVIEW_REQUEST ||--o{ REVIEW_REQUEST_RECIPIENT : sends_to
+    HOUSEHOLD ||--o{ TELEGRAM_MESSAGE_BINDING : records
+    DOCUMENT ||--o{ TELEGRAM_MESSAGE_BINDING : bound_to
     HOUSEHOLD ||--o{ BANK_EMAIL_LISTENER : configures
     BANK_EMAIL_LISTENER ||--o{ BANK_EMAIL_EVENT : receives
     BANK_EMAIL_EVENT ||--o{ BANK_EMAIL_EXTRACTION : extracts
@@ -101,6 +103,8 @@ erDiagram
     HOUSEHOLD ||--o{ PRODUCT_TELEMETRY_EVENT : records
     TRANSACTION ||--o{ PRODUCT_TELEMETRY_EVENT : measures
     REVIEW_ITEM ||--o{ PRODUCT_TELEMETRY_EVENT : measures
+    HOUSEHOLD ||--o{ CYCLE_DECISION : records
+    USER ||--o{ CYCLE_DECISION : authors
     TRANSACTION ||--o{ TELEGRAM_PENDING_ACTION : may_be_edited_by
     CATEGORY ||--o{ TELEGRAM_PENDING_ACTION : proposed_category
 ```
@@ -132,7 +136,7 @@ erDiagram
 | `transaction_evidence` | Many-to-many evidence link for a transaction. | `transaction_id → transaction`, `source_event_id → source_event`; preserves source linkage. |
 | `reconciliation_merge` | Audited merge from duplicate source transaction to target transaction. | Household-scoped; source/target both reference `transaction`. |
 | `reconciliation_merge_evidence` | Evidence copied during a reconciliation merge. | `merge_id → reconciliation_merge`; original/copied transaction evidence references. |
-| `budget` | Household category budget for a period. | `household_id`, `category_id`, `created_by_user_id`; active period/category uniqueness. |
+| `budget` | Retired (ADR-051): no code reads or writes it. Kept so historical rows are not destroyed. | `household_id`, `category_id`, `created_by_user_id`; active period/category uniqueness. |
 | `salary_source` | Configured salary source and cycle anchor. | Household-scoped; optional associated user and one active primary source per household. |
 | `salary_event` | Observed or confirmed salary event. | `salary_source_id → salary_source`; links source evidence/transaction where available. |
 | `salary_pending_choice` | Pending human choice for salary attribution. | Household-scoped; references canonical `transaction`. |
@@ -141,12 +145,13 @@ erDiagram
 
 | Table | Purpose | Principal relationships / constraints |
 | --- | --- | --- |
-| `source_event` | Immutable intake envelope for bank email, Telegram, web, or system evidence. | Household-scoped; external-ID/payload-hash deduplication; Telegram message/album metadata. |
+| `source_event` | Immutable intake envelope for bank email, Telegram, web, or system evidence. | Household-scoped; external-ID/payload-hash deduplication; Telegram message/album metadata. CEU-02 (migration `00076`): nullable `telegram_chat_id` (backfilled from the stored update) with a partial index on household + chat + message id, so a reply to an upload binds to its evidence; message ids are only unique per chat. |
 | `source_event_payload` | Inline source payload storage. | One-to-one with `source_event`. |
 | `attachment` | Stored uploaded or fetched binary metadata. | Household-scoped; object key/hash/content metadata. |
-| `document` | Evidence document derived from a source event and attachment. | One source event per document; links `attachment`. |
+| `document` | Evidence document derived from a source event and attachment. | One source event per document; links `attachment`. `evidence_notice_at` (migration `00077`) is the durable marker that the document's one "recorded" notice was queued, so the guarantee does not depend on prunable job rows; `(id, household_id)` is unique to support the binding foreign key. |
 | `document_page` | Page/image record for a multi-page document. | `document_id → document`; ordered page content. |
 | `document_extraction` | Structured extraction attempt/result. | `document_id → document`; extraction state, facts, and model metadata. `stage` values include `CLASSIFICATION`, per-family extraction stages, `INTERPRETATION_SHADOW` (redacted shadow classification), and `INTERPRETATION_SHADOW_METRIC` (redacted agreement/counter/error-class/latency row). Primary interpretation is disabled pending its rollout gate, so no `INTERPRETATION_PRIMARY` rows are written. |
+| `wealth_observation` | Accepted per-account evidence or unresolved wealth residual; distinct from complete snapshots. | Household-scoped; optional resolved Wealth Account; `ACCEPTED` is visible account-level evidence, `PENDING` requires residual resolution, `APPLIED` means consumed by a complete snapshot, `DISMISSED` means rejected. Accepted observations do not affect snapshot totals. |
 | `bank_email_listener` | Household-scoped bank-email listener configuration. | References household/account; fixed spending-only policy in application behavior. |
 | `bank_email_event` | Bank-email processing record. | References listener and source event; message ID is the provider-neutral identifier. |
 | `bank_email_extraction` | Bank-email extraction result. | Shares the bank-email source-event identity; supports deterministic validation/review. |
@@ -165,7 +170,8 @@ erDiagram
 | `telegram_pending_action` | Deterministically bound Telegram correction awaiting confirmation. | Household/Telegram scoped; references `transaction`; nullable proposed transaction time plus optional `proposed_category_id → category` and proposed description. |
 | `telegram_pending_batch` | Pending multi-expense Telegram batch. | Household/Telegram scoped; binds batch selection safely. |
 | `telegram_conversation_turn` | Bounded finance conversation turn. | Household/Telegram scoped; optional source event; tool turns hold public context only. |
-| `telegram_turn_reference` | Short-lived transaction/review reference usable in a Telegram turn. | `turn_id → telegram_conversation_turn`; typed target ID is intentionally polymorphic. |
+| `telegram_turn_reference` | Short-lived reference usable in a Telegram turn: `TRANSACTION`, `REVIEW`, or `EVIDENCE` (CEU-01, migration `00075`). | `turn_id → telegram_conversation_turn`; typed target ID is intentionally polymorphic and server-only. An `EVIDENCE` ref (`a<hash8>_p<n>r<n>_ev<n>`) holds a `document.id`, is household + Telegram user + chat scoped, expires after 60 minutes, and is resolved only by Go; the id is never model-visible. |
+| `telegram_message_binding` | The bot's own outbound message about a document (CEU-02), so a reply to it binds to that evidence. | `household_id → household`; `(telegram_chat_id, telegram_message_id)` unique; `entity_type` is `DOCUMENT`; `entity_id` is a server-only `document.id`, enforced by a composite foreign key `(entity_id, household_id) → document(id, household_id)` so a row can never dangle or cross households (migration `00077`). Written by the worker after a send whose job carries `bind_document_id`; idempotent. Review cards keep binding through `review_request_recipient`. |
 
 ### Jobs, insights, LLM observability, and administration
 
@@ -178,9 +184,10 @@ erDiagram
 | `judgment_decision` | Bounded System One / Jev decision provenance. | Household-scoped; optional `source_event_id → source_event`; `policy_version` plus bounded question keys, answer summary, and outcome. Stores no raw user text, email body, document bytes, or credentials; the canonical mutation stays in `transaction`/`audit_log`. |
 | `intelligence_phase_telemetry` | IR-09 per-inference metadata for model-order measurement. | Optional household/source event; capability, purpose, semantic question/output field names, policy/model, latency, transport outcome, and `accepted_dimensions_at_entry` (question-key names only; `NULL` = not captured, `'{}'` = explicitly none). No prompts, answers, messages, or financial values. |
 | `judgment_turn_telemetry` | Per-turn Jev value measurement (PRD §23). | Household/source-event scoped; one row per Telegram turn recording the resolving lane (`JEV_ONLY`, `JEV_THEN_GENERATIVE`, `JEV_THEN_GENERATIVE_THEN_RESIDUAL_JEV`, `GENERATIVE_ONLY`), the bounded decision tasks consumed, any rescued `residual_dimensions`, `policy_version`, model, and `native_tool_calls_avoided`. Aggregate-only: stores no prompt, answer text, household message, or financial value. |
-| `product_telemetry_event` | Append-only PRD §22.2/§22.3 product event (review turn, auto-confirm correction). | Household-scoped; optional `source_event_id`, `transaction_id`, `review_item_id`. Stores bounded `action`, decision policy/source, an allow-listed `changed_fields` array of field names, and a `bounded_choices` counter — never a financial value, prompt, or user text. Written by triggers in the same transaction as the canonical write; `payDate` on a payslip review is normalized to `transaction_at` for RHICE. |
+| `product_telemetry_event` | Append-only PRD §22.2/§22.3 product event (review turn, auto-confirm correction). | Household-scoped; optional `source_event_id`, `transaction_id`, `review_item_id`. Stores bounded `action`, decision policy/source, an allow-listed `changed_fields` array of field names, and a `bounded_choices` counter — never a financial value, prompt, or user text. Written by triggers in the same transaction as the canonical write; `payDate` on a payslip review is normalized to `transaction_at` for RHICE. `event_type` also allows `CEU_BINDING` (migration `00075`): one row per CEU binding or resolver outcome, whose `action` is an allow-listed outcome name (for example `REFERENCE_EXPIRED`); no text, value, or identifier is stored. |
 | `bank_email_evidence_verification` | Bounded verification ruling for one bank-email extraction. | One row per `source_event_id`; records the `bank_email_verification_policy_version`, the gateway model, and bounded boolean claims (observed, amount, direction, channel, ambiguity). Additive audit only — it writes no canonical financial state and never stores the email body. |
-| `insight` | Generated household analytics narrative. | Household/time-period scoped; non-authoritative product output. |
+| `insight` | Generated household cycle commentary. | Household/time-period scoped; non-authoritative text. `cycle-analyst-v5` stores deterministic `facts_snapshot`, native `tool_reads`, and contract metadata in `input_metrics_json` for audit; list responses omit snapshot/transcript while preserving the database values. PostgreSQL sets `created_at` for rate limiting; `facts_snapshot.generatedAt` binds worker READ timing. `period_end` binds exact server reuse/closed-cycle selection; active earlier snapshots have explicit measured-date labels, never current-fact claims. Older prompt-version rows remain historical, never rewritten as current commentary. Cycle selection filters before the 12-row list limit. |
+| `cycle_decision` | Explicit human-authored note for a closed salary-cycle review. | `household_id → household`; `created_by_user_id → user`; `cycle_start DATE`, body (1–2000 characters), `created_at TIMESTAMPTZ`, nullable `deleted_at`. Indexed by household/cycle/creation time. Go validates the selected closed salary cycle and active membership; creation/revocation and `audit_log` append commit atomically. No transaction/Wealth reference or financial mutation. Notes are immutable; correction means explicitly revoking and adding a new note. Revocation retains the body/author/date and hides it from active lists. Down migration refuses to drop a nonempty table. |
 | `audit_log` | Household financial/audit trail. | Household/user optional; typed entity ID is polymorphic. |
 | `platform_audit_log` | Platform-admin audit trail. | `actor_user_id → user`; typed entity ID is polymorphic. |
 | `integration_action` | Setup/integration action surfaced in Inbox. | Household-scoped; optional email-ingress delivery and resolving user. |
@@ -198,13 +205,7 @@ When adding or changing a migration:
    rollback/down-migration behavior explicitly.
 5. Include the schema-document update in the same commit as the migration.
 
-No database schema change accompanies ADR-037's initial interpretation
-interface. Classification/interpretation telemetry remains metadata-only through
-the existing `llm_call` boundary; no document observation or field-level
-uncertainty columns are introduced until a later reviewed migration.
-
-Shadow-stage rows (stage `INTERPRETATION_SHADOW` and
-`INTERPRETATION_SHADOW_METRIC` in `document_extraction`) stay classification-only
-metadata: bounded `agree`/`disagree`/`malformed` counters per document type, one
-bounded error class, and latency. No prompt, caption, filename, amount, merchant,
-or identifier string is persisted in these rows.
+Historical `document_extraction` rows with stage `INTERPRETATION_SHADOW` or
+`INTERPRETATION_SHADOW_METRIC` come from the retired ADR-037 shadow stage
+(ADR-051). Nothing writes or reads them any more; they hold only bounded
+classification-agreement counters, an error class and latency.

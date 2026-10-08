@@ -17,6 +17,6 @@ Source: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md`.
 - [x] Salary-choice and merchant-learning native tools.
 - [x] Review action descriptors are bounded by review type; required pay-date/bank fields are validated before mutation.
 - [x] Existing Telegram/document/bank DB integration suites pass against disposable PostgreSQL through migration 40.
-- [ ] Production rollout/deploy smoke.
+- [x] Production rollout/deploy smoke. Production CHAT lane has 19 succeeded `PROCESS_TELEGRAM_TEXT` jobs and 0 failed (checked 2026-10-03).
 
 Latest implementation tracking: `docs/CONVERSATIONAL_NATIVE_TOOL_V2_COMPLETION_CHECKLIST_2026-09-01.md`.

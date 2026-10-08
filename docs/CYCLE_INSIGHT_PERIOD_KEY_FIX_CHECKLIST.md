@@ -1,3 +1,13 @@
+> **HISTORICAL — 2026-09-30**
+>
+> Superseded for new Analytics work. The current contract is
+> `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`,
+> `docs/bdr/BDR-006-analytics-household-cycle-review.md`,
+> `docs/ANALYTICS_CYCLE_REVIEW_UI.md` and
+> `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`. Kept as an execution
+> record; do not restore the point-in-time page composition it describes.
+
+
 # Cycle Insight Period Key — Completion Checklist
 
 Fix for salary-cycle insight generation failing when cycle start is not first day
@@ -27,4 +37,4 @@ of calendar month.
 - [x] Integration test: August 24 salary anchor generates one pending insight and
   one `GENERATE_INSIGHT` job; repeat request returns `200 EXISTING`.
 - [x] API insight tests and vet pass in pinned Go container.
-- [ ] Commit, push, merge, and deploy after explicit approval.
+- [x] Commit, push, merge, and deploy after explicit approval. Merged as `09e3b12`; production runs `main`.

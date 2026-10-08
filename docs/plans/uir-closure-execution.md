@@ -409,7 +409,8 @@ seed fake financial state merely to replay the old smoke matrix.
 A separate post-SAVR defect, S08-08, also reopens one narrow UIR contract point:
 BANK_EMAIL / FINANCIAL_EMAIL review producers can suppress universal Telegram
 projection by requiring originating Telegram source payload. UISC-01 in
-`docs/plans/uir-savr-closure-execution.md` owns that fix.
+`docs/plans/uir-savr-closure-execution.md` owned that fix; it is **closed** (merged
+at `c5278a4`, UISC-04 2026-10-03).
 
 This amendment does not reopen completed UIRC-00..06 feature work. The combined
 closure sprint is the sole pre-CEU gate.

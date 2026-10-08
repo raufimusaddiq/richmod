@@ -13,7 +13,9 @@
 
 # 2026-09-28 blocking owner-household production finding
 
-**UISC-03 acceptance and UISC-04 freeze remain blocked. Do not start CEU.**
+~~**UISC-03 acceptance and UISC-04 freeze remain blocked. Do not start CEU.**~~
+
+**Resolved (UISC-04, 2026-10-03):** the product owner accepted the owner-household observation and the freeze is recorded in `docs/bdr/BDR-005-uir-savr-closure-before-ceu.md`. The finding below is retained as history.
 
 Real owner-household use showed that an undecided Jev Telegram route terminated
 ordinary chat before the conversational agent, and a provider failure routed a

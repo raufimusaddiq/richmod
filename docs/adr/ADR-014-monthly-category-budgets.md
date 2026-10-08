@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Superseded by ADR-051 (2026-10-03). Budgets were never used; the handlers and
+routes are removed and the `budget` table is kept for history only.
 
 ## Decision
 

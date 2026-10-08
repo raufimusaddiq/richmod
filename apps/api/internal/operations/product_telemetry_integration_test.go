@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// PRD §22.2/§22.3: the append-only telemetry table must capture review turns and
+// The append-only telemetry table must capture review turns and
 // post-auto-confirm corrections atomically with the canonical write, and the
 // aggregate must surface them without persisting any financial value or text.
 func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
@@ -130,7 +130,7 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if aggregate.AutoConfirmCorrectionSource["TELEGRAM_TEXT"] != 1 {
 		t.Fatalf("correction source breakdown missing: %+v", aggregate.AutoConfirmCorrectionSource)
 	}
-	// IR-03: one detail field, one bounded web choice, one Telegram classification.
+	// One detail field, one bounded web choice, one Telegram classification.
 	if aggregate.CanonicalEvents != 3 {
 		t.Fatalf("canonical cohort must be the confirmed in-window transactions: %+v", aggregate)
 	}

@@ -7,7 +7,7 @@
 ### Household finance tracking that understands evidence, asks when unsure, and never lets AI guess your ledger.
 
 [![CI](https://github.com/raufimusaddiq/richmod/actions/workflows/ci.yml/badge.svg)](https://github.com/raufimusaddiq/richmod/actions/workflows/ci.yml)
-![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 ![Self-hosted](https://img.shields.io/badge/deployment-self--hosted-3b7a57)
@@ -34,11 +34,21 @@ Forward financial notifications, send a message or image through Telegram, or up
 | --- | --- | --- |
 | ![Richmod household dashboard](docs/assets/dashboard.png) | ![Richmod household Wealth](docs/assets/wealth.png) | ![Richmod Review Inbox](docs/assets/review-inbox.png) |
 
-![Richmod household analytics](docs/assets/analytics.png)
+![Richmod household cycle review](docs/assets/analytics.png)
 
-Screenshots use synthetic household data. No production financial data is included.
+| Phone | Tablet |
+| --- | --- |
+| ![Richmod dashboard on a phone](docs/assets/dashboard-mobile.png) | ![Richmod transactions on a tablet](docs/assets/transactions-tablet.png) |
+
+The same app adapts from desktop to tablet to phone: a bottom tab bar replaces the sidebar, cards stack, and the transaction list switches between a full table and compact rows.
+
+Screenshots use synthetic household data. No production financial data is included. The desktop images are 1440x1050; the phone and tablet images are 390x844 and 768x1024. The cycle comparison chart in the Analytics image appears once a household has four closed salary cycles; with fewer, Richmod shows one summary card per cycle instead, so a new household will see the card layout first.
 For reproducible capture, verification, and disposable cleanup, see the
 [README visual showcase runbook](docs/runbooks/readme-showcase.md).
+
+Analytics follows the [cycle-review UI contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md).
+Older Analytics insight and chart-refinement documents remain historical records,
+not current implementation guidance.
 
 ## Why Richmod
 
@@ -56,7 +66,7 @@ Richmod is deliberately conservative around money. PostgreSQL is the source of t
 | 💬 **Telegram Assistant** | Ask finance questions, record transactions, send evidence, make corrections, and resolve reviews conversationally. |
 | 📄 **Document Understanding** | Process receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories through one evidence pipeline. |
 | 🧠 **Human-in-the-loop** | Ambiguous facts never silently become ledger entries. Richmod routes uncertainty to the Review Inbox for an explicit decision. |
-| 📊 **Deterministic Analytics** | Explore cashflow, spending, categories, merchants, members, and salary-cycle views from confirmed financial state. |
+| 📊 **Deterministic Analytics** | Review salary-cycle outcomes, previous/recent-median comparisons, merchant and transaction drivers, savings, Wealth, and loose ends. Optional tool-first discussion; explicit household decisions; full review remains usable without AI. |
 | 🧾 **Wealth snapshots** | Track household assets and liabilities as dated observations, connect salary-cycle savings to their destination, and review Net Worth over time. |
 | 🔎 **Evidence + Audit History** | Preserve source evidence and the decisions it supports so financial state stays explainable and auditable. |
 
@@ -160,17 +170,22 @@ Richmod treats AI output as untrusted input.
 The web app is organized around:
 
 ```text
-Overview
-Transactions
-Analytics
-Review Inbox
-Documents
-Household
-Settings
-Integration Actions
+Overview     (Ringkasan)
+Transactions (Transaksi)
+Analytics    (Analisis)
+Wealth       (Kekayaan)
+Review Inbox (Tinjauan)   Transactions tab + Actions tab
+Documents    (Dokumen)
+Household    (Keluarga)
+Settings     (Pengaturan)
+Admin        (Admin)      super admins only
 ```
 
+The interface is in Indonesian; the English names above are the terms this documentation uses. The Admin console is the platform operator view and appears only for super admins.
+
 Financial review and integration setup are intentionally separate. A forwarding confirmation should never look like a transaction problem, and a transaction ambiguity should never be hidden inside system setup.
+
+The Actions tab also lists source events that failed for good, such as an unusable bank email or a job that gave up, as dismissable items. A machine failure is shown without opening a false review ([ADR-049](docs/adr/ADR-049-failed-sources-surface-as-actions.md)).
 
 ## Architecture
 
@@ -196,7 +211,7 @@ No AI model receives direct database access. Richmod authenticates only to LiteR
 cp .env.example .env
 ```
 
-Replace every placeholder in `.env` before starting the stack.
+Replace every placeholder in `.env` before starting the stack. [`.env.example`](.env.example) is grouped by concern (database, LLM gateway, Telegram, email ingress, storage, judgment plane, backups); optional variables are left blank and say what an empty value means.
 
 ### 2. Start Richmod
 
@@ -225,6 +240,29 @@ printf '%s\n' 'use-a-unique-12-plus-character-password' \
 
 This creates the first `OWNER`, household, and Indonesian category seeds in one transaction.
 
+## Local development
+
+```bash
+# Web: unit and lock tests, then the production build
+cd apps/web && npm ci && npm test && npm run build
+
+# API and worker
+cd apps/api && go test ./... && go vet ./...
+cd apps/worker && go test ./... && go vet ./...
+```
+
+Database-backed tests need an isolated PostgreSQL; the [disposable test matrix](docs/runbooks/disposable-test-matrix.md) has the exact commands and the cleanup. The web app also has a visual smoke test (`npm run test:visual`) that renders every route at six viewport sizes against synthetic API fixtures, and `npm run capture:readme` regenerates the screenshots above ([README showcase runbook](docs/runbooks/readme-showcase.md)).
+
+## Examples and configuration
+
+| File | What it is |
+| --- | --- |
+| [`.env.example`](.env.example) | The full environment, grouped by concern. Copy to `.env`; never commit the copy. |
+| [`infra/cloudflare-email-ingress/wrangler.toml.example`](infra/cloudflare-email-ingress/wrangler.toml.example) | The ingress Worker: stores the raw message in R2 and enqueues metadata. Holds no secret. |
+| [`infra/cloudflare-email-delivery/wrangler.toml.example`](infra/cloudflare-email-delivery/wrangler.toml.example) | The delivery Worker: consumes the queue and posts to the API. Its signing secret is set with `wrangler secret put`, never in the file. |
+
+The Cloudflare examples use a placeholder API hostname; replace it with your own before deploying.
+
 ## Current status
 
 The generic Cloudflare email-ingress path is active in production and has completed a real forwarded financial-email flow through bank-email processing and ledger confirmation.
@@ -233,18 +271,22 @@ The former Gmail OAuth / Pub/Sub runtime has been fully sunset from the applicat
 
 Current follow-up hardening items include real second-sender acceptance and another off-host backup restore exercise.
 
+The web interface is responsive across phones, tablets and desktops. Controls are labelled, interface text is 12px or larger (chart axis ticks and a few admin helper lines are the known exceptions), scrolling regions are reachable by keyboard, and the visual smoke test renders every route at six viewport sizes. The 2026-10-02 UI audit, what each fix changed, and what remains open are in [`docs/audits/UI-AUDIT-2026-10-02.md`](docs/audits/UI-AUDIT-2026-10-02.md).
+
 ## Shipping changes
 
 Pull requests and pushes to `main` run the repository CI path, including secret scanning, Go tests and vet, database-backed integration tests, frontend tests, the Next.js production build, Compose validation, and production image builds.
 
 Successful `main` builds publish immutable images to GHCR. Production deployment is manual and approval-gated: the server pulls released images, runs migrations, and restarts services without building locally.
 
-See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployment.md) for the deployment flow.
+`main` is protected. A change reaches it through a pull request whose required checks, including the automated Hermes Review, pass, and it is merged with a merge commit. The full sequence from branch to cleanup is the [sprint delivery runbook](docs/runbooks/sprint-delivery.md); [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployment.md) covers the deployment flow.
 
 ## Documentation
 
+- [Documentation index](docs/README.md): where to start, and which documents are current
+- [Architecture decision records](docs/adr/README.md): the index of all ADRs
 - [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md)
-- [ADR-033: Cloudflare email ingress and Gmail sunset](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md)
+- [ADR-033: Cloudflare email ingress and Gmail sunset](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md) (the number is shared with [ADR-033: Bounded natural conversational finance agent](docs/adr/ADR-033-bounded-natural-conversational-agent.md); both are current)
 - [ADR-038: System One semantic decision plane](docs/adr/ADR-038-system-one-semantic-decision-plane.md)
 - [Jev / System One integration PRD](docs/RICHMOD_JEV_SYSTEM_ONE_PRD.md)
 - [Database schema and ERD](docs/DATABASE_SCHEMA.md)
@@ -252,6 +294,9 @@ See [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployme
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
 - [Wealth, savings, and cycle reconciliation release checklist](docs/WEALTH_SAVINGS_CYCLE_RECONCILIATION_RELEASE_CHECKLIST.md)
 - [Production deployment runbook](docs/runbooks/production-deployment.md)
+- [Sprint delivery runbook](docs/runbooks/sprint-delivery.md) and the [disposable test matrix](docs/runbooks/disposable-test-matrix.md)
+- [Brand guidelines](docs/brand-guidelines.md) and the [UI audit](docs/audits/UI-AUDIT-2026-10-02.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md)
 - [`AGENTS.md`](AGENTS.md) for repository architecture and contribution rules
 
 ## Scope

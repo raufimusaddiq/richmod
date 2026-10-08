@@ -85,7 +85,7 @@ func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
 	}
 }
 
-// UIR-06: a confirmed primary salary enqueues exactly one cycle-residual review,
+// A confirmed primary salary enqueues exactly one cycle-residual review,
 // even when a stale replay repeats the confirmation. Pins the residual coverage
 // the Telegram lanes previously skipped.
 func TestPayslipPrimarySalaryEnqueuesCycleResidualOnce(t *testing.T) {
@@ -150,7 +150,7 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// UIRC-03: current producers write the canonical item with the transaction, so
+	// Current producers write the canonical item with the transaction, so
 	// the Inbox must surface it without the transaction-only legacy fallback.
 	var transactionID, reviewItemID string
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,'EXPENSE','NEEDS_REVIEW',25000,now(),'Warung') RETURNING id`, household).Scan(&transactionID))
@@ -606,7 +606,7 @@ func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
 	}
 }
 
-// UIR-08: a transaction-bound review item stranded after its transaction was
+// A transaction-bound review item stranded after its transaction was
 // already finalized must surface in the Inbox (previously hidden by the
 // transaction_id IS NULL filter) and be dismissible without touching the
 // confirmed transaction.

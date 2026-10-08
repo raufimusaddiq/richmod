@@ -14,7 +14,7 @@ type TransferReconciliationCommand struct {
 	HouseholdID, ActorUserID, ReviewItemID, CaseID, Action, CandidateID string
 	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for
 	// the chat lanes). Empty defaults to USER so a surface that forgets it is
-	// recorded as a human resolution rather than an unattributed one (UIRC-04).
+	// recorded as a human resolution rather than an unattributed one.
 	ActorType string
 }
 
@@ -108,7 +108,7 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
 		return "", err
 	}
-	// UIRC-04: the surface is recorded on the canonical review item so Admin
+	// The surface is recorded on the canonical review item so Admin
 	// counts a resolution by the channel that performed it. Per-surface audit rows
 	// key off a transaction or source event, which cannot be joined back here.
 	actorType := cmd.ActorType

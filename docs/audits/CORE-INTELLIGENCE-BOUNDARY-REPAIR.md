@@ -179,9 +179,13 @@ post-deploy email event was observed, so the Jago/Bibit production rechecks and
 email-origin review projection remain `PRODUCTION_UNOBSERVED`. No synthetic
 or seeded financial data was used.
 
-**Closure gate:** Telegram observation is partial; UISC-03 acceptance and
-UISC-04 freeze remain blocked until remaining production checks and email
-observation are recorded. Do not start CEU.
+**Closure gate (historical, as of 2026-09-29):** Telegram observation was
+partial; UISC-03 acceptance and UISC-04 freeze were blocked pending the remaining
+production checks and email observation.
+
+**Resolved (UISC-04, 2026-10-03):** the product owner accepted this observation
+record. Email-origin projection and the Jago/Bibit rechecks stay
+`PRODUCTION_UNOBSERVED` with green corpus evidence. CEU may start.
 
 ---
 
@@ -239,8 +243,9 @@ closure evidence.
 - Document wealth observations with unresolved account hints still require
   human entity resolution. This is retained canonical household binding, not
   semantic confirmation of already-complete evidence.
-- Real owner-household observation remains pending. No UISC-03/UISC-04 closure,
-  deploy, or roadmap work is implied by these code/test changes.
+- Real owner-household observation remained pending at the time of this
+  change. No UISC-03/UISC-04 closure, deploy, or roadmap work was implied by these
+  code/test changes (UISC-04 later closed on 2026-10-03; see §6 gate note).
 
 ## 7.4 Independent review findings and corrections
 
@@ -295,3 +300,104 @@ not blockers to canonical safety; no extra refactor was added.
 Worker internal tests/vet and API internal tests pass with the disposable
 PostgreSQL environment after these fixes. PR CI/review must rerun on the new
 head.
+
+---
+
+# 8. Final pass from verified main (2026-09-29)
+
+**Baseline:** `832083661c2882fe868136716bef453c5fb97137` (fetched `origin/main`;
+PR #218 and #219 present).
+
+## 8.1 Corrected active-path authorities
+
+| Decision | Previous authority | Corrected authority | Evidence/change |
+| --- | --- | --- | --- |
+| Pending correction/salary turn ownership | Durable row presence | Jev route or exact server binding | Route-gated `PENDING_ACTION_INTERACTION` / `SALARY_INTERACTION`; unrelated turns retain pending rows and ordinary tools. |
+| Salary resolution | Go string keyword classifier | Typed `PRIMARY` / `ORDINARY` / `IGNORE` enum | Raw string parser removed; executor accepts enum only. |
+| Transfer review | Go keyword/prefix NLP and callback phrase round-trip | Typed bounded action; callback ID maps directly | `transferReviewIntent` / `classifyTransferReply` deleted; free text falls through to typed agent. |
+| Payslip date/period | Caption regex/month dictionary and natural-language period parser | Generative typed date/provenance; canonical `YYYY-MM` period | Go validates ISO date, canonical month, range, and payroll compatibility only. |
+| Bank verifier absence | unverified result downgraded to review | Machine retry when the verifier is mandatory | `errVerifierUnconfigured`; no semantic review from configuration failure. PR #219 ambiguity veto stays removed. |
+| Wealth observation | Resolved observation required confirmation; `APPLIED` implied snapshot | `ACCEPTED` per-account evidence, separately readable | Migration 00073; unresolved account stays residual review; accepted evidence never implies a complete snapshot. |
+| Document extraction `validated` | Could be read as semantic acceptance | Extraction-accepted-for-downstream flag only | UI states “Diterima” / “Ditolak / perlu ditinjau”; schema reference records the legacy meaning. |
+| Pending edit/batch executor | Raw yes/no phrase list inside a helper | Typed boolean from the server-owned capability or bounded route | `processPendingEdit` / `processPendingBatch` accept booleans; callbacks and Jev own the meaning. |
+
+Retained Go code adjacent to language is exact structure or normalization, not
+semantic classification: amount syntax in `harvestSimpleTransaction`; RFC3339 /
+ISO parsing and exact enum validation; callback prefixes and callback IDs; the
+bound bank-facts amount-plus-timestamp form; and error-string matching used only
+for telemetry. No active raw-language semantic keyword parser remains in the
+canonical financial paths.
+
+## 8.2 Wealth observation product state
+
+`ACCEPTED` means one account-bound observation was accepted as evidence. It is
+readable from `GET /api/v1/wealth/observations` and never creates a
+`wealth_snapshot`, enters snapshot totals, or implies evidence for another
+account. `PENDING` remains unresolved account binding plus review. `APPLIED`
+remains snapshot consumption. This preserves complete-snapshot invariants while
+removing routine confirmation for unique, structurally valid, semantically
+sufficient evidence.
+
+## 8.3 Verification and closure
+
+Disposable PostgreSQL worker suites for telegram, document, financial-email,
+and bank-email pass after the final changes. The disposable database was at
+schema 72 and migration 00073's check-constraint change was applied manually for
+test execution because no Goose CLI is available in the Go image; migration
+application itself therefore still needs CI confirmation. API verification,
+Hermes review, merge, and deploy are not yet claimed. At that time UISC-03 remained
+`PRODUCTION_UNOBSERVED` and UISC-04 was blocked; both were later resolved on
+2026-10-03 (see the closure gate note above).
+
+---
+
+# 9. Post-PR #222 core boundary follow-up (2026-09-30)
+
+**Baseline:** `main@58570fee3be26408656d0f0c7d33045f79bd3d80`.
+
+## 9.1 Review type and binding kind are separate
+
+`agentReviewBindingPublic` publishes `review_type = ReviewBinding.ReviewType`
+and `review_mode = ReviewBinding.Kind`. `Kind` remains the structural target /
+executor dispatch (`TRANSACTION`, `WEALTH_OBSERVATION`,
+`TRANSFER_RECONCILIATION`, `CYCLE_RESIDUAL`). The semantic tool schema and Jev
+action vocabulary now use `ReviewType`, so a `TRANSACTION` bound to
+`TRANSFER_CLASSIFICATION` exposes only `EXPENSE`, `OWN_ACCOUNT_TRANSFER`,
+`HOUSEHOLD_TRANSFER`, `INVESTMENT_TRANSFER`, `ASSET_PURCHASE`, and `IGNORE`.
+`agentResolveBoundReview` still dispatches by Kind and canonical mutation
+revalidates household ownership, active account/category, binding, and domain
+invariants.
+
+Jev can finish finite argument-free actions (`IGNORE`, own/household/investment
+transfer, salary choices, and other existing allowed finite actions). Actions
+requiring arbitrary values (`EXPENSE` category, asset-purchase Wealth hint, pay
+date, bank facts) fall through to the generative native tool. Jev does not
+consume the freeform value or force a second user turn.
+
+## 9.2 Bank category machine failures
+
+`resolveNewMerchantCategory` now returns canonical category ID/provenance plus
+an error. Active-category query and Jev/provider errors propagate through
+`Process`; they do not become empty semantic answers or create household review
+work. Successful `OTHER_OR_UNCLEAR` / policy-undecided results remain
+category-only residuals. A decisive offered slug still resolves to its active
+household category ID and follows the existing confirm path. Zero active
+categories remain a domain state with no offered bounded choice, not a DB error.
+
+## 9.3 Regression evidence
+
+- Telegram exact transfer review: `Kind=TRANSACTION`,
+  `ReviewType=TRANSFER_CLASSIFICATION`, freeform “aku masukin ke emas” reaches
+  `resolve_review` with `ASSET_PURCHASE` and `wealth_account_hint`; only the
+  active same-household canonical Wealth Account is applied. Wrong-household
+  duplicate hints remain unused.
+- Exact transfer review typed `EXPENSE` + `category_slug` resolves only an
+  active category in the bound household; an invalid slug leaves the review
+  untouched. No phrase parser is used.
+- Bank category provider failure, database failure, semantic undecision, and
+  decisive category paths are separately tested.
+- `go vet ./internal/telegram ./internal/bankemail` and uncached
+  `go test ./internal/...` pass on disposable PostgreSQL after applying the
+  existing migration 00073 constraint to that disposable database.
+- No migration or schema change was needed. PR review, merge, deploy, and
+  owner-household production canary remain pending.

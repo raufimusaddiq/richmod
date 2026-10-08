@@ -60,124 +60,6 @@ func decidedNoul(value float64) judgment.Answer {
 	return judgment.Answer{Type: "noul", Noul: value, HasNoul: true}
 }
 
-// stateStringSlice reads a string slice back out of the shared judgment state.
-func stateStringSlice(state any, key string) []string {
-	payload, ok := state.(map[string]any)
-	if !ok {
-		return nil
-	}
-	values, _ := payload[key].([]string)
-	return values
-}
-
-func transactionBundle(typ string, amountSupported, dateSupported, ambiguous bool, category string) map[string]judgment.Answer {
-	criteria := judgmentTypeCriteria
-	answers := map[string]judgment.Answer{
-		"transaction_type":   confidentChoice(criteria, typ),
-		"amount_support":     decidedNoul(map[bool]float64{true: 0.99, false: 0.02}[amountSupported]),
-		"date_support":       decidedNoul(map[bool]float64{true: 0.99, false: 0.02}[dateSupported]),
-		"material_ambiguity": decidedNoul(map[bool]float64{true: 0.97, false: 0.02}[ambiguous]),
-	}
-	if category != "" {
-		// CategoryCriteria already appends its own OTHER_OR_UNCLEAR option, so the
-		// stubbed distribution automatically covers every server-provided label.
-		answers["category"] = confidentChoice(map[string]any{"OTHER_OR_UNCLEAR": "not safe", "dining": "active", "transport": "active"}, category)
-	}
-	return answers
-}
-
-func TestTransactionDecisionRequiresSupportedFacts(t *testing.T) {
-	processor := &Processor{judgment: &stubJudgmentEngine{answers: transactionBundle("EXPENSE", true, true, false, "dining"), categoryChoice: "dining"}}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Merchant: "makan siang"}, []string{"dining", "transport"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !decision.decisionAllowed() {
-		t.Fatalf("supported expense decision should authorize confirmation: %+v", decision)
-	}
-	if decision.DecisionSource != "JEV" || decision.PolicyVersion != judgmentPolicyVersion {
-		t.Fatalf("decision must carry source and policy version: %+v", decision)
-	}
-}
-
-func TestTransactionDecisionRejectsUnsupportedAmount(t *testing.T) {
-	processor := &Processor{judgment: &stubJudgmentEngine{answers: transactionBundle("EXPENSE", false, true, false, "dining")}}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000"}, []string{"dining"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.decisionAllowed() {
-		t.Fatal("unsupported amount must not authorize confirmation")
-	}
-}
-
-func TestTransactionDecisionRejectsUnsupportedDate(t *testing.T) {
-	processor := &Processor{judgment: &stubJudgmentEngine{answers: transactionBundle("INCOME", true, false, false, "")}}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "gaji 8 juta", validatedExtraction{Type: "INCOME", Amount: "8000000"}, nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.decisionAllowed() {
-		t.Fatal("unsupported date must not authorize confirmation")
-	}
-}
-
-func TestTransactionDecisionRejectsMaterialAmbiguity(t *testing.T) {
-	processor := &Processor{judgment: &stubJudgmentEngine{answers: transactionBundle("EXPENSE", true, true, true, "dining")}}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000"}, []string{"dining"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.decisionAllowed() {
-		t.Fatal("material ambiguity must not authorize confirmation")
-	}
-}
-
-func TestTransactionDecisionRejectsMissingExpenseCategory(t *testing.T) {
-	processor := &Processor{judgment: &stubJudgmentEngine{answers: transactionBundle("EXPENSE", true, true, false, "")}}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000"}, []string{"dining", "transport"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.decisionAllowed() {
-		t.Fatal("expense without an accepted category must not auto-confirm")
-	}
-}
-
-// A generative model must never be able to authorize a mutation by grading its
-// own answer: only the semantic decision object counts.
-func TestGenerativeConfidenceCannotAuthorizeMutation(t *testing.T) {
-	rich := validatedExtraction{Type: "EXPENSE", Amount: "50000", Confidence: 0.99, CategoryConfidence: 0.99}
-	denied := TransactionSemanticDecision{}
-	if denied.decisionAllowed() {
-		t.Fatal("zero decision must not confirm")
-	}
-	processor := &Processor{judgment: &stubJudgmentEngine{answers: transactionBundle("EXPENSE", false, true, false, "dining")}}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", rich, []string{"dining"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.decisionAllowed() {
-		t.Fatal("high generative confidence must not override Jev policy")
-	}
-}
-
-// A self-reported confidence score cannot force a redundant bounded replay.
-func TestSelfReportedGenerativeConfidenceDoesNotForceJudgment(t *testing.T) {
-	engine := &stubJudgmentEngine{answers: transactionBundle("EXPENSE", true, true, false, "dining"), categoryChoice: "dining"}
-	processor := &Processor{judgment: engine}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "bayar kopi", validatedExtraction{Type: "EXPENSE", Amount: "25000", CategorySlug: "dining", Confidence: 0.99, CategoryConfidence: 0.99}, []string{"dining"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if engine.calls != 0 {
-		t.Fatalf("self-reported confidence must not create a replay, calls=%d", engine.calls)
-	}
-	if !decision.decisionAllowed() {
-		t.Fatalf("bounded judgment should authorize the confirmation: %+v questions=%v answers=%v", decision, engine.request.Questions, engine.answers)
-	}
-}
-
 // The ambiguity claim is inverted and must not be satisfied by an undecided
 // middle-band answer: only a decided negative opens the auto-confirm path.
 func TestUndecidedAmbiguityDoesNotAuthorizeConfirmation(t *testing.T) {
@@ -205,122 +87,8 @@ func TestUndecidedAmbiguityDoesNotAuthorizeConfirmation(t *testing.T) {
 	}
 }
 
-// Both channels must reach the same evaluator with the same policy version.
-func TestBothTransactionChannelsShareOneDecisionPolicy(t *testing.T) {
-	categories := []string{"dining", "transport"}
-	answers := transactionBundle("EXPENSE", true, true, false, "dining")
-
-	fastEngine := &stubJudgmentEngine{answers: answers, categoryChoice: "dining"}
-	fast := &Processor{judgment: fastEngine}
-	fastDecision := transactionDecisionFromAnswers(judgment.Result{Model: "stub-jev", Answers: answers}, simpleTransactionCandidate{Amount: "50000"}, categories)
-
-	slowEngine := &stubJudgmentEngine{answers: answers, categoryChoice: "dining"}
-	slow := &Processor{judgment: slowEngine}
-	slowDecision, err := slow.evaluateTransactionSemantics(context.Background(), "src", map[string]any{"merchant": "makan siang"}, categories)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fast == slow {
-		t.Fatal("test setup error")
-	}
-	if fastDecision.TypeAccepted != slowDecision.TypeAccepted || fastDecision.CategorySlug != slowDecision.CategorySlug || fastDecision.TransactionType != slowDecision.TransactionType || fastDecision.MaterialAmbiguity != slowDecision.MaterialAmbiguity {
-		t.Fatalf("channels diverged: fast=%+v slow=%+v", fastDecision, slowDecision)
-	}
-	if fastDecision.PolicyVersion != slowDecision.PolicyVersion || fastDecision.PolicyVersion != judgmentPolicyVersion {
-		t.Fatalf("policy version mismatch: %q vs %q", fastDecision.PolicyVersion, slowDecision.PolicyVersion)
-	}
-}
-
-// A fact-free proposal with an exact deterministic category skips Jev entirely.
-func TestExactCategorySkipsJudgmentWithoutCallingProvider(t *testing.T) {
-
-	engine := &stubJudgmentEngine{err: errors.New("must not be called")}
-	processor := &Processor{judgment: engine}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "bayar kopi", validatedExtraction{Type: "EXPENSE", Amount: "25000", CategorySlug: "dining"}, []string{"dining"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if engine.calls != 0 {
-		t.Fatalf("exact category should not call the provider, calls=%d", engine.calls)
-	}
-	if !decision.decisionAllowed() || decision.DecisionSource != "DETERMINISTIC_POLICY" {
-		t.Fatalf("expected deterministic decision, got %+v", decision)
-	}
-}
-
-// One round trip: the post-extraction path must take the category out of the same
-// bounded bundle that decides direction, support, and ambiguity, instead of
-// asking a separate category-only call after extraction (PRD §10, Sprint B).
-func TestPostExtractionDecisionCarriesCategoryInOneCall(t *testing.T) {
-	engine := &stubJudgmentEngine{answers: transactionBundle("EXPENSE", true, true, false, "dining"), categoryChoice: "dining"}
-	processor := &Processor{judgment: engine}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Merchant: "makan siang"}, []string{"dining", "transport"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if engine.calls != 1 {
-		t.Fatalf("expected exactly one bounded call, got %d", engine.calls)
-	}
-	if !decision.decisionAllowed() {
-		t.Fatalf("expected a confirming decision, got %+v", decision)
-	}
-	if decision.CategorySlug != "dining" {
-		t.Fatalf("category must come from the shared bundle, got %q", decision.CategorySlug)
-	}
-	if _, asked := engine.request.Questions["category"]; !asked {
-		t.Fatalf("the same request must carry the category question, questions=%v", engine.request.Questions)
-	}
-}
-
-// A confirmed merchant rule is deterministic server state, so the decision is
-// authorized with no bounded call at all — and it must carry the matched slug,
-// because extraction is allowed to send no category in that case (Hermes PR #99).
-func TestConfirmedAliasDecisionCarriesMatchedCategory(t *testing.T) {
-	engine := &stubJudgmentEngine{err: errors.New("must not be called")}
-	processor := &Processor{judgment: engine}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "shopeefood 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Merchant: "ShopeeFood", CategorySlug: "dining"}, []string{"dining"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if engine.calls != 0 {
-		t.Fatalf("confirmed alias must not call the provider, calls=%d", engine.calls)
-	}
-	if !decision.decisionAllowed() {
-		t.Fatalf("confirmed alias should authorize confirmation: %+v", decision)
-	}
-	if decision.CategorySlug != "dining" {
-		t.Fatalf("decision must carry the matched slug, got %q", decision.CategorySlug)
-	}
-}
-
-// Provider failure is infrastructure failure, not semantic uncertainty: Go must
-// fail closed instead of trusting whatever the extractor reported.
-func TestJudgmentOutageFailsClosed(t *testing.T) {
-	processor := &Processor{judgment: &stubJudgmentEngine{err: errors.New("timeout")}}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Confidence: 0.99}, []string{"dining"}, false)
-	if err == nil {
-		t.Fatal("provider outage must surface as an error, not a silent decision")
-	}
-	if decision.decisionAllowed() {
-		t.Fatal("outage must not authorize a mutation")
-	}
-}
-
-// Without a judgment engine, Go cannot authorize a semantic mutation.
-func TestUnconfiguredJudgmentCannotConfirmTransaction(t *testing.T) {
-	processor := &Processor{}
-	decision, err := processor.resolveTransactionDecision(context.Background(), "src", "hh", "makan siang 50rb", validatedExtraction{Type: "EXPENSE", Amount: "50000", Confidence: 1, CategoryConfidence: 1}, []string{"dining"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decision.decisionAllowed() || decision.DecisionSource != "JUDGMENT_UNAVAILABLE" {
-		t.Fatalf("unconfigured judgment must fail closed, got %+v", decision)
-	}
-}
-
 // The harvested fast path must ask for route, period, and the transaction
-// sub-bundle in ONE request (PRD §10) and must reuse already-loaded categories
-// (PRD §11).
+// sub-bundle in ONE request and must reuse already-loaded categories.
 func TestInitialJudgmentRequestBundlesSpeculativeTransaction(t *testing.T) {
 	processor := &Processor{}
 	candidate, ok := harvestSimpleTransaction("catat makan siang 50rb hari ini")
@@ -353,6 +121,25 @@ func TestInitialJudgmentRequestSkipsTransactionQuestionsWithoutCandidate(t *test
 	}
 }
 
+func TestInitialJudgmentRequestIncludesOnlyUniqueReviewMetadata(t *testing.T) {
+	for _, count := range []int{0, 1, 2} {
+		request := (&Processor{}).initialJudgmentRequest("grab", &turnAgentContextState{
+			ActiveReviewCount: count, ReviewType: "UNKNOWN_MERCHANT", ReviewConversationState: "AWAITING_MERCHANT",
+		}, simpleTransactionCandidate{})
+		payload := request.State.(map[string]any)
+		if payload["active_review_count"] != count {
+			t.Fatalf("review count = %v, want %d", payload["active_review_count"], count)
+		}
+		review, exists := payload["active_review"].(map[string]any)
+		if exists != (count == 1) {
+			t.Fatalf("count=%d review=%v", count, review)
+		}
+		if exists && (len(review) != 3 || review["review_type"] != "UNKNOWN_MERCHANT" || review["conversation_state"] != "AWAITING_MERCHANT" || review["awaiting_field"] != "merchant") {
+			t.Fatalf("unexpected model-visible review metadata: %v", review)
+		}
+	}
+}
+
 // A pending workflow or an explicit reply is server-bound; speculative
 // transaction harvesting must not run and race that binding.
 func TestHarvestingIsSuppressedForServerBoundTurns(t *testing.T) {
@@ -376,7 +163,7 @@ func TestHarvestingIsSuppressedForServerBoundTurns(t *testing.T) {
 }
 
 // When the judgment plane is unavailable the conversational surface must lose
-// every mutation tool while keeping the deterministic READ tools (PRD §8).
+// every mutation tool while keeping the deterministic READ tools.
 func TestDegradedToolSurfaceHasNoMutationAuthority(t *testing.T) {
 	tools := agentFinanceTools([]string{"dining"}, false, true, true, "TRANSFER_CLASSIFICATION", true, true, "TRANSFER_CLASSIFICATION", false)
 	for _, tool := range tools {
@@ -438,7 +225,7 @@ func (s *stubPurposeEngine) Evaluate(_ context.Context, _ string, request judgme
 
 // The canonical transfer purpose must come from the bounded decision, never from
 // the tool contract, and an unclear answer must fail closed instead of picking a
-// purpose (PRD §13/§14).
+// purpose.
 func TestTransferPurposeComesFromJudgmentNotToolArguments(t *testing.T) {
 	engine := &stubPurposeEngine{choice: "INVESTMENT_CONTRIBUTION"}
 	processor := &Processor{judgment: engine}

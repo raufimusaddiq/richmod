@@ -1,6 +1,6 @@
 package residual
 
-// UIRC-01A regression: once the missing transaction is recorded through the
+// Regression: once the missing transaction is recorded through the
 // ordinary Telegram intake, the open cycle review must be recomputed in the same
 // canonical transaction, so the residual refresh cannot be skipped by a failed
 // follow-up job. The review stays open while the positive residual remains and

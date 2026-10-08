@@ -35,7 +35,7 @@ does not compute canonical totals. Transaction detail reads evidence and audit
 history; document cards expose source, extraction summary, confidence, linked
 transactions, and review state.
 
-Budget handlers and tables remain intact for possible future use, but the active
+Budget handlers were later removed by ADR-051; the table remains. The active
 frontend contains no budget navigation, requests, forms, or utilization display.
 No destructive migration is made solely to remove budgeting from this product
 iteration.

@@ -25,20 +25,24 @@ func TestTransactionStatusTransitions(t *testing.T) {
 }
 
 func TestTransactionFiltersValidateQueryParameters(t *testing.T) {
-	request := httptest.NewRequest("GET", "/api/v1/transactions?from=2026-08-01&to=2026-08-31&type=EXPENSE&status=CONFIRMED&source=BANK_EMAIL&q=pamella", nil)
+	request := httptest.NewRequest("GET", "/api/v1/transactions?from=2026-08-01&to=2026-08-31&type=EXPENSE&status=CONFIRMED&source=BANK_EMAIL&merchantId=11111111-1111-4111-8111-111111111111&q=pamella", nil)
 	filters, err := transactionFiltersFromRequest(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filters.Start == nil || filters.End == nil || filters.Type != "EXPENSE" || filters.Status != "CONFIRMED" || filters.Source != "BANK_EMAIL" || filters.Search != "pamella" {
+	if filters.Start == nil || filters.End == nil || filters.Type != "EXPENSE" || filters.Status != "CONFIRMED" || filters.Source != "BANK_EMAIL" || filters.MerchantID != "11111111-1111-4111-8111-111111111111" || filters.Search != "pamella" {
 		t.Fatalf("unexpected filters: %#v", filters)
 	}
 	if filters.End.Sub(*filters.Start).Hours() != 31*24 {
 		t.Fatalf("exclusive end date = %s", filters.End)
 	}
-	for _, raw := range []string{"type=CRYPTO", "status=DELETED", "source=UNKNOWN", "from=25-08-2026", "from=2026-09-01&to=2026-08-01"} {
+	for _, raw := range []string{"type=CRYPTO", "status=DELETED", "source=UNKNOWN", "from=25-08-2026", "from=2026-09-01&to=2026-08-01", "merchantId=not-a-uuid", "id=not-a-uuid"} {
 		if _, err := transactionFiltersFromRequest(httptest.NewRequest("GET", "/?"+raw, nil)); err == nil {
 			t.Fatalf("invalid query accepted: %s", raw)
 		}
+	}
+	spending, err := transactionFiltersFromRequest(httptest.NewRequest("GET", "/?type=SPENDING&categoryId=uncategorized", nil))
+	if err != nil || spending.Type != "SPENDING" || spending.CategoryID != "uncategorized" {
+		t.Fatalf("review filters=%#v err=%v", spending, err)
 	}
 }

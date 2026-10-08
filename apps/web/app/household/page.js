@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import AppShell from "../components/AppShell";
+import useDialogs from "../components/useDialogs";
 
 const roleLabel = (role) => ({ OWNER: "Administrator", MEMBER: "Anggota" })[role] || role;
 
 export default function HouseholdPage() {
+  const { confirm, dialogs } = useDialogs();
   const [household, setHousehold] = useState(null);
   const [members, setMembers] = useState([]);
   const [me, setMe] = useState(null);
@@ -42,17 +44,18 @@ export default function HouseholdPage() {
   async function createDashboardInvite(memberId) { const response = await fetch(`/api/v1/household/members/${memberId}/dashboard-invite`, {method:"POST"}); const body=await response.json().catch(()=>({})); if(!response.ok){setError(body.error||"Undangan login belum dapat dibuat.");return;} const link=window.location.origin+body.link; await navigator.clipboard?.writeText(link); setInvite({link,memberId,dashboard:true}); await load(); }
 
   async function deactivate(memberId) {
-    if (!window.confirm("Nonaktifkan anggota ini? Riwayat transaksi tetap disimpan.")) return;
+    if (!(await confirm("Nonaktifkan anggota ini? Riwayat transaksi tetap disimpan.", { confirmLabel: "Nonaktifkan", danger: true }))) return;
     const response = await fetch(`/api/v1/household/members/${memberId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: false }) });
     if (!response.ok) { setError("Anggota belum dapat dinonaktifkan."); return; } await load();
   }
 
   if (!me) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return <AppShell user={me} eyebrow="KELUARGA" title={household?.name || "Rumah Tangga"} actions={<span className="header-meta">{members.filter(member => member.active).length} anggota aktif</span>}>
+    {dialogs}
     <p className="page-intro">Kelola anggota dan hubungkan Telegram tanpa memasukkan ID secara manual.</p>
     {error && <p className="notice error">{error}</p>}
     <div className="admin-stack">
-      {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2><span>Peran anggota</span></div><form className="member-form" onSubmit={addMember}><input name="displayName" placeholder="Nama anggota" maxLength="120" required /><input name="email" type="email" placeholder="Email anggota" required /><button>Tambahkan</button></form></section>}
+      {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2><span>Peran anggota</span></div><form className="member-form" onSubmit={addMember}><input aria-label="Nama anggota" name="displayName" placeholder="Nama anggota" maxLength="120" required /><input aria-label="Email anggota" name="email" type="email" placeholder="Email anggota" required /><button>Tambahkan</button></form></section>}
       {invite && <section className="panel"><div><span className="eyebrow">UNDANGAN TELEGRAM</span><h2>Berlaku 15 menit dan hanya sekali pakai</h2><p>Kirim tautan ini langsung kepada anggota yang dituju.</p></div><div className="invite-actions"><a href={invite.link} target="_blank" rel="noreferrer">Buka undangan Telegram</a><button className="danger" onClick={() => revokeInvite(invite.memberId)}>Cabut</button></div></section>}
       <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{members.length} akun</span></div><div className="settings-list">{members.map(member => <article key={member.id}><div><b>{member.displayName}</b><small>{member.email}</small></div><span>{roleLabel(member.role)} · {member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"} · {member.active ? "Aktif" : "Nonaktif"}</span>{owner && member.role === "MEMBER" && member.active && <div className="row-actions"><button className="secondary" onClick={() => createDashboardInvite(member.id)}>Undang masuk ke Richmod</button>{!member.telegramConnected && <button className="secondary" onClick={() => createInvite(member.id)}>Undang Telegram</button>}<button className="danger" onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}</article>)}</div></section>
     </div>

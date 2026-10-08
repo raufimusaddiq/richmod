@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// productAggregate is the PRD §22 product scoreboard computed from canonical
+// productAggregate is the product scoreboard computed from canonical
 // state that already exists: source events, transactions, and review items. It
 // is read-only and stores nothing, so it cannot drift from the ledger and needs
 // no new pipeline. Amounts and free text are never selected.
@@ -32,7 +32,7 @@ type productAggregate struct {
 	ReviewBySource map[string]int `json:"reviewRateBySource"`
 	ReviewByReason map[string]int `json:"reviewRateByReason"`
 
-	// RHICE is the PRD 2.2 north-star metric: explicit human inputs required before
+	// RHICE is the north-star metric: explicit human inputs required before
 	// each canonical financial event reached a valid canonical state, divided by
 	// the number of canonical financial events. The numerator is the recorded
 	// review turns, so a form that submits several fields counts each supplied
@@ -77,10 +77,15 @@ type productAggregate struct {
 	ResidualViolations          int            `json:"residualViolations"`
 	ResidualUnknownReviews      int            `json:"residualUnknownReviews"`
 	ResidualFidelityRate        float64        `json:"residualFidelityRate"`
+	// CEUBinding counts conversational-evidence binding outcomes in the window by
+	// bounded action name (EXACT_REPLY_BINDING, RECENT_CONTEXT_BINDING,
+	// AMBIGUOUS_CONTEXT, REFERENCE_EXPIRED, ...). Counters only: no text, value, or
+	// identifier is stored, and rows from before CEU simply do not exist.
+	CEUBinding map[string]int `json:"ceuBinding"`
 }
 
 func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) (productAggregate, error) {
-	aggregate := productAggregate{WindowDays: 30, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}, AutoConfirmCorrectionFields: map[string]int{}, AutoConfirmCorrectionSource: map[string]int{}}
+	aggregate := productAggregate{WindowDays: 30, CEUBinding: map[string]int{}, BySource: map[string]int{}, ReviewBySource: map[string]int{}, ReviewByReason: map[string]int{}, AutoConfirmCorrectionFields: map[string]int{}, AutoConfirmCorrectionSource: map[string]int{}}
 
 	// Source-event processing states in the window, plus the distinct reviewed
 	// events counted over the exact same cohort so the human-touch ratio is
@@ -264,7 +269,7 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 
 	// Every metric below is derived from canonical state plus the append-only
 	// review-turn telemetry the writers already emit, so it cannot drift from the
-	// ledger. PRD IR-03: RHICE counts each supplied field or bounded choice; turns
+	// ledger. RHICE counts each supplied field or bounded choice; turns
 	// may contain multiple fields. Values merged from known server state are not
 	// counted. Residual allocation is review metadata, not a canonical transaction
 	// input, so it is excluded.
@@ -358,6 +363,7 @@ func (h *Handler) loadProductAggregate(ctx context.Context, householdID string) 
 		sql string
 		dst map[string]int
 	}{
+		{`SELECT action,count(*) FROM product_telemetry_event WHERE household_id=$1 AND event_type='CEU_BINDING' AND occurred_at >= now()-interval '30 days' GROUP BY action`, aggregate.CEUBinding},
 		{`SELECT field,count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id CROSS JOIN LATERAL unnest(e.changed_fields) AS changed(field) WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY field`, aggregate.AutoConfirmCorrectionFields},
 		{`SELECT COALESCE(e.source_type,'unknown'),count(*) FROM product_telemetry_event e JOIN transaction t ON t.id=e.transaction_id WHERE e.household_id=$1 AND e.event_type='AUTO_CONFIRM_CORRECTION' AND t.auto_confirmed_at >= now()-interval '30 days' GROUP BY 1`, aggregate.AutoConfirmCorrectionSource},
 	} {

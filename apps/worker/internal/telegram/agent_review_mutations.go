@@ -24,44 +24,6 @@ func (p *Processor) agentResolveReview(ctx context.Context, state *agentState, c
 type agentTransactionReview struct {
 	reviewID, transactionID, transactionType, reviewType, conversationState, merchantID string
 	messageID                                                                           int64
-	ambiguous                                                                           bool
-	count                                                                               int
-}
-
-func (p *Processor) agentBoundTransactionReview(ctx context.Context, state *agentState) (*agentTransactionReview, error) {
-	query := `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0)
-		FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
-	params := []any{state.HouseholdID, state.Update.Message.Chat.ID}
-	if state.Update.Message.ReplyToMessage != nil {
-		query = `SELECT r.id,r.transaction_id,t.type,r.review_type,c.state,COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0)
-			FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 LIMIT 2`
-		params = append(params, state.Update.Message.ReplyToMessage.MessageID)
-	}
-	rows, err := p.pool.Query(ctx, query, params...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var choices []agentTransactionReview
-	for rows.Next() {
-		var v agentTransactionReview
-		if err := rows.Scan(&v.reviewID, &v.transactionID, &v.transactionType, &v.reviewType, &v.conversationState, &v.merchantID, &v.messageID); err != nil {
-			return nil, err
-		}
-		choices = append(choices, v)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(choices) == 0 {
-		return nil, nil
-	}
-	if len(choices) != 1 {
-		return &agentTransactionReview{ambiguous: true, count: len(choices)}, nil
-	}
-	return &choices[0], nil
 }
 
 func (p *Processor) agentCategoryID(ctx context.Context, householdID, slug string) (string, error) {
@@ -125,11 +87,21 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		return result, true, err
 	}
 	defer tx.Rollback(ctx)
+	var lockedID string
+	err = tx.QueryRow(ctx, `SELECT r.id FROM review_request r JOIN transaction t ON t.id=r.transaction_id JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.id=$1 AND r.household_id=$2 AND t.household_id=$2 AND t.id=$3 AND r.status='OPEN' AND r.expires_at>now() AND t.status='NEEDS_REVIEW' AND c.state=$4 AND rr.telegram_chat_id=$5 AND ($6::bigint=0 OR rr.telegram_message_id=$6) FOR UPDATE OF r,t,c`, review.reviewID, state.HouseholdID, review.transactionID, review.conversationState, state.Update.Message.Chat.ID, review.messageID).Scan(&lockedID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		result.Status = "STALE_REVIEW_BINDING"
+		return result, true, nil
+	}
+	if err != nil {
+		return result, true, err
+	}
 	var userID string
 	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, state.Update.Message.From.ID, state.HouseholdID).Scan(&userID); err != nil {
 		return result, true, err
 	}
 	rememberedCategoryID := ""
+	dateCompleted := false
 	if field == "merchant" {
 		var merchantID string
 		match, lookupErr := merchantmemory.Lookup(ctx, tx, state.HouseholdID, value)
@@ -150,6 +122,21 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, review.transactionID, value); err != nil {
 			return result, true, err
 		}
+		if err = recordReviewMerchantFact(ctx, tx, state.HouseholdID, review.reviewID, value); err != nil {
+			return result, true, err
+		}
+	} else if field == "transaction_at" {
+		date, parseErr := parseSuppliedReviewDate(value)
+		if parseErr != nil || date == nil {
+			// Not a calendar date: store nothing and keep the review on the date.
+			result.Status = "INVALID_TRANSACTION_DATE"
+			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": []string{"transaction_at"}, "format": "YYYY-MM-DD"}
+			return result, true, nil
+		}
+		value = *date
+		if dateCompleted, err = p.applyReviewTransactionDate(ctx, tx, state.HouseholdID, userID, review.reviewID, review.transactionID, value); err != nil {
+			return result, true, err
+		}
 	} else {
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, review.transactionID, value, state.HouseholdID); err != nil {
 			return result, true, err
@@ -166,6 +153,28 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_DETAIL','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'field',$5::text,'value',$6::text,'agent_sprint',1))`, state.HouseholdID, userID, review.transactionID, review.reviewID, field, value); err != nil {
 		return result, true, err
+	}
+	if dateCompleted {
+		if err = tx.Commit(ctx); err != nil {
+			return result, true, err
+		}
+		result.Status = "RESOLVED"
+		result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED_AND_CONFIRMED", "field": field, "value": value}
+		return result, true, nil
+	}
+	if field == "description" && !reviewNeedsCategory(ctx, tx, review.reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, review.transactionID) {
+		// A purpose or correction was the only thing the card asked for and the
+		// transaction already satisfies the confirm rule: finish the review instead
+		// of asking for a category it already has.
+		if err = p.agentConfirmReviewTx(ctx, tx, state, review, "", reviewExtraction{Description: value, Confidence: 1}, userID); err != nil {
+			return result, true, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return result, true, err
+		}
+		result.Status = "RESOLVED"
+		result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED_AND_CONFIRMED", "field": field, "value": value}
+		return result, true, nil
 	}
 	if rememberedCategoryID != "" {
 		if err = p.agentConfirmReviewTx(ctx, tx, state, review, rememberedCategoryID, reviewExtraction{Confidence: 1}, userID); err != nil {
@@ -193,6 +202,13 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
 		return result, true, err
+	}
+	if field == "merchant" && review.messageID != 0 {
+		original := state.Update
+		original.Message.MessageID = review.messageID
+		if err = enqueueReviewUpdateWithMarkup(ctx, tx, review.reviewID, original, "Merchant disimpan. Pilih kategori pengeluaran (halaman 1):", reviewActionMarkupPage(ctx, tx, review.reviewID, review.reviewType, 0)); err != nil {
+			return result, true, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return result, true, err
@@ -239,7 +255,7 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 
 func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *agentState, review agentTransactionReview, categoryID string, value reviewExtraction, userID string) error {
 	var merchantID *string
-	// IR-02: the conversational lane can reach the same canonical confirm as the
+	// The conversational lane can reach the same canonical confirm as the
 	// generic reply lane, so the stored residual contract is enforced here too.
 	// The agent's native action handlers already refused undated or uncategorized
 	// input, so only an explicitly supplied date satisfies the residual date.
@@ -305,9 +321,15 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	}
 	askRemember := merchantID != nil && categoryID != ""
 	if askRemember {
+		// Recall is already consented to; do not ask to learn the same rule again.
+		if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM merchant_alias ma JOIN category c ON c.id=ma.default_category_id AND c.household_id=ma.household_id AND c.active WHERE ma.household_id=$1 AND ma.normalized_merchant_id=$2 AND ma.default_category_id=$3 AND ma.auto_apply AND ma.created_from_user_confirmation)`, state.HouseholdID, *merchantID, categoryID).Scan(&askRemember); err != nil {
+			return err
+		}
+	}
+	if askRemember {
 		// The review item completes now, not on the optional merchant answer: a
 		// follow-up question the user may never send must not strand the review
-		// (UIR-08). AWAITING_MERCHANT_DECISION marks the pending question without
+		//. AWAITING_MERCHANT_DECISION marks the pending question without
 		// depending on review_request.status staying OPEN.
 		if err := resolveCanonicalReviewItem(ctx, tx, review.reviewID, userID, "TELEGRAM_CONFIRMED"); err != nil {
 			return err

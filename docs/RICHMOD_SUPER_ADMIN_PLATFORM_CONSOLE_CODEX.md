@@ -37,7 +37,7 @@ Read at minimum:
 ```text
 AGENTS.md
 
-apps/web/app/admin/page.js
+apps/web/app/admin/ (page.js is the tab shell; one module per tab; shared.js)
 apps/web/app/components/AppShell.js
 apps/web/app/globals.css
 
@@ -353,13 +353,7 @@ Keep:
 
 Under the page title add an internal admin navigation bar.
 
-Suggested component:
-
-```text
-apps/web/app/admin/components/AdminTabs.js
-```
-
-or equivalent.
+Implemented as one module per tab under `apps/web/app/admin/` (`page.js` is the tab shell).
 
 Example:
 
@@ -1279,21 +1273,11 @@ Avoid a 1000-line admin page.
 Suggested:
 
 ```text
-apps/web/app/admin/page.js
-
-apps/web/app/admin/components/
-  AdminTabs.js
-  AdminOverview.js
-  AdminJobs.js
-  AdminJobDrawer.js
-  AdminLLM.js
-  AdminLogs.js
-  AdminHouseholds.js
-  AdminHouseholdDrawer.js
-  AdminUsers.js
-  AdminAudit.js
-  AdminStatusBadge.js
-  AdminTable.js
+apps/web/app/admin/
+  page.js         tab shell (AdminPage, AdminTab)
+  shared.js       helpers, Badge, Metric, Empty, Table, useLoad, useAdminList, useDrawerA11y
+  Overview.js  Reviews.js  Jobs.js (with JobDetail)  LLM.js  Logs.js
+  Households.js (with HouseholdDetail)  Users.js  Audit.js
 ```
 
 JavaScript only.

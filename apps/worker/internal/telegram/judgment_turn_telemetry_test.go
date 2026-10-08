@@ -17,7 +17,7 @@ func (failingEngine) Evaluate(context.Context, string, judgment.Request) (judgme
 
 // A provider failure is not a consumed Jev decision. It must not be recorded in
 // the turn trace, or the turn would report JEV_ONLY and count avoided generative
-// calls it never actually avoided (Hermes PR #103).
+// calls it never actually avoided.
 func TestTurnTraceIgnoresFailedEvaluations(t *testing.T) {
 	ctx, trace := withTurnTrace(context.Background())
 	p := NewProcessor(nil, nil)
@@ -32,7 +32,7 @@ func TestTurnTraceIgnoresFailedEvaluations(t *testing.T) {
 
 // turnTrace records each bounded task once, in first-seen order, and keeps the
 // model that answered it. Duplicate tasks must not inflate the count, because
-// that count is reported as native tool calls avoided (PRD §23).
+// that count is reported as native tool calls avoided.
 func TestTurnTraceRecordsEachTaskOnce(t *testing.T) {
 	trace := &turnTrace{}
 	if trace.consumed() {
