@@ -308,14 +308,16 @@ func acceptableDateProvenance(provenance string) bool {
 // judgment bundle: categories and pending-workflow flags are read
 // once by ProcessAgent and must not be re-queried per fast path.
 type turnAgentContextState struct {
-	Categories          []string
-	HasPendingAction    bool
-	HasPendingBatch     bool
-	HasSalaryChoice     bool
-	HasMerchantLearning bool
-	HasPendingWorkflow  bool
-	ActiveReviewCount   int
-	ExactReply          bool
+	Categories              []string
+	HasPendingAction        bool
+	HasPendingBatch         bool
+	HasSalaryChoice         bool
+	HasMerchantLearning     bool
+	HasPendingWorkflow      bool
+	ActiveReviewCount       int
+	ReviewType              string
+	ReviewConversationState string
+	ExactReply              bool
 	// HasRecentEvidence is true when evidence the user sent within the immediate
 	// window (10 minutes) is in this turn's context (CEU). A bare amount, date or
 	// merchant then may be a correction to that evidence, so no standalone

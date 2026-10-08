@@ -121,6 +121,25 @@ func TestInitialJudgmentRequestSkipsTransactionQuestionsWithoutCandidate(t *test
 	}
 }
 
+func TestInitialJudgmentRequestIncludesOnlyUniqueReviewMetadata(t *testing.T) {
+	for _, count := range []int{0, 1, 2} {
+		request := (&Processor{}).initialJudgmentRequest("grab", &turnAgentContextState{
+			ActiveReviewCount: count, ReviewType: "UNKNOWN_MERCHANT", ReviewConversationState: "AWAITING_MERCHANT",
+		}, simpleTransactionCandidate{})
+		payload := request.State.(map[string]any)
+		if payload["active_review_count"] != count {
+			t.Fatalf("review count = %v, want %d", payload["active_review_count"], count)
+		}
+		review, exists := payload["active_review"].(map[string]any)
+		if exists != (count == 1) {
+			t.Fatalf("count=%d review=%v", count, review)
+		}
+		if exists && (len(review) != 3 || review["review_type"] != "UNKNOWN_MERCHANT" || review["conversation_state"] != "AWAITING_MERCHANT" || review["awaiting_field"] != "merchant") {
+			t.Fatalf("unexpected model-visible review metadata: %v", review)
+		}
+	}
+}
+
 // A pending workflow or an explicit reply is server-bound; speculative
 // transaction harvesting must not run and race that binding.
 func TestHarvestingIsSuppressedForServerBoundTurns(t *testing.T) {

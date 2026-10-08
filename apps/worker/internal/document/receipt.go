@@ -60,6 +60,7 @@ type matchCandidate struct {
 	ID       string
 	Score    float64
 	Merchant string
+	Hours    float64
 }
 
 func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error {
@@ -349,10 +350,11 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 		if err := rows.Scan(&candidate.ID, &candidate.Merchant, &hours); err != nil {
 			return nil, err
 		}
-		// The amount/window query finds candidates, not proven ambiguity. A
-		// different merchant 12-72h away alone cannot justify human review;
-		// same merchant or near-simultaneous same-amount events still fail closed.
+		candidate.Hours = hours
 		merchantMatch := sameMerchant(candidate.Merchant, merchant)
+		// The amount/window query finds candidates, not proven ambiguity. A
+		// different merchant far from the printed time alone cannot justify
+		// human review; same-merchant or near-simultaneous events stay visible.
 		if merchantMatch || hours <= 1 {
 			candidate.Score = documentMatchScore(hours, merchantMatch)
 			result = append(result, candidate)
@@ -362,6 +364,16 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 		}
 	}
 	return result, rows.Err()
+}
+
+// findScreenshotMatches applies the screenshot-only time guard on top of the
+// shared candidate query. Receipts keep the original weak-candidate window.
+func (p *Processor) findScreenshotMatches(ctx context.Context, householdID, transactionType, amount string, transactionAt time.Time, merchant string, dateKnown bool) ([]matchCandidate, error) {
+	matches, err := p.findMatches(ctx, householdID, transactionType, amount, transactionAt, merchant, dateKnown)
+	if err != nil {
+		return nil, err
+	}
+	return filterScreenshotTimeConflicts(matches, merchant), nil
 }
 
 func documentMatchScore(hours float64, merchantMatch bool) float64 {

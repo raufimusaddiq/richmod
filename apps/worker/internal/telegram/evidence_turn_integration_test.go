@@ -219,6 +219,15 @@ func TestBareAmountAfterAReceiptIsNeverHarvestedAsASecondTransaction(t *testing.
 }
 
 func TestNaturalReplyResolvesTheReceiptReviewWithoutReaskingKnownFacts(t *testing.T) {
+	for _, replyTo := range []int64{101, 0} {
+		t.Run(fmt.Sprint(replyTo), func(t *testing.T) {
+			testNaturalCategoryReviewReply(t, replyTo)
+		})
+	}
+}
+
+func testNaturalCategoryReviewReply(t *testing.T, replyTo int64) {
+	t.Helper()
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-review")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
@@ -230,13 +239,20 @@ func TestNaturalReplyResolvesTheReceiptReviewWithoutReaskingKnownFacts(t *testin
 		{ToolCalls: []gateway.ToolCall{{CallID: "c1", Name: "resolve_review", Arguments: json.RawMessage(`{"action":"CONFIRM","category_slug":"makan"}`)}}},
 		{Text: "Sudah dicatat sebagai Makan."},
 	}}
-	p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	route := "CORRECT_TRANSACTION"
+	if replyTo == 0 {
+		route = "REVIEW_INTERACTION"
+	}
+	p, engine := evidenceTurnProcessor(f, model, route)
 
 	var amountBefore string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT amount::text FROM transaction WHERE id=$1`, transactionID).Scan(&amountBefore))
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
-	sourceID, err := runEvidenceTurn(t, ctx, f, p, "masukin ke makan aja", 101) // reply to the receipt upload
+	sourceID, err := runEvidenceTurn(t, ctx, f, p, "masukin ke makan aja", replyTo)
 	mustAgentTest(t, err)
+	if replyTo == 0 && engine.requests[0].State.(map[string]any)["active_review"].(map[string]any)["awaiting_field"] != "category_slug" {
+		t.Fatal("standalone category answer lacks its awaited field")
+	}
 
 	turn := model.turnContext(t, 0)
 	workflow, _ := turn["bound_evidence"].(map[string]any)["workflow"].(map[string]any)

@@ -177,9 +177,8 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
 		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update, recentCandidates)
 		// Recent evidence is context only. It deliberately does not bind its open review:
-		// a no-reply review binding is route-gated, and the route that would use it
-		// (REVIEW_INTERACTION) is answered terminally by the fast path, so such a binding
-		// would never reach the model. A review is resolved by an exact reply or by the existing deterministic reply lane.
+		// a no-reply review binding is route-gated and must come from eligible chat
+		// reviews, not from recent evidence alone.
 		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && len(freshDocuments) > 0
 	}
 
@@ -206,6 +205,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasRecentEvidence:   freshEvidence,
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
+	}
+	if reviewBinding != nil {
+		judgmentState.ReviewType = reviewBinding.ReviewType
+		judgmentState.ReviewConversationState = reviewBinding.ConversationState
 	}
 	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
 		return err
@@ -403,6 +406,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			state.SideEffects++
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
+			if len(state.FreshEvidenceDocuments) > 0 {
+				if _, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent',parser_version='1'
+					WHERE id=ANY(SELECT source_event_id FROM document WHERE id=ANY($1::uuid[]) UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($1::uuid[]))
+					AND processing_status = 'NEEDS_REVIEW'`, state.FreshEvidenceDocuments); err != nil {
+					return fmt.Errorf("finalize stale evidence source: %w", err)
+				}
+			}
 			if !synthesize {
 				return p.finishAgentText(ctx, state, agentMutationFallback(result))
 			}
@@ -706,6 +716,8 @@ func agentMutationFallback(result agentToolResult) string {
 		return "Nominal dan waktu transaksi masih perlu dilengkapi."
 	case "INVALID_PAY_DATE":
 		return "Tanggal pembayaran belum terbaca. Tulis tanggalnya, misalnya 25 Agu 2026."
+	case "INVALID_TRANSACTION_DATE":
+		return "Tanggal transaksi belum terbaca, jadi belum ada yang disimpan. Balas kartu tinjauan dengan tanggalnya, misalnya 2026-10-03."
 	case "TRANSFER_RECONCILIATION_REQUIRED":
 		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi."
 	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":

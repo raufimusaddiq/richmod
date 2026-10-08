@@ -161,7 +161,7 @@ func (p *Processor) ProcessScreenshot(ctx context.Context, documentID string) er
 		if rows[index].Value.Amount == nil {
 			continue // No amount means no safe duplicate match; reconcile after the user supplies it.
 		}
-		matches, err := p.findMatches(ctx, householdID, rows[index].Type, *rows[index].Value.Amount, rows[index].TransactionAt, rows[index].Value.Merchant, rows[index].DateKnown)
+		matches, err := p.findScreenshotMatches(ctx, householdID, rows[index].Type, *rows[index].Value.Amount, rows[index].TransactionAt, rows[index].Value.Merchant, rows[index].DateKnown)
 		if err != nil {
 			return err
 		}

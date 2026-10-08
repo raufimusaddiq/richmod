@@ -343,3 +343,13 @@ call by searching the source payload for `message.chat.id`.
 
 This amendment closes the S08-08 projection drift and does not change canonical
 review semantics, recipient authorization, or first-valid-write rules.
+
+## 2026-10-05 correction — source-only bank review dismissal
+
+`UNKNOWN_BANK_TEMPLATE` cards without a transaction resolve `review:ignore`
+through the shared `IgnoreBankReview` operation, also used by Web. The callback
+binds the delivered chat/message, authorizes the numeric Telegram actor, and
+revalidates the stored allowed action. Dismissal atomically ignores the bank
+source, resolves the canonical item and all its projections/conversations, and
+records the actor audit. No transaction is required, created, or deleted.
+Already-resolved callbacks remain stale and never replay the mutation.
