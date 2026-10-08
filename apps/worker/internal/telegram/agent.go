@@ -239,6 +239,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
+	focusReviewArguments(tools, reviewBinding)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)

@@ -245,25 +245,29 @@ Status of the findings on `ea6ffea`:
 | F1 Jev `CONFIRM` short-circuit | fixed: rule derived from `requiredNativeReviewDetail` | `TestTypedDetailReplyCompletesReview` |
 | F2 bank facts | fixed: `BANK_FACTS` binding + executor sharing `enqueueBankFactsCompletion` with the bound reply lane | `TestTypedBankFactsReplyQueuesCompletion`, both `multi_recipient_race` tests moved to `ProcessAgent` |
 | F3 detail re-asks category | fixed: agent save confirms when nothing else is missing | `TestTypedDetailReplyCompletesReview`, `TestTypedPurposeThenCategoryButtonCompletes` |
-| F4 tests on the wrong entry | partly: payslip date, transfer free text, plain merchant and both bank tests moved to `ProcessAgent`; compound date covered by `TestTypedDateOnCompoundCardAdvancesToCategory` | see F7 for the rest |
-| F5 typed tool arguments | open | — |
+| F4 tests on the wrong entry | fixed: tests of live behaviour moved to `ProcessAgent`; the typed-text lane in `Process` and the tests that only drove it removed | no test feeds typed text to `Process` (classifier: 0) |
+| F5 typed tool arguments | fixed: `focusReviewArguments` narrows `resolve_review` to the arguments the bound card's actions read | `TestReviewToolArgumentsFollowTheCard` |
 | F6 missing amount untested | fixed (path already worked) | `TestTypedAmountReplyRecordsScreenshotRow` |
 
 New findings while executing:
 
-- **F7 — duplicate merge buttons never shown (open, needs a product decision).**
+- **F7 — duplicate merge buttons never shown (fixed: the projector stores the
+  candidates and renders one merge button per candidate; covered by
+  `TestDuplicateReviewOffersChooserAndCompletes`).**
   A production `POSSIBLE_DUPLICATE` card is sent with only "Catat sebagai baru" /
   "Abaikan" (`duplicateIntentMarkup`). The per-candidate merge buttons and the
   stored `duplicate_candidates` come only from `offerDuplicateChoices`, which only
   the typed text lane in `Process` reaches. Merging works in production only by a
   typed answer through the agent (`MERGE_EXISTING`). Either store candidates and
   render `duplicateChoicesMarkup` at projection, or delete the button feature.
-  The remaining old-lane tests (`date_review_integration_test.go`,
-  `freeform_residual_integration_test.go`, the reply-merchant and category-typed
-  tests, and the duplicate typed step) are deleted together with the typed
-  branches of `processBoundReview` once F7 is decided.
+  Chosen: render at projection, since the handler and markup were already
+  built and tested.
 - **F8 — typed replies to cards older than 7 days were refused (fixed).** Only
   `Process` renewed an expired projection; the agent's save step required
   `expires_at > now()`. `ProcessAgent` now renews the same way. Covered by
   `TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale` (it expires the card
   first; fails without the renewal).
+
+All findings F1–F8 are closed on this branch. `processBoundReview` now serves
+only the proposal lane (missing amount, payslip date) and the transfer buttons;
+`deadcode` and `staticcheck` report no new unreachable code.

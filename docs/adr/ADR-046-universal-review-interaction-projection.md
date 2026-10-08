@@ -371,3 +371,9 @@ Go validates and commits.
   when the listener has no account.
 - A typed reply to a card past its 7-day projection window renews it, as the
   button lane does, while the canonical review is open.
+- `resolve_review` offers only the arguments the bound card's actions read
+  (`focusReviewArguments`), for transaction and bank-fact bindings.
+- A `POSSIBLE_DUPLICATE` card stores its candidates when it is sent and shows one
+  merge button per candidate.
+- `Process` handles button taps only; it no longer runs the bound-reply lane for
+  typed text, which production always sends to `ProcessAgent`.
