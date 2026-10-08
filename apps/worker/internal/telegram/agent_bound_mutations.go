@@ -33,6 +33,8 @@ func (p *Processor) agentResolveBoundReview(ctx context.Context, state *agentSta
 	switch state.ReviewBinding.Kind {
 	case "TRANSACTION":
 		return p.agentResolveBoundTransactionReview(ctx, state, call, args, state.ReviewBinding)
+	case "BANK_FACTS":
+		return p.agentResolveBoundBankFacts(ctx, state, call, args, state.ReviewBinding)
 	case "TRANSFER_RECONCILIATION":
 		return p.agentResolveBoundTransferReconciliation(ctx, state, call, args, state.ReviewBinding)
 	case "WEALTH_OBSERVATION":

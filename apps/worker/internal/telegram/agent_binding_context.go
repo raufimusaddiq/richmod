@@ -95,6 +95,16 @@ func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID stri
 			JOIN review_request_recipient rr ON rr.review_request_id=r.id
 			WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN'
 			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
+			UNION ALL
+			SELECT 'BANK_FACTS',ri.id::text,r.id::text,'',r.review_type,COALESCE(c.state,''),'',COALESCE(rr.telegram_message_id,0)::bigint,
+			       '','Email bank',r.created_at
+			FROM review_request r
+			JOIN review_item ri ON ri.id=r.review_item_id
+			LEFT JOIN review_conversation c ON c.review_request_id=r.id
+			JOIN review_request_recipient rr ON rr.review_request_id=r.id
+			WHERE r.household_id=$1 AND r.status='OPEN' AND ri.review_type='UNKNOWN_BANK_TEMPLATE'
+			  AND ri.transaction_id IS NULL AND ri.source_event_id IS NOT NULL
+			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
 		) candidates(kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at)
 		ORDER BY sort_at DESC
 		LIMIT 2`, householdID, update.Message.Chat.ID)
@@ -130,14 +140,16 @@ func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID stri
 
 func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID string, chatID, messageID int64) (*agentReviewBinding, error) {
 	var binding agentReviewBinding
-	var residualID, wealthID, transferID string
+	var residualID, wealthID, transferID, bankItemID string
 	err := p.pool.QueryRow(ctx, `
 		SELECT r.id::text,COALESCE(r.transaction_id::text,''),r.review_type,COALESCE(c.state,''),
 		       COALESCE(t.merchant_id::text,''),COALESCE(ri.cycle_residual_case_id::text,''),
 		       COALESCE(ri.wealth_observation_id::text,''),COALESCE(trc.id::text,''),
 		       COALESCE(rr.telegram_message_id,0)::bigint,
 		       COALESCE(t.amount::text,crc.basis_residual_idr::text,wo.observed_value_idr::text,trc.amount_idr::text,''),
-		       COALESCE(t.counterparty_name,t.description,trim(wo.institution||' '||wo.account_hint),trc.description,'Review')
+		       COALESCE(t.counterparty_name,t.description,trim(wo.institution||' '||wo.account_hint),trc.description,'Review'),
+		       CASE WHEN ri.review_type='UNKNOWN_BANK_TEMPLATE' AND ri.transaction_id IS NULL AND ri.source_event_id IS NOT NULL
+		            AND ri.status IN ('OPEN','PENDING_SEND') THEN ri.id::text ELSE '' END
 		FROM review_request r
 		JOIN review_request_recipient rr ON rr.review_request_id=r.id
 		LEFT JOIN review_item ri ON ri.id=r.review_item_id
@@ -152,7 +164,7 @@ func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID str
 		WHERE r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
 		LIMIT 1`, householdID, chatID, messageID).Scan(&binding.ReviewRequestID, &binding.TransactionID,
 		&binding.ReviewType, &binding.ConversationState, &binding.MerchantID, &residualID, &wealthID, &transferID,
-		&binding.TelegramMessageID, &binding.AmountIDR, &binding.Label)
+		&binding.TelegramMessageID, &binding.AmountIDR, &binding.Label, &bankItemID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -168,6 +180,10 @@ func (p *Processor) exactAgentReviewBinding(ctx context.Context, householdID str
 		binding.Kind, binding.TargetID = "TRANSFER_RECONCILIATION", transferID
 	case binding.TransactionID != "":
 		binding.Kind, binding.TargetID = "TRANSACTION", binding.ReviewRequestID
+	case bankItemID != "":
+		// A bank email whose facts could not be verified: no transaction exists
+		// yet, the household supplies the amount and time.
+		binding.Kind, binding.TargetID, binding.Label = "BANK_FACTS", bankItemID, "Email bank"
 	default:
 		return nil, nil
 	}
@@ -194,6 +210,10 @@ func agentReviewBindingPublic(binding *agentReviewBinding) map[string]any {
 	// reply in that argument instead of guessing.
 	if field := awaitedReviewField(binding.ConversationState); field != "" {
 		out["awaiting_field"] = field
+	}
+	if binding.Kind == "BANK_FACTS" {
+		// The card asks for both values at once; COMPLETE_BANK_FACTS carries them.
+		out["awaiting_field"] = "amount_idr and transaction_at"
 	}
 	return out
 }
