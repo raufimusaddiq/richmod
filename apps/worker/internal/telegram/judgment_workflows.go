@@ -102,7 +102,7 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 		if !isReviewAction(state.ReviewType, choice) {
 			return false, nil
 		}
-		if reviewActionNeedsArguments(choice) || (choice == "CONFIRM" && confirmNeedsTypedValue(state.ReviewBinding.ConversationState)) {
+		if reviewActionNeedsArguments(choice) || (choice == "CONFIRM" && confirmNeedsTypedValue(state.ReviewBinding)) {
 			// The action is already decided. Hand the generative extraction tool
 			// only this action so the remaining freeform value (category, Wealth
 			// hint, pay date, bank facts) is extracted, not re-decided, and the
@@ -120,11 +120,17 @@ func (p *Processor) tryJudgmentBoundWorkflow(ctx context.Context, state *agentSt
 	return false, nil
 }
 
-// confirmNeedsTypedValue reports a review state whose CONFIRM is only complete
-// with the value the household typed (a merchant name or a date). Jev decides the
-// action; the generative extraction supplies the value.
-func confirmNeedsTypedValue(conversationState string) bool {
-	return conversationState == "AWAITING_MERCHANT" || conversationState == "AWAITING_DATE"
+// confirmNeedsTypedValue reports a bound transaction review whose CONFIRM is only
+// complete with a value the household typed (a merchant, a date, a purpose). It
+// asks the executor rule itself, so Jev and the executor cannot disagree about
+// which cards need a value. Jev decides the action; the generative extraction
+// supplies the value.
+func confirmNeedsTypedValue(binding *agentReviewBinding) bool {
+	if binding.Kind != "TRANSACTION" {
+		return false
+	}
+	_, _, required := requiredNativeReviewDetail(binding.ReviewType, binding.ConversationState, binding.MerchantID, "", "", "")
+	return required
 }
 
 // isReviewAction accepts only a semantic action the bound review type offers.

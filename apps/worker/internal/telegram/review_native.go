@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -74,21 +73,6 @@ func validReviewTimestamp(value string) bool {
 	}
 	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
 	return err == nil && !parsed.IsZero() && parsed.Format(time.RFC3339) != ""
-}
-
-// missingFactsAreCategoryOnly reports a stored ReviewDecision whose only unresolved
-// fact is the category. That is the whole interaction, so the Telegram chooser can
-// complete it instead of deferring to the Review Inbox. A legacy review without a
-// stored contract keeps its previous behavior and does not qualify.
-func missingFactsAreCategoryOnly(raw *string) bool {
-	if raw == nil || strings.TrimSpace(*raw) == "null" {
-		return false
-	}
-	var facts []string
-	if json.Unmarshal([]byte(*raw), &facts) != nil {
-		return false
-	}
-	return len(facts) == 1 && facts[0] == "category"
 }
 
 // offerCategoryChooser renders the household category chooser for a review whose only

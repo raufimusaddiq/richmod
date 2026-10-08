@@ -132,6 +132,9 @@ func (p *Processor) tryJudgmentFastPath(ctx context.Context, sourceID, household
 	case "READ_WEALTH":
 		return true, p.replyWealth(ctx, sourceID, householdID, update)
 	case "REVIEW_INTERACTION":
+		if state.ActiveReviewCount == 1 {
+			return false, nil // Let the server-bound workflow interpret the answer.
+		}
 		return true, p.replyReviews(ctx, sourceID, householdID, update)
 	default:
 		// Any decided route that the fast path does not terminally own — including
@@ -160,9 +163,17 @@ func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextS
 		"user_text":              untrustedUser(text),
 		"allowed_routes":         judgmentRoutes,
 		"allowed_category_slugs": state.Categories,
+		"active_review_count":    state.ActiveReviewCount,
+	}
+	if state.ActiveReviewCount == 1 {
+		statePayload["active_review"] = map[string]any{
+			"review_type":        state.ReviewType,
+			"conversation_state": state.ReviewConversationState,
+			"awaiting_field":     awaitedReviewField(state.ReviewConversationState),
+		}
 	}
 	questions := map[string]judgment.Question{
-		"route":  {Type: "choice", Instructions: "Choose exactly one allowed finance workflow route. Use NEEDS_GENERATIVE_AGENT when arbitrary extraction, reasoning, or prose is required.", Criteria: judgment.ChoiceCriteria(judgmentRouteCriteria)},
+		"route":  {Type: "choice", Instructions: "Choose exactly one allowed finance workflow route. A short answer supplying the active review's awaiting field is REVIEW_INTERACTION. An unrelated new request must keep its own route even when a review is open. Use NEEDS_GENERATIVE_AGENT when arbitrary extraction, reasoning, or prose is required.", Criteria: judgment.ChoiceCriteria(judgmentRouteCriteria)},
 		"period": {Type: "choice", Instructions: "Choose the time period the user asked about. Use CUSTOM_OR_UNCLEAR when the user gave explicit dates or stated no period.", Criteria: judgment.ChoiceCriteria(judgmentPeriodCriteria)},
 	}
 	if candidate.Amount != "" {

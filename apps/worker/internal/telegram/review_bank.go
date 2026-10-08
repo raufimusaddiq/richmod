@@ -60,11 +60,7 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Validate fast (so a missing account re-prompts instead of queueing a job that
-	// can never complete) but leave resolution and persistence to the shared job,
-	// exactly like the Web lane. Resolving here would make the job a no-op and drop
-	// the user's facts on the floor.
-	if err := reviewdomain.ValidateBankSourceAccount(ctx, tx, reviewdomain.BankFactCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: reviewID, SourceEventID: bankSourceID, AmountIDR: amountIDR, TransactionAt: at.Format(time.RFC3339)}); err != nil {
+	if err := enqueueBankFactsCompletion(ctx, tx, reviewdomain.BankFactCommand{HouseholdID: householdID, UserID: userID, ReviewItemID: reviewID, SourceEventID: bankSourceID, AmountIDR: amountIDR, TransactionAt: at.Format(time.RFC3339)}, update.Message.Chat.ID); err != nil {
 		if errors.Is(err, reviewdomain.ErrBankReviewUnavailable) || errors.Is(err, reviewdomain.ErrAlreadyResolved) {
 			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 		}
@@ -81,19 +77,30 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 		}
 		return err
 	}
-	// Reuse the exact Web completion job rather than duplicating the bank policy
-	// in the Telegram lane. The job re-reads the reviewed extraction, applies the
-	// user's facts, resolves the item, and persists through the one Go policy path.
-	if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text,'telegram_chat_id',$5::bigint))`, bankSourceID, reviewID, amountIDR, at.Format(time.RFC3339), update.Message.Chat.ID); err != nil {
-		return err
-	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, "Fakta bank diterima untuk diproses. Transaksi belum dicatat; status review akan diperbarui setelah pemrosesan berhasil."); err != nil {
+	if err := enqueueReply(ctx, tx, update, bankFactsQueuedMessage); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+const bankFactsQueuedMessage = "Fakta bank diterima untuk diproses. Transaksi belum dicatat; status review akan diperbarui setelah pemrosesan berhasil."
+
+// enqueueBankFactsCompletion validates household-supplied bank facts against the
+// review and its listener, then queues the shared COMPLETE_BANK_REVIEW job. It
+// validates fast, so a missing account re-prompts instead of queueing a job that
+// can never complete, but leaves resolution and persistence to the job, exactly
+// like the Web lane: resolving here would make the job a no-op and drop the
+// household's facts. Errors are the reviewdomain sentinels, for the caller to
+// word.
+func enqueueBankFactsCompletion(ctx context.Context, tx pgx.Tx, command reviewdomain.BankFactCommand, chatID int64) error {
+	if err := reviewdomain.ValidateBankSourceAccount(ctx, tx, command); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text,'telegram_chat_id',$5::bigint))`, command.SourceEventID, command.ReviewItemID, command.AmountIDR, command.TransactionAt, chatID)
+	return err
 }
 
 func (p *Processor) offerBankAccountChooser(ctx context.Context, sourceEventID, householdID, reviewID string, accounts []reviewdomain.BankAccountChoice, amount, at string, update telegramUpdate) error {

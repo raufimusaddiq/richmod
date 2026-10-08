@@ -58,6 +58,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// binding for those review kinds. Only exact replies take this lane: chat state
 	// alone never owns a turn, and transaction-keyed reviews stay with the agent.
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+		// A card older than its 7-day projection window is still an open review;
+		// renew it as the button lane does, so a typed answer is not refused as stale.
+		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
+			return err
+		}
 		target, err := p.replyTargetForEvidenceReview(ctx, householdID, update)
 		if err != nil {
 			return err
@@ -177,9 +182,8 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
 		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update, recentCandidates)
 		// Recent evidence is context only. It deliberately does not bind its open review:
-		// a no-reply review binding is route-gated, and the route that would use it
-		// (REVIEW_INTERACTION) is answered terminally by the fast path, so such a binding
-		// would never reach the model. A review is resolved by an exact reply or by the existing deterministic reply lane.
+		// a no-reply review binding is route-gated and must come from eligible chat
+		// reviews, not from recent evidence alone.
 		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && len(freshDocuments) > 0
 	}
 
@@ -207,6 +211,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
 	}
+	if reviewBinding != nil {
+		judgmentState.ReviewType = reviewBinding.ReviewType
+		judgmentState.ReviewConversationState = reviewBinding.ConversationState
+	}
 	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
 		return err
 	}
@@ -231,6 +239,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
+	focusReviewArguments(tools, reviewBinding)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
@@ -403,6 +412,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			state.SideEffects++
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
+			if len(state.FreshEvidenceDocuments) > 0 {
+				if _, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent',parser_version='1'
+					WHERE id=ANY(SELECT source_event_id FROM document WHERE id=ANY($1::uuid[]) UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($1::uuid[]))
+					AND processing_status = 'NEEDS_REVIEW'`, state.FreshEvidenceDocuments); err != nil {
+					return fmt.Errorf("finalize stale evidence source: %w", err)
+				}
+			}
 			if !synthesize {
 				return p.finishAgentText(ctx, state, agentMutationFallback(result))
 			}
@@ -602,6 +618,10 @@ func agentMutationFallback(result agentToolResult) string {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
 			return "Transaksi sudah tercatat."
+		case "BANK_FACTS_QUEUED":
+			return bankFactsQueuedMessage
+		case "BANK_REVIEW_IGNORED":
+			return "Bukti email bank diabaikan."
 		case "DUPLICATE_MERGED":
 			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru."
 		case "POSSIBLE_EXISTING_TRANSACTION":
@@ -702,6 +722,10 @@ func agentMutationFallback(result agentToolResult) string {
 		return "Masih ada detail review yang perlu dilengkapi."
 	case "MISSING_CATEGORY", "INVALID_CATEGORY":
 		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia."
+	case "BANK_ACCOUNT_REQUIRED":
+		return "Pilih rekening untuk email bank ini dari tombol yang dikirim."
+	case "BANK_ACCOUNT_UNAVAILABLE":
+		return "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu."
 	case "MISSING_BANK_FACTS":
 		return "Nominal dan waktu transaksi masih perlu dilengkapi."
 	case "INVALID_PAY_DATE":
