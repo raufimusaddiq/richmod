@@ -74,7 +74,7 @@ func TestTelegramPayslipPolicyAndDateResolveWithoutWeb(t *testing.T) {
 	dateReply.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 61}
-	must(processor.Process(ctx, seedReply("TELEGRAM_TEXT", dateReply)))
+	must(processor.ProcessAgent(ctx, seedReply("TELEGRAM_TEXT", dateReply)))
 	var transactionID, amount, payDate, transactionStatus, proposalStatus string
 	must(pool.QueryRow(ctx, `SELECT t.id::text,t.amount::text,(t.transaction_at AT TIME ZONE 'Asia/Jakarta')::date::text,t.status
 		FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id AND e.source_event_id=$1 AND e.evidence_type='PAYSLIP_IMAGE'`, imageID).Scan(&transactionID, &amount, &payDate, &transactionStatus))

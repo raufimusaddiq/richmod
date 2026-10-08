@@ -41,41 +41,13 @@ func duplicateChoicesMarkup(candidates []string, amounts []string) *InlineKeyboa
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
 }
 
-// offerDuplicateChoices sends the duplicate decision with one button per stored
-// candidate, so the ordinary blocker is completable inside Telegram.
-func (p *Processor) offerDuplicateChoices(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := renderDuplicateChoices(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
 // renderDuplicateChoices writes the candidate buttons and persists the ordered
 // candidate list the callbacks resolve against.
 func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
-	var sourceType, sourceCurrency string
-	var sourceAmount string
-	var sourceAt time.Time
-	if err := tx.QueryRow(ctx, `SELECT type::text,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, householdID).Scan(&sourceType, &sourceAmount, &sourceCurrency, &sourceAt); err != nil {
-		return err
-	}
-	candidates, err := duplicateCandidateRows(ctx, tx, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
+	candidateIDs, markup, err := duplicateCandidateChoices(ctx, tx, householdID, transactionID)
 	if err != nil {
 		return err
 	}
-	var candidateIDs, candidateAmounts []string
-	for _, candidate := range candidates {
-		candidateIDs = append(candidateIDs, candidate.ID)
-		candidateAmounts = append(candidateAmounts, candidate.Amount)
-	}
-	// ponytail: one page of up to 9 candidates; page the list when a review can
-	// legitimately carry more (the API caps financial-email candidates at 10).
-	markup := duplicateChoicesMarkup(candidateIDs, candidateAmounts)
 	encoded, err := json.Marshal(candidateIDs)
 	if err != nil {
 		return err
@@ -93,6 +65,58 @@ func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, house
 		return err
 	}
 	return nil
+}
+
+// duplicateCandidateChoices finds the confirmed transactions a reviewed
+// transaction may repeat and returns their ordered IDs with one merge button per
+// candidate. The IDs never travel through Telegram: a button carries only its
+// position in the list stored on the review conversation.
+func duplicateCandidateChoices(ctx context.Context, tx pgx.Tx, householdID, transactionID string) ([]string, *InlineKeyboardMarkup, error) {
+	var sourceType, sourceCurrency, sourceAmount string
+	var sourceAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT type::text,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, householdID).Scan(&sourceType, &sourceAmount, &sourceCurrency, &sourceAt); err != nil {
+		return nil, nil, err
+	}
+	candidates, err := duplicateCandidateRows(ctx, tx, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
+	if err != nil {
+		return nil, nil, err
+	}
+	var candidateIDs, candidateAmounts []string
+	for _, candidate := range candidates {
+		candidateIDs = append(candidateIDs, candidate.ID)
+		candidateAmounts = append(candidateAmounts, candidate.Amount)
+	}
+	// ponytail: one page of up to 9 candidates; page the list when a review can
+	// legitimately carry more (the API caps financial-email candidates at 10).
+	return candidateIDs, duplicateChoicesMarkup(candidateIDs, candidateAmounts), nil
+}
+
+// projectDuplicateChoices is the duplicate card markup at send time: it stores the
+// candidates the merge buttons resolve against. A review without a transaction, or
+// with no candidate left, offers only the record-as-new and dismiss intents.
+func projectDuplicateChoices(ctx context.Context, tx pgx.Tx, reviewID string) (*InlineKeyboardMarkup, error) {
+	var householdID, transactionID string
+	if err := tx.QueryRow(ctx, `SELECT household_id::text,COALESCE(transaction_id::text,'') FROM review_request WHERE id=$1`, reviewID).Scan(&householdID, &transactionID); err != nil {
+		return nil, err
+	}
+	if transactionID == "" {
+		return duplicateIntentMarkup(), nil
+	}
+	candidateIDs, markup, err := duplicateCandidateChoices(ctx, tx, householdID, transactionID)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidateIDs) == 0 {
+		return duplicateIntentMarkup(), nil
+	}
+	encoded, err := json.Marshal(candidateIDs)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET context_json=context_json||jsonb_build_object('duplicate_candidates',$2::jsonb),updated_at=now() WHERE review_request_id=$1`, reviewID, string(encoded)); err != nil {
+		return nil, err
+	}
+	return markup, nil
 }
 
 // transactionConfirmableWithoutCategory reports whether the shared confirm rule

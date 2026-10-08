@@ -220,14 +220,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
-	if handled, err := p.processBoundReview(ctx, sourceEventID, householdID, update); handled {
-		return err
-	}
 	// Typed finance messages are answered by the conversational agent. Process
-	// owns callbacks and the deterministic bound-review replies above; the older
-	// tool-call lane that used to follow here was unreachable for production
-	// traffic (typed text is queued as PROCESS_TELEGRAM_TEXT and handled by
-	// ProcessAgent), so a text event that arrives here is handed to the agent.
+	// owns callbacks; production queues typed text as PROCESS_TELEGRAM_TEXT for
+	// ProcessAgent, so a text event that arrives here is handed to it.
 	return p.ProcessAgent(ctx, sourceEventID)
 }
 

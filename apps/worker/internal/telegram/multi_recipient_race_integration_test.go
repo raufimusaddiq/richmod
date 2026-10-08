@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -116,9 +115,11 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	if _, err = pool.Exec(ctx, "UPDATE review_request_recipient SET telegram_message_id=CASE telegram_chat_id WHEN $2 THEN 31 WHEN $3 THEN 32 END WHERE review_request_id=$1", reviewID, firstChat, secondChat); err != nil {
 		t.Fatal(err)
 	}
-	processor := NewProcessor(pool, boundReviewGateway{})
+	// The model extracts the facts from the typed answer; Go validates and queues.
+	processor := NewProcessor(pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
+	processor.SetJudgment(reviewAnswerEngine{reviewAction: "COMPLETE_BANK_FACTS"})
 	reply := seedTelegramReply(t, pool, householdID, firstChat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
-	if err = processor.Process(ctx, reply); err != nil {
+	if err = processor.ProcessAgent(ctx, reply); err != nil {
 		t.Fatal(err)
 	}
 	var renewed bool
@@ -141,10 +142,9 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply2 := seedTelegramReply(t, pool, householdID, secondChat, 42, 32, "54000 2026-09-23T13:45:00+07:00")
-	// Free text that is not a bound reply is ordinary conversation, handled by the
-	// agent lane. With the model unavailable it reports the outage so the queue
-	// retries; what this test pins is that nothing mutates either way.
-	if err = processor.Process(ctx, reply2); err != nil && !strings.Contains(err.Error(), "conversational gateway unavailable") {
+	// The review is resolved, so the second answer binds to nothing and the
+	// model gets no review tool: nothing may mutate.
+	if err = processor.ProcessAgent(ctx, reply2); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, "SELECT count(*) FROM job WHERE type='COMPLETE_BANK_REVIEW' AND payload_json->>'review_id'=$1", itemID).Scan(&queued); err != nil {
@@ -220,9 +220,10 @@ func TestUnlinkedBankReviewBindsAccountThenCompletesThroughExistingJob(t *testin
 	if _, err := pool.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=31 WHERE review_request_id=$1`, request); err != nil {
 		t.Fatal(err)
 	}
-	p := NewProcessor(pool, boundReviewGateway{})
+	invalidModel := NewProcessor(pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"-54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
+	invalidModel.SetJudgment(reviewAnswerEngine{reviewAction: "COMPLETE_BANK_FACTS"})
 	invalid := seedTelegramReply(t, pool, household, chat, 40, 31, "-54000 2026-09-23T13:45:00+07:00")
-	if err := p.Process(ctx, invalid); err != nil {
+	if err := invalidModel.ProcessAgent(ctx, invalid); err != nil {
 		t.Fatal(err)
 	}
 	var jobs int
@@ -232,8 +233,10 @@ func TestUnlinkedBankReviewBindsAccountThenCompletesThroughExistingJob(t *testin
 	if jobs != 0 {
 		t.Fatalf("signed amount queued %d completion jobs", jobs)
 	}
+	p := NewProcessor(pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
+	p.SetJudgment(reviewAnswerEngine{reviewAction: "COMPLETE_BANK_FACTS"})
 	reply := seedTelegramReply(t, pool, household, chat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
-	if err := p.Process(ctx, reply); err != nil {
+	if err := p.ProcessAgent(ctx, reply); err != nil {
 		t.Fatal(err)
 	}
 	var pendingAmount, pendingAt string
