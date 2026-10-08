@@ -208,3 +208,32 @@ In order, each with a `ProcessAgent` test that fails first:
 
 Merging PR #296 first is safe: it fixes date and compound cards and does not
 change the other rows.
+
+## 9. Re-measurement on `ea6ffea` (2026-10-08)
+
+Since the baseline, `main` merged #296 (date replies), #297 (Abaikan on bank and
+transaction reviews), #300 (screenshot time matching) and #301 (a plain message,
+not a reply, routes into the one open review when Jev chooses
+`REVIEW_INTERACTION`). The probes were re-run on `ea6ffea` for both an exact reply
+and a plain message, with Jev routing the plain message to the review:
+
+| Card | Reply, Jev `CONFIRM` | Reply, Jev unclear | Plain, Jev `CONFIRM` | Plain, Jev unclear |
+| --- | --- | --- | --- | --- |
+| `MISSING_TRANSACTION_DATE` | works | works | works | works |
+| `TRANSACTION_FACTS_MISSING` | works (→ category) | works (→ category) | works (→ category) | works (→ category) |
+| `UNKNOWN_PURPOSE` | **broken** (F1) | works, re-asks category (F3) | **broken** (F1) | works, re-asks category (F3) |
+| `MANUAL_CORRECTION` | **broken** (F1) | works, re-asks category (F3) | **broken** (F1) | works, re-asks category (F3) |
+| `UNKNOWN_BANK_TEMPLATE` | **broken** (F2) | — | **broken** (F2) | — |
+
+Status of the findings on `ea6ffea`:
+
+- **F1** open for `AWAITING_DETAIL` (purpose, manual correction); closed for date
+  by #296. #301 widens its reach: plain messages now enter the same workflow.
+- **F2** open; #297 adds an Abaikan button path for bank reviews only.
+- **F3** open (detail re-asks category).
+- **F4** open: the same eleven tests (and the two bank-fact tests through
+  `seedTelegramReply`) still send typed text into `Process`. #296 added
+  production-path tests for date replies only.
+- **F5** partly addressed (#296 `awaiting_field`; #301 passes it to the route
+  request). Tool arguments are still not derived from `missingFacts`.
+- **F6** open.
