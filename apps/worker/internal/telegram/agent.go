@@ -58,6 +58,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// binding for those review kinds. Only exact replies take this lane: chat state
 	// alone never owns a turn, and transaction-keyed reviews stay with the agent.
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+		// A card older than its 7-day projection window is still an open review;
+		// renew it as the button lane does, so a typed answer is not refused as stale.
+		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
+			return err
+		}
 		target, err := p.replyTargetForEvidenceReview(ctx, householdID, update)
 		if err != nil {
 			return err
@@ -234,6 +239,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
+	focusReviewArguments(tools, reviewBinding)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
@@ -612,6 +618,10 @@ func agentMutationFallback(result agentToolResult) string {
 				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
 			return "Transaksi sudah tercatat."
+		case "BANK_FACTS_QUEUED":
+			return bankFactsQueuedMessage
+		case "BANK_REVIEW_IGNORED":
+			return "Bukti email bank diabaikan."
 		case "DUPLICATE_MERGED":
 			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru."
 		case "POSSIBLE_EXISTING_TRANSACTION":
@@ -712,6 +722,10 @@ func agentMutationFallback(result agentToolResult) string {
 		return "Masih ada detail review yang perlu dilengkapi."
 	case "MISSING_CATEGORY", "INVALID_CATEGORY":
 		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia."
+	case "BANK_ACCOUNT_REQUIRED":
+		return "Pilih rekening untuk email bank ini dari tombol yang dikirim."
+	case "BANK_ACCOUNT_UNAVAILABLE":
+		return "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu."
 	case "MISSING_BANK_FACTS":
 		return "Nominal dan waktu transaksi masih perlu dilengkapi."
 	case "INVALID_PAY_DATE":

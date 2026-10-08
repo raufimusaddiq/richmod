@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
 )
 
 const reviewPrompt = `Interpret one reply to a specifically bound household transaction review.
@@ -139,19 +138,11 @@ type categoryChoice struct {
 // not produce a fresh live card with buttons that can only answer stale.
 // An unknown request id is treated as still-open so non-review sends are unaffected.
 func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, householdID string, update telegramUpdate) (bool, error) {
+	// Callers pass an exact reply: ProcessAgent for proposal-keyed reviews, and
+	// Process for the transfer buttons, whose callback sets the message it answers.
 	var err error
 	if update.Message.ReplyToMessage == nil || update.Message.ReplyToMessage.MessageID == 0 {
-		var messageID int64
-		err := p.pool.QueryRow(ctx, `SELECT min(rr.telegram_message_id) FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN review_request_recipient rr ON rr.review_request_id=r.id LEFT JOIN transaction t ON t.id=r.transaction_id LEFT JOIN review_item ri ON ri.id=r.review_item_id WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ((t.status='NEEDS_REVIEW' AND c.state IN ('AWAITING_MERCHANT','AWAITING_DETAIL','AWAITING_DATE')) OR (ri.proposal_id IS NOT NULL AND c.state IN ('AWAITING_DATE','AWAITING_DETAIL','AWAITING_CONFIRMATION'))) AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL HAVING count(*)=1`, householdID, update.Message.Chat.ID).Scan(&messageID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
-		if err != nil {
-			return true, err
-		}
-		update.Message.ReplyToMessage = &struct {
-			MessageID int64 `json:"message_id"`
-		}{MessageID: messageID}
+		return false, nil
 	}
 	var amountItemID, amountProposalID, amountSourceID, amountUserID, amountRequestID, amountState, stagedAmount, amountType string
 	err = p.pool.QueryRow(ctx, `SELECT ri.id::text,p.id::text,p.source_event_id::text,ti.user_id::text,r.id::text,c.state,COALESCE(c.context_json->>'amount_idr',''),p.proposed_type
@@ -278,18 +269,6 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return true, err
 	}
-	// A bank email whose bounded verification could not confirm the transaction
-	// semantics is a source-event review with no transaction. Its
-	// COMPLETE_BANK_FACTS reply is handled by the same shared operation the Web
-	// COMPLETE_BANK_REVIEW job uses, so the card is not a dead end.
-	var bankReviewID, bankUserID, bankSourceID string
-	bankErr := p.pool.QueryRow(ctx, `SELECT ri.id::text,ti.user_id::text,s.id::text FROM review_item ri JOIN source_event s ON s.id=ri.source_event_id JOIN bank_email_extraction e ON e.source_event_id=s.id JOIN bank_email_listener l ON l.id=e.listener_id JOIN review_request r ON r.review_item_id=ri.id JOIN review_request_recipient rr ON rr.review_request_id=r.id AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 JOIN telegram_identity ti ON ti.telegram_user_id=$2 AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.household_id=$1 AND r.status='OPEN' AND r.expires_at>now() AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='UNKNOWN_BANK_TEMPLATE'`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID).Scan(&bankReviewID, &bankUserID, &bankSourceID)
-	if bankErr == nil {
-		return true, p.completeBankFactsReply(ctx, sourceEventID, householdID, bankReviewID, bankUserID, bankSourceID, update)
-	}
-	if !errors.Is(bankErr, pgx.ErrNoRows) {
-		return true, bankErr
-	}
 	var reviewID, transactionID, reviewState, reviewType, transactionType, requestStatus, transactionStatus string
 	var missingFactsJSON *string
 	var expired bool
@@ -310,79 +289,29 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	if err != nil {
 		return true, fmt.Errorf("bind Telegram review reply: %w", err)
 	}
-	if (requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW") && !(transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION") {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
+	if update.CallbackQuery == nil {
+		// Typed answers to transaction reviews belong to the conversational agent.
+		return false, nil
 	}
-	if transactionStatus == "CONFIRMED" && reviewState == "AWAITING_MERCHANT_DECISION" {
-		if update.CallbackQuery == nil {
-			// Free-text consent semantics belong to the typed bounded workflow; the
-			// exact reply binding is preserved by the caller's review binding.
-			return false, nil
-		}
-		return true, p.applyMerchantLearningChoice(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data == "review:remember")
+	if requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
 	}
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk menyelesaikannya.")
 	}
-	// A review that no longer requires the merchant is a plain category choice; the
-	// Telegram lanes can complete it, so route it to the chooser instead of sending
-	// the user to the Review Inbox.
-	if missingFactsAreCategoryOnly(missingFactsJSON) {
-		return true, p.offerCategoryChooser(ctx, sourceEventID, householdID, reviewID, transactionID, reviewType, update)
+	// Only the transfer buttons reach this point (see Process). They answer a
+	// transfer-relationship review; on any other review they are not handled here.
+	if missingFactsJSON == nil || !reviewRequiresFact(missingFactsJSON, "transfer_relationship") {
+		return false, nil
 	}
-	// A transfer relationship is a bounded classification, not a free-form
-	// description, so a typed reply must reach the transfer classifier instead of
-	// being stored as an AWAITING_DETAIL description.
-	if missingFactsJSON != nil && reviewRequiresFact(missingFactsJSON, "transfer_relationship") {
-		if update.CallbackQuery == nil {
-			// The exact reply binding is enough to target the review, but free-text
-			// meaning belongs to the typed Jev/Generative review path.
-			return false, nil
-		}
-		if update.CallbackQuery.Data == "review:asset" {
-			return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
-		}
-		if transferReviewCallbackAction(update.CallbackQuery.Data) == "" {
-			return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Aksi ini tidak tersedia. Tinjauan tetap terbuka.")
-		}
-		return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
+	if update.CallbackQuery.Data == "review:asset" {
+		return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
 	}
-	if reviewType == "POSSIBLE_DUPLICATE" {
-		return true, p.offerDuplicateChoices(ctx, sourceEventID, householdID, reviewID, transactionID, update)
+	if transferReviewCallbackAction(update.CallbackQuery.Data) == "" {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Aksi ini tidak tersedia. Tinjauan tetap terbuka.")
 	}
-	if reviewState == "AWAITING_MERCHANT" {
-		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "merchant")
-	}
-	if reviewState == "AWAITING_DETAIL" {
-		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "description")
-	}
-	if reviewState == "AWAITING_DATE" {
-		return true, p.saveBoundReviewField(ctx, sourceEventID, householdID, reviewID, transactionID, update, "transaction_at")
-	}
-	if transactionType == "INCOME" {
-		choice, choiceErr := p.incomeReviewChoice(ctx, sourceEventID, update.Message.Text)
-		if choiceErr != nil {
-			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Layanan keputusan sedang tidak tersedia. Coba lagi sebentar lagi; tinjauan tetap terbuka.")
-		}
-		switch choice {
-		case "REJECT":
-			return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
-		case "CONFIRM":
-			value, extractErr := p.extractReview(ctx, sourceEventID, update.Message.Text, nil)
-			if extractErr != nil {
-				return true, extractErr
-			}
-			if value.Description == "" {
-				value.Description = "Penghasilan dari bukti transaksi"
-			}
-			return true, p.resolveReview(ctx, sourceEventID, householdID, reviewID, transactionID, "", update, value)
-		default:
-			return true, p.continueReview(ctx, sourceEventID, reviewID, transactionID, update,
-				"Balas dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk menolak.")
-		}
-	}
-	return false, nil
+	return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
 }
 
 func reviewRequiresFact(raw *string, fact string) bool {
@@ -604,122 +533,6 @@ func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceE
 func recordReviewMerchantFact(ctx context.Context, tx pgx.Tx, householdID, reviewID, value string) error {
 	_, err := tx.Exec(ctx, `UPDATE review_item ri SET decision=jsonb_set(jsonb_set(ri.decision,'{missingFacts}',COALESCE(ri.decision->'missingFacts','[]'::jsonb)-'merchant'),'{knownFacts}',COALESCE(ri.decision->'knownFacts','{}'::jsonb)||jsonb_build_object('merchant',$3::text)),updated_at=now() FROM review_request r WHERE r.id=$1 AND r.household_id=$2 AND ri.id=r.review_item_id AND ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND')`, reviewID, householdID, value)
 	return err
-}
-
-func (p *Processor) saveBoundReviewField(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, field string) error {
-	value := clean(strings.TrimSpace(update.Message.Text), 500)
-	if value == "" {
-		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Balas dengan nilai detail yang ingin disimpan.")
-	}
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	var userID string
-	if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
-		return err
-	}
-	rememberedCategoryID := ""
-	if field == "merchant" {
-		var merchantID string
-		match, lookupErr := merchantmemory.Lookup(ctx, tx, householdID, value)
-		if lookupErr != nil {
-			return lookupErr
-		}
-		if match != nil {
-			merchantID, rememberedCategoryID = match.MerchantID, match.CategoryID
-		} else {
-			err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id`, householdID, value).Scan(&merchantID)
-		}
-		if err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET merchant_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, merchantID, householdID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
-			return err
-		}
-		if err = recordReviewMerchantFact(ctx, tx, householdID, reviewID, value); err != nil {
-			return err
-		}
-	} else if field == "transaction_at" {
-		parsed, parseErr := parseSuppliedReviewDate(value)
-		if parseErr != nil || parsed == nil {
-			// Stay in AWAITING_DATE: switching to the category chooser here would strand
-			// the date fact this review actually needs.
-			if _, err = tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-				return err
-			}
-			if err = enqueueReply(ctx, tx, update, "Tanggal transaksi wajib diisi dengan format YYYY-MM-DD."); err != nil {
-				return err
-			}
-			return tx.Commit(ctx)
-		}
-		completed, dateErr := p.applyReviewTransactionDate(ctx, tx, householdID, userID, reviewID, transactionID, *parsed)
-		if dateErr != nil {
-			return dateErr
-		}
-		if completed {
-			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-				return err
-			}
-			if err = enqueueReply(ctx, tx, update, "Tanggal transaksi disimpan. Tinjauan selesai."); err != nil {
-				return err
-			}
-			return tx.Commit(ctx)
-		}
-	} else {
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET description=$2,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, value, householdID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET description=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, value); err != nil {
-			return err
-		}
-	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field',$4::text,'value',$5::text)) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID, field, value); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_DETAIL','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'field',$5::text,'value',$6::text))`, householdID, userID, transactionID, reviewID, field, value); err != nil {
-		return err
-	}
-	if rememberedCategoryID != "" {
-		if err = p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, rememberedCategoryID, update, reviewExtraction{}, userID, false); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-	if field != "merchant" && !reviewNeedsCategory(ctx, tx, reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, transactionID) {
-		// A free-form residual (unknown purpose, manual correction) whose
-		// transaction the shared rule accepts as-is is complete from one reply.
-		// When the transaction still needs a category (an uncategorized expense),
-		// fall through to the chooser instead of attempting a confirm that the
-		// canonical expense-category invariant would reject.
-		if err = p.resolveReviewTx(ctx, tx, sourceEventID, householdID, reviewID, transactionID, "", update, reviewExtraction{Description: value}, userID, false); err != nil {
-			return err
-		}
-		if err = enqueueReply(ctx, tx, update, "Catatan transaksi disimpan. Tinjauan selesai."); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
-		return err
-	}
-	var reviewType string
-	if err = tx.QueryRow(ctx, `SELECT review_type FROM review_request WHERE id=$1`, reviewID).Scan(&reviewType); err != nil {
-		return err
-	}
-	original := update
-	original.Message.MessageID = update.Message.ReplyToMessage.MessageID
-	if err = enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, original, "Detail disimpan. Pilih kategori pengeluaran (halaman 1):", reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }
 
 // processReviewCategoryCallback handles category buttons without converting

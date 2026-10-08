@@ -162,6 +162,20 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED_AND_CONFIRMED", "field": field, "value": value}
 		return result, true, nil
 	}
+	if field == "description" && !reviewNeedsCategory(ctx, tx, review.reviewID) && p.transactionConfirmableWithoutCategory(ctx, tx, review.transactionID) {
+		// A purpose or correction was the only thing the card asked for and the
+		// transaction already satisfies the confirm rule: finish the review instead
+		// of asking for a category it already has.
+		if err = p.agentConfirmReviewTx(ctx, tx, state, review, "", reviewExtraction{Description: value, Confidence: 1}, userID); err != nil {
+			return result, true, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return result, true, err
+		}
+		result.Status = "RESOLVED"
+		result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED_AND_CONFIRMED", "field": field, "value": value}
+		return result, true, nil
+	}
 	if rememberedCategoryID != "" {
 		if err = p.agentConfirmReviewTx(ctx, tx, state, review, rememberedCategoryID, reviewExtraction{Confidence: 1}, userID); err != nil {
 			var residual errReviewResidualFactsRequired
