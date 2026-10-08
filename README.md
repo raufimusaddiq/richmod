@@ -174,7 +174,9 @@ Cloudflare delivers the original RFC822 message to
 control emails go to Integration Actions and never enter the financial model
 flow. Resources, bindings, the request contract, forwarding setup and
 troubleshooting are in the
-[Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md).
+[Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md);
+the [CLI runbook](docs/runbooks/cloudflare-email-cli.md) gives the same setup as
+commands.
 
 ### Telegram
 
@@ -349,7 +351,7 @@ documents; historical PRDs and checklists are in [`docs/archive/`](docs/archive/
 | Email and Telegram | [ADR-033: Cloudflare email ingress](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md) and [ADR-033: Bounded conversational agent](docs/adr/ADR-033-bounded-natural-conversational-agent.md) (two current records share the number) |
 | Data | [Database schema and ERD](docs/DATABASE_SCHEMA.md) |
 | Product | [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md), [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md), [Analytics contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md) |
-| Operations | [Production deployment](docs/runbooks/production-deployment.md), [sprint delivery](docs/runbooks/sprint-delivery.md), [disposable test matrix](docs/runbooks/disposable-test-matrix.md), [Cloudflare email ingress](docs/runbooks/cloudflare-email-ingress.md) |
+| Operations | [Production deployment](docs/runbooks/production-deployment.md), [sprint delivery](docs/runbooks/sprint-delivery.md), [disposable test matrix](docs/runbooks/disposable-test-matrix.md), [Cloudflare email ingress](docs/runbooks/cloudflare-email-ingress.md) and its [CLI setup](docs/runbooks/cloudflare-email-cli.md) |
 | Interface | [Brand guidelines](docs/brand-guidelines.md), [UI audit](docs/audits/UI-AUDIT-2026-10-02.md) |
 
 ---
