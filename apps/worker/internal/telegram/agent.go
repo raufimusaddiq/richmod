@@ -177,9 +177,8 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		!contextState.HasPendingAction && !contextState.HasPendingBatch && !contextState.HasSalaryChoice {
 		evidence, recentEvidence = p.recentEvidenceContext(ctx, householdID, sourceEventID, update, recentCandidates)
 		// Recent evidence is context only. It deliberately does not bind its open review:
-		// a no-reply review binding is route-gated, and the route that would use it
-		// (REVIEW_INTERACTION) is answered terminally by the fast path, so such a binding
-		// would never reach the model. A review is resolved by an exact reply or by the existing deterministic reply lane.
+		// a no-reply review binding is route-gated and must come from eligible chat
+		// reviews, not from recent evidence alone.
 		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && len(freshDocuments) > 0
 	}
 
@@ -206,6 +205,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasRecentEvidence:   freshEvidence,
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
+	}
+	if reviewBinding != nil {
+		judgmentState.ReviewType = reviewBinding.ReviewType
+		judgmentState.ReviewConversationState = reviewBinding.ConversationState
 	}
 	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
 		return err
