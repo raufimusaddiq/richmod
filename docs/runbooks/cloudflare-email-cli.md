@@ -27,7 +27,7 @@ Converting the Workers with `cf migrate` would replace `wrangler.toml` with
 ## Install and sign in
 
 ```bash
-npm install --global cf
+npm install --global cf@1.0.0-beta.13
 ```
 
 ```bash
@@ -38,7 +38,8 @@ cf auth login
 cf auth whoami
 ```
 
-`cf` needs Node.js 22.18 or later and keeps its own login; it does not reuse a
+The version is pinned to the one these commands were checked against; after
+upgrading, recheck changed commands with `--help`. `cf` needs Node.js 22.18 or later and keeps its own login; it does not reuse a
 Wrangler login. On a server without a browser, use `cf auth login --no-browser`.
 
 For scripts and CI, skip the login and export an API token instead. Both `cf`
@@ -153,7 +154,11 @@ cf email-routing rules catch-all update --zone richmod.link \
   --dry-run
 ```
 
-Run the same command without `--dry-run` to apply it. In PowerShell, pass the
+Run the same command without `--dry-run` to apply it. The catch-all only
+catches addresses that no other rule matches: a custom address rule on
+`richmod.link` (for example one made in the dashboard) still wins for that
+address. List them with `cf email-routing rules list-account` and remove any
+that would intercept household addresses. In PowerShell, pass the
 JSON from a file instead (`--matchers @matchers.json --actions @actions.json`),
 because PowerShell rewrites the quotes.
 
