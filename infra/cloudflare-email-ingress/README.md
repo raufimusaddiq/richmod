@@ -11,4 +11,7 @@ Deploy order:
 7. Inspect raw `.eml` authentication headers, then set `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS` in existing `finance.env`. Do not infer this value.
 8. Activate address only after transport and authentication evidence pass.
 
+Each step as a command, and read-only checks of the live setup, are in the
+[Cloudflare CLI runbook](../../docs/runbooks/cloudflare-email-cli.md).
+
 Workers contain no bank/provider rules. Recipient selects household inside Go. Raw MIME remains in R2; Queue carries metadata only.

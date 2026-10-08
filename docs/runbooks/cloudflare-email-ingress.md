@@ -2,7 +2,7 @@
 
 This runbook documents the external Cloudflare resources and delivery contract used by Richmod's production financial-email ingress.
 
-The architecture decision and migration rationale live in [`ADR-033`](../adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md). This document is the operational setup reference.
+The architecture decision and migration rationale live in [`ADR-033`](../adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md). This document is the operational setup reference; the [Cloudflare CLI runbook](cloudflare-email-cli.md) gives the same setup as commands.
 
 ## Architecture
 
@@ -81,7 +81,7 @@ richmod-email-raw
 Bind it to both Workers as:
 
 ```text
-EMAIL_RAW
+RICHMOD_EMAIL_RAW
 ```
 
 Raw messages are stored under keys shaped like:
@@ -104,12 +104,12 @@ richmod-email-dlq
 Bind `richmod-email-delivery` to the ingress Worker as producer:
 
 ```text
-EMAIL_DELIVERY_QUEUE
+RICHMOD_EMAIL_DELIVERY
 ```
 
 Attach `richmod-email-delivery-worker` as the consumer of `richmod-email-delivery`.
 
-Current consumer settings:
+Recorded production consumer settings:
 
 | Setting | Value |
 | --- | ---: |
@@ -119,6 +119,14 @@ Current consumer settings:
 | Retry delay | `300s` |
 | Max consumer concurrency | `1` |
 | Dead-letter Queue | `richmod-email-dlq` |
+
+> **Check before redeploying.** `wrangler deploy` applies the `[[queues.consumers]]`
+> block in the delivery Worker's `wrangler.toml`, and
+> [`wrangler.toml.example`](../../infra/cloudflare-email-delivery/wrangler.toml.example)
+> differs from this table (batch 10, timeout 5s, 5 retries, DLQ
+> `richmod-email-delivery-dlq`). Read the live values with
+> `cf queues consumers list` ([CLI runbook](cloudflare-email-cli.md#verify-the-live-setup))
+> and make the table and the example agree before the next deploy.
 
 Leave `richmod-email-dlq` without a consumer. It is an operator-visible parking area, not an automatic retry loop.
 
@@ -135,8 +143,8 @@ The ingress Worker receives the Cloudflare Email Worker event. For an accepted r
 
 1. read the original raw MIME bytes;
 2. compute SHA-256 over those exact bytes;
-3. write the bytes to `EMAIL_RAW`;
-4. publish metadata to `EMAIL_DELIVERY_QUEUE`.
+3. write the bytes to `RICHMOD_EMAIL_RAW`;
+4. publish metadata to `RICHMOD_EMAIL_DELIVERY`.
 
 The queue payload currently carries:
 
@@ -160,7 +168,7 @@ Do not put the full MIME body in Queue messages.
 
 ```text
 R2 binding
-  EMAIL_RAW -> richmod-email-raw
+  RICHMOD_EMAIL_RAW -> richmod-email-raw
 
 Secret
   RICHMOD_INGRESS_SECRET
@@ -319,8 +327,8 @@ Sender matching must always be constrained by the household resolved from the re
 For a production smoke test:
 
 1. confirm Email Routing points the catch-all to `richmod-email-ingress`;
-2. confirm ingress Worker has `EMAIL_RAW` and `EMAIL_DELIVERY_QUEUE` bindings;
-3. confirm delivery Worker has `EMAIL_RAW`, `RICHMOD_INGRESS_URL`, and the HMAC secret;
+2. confirm ingress Worker has `RICHMOD_EMAIL_RAW` and `RICHMOD_EMAIL_DELIVERY` bindings;
+3. confirm delivery Worker has `RICHMOD_EMAIL_RAW`, `RICHMOD_INGRESS_URL`, and the HMAC secret;
 4. confirm `richmod-email-delivery` has the delivery Worker consumer and the DLQ configuration;
 5. send a message through the intended forwarding path;
 6. verify an `.eml` object appears in `richmod-email-raw`;

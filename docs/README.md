@@ -24,6 +24,7 @@ older specs.
 | [`runbooks/production-deployment.md`](runbooks/production-deployment.md) | Deploying released images, migrations, rollback, and health checks |
 | [`runbooks/disposable-test-matrix.md`](runbooks/disposable-test-matrix.md) | Isolated PostgreSQL, Go, web, Compose and Playwright runs, and how to reclaim them |
 | [`runbooks/cloudflare-email-ingress.md`](runbooks/cloudflare-email-ingress.md) | The email transport: Workers, R2, Queue, HMAC contract, forwarding setup |
+| [`runbooks/cloudflare-email-cli.md`](runbooks/cloudflare-email-cli.md) | The same Cloudflare setup and its live checks as `cf` and Wrangler commands |
 | [`runbooks/readme-showcase.md`](runbooks/readme-showcase.md) | Regenerating the README screenshots from synthetic data |
 
 ## Architecture and data
