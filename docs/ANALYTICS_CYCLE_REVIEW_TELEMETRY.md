@@ -1,7 +1,7 @@
 # Analytics cycle-review telemetry and invalidation
 
 Sprint 5 ([execution plan](plans/analytics-cycle-review-sprint.md)) hardening
-record. The source contract is the [cycle-review PRD](RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md),
+record. The source contract is the [cycle-review PRD](archive/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md),
 sections 16-17.
 
 ## Events

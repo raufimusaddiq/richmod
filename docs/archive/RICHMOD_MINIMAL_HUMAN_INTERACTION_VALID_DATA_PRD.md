@@ -21,7 +21,7 @@
 > interaction requirements in this document remain authoritative. Model-call
 > ordering is amended by:
 >
-> - `docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md`
+> - `docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md`
 > - `docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md`
 > - `docs/adr/ADR-045-single-intelligence-pass-routing.md`
 >

@@ -165,7 +165,7 @@ SAVR scope. Do not equate this audit with a completed canary.
 ## 2026-09-28 closure ownership amendment
 
 S08-08 is no longer an unowned "outside SAVR" follow-up. It is explicitly owned
-by **UISC-01** in `docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md`.
+by **UISC-01** in `docs/archive/RICHMOD_UIR_SAVR_CLOSURE_PRD.md`.
 
 The defect is classified as UIR projection rather than SAVR semantic authority:
 bank/financial-email reviews already have canonical household ownership.

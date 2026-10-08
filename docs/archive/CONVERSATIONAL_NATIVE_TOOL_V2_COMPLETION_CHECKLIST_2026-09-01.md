@@ -1,6 +1,6 @@
 # Conversational Native Tool V2 — Completion Tracking
 
-Source of truth: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md` (unchanged).
+Source of truth: `docs/archive/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md` (unchanged).
 
 ## Implemented in this iteration
 

@@ -1,7 +1,7 @@
 # Household cycle-review UI
 
 Sprints 3–4 of [the execution plan](plans/analytics-cycle-review-sprint.md).
-The source contract remains the [cycle-review PRD](RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md).
+The source contract remains the [cycle-review PRD](archive/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md).
 
 > **Current page (2026-10-02):** the first section is the cycle-to-cycle ledger
 > ([sprint plan](plans/analytics-cycle-ledger-sprint.md)). Sections under

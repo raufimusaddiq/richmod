@@ -4,7 +4,7 @@ Use this checklist before marking any Analytics Cycle Review implementation task
 
 Source contract:
 
-- `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`
+- `docs/archive/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`
 - `docs/bdr/BDR-006-analytics-household-cycle-review.md`
 - `docs/plans/analytics-cycle-review-sprint.md`
 - `docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md`

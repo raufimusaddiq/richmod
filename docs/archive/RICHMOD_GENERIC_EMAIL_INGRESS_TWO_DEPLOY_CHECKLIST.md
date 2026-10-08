@@ -1,6 +1,6 @@
 # Generic email ingress — implementation checklist
 
-Source of truth: `docs/RICHMOD_GENERIC_EMAIL_INGRESS_TWO_DEPLOY_CODEX.md`.
+Source of truth: `docs/archive/RICHMOD_GENERIC_EMAIL_INGRESS_TWO_DEPLOY_CODEX.md`.
 Do not mark an operational item from code inspection alone.
 
 ## Deploy 1 — code and migration

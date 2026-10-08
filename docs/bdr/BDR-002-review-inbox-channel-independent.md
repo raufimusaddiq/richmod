@@ -14,9 +14,9 @@ Product Design.
 
 ## Related documents
 
-- docs/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
+- docs/archive/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
 - docs/adr/ADR-046-universal-review-interaction-projection.md
-- docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
+- docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
 - docs/adr/ADR-039-canonical-review-decision-contract.md
 
 ## Business problem

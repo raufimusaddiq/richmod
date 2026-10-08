@@ -5,7 +5,7 @@
 **Primary surface:** `/analytics`
 **Reusable consumers:** Telegram conversational agent may call the same analytical READ tools
 **Product owner intent:** make captured household financial data useful for an end-of-cycle meeting, not merely visible
-**Supersedes where conflicting:** `docs/RICHMOD_ANALYTICS_LLM_INSIGHT_UI_CODEX.md` and older analytics insight/checklist guidance
+**Supersedes where conflicting:** `docs/archive/RICHMOD_ANALYTICS_LLM_INSIGHT_UI_CODEX.md` and older analytics insight/checklist guidance
 
 ## 1. North-star fit
 
@@ -767,8 +767,8 @@ Use whitespace and section composition so the page reads like a review document,
 The "primary chart" in the hierarchy above is amended: the primary visual is a
 **cycle ledger**, a single figure in which each salary cycle is a column and the
 following rows line up under it. See
-[the sprint plan](plans/analytics-cycle-ledger-sprint.md) and the
-[design mock](assets/analytics-cycle-ledger-mock.html).
+[the sprint plan](../plans/analytics-cycle-ledger-sprint.md) and the
+[design mock](../assets/analytics-cycle-ledger-mock.html).
 
 Amended hierarchy:
 

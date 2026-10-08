@@ -43,7 +43,7 @@ The execution plan is:
 
 The per-task drift gate is:
 
-- docs/INTELLIGENCE_ROUTING_DRIFT_GUARD_CHECKLIST.md
+- docs/archive/INTELLIGENCE_ROUTING_DRIFT_GUARD_CHECKLIST.md
 
 ## 0.1 Rules for /goals
 

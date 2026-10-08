@@ -1,6 +1,6 @@
 # Super Admin Console Finalization Checklist
 
-Source of truth: `docs/RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md` (unchanged).
+Source of truth: `docs/archive/RICHMOD_SUPER_ADMIN_CONSOLE_FINALIZATION_CODEX.md` (unchanged).
 
 ## Release status
 

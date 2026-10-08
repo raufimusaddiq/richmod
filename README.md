@@ -292,7 +292,7 @@ Successful `main` builds publish immutable images to GHCR. Production deployment
 - [Database schema and ERD](docs/DATABASE_SCHEMA.md)
 - [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 - [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
-- [Wealth, savings, and cycle reconciliation release checklist](docs/WEALTH_SAVINGS_CYCLE_RECONCILIATION_RELEASE_CHECKLIST.md)
+- [Wealth, savings, and cycle reconciliation release checklist](docs/archive/WEALTH_SAVINGS_CYCLE_RECONCILIATION_RELEASE_CHECKLIST.md)
 - [Production deployment runbook](docs/runbooks/production-deployment.md)
 - [Sprint delivery runbook](docs/runbooks/sprint-delivery.md) and the [disposable test matrix](docs/runbooks/disposable-test-matrix.md)
 - [Brand guidelines](docs/brand-guidelines.md) and the [UI audit](docs/audits/UI-AUDIT-2026-10-02.md)

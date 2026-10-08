@@ -4,7 +4,7 @@ Use for every UIR task/PR.
 
 Source contract:
 
-- docs/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
+- docs/archive/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
 - docs/bdr/BDR-002-review-inbox-channel-independent.md
 - docs/adr/ADR-046-universal-review-interaction-projection.md
 

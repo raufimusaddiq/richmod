@@ -14,7 +14,7 @@ Amends:
 Related product decision:
 
 - docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md
-- docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
+- docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
 
 ## Context
 

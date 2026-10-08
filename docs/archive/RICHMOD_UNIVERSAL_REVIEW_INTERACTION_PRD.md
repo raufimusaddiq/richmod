@@ -48,7 +48,7 @@ Execution plan:
 
 Per-task drift gate:
 
-- docs/UNIVERSAL_REVIEW_INTERACTION_DRIFT_GUARD_CHECKLIST.md
+- docs/archive/UNIVERSAL_REVIEW_INTERACTION_DRIFT_GUARD_CHECKLIST.md
 
 ## 0.1 /goals execution rules
 

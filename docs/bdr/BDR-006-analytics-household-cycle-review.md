@@ -14,11 +14,11 @@ Product Design.
 
 ## Related documents
 
-- `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`
+- `docs/archive/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`
 - `docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md`
 - `docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md`
 - `docs/adr/ADR-015-aggregate-only-llm-insights.md`
-- `docs/INTELLIGENCE_ROUTING_DRIFT_GUARD_CHECKLIST.md`
+- `docs/archive/INTELLIGENCE_ROUTING_DRIFT_GUARD_CHECKLIST.md`
 
 ## Business problem
 

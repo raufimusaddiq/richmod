@@ -1,9 +1,9 @@
 # Analytics Cycle Ledger — Sprint Plan
 
 **Status:** implementation execution plan — 2026-10-02
-**Source contract:** `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md` (§13.1), `docs/bdr/BDR-006-analytics-household-cycle-review.md` (amendment 2026-10-02)
+**Source contract:** `docs/archive/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md` (§13.1), `docs/bdr/BDR-006-analytics-household-cycle-review.md` (amendment 2026-10-02)
 **Design mock:** `docs/assets/analytics-cycle-ledger-mock.html` (static, synthetic numbers; open in a browser)
-**Drift gate:** `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`
+**Drift gate:** `docs/archive/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`
 **Builds on:** `docs/plans/analytics-cycle-review-sprint.md` (Sprints 1–4 shipped the facts API, the scan-first report and meeting mode)
 
 ## 0. How to execute this plan

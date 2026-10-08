@@ -26,7 +26,7 @@ had no transfer reconciliation case; Web Ignore failed and required guarded
 manual DML. The exact reason Bibit entered review was not proven.
 
 The repair is tracked in
-[`docs/audits/CORE-INTELLIGENCE-BOUNDARY-REPAIR.md`](audits/CORE-INTELLIGENCE-BOUNDARY-REPAIR.md).
+[`docs/audits/CORE-INTELLIGENCE-BOUNDARY-REPAIR.md`](../audits/CORE-INTELLIGENCE-BOUNDARY-REPAIR.md).
 It removes semantic Go fallback routing, scopes failed/undecided Jev turns to
 conversation + READ-only capabilities, gives bank extraction one specific
 schema-feedback repair, and routes observation-scoped Ignore through the
