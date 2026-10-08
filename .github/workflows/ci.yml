@@ -117,7 +117,7 @@ jobs:
         run: node scripts/transaction-date-smoke.mjs
       - name: Upload transaction date screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: transaction-date-screenshots
           path: apps/web/test-results/transaction-date
@@ -127,7 +127,7 @@ jobs:
         run: node scripts/analytics-review-smoke.mjs
       - name: Upload synthetic cycle-review screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cycle-review-screenshots
           path: apps/web/test-results/cycle-review
