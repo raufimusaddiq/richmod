@@ -180,7 +180,7 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	defer pool.Close()
 	stamp := time.Now().UnixNano()
 	chatID := stamp
-	var householdID, userID, transactionID, targetID, reviewID, itemID, sourceID string
+	var householdID, userID, transactionID, targetID, reviewID, itemID string
 	must := func(err error) {
 		if err != nil {
 			t.Fatal(err)
@@ -199,25 +199,24 @@ func TestDuplicateReviewOffersChooserAndCompletes(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,'IDR',$2,now()) RETURNING id`, householdID, at.Add(-30*time.Minute)).Scan(&targetID))
 	decision := `{"version":1,"reasonCode":"POSSIBLE_DUPLICATE","decisionClass":"DUPLICATE_AMBIGUITY","missingFacts":["duplicate_relationship"],"boundedChoices":[],"allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"]}`
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3::jsonb) RETURNING id`, householdID, transactionID, decision).Scan(&itemID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,telegram_chat_id,status) VALUES($1,$2,$3,'POSSIBLE_DUPLICATE',$4,'OPEN') RETURNING id`, householdID, itemID, transactionID, chatID).Scan(&reviewID))
-	if _, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,71)`, reviewID, chatID); err != nil {
-		t.Fatal(err)
+	// The card is sent by the shared projector, as producers do. It must offer one
+	// merge button per candidate and store the candidates the button resolves.
+	tx, err := pool.Begin(ctx)
+	must(err)
+	must(ProjectReviewItem(ctx, tx, householdID, itemID, 0, "", chatID))
+	must(tx.QueryRow(ctx, `SELECT id FROM review_request WHERE review_item_id=$1`, itemID).Scan(&reviewID))
+	must(tx.Commit(ctx))
+	var markup, candidatesJSON string
+	must(pool.QueryRow(ctx, `SELECT COALESCE(payload_json->>'reply_markup','') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id'=$1`, reviewID).Scan(&markup))
+	if !strings.Contains(markup, "review:dup:merge:0") || !strings.Contains(markup, "review:dup:new") {
+		t.Fatalf("duplicate card must offer a merge button per candidate: %s", markup)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_DETAIL')`, reviewID); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := json.Marshal(map[string]any{"update_id": stamp, "message": map[string]any{"message_id": 72, "text": "cek duplikat", "reply_to_message": map[string]any{"message_id": 71}, "from": map[string]any{"id": chatID}, "chat": map[string]any{"id": chatID}}})
-	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("dup-%d", stamp), raw).Scan(&sourceID))
-	if _, err = pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, sourceID, raw); err != nil {
-		t.Fatal(err)
-	}
-	if err = NewProcessor(pool, boundReviewGateway{}).Process(ctx, sourceID); err != nil {
-		t.Fatal(err)
-	}
-	var candidatesJSON string
 	must(pool.QueryRow(ctx, `SELECT COALESCE(context_json->>'duplicate_candidates','') FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&candidatesJSON))
-	if candidatesJSON == "" {
-		t.Fatal("duplicate reply did not record candidate IDs")
+	if !strings.Contains(candidatesJSON, targetID) {
+		t.Fatalf("duplicate card did not store its candidates: %q", candidatesJSON)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=71 WHERE review_request_id=$1`, reviewID); err != nil {
+		t.Fatal(err)
 	}
 	cbUpdate := callbackUpdate(chatID, 71, "review:dup:merge:0")
 	cbRaw, _ := json.Marshal(cbUpdate)
