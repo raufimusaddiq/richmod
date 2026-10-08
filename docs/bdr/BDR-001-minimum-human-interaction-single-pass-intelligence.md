@@ -14,8 +14,8 @@ Product Design.
 
 ## Related documents
 
-- `docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md`
-- `docs/RICHMOD_MINIMAL_HUMAN_INTERACTION_VALID_DATA_PRD.md`
+- `docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md`
+- `docs/archive/RICHMOD_MINIMAL_HUMAN_INTERACTION_VALID_DATA_PRD.md`
 - `docs/adr/ADR-038-system-one-semantic-decision-plane.md`
 - `docs/adr/ADR-045-single-intelligence-pass-routing.md`
 - `docs/plans/intelligence-routing-minimal-interaction-execution.md`

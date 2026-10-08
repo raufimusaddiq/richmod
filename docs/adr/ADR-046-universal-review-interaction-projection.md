@@ -12,7 +12,7 @@ Amends:
 
 Related:
 
-- docs/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
+- docs/archive/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
 - docs/bdr/BDR-002-review-inbox-channel-independent.md
 - ADR-039 Canonical ReviewDecision contract
 - ADR-038 / ADR-045 Telegram and intelligence-routing rules

@@ -1,10 +1,10 @@
 > **HISTORICAL — 2026-09-30**
 >
 > Superseded for new Analytics work. The current contract is
-> `docs/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`,
+> `docs/archive/RICHMOD_ANALYTICS_CYCLE_REVIEW_PRD.md`,
 > `docs/bdr/BDR-006-analytics-household-cycle-review.md`,
 > `docs/ANALYTICS_CYCLE_REVIEW_UI.md` and
-> `docs/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`. Kept as an execution
+> `docs/archive/ANALYTICS_CYCLE_REVIEW_DRIFT_GUARD_CHECKLIST.md`. Kept as an execution
 > record; do not restore the point-in-time page composition it describes.
 
 

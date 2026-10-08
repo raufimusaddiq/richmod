@@ -1,8 +1,8 @@
 # Family Finance OS — System Analysis, Product Specification, and Codex Development Guide
 
 **Status:** Historical MVP blueprint. Current product direction is governed by
-[`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md), and delivery
-status is tracked in [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md).
+[`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](../RICHMOD_PRODUCT_ALIGNMENT_V2.md), and delivery
+status is tracked in [`MVP_COMPLETION_CHECKLIST.md`](../MVP_COMPLETION_CHECKLIST.md).
 **Primary implementation target:** Codex  
 **Backend:** Go  
 **Frontend:** JavaScript / Next.js / React  
@@ -2848,7 +2848,7 @@ Required:
 # 52. Acceptance Criteria
 
 Current completion evidence and known gaps are maintained in
-[`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md). The criteria below
+[`MVP_COMPLETION_CHECKLIST.md`](../MVP_COMPLETION_CHECKLIST.md). The criteria below
 remain normative; a roadmap phase heading does not itself indicate completion.
 
 ## 52.1 Foundation

@@ -2,7 +2,7 @@
 
 **Status:** CLOSED (2026-10-03, UISC-04)  
 **Baseline:** `main@f6b2d374fe7c45bdb8d69507c39596f6945e906a`  
-**PRD:** `docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md`  
+**PRD:** `docs/archive/RICHMOD_UIR_SAVR_CLOSURE_PRD.md`  
 **BDR:** `docs/bdr/BDR-005-uir-savr-closure-before-ceu.md`
 
 ## Operating rule

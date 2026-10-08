@@ -18,10 +18,10 @@ Product Design.
 
 ## Related documents
 
-- `docs/RICHMOD_SEMANTIC_AUTHORITY_VALIDATION_RECONCILIATION_PRD.md`
+- `docs/archive/RICHMOD_SEMANTIC_AUTHORITY_VALIDATION_RECONCILIATION_PRD.md`
 - `docs/adr/ADR-047-semantic-fact-ownership.md`
 - `docs/adr/ADR-048-validation-consequence-domain-continuity.md`
-- `docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md`
+- `docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md`
 - `docs/adr/ADR-045-single-intelligence-pass-routing.md`
 - `docs/adr/ADR-039-canonical-review-decision-contract.md`
 - `docs/adr/ADR-046-universal-review-interaction-projection.md`
@@ -240,7 +240,7 @@ lowers human interaction by weakening correctness.
 ## 2026-09-28 closure amendment — measurement on the real owner household
 
 This amendment is authoritative for SAVR closure and is defined in
-`docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` / BDR-005.
+`docs/archive/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` / BDR-005.
 
 Richmod currently has one real production household and its product owner is the
 primary user. SAVR production validation therefore uses ordinary real

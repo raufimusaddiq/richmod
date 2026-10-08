@@ -1,6 +1,6 @@
 # Super Admin Platform Console — Completion Checklist
 
-Source of truth: `docs/RICHMOD_SUPER_ADMIN_PLATFORM_CONSOLE_CODEX.md`.
+Source of truth: `docs/archive/RICHMOD_SUPER_ADMIN_PLATFORM_CONSOLE_CODEX.md`.
 This checklist tracks implementation only. Source PRD is unchanged.
 
 ## Backend

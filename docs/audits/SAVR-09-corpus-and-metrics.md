@@ -73,7 +73,7 @@ facts survive validation.
 ## 3. Production observation gate — owner household is the canary
 
 The previous disposable-household requirement is superseded by
-`docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` / BDR-005.
+`docs/archive/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` / BDR-005.
 
 Richmod is currently a personal production system with one real household. The
 production observation cohort is therefore the actual owner household using the

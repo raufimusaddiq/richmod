@@ -1,4 +1,4 @@
-> **Code product-closed; interactive deployed smoke deferred (2026-09-27):** UIR-00..UIR-10 are delivered and the post-delivery closure gate in `docs/RICHMOD_UIR_CLOSURE_GATE_PRD.md` (execution: `docs/plans/uir-closure-execution.md`, UIRC-00..UIRC-06) passes at the code level on merged `main@37b8730` — shared resolution parity, action-level Telegram capability, canonical Inbox authority, and deployed health are all verified, with the UIR-10 type-level gate now backed by the action-level rule. The one open item is the interactive deployed smoke matrix, deferred because production has a single household and the runbook forbids seeding test data into it; run it when a disposable test household exists. Do not expand the gate into SAVR-owned semantic work.
+> **Code product-closed; interactive deployed smoke deferred (2026-09-27):** UIR-00..UIR-10 are delivered and the post-delivery closure gate in `docs/archive/RICHMOD_UIR_CLOSURE_GATE_PRD.md` (execution: `docs/plans/uir-closure-execution.md`, UIRC-00..UIRC-06) passes at the code level on merged `main@37b8730` — shared resolution parity, action-level Telegram capability, canonical Inbox authority, and deployed health are all verified, with the UIR-10 type-level gate now backed by the action-level rule. The one open item is the interactive deployed smoke matrix, deferred because production has a single household and the runbook forbids seeding test data into it; run it when a disposable test household exists. Do not expand the gate into SAVR-owned semantic work.
 
 # Execution Plan — Universal Review Interaction
 
@@ -330,12 +330,12 @@ is covered by `TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale`.
 
 Read in order:
 
-1. docs/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
+1. docs/archive/RICHMOD_UNIVERSAL_REVIEW_INTERACTION_PRD.md
 2. docs/bdr/BDR-002-review-inbox-channel-independent.md
 3. docs/adr/ADR-046-universal-review-interaction-projection.md
-4. docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
+4. docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
 5. docs/adr/ADR-039-canonical-review-decision-contract.md
-6. docs/UNIVERSAL_REVIEW_INTERACTION_DRIFT_GUARD_CHECKLIST.md
+6. docs/archive/UNIVERSAL_REVIEW_INTERACTION_DRIFT_GUARD_CHECKLIST.md
 
 Audited baseline:
 

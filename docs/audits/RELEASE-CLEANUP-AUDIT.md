@@ -244,7 +244,7 @@ into `ui-audit-locks.test.mjs`, and rename by subject.
   `savr07_contract_test.go` checks for `"sameFacts"`. Replace with a
   behavioural test where one exists, otherwise delete.
 
-## 10. H — Historical documentation — **DECIDE**
+## 10. H — Historical documentation — **DONE**
 
 `docs/` has 70 top-level Markdown files; `docs/README.md` already says most are
 historical. Proposed: move every top-level PRD, `*_CHECKLIST.md`, `*_CODEX.md`
@@ -286,13 +286,14 @@ they report only the items in section 11.
 Owner decisions (2026-10-03): remove budgets (E1); keep void, confirm and
 reverse-merge and remove the other uncalled routes (E2); remove the
 `shadow`/`primary` interpretation stages (E3); clean tests as suggested (G).
-Section H (docs archive) was not decided and is **deferred**.
+Section H (docs archive) was deferred, then approved after the v0.beta release.
 
 | Slice | Result |
 | --- | --- |
 | Dead code (A-D) | Removed as listed. `ActiveReasons`, `NewCycleHandler` and `FailedSourceInboxLink` turned out to be cross-package or contract test seams and were kept. `TenantContext` and `ErrHouseholdRequired` became dead with `TenantFromPrincipal` and were removed. `document.Handler` lost its unused `root` field and lazy local-storage fallbacks. The two Telegram test wrappers moved into their test files. |
 | Dead features (E) | ADR-051 records the retirement; ADR-014 superseded, ADR-037 partially superseded. `RICHMOD_DOCUMENT_INTERPRETATION` removed from `.env.example` and Compose. `sanitizeEvidenceText` (still used by payslips) moved to `payslip.go`. A test that asserted an otherwise unused `maxRepairAttempts` constant was removed with it. No migration. |
 | Comments (F) | No sprint tag, PRD section number or review-round reference remains in Go or JS. Sprint/PRD-named test files and functions renamed by subject. `CEU` stays where it is a persisted name (`CEU_BINDING`, `ceuBinding`). |
+| Docs (H) | 58 PRDs, checklists, Codex briefs and verification records moved to `docs/archive/` with links rewritten. Kept at the top level: `README.md`, `DATABASE_SCHEMA.md`, `brand-guidelines.md`, the Jev PRD, Product Alignment v2, the MVP checklist, the UI redesign, the four current analytics contracts and the Open Graph preview. |
 | Tests (G) | Two sprint lock files folded into `ui-audit-locks.test.mjs`; pure CSS/markup pins removed; accessibility, security, role, contract and computed checks kept. The fast-path period guard became `routeConsumesPeriod`, tested over every route. |
 
 After the cleanup, `deadcode` (production) lists only the five kept seams

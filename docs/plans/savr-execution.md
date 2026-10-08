@@ -1,10 +1,10 @@
 # Execution Plan — SAVR
 
-**PRD:** `docs/RICHMOD_SEMANTIC_AUTHORITY_VALIDATION_RECONCILIATION_PRD.md`  
+**PRD:** `docs/archive/RICHMOD_SEMANTIC_AUTHORITY_VALIDATION_RECONCILIATION_PRD.md`  
 **Business decision:** `docs/bdr/BDR-004-semantic-authority-minimum-human.md`  
 **Architecture:** ADR-047, ADR-048  
 **Audit:** `docs/audits/SAVR-00-semantic-authority-boundaries.md`  
-**Drift gate:** `docs/SAVR_DRIFT_GUARD_CHECKLIST.md`  
+**Drift gate:** `docs/archive/SAVR_DRIFT_GUARD_CHECKLIST.md`  
 **Initial baseline:** `main@ffb29a15f13bef32fa8da0d840be75e3501fd928`  
 **Post-SAVR-06 reconciliation baseline:** `main@904ff1acf6bdd8954d49728d7cc2623b5eee8d45`  
 **Reconciliation audit:** `docs/audits/SAVR-06-reconciliation-audit.md`
@@ -653,7 +653,7 @@ Known follow-up:
 ## 2026-09-28 final closure routing
 
 The UIR-SAVR Closure Sprint defined by
-`docs/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` is the only remaining pre-CEU gate.
+`docs/archive/RICHMOD_UIR_SAVR_CLOSURE_PRD.md` is the only remaining pre-CEU gate.
 
 It supersedes the disposable-production-household assumption but does not weaken
 the SAVR corpus or canonical correctness requirements. Real owner-household

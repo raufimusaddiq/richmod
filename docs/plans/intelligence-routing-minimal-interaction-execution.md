@@ -8,11 +8,11 @@ Ready for /goals execution.
 
 Read before implementation:
 
-1. docs/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
+1. docs/archive/RICHMOD_INTELLIGENCE_ROUTING_MINIMAL_INTERACTION_PRD.md
 2. docs/bdr/BDR-001-minimum-human-interaction-single-pass-intelligence.md
 3. docs/adr/ADR-045-single-intelligence-pass-routing.md
-4. docs/RICHMOD_MINIMAL_HUMAN_INTERACTION_VALID_DATA_PRD.md
-5. docs/INTELLIGENCE_ROUTING_DRIFT_GUARD_CHECKLIST.md
+4. docs/archive/RICHMOD_MINIMAL_HUMAN_INTERACTION_VALID_DATA_PRD.md
+5. docs/archive/INTELLIGENCE_ROUTING_DRIFT_GUARD_CHECKLIST.md
 
 Audited baseline:
 

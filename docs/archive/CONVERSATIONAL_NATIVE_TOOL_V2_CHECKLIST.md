@@ -1,6 +1,6 @@
 # Conversational Native Tool V2 — Completion Checklist
 
-Source: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md`.
+Source: `docs/archive/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md`.
 
 - [x] Native-only worker finance runtime; static guard added.
 - [x] Required single native tool call enforcement.
@@ -19,4 +19,4 @@ Source: `docs/RICHMOD_CONVERSATIONAL_NATIVE_TOOL_V2.md`.
 - [x] Existing Telegram/document/bank DB integration suites pass against disposable PostgreSQL through migration 40.
 - [x] Production rollout/deploy smoke. Production CHAT lane has 19 succeeded `PROCESS_TELEGRAM_TEXT` jobs and 0 failed (checked 2026-10-03).
 
-Latest implementation tracking: `docs/CONVERSATIONAL_NATIVE_TOOL_V2_COMPLETION_CHECKLIST_2026-09-01.md`.
+Latest implementation tracking: `docs/archive/CONVERSATIONAL_NATIVE_TOOL_V2_COMPLETION_CHECKLIST_2026-09-01.md`.

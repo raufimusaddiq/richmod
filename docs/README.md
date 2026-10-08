@@ -1,10 +1,11 @@
 # Richmod documentation
 
-`docs/` holds about 150 Markdown files. Most are feature-specific PRDs, delivery
-checklists and Codex briefs written while a feature was built. This page lists
-the files to start from. When two documents disagree, follow the priority order
-in [`AGENTS.md`](../AGENTS.md#project-docs): the latest explicit instruction,
-then current repository behavior, then current docs and ADRs, then older specs.
+This page lists the documents to start from. Feature PRDs, delivery checklists
+and Codex briefs written while a feature was built are in
+[`archive/`](archive/README.md). When two documents disagree, follow the
+priority order in [`AGENTS.md`](../AGENTS.md#project-docs): the latest explicit
+instruction, then current repository behavior, then current docs and ADRs, then
+older specs.
 
 ## Start here
 
@@ -36,7 +37,8 @@ then current repository behavior, then current docs and ADRs, then older specs.
 
 - [`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md): the product alignment the current surfaces follow.
 - [`MVP_COMPLETION_CHECKLIST.md`](MVP_COMPLETION_CHECKLIST.md): what the MVP covers and how it was verified.
-- [`ANALYTICS_CYCLE_REVIEW_UI.md`](ANALYTICS_CYCLE_REVIEW_UI.md): the current Analytics contract. Older analytics insight and chart-refinement documents are historical.
+- [`ANALYTICS_CYCLE_REVIEW_UI.md`](ANALYTICS_CYCLE_REVIEW_UI.md): the current Analytics contract, with the [facts API](ANALYTICS_CYCLE_REVIEW_API.md), the [shared read tools](ANALYTICS_SHARED_READ_TOOLS.md) and [telemetry](ANALYTICS_CYCLE_REVIEW_TELEMETRY.md).
+- [`OPEN_GRAPH_SHARE_PREVIEW.md`](OPEN_GRAPH_SHARE_PREVIEW.md): the public share-preview metadata.
 
 ## Next initiative
 
@@ -58,8 +60,7 @@ then current repository behavior, then current docs and ADRs, then older specs.
 | [`audits/`](audits/) | Point-in-time audits and their closure notes |
 | [`plans/`](plans/) | Execution plans for multi-sprint work |
 | [`assets/`](assets/) | README screenshots and the logo |
+| [`archive/`](archive/README.md) | Historical PRDs, checklists, Codex briefs and verification records |
 
-The remaining top-level files are feature PRDs, checklists and briefs. Check the
-ADR index and the runbooks first, and treat a checklist or Codex brief as the
-record of how something was built, not as the current specification, unless a
-current document above links to it.
+Treat an archived PRD, checklist or Codex brief as the record of how something
+was built, not as the current specification.

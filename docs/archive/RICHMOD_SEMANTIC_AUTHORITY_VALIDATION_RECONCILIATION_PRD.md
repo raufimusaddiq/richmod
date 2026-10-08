@@ -37,7 +37,7 @@ Audit baseline:
 
 Drift gate:
 
-- `docs/SAVR_DRIFT_GUARD_CHECKLIST.md`
+- `docs/archive/SAVR_DRIFT_GUARD_CHECKLIST.md`
 
 Codex MUST re-check latest `main` before every implementation task. File paths in
 the audit are evidence, not permission to blindly patch the same lines later.
