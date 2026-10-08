@@ -16,11 +16,30 @@
 
 </div>
 
-Richmod is a self-hosted household finance system for tracking **income and expenses** without turning personal finance into a second job.
+Richmod is a self-hosted household finance system for tracking **income and
+expenses** without turning personal finance into a second job.
 
-Forward financial notifications, send a message or image through Telegram, or upload receipts, payslips, screenshots, invoices, and transfer proofs. Richmod turns clear evidence into canonical financial records and routes uncertainty to a human instead of silently guessing.
+Forward financial notifications, send a message or image through Telegram, or
+upload receipts, payslips, screenshots, invoices and transfer proofs. Richmod
+turns clear evidence into canonical financial records and routes uncertainty to
+a human instead of silently guessing.
 
-> **Deterministic Go handles facts, Jev handles bounded semantic judgment, generative models handle open-ended understanding, and Go still owns financial state.**
+> **Deterministic Go handles facts, Jev handles bounded semantic judgment,
+> generative models handle open-ended understanding, and Go still owns
+> financial state.**
+
+## Contents
+
+- [A quick look](#a-quick-look)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Safety by design](#safety-by-design)
+- [Tech stack](#tech-stack)
+- [Getting started](#getting-started)
+- [Development](#development)
+- [Status](#status)
+- [Scope](#scope)
+- [Documentation](#documentation)
 
 ---
 
@@ -40,48 +59,70 @@ Forward financial notifications, send a message or image through Telegram, or up
 | --- | --- |
 | ![Richmod dashboard on a phone](docs/assets/dashboard-mobile.png) | ![Richmod transactions on a tablet](docs/assets/transactions-tablet.png) |
 
-The same app adapts from desktop to tablet to phone: a bottom tab bar replaces the sidebar, cards stack, and the transaction list switches between a full table and compact rows.
+The layout adapts from desktop to tablet to phone: a bottom tab bar replaces the
+sidebar, cards stack, and the transaction list switches between a full table and
+compact rows.
 
-Screenshots use synthetic household data. No production financial data is included. The desktop images are 1440x1050; the phone and tablet images are 390x844 and 768x1024. The cycle comparison chart in the Analytics image appears once a household has four closed salary cycles; with fewer, Richmod shows one summary card per cycle instead, so a new household will see the card layout first.
-For reproducible capture, verification, and disposable cleanup, see the
-[README visual showcase runbook](docs/runbooks/readme-showcase.md).
+<details>
+<summary>About these screenshots</summary>
 
-Analytics follows the [cycle-review UI contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md).
-Older Analytics insight and chart-refinement documents remain historical records,
-not current implementation guidance.
+- They use synthetic household data; no production financial data is included.
+- Desktop images are 1440x1050; phone and tablet images are 390x844 and 768x1024.
+- The cycle comparison chart in the Analytics image appears once a household has
+  four closed salary cycles. With fewer, Richmod shows one summary card per
+  cycle, so a new household sees the card layout first.
+- `npm run capture:readme` regenerates them; see the
+  [README showcase runbook](docs/runbooks/readme-showcase.md).
 
-## Why Richmod
+</details>
 
-| Evidence first | Household aware | Human when uncertain |
-| --- | --- | --- |
-| Raw source evidence stays attached to the decisions it supports. | Every mutation is scoped to exactly one household and remains auditable. | Ambiguous facts become review items instead of invented ledger entries. |
-
-Richmod is deliberately conservative around money. PostgreSQL is the source of truth, Go owns financial state transitions, and deterministic paths continue to work even when the AI gateway is unavailable. Bounded semantic decisions may use Jev through LiteRouter; arbitrary extraction, vision, reasoning, and prose may use generative models through the same gateway.
-
-## What it does
+## Features
 
 | | |
 | --- | --- |
-| 📩 **Financial Email** | Forward financial notifications without giving Richmod direct bank credentials. Each household gets an opaque, household-scoped ingress address. |
-| 💬 **Telegram Assistant** | Ask finance questions, record transactions, send evidence, make corrections, and resolve reviews conversationally. |
-| 📄 **Document Understanding** | Process receipts, payslips, invoices, screenshots, transfer proofs, and transaction histories through one evidence pipeline. |
-| 🧠 **Human-in-the-loop** | Ambiguous facts never silently become ledger entries. Richmod routes uncertainty to the Review Inbox for an explicit decision. |
-| 📊 **Deterministic Analytics** | Review salary-cycle outcomes, previous/recent-median comparisons, merchant and transaction drivers, savings, Wealth, and loose ends. Optional tool-first discussion; explicit household decisions; full review remains usable without AI. |
-| 🧾 **Wealth snapshots** | Track household assets and liabilities as dated observations, connect salary-cycle savings to their destination, and review Net Worth over time. |
-| 🔎 **Evidence + Audit History** | Preserve source evidence and the decisions it supports so financial state stays explainable and auditable. |
+| 📩 **Financial email** | Forward financial notifications without giving Richmod bank credentials. Each household gets an opaque, household-scoped ingress address. |
+| 💬 **Telegram assistant** | Ask finance questions, record transactions, send evidence, make corrections and resolve reviews conversationally. |
+| 📄 **Document understanding** | Receipts, payslips, invoices, screenshots, transfer proofs and transaction histories go through one evidence pipeline. |
+| 🧠 **Human in the loop** | Ambiguous facts never silently become ledger entries; they go to the Review Inbox for an explicit decision. |
+| 📊 **Deterministic analytics** | Salary-cycle outcomes, previous and recent-median comparisons, merchant and transaction drivers, savings, Wealth and loose ends. AI discussion is optional; the full review works without it. |
+| 🧾 **Wealth snapshots** | Dated observations of assets and liabilities, salary-cycle savings linked to their destination, and Net Worth over time. |
+| 🔎 **Evidence and audit history** | Source evidence stays attached to the decisions it supports, so financial state remains explainable. |
 
-## Wealth and salary-cycle context
+### Wealth alongside the cashflow ledger
 
-Wealth extends the cashflow ledger without replacing it:
+Wealth extends the ledger without replacing it:
 
-- **Cashflow** remains the confirmed income, expense, refund, and transfer history.
+- **Cashflow** is the confirmed income, expense, refund and transfer history.
 - **Savings allocation** records intentional destinations for confirmed transfers.
-- **Wealth snapshots** capture observed account values for assets and liabilities at a specific time.
-- **Net Worth** brings the latest snapshot together with assets, liabilities, change since the previous observation, and historical context.
+- **Wealth snapshots** capture observed account values at a specific time.
+- **Net Worth** combines the latest snapshot's assets and liabilities with the
+  change since the previous observation.
 
-Wealth is deliberately observation-based. It does not invent balances, create
-transactions from snapshots, or imply live market prices, investment returns, or
-portfolio performance.
+Wealth is observation-based. It never invents balances, creates transactions
+from snapshots, or implies live prices, returns or portfolio performance.
+
+### The web app
+
+| Page | Indonesian label | Notes |
+| --- | --- | --- |
+| Overview | Ringkasan | |
+| Transactions | Transaksi | |
+| Analytics | Analisis | Follows the [cycle-review UI contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md) |
+| Wealth | Kekayaan | |
+| Review Inbox | Tinjauan | **Transactions** tab and **Actions** tab |
+| Documents | Dokumen | |
+| Household | Keluarga | |
+| Settings | Pengaturan | |
+| Admin | Admin | Platform operator console, super admins only |
+
+The interface is in Indonesian; this documentation uses the English names.
+
+Financial review and integration setup are kept apart: a forwarding confirmation
+never looks like a transaction problem, and a transaction ambiguity is never
+hidden inside system setup. The Actions tab also lists source events that failed
+for good, such as an unusable bank email or a job that gave up, as dismissable
+items rather than false reviews
+([ADR-049](docs/adr/ADR-049-failed-sources-surface-as-actions.md)).
 
 ## How it works
 
@@ -105,19 +146,17 @@ flowchart LR
     L --> A[Analytics + household views]
 ```
 
-Exact facts, arithmetic, authorization, target binding, reconciliation, and persistence remain deterministic Go decisions. Jev handles bounded semantic choices when the output domain is known; generative models are reserved for arbitrary extraction, vision, open-ended reasoning, and prose. Neither model family can directly mutate the database.
+Exact facts, arithmetic, authorization, target binding, reconciliation and
+persistence are deterministic Go decisions. Jev handles bounded semantic choices
+when the output domain is known; generative models are reserved for arbitrary
+extraction, vision, open-ended reasoning and prose. Neither can mutate the
+database.
 
-## Three ways data gets in
+### Financial email
 
-### 1. Financial email
-
-Each household gets an opaque recipient shaped like:
-
-```text
-h_<32hex>@richmod.link
-```
-
-The signed recipient selects the household. Sender, subject, body, institution name, and LLM output never do.
+Each household gets an opaque recipient such as `h_<32hex>@richmod.link`. The
+signed recipient selects the household; sender, subject, body, institution name
+and model output never do.
 
 ```mermaid
 flowchart LR
@@ -130,21 +169,26 @@ flowchart LR
     B --> P[Proposal / review / ledger]
 ```
 
-Cloudflare delivers the original RFC822 message to `POST /finance/v1/email/inbond` with HMAC and SHA-256 verification. Setup/control emails are dispatched to Integration Actions and never enter the financial LLM flow.
+Cloudflare delivers the original RFC822 message to
+`POST /finance/v1/email/inbond` with HMAC and SHA-256 verification. Setup and
+control emails go to Integration Actions and never enter the financial model
+flow. Resources, bindings, the request contract, forwarding setup and
+troubleshooting are in the
+[Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md).
 
-For the deployed Cloudflare resource map, Worker bindings, Queue/DLQ settings, HMAC request contract, forwarding setup, smoke test, and troubleshooting, see the [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md).
+### Telegram
 
-### 2. Telegram
+Household members connect through expiring, single-use invitations. Richmod
+accepts text, images, documents, finance questions, corrections and review
+replies. Replies and button taps are bound to the exact review they answer; the
+model is never asked to guess which transaction a reply means when explicit
+context exists.
 
-Household members connect Telegram through expiring, single-use invitations. Richmod supports text, images, documents, finance queries, corrections, and interactive review.
+### Documents
 
-Review replies and callbacks remain deterministically bound to the exact underlying review object; the model is never asked to guess which transaction a reply refers to when explicit context exists.
-
-### 3. Documents
-
-Receipts, payslips, bank or e-wallet screenshots, invoices, transfer proofs, and transaction histories share one evidence pipeline.
-
-Extraction may use a generative model through LiteRouter, while bounded semantic judgments may use System One/Jev through the same gateway. Go validates the result and decides whether the evidence:
+Every finance image or document uses one evidence pipeline. Extraction may use a
+generative model and bounded judgments may use Jev, both through LiteRouter. Go
+validates the result and decides whether the evidence:
 
 - creates a proposal;
 - enriches an existing transaction;
@@ -155,80 +199,54 @@ Extraction may use a generative model through LiteRouter, while bounded semantic
 
 Richmod treats AI output as untrusted input.
 
-- **PostgreSQL is canonical.**
-- **Go owns all financial mutations.**
-- **Money uses PostgreSQL `NUMERIC`, never floating point.**
+- **PostgreSQL is canonical**, and **Go owns every financial mutation**.
+- **Money uses PostgreSQL `NUMERIC`**, never floating point.
 - **Every financial mutation is household-scoped and auditable.**
 - **Source evidence is preserved.** Deduplication links evidence rather than deleting it.
 - **Ambiguity is surfaced, not guessed.**
 - **Webhooks and jobs are idempotent.**
-- **Deterministic features work without the AI gateway.**
-- **Merchant learning requires explicit opt-in.** One corrected transaction does not silently create a permanent rule.
+- **Deterministic features keep working without the AI gateway.**
+- **Merchant learning is opt-in.** One corrected transaction does not silently create a permanent rule.
+- **No model gets database access**, and Richmod authenticates only to
+  LiteRouter; upstream provider credentials stay in the gateway.
 
-## Product surfaces
-
-The web app is organized around:
-
-```text
-Overview     (Ringkasan)
-Transactions (Transaksi)
-Analytics    (Analisis)
-Wealth       (Kekayaan)
-Review Inbox (Tinjauan)   Transactions tab + Actions tab
-Documents    (Dokumen)
-Household    (Keluarga)
-Settings     (Pengaturan)
-Admin        (Admin)      super admins only
-```
-
-The interface is in Indonesian; the English names above are the terms this documentation uses. The Admin console is the platform operator view and appears only for super admins.
-
-Financial review and integration setup are intentionally separate. A forwarding confirmation should never look like a transaction problem, and a transaction ambiguity should never be hidden inside system setup.
-
-The Actions tab also lists source events that failed for good, such as an unusable bank email or a job that gave up, as dismissable items. A machine failure is shown without opening a false review ([ADR-049](docs/adr/ADR-049-failed-sources-surface-as-actions.md)).
-
-## Architecture
+## Tech stack
 
 | Layer | Technology |
 | --- | --- |
-| API / financial state transitions | Go |
+| API and financial state transitions | Go |
 | Background jobs | Go + PostgreSQL-backed queue |
 | Web app | Next.js + React |
 | Canonical database | PostgreSQL |
-| AI model access | LiteRouter / Cloud AI Gateway — generative Responses + native System One |
+| AI model access | LiteRouter / Cloud AI Gateway: generative Responses and native System One |
 | Financial email transport | Cloudflare Email Routing + R2 + Queues + Workers |
 | Object storage | S3-compatible storage |
 | Production edge | Caddy |
 | Deployment | Docker Compose + GHCR images |
 
-No AI model receives direct database access. Richmod authenticates only to LiteRouter; upstream provider credentials stay in the gateway. Jev/System One is used natively for bounded semantic decisions, while generative protocols remain available for extraction, reasoning, vision, and prose.
+## Getting started
 
-## Quick start
-
-### 1. Configure
+**1. Configure.** Copy the example environment and replace every placeholder:
 
 ```bash
 cp .env.example .env
 ```
 
-Replace every placeholder in `.env` before starting the stack. [`.env.example`](.env.example) is grouped by concern (database, LLM gateway, Telegram, email ingress, storage, judgment plane, backups); optional variables are left blank and say what an empty value means.
+[`.env.example`](.env.example) is grouped by concern (database, LLM gateway,
+Telegram, email ingress, storage, judgment plane, backups). Optional variables
+are blank and say what an empty value means.
 
-### 2. Start Richmod
+**2. Start the stack.**
 
 ```bash
 docker compose up --build
 ```
 
-Health endpoints:
+Health checks: `http://localhost:8080/healthz` and `http://localhost:8080/readyz`.
 
-```text
-http://localhost:8080/healthz
-http://localhost:8080/readyz
-```
-
-### 3. Create the first owner
-
-Bootstrap can run exactly once. Pass the password through standard input so it does not land in shell history:
+**3. Create the first owner.** Bootstrap runs exactly once and creates the first
+`OWNER`, the household and the Indonesian category seeds in one transaction.
+Pass the password on standard input so it stays out of shell history:
 
 ```bash
 printf '%s\n' 'use-a-unique-12-plus-character-password' \
@@ -238,9 +256,17 @@ printf '%s\n' 'use-a-unique-12-plus-character-password' \
       --household 'My Household'
 ```
 
-This creates the first `OWNER`, household, and Indonesian category seeds in one transaction.
+### Configuration files
 
-## Local development
+| File | What it is |
+| --- | --- |
+| [`.env.example`](.env.example) | The full environment, grouped by concern. Copy to `.env`; never commit the copy. |
+| [`infra/cloudflare-email-ingress/wrangler.toml.example`](infra/cloudflare-email-ingress/wrangler.toml.example) | The ingress Worker: stores the raw message in R2 and enqueues metadata. Holds no secret. |
+| [`infra/cloudflare-email-delivery/wrangler.toml.example`](infra/cloudflare-email-delivery/wrangler.toml.example) | The delivery Worker: consumes the queue and posts to the API. Its signing secret is set with `wrangler secret put`, never in the file. |
+
+The Cloudflare examples use a placeholder API hostname; replace it with your own.
+
+## Development
 
 ```bash
 # Web: unit and lock tests, then the production build
@@ -251,75 +277,80 @@ cd apps/api && go test ./... && go vet ./...
 cd apps/worker && go test ./... && go vet ./...
 ```
 
-Database-backed tests need an isolated PostgreSQL; the [disposable test matrix](docs/runbooks/disposable-test-matrix.md) has the exact commands and the cleanup. The web app also has a visual smoke test (`npm run test:visual`) that renders every route at six viewport sizes against synthetic API fixtures, and `npm run capture:readme` regenerates the screenshots above ([README showcase runbook](docs/runbooks/readme-showcase.md)).
+- Database-backed tests need an isolated PostgreSQL; the
+  [disposable test matrix](docs/runbooks/disposable-test-matrix.md) has the
+  exact commands and the cleanup.
+- `npm run test:visual` renders every route at six viewport sizes against
+  synthetic API fixtures.
 
-## Examples and configuration
+### Shipping changes
 
-| File | What it is |
-| --- | --- |
-| [`.env.example`](.env.example) | The full environment, grouped by concern. Copy to `.env`; never commit the copy. |
-| [`infra/cloudflare-email-ingress/wrangler.toml.example`](infra/cloudflare-email-ingress/wrangler.toml.example) | The ingress Worker: stores the raw message in R2 and enqueues metadata. Holds no secret. |
-| [`infra/cloudflare-email-delivery/wrangler.toml.example`](infra/cloudflare-email-delivery/wrangler.toml.example) | The delivery Worker: consumes the queue and posts to the API. Its signing secret is set with `wrangler secret put`, never in the file. |
+`main` is protected. A change reaches it through a pull request whose required
+checks pass, including CI and the automated Hermes Review, and is merged with a
+merge commit. CI covers secret scanning, Go tests and vet, database-backed
+integration tests, frontend tests, the Next.js production build, Compose
+validation and image builds.
 
-The Cloudflare examples use a placeholder API hostname; replace it with your own before deploying.
+Successful `main` builds publish immutable images to GHCR. Production deployment
+is manual and approval-gated: the server pulls released images, runs migrations
+and restarts services without building locally. See the
+[sprint delivery runbook](docs/runbooks/sprint-delivery.md) and the
+[production deployment runbook](docs/runbooks/production-deployment.md), and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) before proposing a change.
 
-## Current status
+## Status
 
-The generic Cloudflare email-ingress path is active in production and has completed a real forwarded financial-email flow through bank-email processing and ledger confirmation.
+The latest release is
+[v0.beta](https://github.com/raufimusaddiq/richmod/releases/tag/v0.beta).
 
-The former Gmail OAuth / Pub/Sub runtime has been fully sunset from the application. Gmail may still be used by a user as a forwarding source, but Richmod no longer depends on Gmail API access.
-
-Current follow-up hardening items include real second-sender acceptance and another off-host backup restore exercise.
-
-The web interface is responsive across phones, tablets and desktops. Controls are labelled, interface text is 12px or larger (chart axis ticks and a few admin helper lines are the known exceptions), scrolling regions are reachable by keyboard, and the visual smoke test renders every route at six viewport sizes. The 2026-10-02 UI audit, what each fix changed, and what remains open are in [`docs/audits/UI-AUDIT-2026-10-02.md`](docs/audits/UI-AUDIT-2026-10-02.md).
-
-## Shipping changes
-
-Pull requests and pushes to `main` run the repository CI path, including secret scanning, Go tests and vet, database-backed integration tests, frontend tests, the Next.js production build, Compose validation, and production image builds.
-
-Successful `main` builds publish immutable images to GHCR. Production deployment is manual and approval-gated: the server pulls released images, runs migrations, and restarts services without building locally.
-
-`main` is protected. A change reaches it through a pull request whose required checks, including the automated Hermes Review, pass, and it is merged with a merge commit. The full sequence from branch to cleanup is the [sprint delivery runbook](docs/runbooks/sprint-delivery.md); [`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployment.md) covers the deployment flow.
-
-## Documentation
-
-- [Documentation index](docs/README.md): where to start, and which documents are current
-- [Architecture decision records](docs/adr/README.md): the index of all ADRs
-- [Cloudflare email ingress runbook](docs/runbooks/cloudflare-email-ingress.md)
-- [ADR-033: Cloudflare email ingress and Gmail sunset](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md) (the number is shared with [ADR-033: Bounded natural conversational finance agent](docs/adr/ADR-033-bounded-natural-conversational-agent.md); both are current)
-- [ADR-038: System One semantic decision plane](docs/adr/ADR-038-system-one-semantic-decision-plane.md)
-- [Jev / System One integration PRD](docs/RICHMOD_JEV_SYSTEM_ONE_PRD.md)
-- [Database schema and ERD](docs/DATABASE_SCHEMA.md)
-- [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md)
-- [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md)
-- [Wealth, savings, and cycle reconciliation release checklist](docs/archive/WEALTH_SAVINGS_CYCLE_RECONCILIATION_RELEASE_CHECKLIST.md)
-- [Production deployment runbook](docs/runbooks/production-deployment.md)
-- [Sprint delivery runbook](docs/runbooks/sprint-delivery.md) and the [disposable test matrix](docs/runbooks/disposable-test-matrix.md)
-- [Brand guidelines](docs/brand-guidelines.md) and the [UI audit](docs/audits/UI-AUDIT-2026-10-02.md)
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md)
-- [`AGENTS.md`](AGENTS.md) for repository architecture and contribution rules
+- The generic Cloudflare email-ingress path runs in production and has completed
+  a real forwarded financial-email flow through to ledger confirmation.
+- The former Gmail OAuth / Pub/Sub runtime is fully sunset. Gmail can still be a
+  forwarding source, but Richmod no longer uses the Gmail API.
+- The web interface is responsive across phones, tablets and desktops. Controls
+  are labelled, interface text is 12px or larger (chart axis ticks and a few
+  admin helper lines are the known exceptions), and scrolling regions are
+  reachable by keyboard. The
+  [2026-10-02 UI audit](docs/audits/UI-AUDIT-2026-10-02.md) records what remains
+  open.
+- Open hardening items: real second-sender acceptance and another off-host
+  backup restore exercise.
 
 ## Scope
 
-Richmod V1 covers **household income and expense tracking**, additive wealth
-observations, savings intent classification, and salary-cycle residual
-reconciliation. Transactions remain the cashflow ledger; wealth snapshots are
-point-in-time observations; residuals become review metadata, not synthetic
+Richmod V1 covers **household income and expense tracking**, additive Wealth
+observations, savings intent classification and salary-cycle residual
+reconciliation. Transactions remain the cashflow ledger; Wealth snapshots are
+point-in-time observations; residuals are review metadata, not synthetic
 transactions.
 
-Supported Wealth V1 is manual, snapshot-level tracking for bank, cash,
-e-wallet, mutual fund, gold, brokerage, deposit, crypto, and loan/liability
-balances. Explicit non-goals: live NAV or market-price feeds, broker or wallet
-sync, per-security positions, cost basis, realized/unrealized P&L, TWR, XIRR,
-investment advice, historical savings inference, and automatic
-residual-to-transaction conversion.
+Wealth V1 is manual, snapshot-level tracking for bank, cash, e-wallet, mutual
+fund, gold, brokerage, deposit, crypto and loan/liability balances.
 
-Bank Email remains the frozen `SPENDING_ONLY` compatibility pipeline. Financial
-Provider Email is a generic native-LLM observation path: provider email may
-stand alone as evidence, while Go owns household entity resolution,
-reconciliation, and canonical mutations. Wealth values are observations and
-snapshots, never transactions. Provider-specific production branches are out
-of scope.
+Bank Email is the frozen `SPENDING_ONLY` compatibility pipeline. Financial
+Provider Email is a generic observation path: provider email can stand alone as
+evidence, while Go owns household entity resolution, reconciliation and
+canonical mutations.
+
+**Not in scope:** live NAV or market-price feeds, broker or wallet sync,
+per-security positions, cost basis, realized/unrealized P&L, TWR, XIRR,
+investment advice, historical savings inference, automatic
+residual-to-transaction conversion, and provider-specific production branches.
+
+## Documentation
+
+Start with the [documentation index](docs/README.md), which lists the current
+documents; historical PRDs and checklists are in [`docs/archive/`](docs/archive/README.md).
+
+| Topic | Documents |
+| --- | --- |
+| Rules and contributing | [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md) |
+| Architecture | [ADR index](docs/adr/README.md), [ADR-038: System One semantic decision plane](docs/adr/ADR-038-system-one-semantic-decision-plane.md), [Jev / System One PRD](docs/RICHMOD_JEV_SYSTEM_ONE_PRD.md) |
+| Email and Telegram | [ADR-033: Cloudflare email ingress](docs/adr/ADR-033-cloudflare-email-ingress-two-deploy-migration.md) and [ADR-033: Bounded conversational agent](docs/adr/ADR-033-bounded-natural-conversational-agent.md) (two current records share the number) |
+| Data | [Database schema and ERD](docs/DATABASE_SCHEMA.md) |
+| Product | [Product Alignment v2](docs/RICHMOD_PRODUCT_ALIGNMENT_V2.md), [MVP completion checklist](docs/MVP_COMPLETION_CHECKLIST.md), [Analytics contract](docs/ANALYTICS_CYCLE_REVIEW_UI.md) |
+| Operations | [Production deployment](docs/runbooks/production-deployment.md), [sprint delivery](docs/runbooks/sprint-delivery.md), [disposable test matrix](docs/runbooks/disposable-test-matrix.md), [Cloudflare email ingress](docs/runbooks/cloudflare-email-ingress.md) |
+| Interface | [Brand guidelines](docs/brand-guidelines.md), [UI audit](docs/audits/UI-AUDIT-2026-10-02.md) |
 
 ---
 
