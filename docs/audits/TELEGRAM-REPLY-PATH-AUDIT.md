@@ -237,3 +237,33 @@ Status of the findings on `ea6ffea`:
 - **F5** partly addressed (#296 `awaiting_field`; #301 passes it to the route
   request). Tool arguments are still not derived from `missingFacts`.
 - **F6** open.
+
+## 10. Execution record (branch `fix/telegram-reply-paths`)
+
+| Finding | Status | Test (drives `ProcessAgent`) |
+| --- | --- | --- |
+| F1 Jev `CONFIRM` short-circuit | fixed: rule derived from `requiredNativeReviewDetail` | `TestTypedDetailReplyCompletesReview` |
+| F2 bank facts | fixed: `BANK_FACTS` binding + executor sharing `enqueueBankFactsCompletion` with the bound reply lane | `TestTypedBankFactsReplyQueuesCompletion`, both `multi_recipient_race` tests moved to `ProcessAgent` |
+| F3 detail re-asks category | fixed: agent save confirms when nothing else is missing | `TestTypedDetailReplyCompletesReview`, `TestTypedPurposeThenCategoryButtonCompletes` |
+| F4 tests on the wrong entry | partly: payslip date, transfer free text, plain merchant and both bank tests moved to `ProcessAgent`; compound date covered by `TestTypedDateOnCompoundCardAdvancesToCategory` | see F7 for the rest |
+| F5 typed tool arguments | open | — |
+| F6 missing amount untested | fixed (path already worked) | `TestTypedAmountReplyRecordsScreenshotRow` |
+
+New findings while executing:
+
+- **F7 — duplicate merge buttons never shown (open, needs a product decision).**
+  A production `POSSIBLE_DUPLICATE` card is sent with only "Catat sebagai baru" /
+  "Abaikan" (`duplicateIntentMarkup`). The per-candidate merge buttons and the
+  stored `duplicate_candidates` come only from `offerDuplicateChoices`, which only
+  the typed text lane in `Process` reaches. Merging works in production only by a
+  typed answer through the agent (`MERGE_EXISTING`). Either store candidates and
+  render `duplicateChoicesMarkup` at projection, or delete the button feature.
+  The remaining old-lane tests (`date_review_integration_test.go`,
+  `freeform_residual_integration_test.go`, the reply-merchant and category-typed
+  tests, and the duplicate typed step) are deleted together with the typed
+  branches of `processBoundReview` once F7 is decided.
+- **F8 — typed replies to cards older than 7 days were refused (fixed).** Only
+  `Process` renewed an expired projection; the agent's save step required
+  `expires_at > now()`. `ProcessAgent` now renews the same way. Covered by
+  `TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale` (it expires the card
+  first; fails without the renewal).

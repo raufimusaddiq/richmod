@@ -58,6 +58,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// binding for those review kinds. Only exact replies take this lane: chat state
 	// alone never owns a turn, and transaction-keyed reviews stay with the agent.
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+		// A card older than its 7-day projection window is still an open review;
+		// renew it as the button lane does, so a typed answer is not refused as stale.
+		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
+			return err
+		}
 		target, err := p.replyTargetForEvidenceReview(ctx, householdID, update)
 		if err != nil {
 			return err

@@ -139,7 +139,7 @@ func TestTransferReviewOffersChooserAndCompletes(t *testing.T) {
 	// Free text that is not a bound reply is ordinary conversation, handled by the
 	// agent lane. With the model unavailable it reports the outage so the queue
 	// retries; what this test pins is that nothing mutates either way.
-	if err = NewProcessor(pool, boundReviewGateway{}).Process(ctx, sourceID); err != nil && !strings.Contains(err.Error(), "conversational gateway unavailable") {
+	if err = NewProcessor(pool, boundReviewGateway{}).ProcessAgent(ctx, sourceID); err != nil && !strings.Contains(err.Error(), "conversational gateway unavailable") {
 		t.Fatal(err)
 	}
 	var transferType, transferStatus string

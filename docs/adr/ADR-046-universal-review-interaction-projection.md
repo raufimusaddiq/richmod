@@ -353,3 +353,21 @@ revalidates the stored allowed action. Dismissal atomically ignores the bank
 source, resolves the canonical item and all its projections/conversations, and
 records the actor audit. No transaction is required, created, or deleted.
 Already-resolved callbacks remain stale and never replay the mutation.
+
+## 2026-10-08 — typed answers complete on the agent lane
+
+From `audits/TELEGRAM-REPLY-PATH-AUDIT.md`. Typed answers to review cards
+(replies and, after #301, plain answers) are owned by the conversational agent;
+Go validates and commits.
+
+- A card whose `CONFIRM` needs a typed value (merchant, date, purpose,
+  correction) hands the value to extraction when Jev chooses `CONFIRM`. The rule
+  is the executor's own `requiredNativeReviewDetail`, not a separate list.
+- A saved purpose or correction completes the review when the card asked for
+  nothing else and the transaction already satisfies the confirm rule.
+- `UNKNOWN_BANK_TEMPLATE` cards without a transaction bind as `BANK_FACTS`. The
+  model extracts amount and time into `COMPLETE_BANK_FACTS`; Go validates them
+  and queues the shared `COMPLETE_BANK_REVIEW` job, or offers the account chooser
+  when the listener has no account.
+- A typed reply to a card past its 7-day projection window renews it, as the
+  button lane does, while the canonical review is open.
