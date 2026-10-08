@@ -204,6 +204,8 @@ func awaitedReviewField(conversationState string) string {
 		return "transaction_at"
 	case "AWAITING_MERCHANT":
 		return "merchant"
+	case "AWAITING_CATEGORY":
+		return "category_slug"
 	}
 	return ""
 }

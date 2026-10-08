@@ -18,7 +18,8 @@
 
 When an incoming message lacks `reply_to_message`, the bounded route request
 includes eligible chat review count and, for one review, its type, conversation
-state, and awaiting field. Canonical IDs stay server-only. An accepted
+state, and awaiting field (merchant, date, or category). Canonical IDs stay
+server-only. An accepted
 `REVIEW_INTERACTION` reaches the existing bound workflow instead of only listing
 reviews. Unrelated requests keep their own route; multiple reviews never select
 a target implicitly. Exact replies retain precedence. A rejected route grants
