@@ -39,7 +39,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	var successRate *float64
 	var llmP95 *float64
 	var cost *string
-	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM job WHERE status='FAILED' AND updated_at>now()-interval '24 hours'),count(*),count(*) FILTER(WHERE status='FAILED'),coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),CASE WHEN count(*)=0 THEN NULL ELSE count(*) FILTER(WHERE status='SUCCEEDED')::float/count(*) END,percentile_cont(.95) within group(order by duration_ms),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE created_at>now()-interval '24 hours'`).Scan(&failed, &calls, &llmFailed, &input, &output, &successRate, &llmP95, &cost); err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM job WHERE status='FAILED' AND updated_at>now()-interval '24 hours'),count(*),count(*) FILTER(WHERE status='FAILED'),coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),CASE WHEN count(*)=0 THEN NULL ELSE count(*) FILTER(WHERE status='SUCCEEDED')::float/count(*) END,percentile_cont(.95) within group(order by duration_ms),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE call_kind<>'DECISION' AND created_at>now()-interval '24 hours'`).Scan(&failed, &calls, &llmFailed, &input, &output, &successRate, &llmP95, &cost); err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
@@ -70,7 +70,7 @@ func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		status = "UNHEALTHY"
 	}
 	events := []map[string]any{}
-	if rows, err := h.pool.Query(ctx, `SELECT event_type,severity,component,error_class,reference_id,created_at FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') e ORDER BY created_at DESC,reference_id DESC LIMIT 8`); err == nil {
+	if rows, err := h.pool.Query(ctx, `SELECT event_type,severity,component,error_class,reference_id,created_at FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE call_kind<>'DECISION' AND status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') e ORDER BY created_at DESC,reference_id DESC LIMIT 8`); err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var typ, severity, component, errorClass, ref string
@@ -163,12 +163,12 @@ func (h *Handler) LLMSummary(w http.ResponseWriter, r *http.Request) {
 	var calls, failed, input, output int
 	var rate, p50, p95 *float64
 	var cost *string
-	err := h.pool.QueryRow(r.Context(), `SELECT count(*),count(*) FILTER(WHERE status='FAILED'),coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),CASE WHEN count(*)=0 THEN NULL ELSE count(*) FILTER(WHERE status='SUCCEEDED')::float/count(*) END,percentile_cont(.5) within group(order by duration_ms),percentile_cont(.95) within group(order by duration_ms),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE created_at >= $1`, rangeStart).Scan(&calls, &failed, &input, &output, &rate, &p50, &p95, &cost)
+	err := h.pool.QueryRow(r.Context(), `SELECT count(*),count(*) FILTER(WHERE status='FAILED'),coalesce(sum(input_tokens),0),coalesce(sum(output_tokens),0),CASE WHEN count(*)=0 THEN NULL ELSE count(*) FILTER(WHERE status='SUCCEEDED')::float/count(*) END,percentile_cont(.5) within group(order by duration_ms),percentile_cont(.95) within group(order by duration_ms),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE call_kind<>'DECISION' AND created_at >= $1`, rangeStart).Scan(&calls, &failed, &input, &output, &rate, &p50, &p95, &cost)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `SELECT task,count(*),count(*) FILTER(WHERE status='FAILED'),percentile_cont(.5) within group(order by duration_ms),percentile_cont(.95) within group(order by duration_ms),coalesce(sum(input_tokens+output_tokens),0),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE created_at >=$1 GROUP BY task ORDER BY count(*) DESC`, rangeStart)
+	rows, err := h.pool.Query(r.Context(), `SELECT task,count(*),count(*) FILTER(WHERE status='FAILED'),percentile_cont(.5) within group(order by duration_ms),percentile_cont(.95) within group(order by duration_ms),coalesce(sum(input_tokens+output_tokens),0),CASE WHEN count(cost)=0 THEN NULL ELSE sum(cost)::text END FROM llm_call WHERE call_kind<>'DECISION' AND created_at >=$1 GROUP BY task ORDER BY count(*) DESC`, rangeStart)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -193,7 +193,7 @@ func (h *Handler) LLMCalls(w http.ResponseWriter, r *http.Request) {
 	start := adminRange(r.URL.Query().Get("range"))
 	limit := pageLimit(r, 50, 100)
 	cursor, hasCursor := parseCursor(r.URL.Query().Get("cursor"))
-	rows, err := h.pool.Query(r.Context(), `SELECT id,household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,created_at FROM llm_call WHERE created_at >=$1 AND ($2='' OR task=$2) AND ($3='' OR status=$3) AND (NOT $4 OR (created_at,id)<($5,$6::uuid)) ORDER BY created_at DESC,id DESC LIMIT $7`, start, r.URL.Query().Get("task"), r.URL.Query().Get("status"), hasCursor, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
+	rows, err := h.pool.Query(r.Context(), `SELECT id,household_id,task,protocol,model,status,error_class,duration_ms,input_tokens,output_tokens,cost,attempt,created_at FROM llm_call WHERE call_kind<>'DECISION' AND created_at >=$1 AND ($2='' OR task=$2) AND ($3='' OR status=$3) AND (NOT $4 OR (created_at,id)<($5,$6::uuid)) ORDER BY created_at DESC,id DESC LIMIT $7`, start, r.URL.Query().Get("task"), r.URL.Query().Get("status"), hasCursor, nullableTime(cursor.Time), nullableString(cursor.ID), limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -236,7 +236,7 @@ func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 		start = from
 	}
 	cursor, hasCursor := parseCursor(q.Get("cursor"))
-	rows, err := h.pool.Query(r.Context(), `SELECT * FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') events WHERE ($1='' OR event_type=$1) AND ($2='' OR severity=$2) AND ($3='' OR component=$3) AND ($4='' OR reference_id ILIKE '%'||$4||'%') AND created_at >= $5 AND ($6::timestamptz IS NULL OR created_at < $6) AND (NOT $7 OR (created_at,reference_id)<($8,$9)) ORDER BY created_at DESC,reference_id DESC LIMIT $10`, q.Get("type"), q.Get("severity"), q.Get("component"), q.Get("q"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
+	rows, err := h.pool.Query(r.Context(), `SELECT * FROM (SELECT 'JOB_RETRY' event_type,'WARN' severity,job_type component,error_class,job_id::text reference_id,failed_at created_at FROM job_retry_log UNION ALL SELECT 'JOB_FAILED','ERROR',type,'FAILED',id::text,updated_at FROM job WHERE status='FAILED' UNION ALL SELECT 'LLM_FAILED','ERROR',task,coalesce(error_class,'FAILED'),id::text,created_at FROM llm_call WHERE call_kind<>'DECISION' AND status='FAILED' UNION ALL SELECT 'SOURCE_FAILED','ERROR',source_type,'FAILED',id::text,created_at FROM source_event WHERE processing_status='FAILED') events WHERE ($1='' OR event_type=$1) AND ($2='' OR severity=$2) AND ($3='' OR component=$3) AND ($4='' OR reference_id ILIKE '%'||$4||'%') AND created_at >= $5 AND ($6::timestamptz IS NULL OR created_at < $6) AND (NOT $7 OR (created_at,reference_id)<($8,$9)) ORDER BY created_at DESC,reference_id DESC LIMIT $10`, q.Get("type"), q.Get("severity"), q.Get("component"), q.Get("q"), start, nullableTimeArg(to, toOK), hasCursor, cursor.Time, cursor.ID, limit+1)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
@@ -327,7 +327,7 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	llmCalls := []map[string]any{}
-	if rows, err := h.pool.Query(r.Context(), `SELECT id,task,status,error_class,duration_ms,created_at FROM llm_call WHERE household_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10`, id); err == nil {
+	if rows, err := h.pool.Query(r.Context(), `SELECT id,task,status,error_class,duration_ms,created_at FROM llm_call WHERE call_kind<>'DECISION' AND household_id=$1 ORDER BY created_at DESC,id DESC LIMIT 10`, id); err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var lid, task, status string

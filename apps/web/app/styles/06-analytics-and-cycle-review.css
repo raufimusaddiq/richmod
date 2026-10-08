@@ -1,9 +1,8 @@
 .analytics-flow { display: grid; gap: 18px; }
 .admin-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 18px; overflow: hidden; border: 2px solid var(--ink); border-radius: var(--radius-md); background: var(--line); box-shadow: var(--shadow); }
 .admin-metrics { gap: 0; background: var(--surface); }
-.admin-metric { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
-.admin-metric:nth-child(-n + 4) { border-top: 0; }
-.admin-metric:nth-child(4n + 1) { border-left: 0; }
+/* Inset right/bottom rules per cell, so a partly filled last row keeps its lines. */
+.admin-metric { box-shadow: inset -1px -1px 0 var(--line); }
 .admin-metric { padding: 18px; background: var(--surface); }
 .admin-metric span { display: block; color: var(--muted); font-size: var(--text-xs); }
 .admin-metric b { display: block; margin-top: 5px; font-size: var(--text-xl); font-variant-numeric: tabular-nums; line-height: 1.25; }
