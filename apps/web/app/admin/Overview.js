@@ -28,7 +28,7 @@ export default function Overview({ setError }) {
         />
         <Metric
           label="Pemroses latar"
-          value={data.worker.healthy ? "Sehat" : "Perlu cek"}
+          value={<Badge value={data.worker.healthy ? "HEALTHY" : "WARN"} />}
           note={
             data.worker.lastHeartbeatAt
               ? `Terlihat ${time(data.worker.lastHeartbeatAt)}`
