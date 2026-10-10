@@ -74,7 +74,7 @@ func reviewNeedsFactsMessage(facts []string) string {
 			labels = append(labels, "merchant")
 		}
 	}
-	return "Tinjauan ini masih menunggu " + strings.Join(labels, " dan ") + ". Balas dengan nilai itu untuk menyelesaikan."
+	return "Masih perlu " + strings.Join(labels, " dan ") + ". Balas pesan ini (Reply) dengan detail tersebut untuk menyelesaikan tinjauan."
 }
 
 // parseSuppliedReviewDate reads a household-supplied transaction date as a
@@ -178,11 +178,11 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 				}
 				return true, tx.Commit(ctx)
 			default:
-				return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Balas 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan.")
+				return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Balas pesan ini (Reply) dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan.")
 			}
 		}
 		if !reviewdomain.ValidBankAmountIDR(amount) {
-			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Jumlah belum terbaca. Balas dengan angka IDR tanpa pemisah, contoh: 75000.")
+			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Nominalnya belum terbaca. Balas pesan ini (Reply) dengan angka rupiah tanpa pemisah. Contoh: 75000.")
 		}
 		tx, beginErr := p.pool.Begin(ctx)
 		if beginErr != nil {
@@ -197,7 +197,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			if tag.RowsAffected() != 1 {
 				return true, finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 			}
-			if err := enqueueReviewMessage(ctx, tx, amountRequestID, update.Message.Chat.ID, update.Message.MessageID, "Jumlah diterima. Balas 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan."); err != nil {
+			if err := enqueueReviewMessage(ctx, tx, amountRequestID, update.Message.Chat.ID, update.Message.MessageID, "Nominalnya sudah diterima, belum dicatat sebagai penghasilan. Balas pesan ini (Reply) dengan 'penghasilan' untuk mencatat, atau 'transfer sendiri' untuk mengabaikan."); err != nil {
 				return true, err
 			}
 			return true, tx.Commit(ctx)
@@ -207,7 +207,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 			SourceEventID: amountSourceID, ActorType: "TELEGRAM", AmountIDR: &amount, IncomeConfirmed: incomeConfirmed,
 		})
 		if errors.Is(resolveErr, reviewdomain.ErrMissingAmountReviewInvalid) {
-			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Tinjauan berubah. Buka Kotak Tinjauan untuk menyelesaikannya.")
+			return true, p.continueProposalAmountReview(ctx, sourceEventID, householdID, amountItemID, update, "Tinjauan ini sudah berubah. Buka Kotak Tinjauan untuk melanjutkan.")
 		}
 		if resolveErr != nil {
 			return true, resolveErr
@@ -215,7 +215,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'field','amount')) ON CONFLICT DO NOTHING`, result.TransactionID, amountSourceID, amountRequestID); err != nil {
 			return true, err
 		}
-		if err := enqueueReply(ctx, tx, update, "Jumlah transaksi disimpan. Tinjauan selesai."); err != nil {
+		if err := enqueueReply(ctx, tx, update, "✅ Nominal transaksi sudah disimpan. Tinjauan selesai."); err != nil {
 			return true, err
 		}
 		return true, tx.Commit(ctx)
@@ -261,7 +261,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return true, err
 		}
-		if err = enqueueReply(ctx, tx, update, "Slip gaji dikonfirmasi dan tanggal pembayaran dicatat."); err != nil {
+		if err = enqueueReply(ctx, tx, update, "✅ Slip gaji sudah dikonfirmasi dan tanggal pembayarannya dicatat."); err != nil {
 			return true, err
 		}
 		return true, tx.Commit(ctx)
@@ -294,11 +294,11 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return false, nil
 	}
 	if requestStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah selesai. Tidak ada transaksi baru yang dibuat.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah ditutup. Tidak ada transaksi baru yang dibuat.")
 	}
 	if expired {
 		_, _ = p.pool.Exec(ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1 AND status='OPEN'`, reviewID)
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk menyelesaikannya.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tombol tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk melanjutkan.")
 	}
 	// Only the transfer buttons reach this point (see Process). They answer a
 	// transfer-relationship review; on any other review they are not handled here.
@@ -309,7 +309,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
 	}
 	if transferReviewCallbackAction(update.CallbackQuery.Data) == "" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Aksi ini tidak tersedia. Tinjauan tetap terbuka.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilihan ini tidak tersedia. Tinjauan masih terbuka.")
 	}
 	return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
 }
@@ -425,7 +425,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 				return true, err
 			}
-			if err = enqueueReply(ctx, tx, update, "Transaksi digabung dengan catatan yang sudah ada."); err != nil {
+			if err = enqueueReply(ctx, tx, update, "✅ Transaksi sudah digabung dengan catatan yang ada."); err != nil {
 				return true, err
 			}
 			return true, tx.Commit(ctx)
@@ -452,7 +452,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 			return true, err
 		}
-		if err = enqueueReply(ctx, tx, update, "Transaksi disimpan sebagai transaksi baru."); err != nil {
+		if err = enqueueReply(ctx, tx, update, "✅ Sudah dicatat sebagai transaksi baru."); err != nil {
 			return true, err
 		}
 		return true, tx.Commit(ctx)
@@ -486,10 +486,10 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		message = "Pilih detail yang ingin diubah:"
 		markup = reviewDetailMarkup()
 	case "review:merchant":
-		message = "Balas pesan ini dengan nama merchant."
+		message = "Balas pesan ini (Reply) dengan nama merchant."
 		state = "AWAITING_MERCHANT"
 	case "review:description":
-		message = "Balas pesan ini dengan keterangan transaksi."
+		message = "Balas pesan ini (Reply) dengan keterangan transaksi."
 	case "review:category":
 		message = "Pilih kategori pengeluaran (halaman 1):"
 		state = "AWAITING_CATEGORY"
@@ -608,7 +608,7 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT s.household_id,'TELEGRAM',ti.user_id,'STALE_REVIEW_ACTION','source_event',s.id,jsonb_build_object('telegram_message_id',$2::bigint) FROM source_event s JOIN telegram_identity ti ON ti.household_id=s.household_id AND ti.telegram_user_id=$3 AND ti.active WHERE s.id=$1`, sourceEventID, messageID, actor); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, "Tinjauan ini sudah selesai. Tidak ada perubahan baru."); err != nil {
+	if err := enqueueReply(ctx, tx, update, "Tinjauan ini sudah ditutup atau berubah. Tidak ada perubahan baru dari pilihan ini."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

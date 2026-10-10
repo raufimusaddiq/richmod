@@ -134,7 +134,7 @@ func TestSpecializedMutationFallbacksAreSpecific(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := agentMutationFallback(tc)
-		if got == "Aksi keuangan sudah diproses." || strings.TrimSpace(got) == "" {
+		if got == agentMutationFallback(agentToolResult{}) || strings.TrimSpace(got) == "" {
 			t.Fatalf("fallback for %#v was not specific: %q", tc.Mutation, got)
 		}
 	}

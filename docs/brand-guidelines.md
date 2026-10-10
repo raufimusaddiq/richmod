@@ -119,6 +119,12 @@ and PRDs; they never appear in user-facing copy.
 | salary cycle / residual | siklus gaji / sisa siklus gaji | salary cycle, residual |
 
 - Labels and card badges use sentence case, not ALL CAPS.
+- Telegram sounds like a helpful conversation: natural `aku`/`kamu`, short
+  sentences, a clear next step. Generated replies match the user's language.
+- Use emojis sparingly (0–2 in conversational replies); retain words so status
+  never depends on an icon. Reserve success markers such as ✅ for completed
+  actions. Pending confirmation, ambiguity, and errors must not imply recording
+  succeeded. Avoid celebratory spending language or financial judgment.
 - Telegram dates use Indonesian month names (`04 Mei 2026`, `01 Agu 2026`)
   through `formatIDDate*` in `apps/worker/internal/telegram/id_format.go`; never
   Go's `time.Format` with a month name.
@@ -126,8 +132,7 @@ and PRDs; they never appear in user-facing copy.
   `pending:batch:*`), not by asking the user to type yes/no. Typed answers still
   work through the bounded judgment lane.
 - Telegram error messages say what to type next ("Sebutkan harinya, misalnya
-  hari ini atau 12 Agu"), never "tidak valid" on its own. A copy test rejects the
-  old validation-style phrases.
+  hari ini atau 12 Agu"), never "tidak valid" on its own.
 - A confirmation that is answered, or a button that is no longer valid, is
   retired: the original message is edited to keep its text, drop its buttons,
   and append the outcome ("Dikonfirmasi.", "Dibatalkan.", "Tidak lagi

@@ -283,9 +283,9 @@ func (p *Processor) executePendingSalaryChoice(ctx context.Context, householdID 
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-salary-choice',parser_version='1' WHERE id=$1`, sourceID); err != nil {
 		return true, err
 	}
-	msg := "Gaji disimpan sebagai pemasukan biasa."
+	msg := "✅ Gaji sudah disimpan sebagai pemasukan biasa."
 	if choice == salaryChoicePrimary {
-		msg = "Gaji utama disimpan dan menjadi acuan siklus keuangan."
+		msg = "✅ Gaji utama sudah disimpan dan menjadi acuan siklus keuangan."
 	}
 	if choice == salaryChoiceIgnore {
 		msg = "Slip gaji diabaikan."
@@ -328,7 +328,7 @@ func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, u
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-proposal',parser_version='1' WHERE id=$1`, sourceID); err != nil {
 		return true, err
 	}
-	message := fmt.Sprintf("Saya menemukan %s · Rp%s. Ubah tanggalnya ke %s?", label, FormatIDR(value.Amount), formatIDDateTime(value.TransactionAt))
+	message := fmt.Sprintf("Aku menemukan %s · Rp%s. Mau ubah tanggalnya ke %s?", label, FormatIDR(value.Amount), formatIDDateTime(value.TransactionAt))
 	if enqueueMessage {
 		err = enqueueReplyMarkup(ctx, tx, update, message, pendingActionMarkup())
 	}
@@ -359,9 +359,9 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 	message := "Perubahan dibatalkan."
 	if confirm {
 		status = "CONFIRMED"
-		message = "Perubahan transaksi berhasil disimpan."
+		message = "✅ Perubahan transaksi sudah disimpan."
 		if proposedAt != nil {
-			message = "Tanggal transaksi berhasil diubah ke " + formatIDDateTime(*proposedAt) + "."
+			message = "✅ Tanggal transaksi sudah diubah ke " + formatIDDateTime(*proposedAt) + "."
 		}
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=COALESCE($2,transaction_at),category_id=COALESCE($3,category_id),description=COALESCE(NULLIF($4,''),description),updated_at=now() WHERE id=$1 AND household_id=$5`, transactionID, proposedAt, proposedCategoryID, proposedDescription, householdID); err != nil {
 			return true, err
@@ -399,7 +399,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 		return true, err
 	}
 	status := "CANCELLED"
-	msg := "Pencatatan batch dibatalkan."
+	msg := "Pencatatan daftar transaksi dibatalkan."
 	if confirm {
 		var items []struct {
 			Type, Amount, Merchant, CategorySlug, Description string
@@ -435,7 +435,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 				if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); e != nil {
 					return true, e
 				}
-				if e := enqueueReply(ctx, tx, update, "Daftar ini belum bisa dicatat karena ada kategori yang tidak ada. Kirim ulang dengan kategori pengeluaran yang tersedia."); e != nil {
+				if e := enqueueReply(ctx, tx, update, "Daftar ini belum bisa dicatat karena ada kategori yang tidak tersedia. Kirim ulang dengan kategori pengeluaran yang tersedia, ya."); e != nil {
 					return true, e
 				}
 				return true, tx.Commit(ctx)
@@ -465,7 +465,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 			}
 		}
 		status = "CONFIRMED"
-		msg = fmt.Sprintf("Berhasil mencatat %d transaksi.", len(items))
+		msg = fmt.Sprintf("✅ %d transaksi sudah tercatat.", len(items))
 	}
 	if _, err = tx.Exec(ctx, `UPDATE telegram_pending_batch SET status=$2,resolved_at=now() WHERE id=$1`, batchID, status); err != nil {
 		return true, err

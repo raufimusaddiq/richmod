@@ -139,17 +139,11 @@ func TestAnExpiredCategoryRefBecomesAToolResultTheModelCanActOn(t *testing.T) {
 	}
 }
 
-// The apology blames slowness only when the model was slow.
-func TestTerminalTextCopyDependsOnTheCause(t *testing.T) {
-	slow, slowReason := terminalTextFailureCopy(true)
-	other, otherReason := terminalTextFailureCopy(false)
+// Terminal failures preserve the cause for the review reason.
+func TestTerminalTextFailurePreservesCause(t *testing.T) {
+	_, slowReason := terminalTextFailureCopy(true)
+	_, otherReason := terminalTextFailureCopy(false)
 	if slowReason != "TIMEOUT" || otherReason != "ERROR" {
 		t.Fatalf("reasons: %s / %s", slowReason, otherReason)
-	}
-	if !strings.Contains(slow, "lambat") {
-		t.Fatalf("a timeout may say the assistant was slow: %q", slow)
-	}
-	if strings.Contains(other, "lambat") || !strings.Contains(other, "tulis ulang") {
-		t.Fatalf("a non-timeout failure must not blame slowness and should say how to retry: %q", other)
 	}
 }

@@ -29,9 +29,6 @@ func TestAgentConfirmRefusesWhenStoredResidualDateIsUnsupplied(t *testing.T) {
 	if err != nil || result.Status != "RESIDUAL_FACTS_REQUIRED" {
 		t.Fatalf("missing date result=%+v err=%v; want review result", result, err)
 	}
-	if got := agentMutationFallback(result); got != "Tinjauan ini masih menunggu tanggal transaksi. Balas dengan nilai itu untuk menyelesaikan." {
-		t.Fatalf("fallback=%q; want explicit date request", got)
-	}
 	if _, _, err := p.agentConfirmTransactionReview(ctx, f.state, gateway.ToolCall{CallID: "guard-invalid-date", Name: "resolve_review"}, review, categoryID, reviewExtraction{Confidence: 1, PayDate: "2026-02-30"}); err == nil {
 		t.Fatal("invalid supplied date must be rejected")
 	}

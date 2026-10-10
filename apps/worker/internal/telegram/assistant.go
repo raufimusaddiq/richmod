@@ -96,7 +96,7 @@ func (p *Processor) replySpending(ctx context.Context, sourceID, householdID str
 		return err
 	}
 	err = p.pool.QueryRow(ctx, `SELECT COALESCE(c.name,'Tanpa kategori'),sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)::text FROM transaction t LEFT JOIN category c ON c.id=t.category_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type IN('EXPENSE','REFUND') AND t.transaction_at >= $2 AND t.transaction_at < $3 GROUP BY COALESCE(c.name,'Tanpa kategori') HAVING sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END)>0 ORDER BY sum(CASE WHEN t.type='EXPENSE' THEN t.amount ELSE -t.amount END) DESC LIMIT 1`, householdID, r.From, r.To).Scan(&topName, &topAmount)
-	message := "💸 Pengeluaran\nPeriode: " + r.label() + "\n\nTotal: Rp" + FormatIDR(total)
+	message := "📊 Ini ringkasan pengeluaranmu\nPeriode: " + r.label() + "\n\nTotal: Rp" + FormatIDR(total)
 	if err == nil {
 		message += "\nTerbesar: " + topName + " (Rp" + FormatIDR(topAmount) + ")"
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -110,7 +110,7 @@ func (p *Processor) replySavings(ctx context.Context, sourceID, householdID stri
 	if err := p.pool.QueryRow(ctx, `SELECT COALESCE(sum(amount),0)::text FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type='TRANSFER' AND purpose IN ('SAVINGS_TRANSFER','INVESTMENT_CONTRIBUTION','ASSET_PURCHASE') AND transaction_at >= $2 AND transaction_at < $3`, householdID, r.From, r.To).Scan(&total); err != nil {
 		return err
 	}
-	return p.finishAssistant(ctx, sourceID, update, "💾 Tabungan\nPeriode: "+r.label()+"\n\nTotal: Rp"+FormatIDR(total), nil)
+	return p.finishAssistant(ctx, sourceID, update, "💾 Ini ringkasan tabunganmu\nPeriode: "+r.label()+"\n\nTotal: Rp"+FormatIDR(total), nil)
 }
 
 func (p *Processor) replyWealth(ctx context.Context, sourceID, householdID string, update telegramUpdate) error {
@@ -118,11 +118,11 @@ func (p *Processor) replyWealth(ctx context.Context, sourceID, householdID strin
 	var value string
 	if err := p.pool.QueryRow(ctx, `SELECT s.observed_at,COALESCE(sum(CASE WHEN w.side='LIABILITY' THEN -i.value_idr ELSE i.value_idr END),0)::text FROM wealth_snapshot s JOIN wealth_snapshot_item i ON i.snapshot_id=s.id JOIN wealth_account w ON w.id=i.wealth_account_id WHERE s.household_id=$1 AND s.id=(SELECT id FROM wealth_snapshot WHERE household_id=$1 ORDER BY observed_at DESC,id DESC LIMIT 1) GROUP BY s.id,s.observed_at`, householdID).Scan(&observed, &value); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return p.finishAssistant(ctx, sourceID, update, "Belum ada Wealth Snapshot.", nil)
+			return p.finishAssistant(ctx, sourceID, update, "Belum ada snapshot kekayaan untuk ditampilkan.", nil)
 		}
 		return err
 	}
-	return p.finishAssistant(ctx, sourceID, update, "💎 Net worth sekarang\nRp"+FormatIDR(value)+"\nDiamati: "+observed.In(jakartaLocation()).Format(time.RFC3339), nil)
+	return p.finishAssistant(ctx, sourceID, update, "💎 Kekayaan bersih di snapshot terbaru\nRp"+FormatIDR(value)+"\nDiamati: "+observed.In(jakartaLocation()).Format(time.RFC3339), nil)
 }
 
 func (p *Processor) replyCashflow(ctx context.Context, sourceID, householdID string, update telegramUpdate, r assistantRange) error {
@@ -131,7 +131,7 @@ func (p *Processor) replyCashflow(ctx context.Context, sourceID, householdID str
 	if err != nil {
 		return err
 	}
-	return p.finishAssistant(ctx, sourceID, update, "💰 Arus kas\nPeriode: "+r.label()+"\n\nPemasukan: Rp"+FormatIDR(income)+"\nPengeluaran: Rp"+FormatIDR(expense)+"\nArus kas bersih: Rp"+FormatIDR(net), nil)
+	return p.finishAssistant(ctx, sourceID, update, "📊 Ini ringkasan arus kasmu\nPeriode: "+r.label()+"\n\nPemasukan: Rp"+FormatIDR(income)+"\nPengeluaran: Rp"+FormatIDR(expense)+"\nArus kas bersih: Rp"+FormatIDR(net), nil)
 }
 
 func (p *Processor) replyReviews(ctx context.Context, sourceID, householdID string, update telegramUpdate) error {
@@ -140,7 +140,7 @@ func (p *Processor) replyReviews(ctx context.Context, sourceID, householdID stri
 		return err
 	}
 	defer rows.Close()
-	lines := []string{"🟡 Review terbuka"}
+	lines := []string{"🟡 Ini yang masih perlu ditinjau"}
 	for rows.Next() {
 		var kind, amount, label string
 		if err = rows.Scan(&kind, &amount, &label); err != nil {
@@ -152,7 +152,7 @@ func (p *Processor) replyReviews(ctx context.Context, sourceID, householdID stri
 		return err
 	}
 	if len(lines) == 1 {
-		lines = []string{"✅ Tidak ada review yang terbuka."}
+		lines = []string{"Tidak ada tinjauan yang masih terbuka."}
 	}
 	return p.finishAssistant(ctx, sourceID, update, strings.Join(lines, "\n"), nil)
 }

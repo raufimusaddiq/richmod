@@ -86,7 +86,7 @@ func (p *Processor) offerCategoryChooser(ctx context.Context, sourceEventID, hou
 	defer tx.Rollback(ctx)
 	markup := reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
 	if markup == nil {
-		if err = enqueueReply(ctx, tx, update, "Tidak ada kategori aktif untuk dipilih."); err != nil {
+		if err = enqueueReply(ctx, tx, update, "Belum ada kategori aktif yang bisa dipilih."); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -245,11 +245,11 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		return err
 	}
 	if askRemember {
-		markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat merchant", CallbackData: "review:remember"}, {Text: "Sekali ini", CallbackData: "review:once"}}}}
-		if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "Tercatat. Ingat kategori ini untuk merchant tersebut?", markup); err != nil {
+		markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat kategori", CallbackData: "review:remember"}, {Text: "Hanya kali ini", CallbackData: "review:once"}}}}
+		if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "✅ Sudah dicatat. Pakai kategori ini juga untuk transaksi berikutnya dari merchant yang sama?", markup); err != nil {
 			return err
 		}
-	} else if err := enqueueReply(ctx, tx, update, "Tercatat dan Kotak Tinjauan sudah diperbarui."); err != nil {
+	} else if err := enqueueReply(ctx, tx, update, "✅ Sudah dicatat. Kotak Tinjauan juga sudah diperbarui."); err != nil {
 		return err
 	}
 	return nil
@@ -289,9 +289,9 @@ func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEvent
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($3,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$1::uuid,'remember_merchant',$4::boolean)) ON CONFLICT DO NOTHING`, reviewID, sourceEventID, transactionID, remember); err != nil {
 		return err
 	}
-	message := "Kategori merchant tidak disimpan sebagai aturan."
+	message := "Kategori ini hanya dipakai untuk transaksi tadi, tidak disimpan sebagai aturan merchant."
 	if remember {
-		message = "Kategori merchant disimpan dan dapat dinonaktifkan di Settings."
+		message = "✅ Kategori merchant sudah disimpan untuk transaksi berikutnya. Aturannya bisa dinonaktifkan di Settings."
 	}
 	if err = enqueueReply(ctx, tx, update, message); err != nil {
 		return err
@@ -327,7 +327,7 @@ func ReviewQuestion(amount, merchant string) string {
 	return "🟡 Perlu ditinjau\n\n" +
 		"Nominal: Rp" + FormatIDR(amount) + "\n" +
 		"Merchant: " + merchant + "\n\n" +
-		"Balas pesan ini dengan tujuan pengeluaran, atau pilih kategori di bawah."
+		"Balas pesan ini (Reply) dengan tujuan pengeluaran, atau pilih kategori di bawah."
 }
 
 func FormatIDR(value string) string {
@@ -356,7 +356,7 @@ func (p *Processor) resolveNativeMerchantLearning(ctx context.Context, sourceEve
 	var reviewID, transactionID string
 	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 1`, householdID, update.Message.Chat.ID).Scan(&reviewID, &transactionID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tidak ada konfirmasi merchant yang aktif.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tidak ada pilihan kategori merchant yang sedang menunggu konfirmasi.")
 	}
 	if err != nil {
 		return err

@@ -373,7 +373,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		}
 		plan, err := validateAgentCallSet(response.ToolCalls, state, defaultAgentLimits)
 		if err != nil {
-			return p.finishAgentFailure(ctx, state, "Instruksi belum bisa diproses dengan aman. Coba jelaskan lagi dengan cara berbeda.")
+			return p.finishAgentFailure(ctx, state, "Aku belum bisa memproses instruksi ini dengan aman. Coba jelaskan dengan kata lain, ya.")
 		}
 
 		switch plan.Class {
@@ -428,7 +428,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			return p.finishAgentFailure(ctx, state, "Richmod tidak bisa menentukan aksi yang aman untuk pesan ini.")
 		}
 	}
-	return p.finishAgentFailure(ctx, state, "Aku belum bisa menyelesaikan pertanyaan ini dalam satu percakapan. Coba persempit pertanyaannya.")
+	return p.finishAgentFailure(ctx, state, "Aku belum bisa menyelesaikan semuanya sekaligus. Coba tanyakan satu bagian dulu, ya.")
 }
 
 func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits agentLimits) (agentCallPlan, error) {
@@ -601,7 +601,7 @@ func agentMutationFallback(result agentToolResult) string {
 		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud."
 	}
 	if result.Status == "DEFERRED" {
-		return "Batch masih menunggu konfirmasi. Balas iya untuk mencatat, batal untuk membatalkan, atau sebutkan item yang ingin diubah."
+		return "Daftar transaksi ini masih menunggu konfirmasi. Pilih tombol konfirmasi atau batal, atau sebutkan item yang ingin diubah."
 	}
 	if result.Mutation != nil {
 		action, _ := result.Mutation["action"].(string)
@@ -615,9 +615,9 @@ func agentMutationFallback(result agentToolResult) string {
 				return "Transaksi sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
 			}
 			if amount != "" {
-				return "Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
+				return "✅ Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
-			return "Transaksi sudah tercatat."
+			return "✅ Transaksi sudah tercatat."
 		case "BANK_FACTS_QUEUED":
 			return bankFactsQueuedMessage
 		case "BANK_REVIEW_IGNORED":
@@ -625,14 +625,14 @@ func agentMutationFallback(result agentToolResult) string {
 		case "DUPLICATE_MERGED":
 			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru."
 		case "POSSIBLE_EXISTING_TRANSACTION":
-			return "Saya menemukan transaksi serupa. Ingin mengubah transaksi yang sudah ada?"
+			return "Aku menemukan transaksi serupa. Mau mengubah transaksi yang sudah ada?"
 		case "TRANSFER_RECORDED":
 			if amount != "" {
-				return "Transfer Rp" + FormatIDR(amount) + " sudah tercatat."
+				return "✅ Transfer Rp" + FormatIDR(amount) + " sudah tercatat."
 			}
-			return "Transfer sudah tercatat."
+			return "✅ Transfer sudah tercatat."
 		case "TRANSFER_ALREADY_RECORDED":
-			return "Transfer ini sudah tercatat sebelumnya; tidak ada duplikasi baru."
+			return "Transfer ini sudah tercatat sebelumnya, jadi tidak dicatat lagi."
 		case "TRANSFER_RECONCILIATION_STAGED":
 			return "Transfer ini perlu ditinjau karena ada transaksi yang mungkin sama."
 		case "TRANSFER_RECONCILIATION_RESOLVED":
@@ -640,16 +640,16 @@ func agentMutationFallback(result agentToolResult) string {
 		case "TRANSFER_RECONCILIATION_IGNORED":
 			return "Rekonsiliasi transfer sudah diabaikan tanpa mencatatnya sebagai transfer baru."
 		case "BATCH_STAGED":
-			return "Batch transaksi sudah disiapkan. Balas konfirmasi jika semuanya benar, atau sebutkan item yang ingin diubah."
+			return "Daftar transaksi sudah siap. Pilih tombol konfirmasi kalau semuanya benar, atau sebutkan item yang ingin diubah."
 		case "BATCH_UPDATED":
-			return "Batch transaksi sudah diperbarui."
+			return "Daftar transaksi sudah diperbarui."
 		case "BATCH_RECORDED":
-			return "Semua transaksi dalam batch sudah tercatat."
+			return "✅ Semua transaksi dalam daftar sudah tercatat."
 		case "CORRECTION_STAGED", "CORRECT_EXISTING_TRANSACTION":
-			return "Perubahan transaksi sudah disiapkan. Konfirmasi jika sudah benar."
+			return "Perubahannya sudah siap. Pilih tombol konfirmasi kalau sudah benar."
 		case "CORRECTION_RESOLVED":
 			if confirmed, _ := result.Mutation["confirmed"].(bool); confirmed {
-				return "Perubahan transaksi sudah disimpan."
+				return "✅ Perubahan transaksi sudah disimpan."
 			}
 			return "Perubahan transaksi dibatalkan."
 		case "SALARY_CHOICE_RESOLVED":
@@ -658,7 +658,7 @@ func agentMutationFallback(result agentToolResult) string {
 			case "PRIMARY":
 				return "Gaji utama sudah disimpan dan menjadi acuan siklus keuangan."
 			case "ORDINARY":
-				return "Gaji sudah disimpan sebagai pemasukan biasa."
+				return "✅ Gaji sudah disimpan sebagai pemasukan biasa."
 			case "IGNORE":
 				return "Gaji tersebut sudah diabaikan."
 			}
@@ -668,18 +668,18 @@ func agentMutationFallback(result agentToolResult) string {
 			}
 			return "Kategori merchant tidak disimpan sebagai aturan."
 		case "REVIEW_CONFIRMED", "REVIEW_TRANSFER_CLASSIFIED":
-			return "Review sudah diselesaikan dan data keuangan diperbarui."
+			return "✅ Tinjauan sudah selesai dan data keuangan sudah diperbarui."
 		case "REVIEW_IGNORED":
-			return "Review sudah diselesaikan tanpa mencatatnya sebagai transaksi aktif."
+			return "Tinjauan sudah selesai tanpa mencatatnya sebagai transaksi aktif."
 		case "REVIEW_DETAIL_SAVED":
 			if result.Status == "NEEDS_REVIEW" {
 				if missing, ok := result.Review["missing_fields"].([]string); ok {
 					return reviewNeedsFactsMessage(missing)
 				}
 			}
-			return "Detail review sudah diperbarui."
+			return "Detail tinjauan sudah diperbarui."
 		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
-			return "Detail review sudah diperbarui."
+			return "✅ Detail tinjauan sudah diperbarui."
 		case "WEALTH_ACCOUNT_SET":
 			return "Akun kekayaan untuk observasi tersebut sudah diperbarui."
 		case "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE":
@@ -699,7 +699,7 @@ func agentMutationFallback(result agentToolResult) string {
 
 	switch result.Status {
 	case "AMBIGUOUS_TARGET", "AMBIGUOUS_REVIEW":
-		return "Ada lebih dari satu kandidat yang mungkin kamu maksud. Balas atau pilih item yang spesifik."
+		return "Ada beberapa item yang mungkin kamu maksud. Balas pesan itemnya atau pilih item yang sesuai, ya."
 	case "TARGET_UNAVAILABLE":
 		return "Referensi transaksi itu sudah tidak tersedia. Cari transaksinya lagi dulu."
 	case "MISSING_TARGET":
@@ -707,19 +707,19 @@ func agentMutationFallback(result agentToolResult) string {
 	case "MISSING_CHANGE":
 		return "Bagian mana dari transaksi itu yang ingin kamu ubah?"
 	case "NO_PENDING_BATCH":
-		return "Tidak ada batch transaksi aktif untuk dikonfirmasi."
+		return "Tidak ada daftar transaksi yang sedang menunggu konfirmasi."
 	case "NO_PENDING_ACTION":
-		return "Tidak ada perubahan transaksi aktif untuk dikonfirmasi."
+		return "Tidak ada perubahan transaksi yang sedang menunggu konfirmasi."
 	case "NO_PENDING_SALARY_CHOICE":
 		return "Tidak ada pilihan gaji aktif yang perlu diselesaikan."
 	case "NO_MERCHANT_LEARNING_PENDING":
 		return "Tidak ada konfirmasi aturan merchant yang aktif."
 	case "ACCOUNT_AMBIGUOUS":
-		return "Rekening sumber belum bisa dikenali secara unik. Sebutkan nama rekening yang lebih spesifik."
+		return "Aku belum bisa memastikan rekening sumbernya. Sebutkan nama rekening yang lebih spesifik, ya."
 	case "WEALTH_ACCOUNT_AMBIGUOUS", "MISSING_WEALTH_ACCOUNT":
-		return "Akun kekayaan belum bisa dikenali secara unik. Sebutkan nama yang lebih spesifik."
+		return "Aku belum bisa memastikan akun kekayaannya. Sebutkan nama akun yang lebih spesifik, ya."
 	case "MISSING_REVIEW_DETAIL":
-		return "Masih ada detail review yang perlu dilengkapi."
+		return "Masih ada detail tinjauan yang perlu kamu lengkapi."
 	case "MISSING_CATEGORY", "INVALID_CATEGORY":
 		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia."
 	case "BANK_ACCOUNT_REQUIRED":
@@ -735,7 +735,7 @@ func agentMutationFallback(result agentToolResult) string {
 	case "TRANSFER_RECONCILIATION_REQUIRED":
 		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi."
 	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
-		return "Target review sudah berubah atau selesai. Buka atau balas review terbaru sebelum melanjutkan."
+		return "Tinjauan ini sudah berubah atau selesai. Buka atau balas pesan tinjauan terbaru untuk melanjutkan."
 	}
-	return "Aksi keuangan sudah diproses."
+	return "Permintaan keuanganmu sudah diproses."
 }

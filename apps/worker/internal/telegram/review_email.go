@@ -82,7 +82,7 @@ func (p *Processor) processFinancialEmailCallback(ctx context.Context, sourceEve
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return true, err
 	}
-	message := "Rekening bukti email disimpan."
+	message := "✅ Rekening untuk bukti email ini sudah disimpan."
 	if cmd.Ignore {
 		message = "Bukti email finansial diabaikan."
 	}
@@ -132,7 +132,7 @@ func (p *Processor) processDocumentReviewCallback(ctx context.Context, sourceEve
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return true, err
 	}
-	message := "Dokumen akan diproses ulang."
+	message := "⏳ Dokumen masuk antrean untuk diproses ulang."
 	if action == "IGNORE" {
 		message = "Dokumen diabaikan."
 	}
@@ -273,7 +273,7 @@ func (p *Processor) askFinancialEmailEntity(ctx context.Context, sourceEventID, 
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReplyMarkup(ctx, tx, update, "Masih ada rekening yang perlu dipilih.", markup); err != nil {
+	if err := enqueueReplyMarkup(ctx, tx, update, "Masih perlu memilih rekening. Pilih yang sesuai di bawah.", markup); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -406,7 +406,7 @@ func (p *Processor) askFinancialEmailEntityPage(ctx context.Context, sourceEvent
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if err := enqueueReplyMarkup(ctx, tx, update, "Masih ada rekening yang perlu dipilih.", markup); err != nil {
+	if err := enqueueReplyMarkup(ctx, tx, update, "Masih perlu memilih rekening. Pilih yang sesuai di bawah.", markup); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
