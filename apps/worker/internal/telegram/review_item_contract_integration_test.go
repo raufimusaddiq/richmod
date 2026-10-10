@@ -145,4 +145,9 @@ func TestReviewItemDecisionTriggerGuardsNewRowsOnly(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET resolution_action='IGNORE',decision=NULL WHERE id=$1`, legacy); err != nil {
 		t.Fatalf("a legacy NULL-decision row must stay updatable untouched: %v", err)
 	}
+	// Reopening a legacy row would put a contract-less review back in the Inbox
+	// and Telegram, which render only stored contracts.
+	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='OPEN',resolved_at=NULL WHERE id=$1`, legacy); err == nil {
+		t.Fatal("trigger allowed a legacy NULL-decision row to become active")
+	}
 }

@@ -25,10 +25,12 @@ func possibleDuplicateDecision(transactionID string, known map[string]any) ([]by
 // ReopenTransactionReview gives a transaction that a reversal returned to
 // NEEDS_REVIEW its canonical active review_item again. Resolved items are
 // history and stay untouched; a new OPEN item carries the most recent complete
-// ReviewDecision the household answered for this transaction. A transaction
-// whose only earlier items predate the decision contract reopens as
-// POSSIBLE_DUPLICATE: reversing a merge makes the duplicate relationship
-// undecided again. Idempotent: an existing active item is kept as is.
+// ReviewDecision the household answered for this transaction. Its only caller is
+// Unmerge, so a transaction whose earlier items all predate the decision
+// contract reopens as POSSIBLE_DUPLICATE: reversing a merge is exactly what makes
+// the duplicate relationship undecided again, whatever the original legacy
+// review_type was (its allowed actions were never stored, so they cannot be
+// carried over). Idempotent and race-safe: an existing active item is kept as is.
 func ReopenTransactionReview(ctx context.Context, tx pgx.Tx, household, transactionID string) error {
 	var amount, at string
 	if err := tx.QueryRow(ctx, `SELECT amount::text,transaction_at::text FROM transaction WHERE id=$1 AND household_id=$2`, transactionID, household).Scan(&amount, &at); err != nil {

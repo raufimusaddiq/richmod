@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"regexp"
@@ -573,6 +574,7 @@ func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := reviewdomain.ReopenTransactionReview(r.Context(), tx, household, sourceID); err != nil {
+		slog.ErrorContext(r.Context(), "unmerge could not reopen the transaction review", "household_id", household, "transaction_id", sourceID, "error", err)
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}

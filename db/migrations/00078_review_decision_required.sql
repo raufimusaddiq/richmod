@@ -3,16 +3,40 @@
 -- reasonCode and a non-empty allowedActions array (the same rule as Go's
 -- reviewdec.Decision.Validate). Rows created before the contract existed have
 -- decision IS NULL and are historical records: they stay readable and are never
--- rewritten, so this is a trigger rather than NOT NULL/CHECK. An UPDATE is
--- checked only when the row already had a decision, which keeps the legacy NULL
--- rows editable (status, resolution) while forbidding a valid contract from being
--- erased or degraded.
+-- rewritten, so this is a trigger rather than NOT NULL/CHECK. On UPDATE a
+-- legacy NULL row stays editable (status, resolution) but can never become
+-- active (OPEN/PENDING_SEND) again, so every active item carries a contract;
+-- a row that already had a decision cannot have it erased or degraded.
+--
+-- Precondition: no active item may violate the contract when this runs (the
+-- Inbox and Telegram render only stored contracts). Fail loudly instead of
+-- guessing a decision for such a row.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM review_item
+        WHERE status IN ('OPEN','PENDING_SEND')
+          AND (decision IS NULL
+               OR COALESCE(btrim(decision->>'reasonCode'),'') = ''
+               OR jsonb_typeof(decision->'allowedActions') IS DISTINCT FROM 'array'
+               OR decision->'allowedActions' = '[]'::jsonb)
+    ) THEN
+        RAISE EXCEPTION 'active review_item rows without a complete decision exist; resolve them before applying 00078';
+    END IF;
+END;
+$$;
+-- +goose StatementEnd
 -- +goose StatementBegin
 CREATE FUNCTION review_item_require_decision() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     actions_present boolean;
 BEGIN
     IF TG_OP = 'UPDATE' AND OLD.decision IS NULL THEN
+        IF NEW.status IN ('OPEN','PENDING_SEND') THEN
+            RAISE EXCEPTION 'a review_item without a decision contract cannot be active'
+                USING ERRCODE = 'check_violation';
+        END IF;
         RETURN NEW;
     END IF;
     IF NEW.decision IS NULL THEN
@@ -38,7 +62,7 @@ END;
 $$;
 -- +goose StatementEnd
 CREATE TRIGGER review_item_require_decision
-    BEFORE INSERT OR UPDATE OF decision ON review_item
+    BEFORE INSERT OR UPDATE OF decision, status ON review_item
     FOR EACH ROW EXECUTE FUNCTION review_item_require_decision();
 
 -- +goose Down

@@ -54,7 +54,9 @@ goose -dir db/migrations postgres "$DATABASE_URL" status
   (`decision` with a non-empty `reasonCode` and a non-empty `allowedActions`
   array), enforced by the `review_item_require_decision` trigger (migration
   `00078`). Historical rows created before the contract keep `decision IS NULL`;
-  they are retained and readable, never backfilled or deleted.
+  they are retained and readable, never backfilled or deleted, and the trigger
+  refuses to make them active (`OPEN`/`PENDING_SEND`) again. The migration
+  aborts if any active item lacks a complete contract.
 
 ## Entity relationship diagram
 
