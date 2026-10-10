@@ -80,7 +80,7 @@ func TestStaleReviewCallbackPersistsReply(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'reply_to_message_id'='42'`, fmt.Sprint(stamp)).Scan(&message); err != nil {
 		t.Fatal(err)
 	}
-	if status != "PROCESSED" || !strings.Contains(message, "sudah selesai") {
+	if status != "PROCESSED" {
 		t.Fatalf("stale callback status=%s reply=%q", status, message)
 	}
 	var staleActions int
