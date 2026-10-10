@@ -19,7 +19,7 @@ func createAgentTransferReviewForChat(t *testing.T, ctx context.Context, f agent
 	external := fmt.Sprintf("transfer-review-%d-%d-%d", chatID, messageID, time.Now().UnixNano())
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.householdID, external, []byte(external)).Scan(&sourceID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,account_id,amount_idr,transaction_at,description,proposed_purpose,candidate_transaction_ids,status) VALUES($1,$2,$3,125000,now(),'transfer review','INTERNAL_TRANSFER','{}','OPEN') RETURNING id`, f.householdID, sourceID, accountID).Scan(&caseID))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, f.householdID, sourceID).Scan(&itemID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","allowedActions":["CLASSIFY_TRANSFER","OWN_ACCOUNT","HOUSEHOLD_ACCOUNT","INVESTMENT_ACCOUNT","EXPENSE","ASSET_PURCHASE","IGNORE"]}'::jsonb) RETURNING id`, f.householdID, sourceID).Scan(&itemID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,review_type,status,telegram_chat_id) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN',$3) RETURNING id`, f.householdID, itemID, chatID).Scan(&reviewID))
 	_, err := f.pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,$3)`, reviewID, chatID, messageID)
 	mustAgentTest(t, err)
@@ -34,7 +34,7 @@ func createAgentWealthReviewForChat(t *testing.T, ctx context.Context, f agentIn
 	t.Helper()
 	var observationID, itemID, reviewID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,institution,account_hint,observed_value_idr,status) VALUES($1,'Test Bank','Investasi',5000000,'PENDING') RETURNING id`, f.householdID).Scan(&observationID))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') RETURNING id`, f.householdID, observationID).Scan(&itemID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN','{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}'::jsonb) RETURNING id`, f.householdID, observationID).Scan(&itemID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,review_type,status,telegram_chat_id) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3) RETURNING id`, f.householdID, itemID, chatID).Scan(&reviewID))
 	_, err := f.pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,$3)`, reviewID, chatID, messageID)
 	mustAgentTest(t, err)

@@ -31,7 +31,7 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,auto_confirmed_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',25000,'IDR',now(),now(),now()) RETURNING id`, householdID).Scan(&txID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',jsonb_build_object('decisionPolicyVersion','v1','decisionSource','DETERMINISTIC','interactionMode','BOUNDED_CHOICE'))`, householdID, txID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',jsonb_build_object('reasonCode','AMBIGUOUS_CATEGORY','allowedActions',jsonb_build_array('CONFIRM_REVIEW','IGNORE'),'decisionPolicyVersion','v1','decisionSource','DETERMINISTIC','interactionMode','BOUNDED_CHOICE'))`, householdID, txID); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT id FROM review_item WHERE household_id=$1`, householdID).Scan(&reviewID); err != nil {
@@ -57,7 +57,7 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'TEST')`, webTxID, webEventID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',jsonb_build_object('decisionPolicyVersion','v1','decisionSource','DETERMINISTIC','interactionMode','BOUNDED_CHOICE')) RETURNING id`, householdID, webTxID).Scan(&webReviewID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',jsonb_build_object('reasonCode','AMBIGUOUS_CATEGORY','allowedActions',jsonb_build_array('CONFIRM_REVIEW','IGNORE'),'decisionPolicyVersion','v1','decisionSource','DETERMINISTIC','interactionMode','BOUNDED_CHOICE')) RETURNING id`, householdID, webTxID).Scan(&webReviewID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values=jsonb_build_object('category_id',gen_random_uuid()) WHERE id=$1`, webReviewID); err != nil {
@@ -77,7 +77,7 @@ func TestProductTelemetryCapturesTurnAndAutoConfirmCorrection(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7000,'IDR',now(),now()) RETURNING id`, householdID).Scan(&lateTxID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,resolution_action,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),'CONFIRM_REVIEW',jsonb_build_object('interactionMode','BOUNDED_CHOICE')) RETURNING id`, householdID, lateTxID).Scan(&lateReviewID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,resolution_action,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),'CONFIRM_REVIEW',jsonb_build_object('reasonCode','AMBIGUOUS_CATEGORY','allowedActions',jsonb_build_array('CONFIRM_REVIEW','IGNORE'),'interactionMode','BOUNDED_CHOICE')) RETURNING id`, householdID, lateTxID).Scan(&lateReviewID); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status,resolved_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY',$4,'RESOLVED',now()) RETURNING id`, lateReviewID, householdID, lateTxID, stamp).Scan(&lateRequestID); err != nil {

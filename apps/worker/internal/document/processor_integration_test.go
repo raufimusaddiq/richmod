@@ -97,7 +97,7 @@ func TestTelegramDocumentProjectionIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var itemID string
-	if err = pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','PENDING_SEND','{"missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"],"decisionClass":"EVIDENCE_GAP"}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&itemID); err != nil {
+	if err = pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','PENDING_SEND','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"],"decisionClass":"EVIDENCE_GAP"}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&itemID); err != nil {
 		t.Fatal(err)
 	}
 	projectOnce := func() error {

@@ -344,9 +344,9 @@ func TestQueuedReviewSendSkipsResolvedProjection(t *testing.T) {
 		var sourceID, id string
 		must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("queued-%d-%s", time.Now().UnixNano(), status), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
 		if resolved {
-			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3,now()) RETURNING id`, householdID, sourceID, status).Scan(&id))
+			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3,now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID, status).Scan(&id))
 		} else {
-			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3) RETURNING id`, householdID, sourceID, status).Scan(&id))
+			must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3,'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID, status).Scan(&id))
 		}
 		return id
 	}

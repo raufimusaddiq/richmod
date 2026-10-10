@@ -372,23 +372,24 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_SCREENSHOT_REVIEW','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'direction',$5::text))`, householdID, transactionID, documentID, index, row.Value.Direction); err != nil {
 			return err
 		}
+		// The decision contract lets the Inbox ask only about the dimension that
+		// is genuinely unresolved. The canonical review_item carries it whether
+		// or not a Telegram chat exists; Telegram only projects the same item.
+		reviewType := screenshotReviewReason(row, len(row.Candidates) > 0)
+		if row.Type == "INCOME" {
+			reviewType = "TRANSFER_CLASSIFICATION"
+		}
+		decision := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row, slices.Contains(provenance.QuestionKeys, rowQuestionKey(index)))
 		if hasChat {
-			reviewType := screenshotReviewReason(row, len(row.Candidates) > 0)
 			message := workerTelegram.ReviewQuestion(*row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
-				reviewType = "TRANSFER_CLASSIFICATION"
 				message = "🟡 Dana masuk perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(*row.Value.Amount) + " dari " + row.Value.Merchant + "\n\nKonfirmasi sebagai penghasilan, atau tolak jika ini transfer milik sendiri."
 			}
-			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message); err != nil {
+			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message, decision); err != nil {
 				return err
 			}
-			// Store the decision contract so the Inbox can ask only
-			// about the dimension that is genuinely unresolved.
-			if encoded, encodeErr := screenshotRowDecision(householdID, sourceID, transactionID, reviewType, index, row, slices.Contains(provenance.QuestionKeys, rowQuestionKey(index))).JSON(); encodeErr == nil {
-				if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE household_id=$1 AND transaction_id=$3 AND status IN ('PENDING_SEND','OPEN')`, householdID, string(encoded), transactionID); err != nil {
-					return err
-				}
-			}
+		} else if _, err := workerTelegram.CreateTransactionReviewItem(ctx, tx, transactionID, reviewType, "OPEN", decision); err != nil {
+			return err
 		}
 	}
 	// One batch summary, so a many-row screenshot never floods the

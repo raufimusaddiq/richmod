@@ -119,7 +119,7 @@ func TestCycleReviewRefundBaselinesDriversWealthAndIsolation(t *testing.T) {
 	f.transaction(t, "2026-08-06", "REFUND", "CONFIRMED", "50000", true)
 	f.transaction(t, "2026-08-07", "TRANSFER", "CONFIRMED", "2000000", false)
 	unresolved := f.transaction(t, "2026-08-08", "EXPENSE", "NEEDS_REVIEW", "7777777", true)
-	if _, err := f.pool.Exec(context.Background(), `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN')`, f.household, unresolved); err != nil {
+	if _, err := f.pool.Exec(context.Background(), `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN','{"version":1,"reasonCode":"UNKNOWN_MERCHANT","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, f.household, unresolved); err != nil {
 		t.Fatal(err)
 	}
 	f.transaction(t, "2026-09-01", "EXPENSE", "CONFIRMED", "9999999", true)

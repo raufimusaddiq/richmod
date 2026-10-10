@@ -47,7 +47,7 @@ func TestTelegramReviewClassifiesAssetPurchase(t *testing.T) {
 		return err
 	}())
 	var itemID string
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, transactionID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","allowedActions":["CLASSIFY_TRANSFER","OWN_ACCOUNT","HOUSEHOLD_ACCOUNT","INVESTMENT_ACCOUNT","EXPENSE","ASSET_PURCHASE","IGNORE"]}'::jsonb) RETURNING id`, household, transactionID).Scan(&itemID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,telegram_chat_id) VALUES($1,$2,$3,'TRANSFER_CLASSIFICATION','OPEN',$4) RETURNING id`, household, itemID, transactionID, chatID).Scan(&reviewID))
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprintf("reply-%d", stamp), []byte(fmt.Sprintf("reply-%d", stamp))).Scan(&replySource))
 	update := telegramUpdate{}
@@ -87,7 +87,7 @@ func TestTelegramExpenseReviewReclassifiesAssetPurchase(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Emas','ASSET','GOLD','OTHER') RETURNING id`, household).Scan(&wealthID))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,'EXPENSE','NEEDS_REVIEW',1000000,now(),'Treasury') RETURNING id`, household).Scan(&transactionID))
 	var itemID string
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, household, transactionID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, household, transactionID).Scan(&itemID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,telegram_chat_id) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','OPEN',$4) RETURNING id`, household, itemID, transactionID, chatID).Scan(&reviewID))
 	tx, err := pool.Begin(ctx)
 	must(err)

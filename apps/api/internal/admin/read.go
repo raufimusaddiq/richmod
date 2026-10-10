@@ -373,9 +373,9 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 	if err := h.pool.QueryRow(r.Context(), `SELECT
 		(SELECT count(*) FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1::uuid AND ti.active),
 		(SELECT count(DISTINCT ri.id) FROM review_item ri JOIN review_request rr ON rr.review_item_id=ri.id JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE ri.household_id=$1::uuid AND ri.status IN ('OPEN','PENDING_SEND') AND rr.status IN ('PENDING_SEND','OPEN') AND rc.telegram_message_id IS NOT NULL),
-		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),
-		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.user_id=review_item.resolved_by_user_id AND ti.household_id=review_item.household_id)),
-		(SELECT count(*) FROM review_item WHERE household_id=$1::uuid AND resolved_at IS NOT NULL AND resolved_by_user_id IS NULL),
+		(SELECT count(*) FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.household_id=$1::uuid AND s.surface='TELEGRAM'),
+		(SELECT count(*) FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.household_id=$1::uuid AND s.surface='USER'),
+		(SELECT count(*) FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.household_id=$1::uuid AND s.surface='SYSTEM'),
 		(SELECT max(j.updated_at) FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid),
 		(SELECT j.last_error FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid ORDER BY j.updated_at DESC LIMIT 1)`, id).Scan(&reviewDiag.EligibleTelegram, &reviewDiag.ActionableProjections, &reviewDiag.ResolvedTelegram, &reviewDiag.ResolvedWeb, &reviewDiag.ResolvedSystem, &reviewDiag.LatestFailureAt, &reviewDiag.LatestFailureError); err == nil {
 		reviewDiagOut := map[string]any{

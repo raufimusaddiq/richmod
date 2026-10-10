@@ -27,18 +27,16 @@ func TestProductAggregateCountsOnlyKnownFactReasksWithContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, decision := range []string{
-		`{"knownFacts":{"category":"food"},"missingFacts":["category"]}`,
-		`{"knownFacts":{"amount":"100"},"missingFacts":["category"]}`,
+		`{"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"],"knownFacts":{"category":"food"},"missingFacts":["category"]}`,
+		`{"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"],"knownFacts":{"amount":"100"},"missingFacts":["category"]}`,
 	} {
 		if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3::jsonb)`, householdID, sourceID, decision); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// An older review without a contract cannot prove which fact it asked for.
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN')`, householdID, sourceID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',$3::jsonb)`, otherHousehold, otherSourceID, `{"knownFacts":{"category":"food"},"missingFacts":["category"]}`); err != nil {
+	insertLegacyReviewItem(t, pool, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN')`, householdID, sourceID)
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN',$3::jsonb)`, otherHousehold, otherSourceID, `{"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"],"knownFacts":{"category":"food"},"missingFacts":["category"]}`); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -73,10 +71,10 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	telegramEventID := seedEvent("TELEGRAM_TEXT", "NEEDS_REVIEW", "product-telegram")
 	seedEvent("TELEGRAM_TEXT", "PROCESSED", "product-terminal-a")
 	seedEvent("BANK_EMAIL", "IGNORED", "product-terminal-b")
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN')`, householdID, bankEventID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, bankEventID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN')`, householdID, telegramEventID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN','{"version":1,"reasonCode":"UNKNOWN_MERCHANT","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, telegramEventID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err := NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -165,7 +163,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	}
 	oldEventID := seedEvent("TELEGRAM_TEXT", "NEEDS_REVIEW", "product-old")
 	attachEvent(oldTx, oldEventID)
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','COMPLETE_BANK_FACTS',now(),now())`, householdID, oldEventID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','COMPLETE_BANK_FACTS',now(),now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, oldEventID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -183,7 +181,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	tgTx := seedTx()
 	acceptedEventID := seedEvent("TELEGRAM_TEXT", "NEEDS_REVIEW", "product-accepted")
 	attachEvent(tgTx, acceptedEventID)
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN','{"interactionMode":"BOUNDED_CHOICE"}'::jsonb)`, householdID, acceptedEventID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN','{"reasonCode":"POSSIBLE_DUPLICATE","allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"],"interactionMode":"BOUNDED_CHOICE"}'::jsonb)`, householdID, acceptedEventID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values='{}'::jsonb WHERE household_id=$1 AND source_event_id=$2`, householdID, acceptedEventID); err != nil {
@@ -207,7 +205,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	sysTx := seedTx()
 	systemEventID := seedEvent("BANK_EMAIL", "PROCESSED", "product-system")
 	attachEvent(sysTx, systemEventID)
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now())`, householdID, systemEventID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED','EMAIL_RECEIVED_AT_FALLBACK',now(),now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, householdID, systemEventID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -239,7 +237,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_IMAGE',jsonb_build_object('reclassified_from','WEALTH_OBSERVATION','observation_id',$3::uuid))`, wealthTx, wealthEventID, observationID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','RESOLVED','SNAPSHOT_CREATED',now(),now())`, householdID, observationID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','RESOLVED','SNAPSHOT_CREATED',now(),now(),'{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}'::jsonb)`, householdID, observationID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -279,7 +277,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$2,current_date-1,current_date,10,5,2,3) RETURNING id`, householdID, salaryEventID).Scan(&caseID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,resolution_action,resolved_at,created_at) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','RESOLVED','ALLOCATE_RETAINED_BALANCE',now(),now())`, householdID, caseID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,resolution_action,resolved_at,created_at,decision) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','RESOLVED','ALLOCATE_RETAINED_BALANCE',now(),now(),'{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"]}'::jsonb)`, householdID, caseID); err != nil {
 		t.Fatal(err)
 	}
 	aggregate, err = NewHandler(pool).loadProductAggregate(ctx, householdID)
@@ -293,7 +291,7 @@ func TestProductAggregateReportsReviewRatesBySourceAndReason(t *testing.T) {
 	noInputTx := seedTx()
 	noInputEventID := seedEvent("TELEGRAM_TEXT", "NEEDS_REVIEW", "product-no-input")
 	attachEvent(noInputTx, noInputEventID)
-	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','OPEN','{"interactionMode":"SINGLE_FIELD"}'::jsonb)`, householdID, noInputTx, noInputEventID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,source_event_id,review_type,status,decision) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','OPEN','{"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"],"interactionMode":"SINGLE_FIELD"}'::jsonb)`, householdID, noInputTx, noInputEventID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='CONFIRM_REVIEW',resolution_values='{}'::jsonb WHERE source_event_id=$1`, noInputEventID); err != nil {

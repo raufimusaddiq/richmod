@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00077_ceu_review_hardening.sql`.
+forward migration set through `db/migrations/00078_review_decision_required.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -50,6 +50,11 @@ goose -dir db/migrations postgres "$DATABASE_URL" status
   or cancels them. `llm_call.call_kind` distinguishes strict native calls from
   conversational `AGENT_TEXT`/`AGENT_TOOLS` phases and the bounded decision plane
   (`JUDGMENT`/`DECISION`) without storing content.
+- Every new `review_item` carries a complete ReviewDecision contract
+  (`decision` with a non-empty `reasonCode` and a non-empty `allowedActions`
+  array), enforced by the `review_item_require_decision` trigger (migration
+  `00078`). Historical rows created before the contract keep `decision IS NULL`;
+  they are retained and readable, never backfilled or deleted.
 
 ## Entity relationship diagram
 
@@ -163,7 +168,7 @@ erDiagram
 | Table | Purpose | Principal relationships / constraints |
 | --- | --- | --- |
 | `transaction_proposal` | Untrusted interpretation awaiting deterministic handling. | Household/source-event scoped; may become a transaction or review item. `amount` is nullable only while `proposal_status IN ('NEEDS_REVIEW','REJECTED')`, so a screenshot row whose amount is genuinely not visible stays representable without a sentinel `0` (SAVR-03, migration `00070`) and may be ignored without inventing a value; a proposal that advances must carry a positive amount. A payslip proposal retains its normalized `metadata_json.period` and literal `metadata_json.period_raw` (SAVR-03B). |
-| `review_item` | Canonical actionable human-review unit. | May reference a transaction, proposal, source event, or document; active uniqueness prevents duplicate open work. `review_type` is a CHECK-constrained reason set that now includes the source-fact residuals `MISSING_TRANSACTION_DATE`, `TRANSACTION_FACTS_MISSING`, the screenshot representation residual `MISSING_AMOUNT` (migration `00070`), and the provider-email evidence residual `FINANCIAL_EMAIL_FACTS` (migration `00071`). A `MISSING_AMOUNT` item is proposal-bound: the canonical transaction is written only after the household supplies the amount, and a plausible same-amount transaction stays in duplicate review. A `FINANCIAL_EMAIL_FACTS` item is observation-bound and allows only `IGNORE`; it names the exact unsupported bounded predicate and never writes a canonical transaction. Optional `decision` jsonb holds the PRD §7 ReviewDecision contract (known/proposed/missing/conflicting facts, bounded choices, reason code, decision class, why-not-auto-confirm, interaction mode); nullable so existing reviews stay resolvable. |
+| `review_item` | Canonical actionable human-review unit. | May reference a transaction, proposal, source event, or document; active uniqueness prevents duplicate open work. `review_type` is a CHECK-constrained reason set that now includes the source-fact residuals `MISSING_TRANSACTION_DATE`, `TRANSACTION_FACTS_MISSING`, the screenshot representation residual `MISSING_AMOUNT` (migration `00070`), and the provider-email evidence residual `FINANCIAL_EMAIL_FACTS` (migration `00071`). A `MISSING_AMOUNT` item is proposal-bound: the canonical transaction is written only after the household supplies the amount, and a plausible same-amount transaction stays in duplicate review. A `FINANCIAL_EMAIL_FACTS` item is observation-bound and allows only `IGNORE`; it names the exact unsupported bounded predicate and never writes a canonical transaction. `decision` jsonb holds the PRD §7 ReviewDecision contract (known/proposed/missing/conflicting facts, bounded choices, reason code, decision class, why-not-auto-confirm, interaction mode). The column stays nullable only for historical rows: the `review_item_require_decision` trigger (migration `00078`) refuses an INSERT whose `decision` is NULL, lacks a non-empty string `reasonCode`, or lacks a non-empty `allowedActions` array, and refuses an UPDATE that erases or degrades an existing decision; an UPDATE of a legacy NULL-decision row is not checked, so those rows stay resolvable untouched. A NEEDS_REVIEW transaction's item is written with its decision in the same INSERT (`CreateTransactionReviewItem`), whether or not the household has Telegram. |
 | `review_request` | Telegram delivery/request for review. | Optional `review_item_id`; retains older transaction/proposal review linkage. `review_type` is CHECK-constrained to the same reason set as `review_item` (migration `00070`, extended by `00071` with `FINANCIAL_EMAIL_FACTS`), so a document, payslip, bank, financial-email, wealth, or cycle review can be projected to Telegram (UIR-02). |
 | `review_request_recipient` | Per-recipient Telegram delivery binding. | `review_request_id → review_request`; stores chat/message IDs. |
 | `review_conversation` | Human review messages and resolution context. | `review_request_id → review_request`. `state` is CHECK-constrained (`AWAITING_MERCHANT`, `AWAITING_CATEGORY`, `AWAITING_DETAIL`, `AWAITING_DATE`, `AWAITING_PURPOSE`, `AWAITING_CONFIRMATION`, `AWAITING_MERCHANT_DECISION`, `RESOLVED`); `AWAITING_DATE` binds a date-only review reply to the transaction-date resolver (UIR-03); `AWAITING_MERCHANT_DECISION` tracks the optional post-confirm merchant-learning question independently of `review_request.status`, so the review item completes at confirm time (UIR-08). |
