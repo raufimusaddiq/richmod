@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -113,11 +114,15 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 		return err
 	}
 	// The projection renders the stored item, so a reused item is projected with
-	// the type and contract it already carries, not a freshly computed one.
+	// the type and contract it already carries, not a freshly computed one: one
+	// transaction has one active review, and the first open question wins.
 	var itemType string
 	var decisionJSON []byte
 	if err := tx.QueryRow(ctx, `SELECT review_type,COALESCE(decision,'{}'::jsonb) FROM review_item WHERE id=$1`, itemID).Scan(&itemType, &decisionJSON); err != nil {
 		return err
+	}
+	if itemType != reviewType {
+		slog.Default().Warn("review projection reused an active item with a different review type", "transaction_id", transactionID, "review_item_id", itemID, "requested_type", reviewType, "stored_type", itemType)
 	}
 	var decision reviewdec.Decision
 	if err := json.Unmarshal(decisionJSON, &decision); err != nil {

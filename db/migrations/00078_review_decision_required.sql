@@ -10,7 +10,10 @@
 --
 -- Precondition: no active item may violate the contract when this runs (the
 -- Inbox and Telegram render only stored contracts). Fail loudly instead of
--- guessing a decision for such a row.
+-- guessing a decision for such a row. goose runs this file in one transaction;
+-- the SHARE ROW EXCLUSIVE lock blocks concurrent review_item writes from the
+-- check until the trigger exists, so no unguarded row can slip in between.
+LOCK TABLE review_item IN SHARE ROW EXCLUSIVE MODE;
 -- +goose StatementBegin
 DO $$
 BEGIN
