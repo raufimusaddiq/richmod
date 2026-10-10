@@ -14,7 +14,7 @@ func duplicateIntentMarkup() *InlineKeyboardMarkup {
 }
 
 func reviewDetailMarkup() *InlineKeyboardMarkup {
-	keyboard := [][]InlineKeyboardButton{{{Text: "Merchant", CallbackData: "review:merchant"}, {Text: "Deskripsi", CallbackData: "review:description"}}}
+	keyboard := [][]InlineKeyboardButton{{{Text: "Nama merchant", CallbackData: "review:merchant"}, {Text: "Keterangan", CallbackData: "review:description"}}}
 	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Kategori", CallbackData: "review:category"}})
 	return &InlineKeyboardMarkup{InlineKeyboard: append(keyboard, []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}})}
 }
@@ -61,7 +61,7 @@ func renderDuplicateChoices(ctx context.Context, tx pgx.Tx, sourceEventID, house
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_DETAIL',context_json=context_json||jsonb_build_object('duplicate_candidates',$2::jsonb),last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID, string(encoded)); err != nil {
 		return err
 	}
-	if err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "Transaksi ini mungkin duplikat. Pilih gabung dengan catatan yang sudah ada atau catat sebagai transaksi baru.", markup); err != nil {
+	if err = enqueueReviewMessageWithMarkup(ctx, tx, reviewID, update.Message.Chat.ID, update.Message.MessageID, "🟡 Transaksi ini mungkin sudah tercatat. Pilih catatan yang ingin digabung, atau pilih Catat sebagai baru.", markup); err != nil {
 		return err
 	}
 	return nil

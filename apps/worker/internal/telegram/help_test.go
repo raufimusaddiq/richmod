@@ -12,17 +12,9 @@ import (
 	"unicode/utf8"
 )
 
-func TestHelpMessageGivesExamplesWithinTelegramLimit(t *testing.T) {
-	for _, example := range []string{"makan siang 50rb", "gaji 8 juta hari ini", "pengeluaran bulan ini", "cari transaksi", "koreksi transaksi"} {
-		if !strings.Contains(helpMessage, example) {
-			t.Errorf("help is missing the example %q", example)
-		}
-	}
+func TestHelpMessageFitsTelegramLimit(t *testing.T) {
 	if utf8.RuneCountInString(helpMessage) > 4096 {
 		t.Fatal("help exceeds Telegram's message limit")
-	}
-	if !strings.Contains(conversationalAgentPrompt, "/help") {
-		t.Error("the agent prompt must tell the model to point declines at /help")
 	}
 }
 

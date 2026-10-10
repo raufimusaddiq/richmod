@@ -16,8 +16,8 @@ import (
 // when it failed for another reason. Each says what happened and what to do, so a
 // failure is never silence, and a failure that is not slowness is not blamed on it.
 const (
-	terminalTextFailureMessage = "Richmod lagi lambat menjawab, jadi pertanyaanmu belum terjawab. Coba kirim ulang sebentar lagi."
-	terminalTextErrorMessage   = "Richmod belum bisa menjawab pertanyaan ini. Coba tulis ulang pertanyaannya dengan kata lain."
+	terminalTextFailureMessage = "Richmod lagi lambat menjawab, jadi pertanyaanmu belum terjawab. Coba kirim ulang sebentar lagi, ya."
+	terminalTextErrorMessage   = "Aku belum bisa menjawab pertanyaan ini. Coba tulis dengan kata lain, ya."
 )
 
 func terminalTextFailureCopy(timedOut bool) (message, reason string) {
@@ -109,7 +109,7 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 
 // terminalCallbackFailureMessage is what the household sees when a button tap
 // could not be processed. It says what happened and what to do.
-const terminalCallbackFailureMessage = "Tombol itu belum bisa diproses. Coba tekan lagi, atau lanjutkan dari Kotak Tinjauan di web."
+const terminalCallbackFailureMessage = "Tombol ini belum bisa diproses. Coba tekan lagi, ya, atau lanjutkan dari Kotak Tinjauan di web."
 
 // TerminalCallbackFailureTx runs inside the transaction that marks a button-tap
 // job FAILED. A tap that is still unfinished is finalized as FAILED, the

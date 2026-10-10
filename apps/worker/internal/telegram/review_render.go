@@ -29,13 +29,13 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 	}
 	switch {
 	case decision.ReasonCode == "MISSING_AMOUNT":
-		instruction := "Balas pesan ini dengan jumlah IDR berupa angka tanpa pemisah."
+		instruction := "Balas pesan ini (Reply) dengan nominal dalam rupiah, tanpa pemisah. Contoh: 75000."
 		if contains(decision.MissingFacts, "transfer_relationship") {
 			instruction += " Setelah itu, konfirmasi apakah ini penghasilan atau transfer sendiri."
 		}
-		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Jumlah transaksi belum terlihat", context, instruction), "reply"
+		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Nominal transaksi belum terbaca", context, instruction), "reply"
 	case decision.ReasonCode == "RECEIPT_MISMATCH" && decision.Consequence == reviewdec.QualitySignal && len(decision.MissingFacts) == 0:
-		const prompt = "Rincian struk tidak sesuai dengan total tercetak. Periksa total sebelum mencatat."
+		const prompt = "🧾 Rincian struk berbeda dari total yang tercetak. Cek totalnya dulu sebelum mencatat."
 		if strings.TrimSpace(context) == "" {
 			return "AWAITING_DETAIL", prompt, "receipt_quality"
 		}
@@ -44,7 +44,7 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// The email did not support a required financial fact, so no canonical
 		// transaction was written. The only bounded action is to acknowledge it;
 		// there is no fact the household must supply here.
-		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Bukti email belum pasti", context, "Bukti email ini tidak didukung. Abaikan atau buka Kotak Tinjauan."), "financial_email_facts"
+		return "AWAITING_DETAIL", reviewDetailMessage("🟡 Bukti email belum pasti", context, "Bukti email ini belum didukung. Pilih Abaikan atau buka Kotak Tinjauan untuk memeriksanya."), "financial_email_facts"
 	case contains(decision.AllowedActions, "REPROCESS_DOCUMENT"):
 		// A document review's only bounded action is to retry the shared document
 		// pipeline; the summary is the document's own extraction context.
@@ -59,11 +59,11 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// chooser is the whole interaction; merchant enrichment is optional.
 		return "AWAITING_CATEGORY", context, "category"
 	case contains(decision.MissingFacts, "transfer_relationship"):
-		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "transfer"
+		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, "Pilih jenis transfer di bawah, atau balas pesan ini (Reply) dengan tujuan transfer."), "transfer"
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
 	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
-		return "AWAITING_DETAIL", reviewDetailMessage("🧾 Pilih kebijakan gaji", context, "Pilih gaji utama atau pemasukan biasa."), "salary"
+		return "AWAITING_DETAIL", reviewDetailMessage("🧾 Ini gaji utama atau pemasukan biasa?", context, "Pilih jenis pemasukan di bawah."), "salary"
 	// A date fact is collected first because the reply lane binds exactly one
 	// value. A compound category+date decision therefore starts with the date
 	// prompt and advances to the category chooser afterward, so no missing fact is
@@ -71,12 +71,12 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 	case contains(decision.MissingFacts, "transaction_at"):
 		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction(decision)), "reply"
 	case contains(decision.MissingFacts, "merchant"):
-		return "AWAITING_MERCHANT", reviewDetailMessage("Nama merchant belum tersedia", context, "Balas pesan ini dengan nama merchant."), "reply"
+		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Nama merchant belum ada", context, "Balas pesan ini (Reply) dengan nama merchant."), "reply"
 	case requiresBoundReply(decision):
 		title := promptTitle(decision)
 		return "AWAITING_DETAIL", reviewDetailMessage(title, context, replyInstruction(decision)), "reply"
 	default:
-		return "AWAITING_DETAIL", reviewDetailMessage(unknownReviewPrompt, context, "Balas pesan ini dengan keterangan atau tujuan transaksi."), "reply"
+		return "AWAITING_DETAIL", reviewDetailMessage(unknownReviewPrompt, context, "Balas pesan ini (Reply) dengan keterangan atau tujuan transaksi."), "reply"
 	}
 }
 
@@ -113,7 +113,7 @@ func promptTitle(decision reviewdec.Decision) string {
 	for _, fact := range decision.MissingFacts {
 		switch fact {
 		case "salary_classification":
-			return "🟡 Pilih klasifikasi gaji"
+			return "🟡 Ini termasuk jenis gaji apa?"
 		case "transaction_at":
 			if decision.ReasonCode == "MISSING_PAY_DATE" {
 				return "🟡 Tanggal pembayaran belum ada"
@@ -134,17 +134,17 @@ func promptTitle(decision reviewdec.Decision) string {
 // the date resolver parses, instead of the generic description wording.
 func dateInstruction(decision reviewdec.Decision) string {
 	if decision.ReasonCode == "MISSING_PAY_DATE" {
-		return "Balas pesan ini dengan tanggal pembayaran (contoh: 25 September 2026)."
+		return "Balas pesan ini (Reply) dengan tanggal pembayaran. Contoh: 25 September 2026."
 	}
-	return "Balas pesan ini dengan tanggal transaksi (YYYY-MM-DD)."
+	return "Balas pesan ini (Reply) dengan tanggal transaksi (YYYY-MM-DD)."
 }
 
 func replyInstruction(decision reviewdec.Decision) string {
 	if contains(decision.MissingFacts, "duplicate_relationship") {
-		return "Balas pesan ini dengan pilihan pada tombol di atas."
+		return "Pilih catatan yang ingin digabung, atau pilih Catat sebagai baru di bawah."
 	}
 	if contains(decision.MissingFacts, "transaction_at") {
 		return dateInstruction(decision)
 	}
-	return "Balas pesan ini dengan keterangan atau tujuan transaksi."
+	return "Balas pesan ini (Reply) dengan keterangan atau tujuan transaksi."
 }

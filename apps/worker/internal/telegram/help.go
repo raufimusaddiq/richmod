@@ -12,15 +12,15 @@ import (
 
 // helpMessage is the one answer to /help, /start, and the model's finance_help
 // tool, so a household sees the same examples wherever they ask.
-const helpMessage = "Richmod membantu mencatat keuangan keluarga.\n\n" +
-	"Contoh pesan:\n" +
+const helpMessage = "👋 Hai! Aku Richmod, siap bantu mencatat keuangan keluarga.\n\n" +
+	"Coba kirim pesan seperti ini:\n" +
 	"• makan siang 50rb\n" +
 	"• gaji 8 juta hari ini\n" +
 	"• pengeluaran bulan ini\n" +
 	"• cari transaksi Alfamart\n" +
 	"• koreksi transaksi Alfamart ke kemarin\n\n" +
-	"Kirim foto struk, slip gaji, atau bukti transfer untuk dicatat otomatis. " +
-	"Kalau ada yang belum jelas, Richmod bertanya lewat tombol atau meminta kamu membalas pesannya."
+	"Kamu juga bisa kirim foto struk, slip gaji, atau bukti transfer untuk dicatat otomatis. " +
+	"Kalau ada yang belum jelas, aku akan minta detail lewat tombol atau balasan ke pesanku."
 
 // isHelpCommand reports whether a typed message is /help or /start, with an
 // optional @BotName suffix and trailing text. Typed text reaches the worker

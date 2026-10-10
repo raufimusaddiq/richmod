@@ -367,7 +367,7 @@ func (s *PostgreSQLStore) Link(ctx context.Context, input CaptureInput, token st
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM','LINK','telegram_identity',$2,jsonb_build_object('userId',$3::text,'telegramUserId',$4::bigint))`, householdID, userID, userID, input.TelegramUserID); err != nil {
 		return false, fmt.Errorf("audit Telegram link: %w", err)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text','Telegram berhasil terhubung ke Richmod.'))`, input.TelegramUserID); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'text','✅ Telegram kamu sudah terhubung ke Richmod. Ketik /help untuk lihat contoh pesan.'))`, input.TelegramUserID); err != nil {
 		return false, fmt.Errorf("queue Telegram confirmation: %w", err)
 	}
 	if err = tx.Commit(ctx); err != nil {

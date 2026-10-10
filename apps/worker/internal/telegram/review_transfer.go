@@ -14,11 +14,11 @@ func (p *Processor) applyTransferReviewCallback(ctx context.Context, sourceEvent
 	classification = transferReviewCallbackAction(callback)
 	switch classification {
 	case "OWN_ACCOUNT":
-		message = "Transfer diklasifikasikan sebagai perpindahan rekening dan tidak dihitung sebagai pengeluaran."
+		message = "✅ Transfer sudah ditandai sebagai perpindahan antar rekening sendiri, bukan pengeluaran."
 	case "HOUSEHOLD_ACCOUNT":
-		message = "Transfer dicatat sebagai perpindahan antar anggota household."
+		message = "✅ Transfer sudah dicatat sebagai perpindahan antar anggota keluarga."
 	case "INVESTMENT_ACCOUNT":
-		message = "Transfer diklasifikasikan sebagai kontribusi investasi."
+		message = "✅ Transfer sudah ditandai sebagai kontribusi investasi."
 	case "IGNORE":
 		return p.resolveTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update, "UNCLASSIFIED", "VOIDED", "IGNORE", "Transfer disimpan sebagai bukti non-pengeluaran.", "")
 	case "EXPENSE":
@@ -74,7 +74,7 @@ func (p *Processor) promptAssetWealthAccount(ctx context.Context, sourceEventID,
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err
 	}
-	if err = enqueueReply(ctx, tx, update, "Sebutkan akun kekayaan tujuan, misalnya: emas."); err != nil {
+	if err = enqueueReply(ctx, tx, update, "Balas pesan ini (Reply) dengan akun kekayaan tujuan. Contoh: emas."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -183,7 +183,7 @@ func (p *Processor) offerInvestmentChooser(ctx context.Context, sourceEventID, h
 	}
 	if len(buttons) == 0 {
 		_ = tx.Rollback(ctx)
-		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Belum ada akun kekayaan investasi aktif untuk dipilih. Tinjauan tetap terbuka sampai rekening tersedia.")
+		return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Belum ada akun kekayaan investasi aktif yang bisa dipilih. Tinjauan masih terbuka sampai rekeningnya tersedia.")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
 		return err

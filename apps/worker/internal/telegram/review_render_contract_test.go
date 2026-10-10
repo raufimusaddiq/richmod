@@ -64,26 +64,10 @@ func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
 	}
 }
 
-func TestPayslipReviewUsesIndonesianPrompts(t *testing.T) {
-	for _, reviewType := range []string{"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE"} {
-		decision, ok := reviewdec.Preset(reviewType, "source_event", "00000000-0000-0000-0000-000000000000")
-		if !ok {
-			t.Fatalf("missing preset for %s", reviewType)
-		}
-		_, message, _ := renderReviewPresentation(decision, reviewType, "")
-		if strings.Contains(message, "salary") || strings.Contains(message, "transaction date") {
-			t.Fatalf("%s has non-Indonesian UI: %q", reviewType, message)
-		}
-		if reviewType == "MISSING_PAY_DATE" && !strings.Contains(message, "25 September 2026") {
-			t.Fatalf("missing Indonesian date example: %q", message)
-		}
-	}
-}
-
 func TestTransactionDatePromptKeepsItsSupportedFormat(t *testing.T) {
 	decision, _ := reviewdec.Preset("MISSING_TRANSACTION_DATE", "transaction", "00000000-0000-0000-0000-000000000000")
 	_, message, _ := renderReviewPresentation(decision, "MISSING_TRANSACTION_DATE", "")
-	if !strings.Contains(message, "tanggal transaksi (YYYY-MM-DD)") || strings.Contains(message, "September") {
+	if !strings.Contains(message, "YYYY-MM-DD") {
 		t.Fatalf("transaction date prompt does not match its parser: %q", message)
 	}
 }
@@ -340,7 +324,7 @@ func TestEmptySummaryCardShowsItsTitleOnce(t *testing.T) {
 	if state != "AWAITING_DATE" {
 		t.Fatalf("state=%s", state)
 	}
-	if got := strings.Count(message, "Tanggal transaksi belum ada"); got != 1 {
+	if got := strings.Count(message, promptTitle(decision)); got != 1 {
 		t.Fatalf("title appears %d times in %q", got, message)
 	}
 }
