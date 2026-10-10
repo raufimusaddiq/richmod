@@ -46,6 +46,12 @@ func (p *Processor) ignoreBankReview(ctx context.Context, sourceEventID, househo
 	return true, tx.Commit(ctx)
 }
 
+// completeBankFactsReply resolves a UNKNOWN_BANK_TEMPLATE review from Telegram.
+// It parses the amount and timestamp out of the bound reply, validates the
+// account and completes through the shared operation, then re-runs the same
+// deterministic bank policy locally and hands a completed transaction to the
+// shared confirm path. A reply that leaves a required fact missing re-asks for it
+// instead of guessing.
 func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, householdID, reviewID, userID, bankSourceID string, update telegramUpdate) error {
 	amountIDR, transactionAt := parseBankFactsReply(update.Message.Text)
 	if reviewdomain.ValidateBankFactValues(amountIDR, transactionAt) != nil {

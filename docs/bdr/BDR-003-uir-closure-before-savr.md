@@ -124,3 +124,14 @@ and SAVR starts.
 
 No additional UIR cleanup should be accepted after that point unless it fixes a
 production defect against the frozen contract.
+
+## Update — 2026-10-11: transaction-first Inbox read removed
+
+The legacy transaction-first Review Inbox read is gone. Every `NEEDS_REVIEW`
+transaction now has exactly one active `review_item` with a complete
+ReviewDecision, created in the producer's transaction regardless of whether the
+household has Telegram. Telegram (`review_request` and its recipients) is only a
+delivery projection of that item. The Inbox lists transaction work from
+`review_item` alone, and the derived reason/missing-field fallback is deleted.
+Historical items without a decision (all resolved before 2026-09-25) stay as
+they are.

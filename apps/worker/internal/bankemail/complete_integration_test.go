@@ -42,7 +42,7 @@ func TestCompleteBankReviewRecordsSuppliedFactsOnce(t *testing.T) {
 	extraction := `{"kind":"TRANSACTION","direction":"OUT","channel":"CARD","amount_idr":null,"transaction_at":null,"merchant":"Indomaret","counterparty":null,"reference":null,"description":null,"missing_fields":["amount_idr","transaction_at"],"confidence":0.9}`
 	_, err = pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'IMAP','v1',$3::jsonb,'INVALID')`, sourceEventID, listenerID, extraction)
 	must(err)
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{}'::jsonb) RETURNING id`, householdID, sourceEventID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceEventID).Scan(&itemID))
 
 	amount, at := "54000", "2026-09-23T13:45:00+07:00"
 	payload := Payload{SourceEventID: sourceEventID, ReviewID: itemID, AmountIDR: &amount, TransactionAt: &at}

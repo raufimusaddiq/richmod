@@ -43,8 +43,8 @@ func TestReviewOpsAdminAggregatesAndRedaction(t *testing.T) {
 	mustExec(pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID))
 	mustExec(pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID))
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("ro-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&openItem))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3) RETURNING id`, householdID, sourceID, userID).Scan(&resolvedItem))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&openItem))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3,'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID, userID).Scan(&resolvedItem))
 	// The resolution surface is recorded by the surface's own audit row: the
 	// Telegram resolve records actor_type TELEGRAM.
 	mustExec(pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'RESOLVE_REVIEW','review_item',$3)`, householdID, userID, resolvedItem))
@@ -152,7 +152,7 @@ func createResolvedReviewForSurface(t *testing.T, pool *pgxpool.Pool, householdI
 	t.Helper()
 	ctx := context.Background()
 	var itemID string
-	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3) RETURNING id`, householdID, sourceID, userID).Scan(&itemID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,resolved_at,resolved_by_user_id,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$3,'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID, userID).Scan(&itemID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4)`, householdID, surface, userID, itemID); err != nil {
@@ -220,7 +220,7 @@ func TestReviewOpsSurfaceComesFromTheSharedResolver(t *testing.T) {
 		if err := pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}'::jsonb,'REVIEW') RETURNING id`, householdID, source).Scan(&observation); err != nil {
 			t.Fatal(err)
 		}
-		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, householdID, observation).Scan(resolvedBy.into); err != nil {
+		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN','{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","missingFacts":["funding_account"],"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"]}'::jsonb) RETURNING id`, householdID, observation).Scan(resolvedBy.into); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := pool.Begin(ctx)
@@ -323,11 +323,11 @@ func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
 		return eligible, actionable
 	}
 	eligibleBefore, before := coverage()
-	deliveredCard(`{"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
+	deliveredCard(`{"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
 	if eligible, got := coverage(); got != before+1 || eligible != eligibleBefore+1 {
 		t.Fatalf("Telegram-complete card did not increase actionable coverage: before=%d/%d after=%d/%d", before, eligibleBefore, got, eligible)
 	}
-	deliveredCard(`{"allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
+	deliveredCard(`{"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
 	if eligible, got := coverage(); got != before+1 || eligible != eligibleBefore+2 {
 		t.Fatalf("a Web-only ordinary action inflated actionable coverage: %d/%d", got, eligible)
 	}
@@ -341,7 +341,7 @@ func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
 	_, baselineEscapes := escapes()
 	// A fully Telegram-capable review resolved on Web is a voluntary switch, so
 	// the per-type escape count must not include it.
-	voluntaryItem := deliveredCard(`{"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
+	voluntaryItem := deliveredCard(`{"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2 WHERE id=$1`, voluntaryItem, observerID); err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
 		t.Fatalf("a voluntary Web switch changed mandatory escapes: before=%d after=%d", baselineEscapes, got)
 	}
 	// A Web-only review resolved on Web is the mandatory escape this rate means.
-	forcedItem := deliveredCard(`{"allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
+	forcedItem := deliveredCard(`{"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
 	if _, err := pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2 WHERE id=$1`, forcedItem, observerID); err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +394,7 @@ func TestReviewOpsSurfaceFromResolvingTransaction(t *testing.T) {
 	resolve := func(resolutionAction, actorType, auditAction string) string {
 		t.Helper()
 		var itemID string
-		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, sourceID).Scan(&itemID); err != nil {
+		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&itemID); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := pool.Begin(ctx)
@@ -462,7 +462,7 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 	mustExec(pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID))
 	mustExec(pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, chatID, householdID, userID))
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("hh-ro-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, sourceID).Scan(&itemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&itemID))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, itemID, householdID).Scan(&requestID))
 	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,7)`, requestID, chatID))
 	mustExec(pool.Exec(ctx, `INSERT INTO job(type,payload_json,status,last_error) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('review_request_id',$1::text),'FAILED','TELEGRAM_SEND_FAILED')`, requestID))

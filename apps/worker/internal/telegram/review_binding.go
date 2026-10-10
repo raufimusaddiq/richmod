@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -59,42 +60,81 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 	return nil
 }
 
-// completeBankFactsReply resolves a UNKNOWN_BANK_TEMPLATE review from Telegram.
-// It parses the amount and timestamp out of the bound reply, validates the
-// account and completes through the shared operation, then re-runs the same
-// deterministic bank policy locally and hands a completed transaction to the
-// shared confirm path. A reply that leaves a required fact missing re-asks for it
-// instead of guessing.
-func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string, decisions ...reviewdec.Decision) error {
-	// reviewID is the review_request id (the handle every later enqueue uses);
-	// itemID is the review_item row the ReviewDecision contract lives on. They are
-	// different rows, so the decision write must target itemID or it silently
-	// updates nothing.
-	var reviewID, itemID string
-	err := tx.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id) SELECT household_id,id,$2,'PENDING_SEND',created_by_user_id FROM transaction WHERE id=$1 RETURNING id,household_id,transaction_id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT item.id,item.household_id,item.transaction_id,$2,$3,'PENDING_SEND' FROM item RETURNING id,(SELECT id FROM item)`, transactionID, reviewType, chatID).Scan(&reviewID, &itemID)
-	if err != nil {
-		return err
+// CreateTransactionReviewItem creates the canonical active review_item for a
+// NEEDS_REVIEW transaction with its ReviewDecision in the same INSERT and returns its id.
+// status is "OPEN" (no Telegram delivery) or "PENDING_SEND" (a projection follows).
+// decision overrides the preset for reviewType when provided; the stored decision must
+// pass reviewdec validation (non-empty ReasonCode and AllowedActions) or an error is returned.
+// Idempotent: if an active item already exists for the transaction, returns that item's id
+// and does not overwrite it.
+func CreateTransactionReviewItem(ctx context.Context, tx pgx.Tx, transactionID, reviewType, status string, decisions ...reviewdec.Decision) (string, error) {
+	if status != "OPEN" && status != "PENDING_SEND" {
+		return "", fmt.Errorf("review item status %q is not an active status", status)
 	}
-	// Every Telegram review carries the same ReviewDecision contract
-	// the Inbox renders, written at the one place all reviews are created, so a
-	// Telegram review and a web review ask for exactly the same unresolved fact.
-	decision, err := telegramReviewDecision(ctx, tx, transactionID, reviewType)
-	if err != nil {
-		return err
-	}
+	var decision reviewdec.Decision
 	if len(decisions) > 0 {
 		decision = decisions[0]
-	}
-	if decision.ReasonCode != "" {
-		encoded, err := decision.JSON()
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=$2::jsonb,updated_at=now() WHERE id=$1`, itemID, string(encoded)); err != nil {
-			return err
+	} else {
+		var err error
+		if decision, err = telegramReviewDecision(ctx, tx, transactionID, reviewType); err != nil {
+			return "", err
 		}
 	}
-	return projectReviewRequest(ctx, tx, reviewID, itemID, reviewType, decision, replyTo, message, chatID)
+	// JSON validates the contract, so an incomplete decision fails here instead
+	// of being stored (the review_item trigger from 00078 refuses it as well).
+	encoded, err := decision.JSON()
+	if err != nil {
+		return "", fmt.Errorf("%s review decision: %w", reviewType, err)
+	}
+	// review_item_active_transaction_unique allows one active item per
+	// transaction; a retry or second producer reuses it untouched.
+	var itemID string
+	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,preferred_user_id,decision)
+		SELECT household_id,id,$2,$3,created_by_user_id,$4::jsonb FROM transaction WHERE id=$1
+		ON CONFLICT (transaction_id) WHERE transaction_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN') DO NOTHING
+		RETURNING id`, transactionID, reviewType, status, string(encoded)).Scan(&itemID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `SELECT id FROM review_item WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, transactionID).Scan(&itemID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("review item for transaction %s: transaction not found", transactionID)
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	return itemID, nil
+}
+
+// EnqueueReviewRequest creates the canonical transaction review_item (through
+// CreateTransactionReviewItem, so the decision is written with the item) and its
+// Telegram review_request projection, then renders the card to recipients.
+func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewType string, chatID, replyTo int64, message string, decisions ...reviewdec.Decision) error {
+	itemID, err := CreateTransactionReviewItem(ctx, tx, transactionID, reviewType, "PENDING_SEND", decisions...)
+	if err != nil {
+		return err
+	}
+	// The projection renders the stored item, so a reused item is projected with
+	// the type and contract it already carries, not a freshly computed one: one
+	// transaction has one active review, and the first open question wins.
+	var itemType string
+	var decisionJSON []byte
+	if err := tx.QueryRow(ctx, `SELECT review_type,COALESCE(decision,'{}'::jsonb) FROM review_item WHERE id=$1`, itemID).Scan(&itemType, &decisionJSON); err != nil {
+		return err
+	}
+	if itemType != reviewType {
+		slog.Default().Warn("review projection reused an active item with a different review type", "transaction_id", transactionID, "review_item_id", itemID, "requested_type", reviewType, "stored_type", itemType)
+	}
+	var decision reviewdec.Decision
+	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
+		return err
+	}
+	// reviewID is the review_request id (the handle every later enqueue uses);
+	// itemID is the review_item row the ReviewDecision contract lives on.
+	var reviewID string
+	if err := tx.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT id,household_id,transaction_id,review_type,$2,'PENDING_SEND' FROM review_item WHERE id=$1 RETURNING id`, itemID, chatID).Scan(&reviewID); err != nil {
+		return err
+	}
+	return projectReviewRequest(ctx, tx, reviewID, itemID, itemType, decision, replyTo, message, chatID)
 }
 
 // projectReviewRequest is the one place a review_item becomes an actionable

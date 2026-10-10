@@ -94,7 +94,7 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	}
 	// Mirror the bank-email producer: insert the OPEN item, then project it to
 	// every eligible household Telegram identity through the shared projector.
-	if err = tx.QueryRow(ctx, "INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{}'::jsonb) RETURNING id", householdID, sourceEventID).Scan(&itemID); err != nil {
+	if err = tx.QueryRow(ctx, "INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{\"version\":1,\"reasonCode\":\"UNKNOWN_BANK_TEMPLATE\",\"allowedActions\":[\"COMPLETE_BANK_FACTS\",\"IGNORE\"]}'::jsonb) RETURNING id", householdID, sourceEventID).Scan(&itemID); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestUnlinkedBankReviewBindsAccountThenCompletesThroughExistingJob(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{}'::jsonb) RETURNING id`, household, source).Scan(&item); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb) RETURNING id`, household, source).Scan(&item); err != nil {
 		t.Fatal(err)
 	}
 	if err := ProjectReviewItem(ctx, tx, household, item, 0, "", chat); err != nil {

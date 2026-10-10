@@ -671,13 +671,17 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	if transactionStatus == "NEEDS_REVIEW" {
+		// The canonical review_item exists whether or not the household has
+		// Telegram; Telegram is only a delivery projection of the same decision.
+		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
-			decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message, decision); err != nil {
 				return err
 			}
+		} else if _, err = workerTelegram.CreateTransactionReviewItem(ctx, tx, transactionID, result.ReviewType, "OPEN", decision); err != nil {
+			return err
 		}
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_FROM_BANK_EMAIL','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'policy_result',$6::text,'auto_confirm',$7::boolean,'tool_schema_version',$8::text))`, listener.HouseholdID, transactionID, sourceID, listener.ID, proposalID, result.Status, result.AutoConfirm, ToolSchemaVersion); err != nil {

@@ -39,7 +39,7 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			transactionID, sourceID, proposalID := seedUnclassifiedTransfer(t, pool, householdID, stamp+int64(index+1))
 			var reviewID string
-			if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','PENDING_SEND') RETURNING id`, householdID, transactionID).Scan(&reviewID); err != nil {
+			if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','PENDING_SEND','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["transfer_relationship"],"allowedActions":["CLASSIFY_TRANSFER","OWN_ACCOUNT","HOUSEHOLD_ACCOUNT","INVESTMENT_ACCOUNT","EXPENSE","ASSET_PURCHASE","IGNORE"]}'::jsonb) RETURNING id`, householdID, transactionID).Scan(&reviewID); err != nil {
 				t.Fatal(err)
 			}
 			body := map[string]any{"classification": test.classification}

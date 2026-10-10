@@ -47,7 +47,7 @@ func TestResolveResidualAllocationValidationAndStaleBasis(t *testing.T) {
 	}
 	var caseID string
 	must(pool.QueryRow(ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$3,'2026-01-01','2026-02-01',1000000,0,0,1000000) RETURNING id`, household, start, end).Scan(&caseID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','OPEN') RETURNING id`, household, caseID).Scan(&review))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,decision) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','OPEN','{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"]}'::jsonb) RETURNING id`, household, caseID).Scan(&review))
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Savings','ASSET','BANK','SAVINGS') RETURNING id`, household).Scan(&account))
 	var otherHousehold string
 	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Other %d", stamp)).Scan(&otherHousehold))
@@ -150,11 +150,11 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Current producers write the canonical item with the transaction, so
-	// the Inbox must surface it without the transaction-only legacy fallback.
+	// Current producers write the canonical item, with its ReviewDecision, in
+	// the same transaction as the NEEDS_REVIEW transaction it reviews.
 	var transactionID, reviewItemID string
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,counterparty_name) VALUES($1,'EXPENSE','NEEDS_REVIEW',25000,now(),'Warung') RETURNING id`, household).Scan(&transactionID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, household, transactionID).Scan(&reviewItemID))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, household, transactionID).Scan(&reviewItemID))
 
 	list := func() []struct {
 		ID string `json:"id"`
@@ -174,9 +174,9 @@ func TestListPreservesCanonicalReviewMetadata(t *testing.T) {
 		}
 		return out
 	}
-	// The transaction-only fallback selects status='NEEDS_REVIEW'. Move the
-	// transaction out of that state while the canonical item stays open: if the
-	// item still lists, its authority is review_item, not the fallback.
+	// The transaction-bound item lists from review_item. Move the transaction
+	// out of NEEDS_REVIEW while the canonical item stays open: it must keep
+	// listing through canonicalOpenItems, because its authority is the item.
 	must(pool.QueryRow(ctx, `UPDATE transaction SET status='CONFIRMED',confirmed_at=now() WHERE id=$1 RETURNING id`, transactionID).Scan(&transactionID))
 	found := false
 	for _, value := range list() {
@@ -213,7 +213,7 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION','NEEDS_REVIEW') RETURNING id`, household, source, attachment).Scan(&documentID))
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Reksadana','Bibit','ASSET','MUTUAL_FUND','INVESTMENT') RETURNING id`, household).Scan(&wealthID))
 	must(pool.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr) VALUES($1,$2,$3,'Bibit','Reksadana',42700000) RETURNING id`, household, documentID, wealthID).Scan(&observationID))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN') RETURNING id`, household, observationID).Scan(&wealthReview))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN','{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","missingFacts":["wealth_snapshot_confirmation"],"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}'::jsonb) RETURNING id`, household, observationID).Scan(&wealthReview))
 
 	var salarySource, startEvent, endEvent, salarySourceEvent, residualCase string
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'PROCESSED') RETURNING id`, household, fmt.Sprintf("salary-%d", stamp), []byte(fmt.Sprintf("salary-%d", stamp))).Scan(&salarySourceEvent))
@@ -227,7 +227,7 @@ func TestListPreservesCanonicalReviewMetadataBody(t *testing.T) {
 		must(pool.QueryRow(ctx, `INSERT INTO salary_event(salary_source_id,household_id,payroll_period,pay_date,net_pay,transaction_id,status,source_event_id) VALUES($1,$2,$3::date,$4::date,1000000,$5,'CONFIRMED',$6) RETURNING id`, salarySource, household, row.period, row.date, transactionID, salarySourceEvent).Scan(row.into))
 	}
 	must(pool.QueryRow(ctx, `INSERT INTO cycle_residual_case(household_id,start_salary_event_id,end_salary_event_id,cycle_start,cycle_end,basis_income_idr,basis_expense_idr,basis_savings_idr,basis_residual_idr) VALUES($1,$2,$3,'2026-08-25','2026-09-25',1000000,0,0,1000000) RETURNING id`, household, startEvent, endEvent).Scan(&residualCase))
-	_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','OPEN')`, household, residualCase)
+	_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,cycle_residual_case_id,review_type,status,decision) VALUES($1,$2,'CYCLE_RESIDUAL_ALLOCATION','OPEN','{"version":1,"reasonCode":"CYCLE_RESIDUAL_ALLOCATION","allowedActions":["ALLOCATE_RETAINED_BALANCE","TRANSACTION_MISSING","LEAVE_UNALLOCATED"]}'::jsonb)`, household, residualCase)
 	must(err)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/reviews", nil)
@@ -493,7 +493,7 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("bank-reconcile-%d", stamp), []byte(fmt.Sprintf("bank-reconcile-%d", stamp))).Scan(&bankSource))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,transaction_at,confidence,proposal_status) VALUES($1,$2,'UNCLASSIFIED',3000000,$3,.9,'NEEDS_REVIEW') RETURNING id`, household, bankSource, at).Scan(&proposal))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'BANK_EMAIL',jsonb_build_object('proposal_id',$3::uuid)) RETURNING id`, existing, bankSource, proposal).Scan(new(string)))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, existing).Scan(&candidateItem))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["transfer_relationship"],"allowedActions":["CLASSIFY_TRANSFER","OWN_ACCOUNT","HOUSEHOLD_ACCOUNT","INVESTMENT_ACCOUNT","EXPENSE","ASSET_PURCHASE","IGNORE"]}'::jsonb) RETURNING id`, household, existing).Scan(&candidateItem))
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status) VALUES($1,$2,$3,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, candidateItem, existing).Scan(&candidateRequest))
 	must(func() error {
 		_, err := pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_CATEGORY')`, candidateRequest)
@@ -510,7 +510,7 @@ func TestResolveFinancialEmailCrossSourceReconciliationFinalizesBankLifecycle(t 
 		must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, household, source).Scan(&observation))
 		_, err = pool.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,financial_email_observation_id,account_id,amount_idr,transaction_at,description,proposed_purpose,proposed_wealth_account_id,candidate_transaction_ids) VALUES($1,$2,$3,$4,3000000,$5,'top up RDN','INVESTMENT_CONTRIBUTION',$6,$7::uuid[])`, household, source, observation, account, at, wealth, candidates)
 		must(err)
-		must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN') RETURNING id`, household, observation).Scan(&review))
+		must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["transfer_relationship"],"allowedActions":["CLASSIFY_TRANSFER","OWN_ACCOUNT","HOUSEHOLD_ACCOUNT","INVESTMENT_ACCOUNT","EXPENSE","ASSET_PURCHASE","IGNORE"]}'::jsonb) RETURNING id`, household, observation).Scan(&review))
 		return source, observation, review
 	}
 	resolve := func(review, body string) *httptest.ResponseRecorder {
@@ -584,7 +584,7 @@ func TestResolveUnknownBankTemplateIgnore(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("unknown-bank-%d", stamp), []byte(fmt.Sprintf("unknown-bank-%d", stamp))).Scan(&sourceID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN') RETURNING id`, householdID, sourceID).Scan(&reviewID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","missingFacts":["transaction_semantics"],"allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceID).Scan(&reviewID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -630,7 +630,7 @@ func TestListSurfacesOrphanedTransactionBoundItem(t *testing.T) {
 	}
 	var transaction, review string
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,category_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',2500000,now(),$2,now()) RETURNING id`, household, category).Scan(&transaction))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','PENDING_SEND') RETURNING id`, household, transaction).Scan(&review))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','PENDING_SEND','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, household, transaction).Scan(&review))
 	must(func() error {
 		_, e := pool.Exec(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,resolved_at) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','RESOLVED',now())`, household, review, transaction)
 		return e
@@ -745,7 +745,7 @@ func TestResolveFinancialEmailMalformedAccountIsClientError(t *testing.T) {
 	external := fmt.Sprintf("financial-malformed-%d", stamp)
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'FINANCIAL_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, external, []byte(external)).Scan(&source))
 	must(pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'CASH_MOVEMENT','{}','REVIEW') RETURNING id`, household, source).Scan(&observation))
-	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN') RETURNING id`, household, observation).Scan(&review))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,'FINANCIAL_EMAIL_RESOLUTION','OPEN','{"version":1,"reasonCode":"FINANCIAL_EMAIL_RESOLUTION","missingFacts":["funding_account","wealth_account"],"allowedActions":["SET_FINANCIAL_EMAIL_ENTITIES","IGNORE"]}'::jsonb) RETURNING id`, household, observation).Scan(&review))
 	body := `{"action":"SET_FINANCIAL_EMAIL_ENTITIES","values":{"accountId":"not-a-uuid","wealthAccountId":"also-bad"}}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+review+"/resolve", bytes.NewBufferString(body))
 	req.SetPathValue("id", review)

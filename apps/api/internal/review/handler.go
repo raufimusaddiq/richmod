@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"regexp"
@@ -77,16 +78,17 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The Inbox reads the canonical review_item only. Every NEEDS_REVIEW
+	// transaction has exactly one active item carrying its ReviewDecision,
+	// whether or not the household has Telegram (which only projects it). The
+	// item ID stays the transaction id because Web actions address
+	// /reviews/{transactionId}/...
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT t.id,t.type,t.amount::text,t.currency,t.transaction_at,t.description,t.note,
 		       t.category_id,t.account_id,c.name,m.normalized_name,t.counterparty_name,s.source_type,p.confidence::text,p.proposal_status,
 		       COALESCE(ri.decision,'null'::jsonb)
-		FROM transaction t
-		LEFT JOIN LATERAL (
-			SELECT ri.decision FROM review_item ri
-			WHERE ri.transaction_id=t.id AND ri.status IN ('OPEN','PENDING_SEND')
-			ORDER BY ri.created_at DESC LIMIT 1
-		) ri ON true
+		FROM review_item ri
+		JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id
 		LEFT JOIN category c ON c.id=t.category_id
 		LEFT JOIN merchant m ON m.id=t.merchant_id
 		LEFT JOIN LATERAL (
@@ -95,7 +97,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		) evidence ON true
 		LEFT JOIN source_event s ON s.id=evidence.source_event_id
 		LEFT JOIN transaction_proposal p ON p.id=NULLIF(evidence.metadata_json->>'proposal_id','')::uuid
-		WHERE t.household_id=$1 AND t.status='NEEDS_REVIEW'
+		WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW'
 		ORDER BY t.transaction_at DESC,t.id DESC LIMIT 100`, household)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
@@ -115,25 +117,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The persisted ReviewDecision is the single source of truth for what a
-		// review asks: a Telegram card and the Inbox read the same
-		// contract instead of deriving the unresolved fact independently. Rows
-		// written before the contract existed keep the derived fallback.
+		// review asks: a Telegram card and the Inbox read the same contract.
 		stored := proposalFacts(value.Decision)
-		if stored.ReasonCode != "" {
-			value.Reason = stored.ReasonCode
-		} else {
-			value.Reason = reviewReason(value)
-		}
-		if stored.ReasonCode != "" {
-			value.ReviewType = stored.ReasonCode
-			value.AllowedActions = stored.AllowedActions
-			value.KnownFacts = stored.KnownFacts
-			value.ProposedFacts = stored.ProposedFacts
-			value.MissingFacts = stored.MissingFacts
-			value.WhyNotAutoConfirm = stored.WhyNotAuto
-		} else {
-			value.MissingFacts = reviewMissingFields(value)
-		}
+		value.Reason = stored.ReasonCode
+		value.ReviewType = stored.ReasonCode
+		value.AllowedActions = stored.AllowedActions
+		value.KnownFacts = stored.KnownFacts
+		value.ProposedFacts = stored.ProposedFacts
+		value.MissingFacts = stored.MissingFacts
+		value.WhyNotAutoConfirm = stored.WhyNotAuto
 		items = append(items, value)
 	}
 	if err := rows.Err(); err != nil {
@@ -253,33 +245,6 @@ func reconciliationScore(hours float64, merchantMatch, accountHint, categoryMatc
 		score += 0.05
 	}
 	return math.Round(score*100) / 100
-}
-
-func reviewReason(value item) string {
-	if value.Type == "UNCLASSIFIED" {
-		return "TRANSFER_CLASSIFICATION"
-	}
-	if len(value.Candidates) > 0 {
-		return "POSSIBLE_DUPLICATE"
-	}
-	if value.SourceType != nil && *value.SourceType == "BANK_EMAIL" && value.MerchantName == nil {
-		return "UNKNOWN_MERCHANT"
-	}
-	if value.Type == "EXPENSE" && value.CategoryID == nil {
-		return "AMBIGUOUS_CATEGORY"
-	}
-	return "UNKNOWN_PURPOSE"
-}
-
-func reviewMissingFields(value item) []string {
-	var fields []string
-	if value.SourceType != nil && *value.SourceType == "BANK_EMAIL" && value.Type == "EXPENSE" && value.MerchantName == nil {
-		fields = append(fields, "merchant")
-	}
-	if value.Type == "EXPENSE" && value.CategoryID == nil {
-		fields = append(fields, "category")
-	}
-	return fields
 }
 
 type confirmInput struct {
@@ -605,6 +570,11 @@ func (h *Handler) Unmerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := tx.Exec(r.Context(), `UPDATE transaction SET status='NEEDS_REVIEW',confirmed_at=NULL,voided_at=NULL,updated_at=now() WHERE id=$1`, sourceID); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
+		return
+	}
+	if err := reviewdomain.ReopenTransactionReview(r.Context(), tx, household, sourceID); err != nil {
+		slog.ErrorContext(r.Context(), "unmerge could not reopen the transaction review", "household_id", household, "transaction_id", sourceID, "error", err)
 		writeJSON(w, 500, map[string]string{"error": "unable to reverse merge"})
 		return
 	}

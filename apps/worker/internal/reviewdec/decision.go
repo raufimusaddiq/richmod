@@ -9,7 +9,10 @@
 // the missing fact, and the reason without re-deriving them.
 package reviewdec
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // Version is the contract revision stored on every decision. Bump it when the
 // meaning of a field changes, not when a new optional field is added.
@@ -112,10 +115,28 @@ type EvidenceValue struct {
 	Evidence string `json:"evidence"`
 }
 
+// Validate enforces the minimum stored contract: every review must say why it
+// exists (ReasonCode) and what the household may do about it (AllowedActions).
+// The review_item trigger from migration 00078 enforces the same rule in the
+// database, so a producer fails here with a clear error instead of at INSERT.
+func (d Decision) Validate() error {
+	if d.ReasonCode == "" {
+		return errors.New("review decision: reasonCode is required")
+	}
+	if len(d.AllowedActions) == 0 {
+		return errors.New("review decision: allowedActions must not be empty")
+	}
+	return nil
+}
+
 // JSON marshals the decision for storage in review_item.decision. MissingFacts
 // and KnownFacts are normalized to non-nil so the stored shape always contains
-// the keys the UI reads, which keeps rendering branch-free.
+// the keys the UI reads, which keeps rendering branch-free. A decision that
+// fails Validate is never encoded.
 func (d Decision) JSON() ([]byte, error) {
+	if err := d.Validate(); err != nil {
+		return nil, err
+	}
 	if d.Version == 0 {
 		d.Version = Version
 	}

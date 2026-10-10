@@ -33,7 +33,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 			var bankSource string
 			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("ignore-%d", stamp), []byte(fmt.Sprintf("ignore-%d", stamp))).Scan(&bankSource))
 			if name != "transaction" {
-				_, err = pool.Exec(ctx, `UPDATE review_item SET transaction_id=NULL,source_event_id=$2,review_type='UNKNOWN_BANK_TEMPLATE',decision='{"allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb WHERE id=$1`, item, bankSource)
+				_, err = pool.Exec(ctx, `UPDATE review_item SET transaction_id=NULL,source_event_id=$2,review_type='UNKNOWN_BANK_TEMPLATE',decision='{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb WHERE id=$1`, item, bankSource)
 				must(err)
 				_, err = pool.Exec(ctx, `UPDATE review_request SET transaction_id=NULL,review_type='UNKNOWN_BANK_TEMPLATE' WHERE id=$1`, request)
 				must(err)
@@ -43,8 +43,11 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 			actor, message, callbackHousehold := chat, int64(769), household
 			switch name {
 			case "legacy_bank":
-				_, err = pool.Exec(ctx, `UPDATE review_item SET decision=NULL WHERE id=$1`, item)
-				must(err)
+				// A historical row created before the ReviewDecision contract.
+				// The 00078 trigger refuses erasing a stored decision, so the
+				// fixture recreates the legacy shape with triggers skipped for
+				// this one statement.
+				execWithoutReviewDecisionTrigger(t, pool, `UPDATE review_item SET decision=NULL WHERE id=$1`, item)
 			case "wrong_message":
 				message++
 			case "unauthorized_actor":
@@ -55,7 +58,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 			case "cross_household":
 				must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('Other ignore household') RETURNING id`).Scan(&callbackHousehold))
 			case "disallowed_action":
-				_, err = pool.Exec(ctx, `UPDATE review_item SET decision='{"allowedActions":["COMPLETE_BANK_FACTS"]}'::jsonb WHERE id=$1`, item)
+				_, err = pool.Exec(ctx, `UPDATE review_item SET decision='{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS"]}'::jsonb WHERE id=$1`, item)
 				must(err)
 			}
 			callback := func() string {
@@ -86,5 +89,29 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// execWithoutReviewDecisionTrigger runs one fixture statement that recreates a
+// historical review_item with decision IS NULL, which the 00078 trigger refuses
+// for every producer. session_replication_role=replica skips triggers for this
+// transaction only (the test role owns the database); other fixtures must go
+// through the trigger.
+func execWithoutReviewDecisionTrigger(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, sql, args...); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

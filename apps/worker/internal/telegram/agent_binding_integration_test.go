@@ -92,7 +92,7 @@ func createAgentTransactionReview(t *testing.T, ctx context.Context, f agentInte
 	t.Helper()
 	var transactionID, itemID, reviewID string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,created_by_user_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',$2,'IDR',now(),'binding test',$3) RETURNING id`, f.householdID, amount, f.userID).Scan(&transactionID))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, f.householdID, transactionID).Scan(&itemID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.householdID, transactionID).Scan(&itemID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,telegram_chat_id) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','OPEN',$4) RETURNING id`, f.householdID, itemID, transactionID, f.chatID).Scan(&reviewID))
 	_, err := f.pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_CATEGORY')`, reviewID)
 	mustAgentTest(t, err)
@@ -172,7 +172,7 @@ func createMerchantLearningReview(t *testing.T, ctx context.Context, f agentInte
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',50000,'IDR',now(),$2,$3,$4,now()) RETURNING id`, f.householdID, merchantID, categoryID, f.userID).Scan(&transactionID))
 	// Confirm completes the item immediately; only the optional
 	// merchant-learning question keeps the conversation in a pending state.
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now()) RETURNING id`, f.householdID, transactionID).Scan(&itemID))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','RESOLVED',now(),'{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.householdID, transactionID).Scan(&itemID))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO review_request(household_id,review_item_id,transaction_id,review_type,status,resolved_at,telegram_chat_id) VALUES($1,$2,$3,'AMBIGUOUS_CATEGORY','RESOLVED',now(),$4) RETURNING id`, f.householdID, itemID, transactionID, f.chatID).Scan(&reviewID))
 	_, err := f.pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_MERCHANT_DECISION')`, reviewID)
 	mustAgentTest(t, err)
