@@ -44,10 +44,10 @@ func ReopenTransactionReview(ctx context.Context, tx pgx.Tx, household, transact
 		LEFT JOIN LATERAL (
 			SELECT ri.review_type,ri.decision FROM review_item ri
 			WHERE ri.transaction_id=t.id AND COALESCE(ri.decision->>'reasonCode','')<>''
-			AND jsonb_typeof(ri.decision->'allowedActions')='array' AND jsonb_array_length(ri.decision->'allowedActions')>0
+			AND CASE WHEN jsonb_typeof(ri.decision->'allowedActions')='array' THEN jsonb_array_length(ri.decision->'allowedActions')>0 ELSE false END
 			ORDER BY ri.created_at DESC LIMIT 1
 		) prev ON true
 		WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW'
-		AND NOT EXISTS (SELECT 1 FROM review_item WHERE transaction_id=t.id AND status IN ('OPEN','PENDING_SEND'))`, transactionID, household, string(fallback))
+		ON CONFLICT (transaction_id) WHERE transaction_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN') DO NOTHING`, transactionID, household, string(fallback))
 	return err
 }
