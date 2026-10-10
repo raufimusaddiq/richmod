@@ -286,8 +286,9 @@ open/resolved/expired/empty cases.
 Rollout health is measurable and viewable without PostgreSQL. Three read-only
 Super Admin aggregates back the Admin Web Reviews tab:
 
-- `GET /api/v1/admin/reviews/summary` — open reviews, Telegram-eligible open
-  reviews, actionable projections, TARC, Web Escape Rate, delivery
+- `GET /api/v1/admin/reviews/summary` — open reviews (point-in-time), and for
+  the selected range: Telegram-eligible reviews, actionable projections, TARC,
+  legacy unmeasured reviews, Web Escape Rate, delivery
   attempts/success/failure/retry, stale action attempts, p50/p95 resolution
   latency, and the TELEGRAM/WEB/SYSTEM completion-surface split.
 - `GET /api/v1/admin/reviews/breakdown` — the same signals per review type.
@@ -300,9 +301,33 @@ Stale Telegram callbacks write a household-scoped `STALE_REVIEW_ACTION` audit
 row before the acknowledgment commits. The summary counts these rows in the
 selected range. Household delivery failures are attributed by the job's
 `review_request_id` to the canonical request, not by a missing household
-field on the send payload. Breakdown coverage counts only still-open canonical
-items, matching the summary; projection cursors start after the last returned
+field on the send payload. Projection cursors start after the last returned
 row.
+
+Measurability fix (2026-10-11): the first implementation computed TARC only
+over still-open reviews, so it read `—` whenever the inbox was empty, and it
+attributed the completion surface only from `RESOLVE_REVIEW` /
+`CLASSIFY_TRANSFER` / `RECONCILE_TELEGRAM_TRANSFER` audit rows, leaving ~45% of
+production resolutions (`CONFIRM_REVIEW`, `REJECT_REVIEW`,
+`UPDATE_REVIEW_DETAIL`, `COMPLETE_BANK_FACTS_REQUESTED`, worker/migration
+resolutions) uncounted. Current definitions:
+
+- Completion surface: the audit row written in the resolving transaction
+  (`audit_log.created_at = review_item.resolved_at`, same household) decides
+  TELEGRAM / USER (Web) / SYSTEM (`SYSTEM` or `WORKER`); the legacy entity
+  match on the dedicated resolution actions remains a fallback; resolvers with
+  no audit row fall back to `resolution_action` (`TELEGRAM_*` → TELEGRAM;
+  migration/worker auto-resolutions → SYSTEM).
+- TARC: over reviews **created in the range** in a household with an active
+  Telegram recipient, excluding SYSTEM-settled reviews; numerator requires a
+  delivered card and full Telegram completion capability. Reviews without a
+  stored `ReviewDecision` (pre-contract legacy) cannot be measured and are
+  reported as `legacyUnmeasuredReviews` instead of counting as uncovered.
+  Eligibility uses the household's current Telegram recipients.
+- Web Escape Rate: denominator and numerator are limited to decision-backed
+  reviews, for the same reason.
+
+The per-type breakdown uses the same definitions in one grouped query.
 
 The Web Admin Reviews tab (`/admin?tab=reviews`) renders the headline metrics,
 the per-type table, and the filterable/paginated projections table; the Overview

@@ -66,7 +66,11 @@ export default function Reviews({ setError }) {
         <Metric
           label="TARC"
           value={percent(summary.telegramActionableCoverageRate)}
-          note="Target 100%"
+          note={
+            summary.legacyUnmeasuredReviews
+              ? `Target 100% · ${number(summary.legacyUnmeasuredReviews)} legacy tak terukur`
+              : "Target 100%"
+          }
         />
         <Metric
           label="Dialihkan ke web"

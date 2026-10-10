@@ -314,27 +314,31 @@ func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
 
 	// A card whose ordinary action is Telegram-complete counts; one carrying a
 	// Web-only action does not.
-	countActionable := func() int {
-		var n int
-		if err := pool.QueryRow(ctx, actionableProjectionsSQL, telegramCompleteActions).Scan(&n); err != nil {
+	since := time.Now().Add(-time.Hour)
+	coverage := func() (eligible, actionable int) {
+		var legacy int
+		if err := pool.QueryRow(ctx, coverageSQL, since, telegramCompleteActions).Scan(&eligible, &actionable, &legacy); err != nil {
 			t.Fatal(err)
 		}
-		return n
+		return eligible, actionable
 	}
-	before := countActionable()
+	eligibleBefore, before := coverage()
 	deliveredCard(`{"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
-	if got := countActionable(); got != before+1 {
-		t.Fatalf("Telegram-complete card did not increase actionable coverage: before=%d after=%d", before, got)
+	if eligible, got := coverage(); got != before+1 || eligible != eligibleBefore+1 {
+		t.Fatalf("Telegram-complete card did not increase actionable coverage: before=%d/%d after=%d/%d", before, eligibleBefore, got, eligible)
 	}
 	deliveredCard(`{"allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
-	if got := countActionable(); got != before+1 {
-		t.Fatalf("a Web-only ordinary action inflated actionable coverage: %d", got)
+	if eligible, got := coverage(); got != before+1 || eligible != eligibleBefore+2 {
+		t.Fatalf("a Web-only ordinary action inflated actionable coverage: %d/%d", got, eligible)
 	}
 
-	var baselineEscapes int
-	if err := pool.QueryRow(ctx, webEscapeByTypeSQL, time.Now().Add(-time.Hour), "WEALTH_OBSERVATION_CONFIRMATION", telegramCompleteActions).Scan(&baselineEscapes); err != nil {
-		t.Fatal(err)
+	escapes := func() (resolved, escaped int) {
+		if err := pool.QueryRow(ctx, webEscapeCountsSQL, since, telegramCompleteActions, "WEALTH_OBSERVATION_CONFIRMATION").Scan(&resolved, &escaped); err != nil {
+			t.Fatal(err)
+		}
+		return resolved, escaped
 	}
+	_, baselineEscapes := escapes()
 	// A fully Telegram-capable review resolved on Web is a voluntary switch, so
 	// the per-type escape count must not include it.
 	voluntaryItem := deliveredCard(`{"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`)
@@ -344,12 +348,8 @@ func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'USER',$2,'RESOLVE_REVIEW','review_item',$3)`, householdID, observerID, voluntaryItem); err != nil {
 		t.Fatal(err)
 	}
-	var escapes int
-	if err := pool.QueryRow(ctx, webEscapeByTypeSQL, time.Now().Add(-time.Hour), "WEALTH_OBSERVATION_CONFIRMATION", telegramCompleteActions).Scan(&escapes); err != nil {
-		t.Fatal(err)
-	}
-	if escapes != baselineEscapes {
-		t.Fatalf("a voluntary Web switch changed mandatory escapes: before=%d after=%d", baselineEscapes, escapes)
+	if _, got := escapes(); got != baselineEscapes {
+		t.Fatalf("a voluntary Web switch changed mandatory escapes: before=%d after=%d", baselineEscapes, got)
 	}
 	// A Web-only review resolved on Web is the mandatory escape this rate means.
 	forcedItem := deliveredCard(`{"allowedActions":["PREPARE_SNAPSHOT","IGNORE"]}`)
@@ -359,11 +359,80 @@ func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'USER',$2,'RESOLVE_REVIEW','review_item',$3)`, householdID, observerID, forcedItem); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, webEscapeByTypeSQL, time.Now().Add(-time.Hour), "WEALTH_OBSERVATION_CONFIRMATION", telegramCompleteActions).Scan(&escapes); err != nil {
+	if _, got := escapes(); got != baselineEscapes+1 {
+		t.Fatalf("a Web-only review did not add one escape: before=%d after=%d", baselineEscapes, got)
+	}
+	// Coverage is range-based: resolving reviews must not drop them from TARC,
+	// so the rate stays measurable once the inbox is empty.
+	if eligible, got := coverage(); got != before+2 || eligible != eligibleBefore+4 {
+		t.Fatalf("resolved reviews left coverage: actionable=%d eligible=%d", got, eligible)
+	}
+}
+
+// TestReviewOpsSurfaceFromResolvingTransaction pins attribution for resolvers
+// whose audit row uses their own action name (CONFIRM_REVIEW,
+// COMPLETE_BANK_FACTS_REQUESTED, ...) on another entity: the row written in the
+// resolving transaction decides the surface. A resolver that wrote no audit row
+// falls back to its resolution_action.
+func TestReviewOpsSurfaceFromResolvingTransaction(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if escapes != baselineEscapes+1 {
-		t.Fatalf("a Web-only review did not add one escape: before=%d after=%d", baselineEscapes, escapes)
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	_, observerID, householdID, _ := seedReviewOpsHousehold(t, pool, stamp)
+	var sourceID string
+	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, fmt.Sprintf("surface-tx-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(resolutionAction, actorType, auditAction string) string {
+		t.Helper()
+		var itemID string
+		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, sourceID).Scan(&itemID); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action=$2 WHERE id=$1`, itemID, resolutionAction); err != nil {
+			t.Fatal(err)
+		}
+		if auditAction != "" {
+			// Entity is unrelated to the item: only the shared transaction ties them.
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,$2,$3,$4,'transaction',gen_random_uuid())`, householdID, actorType, observerID, auditAction); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return itemID
+	}
+	for _, c := range []struct {
+		name, resolutionAction, actorType, auditAction, want string
+	}{
+		{"web confirm", "CONFIRM_REVIEW", "USER", "CONFIRM_REVIEW", "USER"},
+		{"telegram detail", "TELEGRAM_CONFIRMED", "TELEGRAM", "UPDATE_REVIEW_DETAIL", "TELEGRAM"},
+		{"worker fallback", "EMAIL_RECEIVED_AT_FALLBACK", "WORKER", "CREATE_FROM_BANK_EMAIL", "SYSTEM"},
+		{"telegram without audit", "TELEGRAM_MERCHANT_DECISION", "", "", "TELEGRAM"},
+		{"migration backfill", "LEGACY_TRANSACTION_RESOLVED", "", "", "SYSTEM"},
+	} {
+		itemID := resolve(c.resolutionAction, c.actorType, c.auditAction)
+		var surface *string
+		if err := pool.QueryRow(ctx, `SELECT s.surface FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.id=$1`, itemID).Scan(&surface); err != nil {
+			t.Fatal(err)
+		}
+		if surface == nil || *surface != c.want {
+			t.Fatalf("%s: surface=%v want %s", c.name, surface, c.want)
+		}
 	}
 }
 
