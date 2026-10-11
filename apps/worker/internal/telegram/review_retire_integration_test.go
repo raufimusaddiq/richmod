@@ -331,7 +331,7 @@ func TestMerchantLearningQuestionIsSeparateFromRetiredCard(t *testing.T) {
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Groceries','groceries') RETURNING id`, householdID).Scan(&categoryID))
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'PAMELLA DUA') RETURNING id`, householdID).Scan(&merchantID))
 	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',55199,now(),$2) RETURNING id`, householdID, merchantID).Scan(&transactionID))
-	mustAgentTest(t, pool.QueryRow(ctx, `INSERT INTO review_request(household_id,transaction_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, householdID, transactionID).Scan(&reviewID))
+	mustAgentTest(t, pool.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,status) SELECT id,$1,$2,'AMBIGUOUS_CATEGORY','OPEN' FROM item RETURNING id`, householdID, transactionID).Scan(&reviewID))
 	_, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id,delivered_text) VALUES($1,$2,17,'Pilih kategori')`, reviewID, stamp)
 	mustAgentTest(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_CATEGORY')`, reviewID)

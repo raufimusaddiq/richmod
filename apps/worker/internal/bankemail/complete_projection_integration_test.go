@@ -63,6 +63,15 @@ func TestCompleteBankReviewResolvesItsTelegramProjection(t *testing.T) {
 	if retirements != 2 || notices != 1 {
 		t.Fatalf("retirements=%d notices=%d, want one retirement per delivered card and one outcome notice", retirements, notices)
 	}
+	// The person who completed the facts gets the credit, not a system
+	// fallback: the item records the completion and the same transaction writes
+	// a TELEGRAM audit row (the surface admin attribution reads).
+	var resolution string
+	var telegramAudits int
+	must(pool.QueryRow(ctx, `SELECT ri.resolution_action,(SELECT count(*) FROM audit_log a WHERE a.household_id=ri.household_id AND a.created_at=ri.resolved_at AND a.actor_type='TELEGRAM') FROM review_item ri WHERE ri.id=$1`, itemID).Scan(&resolution, &telegramAudits))
+	if resolution != "COMPLETE_BANK_FACTS" || telegramAudits != 1 {
+		t.Fatalf("resolution=%s telegramAudits=%d, want COMPLETE_BANK_FACTS credited to TELEGRAM", resolution, telegramAudits)
+	}
 
 	// A replay finds the item closed and changes nothing.
 	must(processor.Complete(ctx, Payload{SourceEventID: sourceEventID, ReviewID: itemID, AmountIDR: &amount, TransactionAt: &at, TelegramChatID: stamp}))

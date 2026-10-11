@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted — 2026-09-01.
+Accepted — 2026-09-01. Superseded in part — 2026-10-11: the CHAT lane is
+retired. Migration 00048 had already stopped routing jobs to it, so free-text
+Telegram jobs ran in `DEFAULT`; migration 00081 keeps them there on purpose.
+One `DEFAULT` consumer keeps each person's messages in order (the CHAT claim
+had no per-chat ordering), and `INTERACTIVE` still isolates callbacks from LLM
+work. `WORKER_CHAT_CONCURRENCY` is removed; the `CHAT` value stays permitted by
+the `job.lane` check constraint but no job uses it.
 
 ## Decision
 

@@ -89,13 +89,6 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 		return err
 	}
 	rows.Close()
-	if len(reviewItemIDs) == 0 {
-		// Older transaction review flows may predate review_item. Preserve their
-		// projection completion while new canonical producers always create one.
-		_, err = tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now()
-			WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.SubjectID)
-		return err
-	}
 	_, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID)
 	return err
 }
@@ -112,27 +105,16 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 			return err
 		}
 	}
-	// Legacy projections may predate universal review_item: the request carries
-	// only a transaction link. Complete that projection directly in that case.
+	// Every review_request links to its review_item (migration 00081), so a
+	// request-bound caller resolves through that item.
 	itemID := cmd.ReviewItemID
 	if itemID == "" {
-		if err := tx.QueryRow(ctx, `SELECT COALESCE(review_item_id::text,'') FROM review_request
+		if err := tx.QueryRow(ctx, `SELECT review_item_id::text FROM review_request
 			WHERE id=$1 AND household_id=$2`, cmd.RequestID, cmd.HouseholdID).Scan(&itemID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrAlreadyResolved
 			}
 			return err
-		}
-		if itemID == "" {
-			result, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now()
-				WHERE id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN')`, cmd.RequestID, cmd.HouseholdID)
-			if err != nil {
-				return err
-			}
-			if result.RowsAffected() != 1 {
-				return ErrAlreadyResolved
-			}
-			return nil
 		}
 	}
 	var subjectID string

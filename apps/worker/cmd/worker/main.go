@@ -179,13 +179,14 @@ func run(logger *slog.Logger) error {
 	}
 	go maintainHeartbeat(ctx, logger, pool, workerID)
 	// Keep callback and other interactive work on a reserved execution loop so
-	// Long-running background jobs cannot delay Telegram button handling.
-	chatWorkers := envPositiveInt("WORKER_CHAT_CONCURRENCY", 2, 4)
+	// long-running jobs cannot delay Telegram button handling. Free-text Telegram
+	// turns run on the single DEFAULT loop, which keeps one person's messages in
+	// order (the CHAT lane of ADR-032 is retired).
 	for _, lane := range []struct {
 		name     string
 		interval time.Duration
 		workers  int
-	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"CHAT", 200 * time.Millisecond, chatWorkers}, {"DEFAULT", time.Second, 1}, {"BACKGROUND", time.Second, 1}} {
+	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"DEFAULT", time.Second, 1}, {"BACKGROUND", time.Second, 1}} {
 		for i := 0; i < lane.workers; i++ {
 			go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, fmt.Sprintf("%s:%s:%d", workerID, strings.ToLower(lane.name), i+1), lane.name, lane.interval)
 		}
@@ -273,17 +274,6 @@ func envEnabled(name string) bool {
 	default:
 		return true
 	}
-}
-
-func envPositiveInt(name string, fallback, maximum int) int {
-	value, err := strconv.Atoi(os.Getenv(name))
-	if err != nil || value < 1 {
-		return fallback
-	}
-	if value > maximum {
-		return maximum
-	}
-	return value
 }
 
 func envDuration(name string, fallback, maximum time.Duration) time.Duration {

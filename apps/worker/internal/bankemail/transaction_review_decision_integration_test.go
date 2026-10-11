@@ -62,7 +62,7 @@ func TestTransactionReviewDecisionIsPersistedOnTheReviewRow(t *testing.T) {
 	if result.ReviewType != "AMBIGUOUS_CATEGORY" {
 		t.Fatalf("fixture must park a transaction category review: %+v", result)
 	}
-	if err = (&Processor{pool: pool}).persist(ctx, listener, sourceEventID, extraction, result); err != nil {
+	if err = (&Processor{pool: pool}).persist(ctx, listener, sourceEventID, extraction, result, ""); err != nil {
 		t.Fatal(err)
 	}
 

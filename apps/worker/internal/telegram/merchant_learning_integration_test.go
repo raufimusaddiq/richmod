@@ -44,7 +44,7 @@ func TestTelegramMerchantLearningUsesSeparateExplicitReply(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',55199,now(),$2) RETURNING id`, householdID, merchantID).Scan(&transactionID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO review_request(household_id,transaction_id,review_type,telegram_chat_id,telegram_message_id,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY',$3,17,'OPEN') RETURNING id`, householdID, transactionID, stamp).Scan(&reviewID); err != nil {
+	if err = pool.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,telegram_message_id,status) SELECT id,$1,$2,'AMBIGUOUS_CATEGORY',$3,17,'OPEN' FROM item RETURNING id`, householdID, transactionID, stamp).Scan(&reviewID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO review_conversation(review_request_id,state) VALUES($1,'AWAITING_CATEGORY')`, reviewID); err != nil {
