@@ -199,7 +199,7 @@ func loadReviewTransactions(ctx context.Context, tx pgx.Tx, household string, fa
 	return rows.Err()
 }
 
-func loadReviewQuality(ctx context.Context, tx pgx.Tx, household string, facts *Facts) error {
+func loadReviewQuality(ctx context.Context, tx pgx.Tx, household, currentSourceEventID string, facts *Facts) error {
 	var open, uncategorized, processing int
 	var amount string
 	err := tx.QueryRow(ctx, `WITH bounds AS (SELECT ($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') AS lo,($3::date::timestamp AT TIME ZONE 'Asia/Jakarta') AS hi), unresolved AS (
@@ -216,8 +216,8 @@ func loadReviewQuality(ctx context.Context, tx pgx.Tx, household string, facts *
 	SELECT (SELECT count(*)::int FROM unresolved),
 		count(*) FILTER(WHERE t.type='EXPENSE' AND t.category_id IS NULL)::int,
 		COALESCE(sum(t.amount) FILTER(WHERE t.type='EXPENSE' AND t.category_id IS NULL),0)::text,
-		(SELECT count(*)::int FROM source_event s,bounds b WHERE s.household_id=$1 AND s.processing_status IN ('RECEIVED','PROCESSING','FAILED') AND s.received_at>=b.lo AND s.received_at<b.hi)
-	FROM transaction t,bounds b WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.transaction_at>=b.lo AND t.transaction_at<b.hi`, household, facts.Period.Start, facts.Period.MeasuredUntil).Scan(&open, &uncategorized, &amount, &processing)
+		(SELECT count(*)::int FROM source_event s,bounds b WHERE s.household_id=$1 AND s.id IS DISTINCT FROM NULLIF($4,'')::uuid AND s.processing_status IN ('RECEIVED','PROCESSING','FAILED') AND s.received_at>=b.lo AND s.received_at<b.hi)
+	FROM transaction t,bounds b WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.transaction_at>=b.lo AND t.transaction_at<b.hi`, household, facts.Period.Start, facts.Period.MeasuredUntil, currentSourceEventID).Scan(&open, &uncategorized, &amount, &processing)
 	if err != nil {
 		return err
 	}

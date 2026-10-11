@@ -99,7 +99,7 @@ func (p *Processor) Process(ctx context.Context, insightID string, finalAttempt 
 	}
 
 	// Queue delays and retries must keep the request's measured-day cutoff.
-	session := analyticscore.NewSession(p.pool, household, requestedAt)
+	session := analyticscore.NewSession(p.pool, household, requestedAt, "")
 	message, metadata, reads, err := p.generate(ctx, insightID, selected, session.Read)
 	if err != nil {
 		if finalAttempt {

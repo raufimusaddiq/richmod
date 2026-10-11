@@ -275,7 +275,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasSalaryChoice:  contextState.HasSalaryChoice,
 		ReviewType:       contextState.ReviewType,
 		ReviewMode:       contextState.ReviewMode,
-		Analytics:        analyticscore.NewSession(p.pool, householdID, now),
+		Analytics:        analyticscore.NewSession(p.pool, householdID, now, sourceEventID),
 		// Server-only: documents the user sent in the immediate window, for the
 		// record_transaction duplicate guard. Never model-visible.
 		FreshEvidenceDocuments: freshDocuments,
@@ -485,7 +485,7 @@ func agentToolAvailable(tools []gateway.ToolDefinition, name string) bool {
 
 func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState, calls []validatedAgentCall) ([]agentToolResult, error) {
 	if state.Analytics == nil {
-		state.Analytics = analyticscore.NewSession(p.pool, state.HouseholdID, state.Now)
+		state.Analytics = analyticscore.NewSession(p.pool, state.HouseholdID, state.Now, state.SourceEventID)
 	}
 	results := make([]agentToolResult, len(calls))
 	errs := make([]error, len(calls))

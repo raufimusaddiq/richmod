@@ -46,7 +46,7 @@ func toolFixture() *Session {
 			Transactions: []reviewTransaction{{ID: "canonical-transaction", Amount: "1400000", Type: "EXPENSE", Merchant: "Fixture cafe"}}}},
 		Members: []reviewValue{{ID: "canonical-user", Name: "Member", Amount: "1400000"}}, Destinations: []reviewValue{{ID: "canonical-account", Name: "Savings", Amount: "100"}},
 		Wealth: reviewWealth{Current: &reviewSnapshot{ID: "canonical-snapshot", NetWorth: "1000000", accounts: []string{"canonical-account"}}}}
-	s := NewSession(nil, "authorized-household", time.Now())
+	s := NewSession(nil, "authorized-household", time.Now(), "")
 	s.facts[""] = f
 	s.facts[f.Period.Start] = f
 	return s
@@ -94,6 +94,52 @@ func TestAnalyticalDependentReadsAndPrivacy(t *testing.T) {
 		t.Fatal("refs leaked across requests")
 	}
 }
+
+func TestQualityScopesPreserveCashflowCoverage(t *testing.T) {
+	for _, tc := range []struct{ kind, scope, impact, action string }{
+		{"WEALTH_ACCOUNT_SET_CHANGED", "WEALTH_RECONCILIATION", "COMPARISON_UNAVAILABLE", "/wealth"},
+		{"MISSING_WEALTH_SNAPSHOT", "WEALTH_RECONCILIATION", "COMPARISON_UNAVAILABLE", "/wealth"},
+		{"WEALTH_SNAPSHOT_BEFORE_CYCLE", "WEALTH_RECONCILIATION", "COMPARISON_UNAVAILABLE", "/wealth"},
+		{"MISSING_PREVIOUS_WEALTH_SNAPSHOT", "WEALTH_RECONCILIATION", "COMPARISON_UNAVAILABLE", "/wealth"},
+		{"WEALTH_SNAPSHOT_UNCHANGED", "WEALTH_RECONCILIATION", "COMPARISON_UNAVAILABLE", "/wealth"},
+		{"PROCESSING_INCOMPLETE", "PROCESSING", "PROCESSING_INCOMPLETE", "/inbox?view=actions"},
+		{"MISSING_SALARY_ANCHOR", "CASHFLOW", "CASHFLOW_PARTIAL", "/settings"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			s := toolFixture()
+			f := s.facts[""]
+			f.block(tc.kind, 1, nil, tc.action)
+			s.facts[""] = f
+			result, err := s.Read(context.Background(), "get_cycle_data_quality", json.RawMessage(`{"cycle_start":null}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				Completeness string          `json:"data_completeness"`
+				Scope        string          `json:"data_completeness_scope"`
+				Blockers     []reviewBlocker `json:"blockers"`
+			}
+			if err := json.Unmarshal(raw, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Completeness != "1.0000" || payload.Scope != "CASHFLOW" {
+				t.Fatalf("cashflow coverage changed: %s", raw)
+			}
+			if len(payload.Blockers) != 1 {
+				t.Fatalf("unexpected findings: %s", raw)
+			}
+			b := payload.Blockers[0]
+			if b.Kind != tc.kind || b.Scope != tc.scope || b.Impact != tc.impact || b.Action != tc.action || b.Count != 1 {
+				t.Fatalf("unexpected scoped finding: %s", raw)
+			}
+		})
+	}
+}
+
 
 func TestAnalyticalParallelReads(t *testing.T) {
 	s := toolFixture()
@@ -173,7 +219,7 @@ func TestAnalyticalToolsNeverExposeCycleHistory(t *testing.T) {
 // changed. The error is a sentinel, so the agent can tell the model to fetch the
 // refs again instead of failing the turn.
 func TestUnissuedCategoryRefIsASentinelError(t *testing.T) {
-	session := NewSession(nil, "household", time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC))
+	session := NewSession(nil, "household", time.Date(2026, time.October, 2, 12, 0, 0, 0, time.UTC), "")
 	session.facts[""] = Facts{}
 	for _, tool := range []string{"get_category_drivers", "get_supporting_transactions"} {
 		_, err := session.Read(context.Background(), tool, json.RawMessage(`{"cycle_start":null,"category_ref":"category.3"}`))

@@ -34,7 +34,7 @@ func Tools() []Tool {
 		{"get_supporting_transactions", "Read up to 10 supporting confirmed expense/refund transactions for a category_ref issued by get_cycle_changes. No raw evidence or canonical IDs.", true},
 		{"get_savings_reconciliation", "Read confirmed surplus, allocated savings, destinations and unallocated residual. Transfers are not household expense.", false},
 		{"get_wealth_reconciliation", "Read actual Wealth snapshot dates, ages, net-worth movement, confirmed cashflow and valuation/other residual. These are observation-interval facts, not invented cycle-end balances.", false},
-		{"get_cycle_data_quality", "Read concrete cycle blockers and deterministic action paths, not an AI confidence score.", false},
+		{"get_cycle_data_quality", "Read scoped CASHFLOW, PROCESSING and WEALTH_RECONCILIATION findings and deterministic action paths, not an AI confidence score. Numeric data_completeness measures cashflow coverage only. Wealth comparison caveats neither invalidate confirmed cashflow nor imply active Inbox items.", false},
 	}
 	out := make([]Tool, 0, len(descriptions))
 	for _, d := range descriptions {
@@ -114,12 +114,13 @@ func DecodeArgs(name string, raw json.RawMessage) (Args, error) {
 // Session binds facts and refs to one authorized household/request. Independent
 // native READs may run concurrently; each selected cycle is loaded only once.
 type Session struct {
-	pool      *pgxpool.Pool
-	household string
-	now       time.Time
-	mu        sync.Mutex
-	facts     map[string]Facts
-	issued    map[string]map[string]int
+	pool                 *pgxpool.Pool
+	household            string
+	currentSourceEventID string
+	now                  time.Time
+	mu                   sync.Mutex
+	facts                map[string]Facts
+	issued               map[string]map[string]int
 }
 
 // ErrCategoryRefNotIssued means the model named a category_ref this session never
@@ -128,8 +129,8 @@ type Session struct {
 // to the model to fix instead of failing the turn.
 var ErrCategoryRefNotIssued = errors.New("category_ref not issued for selected cycle")
 
-func NewSession(pool *pgxpool.Pool, household string, now time.Time) *Session {
-	return &Session{pool: pool, household: household, now: now, facts: map[string]Facts{}, issued: map[string]map[string]int{}}
+func NewSession(pool *pgxpool.Pool, household string, now time.Time, currentSourceEventID string) *Session {
+	return &Session{pool: pool, household: household, now: now, currentSourceEventID: currentSourceEventID, facts: map[string]Facts{}, issued: map[string]map[string]int{}}
 }
 
 func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (map[string]any, error) {
@@ -148,7 +149,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 	}
 	f, ok := s.facts[key]
 	if !ok {
-		f, err = Load(ctx, s.pool, s.household, key, s.now)
+		f, err = load(ctx, s.pool, s.household, key, s.now, 0, s.currentSourceEventID)
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +159,7 @@ func (s *Session) Read(ctx context.Context, name string, raw json.RawMessage) (m
 		s.facts[f.Period.Start] = f
 	}
 	periodKey := f.Period.Start
-	result := map[string]any{"period": f.Period, "facts_version": f.Version, "generated_at": f.GeneratedAt, "data_completeness": f.Completeness()}
+	result := map[string]any{"period": f.Period, "facts_version": f.Version, "generated_at": f.GeneratedAt, "data_completeness": f.Completeness(), "data_completeness_scope": "CASHFLOW"}
 	var category *reviewCategory
 	if args.CategoryRef != nil {
 		index, exists := s.issued[periodKey][*args.CategoryRef]

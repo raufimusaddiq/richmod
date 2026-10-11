@@ -156,9 +156,23 @@ Example shape:
 {
   "kind": "OPEN_REVIEWS",
   "count": 2,
-  "impact": "ANALYSIS_PARTIAL"
+  "scope": "CASHFLOW",
+  "impact": "CASHFLOW_PARTIAL"
 }
 ~~~
+
+Findings preserve existing `kind` and `action` keys and carry explicit scopes:
+`CASHFLOW` / `CASHFLOW_PARTIAL`, `PROCESSING` / `PROCESSING_INCOMPLETE`,
+or `WEALTH_RECONCILIATION` / `COMPARISON_UNAVAILABLE`. Wealth snapshot/account-set
+caveats limit Wealth comparison only; they neither invalidate confirmed cashflow
+nor imply active Inbox work. `MISSING_SALARY_ANCHOR` is a cashflow cycle-comparison
+limitation; confirmed calendar cashflow remains usable. Native tool metadata keeps
+numeric `data_completeness` for insight compatibility and adds
+`data_completeness_scope: "CASHFLOW"`: this score measures cashflow coverage only,
+not processing completion, Wealth comparability, or overall analytical confidence.
+Processing counts exclude the current Telegram source being answered; other
+unfinished sources remain visible.
+
 
 Do not invent stale-Wealth thresholds without documenting them in policy/tests.
 
