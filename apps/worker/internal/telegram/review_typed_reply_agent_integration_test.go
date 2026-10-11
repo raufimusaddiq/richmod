@@ -71,7 +71,7 @@ var typedReplyModes = []struct {
 
 func sendTypedReviewReply(t *testing.T, ctx context.Context, f agentIntegrationFixture, p *Processor, reviewID, text string, reply bool) {
 	t.Helper()
-	mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99))
+	mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 	f.update.Message.Text = text
 	if reply {
 		f.update.Message.ReplyToMessage = &struct {

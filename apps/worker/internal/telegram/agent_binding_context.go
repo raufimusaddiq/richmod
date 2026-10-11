@@ -243,7 +243,9 @@ func (p *Processor) loadAgentMerchantLearningBinding(ctx context.Context, househ
 		  AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2`
 	params := []any{householdID, update.Message.Chat.ID}
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
-		base += ` AND rr.telegram_message_id=$3`
+		// A reply may target the separate learning question or, for a question
+		// delivered as an edit of the card, the card itself.
+		base += ` AND (rr.merchant_learning_message_id=$3 OR rr.telegram_message_id=$3)`
 		params = append(params, update.Message.ReplyToMessage.MessageID)
 	}
 	base += ` ORDER BY r.created_at DESC LIMIT 2`

@@ -17,14 +17,7 @@ func TestEveryProducibleReviewTypeHasARenderableDecision(t *testing.T) {
 	for _, reviewType := range producibleReviewTypes {
 		decision, ok := reviewdec.Preset(reviewType, "transaction", "00000000-0000-0000-0000-000000000000")
 		if !ok {
-			// A review type with no preset must still render as a bound reply rather
-			// than a category chooser, so the zero decision is acceptable; what is not
-			// acceptable is a category prompt.
-			state, _, mode := renderReviewPresentation(reviewdec.Decision{}, reviewType, "context")
-			if mode == "category" {
-				t.Fatalf("%s has no decision but rendered as a category chooser (state=%s)", reviewType, state)
-			}
-			continue
+			t.Fatalf("%s is active producer coverage with no ReviewDecision preset", reviewType)
 		}
 		_, _, mode := renderReviewPresentation(decision, reviewType, "context")
 		if mode == "" {
@@ -76,32 +69,6 @@ func TestPayslipReviewTypesCanProject(t *testing.T) {
 	for _, kind := range []string{"PAYSLIP_CONFIRMATION", "MISSING_PAY_DATE"} {
 		if !TelegramCompletableReviewType(kind) {
 			t.Fatalf("%s cannot project", kind)
-		}
-	}
-}
-
-// compatibilityOnlyReviewTypes are schema CHECK values kept for rows written
-// before the current producers existed. They must still render (an old open item
-// has to display) but they are not active producer coverage, so they are not in
-// reviewdec.ActiveReasons and need no Telegram completion lane.
-var compatibilityOnlyReviewTypes = []string{
-	"SALARY_SOURCE_CONFIRMATION",
-	"INVOICE_PAYMENT_STATUS",
-	"UNKNOWN_EMAIL_TEMPLATE",
-}
-
-// TestCompatibilityOnlyReviewTypesAreNotProducerCoverage pins the tagging: a
-// compatibility value must not be claimed as active coverage, and an active
-// reason must not be parked in the compatibility bucket to dodge the capability
-// gate.
-func TestCompatibilityOnlyReviewTypesAreNotProducerCoverage(t *testing.T) {
-	active := map[string]bool{}
-	for _, reviewType := range producibleReviewTypes {
-		active[reviewType] = true
-	}
-	for _, reviewType := range compatibilityOnlyReviewTypes {
-		if active[reviewType] {
-			t.Fatalf("%s is both compatibility-only and active producer coverage", reviewType)
 		}
 	}
 }

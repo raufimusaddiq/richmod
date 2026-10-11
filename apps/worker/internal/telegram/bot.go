@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,9 +26,13 @@ type SendPayload struct {
 	ReviewRequestID  string `json:"review_request_id,omitempty"`
 	// BindDocumentID, when set, records the sent message as about this document so
 	// a reply to it binds to the evidence.
-	BindDocumentID  string                `json:"bind_document_id,omitempty"`
-	ReplyMarkup     *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
-	CallbackQueryID string                `json:"callback_query_id,omitempty"`
+	BindDocumentID string `json:"bind_document_id,omitempty"`
+	// BindMerchantLearningRequestID, when set, records the sent message as the
+	// merchant-learning question of this review_request, so its buttons and
+	// replies bind to the pending decision after the review card is retired.
+	BindMerchantLearningRequestID string                `json:"bind_merchant_learning_request_id,omitempty"`
+	ReplyMarkup                   *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	CallbackQueryID               string                `json:"callback_query_id,omitempty"`
 }
 
 type EditPayload struct {
@@ -35,6 +40,35 @@ type EditPayload struct {
 	MessageID   int64                 `json:"message_id"`
 	Text        string                `json:"text"`
 	ReplyMarkup *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	// ReviewRequestID, when set, marks an edit of a live review card. The worker
+	// skips it once the request is terminal, so a queued edit cannot restore
+	// buttons on a card that retirement already stripped.
+	ReviewRequestID string `json:"review_request_id,omitempty"`
+}
+
+// APIError is a Telegram Bot API rejection: the HTTP status and Telegram's own
+// description. It never carries the request URL, which contains the bot token.
+type APIError struct {
+	Method      string
+	StatusCode  int
+	Description string
+}
+
+func (e *APIError) Error() string {
+	if e.Description == "" {
+		return fmt.Sprintf("Telegram %s API returned HTTP %d", e.Method, e.StatusCode)
+	}
+	return fmt.Sprintf("Telegram %s API returned HTTP %d: %s", e.Method, e.StatusCode, e.Description)
+}
+
+// apiError reads Telegram's error description from a non-2xx response. The body
+// is bounded and only the description string is kept.
+func apiError(method string, response *http.Response) *APIError {
+	var body struct {
+		Description string `json:"description"`
+	}
+	_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&body)
+	return &APIError{Method: method, StatusCode: response.StatusCode, Description: clean(body.Description, 200)}
 }
 
 type InlineKeyboardMarkup struct {
@@ -155,30 +189,72 @@ func (b *Bot) Edit(ctx context.Context, payload EditPayload) error {
 	if markup == nil {
 		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}}
 	}
-	body, err := json.Marshal(map[string]any{"chat_id": payload.ChatID, "message_id": payload.MessageID, "text": clean(payload.Text, 4000), "reply_markup": markup})
+	return b.edit(ctx, "editMessageText", map[string]any{"chat_id": payload.ChatID, "message_id": payload.MessageID, "text": clean(payload.Text, 4000), "reply_markup": markup})
+}
+
+// EditReplyMarkup removes every inline button from a message without touching
+// its text, so a card whose text is unknown can still be retired.
+func (b *Bot) EditReplyMarkup(ctx context.Context, chatID, messageID int64) error {
+	if b.token == "" || chatID == 0 || messageID == 0 {
+		return fmt.Errorf("invalid Telegram reply markup edit")
+	}
+	return b.edit(ctx, "editMessageReplyMarkup", map[string]any{"chat_id": chatID, "message_id": messageID, "reply_markup": &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}}})
+}
+
+func (b *Bot) edit(ctx context.Context, method string, requestBody map[string]any) error {
+	body, err := json.Marshal(requestBody)
 	if err != nil {
 		return fmt.Errorf("encode Telegram edit: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/editMessageText", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/bot"+b.token+"/"+method, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("create Telegram edit request")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := b.http.Do(req)
 	if err != nil {
+		// The request URL contains the bot token, so never wrap the transport error.
 		return fmt.Errorf("edit Telegram message failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("Telegram edit API returned HTTP %d", resp.StatusCode)
+		return apiError(method, resp)
 	}
 	var result struct {
 		OK bool `json:"ok"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result) != nil || !result.OK {
-		return fmt.Errorf("Telegram edit API returned an invalid response")
+		return fmt.Errorf("Telegram %s API returned an invalid response", method)
 	}
 	return nil
+}
+
+// editFinished classifies a failed card edit. A card that is already in the
+// wanted state, is gone, can no longer be edited, or sits in a chat the bot
+// cannot reach is finished: retrying cannot change it. Rate limits, server
+// errors, and transport failures are retried by the queue.
+func editFinished(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.StatusCode == http.StatusForbidden {
+		return true // bot blocked, kicked, or the user is deactivated
+	}
+	description := strings.ToLower(apiErr.Description)
+	for _, finished := range []string{"message is not modified", "message to edit not found", "message can't be edited", "message_id_invalid", "chat not found", "bot was blocked", "user is deactivated"} {
+		if strings.Contains(description, finished) {
+			return true
+		}
+	}
+	return false
+}
+
+// editRejected reports a Telegram rejection of the request itself (a 4xx other
+// than a rate limit) that the same request will never pass.
+func editRejected(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && apiErr.StatusCode != http.StatusTooManyRequests
 }
 
 func DecodeEditPayload(raw json.RawMessage) (EditPayload, error) {

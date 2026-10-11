@@ -245,8 +245,10 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		return err
 	}
 	if askRemember {
+		// The review card is retired with its request (migration 00079), so the
+		// optional learning question is a separate message, not an edit of the card.
 		markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ingat kategori", CallbackData: "review:remember"}, {Text: "Hanya kali ini", CallbackData: "review:once"}}}}
-		if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, "✅ Sudah dicatat. Pakai kategori ini juga untuk transaksi berikutnya dari merchant yang sama?", markup); err != nil {
+		if err := enqueueMerchantLearningQuestion(ctx, tx, reviewID, update, "✅ Sudah dicatat. Pakai kategori ini juga untuk transaksi berikutnya dari merchant yang sama?", markup); err != nil {
 			return err
 		}
 	} else if err := enqueueReply(ctx, tx, update, "✅ Sudah dicatat. Kotak Tinjauan juga sudah diperbarui."); err != nil {

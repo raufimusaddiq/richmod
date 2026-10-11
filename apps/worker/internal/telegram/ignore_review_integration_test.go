@@ -21,7 +21,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	for _, name := range []string{"bank", "legacy_bank", "transaction", "wrong_message", "unauthorized_actor", "inactive_member", "cross_household", "disallowed_action"} {
+	for _, name := range []string{"bank", "transaction", "wrong_message", "unauthorized_actor", "inactive_member", "cross_household", "disallowed_action"} {
 		t.Run(name, func(t *testing.T) {
 			must := func(err error) {
 				if err != nil {
@@ -42,12 +42,6 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 			must(err)
 			actor, message, callbackHousehold := chat, int64(769), household
 			switch name {
-			case "legacy_bank":
-				// A historical row created before the ReviewDecision contract.
-				// The 00078 trigger refuses erasing a stored decision, so the
-				// fixture recreates the legacy shape with triggers skipped for
-				// this one statement.
-				execWithoutReviewDecisionTrigger(t, pool, `UPDATE review_item SET decision=NULL WHERE id=$1`, item)
 			case "wrong_message":
 				message++
 			case "unauthorized_actor":
@@ -75,7 +69,7 @@ func TestTelegramIgnoreReviewCallback(t *testing.T) {
 			var audits int
 			must(pool.QueryRow(ctx, `SELECT ri.status,s.processing_status,t.status,r.status,c.state,(SELECT count(*) FROM audit_log WHERE entity_id=ri.id AND action='RESOLVE_REVIEW') FROM review_item ri JOIN source_event s ON s.id=$2 JOIN transaction t ON t.id=$3 JOIN review_request r ON r.id=$4 JOIN review_conversation c ON c.review_request_id=r.id WHERE ri.id=$1`, item, bankSource, transaction, request).Scan(&itemStatus, &sourceStatus, &transactionStatus, &requestStatus, &conversationStatus, &audits))
 			switch name {
-			case "bank", "legacy_bank":
+			case "bank":
 				if itemStatus != "RESOLVED" || sourceStatus != "IGNORED" || requestStatus != "RESOLVED" || conversationStatus != "RESOLVED" || audits != 1 || transactionStatus != "NEEDS_REVIEW" {
 					t.Fatalf("item=%s source=%s request=%s conversation=%s audits=%d transaction=%s", itemStatus, sourceStatus, requestStatus, conversationStatus, audits, transactionStatus)
 				}

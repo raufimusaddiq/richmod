@@ -67,7 +67,9 @@ func IgnoreBankReview(ctx context.Context, tx pgx.Tx, cmd BankFactCommand, actor
 	var contract struct {
 		AllowedActions []string `json:"allowedActions"`
 	}
-	if len(decision) > 0 && string(decision) != "null" && (json.Unmarshal(decision, &contract) != nil || !containsAction(contract.AllowedActions, "IGNORE")) {
+	// review_item_require_decision guarantees a decision; a review that does not
+	// advertise IGNORE cannot be dismissed through this operation.
+	if json.Unmarshal(decision, &contract) != nil || !containsAction(contract.AllowedActions, "IGNORE") {
 		return ErrBankReviewUnavailable
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID); err != nil {

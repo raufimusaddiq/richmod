@@ -140,8 +140,18 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		return err
 	}
 	if already {
-		_, err := p.pool.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID)
-		return err
+		tx, err := p.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID); err != nil {
+			return err
+		}
+		if err = resolveBankReviewProjection(ctx, tx, payload.ReviewID); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
 	}
 	known, err := p.loadKnownAccounts(ctx, household)
 	if err != nil {
@@ -176,14 +186,31 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		case "NEEDS_REVIEW":
 			message = "Fakta bank tersimpan. Transaksi masih perlu ditinjau melalui kartu review baru."
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$2::bigint,'text',$3::text) WHERE EXISTS(SELECT 1 FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.review_item_id=$1 AND rr.telegram_chat_id=$2) AND EXISTS(SELECT 1 FROM review_item WHERE id=$1 AND status IN ('OPEN','PENDING_SEND'))`, payload.ReviewID, payload.TelegramChatID, message); err != nil {
+		// The item was active when this job started (checked above); persist may
+		// already have settled it, so the notice is not gated on it still being open.
+		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$2::bigint,'text',$3::text) WHERE EXISTS(SELECT 1 FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.review_item_id=$1 AND rr.telegram_chat_id=$2)`, payload.ReviewID, payload.TelegramChatID, message); err != nil {
 			return err
 		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='COMPLETE_BANK_FACTS',resolution_values=jsonb_build_object('amount_idr',$2::text,'transaction_at',$3::timestamptz),updated_at=now() WHERE id=$1 AND status IN ('OPEN','PENDING_SEND')`, payload.ReviewID, value(extraction.AmountIDR), extraction.TransactionAt); err != nil {
 		return err
 	}
+	if err = resolveBankReviewProjection(ctx, tx, payload.ReviewID); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+// resolveBankReviewProjection closes the Telegram projection of a completed
+// bank-fact review in the transaction that resolves its item, as every other
+// resolver does: the request turns RESOLVED (which queues retirement of its
+// delivered cards, migration 00079) and its conversation stops awaiting a reply.
+func resolveBankReviewProjection(ctx context.Context, tx pgx.Tx, reviewItemID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, reviewItemID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, reviewItemID)
+	return err
 }
 func removeMissing(values []string, names ...string) []string {
 	blocked := map[string]bool{}
@@ -659,8 +686,30 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'BANK_EMAIL',$3,jsonb_build_object('proposal_id',$4::uuid,'listener_id',$5::uuid,'transaction_at_source',$6::text))`, transactionID, sourceID, extraction.Confidence, proposalID, listener.ID, extraction.TransactionAtSource); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='EMAIL_RECEIVED_AT_FALLBACK',resolution_values=jsonb_build_object('transaction_at',$2::timestamptz),updated_at=now() WHERE source_event_id=$1 AND transaction_id IS NULL AND status IN ('PENDING_SEND','OPEN')`, sourceID, *at); err != nil {
+	// A transaction now exists for this source, so its source-bound reviews are
+	// settled, together with their Telegram projections (whose delivered cards
+	// are then retired, migration 00079).
+	settled, err := tx.Query(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='EMAIL_RECEIVED_AT_FALLBACK',resolution_values=jsonb_build_object('transaction_at',$2::timestamptz),updated_at=now() WHERE source_event_id=$1 AND transaction_id IS NULL AND status IN ('PENDING_SEND','OPEN') RETURNING id::text`, sourceID, *at)
+	if err != nil {
 		return err
+	}
+	var settledIDs []string
+	for settled.Next() {
+		var id string
+		if err = settled.Scan(&id); err != nil {
+			settled.Close()
+			return err
+		}
+		settledIDs = append(settledIDs, id)
+	}
+	settled.Close()
+	if err = settled.Err(); err != nil {
+		return err
+	}
+	for _, id := range settledIDs {
+		if err = resolveBankReviewProjection(ctx, tx, id); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name='bank-email-generic',parser_version=$3 WHERE id=$1`, sourceID, func() string {
 		if transactionStatus == "CONFIRMED" {
