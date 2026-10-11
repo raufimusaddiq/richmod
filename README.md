@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/richmod-logo.svg" alt="Richmod logo" width="90" />
+<img src="docs/assets/brand/richmod-full-logo.svg" alt="Richmod — Keuangan keluarga, tanpa menebak." width="680" />
 
 # Richmod
 
@@ -31,6 +31,7 @@ a human instead of silently guessing.
 ## Contents
 
 - [A quick look](#a-quick-look)
+- [Brandkit](#brandkit)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Safety by design](#safety-by-design)
@@ -75,6 +76,29 @@ compact rows.
   [README showcase runbook](docs/runbooks/readme-showcase.md).
 
 </details>
+
+## Brandkit
+
+The **Retro Ledger** identity follows the web app: cream paper, dark green ink,
+teal, and a butter page fold. The R combines a ledger initial with three ruled
+lines. The Telegram avatar uses a circular field with a centered mark and room
+for Telegram's circular crop.
+
+<p align="center">
+  <img src="docs/assets/brand/richmod-telegram-avatar.svg" alt="Circular Richmod Telegram avatar" width="160" />
+</p>
+
+| Asset | Preview / vector | High-resolution PNG |
+| --- | --- | --- |
+| Full logo with tagline | [SVG](docs/assets/brand/richmod-full-logo.svg) | [4500 × 1500](docs/assets/brand/richmod-full-logo.png) |
+| Horizontal logo, transparent | [SVG](docs/assets/brand/richmod-horizontal-transparent.svg) | [4500 × 1500](docs/assets/brand/richmod-horizontal-transparent.png) |
+| Symbol, transparent | [SVG](docs/assets/brand/richmod-symbol-transparent.svg) | [4096 × 4096](docs/assets/brand/richmod-symbol-transparent.png) |
+| Circular Telegram avatar | [SVG](docs/assets/brand/richmod-telegram-avatar.svg) | [4096 × 4096](docs/assets/brand/richmod-telegram-avatar.png) · [1024 × 1024](docs/assets/brand/richmod-telegram-avatar-1024.png) |
+
+Use the 1024 × 1024 avatar PNG for the Telegram bot profile. Its square canvas
+contains a circular logo with transparent corners; the mark stays inside the
+circle. SVG wordmarks are outlined, so they render consistently without installed
+fonts. See the [brand guidelines](docs/brand-guidelines.md) for usage and palette.
 
 ## Features
 

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000" role="img" aria-labelledby="title desc">
+  <title id="title">Richmod Telegram avatar</title>
+  <desc id="desc">Circular teal ledger emblem with a cream R, three ruled lines, and a butter page fold.</desc>
+  <circle cx="500" cy="500" r="494" fill="#245C54" stroke="#253A36" stroke-width="12"/>
+  <g transform="translate(-106 -98) scale(1.2)">
+<path d="M 290,725 L 290,271 L 502,271 C 628,271 701,331 701,432 C 701,508 662,557 602,580 L 720,725 L 589,725 L 498,605 L 408,605 L 408,725 Z M 408,375 L 408,512 L 492,512 C 554,512 586,486 586,441 C 586,398 555,375 492,375 Z" fill="#F7F3E8" fill-rule="evenodd"/>
+    <rect x="308" y="425" width="83" height="11" fill="#245C54"/>
+    <rect x="308" y="470" width="83" height="11" fill="#245C54"/>
+    <rect x="308" y="515" width="83" height="11" fill="#245C54"/>
+    <path d="M 606,297 L 655,337 L 604,337 Z" fill="#F5EBC3"/>
+
+  </g>
+</svg>
