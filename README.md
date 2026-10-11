@@ -80,9 +80,10 @@ compact rows.
 ## Brandkit
 
 The **Retro Ledger** identity follows the web app: cream paper, dark green ink,
-teal, and a butter page fold. The R combines a ledger initial with three ruled
-lines. The Telegram avatar uses a circular field with a centered mark and room
-for Telegram's circular crop.
+and teal. The mark uses three rounded page fields with a vertical and diagonal
+negative-space seam, based on the selected geometric-ledger concept. The
+Telegram avatar uses a circular field with a centered mark and room for
+Telegram's circular crop.
 
 <p align="center">
   <img src="docs/assets/brand/richmod-telegram-avatar.svg" alt="Circular Richmod Telegram avatar" width="160" />
