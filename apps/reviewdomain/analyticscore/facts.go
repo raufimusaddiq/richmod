@@ -75,6 +75,7 @@ type reviewBlocker struct {
 	Kind   string  `json:"kind"`
 	Count  int     `json:"count"`
 	Amount *string `json:"amount,omitempty"`
+	Scope  string  `json:"scope"`
 	Impact string  `json:"impact"`
 	Action string  `json:"action"`
 }
@@ -244,6 +245,11 @@ func Load(ctx context.Context, pool *pgxpool.Pool, household, selected string, n
 // LoadWithHistory is Load plus the cycle-to-cycle history series for up to
 // `history` cycles (0 disables it, at most MaxHistory).
 func LoadWithHistory(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time, history int) (Facts, error) {
+	return load(ctx, pool, household, selected, now, history, "")
+}
+
+// load excludes only the current server-owned source from unfinished processing.
+func load(ctx context.Context, pool *pgxpool.Pool, household, selected string, now time.Time, history int, currentSourceEventID string) (Facts, error) {
 	if history < 0 || history > MaxHistory {
 		return Facts{}, errors.New("history must be 0 to 12")
 	}
@@ -381,7 +387,7 @@ func LoadWithHistory(ctx context.Context, pool *pgxpool.Pool, household, selecte
 	if err := loadReviewTransactions(ctx, tx, household, &facts); err != nil {
 		return facts, err
 	}
-	if err := loadReviewQuality(ctx, tx, household, &facts); err != nil {
+	if err := loadReviewQuality(ctx, tx, household, currentSourceEventID, &facts); err != nil {
 		return facts, err
 	}
 	if err := loadReviewWealth(ctx, tx, household, now, &facts); err != nil {
@@ -542,7 +548,14 @@ func buildHistory(measures []cycleMeasure, window []int) ([]historyCycle, catego
 
 func (f *Facts) block(kind string, count int, amount *string, action string) {
 	if count > 0 {
-		f.Quality = append(f.Quality, reviewBlocker{kind, count, amount, "ANALYSIS_PARTIAL", action})
+		scope, impact := "CASHFLOW", "CASHFLOW_PARTIAL"
+		switch kind {
+		case "PROCESSING_INCOMPLETE":
+			scope, impact = "PROCESSING", "PROCESSING_INCOMPLETE"
+		case "MISSING_WEALTH_SNAPSHOT", "WEALTH_SNAPSHOT_BEFORE_CYCLE", "MISSING_PREVIOUS_WEALTH_SNAPSHOT", "WEALTH_ACCOUNT_SET_CHANGED", "WEALTH_SNAPSHOT_UNCHANGED":
+			scope, impact = "WEALTH_RECONCILIATION", "COMPARISON_UNAVAILABLE"
+		}
+		f.Quality = append(f.Quality, reviewBlocker{Kind: kind, Count: count, Amount: amount, Scope: scope, Impact: impact, Action: action})
 	}
 }
 
