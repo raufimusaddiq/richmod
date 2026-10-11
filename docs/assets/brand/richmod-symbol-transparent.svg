@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000"><title>Richmod</title><defs><mask id="rules"><rect width="1000" height="1000" fill="white"/>
+<rect x="308" y="425" width="83" height="11" fill="black"/>
+<rect x="308" y="470" width="83" height="11" fill="black"/>
+<rect x="308" y="515" width="83" height="11" fill="black"/></mask></defs><path d="M 290,725 L 290,271 L 502,271 C 628,271 701,331 701,432 C 701,508 662,557 602,580 L 720,725 L 589,725 L 498,605 L 408,605 L 408,725 Z M 408,375 L 408,512 L 492,512 C 554,512 586,486 586,441 C 586,398 555,375 492,375 Z" fill="#253A36" fill-rule="evenodd" mask="url(#rules)"/><path d="M 606,297 L 655,337 L 604,337 Z" fill="#F5EBC3"/></svg>

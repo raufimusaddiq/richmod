@@ -168,6 +168,34 @@ and PRDs; they never appear in user-facing copy.
 
 ## Assets
 
+### Logo brandkit
+
+The logo extends **Retro Ledger** with a cream R on a teal ledger field,
+three ruled lines, and a butter page-fold detail. It uses the existing palette:
+canvas `#f7f3e8`, ink `#253a36`, accent `#245c54`, and butter `#f5ebc3`.
+The serif wordmark is supplied as outlined paths in SVG; it does not depend on
+an installed font and does not change the UI's Fraunces/Inter font stacks.
+
+The canonical distributable files are under `docs/assets/brand/`:
+
+| Asset | Files | Use |
+| --- | --- | --- |
+| Full logo | `richmod-full-logo.svg`, `.png` (4500 × 1500) | README header, cream backgrounds; includes “Keuangan keluarga, tanpa menebak.” |
+| Horizontal logo | `richmod-horizontal-transparent.svg`, `.png` (4500 × 1500) | Mark and wordmark on a light surface |
+| Symbol | `richmod-symbol-transparent.svg`, `.png` (4096 × 4096) | Standalone mark without a wordmark |
+| Telegram avatar | `richmod-telegram-avatar.svg`, `.png` (4096 × 4096), `richmod-telegram-avatar-1024.png` | Circular profile; upload the 1024 × 1024 PNG |
+
+- The Telegram artwork is circular inside a square transparent canvas. Keep
+  the R centered and inside the circle; do not add a rounded-square tile or text.
+- Keep each asset's aspect ratio. Scale from SVG when another size is needed;
+  never enlarge a small raster export as the source for a larger one.
+- Preserve the ruled lines and page fold. Do not add gradients, glows, or
+  financial status colors to the brand mark.
+- Transparent wordmarks use dark ink and need a light background. The full
+  logo already includes its cream background.
+
+### Product assets
+
 | Asset | Use |
 | --- | --- |
 | `apps/web/app/icon.svg` | Favicon; teal mark, cream glyph |
