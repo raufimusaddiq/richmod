@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/bankemail"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	workerDocument "github.com/raufimusaddiq/richmod/apps/worker/internal/document"
@@ -199,6 +200,11 @@ func run(logger *slog.Logger) error {
 			return nil
 		case <-maintenanceTicker.C:
 			catchUpResidualReviews(ctx, logger, pool, 25)
+			if created, err := reviewdomain.SweepFailedSources(ctx, pool, 50); err != nil {
+				logger.Warn("failed source sweep failed", "error", err)
+			} else if created > 0 {
+				logger.Info("failed source sweep", "created", created)
+			}
 			if err := documentProcessor.EvictTerminalCaches(ctx); err != nil {
 				logger.Warn("attachment cache eviction failed", "error", err)
 			}
