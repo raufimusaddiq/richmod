@@ -90,3 +90,54 @@ func IgnoreFailedSource(ctx context.Context, tx pgx.Tx, householdID, sourceEvent
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// TxBeginner is the part of a connection pool the sweep needs.
+type TxBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// SweepFailedSources gives every unfinished source whose processing has
+// permanently stopped its dismissable Tindakan item. The terminal-failure hooks
+// cover typed messages, button taps and bank email; documents, images, financial
+// email, and any hook that itself failed leave a FAILED/RECEIVED source that the
+// cycle review counts but the Inbox cannot show. A source qualifies when it has
+// no queued or running job and is either FAILED or has a FAILED job; a source
+// with no job yet is just new. Idempotent through the per-source dedupe key, so
+// it only ever adds items to dismiss. It returns how many items were created.
+func SweepFailedSources(ctx context.Context, pool TxBeginner, limit int) (int, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `
+		SELECT s.id::text,s.household_id::text,s.source_type
+		FROM source_event s
+		WHERE s.processing_status IN ('RECEIVED','PROCESSING','FAILED')
+		  AND NOT EXISTS (SELECT 1 FROM integration_action a WHERE a.household_id=s.household_id AND a.integration_type=$1 AND a.action_type=$2 AND a.dedupe_key=s.id::text)
+		  AND NOT EXISTS (SELECT 1 FROM job j WHERE j.payload_json->>'source_event_id'=s.id::text AND j.status IN ('PENDING','RUNNING'))
+		  AND (s.processing_status='FAILED' OR EXISTS (SELECT 1 FROM job j WHERE j.payload_json->>'source_event_id'=s.id::text AND j.status='FAILED'))
+		ORDER BY s.received_at LIMIT $3`, FailedSourceIntegrationType, FailedSourceActionType, limit)
+	if err != nil {
+		return 0, err
+	}
+	var found []FailedSource
+	for rows.Next() {
+		f := FailedSource{Reason: "ERROR"}
+		if err := rows.Scan(&f.SourceEventID, &f.HouseholdID, &f.SourceType); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		found = append(found, f)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, f := range found {
+		if err := RecordFailedSourceAction(ctx, tx, f); err != nil {
+			return 0, err
+		}
+	}
+	return len(found), tx.Commit(ctx)
+}
