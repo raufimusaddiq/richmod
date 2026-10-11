@@ -90,7 +90,7 @@ for Telegram's circular crop.
 
 | Asset | Preview / vector | High-resolution PNG |
 | --- | --- | --- |
-| Full logo with tagline | [SVG](docs/assets/brand/richmod-full-logo.svg) | [4500 × 1500](docs/assets/brand/richmod-full-logo.png) |
+| Full logo with tagline | [SVG](docs/assets/brand/richmod-full-logo.svg) | [5760 × 1920](docs/assets/brand/richmod-full-logo.png) |
 | Horizontal logo, transparent | [SVG](docs/assets/brand/richmod-horizontal-transparent.svg) | [4500 × 1500](docs/assets/brand/richmod-horizontal-transparent.png) |
 | Symbol, transparent | [SVG](docs/assets/brand/richmod-symbol-transparent.svg) | [4096 × 4096](docs/assets/brand/richmod-symbol-transparent.png) |
 | Circular Telegram avatar | [SVG](docs/assets/brand/richmod-telegram-avatar.svg) | [4096 × 4096](docs/assets/brand/richmod-telegram-avatar.png) · [1024 × 1024](docs/assets/brand/richmod-telegram-avatar-1024.png) |

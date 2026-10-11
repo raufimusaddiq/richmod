@@ -176,11 +176,15 @@ canvas `#f7f3e8`, ink `#253a36`, accent `#245c54`, and butter `#f5ebc3`.
 The serif wordmark is supplied as outlined paths in SVG; it does not depend on
 an installed font and does not change the UI's Fraunces/Inter font stacks.
 
+The full logo uses a smaller circular mark beside the wordmark, with the
+tagline directly below the name and no separator rule. The name is the primary
+element; the mark and tagline support it.
+
 The canonical distributable files are under `docs/assets/brand/`:
 
 | Asset | Files | Use |
 | --- | --- | --- |
-| Full logo | `richmod-full-logo.svg`, `.png` (4500 × 1500) | README header, cream backgrounds; includes “Keuangan keluarga, tanpa menebak.” |
+| Full logo | `richmod-full-logo.svg`, `.png` (5760 × 1920) | README header, cream backgrounds; includes “Keuangan keluarga, tanpa menebak.” |
 | Horizontal logo | `richmod-horizontal-transparent.svg`, `.png` (4500 × 1500) | Mark and wordmark on a light surface |
 | Symbol | `richmod-symbol-transparent.svg`, `.png` (4096 × 4096) | Standalone mark without a wordmark |
 | Telegram avatar | `richmod-telegram-avatar.svg`, `.png` (4096 × 4096), `richmod-telegram-avatar-1024.png` | Circular profile; upload the 1024 × 1024 PNG |
