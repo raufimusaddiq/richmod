@@ -57,7 +57,7 @@ func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',56500,now()) RETURNING id`, householdID).Scan(&transactionID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO review_request(household_id,transaction_id,review_type,telegram_chat_id,status) VALUES($1,$2,'UNKNOWN_MERCHANT',$3,'OPEN') RETURNING id`, householdID, transactionID, chatID).Scan(&reviewID); err != nil {
+	if err = pool.QueryRow(ctx, `WITH item AS (INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_MERCHANT','OPEN','{"version":1,"reasonCode":"UNKNOWN_MERCHANT","allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id) INSERT INTO review_request(review_item_id,household_id,transaction_id,review_type,telegram_chat_id,status) SELECT id,$1,$2,'UNKNOWN_MERCHANT',$3,'OPEN' FROM item RETURNING id`, householdID, transactionID, chatID).Scan(&reviewID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,17)`, reviewID, chatID); err != nil {

@@ -4,8 +4,8 @@ import "context"
 
 // turnTrace accumulates the bounded decision tasks one turn consumed, plus the
 // model that answered them. It is carried in the turn's context rather than on
-// the Processor, because one Processor serves concurrent Telegram turns
-// (WORKER_CHAT_CONCURRENCY) and shared mutable state would race between them.
+// the Processor, because one Processor serves Telegram turns from more than one
+// lane loop and shared mutable state would race between them.
 type turnTrace struct {
 	tasks              []string
 	model              string

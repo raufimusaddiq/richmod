@@ -151,6 +151,9 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		if err = resolveBankReviewProjection(ctx, tx, payload.ReviewID); err != nil {
 			return err
 		}
+		if err = auditBankCompletion(ctx, tx, household, payload); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	known, err := p.loadKnownAccounts(ctx, household)
@@ -162,7 +165,7 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		return err
 	}
 	result := EvaluateBankEmail(listener, extraction, known, memory)
-	if err := p.persist(ctx, listener, payload.SourceEventID, extraction, result); err != nil {
+	if err := p.persist(ctx, listener, payload.SourceEventID, extraction, result, payload.ReviewID); err != nil {
 		return err
 	}
 	tx, err := p.pool.Begin(ctx)
@@ -186,8 +189,8 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		case "NEEDS_REVIEW":
 			message = "Fakta bank tersimpan. Transaksi masih perlu ditinjau melalui kartu review baru."
 		}
-		// The item was active when this job started (checked above); persist may
-		// already have settled it, so the notice is not gated on it still being open.
+		// The item was active when this job started (checked above); the
+		// statement below resolves it, so the notice is not gated on its status.
 		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$2::bigint,'text',$3::text) WHERE EXISTS(SELECT 1 FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.review_item_id=$1 AND rr.telegram_chat_id=$2)`, payload.ReviewID, payload.TelegramChatID, message); err != nil {
 			return err
 		}
@@ -198,7 +201,22 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	if err = resolveBankReviewProjection(ctx, tx, payload.ReviewID); err != nil {
 		return err
 	}
+	if err = auditBankCompletion(ctx, tx, household, payload); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+// auditBankCompletion records which surface completed the bank facts, in the
+// transaction that resolves the item, so admin attribution credits the person:
+// only the Telegram lane sets telegram_chat_id, the Web lane never does.
+func auditBankCompletion(ctx context.Context, tx pgx.Tx, household string, payload Payload) error {
+	actor := "USER"
+	if payload.TelegramChatID != 0 {
+		actor = "TELEGRAM"
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id) VALUES($1,$2,'RESOLVE_REVIEW','review_item',$3)`, household, actor, payload.ReviewID)
+	return err
 }
 
 // resolveBankReviewProjection closes the Telegram projection of a completed
@@ -380,7 +398,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM transaction_proposal WHERE source_event_id=$1)`, payload.SourceEventID).Scan(&alreadyPersisted); err == nil && alreadyPersisted {
 		return nil
 	}
-	return p.persist(ctx, listener, payload.SourceEventID, extraction, result)
+	return p.persist(ctx, listener, payload.SourceEventID, extraction, result, "")
 }
 
 // reviewIncompleteExtraction parks a notification whose facts are structurally
@@ -638,7 +656,10 @@ func recordFailedBankEmail(ctx context.Context, tx pgx.Tx, sourceID, reason stri
 	})
 }
 
-func (p *Processor) persist(ctx context.Context, listener Listener, sourceID string, extraction Extraction, result PolicyResult) error {
+// persist writes the validated bank transaction. completingReviewID is the
+// review a person is completing through Complete; Complete resolves it with
+// that person's surface, so persist does not settle it as a system fallback.
+func (p *Processor) persist(ctx context.Context, listener Listener, sourceID string, extraction Extraction, result PolicyResult, completingReviewID string) error {
 	amount, at := value(extraction.AmountIDR), extraction.TransactionAt
 	if amount == "" || at == nil {
 		return fmt.Errorf("validated bank extraction lacks ledger facts")
@@ -689,7 +710,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	// A transaction now exists for this source, so its source-bound reviews are
 	// settled, together with their Telegram projections (whose delivered cards
 	// are then retired, migration 00079).
-	settled, err := tx.Query(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='EMAIL_RECEIVED_AT_FALLBACK',resolution_values=jsonb_build_object('transaction_at',$2::timestamptz),updated_at=now() WHERE source_event_id=$1 AND transaction_id IS NULL AND status IN ('PENDING_SEND','OPEN') RETURNING id::text`, sourceID, *at)
+	settled, err := tx.Query(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='EMAIL_RECEIVED_AT_FALLBACK',resolution_values=jsonb_build_object('transaction_at',$2::timestamptz),updated_at=now() WHERE source_event_id=$1 AND transaction_id IS NULL AND status IN ('PENDING_SEND','OPEN') AND ($3='' OR id<>$3::uuid) RETURNING id::text`, sourceID, *at, completingReviewID)
 	if err != nil {
 		return err
 	}
