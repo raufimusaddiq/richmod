@@ -170,9 +170,11 @@ and PRDs; they never appear in user-facing copy.
 
 ### Logo brandkit
 
-The logo extends **Retro Ledger** with a cream R on a teal ledger field,
-three ruled lines, and a butter page-fold detail. It uses the existing palette:
-canvas `#f7f3e8`, ink `#253a36`, accent `#245c54`, and butter `#f5ebc3`.
+The logo extends **Retro Ledger** with three rounded page fields separated by
+a vertical and diagonal negative-space seam. This is the vector recreation of
+the selected geometric-ledger concept (option 3). The mark uses cream
+`#f7f3e8` on teal `#245c54` in avatars; the transparent symbol uses teal fields.
+The wordmark uses ink `#253a36`. Butter remains a UI highlight, not a logo detail.
 The serif wordmark is supplied as outlined paths in SVG; it does not depend on
 an installed font and does not change the UI's Fraunces/Inter font stacks.
 
@@ -190,11 +192,12 @@ The canonical distributable files are under `docs/assets/brand/`:
 | Telegram avatar | `richmod-telegram-avatar.svg`, `.png` (4096 × 4096), `richmod-telegram-avatar-1024.png` | Circular profile; upload the 1024 × 1024 PNG |
 
 - The Telegram artwork is circular inside a square transparent canvas. Keep
-  the R centered and inside the circle; do not add a rounded-square tile or text.
+  the three page fields centered inside the circle; do not add a rounded-square
+  tile, literal initial, or text.
 - Keep each asset's aspect ratio. Scale from SVG when another size is needed;
   never enlarge a small raster export as the source for a larger one.
-- Preserve the ruled lines and page fold. Do not add gradients, glows, or
-  financial status colors to the brand mark.
+- Preserve the three fields and their negative-space seam. Do not add ruled
+  lines, folded corners, gradients, glows, or financial status colors to the mark.
 - Transparent wordmarks use dark ink and need a light background. The full
   logo already includes its cream background.
 
@@ -202,7 +205,8 @@ The canonical distributable files are under `docs/assets/brand/`:
 
 | Asset | Use |
 | --- | --- |
-| `apps/web/app/icon.svg` | Favicon; teal mark, cream glyph |
+| `apps/web/app/icon.svg` | Favicon; circular teal field and cream ledger-page mark |
+| `docs/assets/richmod-logo.svg` | Legacy documentation path; same circular ledger-page mark |
 | `apps/web/public/brand/richmod-evidence-flow.svg` | Landing evidence flow |
 | `apps/web/public/brand/richmod-login-treeline.svg` | Login footer illustration |
 | `apps/web/app/opengraph-image.js` | Social card |
