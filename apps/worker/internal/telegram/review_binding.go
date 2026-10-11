@@ -31,33 +31,48 @@ func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdI
 	return err
 }
 
-func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64) error {
-	result, err := p.pool.Exec(ctx, `
-		UPDATE review_request_recipient rr
-		SET telegram_message_id=$3
-		FROM review_request r
-		WHERE rr.review_request_id=$1 AND rr.telegram_chat_id=$2
-		  AND r.id=rr.review_request_id AND r.status IN ('PENDING_SEND','OPEN') AND r.expires_at>now()`,
-		reviewRequestID, chatID, messageID)
+// BindReviewMessage records the Telegram message a review card was delivered as,
+// with the text Telegram shows, on the recipient row. The request row is locked
+// first so a bind and a terminal transition serialize: either the transition
+// commits first and the bind sees a closed request, or the bind commits first
+// and the transition's retirement trigger sees the stored message id. A card
+// that arrives after its request closed is still recorded and queued for
+// retirement, so it cannot stay tappable.
+func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID string, chatID, messageID int64, text string) error {
+	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
-	if result.RowsAffected() == 1 {
-		if _, err := p.pool.Exec(ctx, `UPDATE review_request SET status='OPEN' WHERE id=$1 AND status='PENDING_SEND'`, reviewRequestID); err != nil {
-			return fmt.Errorf("open Telegram review request: %w", err)
-		}
+	defer tx.Rollback(ctx)
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status FROM review_request WHERE id=$1 FOR UPDATE`, reviewRequestID).Scan(&status); err != nil {
+		return fmt.Errorf("load Telegram review request after send: %w", err)
 	}
-	if result.RowsAffected() != 1 {
-		var status string
-		if err := p.pool.QueryRow(ctx, `SELECT status FROM review_request WHERE id=$1`, reviewRequestID).Scan(&status); err != nil {
-			return fmt.Errorf("load Telegram review request after send: %w", err)
-		}
-		if status == "RESOLVED" || status == "CANCELLED" || status == "EXPIRED" {
+	terminal := status == "RESOLVED" || status == "CANCELLED" || status == "EXPIRED"
+	var recipientID string
+	err = tx.QueryRow(ctx, `UPDATE review_request_recipient SET telegram_message_id=$3,delivered_text=NULLIF($4,'')
+		WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`,
+		reviewRequestID, chatID, messageID, clean(text, 4000)).Scan(&recipientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if terminal {
 			return nil
 		}
 		return fmt.Errorf("Telegram review request could not be bound")
 	}
-	return nil
+	if err != nil {
+		return fmt.Errorf("bind Telegram review message: %w", err)
+	}
+	switch {
+	case terminal:
+		if _, err := tx.Exec(ctx, `SELECT enqueue_review_card_retirement($1::uuid,$2::uuid)`, reviewRequestID, recipientID); err != nil {
+			return fmt.Errorf("retire Telegram review card sent after close: %w", err)
+		}
+	case status == "PENDING_SEND":
+		if _, err := tx.Exec(ctx, `UPDATE review_request SET status='OPEN' WHERE id=$1`, reviewRequestID); err != nil {
+			return fmt.Errorf("open Telegram review request: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // CreateTransactionReviewItem creates the canonical active review_item for a
@@ -118,7 +133,7 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 	// transaction has one active review, and the first open question wins.
 	var itemType string
 	var decisionJSON []byte
-	if err := tx.QueryRow(ctx, `SELECT review_type,COALESCE(decision,'{}'::jsonb) FROM review_item WHERE id=$1`, itemID).Scan(&itemType, &decisionJSON); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT review_type,decision FROM review_item WHERE id=$1`, itemID).Scan(&itemType, &decisionJSON); err != nil {
 		return err
 	}
 	if itemType != reviewType {
@@ -270,7 +285,7 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 		return nil
 	}
 	var decisionJSON []byte
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(decision,'{}'::jsonb) FROM review_item WHERE id=$1`, itemID).Scan(&decisionJSON); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT decision FROM review_item WHERE id=$1`, itemID).Scan(&decisionJSON); err != nil {
 		return err
 	}
 	var decision reviewdec.Decision

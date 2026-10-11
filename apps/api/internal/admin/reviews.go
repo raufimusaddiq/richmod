@@ -44,12 +44,21 @@ const telegramRecipientSQL = `EXISTS (SELECT 1 FROM telegram_identity ti JOIN ho
 
 const deliveredCardSQL = `EXISTS (SELECT 1 FROM review_request rr JOIN review_request_recipient rc ON rc.review_request_id=rr.id WHERE rr.review_item_id=ri.id AND rc.telegram_message_id IS NOT NULL)`
 
+// telegramEligibleSQL decides whether a review could have reached Telegram. It
+// reads review_item.telegram_eligible_at_creation, the recipient snapshot the
+// BEFORE INSERT trigger takes (migration 00080), so linking or unlinking a
+// Telegram identity later cannot move a review into or out of TARC. Rows
+// created before the snapshot existed hold NULL (unknown) and fall back to the
+// current-recipient predicate.
+const telegramEligibleSQL = `COALESCE(ri.telegram_eligible_at_creation, ` + telegramRecipientSQL + `)`
+
 // coverageEligibleSQL is the TARC denominator: reviews created in range ($1)
-// in a household with an active Telegram recipient. Reviews without a stored
+// in a household that had an active Telegram recipient when the review was
+// created. Reviews without a stored
 // ReviewDecision predate the decision contract, so their Telegram capability
 // cannot be measured; they are reported separately as legacy. Reviews the
 // system settled without a person never needed a Telegram card.
-const coverageEligibleSQL = `ri.created_at>=$1 AND ri.decision IS NOT NULL AND s.surface IS DISTINCT FROM 'SYSTEM' AND ` + telegramRecipientSQL
+const coverageEligibleSQL = `ri.created_at>=$1 AND ri.decision IS NOT NULL AND s.surface IS DISTINCT FROM 'SYSTEM' AND ` + telegramEligibleSQL
 
 // coverageActionableSQL is the TARC numerator: an eligible review whose
 // Telegram card was delivered and is fully completable in Telegram.

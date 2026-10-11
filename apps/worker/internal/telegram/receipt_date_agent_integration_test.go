@@ -67,7 +67,7 @@ func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
 			model := &receiptDateGateway{arguments: arguments}
 			p := NewProcessor(f.pool, model)
 			p.SetJudgment(eagerEngine{})
-			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99))
+			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 			f.update.Message.Text = "2026-10-3"
 			f.update.Message.ReplyToMessage = &struct {
 				MessageID int64 `json:"message_id"`
@@ -113,7 +113,7 @@ func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
 
 	p := NewProcessor(f.pool, &receiptDateGateway{arguments: `{"action":"CONFIRM","transaction_at":"besok lusa"}`})
 	p.SetJudgment(eagerEngine{})
-	mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99))
+	mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 	f.update.Message.Text = "besok lusa"
 	f.update.Message.ReplyToMessage = &struct {
 		MessageID int64 `json:"message_id"`

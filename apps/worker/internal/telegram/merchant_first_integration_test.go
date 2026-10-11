@@ -68,7 +68,7 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 			model := &merchantReplyGateway{}
 			p := NewProcessor(f.pool, model)
 			p.SetJudgment(eagerEngine{})
-			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99))
+			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 			if mode == "remembered" {
 				// "Beli aset" is a deterministic callback, so it arrives on the
 				// callback lane, not the free-text agent lane.

@@ -369,6 +369,76 @@ func TestReviewOpsTARCAndWebEscapeUseCompletionCapability(t *testing.T) {
 	}
 }
 
+// TestReviewOpsTARCEligibilityIsSnapshotAtCreation pins that TARC eligibility
+// is the recipient state when the review was created, not the current one:
+// unlinking Telegram later must not shrink the denominator, and linking it later
+// must not retroactively make an unreachable review count.
+func TestReviewOpsTARCEligibilityIsSnapshotAtCreation(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	_, _, householdID, _ := seedReviewOpsHousehold(t, pool, stamp)
+	since := time.Now().Add(-time.Hour)
+	decision := `{"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}`
+
+	itemNumber := 0
+	newItem := func() string {
+		t.Helper()
+		itemNumber++
+		key := fmt.Sprintf("tarc-snapshot-%d-%d", itemNumber, stamp)
+		var sourceID, itemID string
+		if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, householdID, key, []byte(key)).Scan(&sourceID); err != nil {
+			t.Fatal(err)
+		}
+		// The supplied value is the opposite of the expected snapshot; the
+		// trigger must override it from the recipient state.
+		if err := pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision,telegram_eligible_at_creation) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN',$3::jsonb,$4) RETURNING id`, householdID, sourceID, decision, itemNumber == 2).Scan(&itemID); err != nil {
+			t.Fatal(err)
+		}
+		return itemID
+	}
+	eligible := func(itemID string) bool {
+		t.Helper()
+		var ok bool
+		if err := pool.QueryRow(ctx, `SELECT `+coverageEligibleSQL+` FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.id=$2`, since, itemID).Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	setTelegramActive := func(active bool) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `UPDATE telegram_identity SET active=$2 WHERE household_id=$1`, householdID, active); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	reachable := newItem()
+	if !eligible(reachable) {
+		t.Fatal("a review created with an active Telegram recipient is not TARC-eligible")
+	}
+	setTelegramActive(false)
+	if !eligible(reachable) {
+		t.Fatal("deactivating Telegram after creation removed the review from the TARC denominator")
+	}
+
+	unreachable := newItem()
+	if eligible(unreachable) {
+		t.Fatal("a review created without a Telegram recipient is TARC-eligible")
+	}
+	setTelegramActive(true)
+	if eligible(unreachable) {
+		t.Fatal("linking Telegram after creation made an unreachable review TARC-eligible")
+	}
+}
+
 // TestReviewOpsSurfaceFromResolvingTransaction pins attribution for resolvers
 // whose audit row uses their own action name (CONFIRM_REVIEW,
 // COMPLETE_BANK_FACTS_REQUESTED, ...) on another entity: the row written in the

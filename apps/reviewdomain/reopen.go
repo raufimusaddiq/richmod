@@ -7,16 +7,38 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// possibleDuplicateDecision is the ReviewDecision contract for a transaction whose
-// duplicate relationship is undecided. It mirrors the worker's POSSIBLE_DUPLICATE
-// preset (apps/worker/internal/reviewdec), which apps/api cannot import.
+// DecisionContract is the policy part of a ReviewDecision that must agree with
+// the worker's reviewdec preset for the same reason.
+type DecisionContract struct {
+	ReasonCode      string
+	AllowedActions  []string
+	DecisionClass   string
+	InteractionMode string
+}
+
+// PossibleDuplicateDecisionContract is the contract possibleDuplicateDecision
+// stores. It mirrors the worker's POSSIBLE_DUPLICATE preset
+// (apps/worker/internal/reviewdec), which apps/api cannot import; a worker-side
+// test compares the two so they cannot drift.
+func PossibleDuplicateDecisionContract() DecisionContract {
+	return DecisionContract{
+		ReasonCode:      "POSSIBLE_DUPLICATE",
+		AllowedActions:  []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"},
+		DecisionClass:   "DUPLICATE_AMBIGUITY",
+		InteractionMode: "BOUNDED_CHOICE",
+	}
+}
+
+// possibleDuplicateDecision is the ReviewDecision for a transaction whose
+// duplicate relationship is undecided.
 func possibleDuplicateDecision(transactionID string, known map[string]any) ([]byte, error) {
+	contract := PossibleDuplicateDecisionContract()
 	return json.Marshal(map[string]any{
 		"version": 1, "subject": map[string]any{"type": "transaction", "id": transactionID},
-		"reasonCode": "POSSIBLE_DUPLICATE", "decisionClass": "DUPLICATE_AMBIGUITY", "decisionSource": "DETERMINISTIC",
+		"reasonCode": contract.ReasonCode, "decisionClass": contract.DecisionClass, "decisionSource": "DETERMINISTIC",
 		"knownFacts": known, "missingFacts": []string{"duplicate_relationship"},
-		"allowedActions":    []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"},
-		"interactionMode":   "BOUNDED_CHOICE",
+		"allowedActions":    contract.AllowedActions,
+		"interactionMode":   contract.InteractionMode,
 		"evidenceRefs":      []map[string]string{{"kind": "transaction", "id": transactionID}},
 		"whyNotAutoConfirm": "a plausible duplicate exists; choose the matching event, confirm as new, or ignore",
 	})

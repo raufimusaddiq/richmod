@@ -489,7 +489,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		if payload.ReviewRequestID != "" {
-			if err := processor.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID); err != nil {
+			if err := processor.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text); err != nil {
+				return err
+			}
+		}
+		if payload.BindMerchantLearningRequestID != "" {
+			if err := processor.BindMerchantLearningMessage(ctx, payload.BindMerchantLearningRequestID, payload.ChatID, messageID); err != nil {
 				return err
 			}
 		}
@@ -507,6 +512,17 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
+		// An edit of a review card queued while it was open must not restore its
+		// buttons after the request closed; RETIRE_TELEGRAM_REVIEW_CARD owns it now.
+		if payload.ReviewRequestID != "" {
+			live, err := processor.ReviewCardLive(ctx, payload.ReviewRequestID)
+			if err != nil {
+				return err
+			}
+			if !live {
+				return nil
+			}
+		}
 		if err := bot.Edit(ctx, payload); err != nil {
 			// Financial state is already committed; send a repair notification instead
 			// of retrying the mutation.
@@ -514,8 +530,20 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			if sendErr != nil {
 				return fmt.Errorf("edit Telegram message: %v; fallback send: %w", err, sendErr)
 			}
+			return nil
+		}
+		// The edit is delivered; a failure to remember its text only costs a
+		// later retirement its closure note, so it must not retry the edit.
+		if err := processor.RecordReviewCardText(ctx, payload.ChatID, payload.MessageID, payload.Text); err != nil {
+			slog.Default().Warn("record edited Telegram review card text failed", "job_id", job.ID, "error", err)
 		}
 		return nil
+	case "RETIRE_TELEGRAM_REVIEW_CARD":
+		payload, err := telegram.DecodeRetireCardPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return processor.RetireReviewCard(ctx, bot, payload)
 	case "PROCESS_BANK_EMAIL":
 		payload, err := bankemail.DecodePayload(job.Payload)
 		if err != nil {

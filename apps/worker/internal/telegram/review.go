@@ -302,7 +302,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	}
 	// Only the transfer buttons reach this point (see Process). They answer a
 	// transfer-relationship review; on any other review they are not handled here.
-	if missingFactsJSON == nil || !reviewRequiresFact(missingFactsJSON, "transfer_relationship") {
+	if missingFactsJSON == nil || !reviewRequiresFact(*missingFactsJSON, "transfer_relationship") {
 		return false, nil
 	}
 	if update.CallbackQuery.Data == "review:asset" {
@@ -314,15 +314,14 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 	return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
 }
 
-func reviewRequiresFact(raw *string, fact string) bool {
-	if raw == nil {
-		return true // legacy review without a stored contract keeps its previous behavior
-	}
-	if strings.TrimSpace(*raw) == "null" {
+// reviewRequiresFact reports whether a stored missingFacts JSON array names
+// fact. A JSON null or malformed value fails closed and keeps the requirement.
+func reviewRequiresFact(raw string, fact string) bool {
+	if strings.TrimSpace(raw) == "null" {
 		return true
 	}
 	var facts []string
-	if err := json.Unmarshal([]byte(*raw), &facts); err != nil {
+	if err := json.Unmarshal([]byte(raw), &facts); err != nil {
 		return true
 	}
 	for _, value := range facts {
@@ -517,7 +516,9 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 
 func (p *Processor) processMerchantLearningCallback(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, data string) error {
 	var reviewID, transactionID string
-	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
+	// The question is its own message (merchant_learning_message_id); a question
+	// delivered before that existed was an edit of the card itself.
+	err := p.pool.QueryRow(ctx, `SELECT r.id,r.transaction_id FROM review_request r JOIN review_conversation c ON c.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND c.state='AWAITING_MERCHANT_DECISION' AND t.status='CONFIRMED' AND rr.telegram_chat_id=$2 AND (rr.merchant_learning_message_id=$3 OR rr.telegram_message_id=$3)`, householdID, update.Message.Chat.ID, update.Message.MessageID).Scan(&reviewID, &transactionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "✅ Tinjauan ini sudah selesai. Tidak ada perubahan baru.")
 	}
@@ -743,12 +744,30 @@ func enqueueReviewMessageWithMarkup(ctx context.Context, tx pgx.Tx, reviewID str
 	return err
 }
 
+// enqueueReviewUpdateWithMarkup edits a live review card in place. The edit
+// carries its review_request_id so the worker drops it once the request is
+// terminal: retirement has already stripped the card and this edit must not
+// put buttons back.
 func enqueueReviewUpdateWithMarkup(ctx context.Context, tx pgx.Tx, reviewID string, update telegramUpdate, message string, markup *InlineKeyboardMarkup) error {
 	encoded, err := json.Marshal(markup)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded))
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'review_request_id',$5::text))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded), reviewID)
+	return err
+}
+
+// enqueueMerchantLearningQuestion sends the optional "remember this category"
+// question as its own message, replying to the message that confirmed the
+// review. The review card itself is retired with its request; once sent, this
+// message is bound to the request's recipient row (merchant_learning_message_id)
+// so its buttons and replies still reach the pending decision.
+func enqueueMerchantLearningQuestion(ctx context.Context, tx pgx.Tx, reviewID string, update telegramUpdate, message string, markup *InlineKeyboardMarkup) error {
+	encoded, err := json.Marshal(markup)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'bind_merchant_learning_request_id',$5::text))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000), string(encoded), reviewID)
 	return err
 }
 

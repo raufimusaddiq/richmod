@@ -281,6 +281,29 @@ delivered as a fresh live card (a pending callback is still answered so the
 client spinner clears). `TestQueuedReviewSendSkipsResolvedProjection` pins the
 open/resolved/expired/empty cases.
 
+Delivered cards are retired when their request closes (migration 00079). The
+`review_request_retire_telegram_cards` trigger queues one
+`RETIRE_TELEGRAM_REVIEW_CARD` job (INTERACTIVE lane) per recipient with a bound
+message whenever a request moves from `PENDING_SEND|OPEN` to
+`RESOLVED|CANCELLED|EXPIRED`, in the transaction that closes it, whatever the
+resolving surface. A partial unique index keeps at most one queued or running
+retirement per card, so retries and duplicate closes are no-ops while a request
+renewed from `EXPIRED` and closed again can retire its card a second time. The
+worker re-reads the request when the job runs: a renewed (active) request keeps
+its card; otherwise the card loses its keyboard and, when the stored card text
+(`review_request_recipient.delivered_text`, written at bind and after each
+successful edit) is known, gains a short closure note. Retirement never sends a
+new message; a card that is already retired, gone, uneditable, or in a chat the
+bot cannot reach is finished, and transient Telegram failures are retried. A card
+bound after its request closed (`BindReviewMessage` locks the request row, so
+bind and close serialize) is recorded and queued for retirement too. Review card
+edits (`EDIT_TELEGRAM_MESSAGE`) carry their `review_request_id` and are dropped
+once the request is terminal, so a queued chooser edit cannot restore buttons.
+The optional merchant-learning question after a Telegram confirmation is a
+separate message bound through `review_request_recipient.merchant_learning_message_id`,
+so retiring the card does not remove it. Bank-fact completion
+(`COMPLETE_BANK_REVIEW`) now resolves the request and conversation with the item.
+
 ### UIR-09 — telemetry + Admin Review Operations (complete; PR #184, merged 2026-09-26)
 
 Rollout health is measurable and viewable without PostgreSQL. Three read-only
