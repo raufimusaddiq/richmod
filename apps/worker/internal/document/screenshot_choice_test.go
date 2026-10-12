@@ -89,7 +89,7 @@ func TestResolveRowCategoriesBatchesOneRequestPerImage(t *testing.T) {
 			rows[i].CategoryID, rows[i].CategoryDecided = ptr("cat-food"), true
 		}
 	}
-	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", rows, rowCategoryOptions)
+	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", "household", rows, rowCategoryOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestClearScreenshotRowsNeverEnterBatch(t *testing.T) {
 	verifier := &stubRowVerifier{}
 	clear := unmatchedOutRow("1000")
 	clear.CategoryID, clear.CategoryDecided = ptr("cat-food"), true
-	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", []validatedScreenshotRow{clear}, rowCategoryOptions)
+	decided, provenance, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", "household", []validatedScreenshotRow{clear}, rowCategoryOptions)
 	if err != nil || verifier.calls != 0 || len(decided) != 0 || provenance.Questions != 0 {
 		t.Fatalf("clear row must skip Jev: calls=%d decisions=%v provenance=%+v err=%v", verifier.calls, decided, provenance, err)
 	}
@@ -125,7 +125,7 @@ func TestClearScreenshotRowsNeverEnterBatch(t *testing.T) {
 // A coin-flip answer is the EVIDENCE_GAP case that gets exactly one question.
 func TestResolveRowCategoriesLeavesThinMarginUndecided(t *testing.T) {
 	verifier := &stubRowVerifier{answers: map[string]judgment.Answer{"row_000": rowAnswerFor("food-and-drink", 0.55)}}
-	decided, _, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
+	decided, _, err := (&Processor{verifier: verifier}).resolveRowCategories(context.Background(), "evt", "household", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestResolveRowCategoriesLeavesThinMarginUndecided(t *testing.T) {
 
 // Without the bounded plane nothing may auto-confirm (fail closed).
 func TestResolveRowCategoriesWithoutVerifierDecidesNothing(t *testing.T) {
-	decided, provenance, err := (&Processor{}).resolveRowCategories(context.Background(), "evt", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
+	decided, provenance, err := (&Processor{}).resolveRowCategories(context.Background(), "evt", "household", []validatedScreenshotRow{unmatchedOutRow("25000")}, rowCategoryOptions)
 	if err != nil || len(decided) != 0 || provenance.Questions != 0 {
 		t.Fatalf("no verifier must decide nothing: decided=%v provenance=%+v err=%v", decided, provenance, err)
 	}

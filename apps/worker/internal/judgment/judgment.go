@@ -140,11 +140,20 @@ func PlainCriteria(labels []string) map[string]any {
 	return criteria
 }
 
-// CategoryCriteria exposes the active category slugs plus an escape hatch.
-func CategoryCriteria(active []string) map[string]any {
+// CategoryChoice is one offered category: its slug and how the household names
+// it. An empty label falls back to a neutral description.
+type CategoryChoice struct{ Slug, Label string }
+
+// CategoryCriteria describes each active category by the household's own name
+// plus an escape hatch, so the model can tell categories apart by meaning.
+func CategoryCriteria(active []CategoryChoice) map[string]any {
 	criteria := make(map[string]any, len(active)+1)
-	for _, slug := range active {
-		criteria[slug] = "active expense category"
+	for _, choice := range active {
+		label := strings.TrimSpace(choice.Label)
+		if label == "" {
+			label = "active expense category"
+		}
+		criteria[choice.Slug] = label
 	}
 	criteria["OTHER_OR_UNCLEAR"] = "no category is safe to choose"
 	return criteria

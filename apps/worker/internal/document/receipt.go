@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
@@ -46,8 +47,9 @@ type receiptExtraction struct {
 }
 
 type categoryOption struct {
-	ID   string
-	Slug string
+	ID    string
+	Slug  string
+	Label string
 }
 
 type receiptValidation struct {
@@ -263,7 +265,7 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 		// a category-only review into a confirmed expense; undecided or failure
 		// keeps the review. A provider outage, though, is infrastructure state:
 		// retry the job instead of creating a human task for a machine failure.
-		if id, provenance := p.receiptCategoryRescue(ctx, sourceID, value, categories); provenance.Decided {
+		if id, provenance := p.receiptCategoryRescue(ctx, sourceID, householdID, value, validation.TransactionAt, categories); provenance.Decided {
 			categoryID = &id
 			categoryDecision = provenance
 		} else if provenance.ProviderFailed {
@@ -563,7 +565,7 @@ func (p *Processor) receiptCategory(ctx context.Context, householdID string, val
 }
 
 func (p *Processor) documentCategories(ctx context.Context, householdID string) ([]categoryOption, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id,slug FROM category WHERE household_id=$1 AND active ORDER BY slug`, householdID)
+	rows, err := p.pool.Query(ctx, `SELECT c.id,c.slug,c.name,COALESCE(p.name,'') FROM category c LEFT JOIN category p ON p.id=c.parent_id WHERE c.household_id=$1 AND c.active ORDER BY c.slug`, householdID)
 	if err != nil {
 		return nil, err
 	}
@@ -571,9 +573,11 @@ func (p *Processor) documentCategories(ctx context.Context, householdID string) 
 	result := make([]categoryOption, 0)
 	for rows.Next() {
 		var value categoryOption
-		if err := rows.Scan(&value.ID, &value.Slug); err != nil {
+		var name, parentName string
+		if err := rows.Scan(&value.ID, &value.Slug, &name, &parentName); err != nil {
 			return nil, err
 		}
+		value.Label = categoryctx.Label(name, parentName)
 		result = append(result, value)
 	}
 	return result, rows.Err()

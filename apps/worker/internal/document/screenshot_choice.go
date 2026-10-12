@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
@@ -19,7 +20,7 @@ type jeverifier interface {
 
 // ScreenshotRowCategoryPolicyVersion marks the thresholds behind a row-level
 // category ruling, so a stored decision stays reproducible.
-const ScreenshotRowCategoryPolicyVersion = "2026-09-screenshot-category2"
+const ScreenshotRowCategoryPolicyVersion = "2026-10-screenshot-category3"
 
 // rowCategoryPolicy is the same decisive-answer bar the bank-email category and
 // Telegram category policies use (MinTop .85 / MinMargin .20): a confident,
@@ -52,18 +53,16 @@ func rowIndexFromKey(key string) (int, bool) {
 // Only a decisive, well-separated answer is returned; anything undecided stays
 // out of the map so the row keeps a minimal review. A provider failure is
 // returned as an error, never as an implicit approval.
-func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID string, rows []validatedScreenshotRow, categories []categoryOption) (map[int]string, rowChoiceProvenance, error) {
+func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID, householdID string, rows []validatedScreenshotRow, categories []categoryOption) (map[int]string, rowChoiceProvenance, error) {
 	provenance := rowChoiceProvenance{PolicyVersion: ScreenshotRowCategoryPolicyVersion}
 	if p.verifier == nil || len(categories) < 2 {
 		return nil, provenance, nil
 	}
 	bySlug := make(map[string]string, len(categories))
-	slugs := make([]string, 0, len(categories))
 	for _, category := range categories {
 		bySlug[category.Slug] = category.ID
-		slugs = append(slugs, category.Slug)
 	}
-	criteria := judgment.CategoryCriteria(slugs)
+	slugs, criteria := categoryQuestionCriteria(categories)
 	state := map[string]any{}
 	questions := map[string]judgment.Question{}
 	for index, row := range rows {
@@ -71,7 +70,7 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID stri
 			continue
 		}
 		key := rowQuestionKey(index)
-		state[key] = map[string]any{
+		rowState := map[string]any{
 			// Image-derived text is untrusted: delimit it so a crafted merchant cannot
 			// steer the ruling that authorises a canonical write.
 			"merchant":       "<untrusted_row_merchant>" + strings.TrimSpace(row.Value.Merchant) + "</untrusted_row_merchant>",
@@ -79,6 +78,19 @@ func (p *Processor) resolveRowCategories(ctx context.Context, sourceEventID stri
 			"amount_idr":     row.Value.Amount,
 			"transaction_at": row.Value.TransactionAt,
 		}
+		if row.DateKnown {
+			rowState["local_time"] = categoryctx.LocalTime(row.TransactionAt)
+		}
+		if p.pool != nil {
+			history, err := categoryctx.History(ctx, p.pool, householdID, row.Value.Merchant, slugs)
+			if err != nil {
+				return nil, provenance, err
+			}
+			if history != nil {
+				rowState[categoryctx.StateKey] = history
+			}
+		}
+		state[key] = rowState
 		provenance.QuestionKeys = append(provenance.QuestionKeys, key)
 		questions[key] = judgment.Question{Type: "choice", Instructions: "Which single household category best describes this expense row of a transaction screenshot? Answer with the closest supplied category slug, or OTHER_OR_UNCLEAR when no category is safe.", Criteria: criteria}
 	}
