@@ -78,7 +78,7 @@ func TestBankEmailB2DecisiveCategoryConfirmsWithoutReview(t *testing.T) {
 
 	// A decisive bounded answer resolves the canonical slug to its ID.
 	verifier := &stubVerifier{answers: map[string]judgment.Answer{
-		"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"})),
+		"category": choice("makanan-minuman", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}})),
 	}}
 	processor := &Processor{pool: pool, verifier: verifier}
 	// The decisive answer must turn the category review into a confirmation with no

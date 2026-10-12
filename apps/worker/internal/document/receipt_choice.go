@@ -5,15 +5,29 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
+
+// categoryQuestionCriteria offers every active category by the household's own
+// name, so the model tells categories apart by meaning rather than by slug.
+func categoryQuestionCriteria(categories []categoryOption) ([]string, map[string]any) {
+	slugs := make([]string, 0, len(categories))
+	choices := make([]judgment.CategoryChoice, 0, len(categories))
+	for _, category := range categories {
+		slugs = append(slugs, category.Slug)
+		choices = append(choices, judgment.CategoryChoice{Slug: category.Slug, Label: category.Label})
+	}
+	return slugs, judgment.CategoryCriteria(choices)
+}
 
 // ReceiptCategoryPolicyVersion marks the bar behind a receipt category rescue, so
 // a stored decision stays reproducible. It reuses the same decisive
 // answer policy as the screenshot row rescue and the Telegram category rescue.
-const ReceiptCategoryPolicyVersion = "2026-09-receipt-category1"
+const ReceiptCategoryPolicyVersion = "2026-10-receipt-category2"
 
 // errReceiptCategoryProviderUnavailable distinguishes a machine outage from an
 // undecided semantic answer, so the caller retries instead of minting a review.
@@ -34,18 +48,22 @@ type receiptCategoryProvenance struct {
 // category ID only for a decisive, well-separated answer; anything undecided or
 // a provider failure returns nil so the receipt keeps its category-only review
 // (BDR-001). A missing date is never a rescue input.
-func (p *Processor) receiptCategoryRescue(ctx context.Context, sourceEventID string, value receiptExtraction, categories []categoryOption) (string, receiptCategoryProvenance) {
+func (p *Processor) receiptCategoryRescue(ctx context.Context, sourceEventID, householdID string, value receiptExtraction, at time.Time, categories []categoryOption) (string, receiptCategoryProvenance) {
 	if p.verifier == nil || len(categories) < 2 {
 		return "", receiptCategoryProvenance{}
 	}
-	slugs := make([]string, 0, len(categories))
-	for _, category := range categories {
-		slugs = append(slugs, category.Slug)
-	}
-	criteria := judgment.CategoryCriteria(slugs)
+	slugs, criteria := categoryQuestionCriteria(categories)
 	state := map[string]any{
 		"user_text":  "<untrusted_receipt_merchant>" + strings.TrimSpace(value.Merchant) + "</untrusted_receipt_merchant>",
 		"amount_idr": value.Total,
+		"local_time": categoryctx.LocalTime(at),
+	}
+	history, err := categoryctx.History(ctx, p.pool, householdID, value.Merchant, slugs)
+	if err != nil {
+		return "", receiptCategoryProvenance{Asked: true, ProviderFailed: true}
+	}
+	if history != nil {
+		state[categoryctx.StateKey] = history
 	}
 	if len(value.Items) > 0 {
 		names := make([]string, 0, len(value.Items))

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -62,6 +63,10 @@ type jeverifier interface {
 // verifications, so a stored decision stays reproducible.
 const BankEmailVerificationPolicyVersion = "2026-09-jev4"
 
+// BankEmailCategoryPolicyVersion marks the category question's context and
+// thresholds: household names, same-merchant history and local time (ADR-053).
+const BankEmailCategoryPolicyVersion = "2026-10-bank-category2"
+
 // evidenceVerificationPolicy is the bank-email slice of the shared threshold
 // policy. A Noul here answers "does the email itself support this claim?".
 var evidenceVerificationPolicy = struct {
@@ -110,9 +115,12 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 		return "", categoryProvenance{}, nil
 	}
 	slugs := make([]string, 0, len(categories))
+	choices := make([]judgment.CategoryChoice, 0, len(categories))
 	for _, category := range categories {
 		slugs = append(slugs, category.Slug)
+		choices = append(choices, judgment.CategoryChoice{Slug: category.Slug, Label: category.Name})
 	}
+	criteria := judgment.CategoryCriteria(choices)
 	state := map[string]any{"amount_idr": value(extraction.AmountIDR)}
 	if merchant != "" {
 		state["merchant"] = "<untrusted_merchant>" + merchant + "</untrusted_merchant>"
@@ -123,25 +131,38 @@ func (p *Processor) resolveNewMerchantCategory(ctx context.Context, sourceEventI
 	if counterparty != "" {
 		state["counterparty"] = "<untrusted_counterparty>" + counterparty + "</untrusted_counterparty>"
 	}
+	// How this household already filed the same merchant, and when the purchase
+	// happened, are facts the model needs to rule on a merchant it cannot tell
+	// apart from its name alone (ADR-053).
+	history, err := categoryctx.History(ctx, p.pool, householdID, merchant, slugs)
+	if err != nil {
+		return "", categoryProvenance{}, err
+	}
+	if history != nil {
+		state[categoryctx.StateKey] = history
+	}
+	if extraction.TransactionAt != nil {
+		state["local_time"] = categoryctx.LocalTime(*extraction.TransactionAt)
+	}
 	// Category is the single open semantic dimension; this phase does not
 	// re-decide an already accepted category.
-	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", BankEmailVerificationPolicyVersion, []string{})
+	ctx = judgment.WithPhaseMetadata(ctx, "RESIDUAL_CATEGORY", BankEmailCategoryPolicyVersion, []string{})
 	result, err := p.verifier.Evaluate(ctx, sourceEventID+"-category", judgment.Request{
 		State: state,
 		Questions: map[string]judgment.Question{
-			"category": {Type: "choice", Instructions: bankCategoryQuestion, Criteria: judgment.CategoryCriteria(slugs)},
+			"category": {Type: "choice", Instructions: bankCategoryQuestion, Criteria: criteria},
 		},
 	})
 	if err != nil {
 		return "", categoryProvenance{}, err
 	}
 	answer, ok := result.Answers["category"]
-	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, judgment.CategoryCriteria(slugs), bankCategoryPolicy) {
+	if !ok || answer.Choice == "OTHER_OR_UNCLEAR" || !judgment.AcceptChoice(answer, criteria, bankCategoryPolicy) {
 		return "", categoryProvenance{}, nil
 	}
 	for _, category := range categories {
 		if category.Slug == answer.Choice {
-			return category.ID, categoryProvenance{Model: result.Model, PolicyVersion: BankEmailVerificationPolicyVersion, Slug: answer.Choice, Accepted: true}, nil
+			return category.ID, categoryProvenance{Model: result.Model, PolicyVersion: BankEmailCategoryPolicyVersion, Slug: answer.Choice, Accepted: true}, nil
 		}
 	}
 	return "", categoryProvenance{}, nil
@@ -157,10 +178,10 @@ type categoryProvenance struct {
 	Accepted      bool
 }
 
-type expenseCategory struct{ ID, Slug string }
+type expenseCategory struct{ ID, Slug, Name string }
 
 func (p *Processor) activeExpenseCategories(ctx context.Context, householdID string) ([]expenseCategory, error) {
-	rows, err := p.pool.Query(ctx, `SELECT id,slug FROM category WHERE household_id=$1 AND active AND parent_id IS NULL ORDER BY slug`, householdID)
+	rows, err := p.pool.Query(ctx, `SELECT id,slug,name FROM category WHERE household_id=$1 AND active AND parent_id IS NULL ORDER BY slug`, householdID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +189,7 @@ func (p *Processor) activeExpenseCategories(ctx context.Context, householdID str
 	var out []expenseCategory
 	for rows.Next() {
 		var category expenseCategory
-		if err := rows.Scan(&category.ID, &category.Slug); err != nil {
+		if err := rows.Scan(&category.ID, &category.Slug, &category.Name); err != nil {
 			return nil, err
 		}
 		out = append(out, category)

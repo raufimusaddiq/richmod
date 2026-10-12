@@ -253,7 +253,7 @@ func TestScreenshotKillSwitchSkipsResidualRescueAndKeepsCategoryReview(t *testin
 	processor := &Processor{pool: fixture.pool, verifier: verifier}
 	processor.SetRowAutoConfirm(false)
 	rows := []validatedScreenshotRow{unmatchedOutRow("25000")}
-	decided, provenance, err := processor.resolveScreenshotResidualCategories(ctx, fixture.sourceID, rows, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: fixture.secondCategoryID, Slug: fixture.secondCategorySlug}})
+	decided, provenance, err := processor.resolveScreenshotResidualCategories(ctx, fixture.sourceID, fixture.householdID, rows, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}, {ID: fixture.secondCategoryID, Slug: fixture.secondCategorySlug}})
 	if err != nil || verifier.calls != 0 || len(decided) != 0 {
 		t.Fatalf("disabled screenshot rollout must skip Jev: calls=%d decided=%v err=%v", verifier.calls, decided, err)
 	}

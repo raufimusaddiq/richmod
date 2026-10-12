@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
@@ -70,7 +71,7 @@ func TestCategoryVerifierAbsenceIsMachineFailureWhenEvidenceExists(t *testing.T)
 func TestT8CategoryDBQueryFailureIsMachineFailure(t *testing.T) {
 	ctx, pool := categoryBoundaryPool(t)
 	// A bogus household id makes the active-category query fail structurally.
-	category, provenance, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"}))}}}).resolveNewMerchantCategory(ctx, "se", "not-a-uuid", outgoingCard("54000", "Toko"))
+	category, provenance, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("makanan-minuman", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}}))}}}).resolveNewMerchantCategory(ctx, "se", "not-a-uuid", outgoingCard("54000", "Toko"))
 	if err == nil {
 		t.Fatalf("a category DB failure must propagate, got category=%q provenance=%+v", category, provenance)
 	}
@@ -85,7 +86,7 @@ func TestT9UndecidedCategoryKeepsResidualReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	undecided := PolicyResult{Status: "NEEDS_REVIEW", ReviewType: "AMBIGUOUS_CATEGORY"}
-	kept, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("OTHER_OR_UNCLEAR", judgment.CategoryCriteria([]string{"makanan-minuman"}))}}}).applyCategoryDecision(ctx, "se", householdID, outgoingCard("54000", "Toko"), undecided)
+	kept, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("OTHER_OR_UNCLEAR", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}}))}}}).applyCategoryDecision(ctx, "se", householdID, outgoingCard("54000", "Toko"), undecided)
 	if err != nil {
 		t.Fatalf("an undecided answer is not a machine failure: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestT10DecisiveCategoryConfirms(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := PolicyResult{Status: "NEEDS_REVIEW", ReviewType: "AMBIGUOUS_CATEGORY"}
-	decided, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("makanan-minuman", judgment.CategoryCriteria([]string{"makanan-minuman"}))}}}).applyCategoryDecision(ctx, "se", householdID, outgoingCard("54000", "Toko"), result)
+	decided, err := (&Processor{pool: pool, verifier: &stubVerifier{answers: map[string]judgment.Answer{"category": choice("makanan-minuman", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}}))}}}).applyCategoryDecision(ctx, "se", householdID, outgoingCard("54000", "Toko"), result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,4 +135,67 @@ func createCategoryBoundaryHousehold(t *testing.T, ctx context.Context, pool *pg
 		t.Fatal(err)
 	}
 	return householdID
+}
+
+// The category question carries the household's own category names, how this
+// household already filed the same merchant (sub-categories roll up to the
+// offered parent), and the local purchase time. Other households, unconfirmed
+// transactions and other merchants are never part of the precedent.
+func TestCategoryQuestionCarriesHouseholdPrecedent(t *testing.T) {
+	ctx, pool := categoryBoundaryPool(t)
+	householdID := createCategoryBoundaryHousehold(t, ctx, pool)
+	otherHousehold := createCategoryBoundaryHousehold(t, ctx, pool)
+	var parentID, childID, otherParent string
+	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','makanan-minuman') RETURNING id", householdID).Scan(&parentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,parent_id,name,slug) VALUES($1,$2,'Kopi & Camilan','kopi-camilan') RETURNING id", householdID, parentID).Scan(&childID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Transportasi','transportasi') RETURNING id", householdID).Scan(&otherParent); err != nil {
+		t.Fatal(err)
+	}
+	var otherHouseholdCategory string
+	if err := pool.QueryRow(ctx, "INSERT INTO category(household_id,name,slug) VALUES($1,'Lainnya','lainnya') RETURNING id", otherHousehold).Scan(&otherHouseholdCategory); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(household, merchant, status, category string) {
+		t.Helper()
+		var merchantID string
+		if err := pool.QueryRow(ctx, "INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=now() RETURNING id", household, merchant).Scan(&merchantID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, "INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,confirmed_at) VALUES($1,'EXPENSE',$2,25000,'IDR',now(),$3,$4,CASE WHEN $2='CONFIRMED' THEN now() END)", household, status, merchantID, category); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(householdID, "Kopi Tuku", "CONFIRMED", childID)
+	insert(householdID, "KOPI TUKU", "CONFIRMED", parentID)
+	insert(householdID, "Kopi Tuku", "NEEDS_REVIEW", otherParent)
+	insert(householdID, "Gojek", "CONFIRMED", otherParent)
+	insert(otherHousehold, "Kopi Tuku", "CONFIRMED", otherHouseholdCategory)
+
+	verifier := &stubVerifier{answers: map[string]judgment.Answer{"category": choice("OTHER_OR_UNCLEAR", judgment.CategoryCriteria([]judgment.CategoryChoice{{Slug: "makanan-minuman"}, {Slug: "transportasi"}}))}}
+	if _, _, err := (&Processor{pool: pool, verifier: verifier}).resolveNewMerchantCategory(ctx, "se", householdID, outgoingCard("54000", "Kopi  Tuku")); err != nil {
+		t.Fatal(err)
+	}
+	state, ok := verifier.request.State.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected state %T", verifier.request.State)
+	}
+	history, _ := state[categoryctx.StateKey].(map[string]any)
+	categories, _ := history["categories"].(map[string]any)
+	if history["confirmed_before"] != 2 || len(categories) != 1 || categories["makanan-minuman"] != 2 {
+		t.Fatalf("precedent must count only this household's confirmed same-merchant expenses, rolled up to offered categories: %+v", history)
+	}
+	if state["local_time"] == nil {
+		t.Fatalf("the purchase moment is part of the question: %+v", state)
+	}
+	criteria, _ := verifier.request.Questions["category"].Criteria.(map[string]any)
+	if criteria["makanan-minuman"] != "Makanan & Minuman" || criteria["transportasi"] != "Transportasi" {
+		t.Fatalf("categories must be described by the household's own names: %+v", criteria)
+	}
+	if _, offered := criteria["kopi-camilan"]; offered {
+		t.Fatalf("the bank-email choice stays top-level categories: %+v", criteria)
+	}
 }
