@@ -335,8 +335,11 @@ type turnAgentContextState struct {
 	RecentTurns []PublicTurn
 }
 
+// mutationAuthorityUnavailable withholds side effects only when a judgment plane
+// is configured and did not authorize this turn. With none configured (ADR-052)
+// the route is not a gate: Go validation decides every mutation.
 func mutationAuthorityUnavailable(configured bool, state turnAgentContextState) bool {
-	return !state.ExactReply && (!configured || state.Route == "" || state.Route == "OTHER_OR_UNCLEAR" || state.Route == "OUT_OF_SCOPE")
+	return configured && !state.ExactReply && (state.Route == "" || state.Route == "OTHER_OR_UNCLEAR" || state.Route == "OUT_OF_SCOPE")
 }
 
 func (s turnAgentContextState) harvestable() bool {

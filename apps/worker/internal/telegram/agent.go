@@ -219,6 +219,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
 		return err
 	}
+	// Without a judgment plane (ADR-052) Go validation is the only mutation
+	// authority: the generative agent serves every turn with the tools that apply
+	// to the household's current state.
+	if !p.judgmentPlaneConfigured {
+		judgmentState.Route = "NEEDS_GENERATIVE_AGENT"
+	}
 
 	generalTools := agentFinanceTools(
 		categories,
@@ -229,7 +235,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.HasSalaryChoice,
 		contextState.HasMerchantLearning,
 		contextState.ReviewMode,
-		p.judgmentPlaneConfigured,
+		// The catalog is never degraded to READ-only here: with no judgment plane
+		// (ADR-052) Go validation authorizes writes; with one, the route gate below
+		// still withholds them.
+		true,
 	)
 	// Jev owns bounded mutation authorization. A provider failure, undecided
 	// route, or out-of-scope route leaves conversation and canonical READ tools
@@ -238,7 +247,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
 		generalTools = readOnlyAgentTools(generalTools)
 	}
-	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
+	tools, workflowScope := generalTools, agentWorkflowGeneral
+	if p.judgmentPlaneConfigured || explicitReply {
+		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
+	}
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
 	focusReviewArguments(tools, reviewBinding)
 
@@ -285,11 +297,14 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// interaction. Chat state alone never gets to own the turn (ADR-038
 	// amendment). Exact bindings (pending action/batch/salary, explicit reply)
 	// narrow unconditionally and so always keep their binding attached.
-	if workflowScope == agentWorkflowUniqueReview || workflowScope == agentWorkflowExactReview {
+	// With no judgment plane (ADR-052) there is no route to name the interaction,
+	// so a unique server-found binding is attached while the catalog stays whole.
+	noPlaneUnique := !p.judgmentPlaneConfigured && !explicitReply
+	if workflowScope == agentWorkflowUniqueReview || workflowScope == agentWorkflowExactReview || (noPlaneUnique && reviewBinding != nil) {
 		state.ReviewBinding = reviewBinding
 		state.ReviewBindingCount = reviewCount
 	}
-	if workflowScope == agentWorkflowMerchantLearning || workflowScope == agentWorkflowExactMerchant {
+	if workflowScope == agentWorkflowMerchantLearning || workflowScope == agentWorkflowExactMerchant || (noPlaneUnique && merchantBinding != nil) {
 		state.MerchantLearningBinding = merchantBinding
 		state.MerchantLearningCount = merchantCount
 	}

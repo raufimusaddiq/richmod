@@ -61,12 +61,16 @@ func TestDegradedPathIsNotKeywordGated(t *testing.T) {
 	}
 }
 
-func TestExactReplyRetainsBoundMutationAuthorityWhenJevUnavailable(t *testing.T) {
-	if mutationAuthorityUnavailable(false, turnAgentContextState{ExactReply: true}) {
-		t.Fatal("an exact server-bound reply must retain its bound tool when Jev is unavailable")
+func TestMutationAuthorityGateOnlyAppliesWithAJudgmentPlane(t *testing.T) {
+	if mutationAuthorityUnavailable(true, turnAgentContextState{ExactReply: true}) {
+		t.Fatal("an exact server-bound reply must retain its bound tool")
 	}
-	if !mutationAuthorityUnavailable(false, turnAgentContextState{}) {
-		t.Fatal("an unbound turn must lose mutation tools when Jev is unavailable")
+	if !mutationAuthorityUnavailable(true, turnAgentContextState{Route: "OTHER_OR_UNCLEAR"}) {
+		t.Fatal("a configured plane that did not authorize the turn withholds mutation tools")
+	}
+	// ADR-052: with no judgment plane, Go validation is the authority.
+	if mutationAuthorityUnavailable(false, turnAgentContextState{}) {
+		t.Fatal("without a judgment plane an ordinary turn keeps its mutation tools")
 	}
 }
 

@@ -2,7 +2,7 @@
 
 An ADR records a decision that changes architecture, infrastructure, or a security boundary. `AGENTS.md` requires one before any material architecture change or new infrastructure. Product decisions live in [`../bdr/`](../bdr/) as Business Decision Records.
 
-- **Adding one:** use the next number, **ADR-052**, and the file name `ADR-052-short-title.md` with Context, Decision and Status sections like the existing records.
+- **Adding one:** use the next number, **ADR-053**, and the file name `ADR-053-short-title.md` with Context, Decision and Status sections like the existing records.
 - **Current versus superseded:** the Status line of each record is authoritative. Where an ADR was amended, the Status names the amending ADR; read both.
 - **Duplicate number:** ADR-033 is used by two records on different topics. Both are current. References elsewhere in the docs use the full file name, so this index lists both rows rather than renaming either.
 
@@ -62,3 +62,4 @@ This table is generated from each file's title and Status by `scripts/generate-a
 | [ADR-049](ADR-049-failed-sources-surface-as-actions.md) | Failed Sources Surface as Dismissable Actions | Accepted — 2026-10-02. |
 | [ADR-050](ADR-050-conversational-evidence-understanding.md) | Conversational Evidence Understanding (CEU) | Accepted — 2026-10-03 (design merged in PR #283; owner decisions recorded below). |
 | [ADR-051](ADR-051-release-retirement-of-unused-capabilities.md) | Release retirement of unused capabilities | Accepted — 2026-10-03. Supersedes ADR-014. Supersedes the `shadow` and `primary` interpretation stages of ADR-037; ADR-037's one-pass field repair stays in force. |
+| [ADR-052](ADR-052-telegram-without-judgment-plane.md) | Telegram runs without the judgment plane | Accepted — 2026-10-12. Amends ADR-038 and ADR-045 for the Telegram conversational agent. |

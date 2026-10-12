@@ -1,0 +1,38 @@
+# ADR-052: Telegram runs without the judgment plane
+
+## Status
+
+Accepted — 2026-10-12. Amends ADR-038 and ADR-045 for the Telegram conversational agent.
+
+## Context
+
+ADR-038/045 made the System One (Jev) route decision the gate for every Telegram
+mutation: a route of `OTHER_OR_UNCLEAR`, a rejected route, or no route removed
+`record_transaction` from the agent. In production a plain follow-up ("jam 3 sore"
+after the agent asked "pagi atau sore?") was rejected or classified unclear three
+times in a row, so a clearly stated expense was never recorded. A guard meant to
+prevent wrong writes was refusing correct ones, and the failure was invisible to
+the user ("belum tercatat; coba lagi nanti").
+
+## Decision
+
+The worker no longer wires Jev into the Telegram processor. Go validation is the
+only mutation authority: the agent receives the tools that apply to the household's
+current state (pending action/batch, salary choice, review, merchant learning), every
+write still passes deterministic validation, a complete extraction is accepted by
+`directAcceptanceDecision`, and any dimension that cannot be settled
+deterministically (for example an unknown category) goes to the Review Inbox rather
+than being guessed. Exact server-bound replies keep their narrowed tool set.
+
+Jev stays only as the evidence verifier for bank email, documents and financial
+email; it never decides a Telegram turn.
+
+## Consequences
+
+- Telegram records what the user states; ambiguity becomes a review, not a refusal.
+- Fast-path reads (spending, cashflow, savings, wealth) are served by the agent's
+  native READ tools instead of a bounded route.
+- `record_transfer` without an explicit purpose reports `JUDGMENT_UNAVAILABLE`
+  until a deterministic purpose rule replaces it.
+- The judgment code in `apps/worker/internal/telegram` is now unreachable from the
+  worker and can be deleted in a follow-up.
