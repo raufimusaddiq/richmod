@@ -297,11 +297,14 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// interaction. Chat state alone never gets to own the turn (ADR-038
 	// amendment). Exact bindings (pending action/batch/salary, explicit reply)
 	// narrow unconditionally and so always keep their binding attached.
-	if workflowScope == agentWorkflowUniqueReview || workflowScope == agentWorkflowExactReview {
+	// With no judgment plane (ADR-052) there is no route to name the interaction,
+	// so a unique server-found binding is attached while the catalog stays whole.
+	noPlaneUnique := !p.judgmentPlaneConfigured && !explicitReply
+	if workflowScope == agentWorkflowUniqueReview || workflowScope == agentWorkflowExactReview || (noPlaneUnique && reviewBinding != nil) {
 		state.ReviewBinding = reviewBinding
 		state.ReviewBindingCount = reviewCount
 	}
-	if workflowScope == agentWorkflowMerchantLearning || workflowScope == agentWorkflowExactMerchant {
+	if workflowScope == agentWorkflowMerchantLearning || workflowScope == agentWorkflowExactMerchant || (noPlaneUnique && merchantBinding != nil) {
 		state.MerchantLearningBinding = merchantBinding
 		state.MerchantLearningCount = merchantCount
 	}
