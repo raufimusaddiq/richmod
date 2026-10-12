@@ -128,10 +128,9 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 	if !ok || amount.Sign() <= 0 || amount.String() != value.Amount {
 		return TransactionSemanticDecision{}, false
 	}
-	// Date provenance must be explicit. OBSERVED_AT_PROCESSING means the caller
-	// fell back to processing time, which is not an observed transaction time and
-	// must never be canonicalized as one.
-	if !acceptableDateProvenance(value.DateProvenance) || value.TransactionAt.IsZero() || now.IsZero() {
+	// A date nobody stated may only be the message's own moment; see
+	// acceptableTransactionTime.
+	if !acceptableTransactionTime(value, now) || value.TransactionAt.IsZero() || now.IsZero() {
 		return TransactionSemanticDecision{}, false
 	}
 	// Confidence is intentionally not a canonical gate. It cannot authorize an
@@ -165,10 +164,17 @@ func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {
 	return nil
 }
 
-// acceptableDateProvenance reports whether the resolved date came from source
-// evidence or an explicit user statement, rather than the processing fallback.
-func acceptableDateProvenance(provenance string) bool {
-	return provenance == "USER_STATED"
+// acceptableTransactionTime reports whether the transaction time is one the
+// household can stand behind. An explicit user statement always qualifies. When
+// the message states no date, the moment the household sent it is the observed
+// time of an in-the-moment entry ("beli bensin 26k"), so the observation is
+// accepted only if it is exactly that moment. A date the model supplied on its own
+// (for example "yesterday" the user never wrote) is never promoted.
+func acceptableTransactionTime(value validatedExtraction, now time.Time) bool {
+	if value.DateProvenance == "USER_STATED" {
+		return true
+	}
+	return value.TimePrecision == "OBSERVED_AT_PROCESSING" && value.TransactionAt.Equal(now.Truncate(time.Minute))
 }
 
 // recordJudgmentDecision persists bounded decision provenance in the same
