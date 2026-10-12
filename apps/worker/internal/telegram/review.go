@@ -611,15 +611,16 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 }
 
 // incomeReviewChoice reads the bounded reply to the income confirmation prompt
-// ("penghasilan" to record, "transfer sendiri" to ignore) with fixed keywords.
-// Anything else is unclear and the prompt is repeated.
+// ("penghasilan" to record, "transfer sendiri" to ignore). Only an exact
+// normalized answer counts: a negation, a question or any longer sentence is
+// unclear, because the answer changes financial state. Unclear repeats the prompt.
 func incomeReviewChoice(text string) string {
-	normalized := " " + strings.ToLower(strings.Join(strings.Fields(text), " ")) + " "
-	switch {
-	case strings.Contains(normalized, "transfer") || strings.Contains(normalized, "bukan"):
-		return "REJECT"
-	case strings.Contains(normalized, "penghasilan") || strings.Contains(normalized, "pemasukan") || strings.Contains(normalized, "income") || strings.Contains(normalized, "gaji"):
+	normalized := strings.ToLower(strings.Trim(strings.Join(strings.Fields(text), " "), " .,!?"))
+	switch normalized {
+	case "penghasilan", "pemasukan", "income":
 		return "CONFIRM"
+	case "transfer sendiri", "transfer":
+		return "REJECT"
 	}
 	return ""
 }
