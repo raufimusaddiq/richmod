@@ -17,7 +17,7 @@ const agentWorkflowExactEvidence agentWorkflowScope = "EXACT_EVIDENCE"
 // agentWorkflowEvidenceReadOnly is a reply bound to evidence for which the catalog
 // has no mutation lane: the evidence is not linked to a transaction, or the
 // correction tool is absent (for example when mutation authority is unavailable).
-// The scope string reaches the model and the judgment plane, so it must describe
+// The scope string reaches the model, so it must describe
 // the real catalog.
 const agentWorkflowEvidenceReadOnly agentWorkflowScope = "EVIDENCE_READ_ONLY"
 

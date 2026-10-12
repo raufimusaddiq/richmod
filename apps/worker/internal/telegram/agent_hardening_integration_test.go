@@ -19,7 +19,6 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 	mustAgentTest(t, err)
 
 	p := NewProcessor(f.pool, nil)
-	f.state.Route = "NEEDS_GENERATIVE_AGENT"
 	f.state.Update.Message.Text = "Gacoan 83000 hari ini"
 	result, synthesize, err := p.agentRecordTransaction(ctx, f.state, gateway.ToolCall{CallID: "new-gacoan", Name: "record_transaction"}, map[string]any{
 		"type":                "EXPENSE",

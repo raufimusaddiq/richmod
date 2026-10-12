@@ -34,5 +34,9 @@ email; it never decides a Telegram turn.
   native READ tools instead of a bounded route.
 - `record_transfer` without an explicit purpose reports `JUDGMENT_UNAVAILABLE`
   until a deterministic purpose rule replaces it.
-- The judgment code in `apps/worker/internal/telegram` is now unreachable from the
-  worker and can be deleted in a follow-up.
+- The judgment code is deleted from `apps/worker/internal/telegram`: the Jev route
+  fast path, route lanes, bounded workflow/transfer-purpose questions, turn
+  telemetry, and the mutation-authority gate. The income-review confirmation
+  prompt now reads its reply with fixed keywords (it previously needed Jev and
+  failed without it). The shared `judgment` / `judgment/systemone` packages stay
+  for the evidence verifiers.

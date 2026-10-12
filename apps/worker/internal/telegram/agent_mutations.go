@@ -42,9 +42,6 @@ func (p *Processor) executeAgentSideEffect(ctx context.Context, state *agentStat
 
 func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentState, call gateway.ToolCall, args map[string]any, metadata gateway.Metadata) (agentToolResult, bool, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
-	if state.Route != "CREATE_TRANSACTION" && state.Route != "NEEDS_GENERATIVE_AGENT" {
-		return result, true, fmt.Errorf("record_transaction is not authorized for route %q", state.Route)
-	}
 	value, err := nativeValidatedExtraction(args, state.Now)
 	if err != nil {
 		return result, true, fmt.Errorf("invalid transaction proposal: %w", err)

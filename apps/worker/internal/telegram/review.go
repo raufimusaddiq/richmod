@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 const reviewPrompt = `Interpret one reply to a specifically bound household transaction review.
@@ -157,11 +156,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		amount := strings.TrimSpace(update.Message.Text)
 		incomeConfirmed := false
 		if amountState == "AWAITING_CONFIRMATION" {
-			choice, choiceErr := p.incomeReviewChoice(ctx, amountSourceID, amount)
-			if choiceErr != nil {
-				return true, choiceErr
-			}
-			switch choice {
+			switch incomeReviewChoice(amount) {
 			case "CONFIRM":
 				amount, incomeConfirmed = stagedAmount, true
 			case "REJECT":
@@ -615,31 +610,18 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) incomeReviewChoice(ctx context.Context, sourceEventID, text string) (string, error) {
-	criteria := map[string]string{
-		"CONFIRM":          "the transaction is household income",
-		"REJECT":           "the transaction is not income, such as an own-account transfer",
-		"OTHER_OR_UNCLEAR": "the message does not answer this bounded choice",
+// incomeReviewChoice reads the bounded reply to the income confirmation prompt
+// ("penghasilan" to record, "transfer sendiri" to ignore) with fixed keywords.
+// Anything else is unclear and the prompt is repeated.
+func incomeReviewChoice(text string) string {
+	normalized := " " + strings.ToLower(strings.Join(strings.Fields(text), " ")) + " "
+	switch {
+	case strings.Contains(normalized, "transfer") || strings.Contains(normalized, "bukan"):
+		return "REJECT"
+	case strings.Contains(normalized, "penghasilan") || strings.Contains(normalized, "pemasukan") || strings.Contains(normalized, "income") || strings.Contains(normalized, "gaji"):
+		return "CONFIRM"
 	}
-	result, err := p.evaluate(ctx, judgmentTaskReviewAction, sourceEventID, judgment.Request{
-		State:     map[string]any{"user_text": untrustedUser(text), "bound_workflow": "INCOME_REVIEW"},
-		Questions: map[string]judgment.Question{"income_action": {Type: "choice", Instructions: "Choose whether this exact bound transaction review is household income. Do not infer missing financial facts.", Criteria: judgment.ChoiceCriteria(criteria)}},
-	})
-	if err != nil {
-		p.metrics.recordDecision(ctx, judgmentTaskReviewAction, judgmentOutcomeProviderFailure)
-		return "", err
-	}
-	answer, ok := result.Answers["income_action"]
-	if !ok || !judgment.AcceptChoice(answer, judgment.ChoiceCriteria(criteria), judgmentPolicy.Server) {
-		p.metrics.recordDecision(ctx, judgmentTaskReviewAction, judgmentOutcomeClarification)
-		return "", nil
-	}
-	if answer.Choice != "CONFIRM" && answer.Choice != "REJECT" && answer.Choice != "OTHER_OR_UNCLEAR" {
-		p.metrics.recordDecision(ctx, judgmentTaskReviewAction, judgmentOutcomeRejected)
-		return "", nil
-	}
-	p.metrics.recordDecision(ctx, judgmentTaskReviewAction, judgmentOutcomeAccepted)
-	return answer.Choice, nil
+	return ""
 }
 
 // ignoreFinancialEmailFacts resolves a FINANCIAL_EMAIL_FACTS review: the provider

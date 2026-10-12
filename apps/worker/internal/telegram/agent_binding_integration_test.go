@@ -25,22 +25,18 @@ func TestStandaloneMerchantReviewAnswerForOwnerAndMember(t *testing.T) {
 				{ToolCalls: []gateway.ToolCall{{CallID: "merchant-answer", Name: "resolve_review", Arguments: json.RawMessage(`{"action":"CONFIRM","merchant":"grab"}`)}}},
 				{Text: "Detail review sudah diperbarui."},
 			}}
-			p, engine := evidenceTurnProcessor(f, model, "REVIEW_INTERACTION")
+			p := evidenceTurnProcessor(f, model)
 			sourceID, err := runEvidenceTurn(t, ctx, f, p, "grab", 0)
 			mustAgentTest(t, err)
-			payload := engine.requests[0].State.(map[string]any)
-			if payload["active_review_count"] != 1 || payload["active_review"].(map[string]any)["awaiting_field"] != "merchant" {
-				t.Fatalf("route lacks merchant review context: %v", payload)
-			}
-			raw, err := json.Marshal(payload)
+			turn := model.turnContext(t, 0)
+			raw, err := json.Marshal(turn)
 			mustAgentTest(t, err)
 			for _, id := range []string{reviewID, transactionID, f.householdID, f.userID} {
 				if strings.Contains(string(raw), id) {
-					t.Fatal("route request exposes a canonical ID")
+					t.Fatal("model-visible turn exposes a canonical ID")
 				}
 			}
-			turn := model.turnContext(t, 0)
-			if turn["workflow_scope"] != string(agentWorkflowUniqueReview) || !model.toolNames(0)["resolve_review"] || model.toolNames(0)["record_transaction"] {
+			if turn["workflow_scope"] != string(agentWorkflowGeneral) || !model.toolNames(0)["resolve_review"] {
 				t.Fatalf("wrong workflow: %v tools=%v", turn, model.toolNames(0))
 			}
 			var status, merchant, conversation string
@@ -55,36 +51,35 @@ func TestStandaloneMerchantReviewAnswerForOwnerAndMember(t *testing.T) {
 	}
 }
 
-func TestStandaloneReviewRejectedRouteKeepsReviewUntouched(t *testing.T) {
+func TestStandaloneReviewUntouchedWhenModelDoesNotResolveIt(t *testing.T) {
 	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "standalone-rejected")
+	f := newAgentIntegrationFixture(t, "standalone-untouched")
 	reviewID, transactionID := createAgentTransactionReview(t, ctx, f, "36500", 842)
 	model := &capturingGateway{}
 	p := NewProcessor(f.pool, model)
-	p.SetJudgment(&stubJudgmentEngine{}) // No acceptable route answer.
 	_, err := runEvidenceTurn(t, ctx, f, p, "grab", 0)
 	mustAgentTest(t, err)
-	if model.turnContext(t, 0)["mutation_authority_unavailable"] != true || len(sideEffectNames(model.requests[0].Tools)) != 0 {
-		t.Fatal("a rejected route granted mutation authority")
+	if len(model.requests) == 0 {
+		t.Fatal("the turn did not reach the agent")
 	}
 	var reviewStatus, transactionStatus string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT r.status,t.status FROM review_request r JOIN transaction t ON t.id=r.transaction_id WHERE r.id=$1 AND t.id=$2`, reviewID, transactionID).Scan(&reviewStatus, &transactionStatus))
 	if reviewStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" {
-		t.Fatalf("rejected route changed review=%s transaction=%s", reviewStatus, transactionStatus)
+		t.Fatalf("a turn with no resolving tool call changed review=%s transaction=%s", reviewStatus, transactionStatus)
 	}
 }
 
-func TestStandaloneReviewAmbiguityOnlyListsReviews(t *testing.T) {
+func TestStandaloneReviewAmbiguityDoesNotExposeResolveReview(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "standalone-ambiguous")
 	createAgentTransactionReview(t, ctx, f, "36500", 842)
 	createAgentTransactionReview(t, ctx, f, "70000", 844)
 	model := &capturingGateway{}
-	p, _ := evidenceTurnProcessor(f, model, "REVIEW_INTERACTION")
+	p := evidenceTurnProcessor(f, model)
 	_, err := runEvidenceTurn(t, ctx, f, p, "grab", 0)
 	mustAgentTest(t, err)
-	if len(model.requests) != 0 || countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW' AND merchant_id IS NULL`, f.householdID) != 2 {
-		t.Fatal("ambiguous reviews reached a mutation lane or changed transactions")
+	if len(model.requests) == 0 || model.toolNames(0)["resolve_review"] || countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW' AND merchant_id IS NULL`, f.householdID) != 2 {
+		t.Fatal("ambiguous reviews exposed a review mutation tool or changed transactions")
 	}
 }
 

@@ -67,7 +67,6 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 			}
 			model := &merchantReplyGateway{}
 			p := NewProcessor(f.pool, model)
-			p.SetJudgment(eagerEngine{})
 			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 			if mode == "remembered" {
 				// "Beli aset" is a deterministic callback, so it arrives on the
@@ -103,8 +102,8 @@ func TestMerchantFirstActiveAgentReply(t *testing.T) {
 				t.Fatalf("merchant reply did not advance decision: %s", stored)
 			}
 			if mode == "remembered" || mode == "legacy-card" {
-				if status != "CONFIRMED" || gotCategory != categoryID || model.calls != 0 {
-					t.Fatalf("learned merchant result=%s category=%s calls=%d", status, gotCategory, model.calls)
+				if status != "CONFIRMED" || gotCategory != categoryID {
+					t.Fatalf("learned merchant result=%s category=%s", status, gotCategory)
 				}
 				mustAgentTest(t, p.ProcessAgent(ctx, f.sourceID)) // idempotent replay
 				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT state FROM review_conversation WHERE review_request_id=$1`, reviewID).Scan(&conversation))

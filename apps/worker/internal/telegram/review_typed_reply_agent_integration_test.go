@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
@@ -32,41 +31,14 @@ func (g *typedReplyGateway) AgentTurn(context.Context, string, gateway.AgentRequ
 	return gateway.AgentResponse{Text: "Sudah dicatat."}, nil
 }
 
-// reviewAnswerEngine is Jev answering a typed review reply: it routes a plain
-// message to the one open review, and for the review action either confirms or
-// cannot tell (the generative model then reads the reply).
-type reviewAnswerEngine struct{ reviewAction string }
-
-func (e reviewAnswerEngine) Evaluate(ctx context.Context, model string, request judgment.Request) (judgment.Result, error) {
-	result, err := eagerEngine{}.Evaluate(ctx, model, request)
-	if question, ok := request.Questions["route"]; ok {
-		if criteria, ok := question.Criteria.(map[string]any); ok {
-			if _, has := criteria["REVIEW_INTERACTION"]; has {
-				result.Answers["route"] = confidentChoice(criteria, "REVIEW_INTERACTION")
-			}
-		}
-	}
-	if question, ok := request.Questions["review_action"]; ok && e.reviewAction != "" {
-		if criteria, ok := question.Criteria.(map[string]any); ok {
-			if _, has := criteria[e.reviewAction]; has {
-				result.Answers["review_action"] = confidentChoice(criteria, e.reviewAction)
-			}
-		}
-	}
-	return result, err
-}
-
-// typedReplyModes covers an exact reply and a plain message, each with Jev
-// confirming and with Jev unable to tell.
+// typedReplyModes covers an exact reply and a plain message to the one open
+// review.
 var typedReplyModes = []struct {
-	name   string
-	reply  bool
-	action string
+	name  string
+	reply bool
 }{
-	{"reply, Jev confirms", true, "CONFIRM"},
-	{"reply, Jev unclear", true, "OTHER_OR_UNCLEAR"},
-	{"plain, Jev confirms", false, "CONFIRM"},
-	{"plain, Jev unclear", false, "OTHER_OR_UNCLEAR"},
+	{"reply", true},
+	{"plain", false},
 }
 
 func sendTypedReviewReply(t *testing.T, ctx context.Context, f agentIntegrationFixture, p *Processor, reviewID, text string, reply bool) {
@@ -108,7 +80,6 @@ func TestTypedDetailReplyCompletesReview(t *testing.T) {
 				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
 				p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","description":"makan siang tim"}`})
-				p.SetJudgment(reviewAnswerEngine{reviewAction: mode.action})
 				sendTypedReviewReply(t, ctx, f, p, reviewID, "makan siang tim", mode.reply)
 
 				var status, description, itemStatus string
@@ -129,9 +100,6 @@ func TestTypedDetailReplyCompletesReview(t *testing.T) {
 // them and queues the same completion job the Web uses.
 func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 	for _, mode := range typedReplyModes {
-		if mode.action == "OTHER_OR_UNCLEAR" {
-			continue // COMPLETE_BANK_FACTS always needs extracted values
-		}
 		t.Run(mode.name, func(t *testing.T) {
 			ctx := context.Background()
 			f := newAgentIntegrationFixture(t, "typed-bank")
@@ -152,7 +120,6 @@ func TestTypedBankFactsReplyQueuesCompletion(t *testing.T) {
 			mustAgentTest(t, tx.Commit(ctx))
 
 			p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
-			p.SetJudgment(reviewAnswerEngine{reviewAction: "COMPLETE_BANK_FACTS"})
 			sendTypedReviewReply(t, ctx, f, p, reviewID, "54rb tadi siang 13.45", mode.reply)
 
 			var payload string
@@ -187,7 +154,6 @@ func TestTypedDateOnCompoundCardAdvancesToCategory(t *testing.T) {
 			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
 			p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","transaction_at":"2026-10-03"}`})
-			p.SetJudgment(reviewAnswerEngine{reviewAction: mode.action})
 			sendTypedReviewReply(t, ctx, f, p, reviewID, "2026-10-03", mode.reply)
 
 			var at time.Time
@@ -216,7 +182,6 @@ func TestTypedPurposeThenCategoryButtonCompletes(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
 	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM","description":"makan siang tim"}`})
-	p.SetJudgment(reviewAnswerEngine{reviewAction: "CONFIRM"})
 	sendTypedReviewReply(t, ctx, f, p, reviewID, "makan siang tim", true)
 
 	var description, state string
@@ -256,7 +221,6 @@ func TestTypedAmountReplyRecordsScreenshotRow(t *testing.T) {
 	mustAgentTest(t, tx.Commit(ctx))
 
 	p := NewProcessor(f.pool, &typedReplyGateway{arguments: `{"action":"CONFIRM"}`})
-	p.SetJudgment(reviewAnswerEngine{reviewAction: "CONFIRM"})
 	sendTypedReviewReply(t, ctx, f, p, reviewID, "34000", true)
 
 	var amount, status, itemStatus string

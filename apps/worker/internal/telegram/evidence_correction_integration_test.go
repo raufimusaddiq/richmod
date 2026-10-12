@@ -39,7 +39,7 @@ func TestCategoryReplyToALinkedReceiptStagesACorrectionOnThatTransactionOnly(t *
 		}
 		return gateway.AgentResponse{Text: "Kategori diubah setelah kamu konfirmasi."}
 	}}
-	p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	p := evidenceTurnProcessor(f, model)
 
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
 	_, err := runEvidenceTurn(t, ctx, f, p, "yang ini salah kategorinya, makan", 101) // reply to receipt A, with receipt B also in the chat
@@ -87,7 +87,7 @@ func TestCorrectionRefusesATargetThatIsNotAnIssuedRefForThisHousehold(t *testing
 			}
 			return gateway.AgentResponse{Text: "Tidak bisa."}
 		}}
-		p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+		p := evidenceTurnProcessor(f, model)
 		_, _ = runEvidenceTurn(t, ctx, f, p, "salah kategori", 101)
 		if n := countRows(t, ctx, f, `SELECT count(*) FROM telegram_pending_action WHERE household_id=$1`, f.householdID); n != 0 {
 			t.Fatalf("%s: a correction was staged for an unissued target", name)

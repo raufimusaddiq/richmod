@@ -362,10 +362,9 @@ func validateTypedArgs(value any) error {
 		}
 	case *transferArgs:
 		n, ok := new(big.Int).SetString(v.Amount, 10)
-		// Purpose is deliberately absent: it is a bounded semantic Choice owned by
-		// the judgment plane, not an argument the generative model gets to assert
-		//. A missing destination hint is fine here because INTERNAL_TRANSFER
-		// legitimately has none; the purpose resolver rules on which case applies.
+		// Purpose is deliberately absent: the generative model does not get to
+		// assert it. A missing destination hint is fine here because
+		// INTERNAL_TRANSFER legitimately has none.
 		if !ok || n.Sign() <= 0 || n.String() != v.Amount || strings.TrimSpace(v.SourceAccountHint) == "" || (v.DateReference != "TODAY" && v.DateReference != "YESTERDAY" && v.DateReference != "EXPLICIT") {
 			return fmt.Errorf("transfer")
 		}

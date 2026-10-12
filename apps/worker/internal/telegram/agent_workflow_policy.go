@@ -26,65 +26,26 @@ func applyAgentWorkflowToolPolicy(
 	update telegramUpdate,
 	reviewBinding *agentReviewBinding,
 	merchantBinding *agentMerchantLearningBinding,
-	route string,
 ) ([]gateway.ToolDefinition, agentWorkflowScope) {
-	available := func(name string) bool {
-		for _, tool := range tools {
-			if tool.Name == name {
-				return true
-			}
-		}
-		return false
-	}
-
-	allowed := map[string]bool{}
-	scope := agentWorkflowGeneral
 	explicitReply := update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0
-	if explicitReply {
-		scope = agentWorkflowExplicitUnbound
-		switch {
-		case reviewBinding != nil:
-			allowed["resolve_review"] = true
-			scope = agentWorkflowExactReview
-		case merchantBinding != nil:
-			allowed["resolve_merchant_learning"] = true
-			scope = agentWorkflowExactMerchant
-		}
-	} else {
-		// Durable state is context, not turn ownership. Pending correction, batch,
-		// salary, review, and merchant workflows narrow capabilities only when
-		// Jev routes this turn to that interaction.
-		switch {
-		case (available("confirm_pending_action") || available("cancel_pending_action")) && route == "PENDING_ACTION_INTERACTION":
-			allowed["confirm_pending_action"] = true
-			allowed["cancel_pending_action"] = true
-			scope = agentWorkflowPendingAction
-		case available("pending_batch_decision") && route == "PENDING_BATCH_INTERACTION":
-			allowed["pending_batch_decision"] = true
-			scope = agentWorkflowPendingBatch
-		// Implicit bindings are inferred from chat state alone, so they must not
-		// own a turn the route says is something else. Only narrow when the route
-		// names this interaction (ADR-038 amendment: route-first lane selection).
-		case reviewBinding != nil && route == "REVIEW_INTERACTION":
-			allowed["resolve_review"] = true
-			scope = agentWorkflowUniqueReview
-		case merchantBinding != nil && route == "MERCHANT_LEARNING_INTERACTION":
-			allowed["resolve_merchant_learning"] = true
-			scope = agentWorkflowMerchantLearning
-		case available("resolve_salary_choice") && route == "SALARY_INTERACTION":
-			allowed["resolve_salary_choice"] = true
-			scope = agentWorkflowSalaryChoice
-		default:
-			// No durable workflow owns this turn. Keep READ and ordinary
-			// side-effect tools, but withhold every server-owned workflow
-			// mutation so pending state cannot be resolved out of route.
-			return withoutWorkflowTools(tools), agentWorkflowGeneral
-		}
+	if !explicitReply {
+		// No durable workflow owns an ordinary turn: keep READ and ordinary
+		// side-effect tools, withhold server-owned workflow mutations.
+		return withoutWorkflowTools(tools), agentWorkflowGeneral
 	}
-
+	allowed := map[string]bool{}
+	scope := agentWorkflowExplicitUnbound
+	switch {
+	case reviewBinding != nil:
+		allowed["resolve_review"] = true
+		scope = agentWorkflowExactReview
+	case merchantBinding != nil:
+		allowed["resolve_merchant_learning"] = true
+		scope = agentWorkflowExactMerchant
+	}
 	filtered := make([]gateway.ToolDefinition, 0, len(tools))
 	for _, tool := range tools {
-		if pendingBatchTool(tool.Name) && route != "PENDING_BATCH_INTERACTION" {
+		if pendingBatchTool(tool.Name) {
 			continue
 		}
 		class, known := agentToolClassFor(tool.Name)

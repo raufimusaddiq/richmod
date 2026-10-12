@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 var localTimePattern = regexp.MustCompile(`^(?:[01][0-9]|2[0-3]):[0-5][0-9]$`)
@@ -38,20 +37,8 @@ type Gateway interface {
 }
 
 type Processor struct {
-	pool     *pgxpool.Pool
-	gateway  Gateway
-	judgment judgment.Engine
-	// judgmentPlaneConfigured records configuration, not runtime provider
-	// health. A configured-but-unreachable engine still reports true so a
-	// temporary outage degrades per turn instead of silently shrinking the tool
-	// surface and reopening hidden LLM mutation authority.
-	judgmentPlaneConfigured bool
-	// metrics records bounded-call telemetry and per-task decision outcomes so
-	// review/clarification rates stay measurable per decision task.
-	// The zero value is a no-op recorder.
-	metrics judgmentMetrics
-	// turnTelemetryEnabled records one value row per Telegram turn.
-	turnTelemetryEnabled         bool
+	pool                         *pgxpool.Pool
+	gateway                      Gateway
 	postGenerativeAutoConfirmOff bool
 	now                          func() time.Time
 	bot                          *Bot
@@ -89,14 +76,6 @@ type telegramUpdate struct {
 func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
 	return &Processor{pool: pool, gateway: llm, now: time.Now}
 }
-
-func (p *Processor) SetJudgment(engine judgment.Engine) {
-	p.judgment = engine
-	p.judgmentPlaneConfigured = engine != nil
-}
-
-// SetJudgmentMetrics wires bounded-call telemetry and decision outcomes.
-func (p *Processor) SetJudgmentMetrics(metrics judgmentMetrics) { p.metrics = metrics }
 
 func (p *Processor) SetBot(bot *Bot) { p.bot = bot }
 
