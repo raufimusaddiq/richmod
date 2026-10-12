@@ -235,7 +235,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.HasSalaryChoice,
 		contextState.HasMerchantLearning,
 		contextState.ReviewMode,
-		p.judgmentPlaneConfigured,
+		// The catalog is never degraded to READ-only here: with no judgment plane
+		// (ADR-052) Go validation authorizes writes; with one, the route gate below
+		// still withholds them.
+		true,
 	)
 	// Jev owns bounded mutation authorization. A provider failure, undecided
 	// route, or out-of-scope route leaves conversation and canonical READ tools
