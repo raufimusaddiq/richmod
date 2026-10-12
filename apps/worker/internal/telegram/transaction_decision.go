@@ -329,6 +329,10 @@ type turnAgentContextState struct {
 	// read back by ProcessAgent so implicit workflow bindings are narrowed only
 	// when the route names that interaction (ADR-038 amendment).
 	Route string
+	// RecentTurns is the bounded tail of this chat's conversation. The route
+	// classifier needs it because a reply such as "jam 3 sore" answers the
+	// assistant's last question and means nothing in isolation.
+	RecentTurns []PublicTurn
 }
 
 func mutationAuthorityUnavailable(configured bool, state turnAgentContextState) bool {
