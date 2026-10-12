@@ -47,6 +47,7 @@ type Processor struct {
 type telegramUpdate struct {
 	Message struct {
 		MessageID      int64  `json:"message_id"`
+		Date           int64  `json:"date"`
 		Text           string `json:"text"`
 		ReplyToMessage *struct {
 			MessageID int64 `json:"message_id"`
@@ -71,6 +72,16 @@ type telegramUpdate struct {
 			} `json:"chat"`
 		} `json:"message"`
 	} `json:"callback_query"`
+}
+
+// turnTime is the household-local moment the user sent the message. A queued or
+// retried turn must not move an undated entry onto the day the worker happened to
+// run it, so the Telegram message timestamp wins over the worker clock.
+func (p *Processor) turnTime(update telegramUpdate) time.Time {
+	if update.Message.Date > 0 {
+		return time.Unix(update.Message.Date, 0).In(jakartaLocation())
+	}
+	return p.now().In(jakartaLocation())
 }
 
 func NewProcessor(pool *pgxpool.Pool, llm Gateway) *Processor {
