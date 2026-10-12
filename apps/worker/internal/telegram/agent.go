@@ -210,6 +210,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		HasRecentEvidence:   freshEvidence,
 		ActiveReviewCount:   contextState.ActiveReviewCount,
 		ExactReply:          explicitReply,
+		RecentTurns:         contextState.Conversation,
 	}
 	if reviewBinding != nil {
 		judgmentState.ReviewType = reviewBinding.ReviewType

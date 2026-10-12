@@ -49,9 +49,9 @@ var judgmentRouteCriteria = map[string]string{
 	"MERCHANT_LEARNING_INTERACTION": "answer a merchant rule confirmation",
 	"PENDING_BATCH_INTERACTION":     "confirm, cancel, or update the pending transaction batch",
 	"FINANCE_HELP":                  "examples of what Richmod can do",
-	"NEEDS_GENERATIVE_AGENT":        "arbitrary extraction, reasoning, or prose is required",
+	"NEEDS_GENERATIVE_AGENT":        "arbitrary extraction, reasoning, or prose is required, or a short reply that only makes sense as the continuation of recent_turns (for example answering the assistant's clarifying question or asking to proceed)",
 	"OUT_OF_SCOPE":                  "not a household finance request",
-	"OTHER_OR_UNCLEAR":              "no safe route",
+	"OTHER_OR_UNCLEAR":              "no safe route and not a continuation of recent_turns",
 }
 
 var judgmentPeriodCriteria = map[string]string{
@@ -164,6 +164,9 @@ func (p *Processor) initialJudgmentRequest(text string, state *turnAgentContextS
 		"allowed_routes":         judgmentRoutes,
 		"allowed_category_slugs": state.Categories,
 		"active_review_count":    state.ActiveReviewCount,
+	}
+	if turns := routeContextTurns(state.RecentTurns); len(turns) > 0 {
+		statePayload["recent_turns"] = turns
 	}
 	if state.ActiveReviewCount == 1 {
 		statePayload["active_review"] = map[string]any{
@@ -307,4 +310,23 @@ func harvestSimpleTransaction(text string) (simpleTransactionCandidate, bool) {
 // CUSTOM_OR_UNCLEAR.
 func routeConsumesPeriod(route string) bool {
 	return route == "READ_SPENDING" || route == "READ_CASHFLOW" || route == "READ_SAVINGS"
+}
+
+// routeContextTurns returns the last few turns as bounded text for the route
+// classifier. User text stays marked untrusted; tool payloads are dropped.
+func routeContextTurns(turns []PublicTurn) []map[string]string {
+	const keep, limit = 4, 300
+	out := []map[string]string{}
+	for i := len(turns) - 1; i >= 0 && len(out) < keep; i-- {
+		turn := turns[i]
+		if turn.Text == "" || (turn.Role != "USER" && turn.Role != "ASSISTANT") {
+			continue
+		}
+		text := clipRunes(turn.Text, limit)
+		if turn.Role == "USER" {
+			text = untrustedUser(text)
+		}
+		out = append([]map[string]string{{"role": turn.Role, "text": text}}, out...)
+	}
+	return out
 }
