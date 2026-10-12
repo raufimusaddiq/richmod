@@ -162,7 +162,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	contextState.HasMerchantLearning = merchantBinding != nil && merchantCount == 1
 
-	now := p.now().In(jakartaLocation())
+	now := p.turnTime(update)
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
 	generalTools := agentFinanceTools(
 		categories,

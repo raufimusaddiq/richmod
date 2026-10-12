@@ -50,8 +50,11 @@ became a "Tanggal transaksi belum ada" review (observed in production on
 2026-10-12 after the ADR-052 deploy; the three previous undated entries of that
 fortnight had been confirmed).
 
-An entry that states no date is now accepted at the moment its message was sent
-(`TimePrecision = OBSERVED_AT_PROCESSING`, transaction time equal to the processing
-minute). A date the model supplied on its own — a past date the user never wrote —
-is still never accepted and still becomes a review. The recorded time precision stays
+An entry that states no date is now accepted at the moment its message was sent. The
+agent turn clock is the Telegram `message.date` (the worker clock only when the
+update carries none), so a queue delay or retry across midnight cannot move an
+entry onto another day. The observation is recorded as
+`TimePrecision = OBSERVED_AT_PROCESSING` with the transaction time equal to that
+message minute. A date the model supplied on its own — a past date the user never
+wrote — is still never accepted and still becomes a review. The time precision stays
 in the proposal metadata for audit.

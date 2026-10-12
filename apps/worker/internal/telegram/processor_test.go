@@ -34,6 +34,34 @@ func TestNativeExtractionPreservesExplicitDateWithApproximateMorning(t *testing.
 	}
 }
 
+// A message sent at 23:59 and processed after midnight (queue delay or retry)
+// keeps the day the household sent it.
+func TestUndatedEntryKeepsMessageDayWhenProcessedAfterMidnight(t *testing.T) {
+	sent := time.Date(2026, time.October, 12, 23, 59, 20, 0, jakartaLocation())
+	worker := time.Date(2026, time.October, 13, 0, 1, 5, 0, jakartaLocation())
+	p := &Processor{now: func() time.Time { return worker }}
+	var update telegramUpdate
+	update.Message.Date = sent.Unix()
+	now := p.turnTime(update)
+	value, err := nativeValidatedExtraction(map[string]any{
+		"type": "EXPENSE", "amount_idr": "26000", "category_slug": "dining", "date_reference": "TODAY",
+		"explicit_date": nil, "local_time": nil, "date_provenance": "NOT_USER_STATED",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := directAcceptanceDecision(value, []string{"dining"}, now); !ok {
+		t.Fatal("an undated entry must be accepted at its message time")
+	}
+	if want := time.Date(2026, time.October, 12, 23, 59, 0, 0, jakartaLocation()); !value.TransactionAt.Equal(want) {
+		t.Fatalf("transaction time = %v, want the message minute %v", value.TransactionAt, want)
+	}
+	// Without a Telegram timestamp the worker clock is the only observation left.
+	if got := (&Processor{now: func() time.Time { return worker }}).turnTime(telegramUpdate{}); !got.Equal(worker) {
+		t.Fatalf("fallback clock = %v, want %v", got, worker)
+	}
+}
+
 func TestNativeExtractionDoesNotPromoteModelDateToUserStatement(t *testing.T) {
 	now := time.Date(2026, time.September, 7, 17, 37, 41, 0, jakartaLocation())
 	base := map[string]any{
