@@ -40,3 +40,18 @@ email; it never decides a Telegram turn.
   prompt now reads its reply with fixed keywords (it previously needed Jev and
   failed without it). The shared `judgment` / `judgment/systemone` packages stay
   for the evidence verifiers.
+
+## Amendment — undated entries record at message time (2026-10-12)
+
+Removing Jev also removed the bounded `date_support` ruling that had been accepting
+an undated in-the-moment entry ("beli bensin 26k") at the moment it was sent.
+`directAcceptanceDecision` accepted only `USER_STATED` dates, so every such entry
+became a "Tanggal transaksi belum ada" review (observed in production on
+2026-10-12 after the ADR-052 deploy; the three previous undated entries of that
+fortnight had been confirmed).
+
+An entry that states no date is now accepted at the moment its message was sent
+(`TimePrecision = OBSERVED_AT_PROCESSING`, transaction time equal to the processing
+minute). A date the model supplied on its own — a past date the user never wrote —
+is still never accepted and still becomes a review. The recorded time precision stays
+in the proposal metadata for audit.

@@ -35,9 +35,9 @@ func TestNativeExtractionPreservesExplicitDateWithApproximateMorning(t *testing.
 }
 
 func TestNativeExtractionDoesNotPromoteModelDateToUserStatement(t *testing.T) {
-	now := time.Date(2026, time.September, 7, 17, 37, 0, 0, jakartaLocation())
+	now := time.Date(2026, time.September, 7, 17, 37, 41, 0, jakartaLocation())
 	base := map[string]any{
-		"type": "EXPENSE", "amount_idr": "46000", "date_reference": "TODAY",
+		"type": "EXPENSE", "amount_idr": "46000", "category_slug": "dining", "date_reference": "TODAY",
 		"explicit_date": nil, "local_time": nil, "date_provenance": "NOT_USER_STATED",
 	}
 	value, err := nativeValidatedExtraction(base, now)
@@ -47,8 +47,18 @@ func TestNativeExtractionDoesNotPromoteModelDateToUserStatement(t *testing.T) {
 	if value.DateProvenance == "USER_STATED" {
 		t.Fatal("model date was promoted to user-stated provenance")
 	}
-	if _, ok := directAcceptanceDecision(value, nil, now); ok {
-		t.Fatal("non-user-stated date passed canonical acceptance")
+	// An entry that states no date is recorded at the moment it was sent.
+	if _, ok := directAcceptanceDecision(value, []string{"dining"}, now); !ok {
+		t.Fatal("an in-the-moment entry with no stated date must be accepted at its message time")
+	}
+	// A date the model supplied on its own is never accepted as the household's.
+	base["date_reference"] = "YESTERDAY"
+	invented, err := nativeValidatedExtraction(base, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := directAcceptanceDecision(invented, []string{"dining"}, now); ok {
+		t.Fatal("a model-supplied past date passed canonical acceptance")
 	}
 	delete(base, "date_provenance")
 	if _, err := nativeValidatedExtraction(base, now); err == nil {
