@@ -219,6 +219,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
 		return err
 	}
+	// Without a judgment plane (ADR-052) Go validation is the only mutation
+	// authority: the generative agent serves every turn with the tools that apply
+	// to the household's current state.
+	if !p.judgmentPlaneConfigured {
+		judgmentState.Route = "NEEDS_GENERATIVE_AGENT"
+	}
 
 	generalTools := agentFinanceTools(
 		categories,
@@ -238,7 +244,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
 		generalTools = readOnlyAgentTools(generalTools)
 	}
-	tools, workflowScope := applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
+	tools, workflowScope := generalTools, agentWorkflowGeneral
+	if p.judgmentPlaneConfigured || explicitReply {
+		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
+	}
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
 	focusReviewArguments(tools, reviewBinding)
 

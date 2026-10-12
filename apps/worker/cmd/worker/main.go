@@ -115,14 +115,9 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		judgmentEngine = systemone.InstrumentedEngine{Engine: systemone.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), judgmentModel, envDuration("JUDGMENT_TIMEOUT_MS", 3*time.Second, 30*time.Second)), Record: recordIntelligencePhase}
-		processor.SetJudgment(judgmentEngine)
-		// Task-attributed bounded telemetry: the client records the transport call,
-		// and the decision counter records what policy did with the answer, which
-		// is what makes review rate per decision task measurable.
-		processor.SetJudgmentMetrics(telegram.JudgmentMetricsFor(recordLLMCall))
-		// Turn-level value: records which lane resolved each turn and how many
-		// bounded generative decisions the judgment plane replaced.
-		processor.SetTurnTelemetry(true)
+		// The Telegram agent runs without the judgment plane (ADR-052); the
+		// engine remains only as the bank-email, document and financial-email
+		// evidence verifier below.
 	}
 	processor.SetPostGenerativeAutoConfirm(envEnabled("RICHMOD_AUTOCONFIRM_TELEGRAM"))
 	documentLLM := gateway.New(os.Getenv("LLM_GATEWAY_BASE_URL"), os.Getenv("LLM_GATEWAY_API_KEY"), os.Getenv("LLM_MODEL_DOCUMENT_VISION")).WithRecorder("DOCUMENT_EXTRACTION", recordLLMCall)
