@@ -228,7 +228,7 @@ func TestUniqueActiveReviewGainsEvidenceContextOnly(t *testing.T) {
 func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) {
 	general := NativeFinanceTools(nil, false, false, false, "", false, false, "")
 	unbound := replyUpdate(telegramUpdate{}, 5)
-	filtered, scope := applyAgentWorkflowToolPolicy(general, unbound, nil, nil, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(general, unbound, nil, nil)
 	if scope != agentWorkflowExplicitUnbound {
 		t.Fatalf("setup scope = %s", scope)
 	}

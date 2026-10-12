@@ -117,7 +117,6 @@ func TestMultiRecipientBankRaceFirstReplyWinsSecondIsStale(t *testing.T) {
 	}
 	// The model extracts the facts from the typed answer; Go validates and queues.
 	processor := NewProcessor(pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
-	processor.SetJudgment(reviewAnswerEngine{reviewAction: "COMPLETE_BANK_FACTS"})
 	reply := seedTelegramReply(t, pool, householdID, firstChat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
 	if err = processor.ProcessAgent(ctx, reply); err != nil {
 		t.Fatal(err)
@@ -221,7 +220,6 @@ func TestUnlinkedBankReviewBindsAccountThenCompletesThroughExistingJob(t *testin
 		t.Fatal(err)
 	}
 	invalidModel := NewProcessor(pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"-54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
-	invalidModel.SetJudgment(reviewAnswerEngine{reviewAction: "COMPLETE_BANK_FACTS"})
 	invalid := seedTelegramReply(t, pool, household, chat, 40, 31, "-54000 2026-09-23T13:45:00+07:00")
 	if err := invalidModel.ProcessAgent(ctx, invalid); err != nil {
 		t.Fatal(err)
@@ -234,7 +232,6 @@ func TestUnlinkedBankReviewBindsAccountThenCompletesThroughExistingJob(t *testin
 		t.Fatalf("signed amount queued %d completion jobs", jobs)
 	}
 	p := NewProcessor(pool, &typedReplyGateway{arguments: `{"action":"COMPLETE_BANK_FACTS","amount_idr":"54000","transaction_at":"2026-09-23T13:45:00+07:00"}`})
-	p.SetJudgment(reviewAnswerEngine{reviewAction: "COMPLETE_BANK_FACTS"})
 	reply := seedTelegramReply(t, pool, household, chat, 41, 31, "54000 2026-09-23T13:45:00+07:00")
 	if err := p.ProcessAgent(ctx, reply); err != nil {
 		t.Fatal(err)

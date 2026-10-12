@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 // capturingGateway is a scripted conversational model that records every request
@@ -63,24 +62,6 @@ func (g *capturingGateway) toolNames(call int) map[string]bool {
 	return names
 }
 
-// routeEngine is a Jev stand-in that always decides one route, and records the
-// requests it was shown.
-type routeEngine struct {
-	route    string
-	requests []judgment.Request
-}
-
-func (e *routeEngine) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	e.requests = append(e.requests, request)
-	answers := map[string]judgment.Answer{}
-	if question, ok := request.Questions["route"]; ok {
-		if criteria, ok := question.Criteria.(map[string]any); ok {
-			answers["route"] = confidentChoice(criteria, e.route)
-		}
-	}
-	return judgment.Result{Model: "stub-jev", Answers: answers}, nil
-}
-
 var turnCounter int64
 
 // runEvidenceTurn delivers one typed Telegram message through the real
@@ -107,11 +88,8 @@ func runEvidenceTurn(t *testing.T, ctx context.Context, f agentIntegrationFixtur
 	return sourceID, p.ProcessAgent(ctx, sourceID)
 }
 
-func evidenceTurnProcessor(f agentIntegrationFixture, model *capturingGateway, route string) (*Processor, *routeEngine) {
-	p := NewProcessor(f.pool, model)
-	engine := &routeEngine{route: route}
-	p.SetJudgment(engine)
-	return p, engine
+func evidenceTurnProcessor(f agentIntegrationFixture, model *capturingGateway) *Processor {
+	return NewProcessor(f.pool, model)
 }
 
 func TestTurnReplyToUploadShowsTheModelOnlyThatEvidence(t *testing.T) {
@@ -120,7 +98,7 @@ func TestTurnReplyToUploadShowsTheModelOnlyThatEvidence(t *testing.T) {
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
 	seedEvidence(t, ctx, f, "b", evidenceSeedOptions{amount: "83000", merchant: "Gacoan", messageID: 102})
 	model := &capturingGateway{}
-	p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	p := evidenceTurnProcessor(f, model)
 
 	_, err := runEvidenceTurn(t, ctx, f, p, "makan", 101)
 	mustAgentTest(t, err)
@@ -153,7 +131,7 @@ func TestTurnWithoutReplyBindsUniqueRecentEvidenceAsContextOnly(t *testing.T) {
 	f := newAgentIntegrationFixture(t, "turn-recent")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
 	model := &capturingGateway{}
-	p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	p := evidenceTurnProcessor(f, model)
 
 	_, err := runEvidenceTurn(t, ctx, f, p, "masukin ke makan aja", 0)
 	mustAgentTest(t, err)
@@ -174,7 +152,7 @@ func TestTurnWithTwoRecentReceiptsCarriesCandidatesNotAChoice(t *testing.T) {
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})
 	seedEvidence(t, ctx, f, "b", evidenceSeedOptions{amount: "83000", merchant: "Gacoan", messageID: 102})
 	model := &capturingGateway{}
-	p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	p := evidenceTurnProcessor(f, model)
 
 	_, err := runEvidenceTurn(t, ctx, f, p, "yang ini makan", 0)
 	mustAgentTest(t, err)
@@ -185,33 +163,18 @@ func TestTurnWithTwoRecentReceiptsCarriesCandidatesNotAChoice(t *testing.T) {
 	}
 }
 
-func TestBareAmountAfterAReceiptIsNeverHarvestedAsASecondTransaction(t *testing.T) {
-	if (turnAgentContextState{HasRecentEvidence: true}).harvestable() {
-		t.Fatal("a turn with recent evidence is still harvestable")
-	}
-	if !(turnAgentContextState{}).harvestable() {
-		t.Fatal("an ordinary turn lost its fast path")
-	}
-
+func TestBareAmountAfterAReceiptDoesNotCreateASecondTransaction(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-bare-amount")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
 	model := &capturingGateway{}
-	// "nominalnya 125 ribu" is exactly what Jev would call a new transaction.
-	p, engine := evidenceTurnProcessor(f, model, "CREATE_TRANSACTION")
+	p := evidenceTurnProcessor(f, model)
 
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
 	_, err := runEvidenceTurn(t, ctx, f, p, "nominalnya 125 ribu", 0)
 	mustAgentTest(t, err)
 	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
 		t.Fatalf("a bare amount after a receipt created %d new transactions", after-before)
-	}
-	if len(engine.requests) == 0 {
-		t.Fatal("Jev was not consulted")
-	}
-	state, _ := engine.requests[0].State.(map[string]any)
-	if _, ok := state["amount_candidates"]; ok || state == nil {
-		t.Fatalf("an amount candidate was harvested (or the state was unreadable) while evidence was in context: %v", engine.requests[0].State)
 	}
 	if len(model.requests) == 0 || model.turnContext(t, 0)["bound_evidence"] == nil {
 		t.Fatal("the turn did not reach the agent with the bound evidence")
@@ -239,20 +202,13 @@ func testNaturalCategoryReviewReply(t *testing.T, replyTo int64) {
 		{ToolCalls: []gateway.ToolCall{{CallID: "c1", Name: "resolve_review", Arguments: json.RawMessage(`{"action":"CONFIRM","category_slug":"makan"}`)}}},
 		{Text: "Sudah dicatat sebagai Makan."},
 	}}
-	route := "CORRECT_TRANSACTION"
-	if replyTo == 0 {
-		route = "REVIEW_INTERACTION"
-	}
-	p, engine := evidenceTurnProcessor(f, model, route)
+	p := evidenceTurnProcessor(f, model)
 
 	var amountBefore string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT amount::text FROM transaction WHERE id=$1`, transactionID).Scan(&amountBefore))
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
 	sourceID, err := runEvidenceTurn(t, ctx, f, p, "masukin ke makan aja", replyTo)
 	mustAgentTest(t, err)
-	if replyTo == 0 && engine.requests[0].State.(map[string]any)["active_review"].(map[string]any)["awaiting_field"] != "category_slug" {
-		t.Fatal("standalone category answer lacks its awaited field")
-	}
 
 	turn := model.turnContext(t, 0)
 	workflow, _ := turn["bound_evidence"].(map[string]any)["workflow"].(map[string]any)
@@ -287,7 +243,7 @@ func TestModelFailureOnAnEvidenceTurnCreatesNoReviewAndNoTransaction(t *testing.
 	f := newAgentIntegrationFixture(t, "turn-failure")
 	seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101, linkTransaction: true})
 	model := &capturingGateway{err: errors.New("provider unavailable")}
-	p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	p := evidenceTurnProcessor(f, model)
 
 	state := `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1)+(SELECT count(*) FROM review_item WHERE household_id=$1)`
 	before := countRows(t, ctx, f, state, f.householdID)
@@ -337,7 +293,7 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 				}
 				return gateway.AgentResponse{Text: "Sudah dicatat."}
 			}}
-			p, _ := evidenceTurnProcessor(f, model, "CREATE_TRANSACTION")
+			p := evidenceTurnProcessor(f, model)
 
 			// The CEU guard itself only applies to fresh evidence: for an old receipt it
 			// stands down, and the existing same-merchant edit guard answers instead.
@@ -357,9 +313,9 @@ func TestModelRecordingTheReceiptAmountAgainIsRefusedByTheLedger(t *testing.T) {
 	}
 }
 
-// Only evidence from the immediate window takes the fast path away: an ordinary
-// new expense typed long after an upload must not be slowed by it.
-func TestOnlyFreshEvidenceSuppressesHarvest(t *testing.T) {
+// Only evidence from the immediate window counts as fresh for the duplicate
+// guard: an ordinary new expense typed long after an upload is not refused.
+func TestOnlyFreshEvidenceCountsForTheDuplicateGuard(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "turn-fresh")
 	a := seedEvidence(t, ctx, f, "a", evidenceSeedOptions{amount: "125000", merchant: "Mirota", messageID: 101})

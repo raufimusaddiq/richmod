@@ -107,7 +107,7 @@ func TestReceiptReplyMergesIntoTheNamedExistingTransactionWithoutADuplicate(t *t
 		}
 		return gateway.AgentResponse{Text: "Sudah digabung dengan transaksi yang tadi."}
 	}}
-	p, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	p := evidenceTurnProcessor(f, model)
 
 	sourceID, err := runEvidenceTurn(t, ctx, f, p, "struk ini buat transaksi yang tadi", 101)
 	mustAgentTest(t, err)
@@ -169,7 +169,7 @@ func TestMergeRefusesRefsThatAreNotTheReviewsCurrentCandidates(t *testing.T) {
 			}
 			return gateway.AgentResponse{Text: "Tidak bisa digabung."}
 		}}
-		proc, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+		proc := evidenceTurnProcessor(f, model)
 		_, _ = runEvidenceTurn(t, ctx, f, proc, fmt.Sprintf("gabungkan (%s)", name), 101)
 		var newStatus, existingStatus string
 		mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, s.newTransactionID).Scan(&newStatus))
@@ -202,7 +202,7 @@ func TestMergeExistingIsOnlyAvailableForPossibleDuplicateReviews(t *testing.T) {
 		}
 		return gateway.AgentResponse{Text: "Tidak bisa."}
 	}}
-	proc, _ := evidenceTurnProcessor(f, model, "CORRECT_TRANSACTION")
+	proc := evidenceTurnProcessor(f, model)
 	_, _ = runEvidenceTurn(t, ctx, f, proc, "gabungkan", 101)
 	var status string
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM transaction WHERE id=$1`, transactionID).Scan(&status))

@@ -92,20 +92,11 @@ func (p *Processor) agentRecordTransfer(ctx context.Context, state *agentState, 
 	// reclassification_purpose; that value never comes from model arguments.
 	purpose, _ := args["reclassification_purpose"].(string)
 	if !contains(transferPurposes, purpose) {
-		if p.judgment == nil {
-			result.Status = "JUDGMENT_UNAVAILABLE"
-			return result, true, nil
-		}
-		var ok bool
-		purpose, _, ok, err = p.resolveTransferPurpose(ctx, state.SourceEventID, clean(description, 500), amount, sourceHint, wealthHint, stringPtr(wealthID))
-		if err != nil {
-			result.Status = "JUDGMENT_UNAVAILABLE"
-			return result, true, nil
-		}
-		if !ok {
-			result.Status = "INVALID_TRANSFER_PURPOSE"
-			return result, true, nil
-		}
+		// The purpose is a semantic judgment Go does not make on its own; without
+		// a deterministic reclassification purpose the transfer is not recorded
+		// (ADR-052).
+		result.Status = "JUDGMENT_UNAVAILABLE"
+		return result, true, nil
 	}
 	var compatible bool
 	if err = tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, state.HouseholdID).Scan(&compatible); err != nil {
@@ -377,4 +368,14 @@ func (p *Processor) agentResolveMerchantLearning(ctx context.Context, state *age
 	result.Status = "CONFIRMED"
 	result.Mutation = map[string]any{"action": "MERCHANT_LEARNING_RESOLVED", "remember": remember, "merchant": merchantName, "category": categoryName}
 	return result, true, nil
+}
+
+// transferPurposes is the canonical possibility space for a household-internal
+// transfer purpose, accepted only from an in-process deterministic caller.
+var transferPurposes = []string{
+	"SAVINGS_TRANSFER",
+	"INVESTMENT_CONTRIBUTION",
+	"ASSET_PURCHASE",
+	"DEBT_PRINCIPAL_PAYMENT",
+	"INTERNAL_TRANSFER",
 }

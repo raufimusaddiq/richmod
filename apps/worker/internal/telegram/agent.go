@@ -79,39 +79,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	}
 	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
 	defer stopTyping()
-	// The turn trace lives in the context so concurrent turns on the shared
-	// Processor cannot contaminate each other's value telemetry.
-	ctx, trace := withTurnTrace(ctx)
-	trace.householdID = householdID
-	trace.sourceEventID = sourceEventID
-	generativeRan := false
-	defer func() {
-		// Turn-level Jev value: classify how this turn was resolved so
-		// Jev-only, Jev-then-generative, and generative-only turns are countable.
-		lane := judgmentLaneGenerativeOnly
-		avoided := 0
-		switch {
-		case trace.consumed() && !generativeRan:
-			lane = judgmentLaneJevOnly
-			// Each bounded task replaced one would-be generative decision in the
-			// lanes it now owns (route, transfer purpose, category, review action).
-			avoided = len(trace.tasks)
-		case trace.consumed():
-			if len(trace.residualDimensions) > 0 {
-				lane = judgmentLaneResidualJev
-			} else {
-				lane = judgmentLaneJevThenGenerative
-			}
-		}
-		p.recordTurnTelemetry(context.WithoutCancel(ctx), householdID, sourceEventID, judgmentTurnObservation{
-			Lane:                   lane,
-			DecisionTasks:          trace.tasks,
-			ResidualDimensions:     trace.residualDimensions,
-			Model:                  trace.model,
-			NativeToolCallsAvoided: avoided,
-		})
-	}()
-
+	ctx = withTurnIdentity(ctx, householdID, sourceEventID)
 	agentGateway, ok := p.gateway.(conversationalGateway)
 	if !ok {
 		return fmt.Errorf("conversational gateway unavailable")
@@ -173,7 +141,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	// user just sent is offered as context: bound when exactly one qualifies, a
 	// bounded ambiguous set otherwise. Context only; it never narrows the tools.
 	var recentEvidence []map[string]any
-	freshEvidence := false
 	// One candidates query per turn serves the context, the harvest decision and the
 	// ledger guard. It is optional: a failure leaves no evidence context and no guard.
 	recentCandidates, _ := p.recentEvidenceCandidates(ctx, householdID, update.Message.Chat.ID, update.Message.From.ID)
@@ -184,7 +151,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		// Recent evidence is context only. It deliberately does not bind its open review:
 		// a no-reply review binding is route-gated and must come from eligible chat
 		// reviews, not from recent evidence alone.
-		freshEvidence = (evidence != nil || len(recentEvidence) > 0) && len(freshDocuments) > 0
 	}
 
 	contextState.ActiveReview = reviewPublic
@@ -198,34 +164,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	now := p.now().In(jakartaLocation())
 	_ = p.persistTurn(ctx, householdID, sourceEventID, update, "USER", text, "", map[string]any{"current_jakarta_datetime": now.Format(time.RFC3339)})
-	// The initial bounded bundle consumes the already-loaded category set and
-	// pending-workflow state; the fast path must not re-query them.
-	judgmentState := turnAgentContextState{
-		Categories:          categories,
-		HasPendingAction:    contextState.HasPendingAction,
-		HasPendingBatch:     contextState.HasPendingBatch,
-		HasSalaryChoice:     contextState.HasSalaryChoice,
-		HasMerchantLearning: contextState.HasMerchantLearning,
-		HasPendingWorkflow:  contextState.HasPendingAction || contextState.HasPendingBatch || contextState.HasSalaryChoice || contextState.HasMerchantLearning,
-		HasRecentEvidence:   freshEvidence,
-		ActiveReviewCount:   contextState.ActiveReviewCount,
-		ExactReply:          explicitReply,
-		RecentTurns:         contextState.Conversation,
-	}
-	if reviewBinding != nil {
-		judgmentState.ReviewType = reviewBinding.ReviewType
-		judgmentState.ReviewConversationState = reviewBinding.ConversationState
-	}
-	if handled, err := p.tryJudgmentFastPath(ctx, sourceEventID, householdID, update, text, now, &judgmentState); handled || err != nil {
-		return err
-	}
-	// Without a judgment plane (ADR-052) Go validation is the only mutation
-	// authority: the generative agent serves every turn with the tools that apply
-	// to the household's current state.
-	if !p.judgmentPlaneConfigured {
-		judgmentState.Route = "NEEDS_GENERATIVE_AGENT"
-	}
-
 	generalTools := agentFinanceTools(
 		categories,
 		contextState.HasPendingAction,
@@ -235,30 +173,19 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		contextState.HasSalaryChoice,
 		contextState.HasMerchantLearning,
 		contextState.ReviewMode,
-		// The catalog is never degraded to READ-only here: with no judgment plane
-		// (ADR-052) Go validation authorizes writes; with one, the route gate below
-		// still withholds them.
-		true,
 	)
-	// Jev owns bounded mutation authorization. A provider failure, undecided
-	// route, or out-of-scope route leaves conversation and canonical READ tools
-	// available but withholds every side effect. Exact review replies retain
-	// their server-bound decision capability.
-	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
-		generalTools = readOnlyAgentTools(generalTools)
-	}
+	// Go validation is the only mutation authority (ADR-052): the agent serves
+	// every turn with the tools that apply to the household's current state.
+	// Exact replies narrow to their bound workflow.
 	tools, workflowScope := generalTools, agentWorkflowGeneral
-	if p.judgmentPlaneConfigured || explicitReply {
-		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding, judgmentState.Route)
+	if explicitReply {
+		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding)
 	}
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
 	focusReviewArguments(tools, reviewBinding)
 
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
-	if mutationAuthorityUnavailable(p.judgmentPlaneConfigured, judgmentState) {
-		turnContext["mutation_authority_unavailable"] = true
-	}
 	turnContext["merchant_learning_count"] = merchantCount
 	if explicitReply && reviewBinding == nil && merchantBinding == nil && evidence == nil {
 		turnContext["explicit_reply_unbound"] = true
@@ -281,7 +208,6 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		Categories:       categories,
 		Tools:            tools,
 		RequiredTool:     "",
-		Route:            judgmentState.Route,
 		TurnContext:      turnContext,
 		HasPendingAction: contextState.HasPendingAction,
 		HasPendingBatch:  contextState.HasPendingBatch,
@@ -293,31 +219,20 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		// record_transaction duplicate guard. Never model-visible.
 		FreshEvidenceDocuments: freshDocuments,
 	}
-	// An implicit binding is attached only when the route says this turn is that
-	// interaction. Chat state alone never gets to own the turn (ADR-038
-	// amendment). Exact bindings (pending action/batch/salary, explicit reply)
-	// narrow unconditionally and so always keep their binding attached.
-	// With no judgment plane (ADR-052) there is no route to name the interaction,
-	// so a unique server-found binding is attached while the catalog stays whole.
-	noPlaneUnique := !p.judgmentPlaneConfigured && !explicitReply
-	if workflowScope == agentWorkflowUniqueReview || workflowScope == agentWorkflowExactReview || (noPlaneUnique && reviewBinding != nil) {
+	// An exact reply attaches its bound workflow. Otherwise a unique server-found
+	// review or merchant-learning binding is attached while the catalog stays
+	// whole, so a plain chat answer still resolves the one open question.
+	if workflowScope == agentWorkflowExactReview || (!explicitReply && reviewBinding != nil) {
 		state.ReviewBinding = reviewBinding
 		state.ReviewBindingCount = reviewCount
 	}
-	if workflowScope == agentWorkflowMerchantLearning || workflowScope == agentWorkflowExactMerchant || (noPlaneUnique && merchantBinding != nil) {
+	if workflowScope == agentWorkflowExactMerchant || (!explicitReply && merchantBinding != nil) {
 		state.MerchantLearningBinding = merchantBinding
 		state.MerchantLearningCount = merchantCount
-	}
-	if workflowScope == agentWorkflowPendingBatch {
-		state.RequiredTool = "pending_batch_decision"
-	}
-	if handled, err := p.tryJudgmentBoundWorkflow(ctx, state, text); handled || err != nil {
-		return err
 	}
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()
-	generativeRan = true
 	// A turn that needs several model phases can take a while; say so once
 	// instead of leaving the household to wonder.
 	stopProgress := startProgressNotice(ProgressNoticeDelay, func(noticeCtx context.Context) error {

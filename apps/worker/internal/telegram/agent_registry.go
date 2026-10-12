@@ -65,26 +65,14 @@ func readOnlyAgentTools(tools []gateway.ToolDefinition) []gateway.ToolDefinition
 // AgentFinanceTools is the default live catalog; the policy tests build it to
 // assert which tools the model can see in each server state.
 func AgentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
-	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode, true)
+	return agentFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
 }
 
-// agentFinanceTools keeps the judgment-plane configuration explicit so the
-// degraded READ-only surface is a deliberate parameter instead of a hidden
-// package-global default.
-func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string, judgmentConfigured bool) []gateway.ToolDefinition {
+func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, hasActiveReview bool, reviewType string, hasSalaryChoice, hasMerchantLearning bool, reviewMode string) []gateway.ToolDefinition {
 	base := NativeFinanceTools(categories, hasPendingAction, hasPendingBatch, hasActiveReview, reviewType, hasSalaryChoice, hasMerchantLearning, reviewMode)
 	tools := make([]gateway.ToolDefinition, 0, len(base)+4)
 	cycleResidual := hasActiveReview && (reviewMode == "CYCLE_RESIDUAL" || reviewType == "CYCLE_RESIDUAL_ALLOCATION")
-	// When the judgment plane is unavailable, no bounded semantic mutation is
-	// authorized. The conversational surface keeps READ tools only, so a
-	// provider outage can never turn into a hidden LLM auto-mutation.
-	readOnly := !judgmentConfigured
 	for _, tool := range base {
-		if readOnly {
-			if class, known := agentToolClassFor(tool.Name); known && class == agentToolSideEffect {
-				continue
-			}
-		}
 		if tool.Name == "ask_clarification" || tool.Name == "finance_help" || tool.Name == "finance_out_of_scope" {
 			continue
 		}
@@ -105,7 +93,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 		gateway.ToolDefinition{Name: "get_transaction_details", Description: "Return model-safe authoritative details for one opaque transaction reference from recent results. Never use or request a database UUID.", Parameters: objectSchema(map[string]any{"target_ref": map[string]any{"type": "string"}}, []string{"target_ref"})},
 	)
 
-	if cycleResidual && !readOnly {
+	if cycleResidual {
 		allocation := objectSchema(map[string]any{
 			"wealth_account_hint": map[string]any{"type": "string", "description": "Human-readable Wealth Account name/institution hint. Never use a database UUID."},
 			"amount_idr":          map[string]any{"type": "string"},
@@ -133,7 +121,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 		})
 	}
 
-	if hasPendingBatch && !readOnly {
+	if hasPendingBatch {
 		category := map[string]any{"type": []string{"string", "null"}}
 		if len(categories) > 0 {
 			values := make([]any, 0, len(categories)+1)

@@ -285,7 +285,7 @@ func TestTransactionKeyedReviewRepliesStayWithTheAgent(t *testing.T) {
 	f := newAgentIntegrationFixture(t, "cont-tx-review")
 	createAgentTransactionReview(t, ctx, f, "70000", 301)
 	model := &capturingGateway{}
-	p, _ := evidenceTurnProcessor(f, model, "NEEDS_GENERATIVE_AGENT")
+	p := evidenceTurnProcessor(f, model)
 	if _, err := runEvidenceTurn(t, ctx, f, p, "makan", 301); err != nil {
 		t.Fatal(err)
 	}

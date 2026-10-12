@@ -104,9 +104,10 @@ func run(logger *slog.Logger) error {
 			logger.Warn("telegram command menu not registered", "error", err)
 		}
 	}()
-	// The judgment plane owns bounded semantic mutation authority (ADR-038), so
-	// production must not be able to disable it by leaving the model unset.
-	// Non-production environments opt out explicitly with JUDGMENT_MODE=disabled-dev.
+	// System One is the evidence verifier for bank email, documents and financial
+	// email only; it never decides a Telegram turn (ADR-052). Production must not
+	// be able to disable it by leaving the model unset; non-production environments
+	// opt out explicitly with JUDGMENT_MODE=disabled-dev.
 	judgmentMode := strings.ToLower(strings.TrimSpace(os.Getenv("JUDGMENT_MODE")))
 	judgmentModel := strings.TrimSpace(os.Getenv("JUDGMENT_MODEL"))
 	var judgmentEngine systemone.InstrumentedEngine

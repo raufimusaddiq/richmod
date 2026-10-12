@@ -19,7 +19,6 @@ func recordAgentTransactionForRefTest(t *testing.T, ctx context.Context, f agent
 		Update:        update,
 		Now:           time.Now().In(jakartaLocation()),
 		ModelPhases:   1,
-		Route:         "NEEDS_GENERATIVE_AGENT",
 	}
 	state.Update.Message.Text = merchant + " " + amount + " hari ini"
 	result, synthesize, err := p.agentRecordTransaction(ctx, state, gateway.ToolCall{CallID: "record-" + amount, Name: "record_transaction"}, map[string]any{

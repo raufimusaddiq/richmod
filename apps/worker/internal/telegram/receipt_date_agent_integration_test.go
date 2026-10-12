@@ -34,8 +34,6 @@ func (g *receiptDateGateway) AgentTurn(context.Context, string, gateway.AgentReq
 // conversational agent. The model proposes the date the household typed; Go
 // validates it, stores it as the transaction date and completes the review.
 func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
-	// Production always runs with the judgment plane (Jev); without it the agent
-	// has no side-effect tools at all.
 	cases := map[string]string{
 		"transaction_at":           `{"action":"CONFIRM","transaction_at":"2026-10-03"}`,
 		"transaction_at, unpadded": `{"action":"CONFIRM","transaction_at":"2026-10-3"}`,
@@ -66,7 +64,6 @@ func TestAgentReplyStoresReceiptTransactionDate(t *testing.T) {
 
 			model := &receiptDateGateway{arguments: arguments}
 			p := NewProcessor(f.pool, model)
-			p.SetJudgment(eagerEngine{})
 			mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 			f.update.Message.Text = "2026-10-3"
 			f.update.Message.ReplyToMessage = &struct {
@@ -112,7 +109,6 @@ func TestAgentReplyRejectsNonDateForReceiptDateReview(t *testing.T) {
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT id FROM review_request WHERE transaction_id=$1`, transactionID).Scan(&reviewID))
 
 	p := NewProcessor(f.pool, &receiptDateGateway{arguments: `{"action":"CONFIRM","transaction_at":"besok lusa"}`})
-	p.SetJudgment(eagerEngine{})
 	mustAgentTest(t, p.BindReviewMessage(ctx, reviewID, f.chatID, 99, ""))
 	f.update.Message.Text = "besok lusa"
 	f.update.Message.ReplyToMessage = &struct {

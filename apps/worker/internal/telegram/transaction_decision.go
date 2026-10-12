@@ -8,13 +8,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
-// TransactionSemanticDecision is the single authority for mutating a Telegram
-// (or, later, email) transaction candidate. Extraction produces facts; this
-// object is the semantic ruling over those facts; Go persistence only checks
-// this object.
+// decisionPolicyVersion labels the deterministic acceptance contract in stored
+// decision provenance.
+const decisionPolicyVersion = "2026-10-deterministic"
+
 type TransactionSemanticDecision struct {
 	RouteAccepted     bool
 	TransactionType   string
@@ -25,9 +24,8 @@ type TransactionSemanticDecision struct {
 	DateSupported     bool
 	DateReference     string
 	MaterialAmbiguity bool
-	// AmbiguityDecidedNotAmbiguous records a decided *negative* on the ambiguous
-	// question, which is the favourable answer. The middle band means the plane
-	// could not tell, and must fail closed rather than read as approval.
+	// AmbiguityDecidedNotAmbiguous records that the extraction was complete and
+	// unambiguous; anything else fails closed to review.
 	AmbiguityDecidedNotAmbiguous bool
 
 	// ResidualCategory records the one named dimension a bounded rescue still had
@@ -62,105 +60,11 @@ func (d TransactionSemanticDecision) decisionAllowed() bool {
 	return d.TransactionType == "EXPENSE" && d.CategoryAccepted && strings.TrimSpace(d.CategorySlug) != ""
 }
 
-// transactionQuestions builds the one shared bounded bundle. The harvested fast
-// path (inside the initial route request) and the post-extraction evaluator both
-// use it, so a transaction decision cannot diverge by channel.
-func transactionQuestions(categories []string, typeHint string) map[string]judgment.Question {
-	questions := map[string]judgment.Question{
-		"transaction_type":   {Type: "choice", Instructions: "Choose the transaction direction. Use INCOME for money received and EXPENSE for money spent. Use OTHER_OR_UNCLEAR if ambiguous.", Criteria: judgmentTypeCriteria},
-		"amount_support":     {Type: "noul", Instructions: "Does the amount clearly belong to the transaction the user asked to record?"},
-		"date_support":       {Type: "noul", Instructions: "Does the resolved date clearly match when this transaction happened?"},
-		"material_ambiguity": {Type: "noul", Instructions: "Is the request genuinely ambiguous (two or more plausible readings, targets, or amounts)?"},
-	}
-	// The category question is part of the bundle whenever the turn could be an
-	// expense. Both channels therefore send identical question sets: the fast
-	// path only pre-harvests EXPENSE/INCOME candidates, and the post-extraction
-	// path may not know the direction until this same request answers it.
-	if len(categories) > 0 && typeHint != "INCOME" {
-		questions["category"] = judgment.Question{Type: "choice", Instructions: "Choose the best active expense category for this purchased item. Use OTHER_OR_UNCLEAR only when no category is safe.", Criteria: judgment.CategoryCriteria(categories)}
-	}
-	return questions
-}
-
-var judgmentDateReferenceCriteria = map[string]string{
-	"TODAY":            "the transaction happened today",
-	"YESTERDAY":        "the transaction happened yesterday",
-	"EXPLICIT":         "the user stated a calendar date",
-	"OTHER_OR_UNCLEAR": "no transaction date was stated",
-}
-
-// resolveResidualTransactionDecision asks the bounded plane only for the
-// dimensions the caller names as unresolved, using the generative extraction as
-// the shared state snapshot. It exists so a complete extraction can skip the
-// full semantic replay while still letting Jev rescue a genuinely open fact
-// (ADR-045 "Residual bounded rescue"); the question set is exactly the residual
-// set, never the whole transaction bundle again.
-func (p *Processor) resolveResidualTransactionDecision(ctx context.Context, requestID, userText string, value validatedExtraction, categories []string, jevDimensions []string, missing []string) (TransactionSemanticDecision, error) {
-	questions := map[string]judgment.Question{}
-	for _, dimension := range jevDimensions {
-		switch dimension {
-		case "transaction_at":
-			// Date is not a bounded semantic choice. Go must ask the user,
-			// never ask the model to guess when the transaction happened.
-			return TransactionSemanticDecision{}, nil
-		case "category":
-			if len(categories) > 0 {
-				questions["category"] = judgment.Question{Type: "choice", Instructions: "Choose the best active expense category for this purchased item. Use OTHER_OR_UNCLEAR only when no category is safe.", Criteria: judgment.CategoryCriteria(categories)}
-			}
-		}
-	}
-	if len(questions) == 0 {
-		return TransactionSemanticDecision{}, nil
-	}
-	state := map[string]any{
-		"user_text":              untrustedUser(userText),
-		"amount_candidates":      []string{value.Amount},
-		"merchant":               value.Merchant,
-		"description":            value.Description,
-		"transaction_type_hint":  value.Type,
-		"allowed_category_slugs": categories,
-		"residual_dimensions":    jevDimensions,
-	}
-	// The only bounded question is a dimension named unresolved by the caller;
-	// accepted dimensions outside this question set do not represent re-decisions.
-	result, err := p.evaluateWithAccepted(ctx, judgmentTaskTransaction, requestID, judgment.Request{State: state, Questions: questions}, []string{})
-	if err != nil {
-		return TransactionSemanticDecision{}, err
-	}
-	decision := transactionDecisionFromAnswers(result, simpleTransactionCandidate{}, categories)
-	if len(jevDimensions) == 1 && jevDimensions[0] == "category" {
-		if answer, exists := result.Answers["category"]; exists && answer.Choice != "OTHER_OR_UNCLEAR" && judgment.AcceptChoice(answer, judgment.CategoryCriteria(categories), judgmentPolicy.Category) && contains(categories, answer.Choice) {
-			decision.CategorySlug, decision.CategoryAccepted = answer.Choice, true
-		}
-		// Amount/date/type were already accepted deterministically; the only thing
-		// Jev was asked to own is the category.
-		decision.RouteAccepted = true
-		decision.TransactionType = value.Type
-		decision.TypeAccepted = true
-		decision.AmountSupported = true
-		decision.DateSupported = !contains(missing, "transaction_at")
-		decision.AmbiguityDecidedNotAmbiguous = true
-		decision.ResidualCategory = true
-		if decision.CategoryAccepted {
-			decision.DecisionSource = "GENERATIVE_PLUS_JEV"
-		} else {
-			decision.DecisionSource = "GENERATIVE_EXTRACTION"
-		}
-	}
-	return decision, nil
-}
-
-// semanticDecisionForRecord is the post-generation routing for one Telegram
-// record_transaction call. It accepts a complete extraction directly, and spends
-// a Jev call only on dimensions that remain genuinely unresolved, so a clear
-// generative result never pays a full second semantic pass (ADR-045).
-//
-// It deliberately does NOT send the whole bundle (direction, amount/date support,
-// ambiguity, category) in one call, which is the redundant replay. Residual-first
-// routing is the contract here. Batch confirmation (agentFinalizePendingBatch)
-// does not re-run semantic approval: it is an explicit human confirmation, not an
-// autonomous extraction.
-func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
+// semanticDecisionForRecord rules on one record_transaction call with Go
+// validation alone (ADR-052). A complete extraction is accepted directly; any
+// unresolved dimension (an unknown category, say) is recorded as residual so the
+// transaction is parked for review rather than guessed.
+func (p *Processor) semanticDecisionForRecord(_ context.Context, state *agentState, value validatedExtraction, categories []string, exactCategory bool) (TransactionSemanticDecision, error) {
 	if direct, ok := directAcceptanceDecision(value, categories, state.Now); ok {
 		if p.postGenerativeAutoConfirmOff {
 			return TransactionSemanticDecision{DecisionSource: direct.DecisionSource, PolicyVersion: direct.PolicyVersion}, nil
@@ -168,56 +72,39 @@ func (p *Processor) semanticDecisionForRecord(ctx context.Context, state *agentS
 		if exactCategory {
 			direct.DecisionSource = "DETERMINISTIC_POLICY"
 		}
-		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeAccepted)
 		return direct, nil
 	}
-	if p.judgment == nil {
-		state.ResidualDimensions = unresolvedTransactionDimensions(value.Type, strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug))
-		p.metrics.recordDecision(ctx, judgmentTaskTransaction, judgmentOutcomeJudgmentUnavailable)
-		return TransactionSemanticDecision{DecisionSource: "JUDGMENT_UNAVAILABLE", PolicyVersion: judgmentPolicy.Version}, nil
-	}
 	categoryKnown := strings.TrimSpace(value.CategorySlug) != "" && contains(categories, value.CategorySlug)
-	missing := unresolvedTransactionDimensions(value.Type, categoryKnown)
-	if value.Ambiguous {
-		// The extractor declared unresolved ambiguity without naming a safe
-		// bounded dimension. Preserve the facts for minimal review; do not ask Jev
-		// to guess which fact the extractor meant.
-		return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
-	}
-	if value.Type == "EXPENSE" && strings.TrimSpace(value.CategorySlug) != "" && !categoryKnown {
-		// A nonempty model-selected slug is an accepted semantic value, not an
-		// open category residual. If it is not an active household canonical ID,
-		// reject that exact operation; Jev must not replace it with a Go guess.
-		return TransactionSemanticDecision{}, nil
-	}
-	if len(missing) == 0 {
-		return TransactionSemanticDecision{}, nil
-	}
-	if state != nil {
-		state.ResidualDimensions = missing
-	}
-	jevDimensions := unresolvedTransactionDimensions(value.Type, categoryKnown)
-	if len(jevDimensions) > 0 {
-		if trace := turnTraceFrom(ctx); trace != nil {
-			trace.recordResidual(jevDimensions)
+	state.ResidualDimensions = unresolvedTransactionDimensions(value.Type, categoryKnown)
+	decision := TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: decisionPolicyVersion}
+	// When the category is the only open dimension, the type, amount and date are
+	// still accepted facts: the review asks for the category, not for a date the
+	// household already gave. CategoryAccepted stays false, so nothing is confirmed.
+	if len(state.ResidualDimensions) == 1 && state.ResidualDimensions[0] == "category" {
+		if complete, ok := directAcceptanceDecision(withCategory(value, categories), categories, state.Now); ok {
+			decision.RouteAccepted, decision.TransactionType, decision.TypeAccepted = true, complete.TransactionType, true
+			decision.AmountSupported, decision.DateSupported = true, true
 		}
-		decision, err := p.resolveResidualTransactionDecision(ctx, state.SourceEventID, state.Update.Message.Text, value, categories, jevDimensions, missing)
-		if decision.CategoryAccepted {
-			state.ResidualDimensions = removeString(missing, "category")
-		}
-		return decision, err
 	}
-	return TransactionSemanticDecision{DecisionSource: "GENERATIVE_EXTRACTION", PolicyVersion: judgmentPolicy.Version}, nil
+	return decision, nil
 }
 
-func removeString(values []string, target string) []string {
-	result := make([]string, 0, len(values))
+// withCategory returns the extraction with its first allowed category filled in,
+// only so directAcceptanceDecision can vouch for every other dimension.
+func withCategory(value validatedExtraction, categories []string) validatedExtraction {
+	if len(categories) > 0 {
+		value.CategorySlug = categories[0]
+	}
+	return value
+}
+
+func contains(values []string, target string) bool {
 	for _, value := range values {
-		if value != target {
-			result = append(result, value)
+		if strings.EqualFold(value, target) {
+			return true
 		}
 	}
-	return result
+	return false
 }
 
 func appendIfMissing(values []string, target string) []string {
@@ -227,28 +114,10 @@ func appendIfMissing(values []string, target string) []string {
 	return append(values, target)
 }
 
-func noulSupported(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) bool {
-	answer, ok := answers[key]
-	return ok && judgmentSupported(answer, policy)
-}
-
-// ambiguityVerdict reads the inverted claim. It returns (isAmbiguous,
-// decidedNotAmbiguous) so a caller can require an affirmative not-ambiguous
-// ruling instead of treating an undecided answer as approval.
-func ambiguityVerdict(answers map[string]judgment.Answer, key string, policy judgment.NoulPolicy) (bool, bool) {
-	answer, ok := answers[key]
-	if !ok {
-		return false, false
-	}
-	ambiguous, decided := judgment.AcceptNoul(answer, policy)
-	return ambiguous, decided && !ambiguous
-}
-
-// directAcceptanceDecision is the source acceptance contract for one extracted
-// transaction. It replaces "Jev: did you mean what you already said?" with the
-// checks the ADR requires before a generative result may continue (ADR-045
-// "Deterministic validation"). It returns false when any dimension is genuinely
-// unresolved, which is exactly when the bounded evaluator still earns its call.
+// directAcceptanceDecision is the acceptance contract for one extracted
+// transaction: the deterministic checks required before a generative result may
+// be persisted as CONFIRMED. It returns false when any dimension is genuinely
+// unresolved, and that transaction goes to review instead of being guessed.
 func directAcceptanceDecision(value validatedExtraction, categories []string, now time.Time) (TransactionSemanticDecision, bool) {
 	// Schema/type and amount format are re-asserted here rather than trusted,
 	// because this function is the gate that skips the model.
@@ -266,8 +135,8 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 		return TransactionSemanticDecision{}, false
 	}
 	// Confidence is intentionally not a canonical gate. It cannot authorize an
-	// event by itself, and a low/high self-score does not justify asking Jev to
-	// repeat a complete, schema-valid extraction (ADR-045 §Deterministic validation).
+	// event by itself, and a low/high self-score does not justify rejecting
+	// a complete, schema-valid extraction.
 	if value.Ambiguous {
 		return TransactionSemanticDecision{}, false
 	}
@@ -281,16 +150,14 @@ func directAcceptanceDecision(value validatedExtraction, categories []string, no
 			AmountSupported: true, DateSupported: true,
 			CategorySlug: value.CategorySlug, CategoryAccepted: value.Type == "INCOME" || categoryKnown,
 			AmbiguityDecidedNotAmbiguous: true, DecisionSource: "GENERATIVE_EXTRACTION",
-			PolicyVersion: judgmentPolicy.Version,
+			PolicyVersion: decisionPolicyVersion,
 		}, true
 	}
 	return TransactionSemanticDecision{}, false
 }
 
 // unresolvedTransactionDimensions names exactly the residual facts that still
-// block canonical confirmation. It is the single place that decides what the
-// bounded evaluator is allowed to be asked, so a resolved dimension can never be
-// re-sent as if it were open (ADR-045 "Residual bounded rescue").
+// block canonical confirmation.
 func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {
 	if typ == "EXPENSE" && !categoryKnown {
 		return []string{"category"}
@@ -302,48 +169,6 @@ func unresolvedTransactionDimensions(typ string, categoryKnown bool) []string {
 // evidence or an explicit user statement, rather than the processing fallback.
 func acceptableDateProvenance(provenance string) bool {
 	return provenance == "USER_STATED"
-}
-
-// turnAgentContextState is the loaded server state shared by the initial
-// judgment bundle: categories and pending-workflow flags are read
-// once by ProcessAgent and must not be re-queried per fast path.
-type turnAgentContextState struct {
-	Categories              []string
-	HasPendingAction        bool
-	HasPendingBatch         bool
-	HasSalaryChoice         bool
-	HasMerchantLearning     bool
-	HasPendingWorkflow      bool
-	ActiveReviewCount       int
-	ReviewType              string
-	ReviewConversationState string
-	ExactReply              bool
-	// HasRecentEvidence is true when evidence the user sent within the immediate
-	// window (10 minutes) is in this turn's context (CEU). A bare amount, date or
-	// merchant then may be a correction to that evidence, so no standalone
-	// transaction candidate is harvested: a second ledger row for the same real event
-	// is the failure to avoid. Older evidence in the hour does not take the fast path
-	// away from an ordinary new expense.
-	HasRecentEvidence bool
-	// Route is the decided Jev route for this turn, filled by the fast path and
-	// read back by ProcessAgent so implicit workflow bindings are narrowed only
-	// when the route names that interaction (ADR-038 amendment).
-	Route string
-	// RecentTurns is the bounded tail of this chat's conversation. The route
-	// classifier needs it because a reply such as "jam 3 sore" answers the
-	// assistant's last question and means nothing in isolation.
-	RecentTurns []PublicTurn
-}
-
-// mutationAuthorityUnavailable withholds side effects only when a judgment plane
-// is configured and did not authorize this turn. With none configured (ADR-052)
-// the route is not a gate: Go validation decides every mutation.
-func mutationAuthorityUnavailable(configured bool, state turnAgentContextState) bool {
-	return configured && !state.ExactReply && (state.Route == "" || state.Route == "OTHER_OR_UNCLEAR" || state.Route == "OUT_OF_SCOPE")
-}
-
-func (s turnAgentContextState) harvestable() bool {
-	return !s.HasPendingWorkflow && !s.ExactReply && s.ActiveReviewCount == 0 && !s.HasRecentEvidence
 }
 
 // recordJudgmentDecision persists bounded decision provenance in the same

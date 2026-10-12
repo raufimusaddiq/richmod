@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 // assetHintGateway answers the generative turn the way the conversational agent
@@ -37,33 +36,6 @@ func (g *assetHintGateway) AgentTurn(_ context.Context, _ string, request gatewa
 		}
 	}
 	return gateway.AgentResponse{}, nil
-}
-
-// jevTransferAction selects the finite semantic action. Generative inference
-// should receive the action preselected and extract only its freeform argument.
-type jevTransferAction struct {
-	tasks              []string
-	answerReviewAction string
-}
-
-func (e *jevTransferAction) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	answers := map[string]judgment.Answer{}
-	for key := range request.Questions {
-		e.tasks = append(e.tasks, key)
-	}
-	if question, ok := request.Questions["route"]; ok {
-		criteria, _ := question.Criteria.(map[string]any)
-		answers["route"] = confidentChoice(criteria, "REVIEW_INTERACTION")
-	}
-	if question, ok := request.Questions["review_action"]; ok {
-		criteria, _ := question.Criteria.(map[string]any)
-		answer := e.answerReviewAction
-		if answer == "" {
-			answer = "ASSET_PURCHASE"
-		}
-		answers["review_action"] = confidentChoice(criteria, answer)
-	}
-	return judgment.Result{Model: "jev-undecided", Answers: answers}, nil
 }
 
 func createAgentTransferClassificationReview(t *testing.T, ctx context.Context, f agentIntegrationFixture, messageID int64) (reviewID, transactionID, itemID string) {
@@ -119,17 +91,14 @@ func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 
 	gatewayStub := &assetHintGateway{action: "ASSET_PURCHASE", hint: "emas"}
 	processor := NewProcessor(f.pool, gatewayStub)
-	judgmentStub := &jevTransferAction{}
-	processor.SetJudgment(judgmentStub)
 	mustAgentTest(t, processor.ProcessAgent(ctx, f.sourceID))
 	if len(gatewayStub.lastTools) == 0 {
 		var status string
 		_ = f.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, f.sourceID).Scan(&status)
-		t.Fatalf("generative turn did not run; source status=%s judgment_tasks=%v gateway_calls=%d", status, judgmentStub.tasks, gatewayStub.calls)
+		t.Fatalf("generative turn did not run; source status=%s gateway_calls=%d", status, gatewayStub.calls)
 	}
-
-	// The exact-head schema narrowed to the transfer vocabulary and carried the
-	// typed hint field.
+	// The exact-head schema is the transfer vocabulary and carries the typed
+	// hint field.
 	var sawResolveReview bool
 	for _, tool := range gatewayStub.lastTools {
 		if tool.Name != "resolve_review" {
@@ -143,8 +112,8 @@ func TestT2T3TransferReviewAssetPurchaseUsesTypedWealthHint(t *testing.T) {
 		}
 		properties := tool.Parameters["properties"].(map[string]any)
 		action := properties["action"].(map[string]any)["enum"].([]string)
-		if len(action) != 1 || action[0] != "ASSET_PURCHASE" {
-			t.Fatalf("Jev-selected action was not preserved into the generative tool schema: %v", action)
+		if !contains(action, "ASSET_PURCHASE") {
+			t.Fatalf("the exact transfer review schema must offer ASSET_PURCHASE: %v", action)
 		}
 	}
 	if !sawResolveReview {

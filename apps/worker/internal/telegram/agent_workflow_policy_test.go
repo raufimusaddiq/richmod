@@ -1,43 +1,10 @@
 package telegram
 
 import (
-	"context"
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
-
-// eagerEngine answers every question it is asked with the first allowed option
-// (or an affirmative Noul), so a workflow test does not have to guess the exact
-// question keys the processor sends.
-type eagerEngine struct{}
-
-func (eagerEngine) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	answers := map[string]judgment.Answer{}
-	for key, question := range request.Questions {
-		criteria, ok := question.Criteria.(map[string]any)
-		if !ok {
-			answers[key] = decidedNoul(0.99)
-			continue
-		}
-		labels := judgment.CriteriaLabels(criteria)
-		if len(labels) == 0 {
-			continue
-		}
-		// Prefer an affirmative label when the workflow offers one.
-		choice := labels[0]
-		for _, preferred := range []string{"CONFIRM", "PRIMARY", "EXPENSE"} {
-			for _, label := range labels {
-				if label == preferred {
-					choice = preferred
-				}
-			}
-		}
-		answers[key] = confidentChoice(criteria, choice)
-	}
-	return judgment.Result{Model: "stub-jev", Answers: answers}, nil
-}
 
 func sideEffectNames(tools []gateway.ToolDefinition) map[string]bool {
 	out := map[string]bool{}
@@ -55,7 +22,7 @@ func TestExplicitReviewReplyExposesOnlyBoundReviewMutation(t *testing.T) {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 77}
 	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowExactReview {
 		t.Fatalf("scope=%s", scope)
@@ -67,7 +34,7 @@ func TestExplicitReviewReplyExposesOnlyBoundReviewMutation(t *testing.T) {
 
 func TestPendingBatchDoesNotOwnUnrelatedAgentTurn(t *testing.T) {
 	tools := AgentFinanceTools([]string{"dining"}, false, true, false, "", false, false, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil, "NEEDS_GENERATIVE_AGENT")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil)
 	if scope != agentWorkflowGeneral {
 		t.Fatalf("scope=%s; unrelated conversation must keep general scope", scope)
 	}
@@ -82,7 +49,7 @@ func TestExplicitMerchantReplyExposesOnlyMerchantMutation(t *testing.T) {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 88}
 	tools := AgentFinanceTools([]string{"dining"}, true, true, false, "", true, true, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "review", TransactionID: "tx", TelegramMessageID: 88}, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "review", TransactionID: "tx", TelegramMessageID: 88})
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowExactMerchant {
 		t.Fatalf("scope=%s", scope)
@@ -98,7 +65,7 @@ func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
 		MessageID int64 `json:"message_id"`
 	}{MessageID: 99}
 	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, nil, "")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, nil)
 	if scope != agentWorkflowExplicitUnbound {
 		t.Fatalf("scope=%s", scope)
 	}
@@ -107,33 +74,24 @@ func TestStaleExplicitReplyExposesNoSideEffects(t *testing.T) {
 	}
 }
 
-func TestPendingCorrectionRequiresSemanticRoute(t *testing.T) {
+func TestPendingActionDoesNotOwnOrdinaryTurn(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"}, "READ_CASHFLOW")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, &agentMerchantLearningBinding{ReviewRequestID: "merchant-review", TransactionID: "tx"})
 	writes := sideEffectNames(filtered)
 	if scope != agentWorkflowGeneral {
 		t.Fatalf("scope=%s", scope)
 	}
 	if !writes["record_transaction"] || writes["confirm_pending_action"] || writes["cancel_pending_action"] {
-		t.Fatalf("unrelated route got wrong catalog: %v", writes)
-	}
-	filtered, scope = applyAgentWorkflowToolPolicy(tools, update, nil, nil, "PENDING_ACTION_INTERACTION")
-	writes = sideEffectNames(filtered)
-	if scope != agentWorkflowPendingAction || len(writes) != 2 || !writes["confirm_pending_action"] || !writes["cancel_pending_action"] {
-		t.Fatalf("semantic pending-action route scope=%s writes=%v", scope, writes)
+		t.Fatalf("ordinary turn got wrong catalog: %v", writes)
 	}
 }
 
-func TestSalaryChoiceRequiresSalaryRoute(t *testing.T) {
+func TestSalaryChoiceDoesNotOwnOrdinaryTurn(t *testing.T) {
 	tools := AgentFinanceTools(nil, false, false, false, "", true, false, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil, "READ_SPENDING")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil)
 	if scope != agentWorkflowGeneral || sideEffectNames(filtered)["resolve_salary_choice"] {
-		t.Fatalf("unrelated route scope=%s writes=%v", scope, sideEffectNames(filtered))
-	}
-	filtered, scope = applyAgentWorkflowToolPolicy(tools, telegramUpdate{}, nil, nil, "SALARY_INTERACTION")
-	if scope != agentWorkflowSalaryChoice || !sideEffectNames(filtered)["resolve_salary_choice"] {
-		t.Fatalf("salary route scope=%s writes=%v", scope, sideEffectNames(filtered))
+		t.Fatalf("ordinary turn scope=%s writes=%v", scope, sideEffectNames(filtered))
 	}
 }
 
@@ -148,53 +106,26 @@ func TestSalaryChoiceMapsOnlyCanonicalEnums(t *testing.T) {
 	}
 }
 
-func TestPendingBatchOutranksUniqueReview(t *testing.T) {
-	var update telegramUpdate
-	tools := AgentFinanceTools([]string{"dining"}, false, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "PENDING_BATCH_INTERACTION")
-	writes := sideEffectNames(filtered)
-	if scope != agentWorkflowPendingBatch {
-		t.Fatalf("scope=%s", scope)
-	}
-	if len(writes) != 1 || !writes["pending_batch_decision"] {
-		t.Fatalf("writes=%v; want pending batch writes only", writes)
-	}
-}
-
-func TestUniqueReviewOutranksGeneralWrites(t *testing.T) {
+// An unreplied turn keeps the general catalog even when a unique review or
+// merchant-learning target is known: only an exact reply narrows tools.
+func TestImplicitReviewBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "REVIEW_INTERACTION")
-	writes := sideEffectNames(filtered)
-	if scope != agentWorkflowUniqueReview {
-		t.Fatalf("scope=%s", scope)
-	}
-	if len(writes) != 1 || !writes["resolve_review"] {
-		t.Fatalf("writes=%v; want resolve_review only", writes)
-	}
-}
-
-// Route-first lane selection: an implicit binding must not narrow the catalog
-// when the route says the turn is something else. This is the invariant that
-// removes the per-binding fall-through special case.
-func TestImplicitReviewBindingIgnoredWhenRouteIsNotReview(t *testing.T) {
-	var update telegramUpdate
-	tools := AgentFinanceTools([]string{"dining"}, false, false, true, "AMBIGUOUS_CATEGORY", false, false, "TRANSACTION")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil, "CREATE_TRANSACTION")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, &agentReviewBinding{Kind: "TRANSACTION", TargetID: "target", ReviewRequestID: "review"}, nil)
 	if scope != agentWorkflowGeneral {
-		t.Fatalf("scope=%s; a non-review route must keep the general catalog", scope)
+		t.Fatalf("scope=%s; an ordinary turn must keep the general catalog", scope)
 	}
 	if side := sideEffectNames(filtered); !side["record_transaction"] {
 		t.Fatalf("general catalog must be intact, got %v", side)
 	}
 }
 
-func TestImplicitMerchantBindingIgnoredWhenRouteIsNotMerchantLearning(t *testing.T) {
+func TestImplicitMerchantBindingDoesNotNarrowOrdinaryTurn(t *testing.T) {
 	var update telegramUpdate
 	tools := AgentFinanceTools([]string{"dining"}, false, false, false, "", false, true, "")
-	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "r", TransactionID: "t"}, "CREATE_TRANSACTION")
+	filtered, scope := applyAgentWorkflowToolPolicy(tools, update, nil, &agentMerchantLearningBinding{ReviewRequestID: "r", TransactionID: "t"})
 	if scope != agentWorkflowGeneral {
-		t.Fatalf("scope=%s; a non-merchant route must keep the general catalog", scope)
+		t.Fatalf("scope=%s; an ordinary turn must keep the general catalog", scope)
 	}
 	if side := sideEffectNames(filtered); !side["record_transaction"] {
 		t.Fatalf("general catalog must be intact, got %v", side)
@@ -222,37 +153,5 @@ func TestCycleResidualToolUsesWealthHintsNotUUIDs(t *testing.T) {
 	}
 	if _, ok := itemProperties["wealth_account_id"]; ok {
 		t.Fatalf("cycle residual exposed canonical wealth_account_id: %#v", itemProperties)
-	}
-}
-
-// The bounded generative tools for
-// server-owned workflows are fallback-only. When the judgment plane is
-// configured, tryJudgmentBoundWorkflow consumes these turns before the
-// generative loop runs, so the generative tool definition is never reached.
-// This test pins that pre-emption so a future change cannot silently reopen a
-// second mutation authority for the same workflow.
-func TestSalaryWorkflowNeedsSemanticRoute(t *testing.T) {
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "jev-preempt-salary")
-	// A pending payslip is a server-owned workflow: the bounded plane owns the
-	// turn, so the generative resolve_salary_choice tool is never offered a chance
-	// to mutate and the turn must resolve on the judgment path.
-	var transactionID string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,counterparty_name,created_by_user_id,confirmed_at) VALUES($1,'INCOME','CONFIRMED',16000000,'IDR',now(),'Acme',$2,now()) RETURNING id`, f.householdID, f.userID).Scan(&transactionID))
-	_, err := f.pool.Exec(ctx, `INSERT INTO salary_pending_choice(household_id,telegram_user_id,telegram_chat_id,transaction_id,employer,payroll_period,pay_date,status) VALUES($1,$2,$3,$4,'Acme','2026-09-01','2026-09-01','PENDING')`, f.householdID, f.chatID, f.chatID, transactionID)
-	mustAgentTest(t, err)
-
-	processor := NewProcessor(f.pool, nil)
-	processor.SetJudgment(eagerEngine{})
-	state := &agentState{HouseholdID: f.householdID, SourceEventID: f.sourceID, Update: f.update, HasSalaryChoice: true, Route: "READ_SPENDING"}
-	handled, err := processor.tryJudgmentBoundWorkflow(ctx, state, "pengeluaran terbesar bulan ini apa?")
-	mustAgentTest(t, err)
-	if handled {
-		t.Fatal("unrelated turn must not be consumed by pending salary")
-	}
-	var status string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM salary_pending_choice WHERE transaction_id=$1`, transactionID).Scan(&status))
-	if status != "PENDING" {
-		t.Fatalf("unrelated turn resolved pending salary: %s", status)
 	}
 }

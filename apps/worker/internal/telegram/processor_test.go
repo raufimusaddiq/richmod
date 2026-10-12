@@ -74,7 +74,7 @@ func TestClearExpenseDecisionDoesNotCreateAvoidableReview(t *testing.T) {
 		RouteAccepted: true, TransactionType: "EXPENSE", TypeAccepted: true,
 		AmountSupported: true, DateSupported: true, CategorySlug: "makanan-minuman", CategoryAccepted: true,
 		AmbiguityDecidedNotAmbiguous: true,
-		DecisionSource:               "JEV", PolicyVersion: judgmentPolicyVersion,
+		DecisionSource:               "GENERATIVE_EXTRACTION", PolicyVersion: decisionPolicyVersion,
 	}
 	if !clear.decisionAllowed() {
 		t.Fatal("a supported expense decision must be allowed")

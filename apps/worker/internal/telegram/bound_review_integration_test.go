@@ -76,15 +76,12 @@ func TestTelegramBareMerchantResolvesOnlyOpenReview(t *testing.T) {
 	}
 
 	// A plain answer naming a remembered merchant resolves the one open review
-	// through merchant memory: Jev routes it to the review and no model runs.
-	model := &typedReplyGateway{arguments: `{"action":"CONFIRM"}`}
+	// through merchant memory: the model proposes the merchant, Go applies the
+	// remembered category and confirms without asking for one.
+	model := &typedReplyGateway{arguments: `{"action":"CONFIRM","merchant":"ShopeeFood"}`}
 	processor := NewProcessor(pool, model)
-	processor.SetJudgment(reviewAnswerEngine{reviewAction: "CONFIRM"})
 	if err = processor.ProcessAgent(ctx, sourceID); err != nil {
 		t.Fatal(err)
-	}
-	if model.calls != 0 {
-		t.Fatalf("a remembered merchant must not call the model, calls=%d", model.calls)
 	}
 	var gotMerchantID, gotCategoryID, transactionStatus, reviewStatus, conversationState string
 	if err = pool.QueryRow(ctx, `SELECT t.merchant_id::text,t.category_id::text,t.status,r.status,c.state FROM transaction t JOIN review_request r ON r.transaction_id=t.id JOIN review_conversation c ON c.review_request_id=r.id WHERE t.id=$1`, transactionID).Scan(&gotMerchantID, &gotCategoryID, &transactionStatus, &reviewStatus, &conversationState); err != nil {

@@ -80,8 +80,8 @@ func TestNativeReviewSchemaUsesOpaqueReconciliationReferences(t *testing.T) {
 }
 
 // The generative model supplies only arbitrary facts (amount, hints, time). The
-// canonical purpose is a bounded semantic Choice owned by Go + the judgment
-// plane, so it must not appear in the tool contract at all.
+// canonical purpose is owned by Go (a deterministic reclassification purpose),
+// so it must not appear in the tool contract at all.
 func TestRecordTransferContractCarriesNoPurpose(t *testing.T) {
 	internal := transferArgs{Amount: "3000000", SourceAccountHint: "Jago", DateReference: "TODAY"}
 	if err := validateTypedArgs(&internal); err != nil {

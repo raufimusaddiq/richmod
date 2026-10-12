@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 )
 
 type prdAgentGateway struct{}
@@ -61,31 +59,6 @@ func (g *ir04AgentGateway) AgentTurn(_ context.Context, _ string, request gatewa
 	return gateway.AgentResponse{}, errors.New("record_transaction was not exposed")
 }
 
-type ir04Judgment struct {
-	calls        int
-	questionSets []map[string]judgment.Question
-	route        string
-}
-
-func (e *ir04Judgment) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	e.calls++
-	e.questionSets = append(e.questionSets, request.Questions)
-	answers := map[string]judgment.Answer{}
-	if question, ok := request.Questions["route"]; ok {
-		criteria, _ := question.Criteria.(map[string]any)
-		route := e.route
-		if route == "" {
-			route = "NEEDS_GENERATIVE_AGENT"
-		}
-		answers["route"] = confidentChoice(criteria, route)
-	}
-	if question, ok := request.Questions["category"]; ok {
-		criteria, _ := question.Criteria.(map[string]any)
-		answers["category"] = confidentChoice(criteria, "food-drink")
-	}
-	return judgment.Result{Model: "ir04-test-jev", Answers: answers}, nil
-}
-
 type prdReviewGateway struct{ calls int }
 
 func (*prdReviewGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
@@ -104,178 +77,20 @@ func (g *prdReviewGateway) AgentTurn(_ context.Context, _ string, request gatewa
 	return gateway.AgentResponse{Text: "Tinjauan selesai."}, nil
 }
 
-type simpleExpenseJudgment struct{}
-
-func (simpleExpenseJudgment) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	answers := map[string]judgment.Answer{}
-	for key, question := range request.Questions {
-		switch key {
-		case "route":
-			criteria, _ := question.Criteria.(map[string]any)
-			answers[key] = confidentChoice(criteria, "CREATE_TRANSACTION")
-		case "transaction_type":
-			answers[key] = confidentChoice(judgmentTypeCriteria, "EXPENSE")
-		case "category":
-			criteria, _ := question.Criteria.(map[string]any)
-			answers[key] = confidentChoice(criteria, "food-drink")
-		case "date_reference":
-			criteria, _ := question.Criteria.(map[string]any)
-			answers[key] = confidentChoice(criteria, "TODAY")
-		case "amount_support", "date_support":
-			answers[key] = decidedNoul(0.99)
-		case "material_ambiguity":
-			answers[key] = decidedNoul(0.02)
+func TestTelegramOrdinaryTurnExposesFullAgentCatalog(t *testing.T) {
+	tools, scope := applyAgentWorkflowToolPolicy(agentFinanceTools(nil, false, false, false, "", false, false, ""), telegramUpdate{}, nil, nil)
+	if scope != agentWorkflowGeneral {
+		t.Fatalf("scope=%s, want general agent workflow", scope)
+	}
+	for _, name := range []string{"record_transaction", "record_transfer", "search_transactions", "propose_transaction_correction"} {
+		if !agentToolAvailable(tools, name) {
+			t.Errorf("ordinary turn omitted agent tool %s", name)
 		}
 	}
-	return judgment.Result{Model: "test-jev", Answers: answers}, nil
-}
-
-// prdFailingJudgment simulates a provider failure on the initial route call.
-type prdFailingJudgment struct{}
-
-func (prdFailingJudgment) Evaluate(context.Context, string, judgment.Request) (judgment.Result, error) {
-	return judgment.Result{}, errors.New("judgment plane unavailable")
-}
-
-type degradedChatGateway struct {
-	calls int
-	reply string
-}
-
-func (*degradedChatGateway) NativeToolCall(context.Context, string, string, any, []gateway.ToolDefinition, ...gateway.NativeToolOptions) (gateway.ToolCall, gateway.Metadata, error) {
-	return gateway.ToolCall{}, gateway.Metadata{}, errors.New("not used")
-}
-
-func (g *degradedChatGateway) AgentTurn(_ context.Context, _ string, request gateway.AgentRequest) (gateway.AgentResponse, error) {
-	g.calls++
-	if len(sideEffectNames(request.Tools)) > 0 {
-		return gateway.AgentResponse{}, errors.New("failed Jev route exposed mutation tools")
-	}
-	return gateway.AgentResponse{Text: g.reply}, nil
-}
-
-// A Jev route failure keeps ordinary conversation available but grants no
-// mutation capability and creates no fake household review.
-func TestJevFailureChatWorksButMutationCapabilityIsWithheld(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	for _, test := range []struct {
-		name, text, reply string
-		engine            judgment.Engine
-		openReview        bool
-	}{
-		{"chat", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdFailingJudgment{}, false},
-		{"conversation", "aku ga bisa chat aja?", "Bisa, kita ngobrol soal keuangan.", prdFailingJudgment{}, false},
-		{"finance help", "jelasin cara cek kondisi keuangan bulan ini", "Bisa, aku bantu jelaskan kondisi keuanganmu.", prdFailingJudgment{}, false},
-		{"mutation", "makan siang 25rb hari ini", "Belum dicatat karena layanan keputusan sementara tidak tersedia. Coba lagi sebentar lagi.", prdFailingJudgment{}, false},
-		{"unclear route", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdRouteJudgment{route: "OTHER_OR_UNCLEAR"}, false},
-		{"unclear with open review", "halo", "Halo! Ada yang bisa kubantu soal keuangan?", prdRouteJudgment{route: "OTHER_OR_UNCLEAR"}, true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			ctx := context.Background()
-			f := newAgentIntegrationFixture(t, "ir04-route-failure-"+test.name)
-			_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','food-drink')`, f.householdID)
-			mustAgentTest(t, err)
-			if test.openReview {
-				createAgentTransactionReview(t, ctx, f, "70000", 101)
-			}
-			f.update.Message.MessageID = 79
-			f.update.Message.Text = test.text
-			payload, err := json.Marshal(f.update)
-			mustAgentTest(t, err)
-			_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
-			mustAgentTest(t, err)
-
-			agent := &degradedChatGateway{reply: test.reply}
-			p := NewProcessor(f.pool, agent)
-			p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
-			p.SetJudgment(test.engine)
-			if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
-				t.Fatal(err)
-			}
-			if agent.calls != 1 {
-				t.Fatalf("ordinary conversation must reach the agent after Jev failure, calls=%d", agent.calls)
-			}
-			var transactions, reviews int
-			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID).Scan(&transactions))
-			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1`, f.householdID).Scan(&reviews))
-			wantRows := 0
-			if test.openReview {
-				wantRows = 1
-			}
-			if transactions != wantRows || reviews != wantRows {
-				t.Fatalf("conversation changed financial state: transactions=%d reviews=%d want=%d", transactions, reviews, wantRows)
-			}
-			if test.openReview {
-				var status string
-				mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT status FROM review_item WHERE household_id=$1 LIMIT 1`, f.householdID).Scan(&status))
-				if status != "OPEN" {
-					t.Fatalf("unrelated chat closed review: %s", status)
-				}
-			}
-			var reply string
-			mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 ORDER BY created_at DESC LIMIT 1`, fmt.Sprint(f.chatID)).Scan(&reply))
-			if reply != test.reply {
-				t.Fatalf("reply=%q, want %q", reply, test.reply)
-			}
-		})
-	}
-}
-
-type prdRouteJudgment struct{ route string }
-
-func (e prdRouteJudgment) Evaluate(_ context.Context, _ string, _ judgment.Request) (judgment.Result, error) {
-	return judgment.Result{Model: "test-jev", Answers: map[string]judgment.Answer{
-		"route": confidentChoice(judgment.ChoiceCriteria(judgmentRouteCriteria), e.route),
-	}}, nil
-}
-
-type prdUnclearReviewActionJudgment struct{}
-
-func (prdUnclearReviewActionJudgment) Evaluate(_ context.Context, _ string, request judgment.Request) (judgment.Result, error) {
-	criteria, _ := request.Questions["review_action"].Criteria.(map[string]any)
-	return judgment.Result{Model: "test-jev", Answers: map[string]judgment.Answer{
-		"review_action": confidentChoice(criteria, "OTHER_OR_UNCLEAR"),
-	}}, nil
-}
-
-func TestTelegramT4ToT6RoutesReachTheirAgentTools(t *testing.T) {
-	for _, test := range []struct {
-		route string
-		want  []string
-	}{
-		{"CREATE_TRANSFER", []string{"record_transfer"}},
-		{"SEARCH_TRANSACTIONS", []string{"search_transactions"}},
-		{"CORRECT_TRANSACTION", []string{"search_transactions", "propose_transaction_correction"}},
-	} {
-		t.Run(test.route, func(t *testing.T) {
-			p := &Processor{}
-			p.SetJudgment(prdRouteJudgment{route: test.route})
-			state := &turnAgentContextState{}
-			handled, err := p.tryJudgmentFastPath(context.Background(), "source", "household", telegramUpdate{}, "look up", time.Now(), state)
-			if err != nil || handled {
-				t.Fatalf("route=%s handled=%t err=%v; agent routes must fall through", test.route, handled, err)
-			}
-			if state.Route != test.route {
-				t.Fatalf("route=%q, want %q", state.Route, test.route)
-			}
-			tools, scope := applyAgentWorkflowToolPolicy(agentFinanceTools(nil, false, false, false, "", false, false, "", true), telegramUpdate{}, nil, nil, state.Route)
-			if scope != agentWorkflowGeneral {
-				t.Fatalf("scope=%s, want general agent workflow", scope)
-			}
-			for _, name := range test.want {
-				if !agentToolAvailable(tools, name) {
-					t.Errorf("route %s omitted agent tool %s", test.route, name)
-				}
-			}
-			for _, name := range []string{"ask_clarification", "finance_help", "finance_out_of_scope"} {
-				if agentToolAvailable(tools, name) {
-					t.Errorf("route %s exposed terminal tool %s", test.route, name)
-				}
-			}
-		})
+	for _, name := range []string{"ask_clarification", "finance_help", "finance_out_of_scope"} {
+		if agentToolAvailable(tools, name) {
+			t.Errorf("ordinary turn exposed terminal tool %s", name)
+		}
 	}
 }
 
@@ -294,7 +109,6 @@ func TestTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing.T)
 	}
 	p := NewProcessor(f.pool, prdAgentGateway{})
 	p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
-	p.SetJudgment(simpleExpenseJudgment{})
 	if err := p.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +122,7 @@ func TestTelegramT1SimpleExpenseConfirmsWithoutReviewOrTypedFields(t *testing.T)
 	}
 }
 
-func runIR04ComplexTransaction(t *testing.T, categorySlug string, wantJevCalls int, wantLane string, wantResidual []string) {
+func runIR04ComplexTransaction(t *testing.T, categorySlug, wantStatus string, wantResidual []string) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -325,79 +139,39 @@ func runIR04ComplexTransaction(t *testing.T, categorySlug string, wantJevCalls i
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
 	mustAgentTest(t, err)
 
-	jev := &ir04Judgment{route: "NEEDS_GENERATIVE_AGENT"}
 	agent := &ir04AgentGateway{amount: "25000", merchant: "Warung", category: categorySlug, dateRef: "TODAY", localTime: "12:30"}
 	p := NewProcessor(f.pool, agent)
 	p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
-	p.SetJudgment(jev)
-	p.SetTurnTelemetry(true)
 	if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
-	if jev.calls != wantJevCalls || agent.calls != 1 {
-		t.Fatalf("call budget: Jev=%d (want %d), generative=%d (want 1)", jev.calls, wantJevCalls, agent.calls)
+	if agent.calls != 1 {
+		t.Fatalf("call budget: generative=%d (want 1)", agent.calls)
 	}
-	if wantJevCalls == 2 {
-		if len(jev.questionSets[1]) != 1 {
-			t.Fatalf("residual Jev must get one question, got %v", jev.questionSets[1])
-		}
-		if _, ok := jev.questionSets[1]["category"]; !ok {
-			t.Fatalf("residual Jev must ask category only, got %v", jev.questionSets[1])
-		}
-	}
-	var status, gotCategory, lane string
+	var status, gotCategory, sourceStatus, reviewType string
 	var residual []string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status,c.slug FROM transaction t LEFT JOIN category c ON c.id=t.category_id JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1`, f.sourceID).Scan(&status, &gotCategory))
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT lane,residual_dimensions FROM judgment_turn_telemetry WHERE source_event_id=$1`, f.sourceID).Scan(&lane, &residual))
-	if status != "CONFIRMED" || gotCategory != "food-drink" {
-		t.Fatalf("canonical transaction: status=%s category=%s", status, gotCategory)
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status,COALESCE(c.slug,''),s.processing_status,COALESCE((SELECT r.review_type FROM review_request r WHERE r.transaction_id=t.id),'') FROM transaction t LEFT JOIN category c ON c.id=t.category_id JOIN transaction_evidence e ON e.transaction_id=t.id JOIN source_event s ON s.id=e.source_event_id WHERE e.source_event_id=$1`, f.sourceID).Scan(&status, &gotCategory, &sourceStatus, &reviewType))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(metadata_json->'residual_dimensions')='array' THEN metadata_json->'residual_dimensions' ELSE '[]'::jsonb END)),'{}') FROM transaction_proposal WHERE source_event_id=$1`, f.sourceID).Scan(&residual))
+	wantCategory, wantSource, wantReview := "food-drink", "PROCESSED", ""
+	if wantStatus == "NEEDS_REVIEW" {
+		wantCategory, wantSource, wantReview = "", "NEEDS_REVIEW", "AMBIGUOUS_CATEGORY"
 	}
-	if lane != wantLane || strings.Join(residual, ",") != strings.Join(wantResidual, ",") {
-		t.Fatalf("turn telemetry: lane=%s residual=%v; want %s/%v", lane, residual, wantLane, wantResidual)
+	if status != wantStatus || gotCategory != wantCategory || sourceStatus != wantSource || reviewType != wantReview {
+		t.Fatalf("canonical transaction: status=%s category=%q source=%s review=%q; want %s/%q/%s/%q", status, gotCategory, sourceStatus, reviewType, wantStatus, wantCategory, wantSource, wantReview)
+	}
+	if strings.Join(residual, ",") != strings.Join(wantResidual, ",") {
+		t.Fatalf("residual dimensions=%v, want %v", residual, wantResidual)
 	}
 }
 
-func TestTelegramComplexClearExtractionSkipsSemanticReplay(t *testing.T) {
-	runIR04ComplexTransaction(t, "food-drink", 1, string(judgmentLaneJevThenGenerative), nil)
+func TestTelegramComplexClearExtractionConfirmsWithOneAgentCall(t *testing.T) {
+	runIR04ComplexTransaction(t, "food-drink", "CONFIRMED", nil)
 }
 
-func TestTelegramCategoryResidualUsesOneCategoryOnlyRescue(t *testing.T) {
-	runIR04ComplexTransaction(t, "", 2, string(judgmentLaneResidualJev), []string{"category"})
-}
-
-// A simple harvestable transaction is fully decided inside the one
-// initial Jev route+bundle call. Any generative turn here is a call-budget bug.
-func TestTelegramSimpleHarvestableTransactionUsesNoGenerativeCall(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is not configured")
-	}
-	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "ir04-simple-harvest")
-	_, err := f.pool.Exec(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan & Minuman','food-drink')`, f.householdID)
-	mustAgentTest(t, err)
-	f.update.Message.MessageID = 78
-	f.update.Message.Text = "jajan gorengan 5k hari ini"
-	payload, err := json.Marshal(f.update)
-	mustAgentTest(t, err)
-	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2)`, f.sourceID, payload)
-	mustAgentTest(t, err)
-
-	agent := &ir04AgentGateway{}
-	p := NewProcessor(f.pool, agent)
-	p.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
-	p.SetJudgment(simpleExpenseJudgment{})
-	if err = p.ProcessAgent(ctx, f.sourceID); err != nil {
-		t.Fatal(err)
-	}
-	if agent.calls != 0 {
-		t.Fatalf("harvestable transaction must not run the generative agent, calls=%d", agent.calls)
-	}
-	var status string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status FROM transaction t JOIN transaction_evidence e ON e.transaction_id=t.id WHERE e.source_event_id=$1 AND t.amount=5000`, f.sourceID).Scan(&status))
-	if status != "CONFIRMED" {
-		t.Fatalf("harvestable transaction status=%s, want CONFIRMED", status)
-	}
+// With no accepted category the transaction is parked, never guessed: Go records
+// the unresolved dimension and the transaction waits for review.
+func TestTelegramCategoryResidualParksTransactionForReview(t *testing.T) {
+	runIR04ComplexTransaction(t, "", "NEEDS_REVIEW", []string{"category"})
 }
 
 // A real open review must survive a new expense in the same chat.
@@ -418,7 +192,6 @@ func TestTelegramT2NewExpenseDoesNotResolveOpenReview(t *testing.T) {
 	mustAgentTest(t, err)
 	processor := NewProcessor(f.pool, prdAgentGateway{})
 	processor.now = func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, jakartaLocation()) }
-	processor.SetJudgment(simpleExpenseJudgment{})
 	if err := processor.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +226,6 @@ func TestTelegramT3ExactCategoryReplyResolvesBoundReview(t *testing.T) {
 	mustAgentTest(t, err)
 	processor := NewProcessor(f.pool, &prdReviewGateway{})
 	// A bounded action ruling must fall through for the exact free-form category.
-	processor.SetJudgment(prdUnclearReviewActionJudgment{})
 	if err := processor.ProcessAgent(ctx, f.sourceID); err != nil {
 		t.Fatal(err)
 	}
