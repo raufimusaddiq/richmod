@@ -383,7 +383,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if hasChat {
 			message := workerTelegram.ReviewQuestion(*row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
-				message = "🟡 Dana masuk perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(*row.Value.Amount) + " dari " + row.Value.Merchant + "\n\nKonfirmasi sebagai penghasilan, atau tolak jika ini transfer milik sendiri."
+				message = "🟡 Dana masuk perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(*row.Value.Amount) + " dari " + row.Value.Merchant + "\n\nCatat sebagai penghasilan, atau tandai sebagai transfer masuk jika ini dana milik sendiri."
 			}
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message, decision); err != nil {
 				return err

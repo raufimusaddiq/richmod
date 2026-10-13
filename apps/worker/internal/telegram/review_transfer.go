@@ -13,8 +13,10 @@ func (p *Processor) applyTransferReviewCallback(ctx context.Context, sourceEvent
 	var classification, message string
 	classification = transferReviewCallbackAction(callback)
 	switch classification {
+	case "INCOME":
+		return p.confirmIncomeTransferReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
 	case "OWN_ACCOUNT":
-		message = "✅ Transfer sudah ditandai sebagai perpindahan antar rekening sendiri, bukan pengeluaran."
+		message = "✅ Transfer sudah ditandai sebagai perpindahan antar rekening sendiri, bukan pengeluaran atau penghasilan."
 	case "HOUSEHOLD_ACCOUNT":
 		message = "✅ Transfer sudah dicatat sebagai perpindahan antar anggota keluarga."
 	case "INVESTMENT_ACCOUNT":
@@ -33,6 +35,8 @@ func (p *Processor) applyTransferReviewCallback(ctx context.Context, sourceEvent
 
 func transferReviewCallbackAction(callback string) string {
 	switch callback {
+	case "review:income":
+		return "INCOME"
 	case "review:own":
 		return "OWN_ACCOUNT"
 	case "review:household":
@@ -48,6 +52,45 @@ func transferReviewCallbackAction(callback string) string {
 	default:
 		return ""
 	}
+}
+
+// confirmIncomeTransferReview records an incoming row (a screenshot "dana masuk")
+// as ordinary income. It is the exact answer to the "Penghasilan" button; the
+// shared confirm revalidates that the subject is still an open income review.
+func (p *Processor) confirmIncomeTransferReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var kind, userID string
+	err = tx.QueryRow(ctx, `SELECT t.type,ti.user_id::text FROM transaction t JOIN telegram_identity ti ON ti.telegram_user_id=$3 AND ti.household_id=t.household_id AND ti.active WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW'`, transactionID, householdID, update.Message.From.ID).Scan(&kind, &userID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && kind != "INCOME") {
+		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
+		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
+		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
+		Action: "TELEGRAM_CONFIRMED", ReviewType: "TRANSFER_CLASSIFICATION", ResolveReview: true,
+	}); err != nil {
+		if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
+			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
+		}
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification','INCOME')) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID); err != nil {
+		return err
+	}
+	if err = enqueueReply(ctx, tx, update, "✅ Dana masuk sudah dicatat sebagai penghasilan."); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // promptAssetWealthAccount re-asks only the one server-owned missing fact. The
@@ -125,6 +168,13 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
 			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Akun kekayaan tujuan bukan aset yang kompatibel.")
+		}
+		if errors.Is(err, reviewdomain.ErrTransferNotFound) {
+			// The choice does not apply to this transaction (an old card, or an
+			// outgoing choice on money coming in). Say so instead of failing the
+			// callback job, which the household would only see as silence.
+			_ = tx.Rollback(ctx)
+			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Pilihan ini tidak berlaku untuk transaksi ini. Tinjauan masih terbuka, pilih jawaban lain.")
 		}
 		return err
 	}
