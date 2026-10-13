@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 type Handler struct{ pool *pgxpool.Pool }
@@ -153,35 +154,22 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 500, map[string]string{"error": "unable to read salary policy"})
 				return
 			}
-			if !hasPrimarySalary {
-				value.AllowedActions = []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
-				if !containsString(missingFacts, "salary_classification") {
-					missingFacts = append(missingFacts, "salary_classification")
-				}
-				whyNotAuto = "pay date and first-salary classification remain unresolved"
-			} else {
-				value.AllowedActions = []string{"SET_PAY_DATE", "IGNORE"}
-				filtered := missingFacts[:0]
-				for _, fact := range missingFacts {
-					if fact != "salary_classification" {
-						filtered = append(filtered, fact)
-					}
-				}
-				missingFacts = filtered
-				whyNotAuto = "the pay date is not present in the evidence"
+			// The stored decision is a snapshot of salary policy at creation; the
+			// shared rule refreshes it against the household's current policy.
+			policy := reviewdec.Decision{MissingFacts: missingFacts}
+			if len(value.Decision) > 0 {
+				_ = json.Unmarshal(value.Decision, &policy)
 			}
+			policy = reviewdec.PayslipPolicy(policy, value.ReviewType, hasPrimarySalary)
+			value.AllowedActions, missingFacts, whyNotAuto = policy.AllowedActions, policy.MissingFacts, policy.WhyNotAuto
 			if len(value.Decision) > 0 {
 				var decision map[string]any
 				if json.Unmarshal(value.Decision, &decision) == nil && decision != nil {
-					decision["missingFacts"] = missingFacts
-					decision["allowedActions"] = value.AllowedActions
-					decision["decisionClass"] = "EVIDENCE_GAP"
-					decision["interactionMode"] = "SINGLE_FIELD"
-					decision["whyNotAutoConfirm"] = whyNotAuto
-					if !hasPrimarySalary {
-						decision["decisionClass"] = "HUMAN_POLICY_CHOICE"
-						decision["interactionMode"] = "POLICY_CHOICE"
-					}
+					decision["missingFacts"] = policy.MissingFacts
+					decision["allowedActions"] = policy.AllowedActions
+					decision["decisionClass"] = policy.DecisionClass
+					decision["interactionMode"] = policy.InteractionMode
+					decision["whyNotAutoConfirm"] = policy.WhyNotAuto
 					if encoded, err := json.Marshal(decision); err == nil {
 						value.Decision = encoded
 					}

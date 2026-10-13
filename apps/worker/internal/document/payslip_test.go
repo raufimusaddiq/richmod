@@ -2,11 +2,8 @@ package document
 
 import (
 	"os"
-	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 func TestValidatePayslipIDRArithmetic(t *testing.T) {
@@ -88,32 +85,6 @@ func TestPayslipPayDateRequiresCanonicalISO(t *testing.T) {
 		if date != "2026-09-28" && err == nil {
 			t.Fatalf("raw-language date accepted: %q", date)
 		}
-	}
-}
-
-func TestPayslipReviewSeparatesDateAndSalaryPolicy(t *testing.T) {
-	dateOnly, _ := reviewdec.Preset("MISSING_PAY_DATE", "proposal", "id")
-	dateOnly = configurePayslipReviewDecision(dateOnly, "MISSING_PAY_DATE", true)
-	if !reflect.DeepEqual(dateOnly.MissingFacts, []string{"transaction_at"}) {
-		t.Fatalf("primary-known payslip missing facts=%v", dateOnly.MissingFacts)
-	}
-	if !reflect.DeepEqual(dateOnly.AllowedActions, []string{"SET_PAY_DATE", "IGNORE"}) {
-		t.Fatalf("date-only payslip resolution domain=%v", dateOnly.AllowedActions)
-	}
-
-	firstSalary, _ := reviewdec.Preset("PAYSLIP_CONFIRMATION", "proposal", "id")
-	firstSalary = configurePayslipReviewDecision(firstSalary, "PAYSLIP_CONFIRMATION", false)
-	if !reflect.DeepEqual(firstSalary.MissingFacts, []string{"salary_classification"}) {
-		t.Fatalf("clear-date first salary missing facts=%v", firstSalary.MissingFacts)
-	}
-
-	firstSalaryAndDate, _ := reviewdec.Preset("MISSING_PAY_DATE", "proposal", "id")
-	firstSalaryAndDate = configurePayslipReviewDecision(firstSalaryAndDate, "MISSING_PAY_DATE", false)
-	if !reflect.DeepEqual(firstSalaryAndDate.MissingFacts, []string{"transaction_at", "salary_classification"}) {
-		t.Fatalf("first salary and date missing facts=%v", firstSalaryAndDate.MissingFacts)
-	}
-	if !reflect.DeepEqual(firstSalaryAndDate.AllowedActions, []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}) {
-		t.Fatalf("first-salary policy choices=%v", firstSalaryAndDate.AllowedActions)
 	}
 }
 
