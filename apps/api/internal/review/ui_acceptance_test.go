@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // Review UI acceptance tests.
@@ -35,7 +36,7 @@ type reviewUIItem struct {
 }
 
 func TestDocumentExtractionOffersReprocessInsteadOfBankFacts(t *testing.T) {
-	actions := canonicalActions("DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
+	actions := reviewdec.InboxActions("DOCUMENT_EXTRACTION_LOW_CONFIDENCE")
 	if len(actions) != 2 || actions[0] != "REPROCESS_DOCUMENT" || actions[1] != "IGNORE" {
 		t.Fatalf("document extraction actions: %v", actions)
 	}

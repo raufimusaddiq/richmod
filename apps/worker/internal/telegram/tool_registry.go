@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -53,7 +54,7 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: "confirm_pending_batch", Description: "Confirm the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})}, gateway.ToolDefinition{Name: "cancel_pending_batch", Description: "Cancel the one active server-bound transaction batch.", Parameters: objectSchema(map[string]any{}, []string{})})
 	}
 	if hasActiveReview {
-		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewActionsForType(reviewType)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_id": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_id", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
+		tools = append(tools, gateway.ToolDefinition{Name: "resolve_review", Description: "Resolve one active server-bound finance review. Candidate references are opaque values supplied in active_review; never use database IDs. RECORD_ASSET_PURCHASE reclassifies mistaken Wealth balance extraction only when the user supplies the source account and transaction time.", Parameters: objectSchema(map[string]any{"action": map[string]any{"type": "string", "enum": reviewdec.AgentActions(reviewType)}, "candidate_ref": nullString, "source_account_hint": nullString, "wealth_account_hint": nullString, "category_slug": category, "merchant": nullString, "description": nullString, "pay_date": nullString, "amount_idr": nullString, "transaction_at": map[string]any{"type": []string{"string", "null"}, "description": "The transaction date the user gave for a review missing it, as YYYY-MM-DD. Null when the review does not need a date."}, "allocations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"wealth_account_id": stringType, "amount_idr": stringType, "note": nullString}, []string{"wealth_account_id", "amount_idr", "note"})}}, []string{"action", "candidate_ref", "source_account_hint", "wealth_account_hint", "category_slug", "merchant", "description", "pay_date", "amount_idr", "transaction_at", "allocations"})})
 	}
 	if hasSalaryChoice {
 		tools = append(tools, gateway.ToolDefinition{Name: "resolve_salary_choice", Description: "Resolve pending payslip classification.", Parameters: objectSchema(map[string]any{"choice": map[string]any{"type": "string", "enum": []string{"PRIMARY", "ORDINARY", "IGNORE"}}}, []string{"choice"})})
@@ -67,51 +68,6 @@ func NativeFinanceTools(categories []string, hasPendingAction, hasPendingBatch, 
 		tools = append(tools, gateway.ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
 	return tools
-}
-
-func reviewActions() []string {
-	return []string{"CONFIRM", "IGNORE", "EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "PRIMARY_SALARY", "ORDINARY_INCOME", "SET_PAY_DATE", "COMPLETE_BANK_FACTS", "REPROCESS_DOCUMENT", "SET_FINANCIAL_EMAIL_ENTITIES", "ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING", "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE"}
-}
-
-// reviewActionsForType maps a semantic review type to its bounded action
-// vocabulary. Binding kind (what canonical subject is bound) is a separate
-// axis and must never be passed here.
-func reviewActionsForType(reviewType string) []string {
-	switch reviewType {
-	case "TRANSFER_RECONCILIATION":
-		return []string{"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"}
-	case "WEALTH_OBSERVATION":
-		return []string{"SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE", "IGNORE"}
-	case "TRANSFER_CLASSIFICATION":
-		return []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "IGNORE"}
-	case "UNKNOWN_MERCHANT", "AMBIGUOUS_CATEGORY":
-		return []string{"CONFIRM", "ASSET_PURCHASE", "IGNORE"}
-	case "CYCLE_RESIDUAL_ALLOCATION":
-		return []string{"ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED", "TRANSACTION_MISSING"}
-	case "PAYSLIP_CONFIRMATION", "SALARY_SOURCE_CONFIRMATION":
-		return []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
-	case "MISSING_PAY_DATE":
-		return []string{"SET_PAY_DATE", "IGNORE"}
-	case "UNKNOWN_BANK_TEMPLATE":
-		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
-	case "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION":
-		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
-	case "POSSIBLE_DUPLICATE":
-		// A document that may repeat a recorded transaction can merge into one of the
-		// server-computed candidates (an opaque ref), be kept as a separate event, or
-		// be dismissed.
-		return []string{"MERGE_EXISTING", "CONFIRM", "IGNORE"}
-	case "FINANCIAL_EMAIL_RESOLUTION":
-		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
-	case "FINANCIAL_EMAIL_FACTS":
-		// The provider email did not support a required fact and no canonical
-		// transaction was written, so the only bounded action is to acknowledge it.
-		// Without this case the default offered CONFIRM, which boundedReviewAction
-		// rejects, leaving the agent lane unreachable.
-		return []string{"IGNORE"}
-	default:
-		return []string{"CONFIRM", "IGNORE"}
-	}
 }
 
 func objectSchema(properties map[string]any, required []string) map[string]any {
@@ -389,7 +345,7 @@ func validateTypedArgs(value any) error {
 			return fmt.Errorf("correction")
 		}
 	case *resolveReviewArgs:
-		if !slices.Contains(reviewActions(), v.Action) {
+		if !slices.Contains(reviewdec.AllAgentActions(), v.Action) {
 			return fmt.Errorf("review action")
 		}
 	case *salaryChoiceArgs:

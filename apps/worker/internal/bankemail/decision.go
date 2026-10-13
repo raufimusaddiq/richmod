@@ -1,6 +1,6 @@
 package bankemail
 
-import "github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+import "github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 
 // materialResidual names only the bounded predicate that did not clear, and only
 // when it is material to the canonical decision being attempted. Non-material

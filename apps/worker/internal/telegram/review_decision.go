@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 func telegramReviewDecision(ctx context.Context, tx pgx.Tx, transactionID, reviewType string) (reviewdec.Decision, error) {

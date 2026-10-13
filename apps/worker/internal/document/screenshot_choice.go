@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // jeverifier is the seam onto the bounded judgment plane, expressed in the terms

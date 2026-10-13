@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // typedReplyGateway is the conversational model answering a typed reply to a

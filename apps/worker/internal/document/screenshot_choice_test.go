@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 type stubRowVerifier struct {

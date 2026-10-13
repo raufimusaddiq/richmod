@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // T1: an exact TRANSACTION binding with a TRANSFER_CLASSIFICATION review type
@@ -11,14 +13,14 @@ import (
 // TRANSACTION default. The schema is keyed by semantic review type, and the
 // binding kind is a separate axis.
 func TestT1TransferClassificationReviewExposesSemanticActions(t *testing.T) {
-	got := reviewActionsForType("TRANSFER_CLASSIFICATION")
+	got := reviewdec.AgentActions("TRANSFER_CLASSIFICATION")
 	want := []string{"EXPENSE", "OWN_ACCOUNT_TRANSFER", "HOUSEHOLD_TRANSFER", "INVESTMENT_TRANSFER", "ASSET_PURCHASE", "IGNORE"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("TRANSFER_CLASSIFICATION actions=%v", got)
 	}
 	// The binding kind, if it had leaked in as the semantic key, would fall to the
 	// generic default. Prove the two are not interchangeable.
-	if strings.Join(reviewActionsForType("TRANSACTION"), ",") == strings.Join(want, ",") {
+	if strings.Join(reviewdec.AgentActions("TRANSACTION"), ",") == strings.Join(want, ",") {
 		t.Fatal("binding kind TRANSACTION must not alias the transfer review vocabulary")
 	}
 }

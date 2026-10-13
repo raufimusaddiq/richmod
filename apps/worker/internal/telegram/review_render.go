@@ -9,7 +9,7 @@ package telegram
 import (
 	"strings"
 
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // unknownReviewPrompt is the honest fallback: when a review has no decision

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // receiptDateGateway is the conversational model answering a reply to a receipt

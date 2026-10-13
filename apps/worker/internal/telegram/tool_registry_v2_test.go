@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -25,30 +26,30 @@ func TestNativeV2ConditionalToolsAndCorrectionReference(t *testing.T) {
 }
 
 func TestReviewActionMatrixIsBoundedByType(t *testing.T) {
-	if got := reviewActionsForType("TRANSFER_CLASSIFICATION"); len(got) != 6 {
+	if got := reviewdec.AgentActions("TRANSFER_CLASSIFICATION"); len(got) != 6 {
 		t.Fatalf("transfer actions=%v", got)
 	}
-	if got := reviewActionsForType("PAYSLIP_CONFIRMATION"); len(got) != 3 {
+	if got := reviewdec.AgentActions("PAYSLIP_CONFIRMATION"); len(got) != 3 {
 		t.Fatalf("payslip actions=%v", got)
 	}
-	if got := reviewActionsForType("MISSING_PAY_DATE"); len(got) != 2 {
+	if got := reviewdec.AgentActions("MISSING_PAY_DATE"); len(got) != 2 {
 		t.Fatalf("pay-date actions=%v", got)
 	}
-	if got := reviewActionsForType("UNKNOWN_BANK_TEMPLATE"); strings.Join(got, ",") != "COMPLETE_BANK_FACTS,IGNORE" {
+	if got := reviewdec.AgentActions("UNKNOWN_BANK_TEMPLATE"); strings.Join(got, ",") != "COMPLETE_BANK_FACTS,IGNORE" {
 		t.Fatalf("bank actions=%v", got)
 	}
 	for _, kind := range []string{"DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "DOCUMENT_CLASSIFICATION"} {
-		if got := reviewActionsForType(kind); strings.Join(got, ",") != "REPROCESS_DOCUMENT,IGNORE" {
+		if got := reviewdec.AgentActions(kind); strings.Join(got, ",") != "REPROCESS_DOCUMENT,IGNORE" {
 			t.Fatalf("%s actions=%v", kind, got)
 		}
 	}
-	if got := reviewActionsForType("TRANSFER_RECONCILIATION"); strings.Join(got, ",") != "MERGE_EXISTING,CONFIRM_NEW_TRANSFER,IGNORE" {
+	if got := reviewdec.AgentActions("TRANSFER_RECONCILIATION"); strings.Join(got, ",") != "MERGE_EXISTING,CONFIRM_NEW_TRANSFER,IGNORE" {
 		t.Fatalf("reconciliation actions=%v", got)
 	}
-	if got := reviewActionsForType("WEALTH_OBSERVATION"); strings.Join(got, ",") != "SET_WEALTH_ACCOUNT,RECORD_ASSET_PURCHASE,IGNORE" {
+	if got := reviewdec.AgentActions("WEALTH_OBSERVATION"); strings.Join(got, ",") != "SET_WEALTH_ACCOUNT,RECORD_ASSET_PURCHASE,IGNORE" {
 		t.Fatalf("wealth actions=%v", got)
 	}
-	if got := reviewActionsForType("AMBIGUOUS_CATEGORY"); strings.Join(got, ",") != "CONFIRM,ASSET_PURCHASE,IGNORE" {
+	if got := reviewdec.AgentActions("AMBIGUOUS_CATEGORY"); strings.Join(got, ",") != "CONFIRM,ASSET_PURCHASE,IGNORE" {
 		t.Fatalf("expense review actions=%v", got)
 	}
 	for _, tool := range NativeFinanceTools(nil, false, false, true, "WEALTH_OBSERVATION", false, false, "WEALTH_OBSERVATION") {

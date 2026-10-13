@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 func TestReceiptReviewDecisionNamesResidualFactsWithoutPromotingFallbackDate(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -300,7 +301,7 @@ type agentResolveReviewArgs struct {
 }
 
 func containsAgentReviewAction(action string) bool {
-	for _, allowed := range reviewActions() {
+	for _, allowed := range reviewdec.AllAgentActions() {
 		if action == allowed {
 			return true
 		}

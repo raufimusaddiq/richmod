@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -72,7 +73,7 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 		if len(candidatesJSON) > 0 && string(candidatesJSON) != "null" && json.Unmarshal(candidatesJSON, &v.TransferCandidates) != nil {
 			return nil, errors.New("invalid transfer reconciliation candidates")
 		}
-		v.AllowedActions = canonicalActions(v.ReviewType)
+		v.AllowedActions = reviewdec.InboxActions(v.ReviewType)
 		if v.ReviewType == "PAYSLIP_CONFIRMATION" || v.ReviewType == "MISSING_PAY_DATE" {
 			if actions := proposalFacts(v.Decision).AllowedActions; len(actions) > 0 {
 				v.AllowedActions = actions
@@ -88,37 +89,6 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 		out = append(out, v)
 	}
 	return out, rows.Err()
-}
-func canonicalActions(kind string) []string {
-	if kind == "PAYSLIP_CONFIRMATION" {
-		return []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
-	}
-	if kind == "MISSING_PAY_DATE" {
-		// The item mapper adds salary choices only when current household policy
-		// leaves classification unresolved.
-		return []string{"SET_PAY_DATE", "IGNORE"}
-	}
-	if kind == "MISSING_AMOUNT" {
-		return []string{"SET_AMOUNT", "IGNORE"}
-	}
-	if kind == "CYCLE_RESIDUAL_ALLOCATION" {
-		return []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED"}
-	}
-	if kind == "WEALTH_OBSERVATION_CONFIRMATION" {
-		// The snapshot editor is optional navigation, so it is not an
-		// allowed completion action and never counts as a mandatory Web escape.
-		return []string{"SET_WEALTH_ACCOUNT", "IGNORE"}
-	}
-	if kind == "FINANCIAL_EMAIL_RESOLUTION" {
-		return []string{"SET_FINANCIAL_EMAIL_ENTITIES", "IGNORE"}
-	}
-	if kind == "UNKNOWN_BANK_TEMPLATE" {
-		return []string{"COMPLETE_BANK_FACTS", "IGNORE"}
-	}
-	if kind == "DOCUMENT_CLASSIFICATION" || kind == "DOCUMENT_EXTRACTION_LOW_CONFIDENCE" {
-		return []string{"REPROCESS_DOCUMENT", "IGNORE"}
-	}
-	return []string{"IGNORE"}
 }
 
 type resolveInput struct {

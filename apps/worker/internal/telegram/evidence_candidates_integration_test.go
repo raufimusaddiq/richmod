@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
@@ -65,7 +66,7 @@ func TestPossibleDuplicateEvidenceOffersOpaqueCandidatesAndNoIds(t *testing.T) {
 	if got, err := p.resolveTransactionReference(ctx, f.householdID, f.update, ref); err != nil || got != s.existingTransactionID {
 		t.Fatalf("candidate ref resolves to %q (%v), want the existing transaction", got, err)
 	}
-	if !slicesContains(reviewActionsForType("POSSIBLE_DUPLICATE"), "MERGE_EXISTING") {
+	if !slicesContains(reviewdec.AgentActions("POSSIBLE_DUPLICATE"), "MERGE_EXISTING") {
 		t.Fatal("POSSIBLE_DUPLICATE does not offer MERGE_EXISTING")
 	}
 }
