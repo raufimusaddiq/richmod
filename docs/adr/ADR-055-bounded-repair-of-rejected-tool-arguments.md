@@ -14,10 +14,13 @@ fix a one-field mistake or ask the user for the missing detail, and the rejectio
 was not recorded anywhere. Read-side expiry already works the other way: an expired
 category ref becomes a tool result the model acts on (`recoverableAnalyticsRead`).
 
-Production measurements (2026-09-02 to 2026-10-13, counts only) showed Go-side
-refusals are rare; the larger agent friction was model timeouts (14 of 103
-`AGENT_TEXT` calls) and ambiguous reply bindings. This ADR addresses only the
-dead end that was Go's.
+Production measurements (2026-09-02 to 2026-10-13, counts only) show this dead end
+is rare: none of the 111 assistant replies was one of the fixed refusal messages, and
+one `resolve_review` call ended `MISSING_REVIEW_DETAIL`. The 14 failed `AGENT_TEXT`
+calls all stopped at the old 8 s model cap; the cap is now 25 s and the last failure
+was 2026-10-02. Ambiguous reply bindings were 4 of 8 CEU bindings. So this change is a
+safeguard for a dead end that was Go's, not a fix for a measured problem; the repair
+log line is how its real rate will be known.
 
 ## Decision
 
@@ -44,4 +47,4 @@ dead end that was Go's.
   limits.
 - Reasons come from Go's own validation messages and may echo a value the model
   itself produced; they contain no canonical IDs.
-- Ambiguous reply bindings and model timeouts are not changed here.
+- Ambiguous reply bindings are not changed here.
