@@ -13,7 +13,7 @@ import "strings"
 const telegramCallbackMaxBytes = 64
 
 var telegramCallbackExact = map[string]struct{}{
-	"review:expense": {}, "review:asset": {}, "review:own": {}, "review:household": {},
+	"review:expense": {}, "review:asset": {}, "review:own": {}, "review:household": {}, "review:income": {},
 	"review:investment": {}, "review:confirm": {}, "review:change": {}, "review:remember": {},
 	"review:once": {}, "review:edit": {}, "review:merchant": {}, "review:description": {},
 	"review:category": {}, "review:ignore": {}, "review:reprocess": {},

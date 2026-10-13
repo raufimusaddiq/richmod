@@ -65,7 +65,7 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	if err != nil {
 		return result, err
 	}
-	if transactionType != "UNCLASSIFIED" && !(transactionType == "EXPENSE" && cmd.Classification == "ASSET_PURCHASE") {
+	if !transferClassificationApplies(transactionType, cmd.Classification) {
 		return result, ErrTransferNotFound
 	}
 	result.Type, result.Status, result.Purpose = "TRANSFER", "CONFIRMED", "INTERNAL_TRANSFER"
@@ -161,4 +161,22 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	}
 	_, err = tx.Exec(ctx, "UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id IN(SELECT id FROM review_request WHERE transaction_id=$1 AND status='RESOLVED')", cmd.TransactionID)
 	return result, err
+}
+
+// transferClassificationApplies reports whether a classification is valid for the
+// transaction's current type. An unclassified transfer accepts every
+// classification; an expense can only become an asset purchase; an incoming row
+// the extractor typed as INCOME (a screenshot "dana masuk") can be recognised as
+// the household's own money moving between accounts, or ignored. Expense, asset
+// and investment contribution describe money leaving, so they never apply to it.
+func transferClassificationApplies(transactionType, classification string) bool {
+	switch transactionType {
+	case "UNCLASSIFIED":
+		return true
+	case "EXPENSE":
+		return classification == "ASSET_PURCHASE"
+	case "INCOME":
+		return classification == "OWN_ACCOUNT" || classification == "HOUSEHOLD_ACCOUNT" || classification == "IGNORE"
+	}
+	return false
 }

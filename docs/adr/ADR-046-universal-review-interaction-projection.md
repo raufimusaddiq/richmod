@@ -377,3 +377,23 @@ Go validates and commits.
   merge button per candidate.
 - `Process` handles button taps only; it no longer runs the bound-reply lane for
   typed text, which production always sends to `ProcessAgent`.
+
+## 2026-10-13 — incoming rows are answerable in Telegram
+
+An incoming screenshot row ("dana masuk") is typed `INCOME` and parked as a
+`TRANSFER_CLASSIFICATION` review. Its Telegram card offered the outgoing transfer
+keyboard (expense, asset purchase, own account, household, investment), and every
+button reached `ClassifyTransferReview`, which only accepted `UNCLASSIFIED`
+transactions, so each tap failed with "transfer review not found", retried and was
+dropped with no reply; the household had to finish the review on the web.
+
+- The keyboard follows the subject: an `INCOME` row offers **Penghasilan**
+  (`review:income`, the shared `ConfirmTransactionReview`), **Rekening sendiri**,
+  **Household** and **Abaikan**. Expense, asset purchase and investment contribution
+  describe money leaving and are not offered.
+- `ClassifyTransferReview` accepts `INCOME` for `OWN_ACCOUNT`, `HOUSEHOLD_ACCOUNT`
+  and `IGNORE` only (`transferClassificationApplies`), so the web classify action
+  and the typed Telegram path inherit the same rule.
+- A choice that does not apply to the transaction (an old card, a stale tap) is
+  answered with "Pilihan ini tidak berlaku…" and the review stays open, instead of
+  failing the callback job.
