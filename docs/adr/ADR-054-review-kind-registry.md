@@ -149,9 +149,34 @@ producer divergence that is a defect is the `MISSING_PAY_DATE` policy variant, w
 is written at creation by `configurePayslipReviewDecision` and then rewritten again
 at read time by the API.
 
-Open: the `Resolve` dispatch (API if-chain plus the worker's per-type handlers), the
-`MISSING_PAY_DATE` single-owner fix, the reason CHECK constraint, and deletion of
-legacy-row compatibility code (needs a read-only count of active legacy rows first).
+Phase 2 — done: the payslip policy rules (`MISSING_PAY_DATE` first-salary choice,
+dropping the dead `PRIMARY_SALARY` action) were written twice, once in the worker at
+creation and once in the API at read time, with different `whyNotAutoConfirm` copy.
+They now live in `reviewdec.PayslipPolicy`, used by both. The read-time application
+is kept on purpose: the stored decision is a snapshot of salary policy, and the Inbox
+must reflect the household's current policy. The Inbox copy for the first-salary case
+now matches the Telegram card.
+
+Re-assessed and deliberately not done:
+
+- **Single `Resolve` dispatch.** The API `Resolve` handler is the Web adapter that
+  ADR-046 prescribes; the shared mutations (`ResolveFinancialEmailReview`,
+  `ReconcileTransfer`, `ApplyCycleResidual`, the payslip and missing-amount
+  resolvers, ...) already live in `reviewdomain`. The worker's per-type handlers are
+  interactive Telegram state machines, not a second dispatch of the same command.
+- **Legacy-row compatibility code.** A read-only production count on 2026-10-13
+  found 0 active review items of 190, and 120 resolved items with a NULL `decision`.
+  No active row needs the compatibility paths, but resolved history stays NULL and can
+  still be reopened through Unmerge (`ReopenTransactionReview`), and the admin and
+  RHICE queries read it, so that code is not dead. The one fail-open guard
+  (a payslip review with no document binding, `nullableUUID`) is a handful of lines
+  threaded through finalization; removing it is not worth the churn.
+- **Reason CHECK constraint.** Replacing it with a lookup table still needs a
+  migration per new kind and adds a second list that can drift from the Go table.
+
+Open: nothing is required. Remaining differences between the stored actions, the
+Inbox fallback and the agent enum (see Context) are product decisions, not
+duplication.
 
 ## Consequences
 

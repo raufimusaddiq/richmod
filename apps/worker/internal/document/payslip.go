@@ -250,7 +250,8 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 			decision.KnownFacts["transaction_at"] = transactionAt.Format(time.RFC3339)
 		}
 		decision.Provenance["arithmeticOK"] = arithmeticOK
-		decision = configurePayslipReviewDecision(decision, reviewType, hasPrimary)
+		decision.Provenance["hasPrimarySalary"] = hasPrimary
+		decision = reviewdec.PayslipPolicy(decision, reviewType, hasPrimary)
 		encoded, err := decision.JSON()
 		if err != nil {
 			return err
@@ -288,30 +289,6 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return err
 	}
 	return tx.Commit(ctx)
-}
-
-func configurePayslipReviewDecision(decision reviewdec.Decision, reviewType string, hasPrimary bool) reviewdec.Decision {
-	decision.Provenance["hasPrimarySalary"] = hasPrimary
-	if reviewType == "MISSING_PAY_DATE" && !hasPrimary {
-		decision.AllowedActions = []string{"SET_PAY_DATE", "PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}
-		decision.MissingFacts = append(decision.MissingFacts, "salary_classification")
-		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
-		decision.InteractionMode = reviewdec.ModePolicyChoice
-		decision.WhyNotAuto = "pay date is absent and the first salary source requires household classification"
-	}
-	// A household that already has a primary salary cannot promote this slip to
-	// primary: the resolver fails closed on PRIMARY_SALARY. Drop the dead button so
-	// the card never advertises an action that would 400.
-	if reviewType == "PAYSLIP_CONFIRMATION" && hasPrimary {
-		actions := make([]string, 0, len(decision.AllowedActions))
-		for _, action := range decision.AllowedActions {
-			if action != "PRIMARY_SALARY" {
-				actions = append(actions, action)
-			}
-		}
-		decision.AllowedActions = actions
-	}
-	return decision
 }
 
 // projectDocumentReview gives a document/proposal review the same Telegram
