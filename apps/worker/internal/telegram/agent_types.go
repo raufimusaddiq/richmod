@@ -72,16 +72,19 @@ type agentPublicRef struct {
 }
 
 type agentState struct {
-	SourceEventID    string
-	HouseholdID      string
-	Update           telegramUpdate
-	Now              time.Time
-	Categories       []string
-	Tools            []gateway.ToolDefinition
-	RequiredTool     string
-	TurnContext      map[string]any
-	History          []agentToolResult
-	ModelPhases      int
+	SourceEventID string
+	HouseholdID   string
+	Update        telegramUpdate
+	Now           time.Time
+	Categories    []string
+	Tools         []gateway.ToolDefinition
+	RequiredTool  string
+	TurnContext   map[string]any
+	History       []agentToolResult
+	ModelPhases   int
+	// ArgumentRepairs counts the times Go returned a rejected tool call to the
+	// model for correction in this turn (maxArgumentRepairs).
+	ArgumentRepairs  int
 	ReadCalls        int
 	SideEffects      int
 	HasPendingAction bool

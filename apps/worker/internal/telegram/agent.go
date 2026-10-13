@@ -3,7 +3,9 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -304,6 +306,16 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		}
 		plan, err := validateAgentCallSet(response.ToolCalls, state, defaultAgentLimits)
 		if err != nil {
+			if rejected, ok := repairableArguments(state, err); ok {
+				// Go rejected the arguments, not the intent. Tell the model why, once,
+				// so it can correct the call or ask the user; Go validates again.
+				state.ArgumentRepairs++
+				slog.Default().Warn("agent tool arguments rejected; asking the model to correct them", "tool", rejected.Call.Name, "repair", state.ArgumentRepairs)
+				state.PreviousResponseID = response.ResponseID
+				state.PreviousToolCalls = append([]gateway.ToolCall(nil), response.ToolCalls...)
+				state.PendingToolOutputs = argumentRepairOutputs(response.ToolCalls, rejected)
+				continue
+			}
 			return p.finishAgentFailure(ctx, state, "Aku belum bisa memproses instruksi ini dengan aman. Coba jelaskan dengan kata lain, ya.")
 		}
 
@@ -362,6 +374,54 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 	return p.finishAgentFailure(ctx, state, "Aku belum bisa menyelesaikan semuanya sekaligus. Coba tanyakan satu bagian dulu, ya.")
 }
 
+// agentArgumentsError marks a tool call whose arguments Go rejected. It is the
+// only validation failure the model can fix by itself: an unavailable tool, a
+// budget, or a mixed call set is a server-state decision and stays final.
+type agentArgumentsError struct {
+	Call gateway.ToolCall
+	Err  error
+}
+
+func (e *agentArgumentsError) Error() string {
+	return fmt.Sprintf("validate %s: %v", e.Call.Name, e.Err)
+}
+func (e *agentArgumentsError) Unwrap() error { return e.Err }
+
+// maxArgumentRepairs bounds how many times one turn may return a rejection to the
+// model. One correction fixes a malformed field; a second means the model cannot.
+const maxArgumentRepairs = 1
+
+// repairableArguments reports the rejection to hand back to the model, if any
+// repair is still allowed in this turn.
+func repairableArguments(state *agentState, err error) (*agentArgumentsError, bool) {
+	var rejected *agentArgumentsError
+	if !errors.As(err, &rejected) || state.ArgumentRepairs >= maxArgumentRepairs || state.ModelPhases >= defaultAgentLimits.MaxModelPhases {
+		return nil, false
+	}
+	return rejected, true
+}
+
+// argumentRepairOutputs answers every call of the rejected response, since the
+// provider requires an output per call. Only the offending call carries a reason.
+func argumentRepairOutputs(calls []gateway.ToolCall, rejected *agentArgumentsError) []gateway.AgentToolOutput {
+	reason := rejected.Err.Error()
+	if len(reason) > 160 {
+		reason = reason[:160]
+	}
+	outputs := make([]gateway.AgentToolOutput, 0, len(calls))
+	for _, call := range calls {
+		output := map[string]any{"status": "NOT_EXECUTED", "tool": call.Name, "next_step": "Nothing was run. Call it again once the other call is corrected."}
+		if call.CallID == rejected.Call.CallID {
+			output = map[string]any{
+				"status": "INVALID_ARGUMENTS", "tool": call.Name, "reason": reason,
+				"next_step": "Nothing was run. Correct the arguments and call the tool again, or reply in text asking the user for the missing detail. Do not guess a value.",
+			}
+		}
+		outputs = append(outputs, gateway.AgentToolOutput{CallID: call.CallID, Output: output})
+	}
+	return outputs
+}
+
 func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits agentLimits) (agentCallPlan, error) {
 	if len(calls) == 0 {
 		return agentCallPlan{}, fmt.Errorf("empty tool set")
@@ -378,7 +438,7 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 		}
 		args, err := validateAgentToolCall(call)
 		if err != nil {
-			return agentCallPlan{}, fmt.Errorf("validate %s: %w", call.Name, err)
+			return agentCallPlan{}, &agentArgumentsError{Call: call, Err: err}
 		}
 		validated = append(validated, validatedAgentCall{Call: call, Class: class, Args: args})
 		if class == agentToolRead {
