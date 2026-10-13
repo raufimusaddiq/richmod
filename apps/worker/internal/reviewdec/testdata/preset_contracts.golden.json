@@ -1,0 +1,531 @@
+{
+  "AMBIGUOUS_CATEGORY": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "AMBIGUOUS_CATEGORY",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "category"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the category is not supported strongly enough to confirm",
+    "allowedActions": [
+      "CONFIRM_REVIEW",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "CONFLICTING_EVIDENCE": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "CONFLICTING_EVIDENCE",
+    "decisionClass": "DUPLICATE_AMBIGUITY",
+    "knownFacts": {},
+    "missingFacts": [
+      "duplicate_relationship"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "two sources disagree about the same provider reference, so Go refuses to guess",
+    "allowedActions": [
+      "MERGE_EXISTING",
+      "CONFIRM_NEW_TRANSFER",
+      "IGNORE"
+    ],
+    "interactionMode": "CONFLICT_RESOLUTION"
+  },
+  "CYCLE_RESIDUAL_ALLOCATION": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "CYCLE_RESIDUAL_ALLOCATION",
+    "decisionClass": "HUMAN_POLICY_CHOICE",
+    "knownFacts": {},
+    "missingFacts": [
+      "residual_allocation"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "allocating retained cycle money is household intent and must not be inferred",
+    "allowedActions": [
+      "ALLOCATE_RETAINED_BALANCE",
+      "TRANSACTION_MISSING",
+      "LEAVE_UNALLOCATED"
+    ],
+    "interactionMode": "POLICY_CHOICE"
+  },
+  "DOCUMENT_CLASSIFICATION": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "DOCUMENT_CLASSIFICATION",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "document_type"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the document type could not be classified with enough confidence",
+    "allowedActions": [
+      "REPROCESS_DOCUMENT",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "DOCUMENT_EXTRACTION_LOW_CONFIDENCE": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "DOCUMENT_EXTRACTION_LOW_CONFIDENCE",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "document_extraction"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the document extraction could not be validated deterministically",
+    "allowedActions": [
+      "REPROCESS_DOCUMENT",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "FINANCIAL_EMAIL_FACTS": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "FINANCIAL_EMAIL_FACTS",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "evidence_support"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the provider email does not support all extracted financial facts; no transaction was written",
+    "allowedActions": [
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "FINANCIAL_EMAIL_RESOLUTION": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "FINANCIAL_EMAIL_RESOLUTION",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "funding_account",
+      "wealth_account"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "an entity the evidence identifies only in prose must be bound by the household",
+    "allowedActions": [
+      "SET_FINANCIAL_EMAIL_ENTITIES",
+      "IGNORE"
+    ],
+    "interactionMode": "BOUNDED_CHOICE"
+  },
+  "MANUAL_CORRECTION": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "MANUAL_CORRECTION",
+    "decisionClass": "CORRECTION_CONFIRMATION",
+    "knownFacts": {},
+    "missingFacts": [
+      "correction_details"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the extracted payroll transaction needs a human correction or confirmation",
+    "allowedActions": [
+      "CONFIRM_REVIEW",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "MISSING_PAY_DATE": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "MISSING_PAY_DATE",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "transaction_at"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the pay date is not present in the evidence",
+    "allowedActions": [
+      "SET_PAY_DATE",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "MISSING_TRANSACTION_DATE": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "MISSING_TRANSACTION_DATE",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "transaction_at"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the source did not print or state the transaction date",
+    "allowedActions": [
+      "SET_PAY_DATE",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "PAYSLIP_CONFIRMATION": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "PAYSLIP_CONFIRMATION",
+    "decisionClass": "HUMAN_POLICY_CHOICE",
+    "knownFacts": {},
+    "missingFacts": [
+      "salary_classification"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the first salary from a source is a human policy choice",
+    "allowedActions": [
+      "PRIMARY_SALARY",
+      "ORDINARY_INCOME",
+      "IGNORE"
+    ],
+    "interactionMode": "POLICY_CHOICE"
+  },
+  "POSSIBLE_DUPLICATE": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "POSSIBLE_DUPLICATE",
+    "decisionClass": "DUPLICATE_AMBIGUITY",
+    "knownFacts": {},
+    "missingFacts": [
+      "duplicate_relationship"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "a plausible duplicate exists; choose the matching event, confirm as new, or ignore",
+    "allowedActions": [
+      "MERGE_EXISTING",
+      "CONFIRM_REVIEW",
+      "IGNORE"
+    ],
+    "interactionMode": "BOUNDED_CHOICE"
+  },
+  "RECEIPT_MISMATCH": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "RECEIPT_MISMATCH",
+    "validationConsequence": "QUALITY_SIGNAL",
+    "affectedFacts": [
+      "receipt_arithmetic"
+    ],
+    "decisionClass": "CORRECTION_CONFIRMATION",
+    "knownFacts": {},
+    "missingFacts": [],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the printed lines do not reconcile with the printed total",
+    "allowedActions": [
+      "CONFIRM_REVIEW",
+      "IGNORE"
+    ],
+    "interactionMode": "ONE_TAP_CONFIRMATION"
+  },
+  "TRANSACTION_FACTS_MISSING": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "TRANSACTION_FACTS_MISSING",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "category",
+      "transaction_at"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the source did not support a category or a transaction date",
+    "allowedActions": [
+      "CONFIRM_REVIEW",
+      "SET_PAY_DATE",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "TRANSFER_CLASSIFICATION": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "TRANSFER_CLASSIFICATION",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "transfer_relationship"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the transfer relationship is ambiguous, so the household must classify it",
+    "allowedActions": [
+      "CLASSIFY_TRANSFER",
+      "OWN_ACCOUNT",
+      "HOUSEHOLD_ACCOUNT",
+      "INVESTMENT_ACCOUNT",
+      "EXPENSE",
+      "ASSET_PURCHASE",
+      "IGNORE"
+    ],
+    "interactionMode": "BOUNDED_CHOICE"
+  },
+  "UNKNOWN_BANK_TEMPLATE": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "UNKNOWN_BANK_TEMPLATE",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "transaction_semantics"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the bank evidence could not be mapped to a supported transaction type",
+    "allowedActions": [
+      "COMPLETE_BANK_FACTS",
+      "IGNORE"
+    ],
+    "interactionMode": "BOUNDED_CHOICE"
+  },
+  "UNKNOWN_MERCHANT": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "UNKNOWN_MERCHANT",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {
+      "merchant": null
+    },
+    "missingFacts": [
+      "merchant",
+      "category"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "merchant is not present in the evidence; collect it before resolving the category",
+    "allowedActions": [
+      "CONFIRM_REVIEW",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "UNKNOWN_PURPOSE": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "UNKNOWN_PURPOSE",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "transaction_semantics"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "the transaction purpose is not supported strongly enough to classify",
+    "allowedActions": [
+      "CONFIRM_REVIEW",
+      "IGNORE"
+    ],
+    "interactionMode": "SINGLE_FIELD"
+  },
+  "WEALTH_OBSERVATION_CONFIRMATION": {
+    "version": 1,
+    "subject": {
+      "type": "test",
+      "id": "subject"
+    },
+    "reasonCode": "WEALTH_OBSERVATION_CONFIRMATION",
+    "decisionClass": "EVIDENCE_GAP",
+    "knownFacts": {},
+    "missingFacts": [
+      "wealth_snapshot_confirmation"
+    ],
+    "evidenceRefs": [
+      {
+        "kind": "test",
+        "id": "subject"
+      }
+    ],
+    "decisionSource": "DETERMINISTIC",
+    "decisionPolicyVersion": "",
+    "whyNotAutoConfirm": "a wealth value is an observation; the complete active account set must be confirmed",
+    "allowedActions": [
+      "SET_WEALTH_ACCOUNT",
+      "IGNORE"
+    ],
+    "interactionMode": "BOUNDED_CHOICE"
+  }
+}
