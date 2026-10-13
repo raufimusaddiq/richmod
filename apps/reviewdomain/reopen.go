@@ -2,46 +2,25 @@ package reviewdomain
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
-// DecisionContract is the policy part of a ReviewDecision that must agree with
-// the worker's reviewdec preset for the same reason.
-type DecisionContract struct {
-	ReasonCode      string
-	AllowedActions  []string
-	DecisionClass   string
-	InteractionMode string
-}
-
-// PossibleDuplicateDecisionContract is the contract possibleDuplicateDecision
-// stores. It mirrors the worker's POSSIBLE_DUPLICATE preset
-// (apps/worker/internal/reviewdec), which apps/api cannot import; a worker-side
-// test compares the two so they cannot drift.
-func PossibleDuplicateDecisionContract() DecisionContract {
-	return DecisionContract{
-		ReasonCode:      "POSSIBLE_DUPLICATE",
-		AllowedActions:  []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"},
-		DecisionClass:   "DUPLICATE_AMBIGUITY",
-		InteractionMode: "BOUNDED_CHOICE",
-	}
-}
-
 // possibleDuplicateDecision is the ReviewDecision for a transaction whose
-// duplicate relationship is undecided.
+// duplicate relationship is undecided. The contract is the shared
+// POSSIBLE_DUPLICATE kind, so a reopened or screenshot-created review cannot
+// advertise different actions or render differently from a freshly created one.
 func possibleDuplicateDecision(transactionID string, known map[string]any) ([]byte, error) {
-	contract := PossibleDuplicateDecisionContract()
-	return json.Marshal(map[string]any{
-		"version": 1, "subject": map[string]any{"type": "transaction", "id": transactionID},
-		"reasonCode": contract.ReasonCode, "decisionClass": contract.DecisionClass, "decisionSource": "DETERMINISTIC",
-		"knownFacts": known, "missingFacts": []string{"duplicate_relationship"},
-		"allowedActions":    contract.AllowedActions,
-		"interactionMode":   contract.InteractionMode,
-		"evidenceRefs":      []map[string]string{{"kind": "transaction", "id": transactionID}},
-		"whyNotAutoConfirm": "a plausible duplicate exists; choose the matching event, confirm as new, or ignore",
-	})
+	decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", transactionID)
+	if !ok {
+		return nil, errors.New("reviewdomain: no POSSIBLE_DUPLICATE review contract")
+	}
+	for key, value := range known {
+		decision.KnownFacts[key] = value
+	}
+	return decision.JSON()
 }
 
 // ReopenTransactionReview gives a transaction that a reversal returned to

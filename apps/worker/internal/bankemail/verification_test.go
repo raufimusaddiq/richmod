@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // stubVerifier answers the verification bundle from a fixed ruling, and can

@@ -12,9 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 	workerTelegram "github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
 )
 

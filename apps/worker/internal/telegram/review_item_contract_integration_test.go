@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // A NEEDS_REVIEW transaction in a household without Telegram still gets its

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 func TestValidatePayslipIDRArithmetic(t *testing.T) {
@@ -131,7 +131,6 @@ func TestPayslipUsesOneGenerativeExtractionAndNoJevReplay(t *testing.T) {
 		t.Fatal("payslip must not replay the extraction through Jev")
 	}
 }
-
 
 func TestSanitizeEvidenceTextCapsAndStripsControl(t *testing.T) {
 	long := strings.Repeat("a", 900)

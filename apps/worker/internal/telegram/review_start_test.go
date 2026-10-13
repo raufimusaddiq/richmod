@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // The renderer follows the stored decision, not the review type, so a date,
@@ -20,12 +20,12 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 	}{
 		{
 			name: "missing amount is a bound reply", reviewType: "MISSING_AMOUNT",
-			decision: reviewdec.Decision{ReasonCode: "MISSING_AMOUNT", MissingFacts: []string{"amount_idr", "transfer_relationship"}},
+			decision:  reviewdec.Decision{ReasonCode: "MISSING_AMOUNT", MissingFacts: []string{"amount_idr", "transfer_relationship"}},
 			wantState: "AWAITING_DETAIL", context: "Email bank", wantMode: "reply",
 		},
 		{
 			name: "salary classification offers bounded choices", reviewType: "PAYSLIP_CONFIRMATION",
-			decision: reviewdec.Decision{MissingFacts: []string{"salary_classification"}, AllowedActions: []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}},
+			decision:  reviewdec.Decision{MissingFacts: []string{"salary_classification"}, AllowedActions: []string{"PRIMARY_SALARY", "ORDINARY_INCOME", "IGNORE"}},
 			wantState: "AWAITING_DETAIL", context: "Slip gaji", wantMode: "salary",
 		},
 		{

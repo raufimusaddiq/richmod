@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID string) (bool, error) {

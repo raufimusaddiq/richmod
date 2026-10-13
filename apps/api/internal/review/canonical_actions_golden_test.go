@@ -6,6 +6,8 @@ import (
 	"flag"
 	"os"
 	"testing"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
@@ -23,7 +25,7 @@ func TestCanonicalActionsGolden(t *testing.T) {
 	}
 	out := map[string][]string{}
 	for _, kind := range kinds {
-		out[kind] = canonicalActions(kind)
+		out[kind] = reviewdec.InboxActions(kind)
 	}
 	got, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {

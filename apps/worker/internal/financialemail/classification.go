@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
 )
 
 // ObservationClassification is the bounded ruling over one already-extracted

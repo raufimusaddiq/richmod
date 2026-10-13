@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 func (p *Processor) processFinancialEmailPager(ctx context.Context, sourceEventID, householdID string, update telegramUpdate, page int) (bool, error) {

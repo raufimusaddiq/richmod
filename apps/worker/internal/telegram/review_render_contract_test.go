@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
-	"github.com/raufimusaddiq/richmod/apps/worker/internal/reviewdec"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // producibleReviewTypes reads the review reason set from the production package
@@ -95,7 +95,7 @@ func TestActiveReasonsArePresetBacked(t *testing.T) {
 // names the lane the action reaches rather than the wire value Telegram receives.
 func telegramReviewLanes() map[string]bool {
 	telegramLanes := map[string]bool{"CONFIRM_REVIEW": true, "IGNORE": true, "CLASSIFY_TRANSFER": true}
-	for _, action := range reviewActions() {
+	for _, action := range reviewdec.AllAgentActions() {
 		telegramLanes[action] = true
 	}
 	// MERGE_EXISTING and CONFIRM_NEW_TRANSFER are case-bound actions, not presets.
@@ -166,7 +166,7 @@ func TestUnregisteredProducerFailsTheGate(t *testing.T) {
 // chooser could offer a button nothing can complete.
 func TestUnregisteredOrdinaryActionFailsTheGate(t *testing.T) {
 	const deadEndAction = "TEST_ONLY_DEAD_END_ACTION"
-	if contains(reviewActions(), deadEndAction) {
+	if contains(reviewdec.AllAgentActions(), deadEndAction) {
 		t.Fatalf("%s must not be a registered ordinary action", deadEndAction)
 	}
 	decision, ok := reviewdec.Preset("AMBIGUOUS_CATEGORY", "transaction", "00000000-0000-0000-0000-000000000000")

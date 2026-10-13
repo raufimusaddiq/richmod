@@ -121,8 +121,10 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		return result, err
 	}
 	if duplicate {
-		decision := map[string]any{"version": 1, "subject": map[string]any{"type": "transaction", "id": result.TransactionID}, "reasonCode": "POSSIBLE_DUPLICATE", "decisionClass": "CANONICAL_AMBIGUITY", "knownFacts": map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at, "merchant": merchant}, "missingFacts": []string{"duplicate_relationship"}, "allowedActions": []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}, "interactionMode": "CONFLICT_RESOLUTION"}
-		encoded, _ := json.Marshal(decision)
+		encoded, err := possibleDuplicateDecision(result.TransactionID, map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at, "merchant": merchant})
+		if err != nil {
+			return result, err
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3::jsonb)`, cmd.HouseholdID, result.TransactionID, string(encoded)); err != nil {
 			return result, err
 		}

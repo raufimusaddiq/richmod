@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — 2026-10-13. Refines ADR-039 (ReviewDecision contract) and ADR-046
+Accepted — 2026-10-13. Phase 1 (the kind table) implemented the same day; later phases below are open. Refines ADR-039 (ReviewDecision contract) and ADR-046
 (universal review interaction projection). Does not change BDR-002.
 
 ## Context
@@ -121,6 +121,25 @@ transaction-era `review_request` columns) is deleted once production holds no
 active row in that state. A read-only count is taken first. If rows remain, they
 are resolved by a migration (status change with audit, never a hard delete) and
 the code is deleted afterwards.
+
+## Implementation status
+
+Phase 1 — done: `apps/reviewdomain/reviewdec` (moved from `apps/worker/internal`,
+so the API can read it too) now holds one table, `kinds.go`, with a row per kind.
+`Preset`, `ActiveReasons`, `InboxActions` (was `canonicalActions`),
+`AgentActions` (was `reviewActionsForType`) and `AllAgentActions` (was
+`reviewActions`) are derived from it. The hand-copied POSSIBLE_DUPLICATE contract
+in `reopen.go`, its drift test, and the third variant built inline in
+`screenshot_amount.go` are replaced by `Preset`. The screenshot variant stored an
+invalid `decisionClass` (`CANONICAL_AMBIGUITY` is a consequence name) and
+`CONFLICT_RESOLUTION`; new rows now store the shared `DUPLICATE_AMBIGUITY` /
+`BOUNDED_CHOICE`. Telegram renders both modes identically and the RHICE queries
+only test for `EVIDENCE_GAP`, so this has no user-visible effect.
+
+Open: producers that still hand-build action lists instead of calling `Preset`
+(`bankemail`, `financialemail`, `document/payslip`, `document/screenshot_choice`),
+the `Resolve` dispatch, the `MISSING_PAY_DATE` read-time rewrite, the reason CHECK,
+and deletion of legacy-row compatibility code.
 
 ## Consequences
 
