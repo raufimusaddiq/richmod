@@ -2,7 +2,7 @@
 
 An ADR records a decision that changes architecture, infrastructure, or a security boundary. `AGENTS.md` requires one before any material architecture change or new infrastructure. Product decisions live in [`../bdr/`](../bdr/) as Business Decision Records.
 
-- **Adding one:** use the next number, **ADR-055**, and the file name `ADR-055-short-title.md` with Context, Decision and Status sections like the existing records.
+- **Adding one:** use the next number, **ADR-056**, and the file name `ADR-056-short-title.md` with Context, Decision and Status sections like the existing records.
 - **Current versus superseded:** the Status line of each record is authoritative. Where an ADR was amended, the Status names the amending ADR; read both.
 - **Duplicate number:** ADR-033 is used by two records on different topics. Both are current. References elsewhere in the docs use the full file name, so this index lists both rows rather than renaming either.
 
@@ -65,3 +65,4 @@ This table is generated from each file's title and Status by `scripts/generate-a
 | [ADR-052](ADR-052-telegram-without-judgment-plane.md) | Telegram runs without the judgment plane | Accepted — 2026-10-12. Amends ADR-038 and ADR-045 for the Telegram conversational agent. |
 | [ADR-053](ADR-053-category-judgment-household-context.md) | Category judgments receive household context | Accepted — 2026-10-12. Amends ADR-038 for the bounded category questions of bank email, receipts and transaction screenshots. |
 | [ADR-054](ADR-054-review-kind-registry.md) | Review kind registry is the single owner of review semantics | Accepted — 2026-10-13. Phase 1 (the kind table) implemented the same day; later phases below are open. Refines ADR-039 (ReviewDecision contract) and ADR-046 (universal review interaction projection). Does not change BDR-002. |
+| [ADR-055](ADR-055-bounded-repair-of-rejected-tool-arguments.md) | Rejected tool arguments get one bounded repair round | Accepted — 2026-10-13. Refines ADR-024 and ADR-033; Go remains the only validator and mutation authority. |
