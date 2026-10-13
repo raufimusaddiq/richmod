@@ -428,6 +428,7 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 	}
 	validated := make([]validatedAgentCall, 0, len(calls))
 	readCount, sideEffectCount := 0, 0
+	var argumentErr *agentArgumentsError
 	for _, call := range calls {
 		if len(state.Tools) > 0 && !agentToolAvailable(state.Tools, call.Name) {
 			return agentCallPlan{}, fmt.Errorf("tool %q is not available in the current server state", call.Name)
@@ -438,9 +439,14 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 		}
 		args, err := validateAgentToolCall(call)
 		if err != nil {
-			return agentCallPlan{}, &agentArgumentsError{Call: call, Err: err}
+			// Remember the first rejection but keep checking: a set-shape or budget
+			// refusal is final and must win over a repairable argument error.
+			if argumentErr == nil {
+				argumentErr = &agentArgumentsError{Call: call, Err: err}
+			}
+		} else {
+			validated = append(validated, validatedAgentCall{Call: call, Class: class, Args: args})
 		}
-		validated = append(validated, validatedAgentCall{Call: call, Class: class, Args: args})
 		if class == agentToolRead {
 			readCount++
 		} else {
@@ -454,6 +460,9 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 		if state.SideEffects >= limits.MaxSideEffectsPerTurn {
 			return agentCallPlan{}, fmt.Errorf("side effect limit reached")
 		}
+		if argumentErr != nil {
+			return agentCallPlan{}, argumentErr
+		}
 		return agentCallPlan{Class: agentToolSideEffect, Calls: validated}, nil
 	}
 	if readCount != len(calls) {
@@ -461,6 +470,9 @@ func validateAgentCallSet(calls []gateway.ToolCall, state *agentState, limits ag
 	}
 	if readCount > limits.MaxReadCallsPerResponse || state.ReadCalls+readCount > limits.MaxReadCallsPerTurn {
 		return agentCallPlan{}, fmt.Errorf("read tool budget exceeded")
+	}
+	if argumentErr != nil {
+		return agentCallPlan{}, argumentErr
 	}
 	return agentCallPlan{Class: agentToolRead, Calls: validated}, nil
 }
