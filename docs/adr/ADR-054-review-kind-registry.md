@@ -136,10 +136,22 @@ invalid `decisionClass` (`CANONICAL_AMBIGUITY` is a consequence name) and
 `BOUNDED_CHOICE`. Telegram renders both modes identically and the RHICE queries
 only test for `EVIDENCE_GAP`, so this has no user-visible effect.
 
-Open: producers that still hand-build action lists instead of calling `Preset`
-(`bankemail`, `financialemail`, `document/payslip`, `document/screenshot_choice`),
-the `Resolve` dispatch, the `MISSING_PAY_DATE` read-time rewrite, the reason CHECK,
-and deletion of legacy-row compatibility code.
+Producers were reviewed and are intentionally left alone. `document/screenshot_choice`
+and `document/payslip` already start from `Preset`. `bankemail` and `financialemail`
+build their own decisions because the evidence-specific facts differ per source
+(missing entities, source event, policy version, decision source), and some action
+lists legitimately differ from the table: `partialDecision` stores
+`COMPLETE_BANK_FACTS` for `DOCUMENT_EXTRACTION_LOW_CONFIDENCE`, where the table says
+`REPROCESS_DOCUMENT`; the bank-email transfer review stores only `IGNORE`. Folding
+these into `Preset` would change stored data without removing real duplication, so
+the table owns the defaults and a producer owns what its evidence changes. The only
+producer divergence that is a defect is the `MISSING_PAY_DATE` policy variant, which
+is written at creation by `configurePayslipReviewDecision` and then rewritten again
+at read time by the API.
+
+Open: the `Resolve` dispatch (API if-chain plus the worker's per-type handlers), the
+`MISSING_PAY_DATE` single-owner fix, the reason CHECK constraint, and deletion of
+legacy-row compatibility code (needs a read-only count of active legacy rows first).
 
 ## Consequences
 
