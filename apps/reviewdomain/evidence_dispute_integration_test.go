@@ -13,7 +13,7 @@ import (
 )
 
 type disputeFixture struct {
-	household, user, document, source, proposal, evidence, original string
+	household, user, document, source, proposal, evidence, original, category string
 }
 
 func seedMergedScreenshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) disputeFixture {
@@ -31,6 +31,7 @@ func seedMergedScreenshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	_, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, f.household, f.user)
 	must(err)
 	var attachment string
+	must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Makanan','food') RETURNING id::text`, f.household).Scan(&f.category))
 	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',10,1,1,$3) RETURNING id::text`, f.household, []byte(stamp), stamp+".png").Scan(&attachment))
 	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7500,'IDR',$2,now()) RETURNING id::text`, f.household, time.Date(2026, 10, 12, 2, 48, 0, 0, time.UTC)).Scan(&f.original))
 	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED') RETURNING id::text`, f.household, "img-"+stamp, []byte("img-"+stamp)).Scan(&f.source))
@@ -53,7 +54,7 @@ func stageDisputeForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	staged, err := StageEvidenceDispute(ctx, tx, EvidenceDisputeCommand{HouseholdID: f.household, ActorUserID: f.user, DocumentID: f.document, SourceEventID: chatEvent})
+	staged, err := StageEvidenceDispute(ctx, tx, EvidenceDisputeCommand{HouseholdID: f.household, ActorUserID: f.user, DocumentID: f.document, SourceEventID: chatEvent, CategoryID: f.category})
 	if err != nil {
 		t.Fatalf("stage: %v", err)
 	}
@@ -240,5 +241,90 @@ func TestEvidenceDisputeFailsClosedForMultiRowOrUnknownDate(t *testing.T) {
 	defer tx.Rollback(ctx)
 	if _, err = StageEvidenceDispute(ctx, tx, EvidenceDisputeCommand{HouseholdID: f.household, ActorUserID: f.user, DocumentID: f.document, SourceEventID: f.source}); !errors.Is(err, ErrEvidenceDisputeInvalid) {
 		t.Fatalf("multi-row dispute err=%v", err)
+	}
+}
+
+// Only expense evidence may be disputed: an incoming screenshot row may be an
+// own-account transfer and never confirms without transfer classification (ADR-042).
+func TestEvidenceDisputeRefusesIncomeRows(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	f := seedMergedScreenshot(t, ctx, pool, "income")
+	if _, err = pool.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='INCOME' WHERE id=$1`, f.proposal); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err = StageEvidenceDispute(ctx, tx, EvidenceDisputeCommand{HouseholdID: f.household, ActorUserID: f.user, DocumentID: f.document, SourceEventID: f.source}); !errors.Is(err, ErrEvidenceDisputeInvalid) {
+		t.Fatalf("INCOME dispute err=%v, want ErrEvidenceDisputeInvalid", err)
+	}
+}
+
+// An expense dispute never confirms without a category: unresolved staging
+// needs the household's explicit, household-valid choice, and a refused attempt
+// mutates nothing.
+func TestEvidenceDisputeConfirmRequiresAValidHouseholdCategory(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	f := seedMergedScreenshot(t, ctx, pool, "needs-category")
+	unresolved := f
+	unresolved.category = ""
+	staged, item, request := stageDisputeForTest(t, ctx, pool, unresolved)
+	foreign := seedMergedScreenshot(t, ctx, pool, "foreign-category")
+
+	resolve := func(category string) error {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err = ResolveEvidenceDispute(ctx, tx, EvidenceDisputeCommand{HouseholdID: f.household, ActorUserID: f.user, TransactionID: staged.TransactionID, ReviewItemID: item, RequestID: request, CategoryID: category}, true); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+	for name, category := range map[string]string{"no category": "", "another household's category": foreign.category} {
+		err := resolve(category)
+		if name == "no category" && !errors.Is(err, ErrMissingCategory) || name != "no category" && !errors.Is(err, ErrInvalidCandidate) {
+			t.Fatalf("%s: err=%v", name, err)
+		}
+		var status, link string
+		if err = pool.QueryRow(ctx, `SELECT t.status,COALESCE(e.metadata_json->>'link_status','ACTIVE') FROM transaction t,transaction_evidence e WHERE t.id=$1 AND e.id=$2`, staged.TransactionID, f.evidence).Scan(&status, &link); err != nil {
+			t.Fatal(err)
+		}
+		if status != "NEEDS_REVIEW" || link != "ACTIVE" {
+			t.Fatalf("%s mutated state: %s/%s", name, status, link)
+		}
+	}
+	if err = resolve(f.category); err != nil {
+		t.Fatalf("household-chosen category: %v", err)
+	}
+	var category string
+	var classification *float64
+	var merchant *string
+	if err = pool.QueryRow(ctx, `SELECT category_id::text,classification_confidence::float8,merchant_id::text FROM transaction WHERE id=$1`, staged.TransactionID).Scan(&category, &classification, &merchant); err != nil {
+		t.Fatal(err)
+	}
+	if category != f.category || classification == nil || *classification != 1 || merchant == nil {
+		t.Fatalf("category=%s classification=%v merchant=%v", category, classification, merchant)
 	}
 }

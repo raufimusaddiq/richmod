@@ -146,7 +146,7 @@ func (p *Processor) evidenceAlreadyRecorded(ctx context.Context, householdID str
 	rows, err := p.pool.Query(ctx, `SELECT COALESCE(m.normalized_name,''),COALESCE(t.counterparty_name,'')
 		FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id AND t.household_id=$1
 		LEFT JOIN merchant m ON m.id=t.merchant_id
-		WHERE t.status<>'VOIDED' AND t.type=$2 AND t.amount=$3::numeric
+		WHERE t.status<>'VOIDED' AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND t.type=$2 AND t.amount=$3::numeric
 		  AND te.source_event_id IN (
 		       SELECT source_event_id FROM document WHERE id=ANY($4::uuid[])
 		       UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($4::uuid[]))`,

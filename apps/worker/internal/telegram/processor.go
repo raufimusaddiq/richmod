@@ -109,9 +109,9 @@ func (p *Processor) EnsureSourceEventFinal(ctx context.Context, sourceEventID st
 	return nil
 }
 
-func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
+func (p *Processor) Process(ctx context.Context, sourceEventID string) (err error) {
 	var householdID, payloadText, processingStatus, sourceType string
-	err := p.pool.QueryRow(ctx, `
+	err = p.pool.QueryRow(ctx, `
 		SELECT s.household_id,p.payload_json::text,s.processing_status,s.source_type
 		FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id
 		WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_TEXT','TELEGRAM_CALLBACK')`, sourceEventID).Scan(&householdID, &payloadText, &processingStatus, &sourceType)
@@ -127,6 +127,13 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 	}
 	if update.CallbackQuery != nil {
 		ctx = withCallbackQuestion(ctx, payloadText)
+		// A generic callback can never resolve a staged screenshot-link dispute; refuse it as
+		// stale instead of failing (and endlessly retrying) the job.
+		defer func() {
+			if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
+				err = p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Kartu koreksi screenshot hanya bisa diselesaikan dengan tombolnya sendiri (Konfirmasi atau Batalkan).")
+			}
+		}()
 		update.Message.MessageID = update.CallbackQuery.Message.MessageID
 		update.Message.Chat.ID = update.CallbackQuery.Message.Chat.ID
 		update.Message.From.ID = update.CallbackQuery.From.ID

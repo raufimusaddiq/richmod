@@ -701,6 +701,16 @@ func agentMutationFallback(result agentToolResult) string {
 	}
 
 	switch result.Status {
+	case "EVIDENCE_DISPUTE_STAGED":
+		return "Kartu koreksi sudah dikirim. Tekan “Konfirmasi transaksi berbeda” jika screenshot ini memang transaksi terpisah; belum ada yang dicatat."
+	case "EVIDENCE_DISPUTE_ALREADY_STAGED":
+		return "Koreksi untuk screenshot ini sudah menunggu konfirmasi di kartu sebelumnya. Belum ada yang dicatat."
+	case "EVIDENCE_DISPUTE_INVALID":
+		return "Screenshot ini belum bisa dipisahkan lewat chat: hanya satu baris pengeluaran yang tergabung ke catatan lama, dengan nominal dan tanggal terbaca, yang bisa dikoreksi. Tidak ada yang diubah."
+	case "EVIDENCE_DISPUTE_UNAUTHORIZED":
+		return "Aku tidak bisa memverifikasi akun Telegram-mu di keluarga ini, jadi koreksi tidak dibuat."
+	case "EVIDENCE_DISPUTE_USE_BUTTONS":
+		return "Koreksi screenshot hanya bisa diselesaikan dengan tombol di kartunya (Konfirmasi atau Batalkan). Belum ada yang diubah."
 	case "AMBIGUOUS_TARGET", "AMBIGUOUS_REVIEW":
 		return "Ada beberapa item yang mungkin kamu maksud. Balas pesan itemnya atau pilih item yang sesuai, ya."
 	case "TARGET_UNAVAILABLE":
