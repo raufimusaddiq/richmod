@@ -94,7 +94,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN merchant m ON m.id=t.merchant_id
 		LEFT JOIN LATERAL (
 			SELECT te.source_event_id,te.metadata_json FROM transaction_evidence te
-			WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1
+			WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1
 		) evidence ON true
 		LEFT JOIN source_event s ON s.id=evidence.source_event_id
 		LEFT JOIN transaction_proposal p ON p.id=NULLIF(evidence.metadata_json->>'proposal_id','')::uuid

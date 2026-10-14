@@ -55,6 +55,13 @@ func TestDocumentListIncludesSourceExtractionAndReviewLink(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type) VALUES($1,$2,'DOCUMENT')`, transactionID, sourceID); err != nil {
 		t.Fatal(err)
 	}
+	var historicalTransactionID string
+	if err = pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',50000,now(),now()) RETURNING id`, householdID).Scan(&historicalTransactionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'DOCUMENT','{"link_status":"SUPERSEDED"}')`, historicalTransactionID, sourceID); err != nil {
+		t.Fatal(err)
+	}
 	storage, err := blob.NewLocal(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

@@ -74,6 +74,23 @@ context**. It adds no decision authority.
 - Telegram image/document evidence only. Email evidence reaches a conversation
   only through a review or transaction link.
 
+## Amendment — disputed screenshot link (2026-10-14)
+
+An exact reply to a screenshot notice that says the upload is a *different*
+transaction, while its row is `MERGED` into an existing record, exposes one more
+SIDE-EFFECT tool: `dispute_evidence_link` (no arguments; no IDs or amounts from
+the model). Go validates household, Telegram user, exact reply binding, a single
+current merged row with known amount and date, and exactly one active link. It
+stages a `POSSIBLE_DUPLICATE` review (provenance `evidence_link_dispute`) over a
+new `NEEDS_REVIEW` row; nothing is confirmed. Only the dedicated
+`review:dispute:confirm` / `review:dispute:reject` buttons resolve it; the generic
+confirm and merge paths refuse it. Confirmation records a new proposal and
+transaction, marks the original screenshot link `link_status=SUPERSEDED`
+(metadata only, retained for audit) and links the screenshot to the new row. The
+original proposal stays `MERGED` and the original transaction is unchanged.
+Rejection voids the staged row. Missing identity, multi-row documents and
+unknown dates fail closed.
+
 ## Rollout notes
 
 - Evidence ref keys moved from positional (`_ev<n>`) to per-document (`_ev<hash>`) in CEU-03. A ref issued by an earlier binary resolves as `REFERENCE_INVALID` after the upgrade; the model is told to fall back to the evidence bound that turn, and refs live at most 60 minutes, so the window is bounded and benign. No evidence ref had been deployed to production when the scheme changed.

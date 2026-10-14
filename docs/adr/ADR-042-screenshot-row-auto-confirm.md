@@ -71,6 +71,20 @@ not 20
 Already-clear rows must not claim Jev provenance. Mixed batches may therefore
 contain direct generative rows and Jev-rescued rows in one document.
 
+## Amendment — screenshot event identity (2026-10-14)
+
+Amount, merchant and temporal proximity nominate a candidate; they do not prove
+that two payment screenshots represent one event. The generic extractor retains
+printed transaction, reference and order identifiers as bounded untrusted facts.
+Go validates their shape and compares them only against household-scoped,
+amount/type-compatible candidates and their active screenshot evidence.
+
+Conflicting identifiers prevent an automatic link. Matching identifiers preserve
+repeated-screenshot deduplication. Without comparable identifiers, conflicting
+printed precise times remain duplicate ambiguity for human review rather than
+an automatic merge. Receipt and bank-email matching policies are unchanged.
+No provider-specific parser or production-history repair is introduced.
+
 ## Consequences
 
 - Clear rows reach canonical state with no user interaction; only genuinely

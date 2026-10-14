@@ -176,6 +176,10 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 			markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Beli aset", CallbackData: "review:asset"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 		}
 	case "duplicate":
+		if decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true {
+			markup = evidenceDisputeMarkup()
+			break
+		}
 		if markup, err = projectDuplicateChoices(ctx, tx, reviewID); err != nil {
 			return err
 		}

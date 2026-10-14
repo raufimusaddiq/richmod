@@ -76,6 +76,13 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	if err := ValidateTransactionReview(ctx, tx, cmd.HouseholdID, cmd.TransactionID); err != nil {
 		return result, err
 	}
+	var disputed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction_evidence e JOIN transaction t ON t.id=e.transaction_id WHERE t.id=$1 AND t.household_id=$2 AND e.metadata_json->>'evidence_link_dispute'='true' AND COALESCE(e.metadata_json->>'link_status','ACTIVE')='ACTIVE')`, cmd.TransactionID, cmd.HouseholdID).Scan(&disputed); err != nil {
+		return result, err
+	}
+	if disputed && cmd.Action != "CONFIRM_EVIDENCE_DISPUTE" {
+		return result, ErrEvidenceDisputeConfirmationRequired
+	}
 	var kind string
 	var currentCategory, merchantID *string
 	err := tx.QueryRow(ctx, "SELECT type,category_id,merchant_id FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE", cmd.TransactionID, cmd.HouseholdID).Scan(&kind, &currentCategory, &merchantID)
@@ -122,7 +129,7 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		return result, err
 	}
 	if cmd.TransactionAt != nil {
-		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET transaction_at=$2,metadata_json=metadata_json||'{\"date_known\":true,\"date_source\":\"USER\"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID, cmd.TransactionAt); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET transaction_at=$2,metadata_json=metadata_json||'{\"date_known\":true,\"date_source\":\"USER\"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, cmd.TransactionAt); err != nil {
 			return result, err
 		}
 	}
@@ -134,7 +141,7 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		return result, err
 	}
 	if merchantName != "" {
-		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID, merchantName); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET merchant_raw=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, merchantName); err != nil {
 			return result, err
 		}
 	}
@@ -142,15 +149,15 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	// otherwise an unmentioned candidate survives the confirm, which is what both
 	// surfaces did before the operation was shared.
 	if cmd.CategorySupplied {
-		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID, categoryID); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='ACCEPTED',category_candidate_id=$2,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, categoryID); err != nil {
 			return result, err
 		}
 	} else {
-		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='ACCEPTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='ACCEPTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID); err != nil {
 			return result, err
 		}
 	}
-	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)", cmd.TransactionID); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID); err != nil {
 		return result, err
 	}
 	if merchantID != nil {

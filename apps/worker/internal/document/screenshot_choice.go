@@ -132,7 +132,7 @@ func confirmScreenshotRow(ctx context.Context, tx pgx.Tx, householdID, sourceID,
 		merchantID = &id
 	}
 	var proposalID string
-	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,'EXPENSE',$4,'IDR',$5,NULLIF($6,''),$7,NULLIF($8,''),$9,'ACCEPTED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'direction',$12::text,'date_known',$13::boolean,'auto_confirm',true,'category_policy_version',$14::text)) RETURNING id`, householdID, sourceID, proposalKey, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown, provenance.PolicyVersion).Scan(&proposalID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,'EXPENSE',$4,'IDR',$5,NULLIF($6,''),$7,NULLIF($8,''),$9,'ACCEPTED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'direction',$12::text,'date_known',$13::boolean,'auto_confirm',true,'category_policy_version',$14::text) || $15::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.CategoryID, row.Value.Description, row.Value.Confidence, documentID, index, row.Value.Direction, row.DateKnown, provenance.PolicyVersion, screenshotIdentityMetadata(row)).Scan(&proposalID); err != nil {
 		return err
 	}
 	var transactionID string

@@ -46,7 +46,8 @@ func TestScreenshotDifferentPrintedTimeCreatesSeparateTransaction(t *testing.T) 
 			if err := pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,description,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',7500,'IDR',now() - make_interval(secs => $2::float8),$3,'Calorie Snacks & Desserts',now()) RETURNING id::text`, householdID, tt.hours*3600, merchantID).Scan(&id); err != nil {
 				t.Fatal(err)
 			}
-			matches, err := processor.findScreenshotMatches(ctx, householdID, "EXPENSE", "7500", time.Now(), "Calorie Snacks & Desserts", true)
+			row := validatedScreenshotRow{Value: screenshotRow{Amount: ptr("7500"), Merchant: "Calorie Snacks & Desserts"}, Type: "EXPENSE", TransactionAt: time.Now(), DateKnown: true}
+			matches, err := processor.findScreenshotMatches(ctx, householdID, row)
 			if err != nil {
 				t.Fatal(err)
 			}

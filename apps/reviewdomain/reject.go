@@ -34,10 +34,10 @@ func RejectTransactionReview(ctx context.Context, tx pgx.Tx, cmd RejectCommand) 
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved
 	}
-	if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='REJECTED',updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)", cmd.TransactionID); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, "UPDATE review_request SET status='CANCELLED' WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')", cmd.TransactionID); err != nil {

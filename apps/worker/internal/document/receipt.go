@@ -369,16 +369,6 @@ func (p *Processor) findMatches(ctx context.Context, householdID, transactionTyp
 	return result, rows.Err()
 }
 
-// findScreenshotMatches applies the screenshot-only time guard on top of the
-// shared candidate query. Receipts keep the original weak-candidate window.
-func (p *Processor) findScreenshotMatches(ctx context.Context, householdID, transactionType, amount string, transactionAt time.Time, merchant string, dateKnown bool) ([]matchCandidate, error) {
-	matches, err := p.findMatches(ctx, householdID, transactionType, amount, transactionAt, merchant, dateKnown)
-	if err != nil {
-		return nil, err
-	}
-	return filterScreenshotTimeConflicts(matches, merchant), nil
-}
-
 func documentMatchScore(hours float64, merchantMatch bool) float64 {
 	score := 0.45
 	switch {
