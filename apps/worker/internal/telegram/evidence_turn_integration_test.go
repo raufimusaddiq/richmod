@@ -81,8 +81,10 @@ func runEvidenceTurn(t *testing.T, ctx context.Context, f agentIntegrationFixtur
 	mustAgentTest(t, err)
 	stamp := time.Now().UnixNano()
 	var sourceID string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,telegram_message_id,telegram_chat_id) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED',$4,$5) RETURNING id`,
-		f.householdID, fmt.Sprintf("turn-%d-%d", stamp, turnCounter), []byte(fmt.Sprintf("turn-%d-%d", stamp, turnCounter)), update.Message.MessageID, f.chatID).Scan(&sourceID))
+	// Production text intake never sets source_event.telegram_chat_id or telegram_message_id
+	// (only image intake does); keep the fixture faithful so no lane can depend on them.
+	mustAgentTest(t, f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'RECEIVED') RETURNING id`,
+		f.householdID, fmt.Sprintf("turn-%d-%d", stamp, turnCounter), []byte(fmt.Sprintf("turn-%d-%d", stamp, turnCounter))).Scan(&sourceID))
 	_, err = f.pool.Exec(ctx, `INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, sourceID, string(raw))
 	mustAgentTest(t, err)
 	return sourceID, p.ProcessAgent(ctx, sourceID)

@@ -80,7 +80,11 @@ An exact reply to a screenshot notice that says the upload is a *different*
 transaction, while its row is `MERGED` into an existing record, exposes one more
 SIDE-EFFECT tool: `dispute_evidence_link` (no arguments; no IDs or amounts from
 the model). Go validates household, Telegram user, exact reply binding, a single
-current merged row with known amount and date, and exactly one active link. It
+current merged row with known amount and date, and exactly one active link. The
+actor is authorized only by an active `telegram_identity` plus an active
+`household_member` of the household owning the current text source event; text
+intake never records `source_event.telegram_chat_id`, so authorization must not
+depend on it (the chat is enforced by the chat-scoped reply-evidence binding). It
 stages a `POSSIBLE_DUPLICATE` review (provenance `evidence_link_dispute`) over a
 new `NEEDS_REVIEW` row; nothing is confirmed. Only the dedicated
 `review:dispute:confirm` / `review:dispute:reject` buttons resolve it; the generic
