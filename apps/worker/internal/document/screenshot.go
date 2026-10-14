@@ -333,7 +333,13 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		}
 		if row.Matched != nil {
 			var proposalID string
-			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),NULLIF($8,''),$9,'MERGED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'matched_transaction_id',$12::uuid,'match_score',$13::numeric) || $14::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.Value.Description, row.Value.Confidence, documentID, index, row.Matched.ID, row.Matched.Score, screenshotIdentityMetadata(row)).Scan(&proposalID); err != nil {
+			// A validated category survives the merge so a later dispute can reuse it; a row whose
+			// independent category sources disagree keeps none (policy: never confirm through a conflict).
+			var mergedCategory *string
+			if !row.CategoryConflict {
+				mergedCategory = row.CategoryID
+			}
+			if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,$5,'IDR',$6,NULLIF($7,''),$15,NULLIF($8,''),$9,'MERGED',jsonb_build_object('document_id',$10::uuid,'row_index',$11::integer,'matched_transaction_id',$12::uuid,'match_score',$13::numeric) || $14::jsonb) RETURNING id`, householdID, sourceID, proposalKey, row.Type, row.Value.Amount, row.TransactionAt, row.Value.Merchant, row.Value.Description, row.Value.Confidence, documentID, index, row.Matched.ID, row.Matched.Score, screenshotIdentityMetadata(row), mergedCategory).Scan(&proposalID); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric)) ON CONFLICT DO NOTHING`, row.Matched.ID, sourceID, row.Value.Confidence, proposalID, documentID, index, row.Matched.Score); err != nil {

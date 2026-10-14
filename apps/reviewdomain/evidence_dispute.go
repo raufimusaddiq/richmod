@@ -15,6 +15,10 @@ var ErrEvidenceDisputeConfirmationRequired = errors.New("reviewdomain: use the s
 type EvidenceDisputeCommand struct {
 	HouseholdID, ActorUserID, DocumentID, SourceEventID string
 	TransactionID, ReviewItemID, RequestID              string
+	// CategoryID is a Go-resolved category: at staging the policy-resolved one from the
+	// disputed screenshot's own extraction (empty when unresolved), at confirm the
+	// household's explicit choice from the category chooser. Always revalidated here.
+	CategoryID string
 }
 
 type EvidenceDisputeResult struct {
@@ -26,6 +30,7 @@ type EvidenceDisputeResult struct {
 type mergedScreenshot struct {
 	proposal, source, evidence, original, kind, amount, currency, merchant, description string
 	category                                                                            *string
+	confidence                                                                          *float64
 	at                                                                                  time.Time
 }
 
@@ -34,7 +39,7 @@ type mergedScreenshot struct {
 // override the old match. Missing amount/date and multirow documents fail closed.
 func lockMergedScreenshot(ctx context.Context, tx pgx.Tx, household, document string) (mergedScreenshot, error) {
 	var s mergedScreenshot
-	err := tx.QueryRow(ctx, `SELECT p.id::text,p.source_event_id::text,p.proposed_type,p.amount::text,p.currency,p.transaction_at,COALESCE(p.merchant_raw,p.counterparty_raw,''),COALESCE(p.description,''),p.category_candidate_id
+	err := tx.QueryRow(ctx, `SELECT p.id::text,p.source_event_id::text,p.proposed_type,p.amount::text,p.currency,p.transaction_at,COALESCE(p.merchant_raw,p.counterparty_raw,''),COALESCE(p.description,''),p.category_candidate_id,p.confidence::float8
 		FROM document d JOIN source_event se ON se.id=d.source_event_id AND se.household_id=d.household_id
 		JOIN transaction_proposal p ON p.source_event_id=se.id AND p.household_id=d.household_id
 		WHERE d.id=$1::uuid AND d.household_id=$2 AND se.source_type='TELEGRAM_IMAGE'
@@ -42,10 +47,10 @@ func lockMergedScreenshot(ctx context.Context, tx pgx.Tx, household, document st
 		AND p.metadata_json->>'document_id'=d.id::text
 		AND (p.metadata_json->>'date_known'='true' OR EXISTS(SELECT 1 FROM document_extraction de WHERE de.document_id=d.id AND de.stage='TRANSACTION_SCREENSHOT' AND de.validated
 		AND jsonb_array_length(de.output_json->'transactions')=1 AND de.output_json->'transactions'->0->>'transaction_at' IS NOT NULL))
-		AND p.proposal_status='MERGED' AND p.amount>0 AND p.currency='IDR' AND p.proposed_type IN ('EXPENSE','INCOME')
+		AND p.proposal_status='MERGED' AND p.amount>0 AND p.currency='IDR' AND p.proposed_type='EXPENSE'
 		AND (SELECT count(*) FROM transaction_proposal other WHERE other.source_event_id=se.id)=1
 		AND (SELECT count(*) FROM document_page dp WHERE dp.document_id=d.id AND dp.source_event_id<>se.id)=0
-		FOR UPDATE OF d,p`, document, household).Scan(&s.proposal, &s.source, &s.kind, &s.amount, &s.currency, &s.at, &s.merchant, &s.description, &s.category)
+		FOR UPDATE OF d,p`, document, household).Scan(&s.proposal, &s.source, &s.kind, &s.amount, &s.currency, &s.at, &s.merchant, &s.description, &s.category, &s.confidence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, ErrEvidenceDisputeInvalid
 	}
@@ -73,7 +78,7 @@ func StageEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeCom
 		return result, err
 	}
 	err = tx.QueryRow(ctx, `SELECT t.id::text,t.status FROM transaction_evidence e JOIN transaction t ON t.id=e.transaction_id
-		WHERE t.household_id=$1 AND e.metadata_json->>'original_evidence_id'=$2 AND e.metadata_json->>'evidence_link_dispute'='true'
+		WHERE t.household_id=$1 AND t.status='NEEDS_REVIEW' AND e.metadata_json->>'original_evidence_id'=$2 AND e.metadata_json->>'evidence_link_dispute'='true'
 		ORDER BY e.created_at DESC LIMIT 1`, cmd.HouseholdID, s.evidence).Scan(&result.TransactionID, &result.Status)
 	if err == nil {
 		return result, nil
@@ -81,8 +86,16 @@ func StageEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeCom
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return result, err
 	}
-	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,counterparty_name,description,created_by_user_id)
-		VALUES($1,$2,'NEEDS_REVIEW',$3::numeric,$4,$5,$6,NULLIF($7,''),NULLIF($8,''),$9) RETURNING id::text`, cmd.HouseholdID, s.kind, s.amount, s.currency, s.at, s.category, s.merchant, s.description, cmd.ActorUserID).Scan(&result.TransactionID)
+	var category *string
+	var confidence *float64
+	if cmd.CategoryID != "" {
+		if err = ValidateCategoryForHousehold(ctx, tx, cmd.HouseholdID, cmd.CategoryID); err != nil {
+			return result, err
+		}
+		category, confidence = &cmd.CategoryID, s.confidence
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,counterparty_name,description,created_by_user_id,source_confidence,classification_confidence)
+		VALUES($1,$2,'NEEDS_REVIEW',$3::numeric,$4,$5,$6,NULLIF($7,''),NULLIF($8,''),$9,$10,$11) RETURNING id::text`, cmd.HouseholdID, s.kind, s.amount, s.currency, s.at, category, s.merchant, s.description, cmd.ActorUserID, s.confidence, confidence).Scan(&result.TransactionID)
 	if err != nil {
 		return result, err
 	}
@@ -101,12 +114,13 @@ func StageEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeCom
 // confirm/merge: the original immutable proposal remains MERGED forever.
 func ResolveEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeCommand, confirm bool) error {
 	var originalEvidence, originalProposal, document, disputeSource string
-	err := tx.QueryRow(ctx, `SELECT e.metadata_json->>'original_evidence_id',e.metadata_json->>'original_proposal_id',e.metadata_json->>'disputed_document_id',e.source_event_id::text
+	var stagedCategory *string
+	err := tx.QueryRow(ctx, `SELECT e.metadata_json->>'original_evidence_id',e.metadata_json->>'original_proposal_id',e.metadata_json->>'disputed_document_id',e.source_event_id::text,t.category_id::text
 		FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id
 		JOIN transaction_evidence e ON e.transaction_id=t.id
 		WHERE ri.id=$1::uuid AND ri.household_id=$2 AND ri.transaction_id=$3::uuid AND ri.status IN ('OPEN','PENDING_SEND')
 		AND t.status='NEEDS_REVIEW' AND e.metadata_json->>'evidence_link_dispute'='true'
-		FOR UPDATE OF ri,t,e`, cmd.ReviewItemID, cmd.HouseholdID, cmd.TransactionID).Scan(&originalEvidence, &originalProposal, &document, &disputeSource)
+		FOR UPDATE OF ri,t,e`, cmd.ReviewItemID, cmd.HouseholdID, cmd.TransactionID).Scan(&originalEvidence, &originalProposal, &document, &disputeSource, &stagedCategory)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAlreadyResolved
 	}
@@ -115,6 +129,11 @@ func ResolveEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeC
 	}
 	action := "REJECT_EVIDENCE_DISPUTE"
 	if confirm {
+		// Unlike the generic duplicate "record as new", a screenshot expense never confirms
+		// without a category: the caller asks through the category chooser.
+		if stagedCategory == nil && cmd.CategoryID == "" {
+			return ErrMissingCategory
+		}
 		s, err := lockMergedScreenshot(ctx, tx, cmd.HouseholdID, document)
 		if err != nil {
 			return err
@@ -136,7 +155,16 @@ func ResolveEvidenceDispute(ctx context.Context, tx pgx.Tx, cmd EvidenceDisputeC
 			FROM transaction_evidence WHERE id=$1::uuid`, s.evidence, cmd.TransactionID, recoveryProposal, s.proposal, document); err != nil {
 			return err
 		}
-		if _, err = ConfirmTransactionReview(ctx, tx, ConfirmCommand{HouseholdID: cmd.HouseholdID, ActorUserID: cmd.ActorUserID, TransactionID: cmd.TransactionID, ReviewItemID: cmd.ReviewItemID, RequestID: cmd.RequestID, ReviewType: "POSSIBLE_DUPLICATE", Action: "CONFIRM_EVIDENCE_DISPUTE", ResolveReview: true}); err != nil {
+		if _, err = ConfirmTransactionReview(ctx, tx, ConfirmCommand{HouseholdID: cmd.HouseholdID, ActorUserID: cmd.ActorUserID, TransactionID: cmd.TransactionID, ReviewItemID: cmd.ReviewItemID, RequestID: cmd.RequestID, Action: "CONFIRM_EVIDENCE_DISPUTE", CategorySupplied: cmd.CategoryID != "", CategoryID: cmd.CategoryID, MerchantName: s.merchant, ResolveReview: true}); err != nil {
+			return err
+		}
+		if cmd.CategoryID != "" && stagedCategory == nil {
+			// A household choice is the classification source: full confidence, like the normal chooser.
+			if _, err = tx.Exec(ctx, `UPDATE transaction SET classification_confidence=1 WHERE id=$1::uuid AND classification_confidence IS NULL`, cmd.TransactionID); err != nil {
+				return err
+			}
+		}
+		if _, err = tx.Exec(ctx, `UPDATE transaction_proposal SET category_candidate_id=(SELECT category_id FROM transaction WHERE id=$2::uuid) WHERE id=$1::uuid`, recoveryProposal, cmd.TransactionID); err != nil {
 			return err
 		}
 		action = "CONFIRM_EVIDENCE_DISPUTE"

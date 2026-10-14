@@ -95,6 +95,35 @@ original proposal stays `MERGED` and the original transaction is unchanged.
 Rejection voids the staged row. Missing identity, multi-row documents and
 unknown dates fail closed.
 
+### Amendment — recovery parity (2026-10-14)
+
+- **Scope and type.** Only a single `EXPENSE` row can be disputed. An incoming
+  (`INCOME`) row is refused: it may be an own-account transfer and never confirms
+  without transfer classification (ADR-042).
+- **Category, merchant, confidences.** Staging resolves the category from the
+  screenshot's *own* validated extraction with the screenshot pipeline's policy:
+  an active household category slug; household merchant memory overrides only
+  when it agrees, and a disagreement leaves the category unresolved. A `MERGED`
+  proposal now keeps the validated category candidate (none on a conflict); legacy
+  rows fall back to the extraction. The merchant row is resolved on confirm and
+  both confidences follow the normal auto-confirm path (the proposal's
+  confidence). Nothing is inherited from the disputed transaction.
+- **Unresolved category.** Confirm never records an uncategorized expense (the
+  generic duplicate exemption does not apply to a dispute). The card is edited
+  into the existing category chooser (without its asset/ignore row) plus
+  *Batalkan koreksi*; the household's choice completes the confirmation with
+  classification confidence 1.
+- **Re-dispute and races.** A rejected dispute can be raised again; only a staged
+  (`NEEDS_REVIEW`) dispute counts as already open. Confirm/reject lock the review,
+  transaction and evidence rows, so concurrent or repeated taps resolve once.
+- **Other surfaces.** A typed reply to the card may only cancel it; generic
+  duplicate/confirm callbacks are answered as stale instead of failing the job.
+  The Web API answers `409` for confirm/merge of a staged dispute. Chat evidence
+  context, recent-evidence and review/document binding read only active links, so
+  after a split a correction targets the new transaction.
+- **Replies.** Staged, already staged, refused, unauthorized and use-the-buttons
+  outcomes each have a specific reply; none reads as generic success.
+
 ## Rollout notes
 
 - Evidence ref keys moved from positional (`_ev<n>`) to per-document (`_ev<hash>`) in CEU-03. A ref issued by an earlier binary resolves as `REFERENCE_INVALID` after the upgrade; the model is told to fall back to the evidence bound that turn, and refs live at most 60 minutes, so the window is bounded and benign. No evidence ref had been deployed to production when the scheme changed.

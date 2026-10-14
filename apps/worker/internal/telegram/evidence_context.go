@@ -132,7 +132,7 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 	err = p.pool.QueryRow(ctx, `SELECT t.id::text,t.amount::text,COALESCE(c.slug,''),t.status
 		FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id
 		LEFT JOIN category c ON c.id=t.category_id
-		WHERE t.household_id=$2 AND t.status<>'VOIDED'
+		WHERE t.household_id=$2 AND t.status<>'VOIDED' AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'
 		  AND te.source_event_id IN (SELECT $1::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$3::uuid)
 		ORDER BY te.created_at LIMIT 1`, sourceEventID, householdID, string(document)).
 		Scan(&f.LinkedTransactionID, &f.LinkedAmount, &f.LinkedCategory, &f.LinkedStatus)
@@ -144,7 +144,7 @@ func (p *Processor) loadEvidenceFacts(ctx context.Context, householdID string, d
 	err = p.pool.QueryRow(ctx, `SELECT review_type,COALESCE(transaction_id::text,''),COALESCE(decision->'missingFacts','[]'::jsonb),COALESCE(decision->'allowedActions','[]'::jsonb)
 		FROM review_item WHERE household_id=$1 AND status IN ('OPEN','PENDING_SEND')
 		  AND (document_id=$2::uuid OR source_event_id IN (SELECT source_event_id FROM document WHERE id=$2::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$2::uuid)
-		       OR transaction_id IN (SELECT te.transaction_id FROM transaction_evidence te WHERE te.source_event_id IN (SELECT source_event_id FROM document WHERE id=$2::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$2::uuid)))
+		       OR transaction_id IN (SELECT te.transaction_id FROM transaction_evidence te WHERE COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND te.source_event_id IN (SELECT source_event_id FROM document WHERE id=$2::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$2::uuid)))
 		ORDER BY created_at DESC LIMIT 1`, householdID, string(document)).
 		Scan(&f.ReviewType, &f.ReviewTransactionID, &missing, &actions)
 	switch {

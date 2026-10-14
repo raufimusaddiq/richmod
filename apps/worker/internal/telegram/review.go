@@ -555,6 +555,17 @@ func (p *Processor) processReviewCategoryCallback(ctx context.Context, sourceEve
 		return err
 	}
 	if reviewType == "POSSIBLE_DUPLICATE" {
+		var dispute bool
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(ri.decision->'decisionProvenance'->>'evidence_link_dispute','')='true' FROM review_item ri JOIN review_request r ON r.review_item_id=ri.id WHERE r.id=$1`, reviewID).Scan(&dispute); err != nil {
+			return err
+		}
+		if dispute {
+			// A screenshot-link dispute card has its own chooser and buttons.
+			if err = tx.Commit(ctx); err != nil {
+				return err
+			}
+			return p.processDisputeCategoryCallback(ctx, sourceEventID, householdID, update, data)
+		}
 		if err = renderDuplicateChoices(ctx, tx, sourceEventID, householdID, reviewID, transactionID, update); err != nil {
 			return err
 		}

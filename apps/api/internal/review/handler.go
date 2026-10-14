@@ -345,6 +345,10 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		Blocked:       confirmationBlockers(storedDecisionJSON, suppliedAt != nil, categorySupplied, merchantName != ""),
 		ResolveReview: true,
 	})
+	if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "this screenshot correction can only be resolved from its Telegram card"})
+		return
+	}
 	if errors.Is(err, reviewdomain.ErrMissingCategory) {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 		return
@@ -517,6 +521,10 @@ func (h *Handler) Merge(w http.ResponseWriter, r *http.Request) {
 		HouseholdID: household, ActorUserID: p.UserID, TransactionID: r.PathValue("id"),
 		TargetTransactionID: input.TargetTransactionID, Action: "MERGE_REVIEW",
 	})
+	if errors.Is(err, reviewdomain.ErrEvidenceDisputeConfirmationRequired) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "this screenshot correction can only be resolved from its Telegram card"})
+		return
+	}
 	if errors.Is(err, reviewdomain.ErrAlreadyMerged) {
 		writeJSON(w, 409, map[string]string{"error": "review is already merged"})
 		return

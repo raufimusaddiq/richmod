@@ -84,6 +84,18 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 		result.Status = "STALE_REVIEW_BINDING"
 		return result, true, nil
 	}
+	// A staged screenshot-link dispute is resolved only by its own buttons; a typed reply
+	// may cancel it (IGNORE) but never confirm, merge or edit it.
+	var disputed bool
+	if err = p.pool.QueryRow(ctx, `SELECT COALESCE(ri.decision->'decisionProvenance'->>'evidence_link_dispute','')='true' FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1`, review.reviewID).Scan(&disputed); err != nil {
+		return result, true, err
+	}
+	if disputed {
+		if action, _ := args["action"].(string); action != "IGNORE" {
+			result.Status = "EVIDENCE_DISPUTE_USE_BUTTONS"
+			return result, true, nil
+		}
+	}
 	action, _ := args["action"].(string)
 	categorySlug, _ := args["category_slug"].(string)
 	description, _ := args["description"].(string)

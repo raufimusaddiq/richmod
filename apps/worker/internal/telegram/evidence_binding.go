@@ -106,7 +106,7 @@ func (p *Processor) reviewCardMessageForDocument(ctx context.Context, householdI
 		WHERE r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2 AND rr.telegram_message_id IS NOT NULL
 		  AND (ri.document_id=$3::uuid
 		       OR ri.source_event_id IN (SELECT source_event_id FROM document WHERE id=$3::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$3::uuid)
-		       OR COALESCE(ri.transaction_id,r.transaction_id) IN (SELECT te.transaction_id FROM transaction_evidence te WHERE te.source_event_id IN (
+		       OR COALESCE(ri.transaction_id,r.transaction_id) IN (SELECT te.transaction_id FROM transaction_evidence te WHERE COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND te.source_event_id IN (
 		            SELECT source_event_id FROM document WHERE id=$3::uuid UNION SELECT source_event_id FROM document_page WHERE document_id=$3::uuid)))
 		ORDER BY r.created_at DESC LIMIT 1`, householdID, chatID, string(document)).Scan(&messageID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -176,9 +176,9 @@ func (p *Processor) documentForReviewBinding(ctx context.Context, householdID st
 		JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN document d ON d.household_id=r.household_id AND (
 		     d.id=ri.document_id OR d.source_event_id=ri.source_event_id
-		     OR d.source_event_id IN (SELECT te.source_event_id FROM transaction_evidence te WHERE te.transaction_id=COALESCE(ri.transaction_id,r.transaction_id))
+		     OR d.source_event_id IN (SELECT te.source_event_id FROM transaction_evidence te WHERE COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND te.transaction_id=COALESCE(ri.transaction_id,r.transaction_id))
 		     OR d.id IN (SELECT dp.document_id FROM document_page dp WHERE dp.source_event_id IN (
-		          SELECT te.source_event_id FROM transaction_evidence te WHERE te.transaction_id=COALESCE(ri.transaction_id,r.transaction_id))))
+		          SELECT te.source_event_id FROM transaction_evidence te WHERE COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND te.transaction_id=COALESCE(ri.transaction_id,r.transaction_id))))
 		WHERE r.id=$1::uuid AND r.household_id=$2 ORDER BY d.created_at DESC LIMIT 1`, binding.ReviewRequestID, householdID).Scan(&documentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
