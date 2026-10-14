@@ -64,7 +64,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN "user" u ON u.id=t.created_by_user_id
 		LEFT JOIN LATERAL (
 			SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id
-			WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1
+			WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1
 		) e ON true
 		WHERE t.household_id=$1
 		  AND ($2::timestamptz IS NULL OR t.transaction_at >= $2)
@@ -74,7 +74,7 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		  AND ($6='' OR t.created_by_user_id::text=$6)
 		  AND ($7='' OR t.status=$7)
 		  AND ($8='' OR t.account_id::text=$8)
-		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND s2.source_type=$9))
+		  AND ($9='' OR EXISTS(SELECT 1 FROM transaction_evidence te2 JOIN source_event s2 ON s2.id=te2.source_event_id WHERE te2.transaction_id=t.id AND COALESCE(te2.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND s2.source_type=$9))
 		  AND ($10='' OR concat_ws(' ',t.description,t.note,t.counterparty_name,m.normalized_name) ILIKE '%'||$10||'%')
 		  AND ($14='' OR t.merchant_id::text=$14)
 		  AND ($15='' OR t.id::text=$15)
@@ -122,10 +122,10 @@ func transactionFiltersFromRequest(r *http.Request) (transactionFilters, error) 
 		Type: strings.TrimSpace(query.Get("type")), CategoryID: strings.TrimSpace(query.Get("categoryId")),
 		MemberID: strings.TrimSpace(query.Get("memberId")), Status: strings.TrimSpace(query.Get("status")),
 		AccountID: strings.TrimSpace(query.Get("accountId")), Source: strings.TrimSpace(query.Get("source")),
-		MerchantID: strings.TrimSpace(query.Get("merchantId")),
+		MerchantID:    strings.TrimSpace(query.Get("merchantId")),
 		TransactionID: strings.TrimSpace(query.Get("id")),
-		Search: strings.TrimSpace(query.Get("q")),
-		Limit:  250,
+		Search:        strings.TrimSpace(query.Get("q")),
+		Limit:         250,
 	}
 	if value := strings.TrimSpace(query.Get("limit")); value != "" {
 		limit, err := strconv.Atoi(value)
@@ -329,7 +329,7 @@ func (h *Handler) Audit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) load(ctx context.Context, household, id string) (transactionView, error) {
 	var v transactionView
-	err := h.pool.QueryRow(ctx, `SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name FROM transaction t LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id LEFT JOIN category c ON c.id=t.category_id LEFT JOIN merchant m ON m.id=t.merchant_id LEFT JOIN account a ON a.id=t.account_id LEFT JOIN "user" u ON u.id=t.created_by_user_id LEFT JOIN LATERAL (SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id WHERE te.transaction_id=t.id ORDER BY te.created_at LIMIT 1) e ON true WHERE t.id=$1 AND t.household_id=$2`, id, household).Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName)
+	err := h.pool.QueryRow(ctx, `SELECT t.id,t.type,t.status,t.amount::text,t.currency,t.transaction_at,t.description,t.note,t.counterparty_name,t.account_id,t.category_id,t.merchant_id,c.name,m.normalized_name,a.name,u.display_name,e.source_type,t.confirmed_at,t.voided_at,t.purpose,t.related_wealth_account_id,wa.name FROM transaction t LEFT JOIN wealth_account wa ON wa.id=t.related_wealth_account_id LEFT JOIN category c ON c.id=t.category_id LEFT JOIN merchant m ON m.id=t.merchant_id LEFT JOIN account a ON a.id=t.account_id LEFT JOIN "user" u ON u.id=t.created_by_user_id LEFT JOIN LATERAL (SELECT s.source_type FROM transaction_evidence te JOIN source_event s ON s.id=te.source_event_id WHERE te.transaction_id=t.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' ORDER BY te.created_at LIMIT 1) e ON true WHERE t.id=$1 AND t.household_id=$2`, id, household).Scan(&v.ID, &v.Type, &v.Status, &v.Amount, &v.Currency, &v.TransactionAt, &v.Description, &v.Note, &v.Counterparty, &v.AccountID, &v.CategoryID, &v.MerchantID, &v.CategoryName, &v.MerchantName, &v.AccountName, &v.MemberName, &v.SourceType, &v.ConfirmedAt, &v.VoidedAt, &v.Purpose, &v.RelatedWealthAccountID, &v.WealthAccountName)
 	return v, err
 }
 func principalHousehold(w http.ResponseWriter, r *http.Request) (auth.Principal, string, bool) {

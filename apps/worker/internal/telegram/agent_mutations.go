@@ -35,6 +35,8 @@ func (p *Processor) executeAgentSideEffect(ctx context.Context, state *agentStat
 		return p.agentUpdatePendingBatch(ctx, state, call, args)
 	case "pending_batch_decision":
 		return p.agentPendingBatchDecision(ctx, state, call, args)
+	case "dispute_evidence_link":
+		return p.agentDisputeEvidenceLink(ctx, state, call)
 	default:
 		return agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}, false, fmt.Errorf("unsupported core side-effect tool %q", call.Name)
 	}

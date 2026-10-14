@@ -141,6 +141,12 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) error {
 		}
 	}
 	if update.CallbackQuery != nil {
+		if strings.HasPrefix(update.CallbackQuery.Data, "review:dispute:") {
+			if handled, err := p.processEvidenceDisputeCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled || err != nil {
+				return err
+			}
+			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+		}
 		if handled, err := p.processPendingConfirmCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 			return err
 		}

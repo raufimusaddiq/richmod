@@ -51,6 +51,13 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 	if cmd.TargetTransactionID == "" || cmd.TargetTransactionID == cmd.TransactionID {
 		return result, ErrDuplicateTargetInvalid
 	}
+	var disputed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction_evidence e JOIN transaction t ON t.id=e.transaction_id WHERE t.id=$1 AND t.household_id=$2 AND e.metadata_json->>'evidence_link_dispute'='true' AND COALESCE(e.metadata_json->>'link_status','ACTIVE')='ACTIVE')`, cmd.TransactionID, cmd.HouseholdID).Scan(&disputed); err != nil {
+		return result, err
+	}
+	if disputed {
+		return result, ErrEvidenceDisputeConfirmationRequired
+	}
 	var sourceType, sourceAmount, sourceCurrency string
 	var sourceTime time.Time
 	err := tx.QueryRow(ctx, "SELECT type,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE", cmd.TransactionID, cmd.HouseholdID).Scan(&sourceType, &sourceAmount, &sourceCurrency, &sourceTime)
@@ -80,7 +87,7 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 		confidence                              *string
 		metadata                                json.RawMessage
 	}
-	rows, err := tx.Query(ctx, "SELECT id,source_event_id,evidence_type,confidence,metadata_json FROM transaction_evidence WHERE transaction_id=$1", cmd.TransactionID)
+	rows, err := tx.Query(ctx, "SELECT id,source_event_id,evidence_type,confidence,metadata_json FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE'", cmd.TransactionID)
 	if err != nil {
 		return result, err
 	}
@@ -114,10 +121,10 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 	if _, err := tx.Exec(ctx, "UPDATE transaction SET status='VOIDED',confirmed_at=NULL,voided_at=now(),updated_at=now() WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW'", cmd.TransactionID, cmd.HouseholdID); err != nil {
 		return result, err
 	}
-	if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')", cmd.TransactionID, cmd.TargetTransactionID); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET proposal_status='MERGED',metadata_json=metadata_json||jsonb_build_object('merged_into',$2::uuid),updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, cmd.TargetTransactionID); err != nil {
 		return result, err
 	}
-	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)", cmd.TransactionID); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID); err != nil {
 		return result, err
 	}
 	if _, err := tx.Exec(ctx, "UPDATE review_request SET status='CANCELLED' WHERE transaction_id=$1 AND status IN ('PENDING_SEND','OPEN')", cmd.TransactionID); err != nil {

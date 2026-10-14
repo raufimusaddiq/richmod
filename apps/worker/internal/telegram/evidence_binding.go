@@ -260,7 +260,7 @@ func applyEvidenceToolPolicy(general, filtered []gateway.ToolDefinition, scope a
 	if evidence.HasLinkedTransaction {
 		for _, tool := range general {
 			if tool.Name == "propose_transaction_correction" {
-				return append(append([]gateway.ToolDefinition{}, filtered...), tool), agentWorkflowExactEvidence
+				return append(append([]gateway.ToolDefinition{}, filtered...), tool, evidenceDisputeTool()), agentWorkflowExactEvidence
 			}
 		}
 	}

@@ -247,7 +247,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN LATERAL (
 			SELECT array_agg(DISTINCT t.id::text) AS transaction_ids,bool_or(t.status='NEEDS_REVIEW') AS needs_review
 			FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id
-			WHERE te.source_event_id=d.source_event_id
+			WHERE te.source_event_id=d.source_event_id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'
 		) linked ON true
 		WHERE d.household_id=$1 ORDER BY d.created_at DESC LIMIT 100`, household)
 	if err != nil {

@@ -139,10 +139,10 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	if _, err = tx.Exec(ctx, "UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=$4,status=$5,category_id=$6,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'", cmd.TransactionID, result.Type, result.Purpose, wealthAccountID, result.Status, categoryID); err != nil {
 		return result, err
 	}
-	if _, err = tx.Exec(ctx, "UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1)", cmd.TransactionID, result.Type, proposalStatus, categoryID, cmd.Classification, result.Purpose, result.WealthAccountID); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, result.Type, proposalStatus, categoryID, cmd.Classification, result.Purpose, result.WealthAccountID); err != nil {
 		return result, err
 	}
-	if _, err = tx.Exec(ctx, "UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)", cmd.TransactionID, sourceStatus); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE source_event SET processing_status=$2 WHERE id IN(SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, sourceStatus); err != nil {
 		return result, err
 	}
 	if _, err = tx.Exec(ctx, "UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')", cmd.TransactionID); err != nil {

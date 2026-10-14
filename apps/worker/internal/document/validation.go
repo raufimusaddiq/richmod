@@ -181,6 +181,9 @@ func screenshotValidationIssues(value screenshotExtraction, documentType string)
 					issues = append(issues, ValidationIssue{prefix + ".amount", "INVALID_AMOUNT"})
 				}
 			}
+			if !validScreenshotIdentity(row) {
+				issues = append(issues, ValidationIssue{prefix + ".transaction_identifiers", "INVALID_TRANSACTION_IDENTITY"})
+			}
 			if row.Confidence < 0 || row.Confidence > 1 {
 				issues = append(issues, ValidationIssue{prefix + ".confidence", "INVALID_CONFIDENCE"})
 			}

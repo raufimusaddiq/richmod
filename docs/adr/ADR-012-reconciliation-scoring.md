@@ -15,3 +15,8 @@ score starts at 0.45, adds 0.25/0.20/0.10 for a distance within 1/24/72 hours,
 and adds 0.25 for an exact normalized merchant. Auto-link requires one score of
 at least 0.90, no second candidate above 0.80, a known timestamp, and extraction
 confidence of at least 0.90. Available receipt arithmetic must also balance.
+
+Screenshot event-identity checks additionally constrain this score; see the
+2026-10-14 amendment to [ADR-042](ADR-042-screenshot-row-auto-confirm.md).
+Temporal proximity cannot override conflicting printed transaction identifiers
+or authorize a merge across unresolved precise-time disagreement.

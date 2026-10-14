@@ -253,8 +253,8 @@ func TestEvidenceToolPolicyAddsOnlyTheLinkedTransactionCorrection(t *testing.T) 
 			mutations = append(mutations, tool.Name)
 		}
 	}
-	if len(mutations) != 1 || mutations[0] != "propose_transaction_correction" {
-		t.Fatalf("evidence-bound mutations = %v, want only propose_transaction_correction", mutations)
+	if len(mutations) != 2 || !((mutations[0] == "propose_transaction_correction" && mutations[1] == "dispute_evidence_link") || (mutations[1] == "propose_transaction_correction" && mutations[0] == "dispute_evidence_link")) {
+		t.Fatalf("evidence-bound mutations = %v, want only propose_transaction_correction and dispute_evidence_link", mutations)
 	}
 
 	unlinked, scope := applyEvidenceToolPolicy(general, filtered, agentWorkflowExplicitUnbound, &agentEvidenceBinding{})

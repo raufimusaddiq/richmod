@@ -39,7 +39,7 @@ var agentSideEffectTools = map[string]struct{}{
 	"propose_transaction_correction": {}, "resolve_review": {}, "resolve_salary_choice": {},
 	"resolve_merchant_learning": {}, "confirm_pending_action": {}, "cancel_pending_action": {},
 	"confirm_pending_batch": {}, "cancel_pending_batch": {}, "update_pending_batch": {},
-	"pending_batch_decision": {},
+	"pending_batch_decision": {}, "dispute_evidence_link": {},
 }
 
 func agentToolClassFor(name string) (agentToolClass, bool) {
@@ -203,6 +203,11 @@ func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 			return nil, fmt.Errorf("pending batch update is empty")
 		}
 		return remarshal(args), nil
+	case "dispute_evidence_link":
+		if _, err := decodeAgentArgsRaw[struct{}](call); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
 	case "pending_batch_decision":
 		args, err := decodeAgentArgsRaw[pendingBatchDecisionArgs](call)
 		if err != nil {
