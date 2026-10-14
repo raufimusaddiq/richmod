@@ -35,8 +35,8 @@ func (p *Processor) agentDisputeEvidenceLink(ctx context.Context, state *agentSt
 	defer tx.Rollback(ctx)
 	var user string
 	err = tx.QueryRow(ctx, `SELECT ti.user_id::text FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active
-		JOIN source_event se ON se.id=$3::uuid AND se.household_id=ti.household_id AND se.source_type='TELEGRAM_TEXT' AND se.telegram_chat_id=$4
-		WHERE ti.telegram_user_id=$1 AND ti.household_id=$2 AND ti.active FOR SHARE OF ti,hm,se`, state.Update.Message.From.ID, state.HouseholdID, state.SourceEventID, state.Update.Message.Chat.ID).Scan(&user)
+		JOIN source_event se ON se.id=$3::uuid AND se.household_id=ti.household_id AND se.source_type='TELEGRAM_TEXT'
+		WHERE ti.telegram_user_id=$1 AND ti.household_id=$2 AND ti.active FOR SHARE OF ti,hm,se`, state.Update.Message.From.ID, state.HouseholdID, state.SourceEventID).Scan(&user)
 	if errors.Is(err, pgx.ErrNoRows) {
 		result.Status = "EVIDENCE_DISPUTE_UNAUTHORIZED"
 		return result, false, nil
