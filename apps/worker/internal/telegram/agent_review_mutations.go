@@ -239,6 +239,20 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 	if err = p.agentConfirmReviewTx(ctx, tx, state, review, categoryID, value, userID); err != nil {
 		var residual errReviewResidualFactsRequired
 		if errors.As(err, &residual) {
+			original := state.Update
+			original.Message.MessageID = review.messageID
+			if err = refreshReviewFactsProjection(ctx, tx, state.HouseholdID, review.reviewID, original); err != nil {
+				return result, true, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1 AND household_id=$2`, state.SourceEventID, state.HouseholdID); err != nil {
+				return result, true, err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_FACTS','transaction',$3)`, state.HouseholdID, userID, review.transactionID); err != nil {
+				return result, true, err
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return result, true, err
+			}
 			result.Status = "RESIDUAL_FACTS_REQUIRED"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": residual.facts}
 			return result, true, nil
@@ -297,6 +311,13 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		ResolveReview: false,
 	})
 	if err != nil {
+		var missing *reviewdomain.ErrMissingFacts
+		if errors.As(err, &missing) {
+			return errReviewResidualFactsRequired{facts: missing.Facts}
+		}
+		if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
+			return errReviewResidualFactsRequired{facts: []string{"category"}}
+		}
 		return err
 	}
 	if confirmResult.MerchantID != "" {
@@ -399,7 +420,14 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		Action: "TELEGRAM_TRANSFER_CLASSIFIED", Classification: classification,
 		CategoryID: categoryID, WealthAccountID: wealthID,
 	})
-	if err != nil {
+	var missing *reviewdomain.ErrMissingFacts
+	if errors.As(err, &missing) && transfer.Status == "NEEDS_REVIEW" {
+		original := state.Update
+		original.Message.MessageID = review.messageID
+		if err = refreshReviewFactsProjection(ctx, tx, state.HouseholdID, review.reviewID, original); err != nil {
+			return result, true, err
+		}
+	} else if err != nil {
 		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
 			_ = tx.Rollback(ctx)
 			if err := p.offerInvestmentChooser(ctx, state.SourceEventID, state.HouseholdID, review.reviewID, review.transactionID, state.Update); err != nil {
@@ -423,7 +451,7 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		}
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state=CASE WHEN $2='NEEDS_REVIEW' THEN state ELSE 'RESOLVED' END,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID, transfer.Status); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
@@ -439,6 +467,10 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		return result, true, err
 	}
 	result.Status = "RESOLVED"
+	if transfer.Status == "NEEDS_REVIEW" {
+		result.Status = "NEEDS_REVIEW"
+		result.Review = map[string]any{"required": true, "missing_fields": missing.Facts}
+	}
 	result.Mutation = map[string]any{"action": "REVIEW_TRANSFER_CLASSIFIED", "classification": classification, "transaction_type": transfer.Type, "status": transfer.Status, "purpose": transfer.Purpose}
 	return result, true, nil
 }

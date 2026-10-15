@@ -212,9 +212,15 @@ classification returns `ErrMissingFacts` with transaction/proposal state still
 type, purpose, account/category and relationship evidence. Date-only completion
 confirms the persisted classification, never defaults a transfer back to income
 or overwrites its accepted relationship with a generic confirm choice. It
-revalidates retained categories and Wealth Account compatibility before final
-confirmation, so a deactivated choice cannot survive the continuation. Web still
-rolls back incomplete requests and returns its existing residual-facts 409.
+revalidates retained categories and Wealth Account compatibility in the shared
+residual boundary before final confirmation. An inactive retained choice becomes
+an explicit `category` or `wealth_account` residual, never a 500 or job failure.
+Both surfaces retain accepted facts while re-asking only the invalid candidate;
+Web returns 409 and reloads the reduced contract, Telegram refreshes its bound
+card. Replacing an account on an open TRANSFER uses the same classifier and must
+preserve its asset-purchase/investment purpose; the replacement must be active,
+compatible and household-owned. No automatic candidate choice or reactivation
+occurs. First-payslip policy choice precedes date entry when both remain pending.
 
 ### Issue #349: aggregate lifecycle
 

@@ -88,6 +88,10 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// card is a bounded chooser over the household's own accounts; the summary
 		// names the provider hint that still needs binding.
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, "Pilih rekening untuk bukti email ini."), "financial_email"
+	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
+		return "AWAITING_DETAIL", reviewDetailMessage("🧾 Ini gaji utama atau pemasukan biasa?", context, "Pilih jenis pemasukan di bawah."), "salary"
+	case contains(decision.MissingFacts, "wealth_account"):
+		return "AWAITING_DETAIL", reviewDetailMessage("Akun kekayaan perlu diganti", context, "Pilih kembali akun kekayaan aktif untuk jenis transfer yang sudah dipilih."), "transfer"
 	case contains(decision.MissingFacts, "transaction_at"):
 		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction(decision)), "reply"
 	case isCategoryOnly(decision):
@@ -98,8 +102,6 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, "Pilih jenis transfer di bawah, atau balas pesan ini (Reply) dengan tujuan transfer."), "transfer"
 	case decision.InteractionMode == reviewdec.ModeConflictResolution || contains(decision.MissingFacts, "duplicate_relationship"):
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
-	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
-		return "AWAITING_DETAIL", reviewDetailMessage("🧾 Ini gaji utama atau pemasukan biasa?", context, "Pilih jenis pemasukan di bawah."), "salary"
 	case contains(decision.MissingFacts, "merchant"):
 		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Nama merchant belum ada", context, "Balas pesan ini (Reply) dengan nama merchant."), "reply"
 	case requiresBoundReply(decision):

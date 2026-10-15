@@ -12,6 +12,11 @@ export default function TransferCard({ item, categories, wealthAccounts, disable
   function classify(values) { return action(item.id, "classify-transfer", { ...values, transactionAt: transactionAt || null }); }
   function expense(event) { event.preventDefault(); const form = new FormData(event.currentTarget); classify({ classification: "EXPENSE", categoryId: form.get("categoryId") }); }
   function assetPurchase(event) { event.preventDefault(); const form = new FormData(event.currentTarget); classify({ classification: "ASSET_PURCHASE", wealthAccountId: form.get("wealthAccountId") }); }
+  if (item.type === "TRANSFER" && item.missingFacts?.includes("wealth_account")) {
+    const classification = item.knownFacts?.relationship_choice;
+    function replaceAccount(event) { event.preventDefault(); classify({ classification, wealthAccountId: new FormData(event.currentTarget).get("wealthAccountId") }); }
+    return <article className="review-card transfer-card"><h2>Pilih akun kekayaan pengganti</h2><p>Jenis transfer tetap tersimpan. Pilih akun aktif untuk menyelesaikan tinjauan.</p><form onSubmit={replaceAccount}><label>Akun kekayaan<select name="wealthAccountId" required defaultValue=""><option value="" disabled>Pilih akun kekayaan</option>{wealthAccounts.filter(account => account.active && account.side === "ASSET" && (classification !== "INVESTMENT_ACCOUNT" || account.usageRole === "INVESTMENT")).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>{needsDate && <label>Tanggal transaksi<input type="date" required value={transactionAt} onChange={event => setTransactionAt(event.target.value)}/></label>}<button disabled={blocked}>Simpan akun pengganti</button></form><button className="danger" disabled={disabled} onClick={() => action(item.id, "reject")}>Abaikan</button></article>;
+  }
   return <article className="review-card transfer-card">
     <div className="review-top"><span className="review-reason">Transfer belum dikenal</span><strong>{money(item.amount)}</strong></div>
     <h2>{item.counterparty || "Tujuan transfer belum dikenal"}</h2>

@@ -112,24 +112,28 @@ func TestTransferPartialClassificationRetainsAndRevalidatesCandidates(t *testing
 			tx, err = pool.Begin(ctx)
 			must(err)
 			_, err = ConfirmTransactionReview(ctx, tx, ConfirmCommand{HouseholdID: f.household, ActorUserID: f.user, TransactionID: f.original, TransactionAt: &at, ResolveReview: true})
-			wantErr := ErrInvalidCandidate
+			fact := "category"
 			if wealth != "" {
-				wantErr = ErrWealthAccountIncompatible
+				fact = "wealth_account"
 			}
-			if !errors.Is(err, wantErr) {
-				t.Fatalf("inactive candidate: got %v; want %v", err, wantErr)
+			if !errors.As(err, &missing) || len(missing.Facts) != 1 || missing.Facts[0] != fact {
+				t.Fatalf("inactive candidate must be repairable: got %v; want missing %s", err, fact)
 			}
 			must(tx.Rollback(ctx))
 			if wealth != "" {
-				_, err = pool.Exec(ctx, `UPDATE wealth_account SET active=true WHERE id=$1`, wealth)
+				err = pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Synthetic replacement asset','ASSET','GOLD',$2) RETURNING id`, f.household, choice.wealthRole).Scan(&wealth)
 			} else {
-				_, err = pool.Exec(ctx, `UPDATE category SET active=true WHERE id=$1`, category)
+				err = pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Synthetic replacement','replacement') RETURNING id`, f.household).Scan(&category)
 			}
 			must(err)
 			tx, err = pool.Begin(ctx)
 			must(err)
 			defer tx.Rollback(ctx)
-			_, err = ConfirmTransactionReview(ctx, tx, ConfirmCommand{HouseholdID: f.household, ActorUserID: f.user, TransactionID: f.original, TransactionAt: &at, ResolveReview: true})
+			if wealth != "" {
+				_, err = ClassifyTransferReview(ctx, tx, TransferCommand{HouseholdID: f.household, ActorUserID: f.user, TransactionID: f.original, Classification: choice.classification, WealthAccountID: wealth, TransactionAt: &at})
+			} else {
+				_, err = ConfirmTransactionReview(ctx, tx, ConfirmCommand{HouseholdID: f.household, ActorUserID: f.user, TransactionID: f.original, CategorySupplied: true, CategoryID: category, TransactionAt: &at, ResolveReview: true})
+			}
 			must(err)
 			must(tx.Commit(ctx))
 			var kind, status, purpose, gotWealth, gotCategory, proposalKind, proposalStatus, proposalChoice string

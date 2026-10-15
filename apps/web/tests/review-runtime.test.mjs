@@ -23,6 +23,24 @@ function component(filename) {
 }
 
 const TransferCard = component("app/components/review/TransferCard.js").default;
+for (const classification of ["ASSET_PURCHASE", "INVESTMENT_ACCOUNT"]) {
+  test(`${classification} recovery offers active compatible replacements without changing classification`, () => {
+    const ReviewCards = component("app/components/ReviewCards.js").default;
+    const html = renderToStaticMarkup(React.createElement(ReviewCards, {
+      items: [{ id: "synthetic", type: "TRANSFER", missingFacts: ["wealth_account"], knownFacts: { relationship_choice: classification } }],
+      categories: [], wealthAccounts: [
+        { id: "active", name: "Synthetic replacement", active: true, side: "ASSET", usageRole: "INVESTMENT" },
+        { id: "inactive", name: "Synthetic inactive", active: false, side: "ASSET", usageRole: "INVESTMENT" },
+        { id: "liability", name: "Synthetic liability", active: true, side: "LIABILITY" },
+        { id: "other", name: "Synthetic other", active: true, side: "ASSET", usageRole: "OTHER" },
+      ], action() {},
+    }));
+    assert.match(html, /select name="wealthAccountId" required=""/);
+    assert.match(html, /Synthetic replacement/);
+    assert.doesNotMatch(html, /Synthetic inactive|Synthetic liability|Rekening sendiri|Catat sebagai penghasilan/);
+    if (classification === "INVESTMENT_ACCOUNT") assert.doesNotMatch(html, /Synthetic other/);
+  });
+}
 test("transfer date residual renders a required date field and blocks finalization", () => {
   const html = renderToStaticMarkup(React.createElement(TransferCard, {
     item: { id: "synthetic", type: "UNCLASSIFIED", amount: "100", transactionAt: "2026-10-03", missingFacts: ["transfer_relationship", "transaction_at"] },

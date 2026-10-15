@@ -353,12 +353,20 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 		return
 	}
+	if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "choose an active household category", "missingFacts": []string{"category"}})
+		return
+	}
 	if errors.Is(err, reviewdomain.ErrMerchantRequiredForLearning) {
 		writeJSON(w, 400, map[string]string{"error": "merchant is required to remember a category"})
 		return
 	}
 	var missing *reviewdomain.ErrMissingFacts
 	if errors.As(err, &missing) {
+		if err := audit(r.Context(), tx, household, p.UserID, "UPDATE_REVIEW_FACTS", id, map[string]any{"missingFacts": missing.Facts}); err != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to save review facts"})
+			return
+		}
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": missing.Facts})
 		return
 	}

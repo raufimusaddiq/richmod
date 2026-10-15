@@ -60,16 +60,18 @@ var (
 // a partial-answer adapter may commit it without completing the review.
 func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand) (TransferResult, error) {
 	var result TransferResult
-	var transactionType string
+	var transactionType, purpose string
 	var counterparty *string
-	err := tx.QueryRow(ctx, "SELECT type,counterparty_name FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE", cmd.TransactionID, cmd.HouseholdID).Scan(&transactionType, &counterparty)
+	err := tx.QueryRow(ctx, "SELECT type,purpose,counterparty_name FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE", cmd.TransactionID, cmd.HouseholdID).Scan(&transactionType, &purpose, &counterparty)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrTransferNotFound
 	}
 	if err != nil {
 		return result, err
 	}
-	if !transferClassificationApplies(transactionType, cmd.Classification) {
+	// A retained transfer may replace its account, never silently change its purpose.
+	replacingAccount := transactionType == "TRANSFER" && (purpose == "ASSET_PURCHASE" && cmd.Classification == "ASSET_PURCHASE" || purpose == "INVESTMENT_CONTRIBUTION" && cmd.Classification == "INVESTMENT_ACCOUNT")
+	if !replacingAccount && !transferClassificationApplies(transactionType, cmd.Classification) {
 		return result, ErrTransferNotFound
 	}
 	result.Type, result.Status, result.Purpose = "TRANSFER", "CONFIRMED", "INTERNAL_TRANSFER"

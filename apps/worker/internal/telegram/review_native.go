@@ -185,6 +185,16 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		ResolveReview: false,
 	})
 	if err != nil {
+		var missing *reviewdomain.ErrMissingFacts
+		if errors.As(err, &missing) {
+			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_FACTS','transaction',$3)`, householdID, userID, transactionID); err != nil {
+				return err
+			}
+			return refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update)
+		}
+		if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
+			return enqueueReply(ctx, tx, update, "Pilih kategori rumah tangga yang masih aktif.")
+		}
 		return err
 	}
 	merchantID = &confirmResult.MerchantID

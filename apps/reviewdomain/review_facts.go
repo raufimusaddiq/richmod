@@ -20,11 +20,17 @@ type ReviewFacts struct {
 func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFacts) ([]string, error) {
 	var kind string
 	var category *string
-	if err := tx.QueryRow(ctx, `SELECT type,category_id FROM transaction WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE`, facts.TransactionID, facts.HouseholdID).Scan(&kind, &category); err != nil {
+	var categoryValid, wealthValid bool
+	if err := tx.QueryRow(ctx, `SELECT type,category_id,
+		category_id IS NULL OR EXISTS(SELECT 1 FROM category c WHERE c.id=t.category_id AND c.household_id=t.household_id AND c.active),
+		type<>'TRANSFER' OR transfer_wealth_compatible(purpose,related_wealth_account_id,household_id)
+		FROM transaction t WHERE id=$1 AND household_id=$2 AND status='NEEDS_REVIEW' FOR UPDATE`, facts.TransactionID, facts.HouseholdID).Scan(&kind, &category, &categoryValid, &wealthValid); err != nil {
 		return nil, err
 	}
 	if slices.Contains([]string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "ASSET_PURCHASE"}, facts.Relationship) {
 		kind = "TRANSFER"
+		// The classifier already validated the replacement; it writes it after this call.
+		categoryValid, wealthValid = true, true
 	}
 	var categorySlug string
 	if facts.CategoryID != "" {
@@ -35,6 +41,7 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 			return nil, err
 		}
 		category = &facts.CategoryID
+		categoryValid = true
 	}
 	if facts.TransactionAt != nil && facts.TransactionAt.IsZero() {
 		return nil, &ErrMissingFacts{Facts: []string{"transaction_at"}}
@@ -83,8 +90,12 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 			remaining = append(remaining, fact)
 		}
 	}
-	if kind == "EXPENSE" && category == nil {
+	needsCategory := kind == "EXPENSE" && category == nil || !categoryValid
+	if needsCategory {
 		add("category")
+	}
+	if !wealthValid {
+		add("wealth_account")
 	}
 	if fallback {
 		add("transaction_at")
@@ -92,19 +103,22 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 	for _, value := range items {
 		missing := []string{}
 		for _, fact := range value.decision.MissingFacts {
-			if fact == "category" && (facts.CategoryID != "" || kind == "TRANSFER") || fact == "transaction_at" && facts.TransactionAt != nil || fact == "duplicate_relationship" && (facts.Relationship == "DISTINCT" || facts.Relationship == "INCOME") || fact == "transfer_relationship" && facts.Relationship != "" && facts.Relationship != "DISTINCT" {
+			if fact == "category" && (facts.CategoryID != "" || kind == "TRANSFER" && categoryValid) || fact == "wealth_account" && wealthValid || fact == "transaction_at" && facts.TransactionAt != nil || fact == "duplicate_relationship" && (facts.Relationship == "DISTINCT" || facts.Relationship == "INCOME") || fact == "transfer_relationship" && facts.Relationship != "" && facts.Relationship != "DISTINCT" {
 				continue
 			}
 			missing = append(missing, fact)
 		}
-		if kind == "EXPENSE" && category == nil && !slices.Contains(missing, "category") {
+		if needsCategory && !slices.Contains(missing, "category") {
 			missing = append(missing, "category")
+		}
+		if !wealthValid && !slices.Contains(missing, "wealth_account") {
+			missing = append(missing, "wealth_account")
 		}
 		if fallback && !slices.Contains(missing, "transaction_at") {
 			missing = append(missing, "transaction_at")
 		}
 		for _, fact := range missing {
-			if slices.Contains([]string{"category", "transaction_at", "duplicate_relationship", "transfer_relationship"}, fact) {
+			if slices.Contains([]string{"category", "transaction_at", "duplicate_relationship", "transfer_relationship", "wealth_account"}, fact) {
 				add(fact)
 			}
 		}
@@ -121,10 +135,10 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 		}
 		patch := map[string]any{"missingFacts": missing}
 		// Once relationship ambiguity is answered, render the residual contract.
-		if facts.Relationship != "" && len(missing) > 0 {
+		if (facts.Relationship != "" || !categoryValid || !wealthValid) && len(missing) > 0 {
 			reason := "TRANSACTION_FACTS_MISSING"
 			switch {
-			case slices.Contains(missing, "transfer_relationship"):
+			case slices.Contains(missing, "transfer_relationship") || slices.Contains(missing, "wealth_account"):
 				reason = "TRANSFER_CLASSIFICATION"
 			case len(missing) == 1 && missing[0] == "category":
 				reason = "AMBIGUOUS_CATEGORY"

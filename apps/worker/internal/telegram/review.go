@@ -71,6 +71,8 @@ func reviewNeedsFactsMessage(facts []string) string {
 			labels = append(labels, "kategori")
 		case "merchant":
 			labels = append(labels, "merchant")
+		case "wealth_account":
+			labels = append(labels, "akun kekayaan aktif")
 		}
 	}
 	return "Masih perlu " + strings.Join(labels, " dan ") + ". Balas pesan ini (Reply) dengan detail tersebut untuk menyelesaikan tinjauan."
@@ -294,8 +296,8 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tombol tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk melanjutkan.")
 	}
 	// Only the transfer buttons reach this point (see Process). They answer a
-	// transfer-relationship review; on any other review they are not handled here.
-	if missingFactsJSON == nil || !reviewRequiresFact(*missingFactsJSON, "transfer_relationship") {
+	// relationship or retained-account review; all other cards leave this lane.
+	if missingFactsJSON == nil || !(reviewRequiresFact(*missingFactsJSON, "transfer_relationship") || reviewRequiresFact(*missingFactsJSON, "wealth_account")) {
 		return false, nil
 	}
 	if update.CallbackQuery.Data == "review:asset" {
@@ -787,11 +789,17 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 		// the household's own money moving between accounts, while an unclassified
 		// transfer allows every choice. Offering an invalid button would only
 		// produce a stale-action reply, so the keyboard follows the subject.
-		var kind string
-		if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind) != nil {
+		var kind, purpose string
+		if tx.QueryRow(ctx, `SELECT t.type,t.purpose FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind, &purpose) != nil {
 			return nil
 		}
 		switch kind {
+		case "TRANSFER":
+			choice := InlineKeyboardButton{Text: "Pilih akun pembelian aset", CallbackData: "review:asset"}
+			if purpose == "INVESTMENT_CONTRIBUTION" {
+				choice = InlineKeyboardButton{Text: "Pilih akun investasi", CallbackData: "review:investment"}
+			}
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{choice}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 		case "EXPENSE":
 			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}, {Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 		case "INCOME":
