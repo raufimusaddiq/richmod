@@ -33,3 +33,15 @@ test("transfer date residual renders a required date field and blocks finalizati
   assert.match(html, /<button disabled="">Rekening rumah tangga/);
   assert.match(html, /<button class="danger">Abaikan/);
 });
+
+test("incoming screenshot review offers income and internal transfers, never outgoing choices", () => {
+  const ReviewCards = component("app/components/ReviewCards.js").default;
+  const html = renderToStaticMarkup(React.createElement(ReviewCards, {
+    items: [{ id: "synthetic", type: "INCOME", reviewType: "TRANSFER_CLASSIFICATION", amount: "100", transactionAt: "2026-10-03", missingFacts: ["transfer_relationship"], allowedActions: ["CLASSIFY_TRANSFER", "OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "IGNORE"] }],
+    categories: [], wealthAccounts: [], action() {},
+  }));
+  assert.match(html, /Rekening sendiri/);
+  assert.match(html, /Rekening rumah tangga/);
+  assert.match(html, /Catat sebagai penghasilan/);
+  assert.doesNotMatch(html, /Investasi \/ RDN|Beli aset|Catat sebagai pengeluaran/);
+});

@@ -8,6 +8,7 @@ export default function TransferCard({ item, categories, wealthAccounts, disable
   const [transactionAt, setTransactionAt] = useState("");
   const needsDate = item.missingFacts?.includes("transaction_at");
   const blocked = disabled || (needsDate && !transactionAt);
+  const incoming = item.type === "INCOME";
   function classify(values) { return action(item.id, "classify-transfer", { ...values, transactionAt: transactionAt || null }); }
   function expense(event) { event.preventDefault(); const form = new FormData(event.currentTarget); classify({ classification: "EXPENSE", categoryId: form.get("categoryId") }); }
   function assetPurchase(event) { event.preventDefault(); const form = new FormData(event.currentTarget); classify({ classification: "ASSET_PURCHASE", wealthAccountId: form.get("wealthAccountId") }); }
@@ -19,10 +20,11 @@ export default function TransferCard({ item, categories, wealthAccounts, disable
     {needsDate && <label>Tanggal transaksi<input type="date" required value={transactionAt} onChange={event => setTransactionAt(event.target.value)}/></label>}
     <p>Pilih jenisnya, atau lengkapi detail bila ini pengeluaran atau pembelian aset.</p>
     <div className="transfer-options">
+      {incoming && <button disabled={blocked} onClick={() => action(item.id, "confirm", { transactionAt: transactionAt || null })}>Catat sebagai penghasilan</button>}
       <button disabled={blocked} onClick={() => classify({ classification: "OWN_ACCOUNT" })}>Rekening sendiri</button>
       <button disabled={blocked} onClick={() => classify({ classification: "HOUSEHOLD_ACCOUNT" })}>Rekening rumah tangga</button>
-      <button disabled={blocked} onClick={() => classify({ classification: "INVESTMENT_ACCOUNT" })}>Investasi / RDN</button>
-      <button className="secondary" disabled={disabled} onClick={() => setEditing(true)}>Ubah detail</button>
+      {!incoming && <button disabled={blocked} onClick={() => classify({ classification: "INVESTMENT_ACCOUNT" })}>Investasi / RDN</button>}
+      {!incoming && <button className="secondary" disabled={disabled} onClick={() => setEditing(true)}>Ubah detail</button>}
       <button className="danger" disabled={disabled} onClick={() => classify({ classification: "IGNORE" })}>Abaikan</button>
     </div>
     {editing && <form onSubmit={assetPurchase}><label>Beli aset<select name="wealthAccountId" required defaultValue=""><option value="" disabled>Pilih akun kekayaan</option>{wealthAccounts.filter(account => account.active && account.side === "ASSET").map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><button disabled={blocked}>Beli aset</button></form>}

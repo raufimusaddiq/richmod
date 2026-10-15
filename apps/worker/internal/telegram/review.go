@@ -788,13 +788,14 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 		// transfer allows every choice. Offering an invalid button would only
 		// produce a stale-action reply, so the keyboard follows the subject.
 		var kind string
-		if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind) == nil {
-			switch kind {
-			case "EXPENSE":
-				return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}, {Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
-			case "INCOME":
-				return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Penghasilan", CallbackData: "review:income"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
-			}
+		if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind) != nil {
+			return nil
+		}
+		switch kind {
+		case "EXPENSE":
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}, {Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+		case "INCOME":
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Penghasilan", CallbackData: "review:income"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 		}
 		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Kontribusi investasi", CallbackData: "review:investment"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}

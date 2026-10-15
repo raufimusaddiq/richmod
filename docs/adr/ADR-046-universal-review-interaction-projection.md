@@ -139,6 +139,14 @@ Telegram interaction capability exists.
 
 ## Candidate safety
 
+### Issue #349: subject-specific transfer controls
+
+Incoming transaction-backed relationship reviews use the transfer card in Web,
+offering income, own account, household account and ignore only. Observation-
+backed financial-email transfer classification remains actionable in Web; it
+does not project Telegram's transaction-only callbacks. Missing transaction
+subjects never receive the generic outgoing-transfer keyboard.
+
 Categories, accounts, Wealth Accounts, duplicate candidates, and other bounded
 choices are server-owned.
 
