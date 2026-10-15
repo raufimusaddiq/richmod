@@ -85,6 +85,14 @@ printed precise times remain duplicate ambiguity for human review rather than
 an automatic merge. Receipt and bank-email matching policies are unchanged.
 No provider-specific parser or production-history repair is introduced.
 
+## Amendment - multipage extraction (2026-10-15, issue #348 F01)
+
+Screenshot extraction reads all stored document pages in page-index order using
+the same loader as receipts, with the legacy primary-attachment fallback only
+when no page rows exist. All pages reach the single extraction/repair input;
+an unreadable page fails processing rather than silently extracting a subset.
+Rows retain their existing document/proposal/evidence linkage and row indices.
+
 ## Consequences
 
 - Clear rows reach canonical state with no user interaction; only genuinely
