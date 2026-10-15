@@ -93,6 +93,15 @@ when no page rows exist. All pages reach the single extraction/repair input;
 an unreadable page fails processing rather than silently extracting a subset.
 Rows retain their existing document/proposal/evidence linkage and row indices.
 
+## Amendment - positive identity before auto-link (2026-10-15, issue #348 F02)
+
+Automatic screenshot evidence linking requires matching comparable observed
+event identifiers with no contradictory/invalid bound evidence. Amount, merchant,
+date-only timestamps, and even identical precise timestamps alone do not prove
+identity: their candidate scores are capped at .80 and remain duplicate review.
+Matching identifiers still allow repeated-evidence linking; conflicting
+identifiers still exclude distinct events. Receipt/bank matching is unchanged.
+
 ## Consequences
 
 - Clear rows reach canonical state with no user interaction; only genuinely
