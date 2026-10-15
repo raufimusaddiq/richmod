@@ -174,6 +174,17 @@ records are automatically repaired or inferred.
 
 ## Partial resolution
 
+### Issue #349: category/date residuals
+
+Duplicate and transfer relationships coexist with missing category/date facts;
+a relationship choice cannot erase them. The shared review boundary persists
+accepted facts, proposal provenance (`date_known=true`, `date_source=USER`) and
+the reduced decision atomically. It also checks persisted fallback provenance,
+so an older incomplete decision cannot authorize the received-at fallback.
+Expense confirmation always requires a category. Telegram refreshes the active
+card after a partial answer. Transfer classification accepts a validated
+`transactionAt` date through the same boundary; ignore does not require a date.
+
 ### Issue #349: aggregate lifecycle
 
 Review completion derives source/document state from all active evidence,

@@ -102,18 +102,16 @@ func parseSuppliedReviewDate(value string) (*string, error) {
 // through the canonical operation and reports completed, so no resolved review is
 // left behind an open transaction.
 func (p *Processor) applyReviewTransactionDate(ctx context.Context, tx pgx.Tx, householdID, userID, reviewID, transactionID, date string) (bool, error) {
-	if _, err := tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, date, householdID); err != nil {
-		return false, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, date); err != nil {
-		return false, err
-	}
-	if reviewNeedsCategory(ctx, tx, reviewID) || !p.transactionConfirmableWithoutCategory(ctx, tx, transactionID) {
-		return false, nil
-	}
 	dateAt, err := time.ParseInLocation("2006-01-02", date, jakartaLocation())
 	if err != nil {
 		return false, err
+	}
+	remaining, err := reviewdomain.ApplyTransactionReviewFacts(ctx, tx, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID, TransactionAt: &dateAt})
+	if err != nil {
+		return false, err
+	}
+	if len(remaining) > 0 {
+		return false, nil
 	}
 	if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
@@ -433,6 +431,22 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		}
 		// ADR-046: confirming the duplicate as a distinct event is the canonical
 		// transaction confirm, not a Telegram-specific status update.
+		remaining, err := reviewdomain.ApplyTransactionReviewFacts(ctx, tx, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID, Relationship: "DISTINCT"})
+		if err != nil {
+			return true, err
+		}
+		if len(remaining) > 0 {
+			if err := refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update); err != nil {
+				return true, err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'REVIEW_DISTINCT_EVENT','transaction',$3)`, householdID, userID, transactionID); err != nil {
+				return true, err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); err != nil {
+				return true, err
+			}
+			return true, tx.Commit(ctx)
+		}
 		if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 			HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 			ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,

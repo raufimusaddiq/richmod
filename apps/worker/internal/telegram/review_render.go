@@ -7,10 +7,44 @@ package telegram
 // mis-rendered as a category chooser.
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
+
+func refreshReviewFactsProjection(ctx context.Context, tx pgx.Tx, household, request string, update telegramUpdate) error {
+	var raw []byte
+	var reason, transaction string
+	if err := tx.QueryRow(ctx, `SELECT ri.decision,ri.review_type,r.transaction_id::text FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND r.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND')`, request, household).Scan(&raw, &reason, &transaction); err != nil {
+		return err
+	}
+	var decision reviewdec.Decision
+	if err := json.Unmarshal(raw, &decision); err != nil {
+		return err
+	}
+	summary, err := transactionReviewSummary(ctx, tx, household, transaction)
+	if err != nil {
+		return err
+	}
+	state, message, mode := renderReviewPresentation(decision, reason, summary)
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state=$2,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, request, state); err != nil {
+		return err
+	}
+	var markup *InlineKeyboardMarkup
+	if mode == "category" || mode == "transfer" {
+		markup = reviewActionMarkupPage(ctx, tx, request, reason, 0)
+	}
+	if mode == "duplicate" {
+		_, markup, err = duplicateCandidateChoices(ctx, tx, household, transaction)
+		if err != nil {
+			return err
+		}
+	}
+	return enqueueReviewUpdateWithMarkup(ctx, tx, request, update, message, markup)
+}
 
 // unknownReviewPrompt is the honest fallback: when a review has no decision
 // contract, Go asks the user for detail instead of inventing a category prompt.
@@ -54,6 +88,8 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		// card is a bounded chooser over the household's own accounts; the summary
 		// names the provider hint that still needs binding.
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, "Pilih rekening untuk bukti email ini."), "financial_email"
+	case contains(decision.MissingFacts, "transaction_at"):
+		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction(decision)), "reply"
 	case isCategoryOnly(decision):
 		// Category is the single unresolved fact and it has bounded values, so the
 		// chooser is the whole interaction; merchant enrichment is optional.
@@ -64,12 +100,6 @@ func renderReviewPresentation(decision reviewdec.Decision, reviewType, context s
 		return "AWAITING_DETAIL", reviewDetailMessage(promptTitle(decision), context, replyInstruction(decision)), "duplicate"
 	case contains(decision.MissingFacts, "salary_classification") && contains(decision.AllowedActions, "PRIMARY_SALARY") && contains(decision.AllowedActions, "ORDINARY_INCOME"):
 		return "AWAITING_DETAIL", reviewDetailMessage("🧾 Ini gaji utama atau pemasukan biasa?", context, "Pilih jenis pemasukan di bawah."), "salary"
-	// A date fact is collected first because the reply lane binds exactly one
-	// value. A compound category+date decision therefore starts with the date
-	// prompt and advances to the category chooser afterward, so no missing fact is
-	// dropped.
-	case contains(decision.MissingFacts, "transaction_at"):
-		return "AWAITING_DATE", reviewDetailMessage(promptTitle(decision), context, dateInstruction(decision)), "reply"
 	case contains(decision.MissingFacts, "merchant"):
 		return "AWAITING_MERCHANT", reviewDetailMessage("🟡 Nama merchant belum ada", context, "Balas pesan ini (Reply) dengan nama merchant."), "reply"
 	case requiresBoundReply(decision):

@@ -395,6 +395,7 @@ type transferClassificationInput struct {
 	Institution     string  `json:"institution"`
 	DisplayName     string  `json:"displayName"`
 	MatchHint       string  `json:"matchHint"`
+	TransactionAt   *string `json:"transactionAt"`
 }
 
 func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
@@ -408,6 +409,11 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Classification = strings.ToUpper(strings.TrimSpace(input.Classification))
+	suppliedAt, err := parseReviewDate(input.TransactionAt)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid transaction date"})
+		return
+	}
 	input.Institution = clean(&input.Institution, 120)
 	input.DisplayName = clean(&input.DisplayName, 160)
 	input.MatchHint = clean(&input.MatchHint, 80)
@@ -431,8 +437,13 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		HouseholdID: household, ActorUserID: p.UserID, TransactionID: id,
 		Classification: input.Classification, CategoryID: stringValue(input.CategoryID),
 		WealthAccountID: stringValue(input.WealthAccountID), Action: "CLASSIFY_TRANSFER",
+		TransactionAt: suppliedAt,
 	})
+	var missing *reviewdomain.ErrMissingFacts
 	switch {
+	case errors.As(err, &missing):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": missing.Facts})
+		return
 	case errors.Is(err, reviewdomain.ErrTransferNotFound):
 		writeJSON(w, 404, map[string]string{"error": "transfer review not found"})
 		return

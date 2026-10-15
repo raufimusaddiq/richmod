@@ -71,6 +71,22 @@ func (p *Processor) confirmIncomeTransferReview(ctx context.Context, sourceEvent
 	if err != nil {
 		return err
 	}
+	remaining, err := reviewdomain.ApplyTransactionReviewFacts(ctx, tx, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID, Relationship: "INCOME"})
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		if err := refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'REVIEW_INCOME_CHOICE','transaction',$3)`, householdID, userID, transactionID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
 	if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
@@ -161,6 +177,25 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 		CategoryID: categoryID, WealthAccountID: wealthHint,
 	})
 	if err != nil {
+		var missing *reviewdomain.ErrMissingFacts
+		if errors.As(err, &missing) {
+			_ = tx.Rollback(ctx)
+			continuation, err := p.pool.Begin(ctx)
+			if err != nil {
+				return err
+			}
+			defer continuation.Rollback(ctx)
+			if _, err = reviewdomain.ApplyTransactionReviewFacts(ctx, continuation, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID}); err != nil {
+				return err
+			}
+			if err = refreshReviewFactsProjection(ctx, continuation, householdID, reviewID, update); err != nil {
+				return err
+			}
+			if _, err = continuation.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); err != nil {
+				return err
+			}
+			return continuation.Commit(ctx)
+		}
 		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
 			_ = tx.Rollback(ctx)
 			return p.offerInvestmentChooser(ctx, sourceEventID, householdID, reviewID, transactionID, update)

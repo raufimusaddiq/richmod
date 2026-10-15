@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -22,6 +23,7 @@ type TransferCommand struct {
 	Classification  string
 	CategoryID      string
 	WealthAccountID string
+	TransactionAt   *time.Time
 }
 
 // TransferResult reports the canonical classification outcome.
@@ -67,6 +69,15 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	}
 	if !transferClassificationApplies(transactionType, cmd.Classification) {
 		return result, ErrTransferNotFound
+	}
+	if cmd.Classification != "IGNORE" {
+		remaining, err := ApplyTransactionReviewFacts(ctx, tx, ReviewFacts{HouseholdID: cmd.HouseholdID, TransactionID: cmd.TransactionID, CategoryID: cmd.CategoryID, TransactionAt: cmd.TransactionAt, Relationship: cmd.Classification})
+		if err != nil {
+			return result, err
+		}
+		if len(remaining) > 0 {
+			return result, &ErrMissingFacts{Facts: remaining}
+		}
 	}
 	result.Type, result.Status, result.Purpose = "TRANSFER", "CONFIRMED", "INTERNAL_TRANSFER"
 	result.Counterparty = counterparty

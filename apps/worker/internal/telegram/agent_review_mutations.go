@@ -200,7 +200,13 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED_AND_CONFIRMED", "field": field, "value": value}
 		return result, true, nil
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
+	if field == "transaction_at" && review.messageID != 0 {
+		original := state.Update
+		original.Message.MessageID = review.messageID
+		if err = refreshReviewFactsProjection(ctx, tx, state.HouseholdID, review.reviewID, original); err != nil {
+			return result, true, err
+		}
+	} else if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
 		return result, true, err
 	}
 	if field == "merchant" && review.messageID != 0 {

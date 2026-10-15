@@ -213,8 +213,6 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		decision.MissingFacts = []string{"transfer_relationship"}
 		decision.WhyNotAuto = "evidence cannot separate income from an own-account or household transfer on a screenshot row"
 	case "POSSIBLE_DUPLICATE":
-		// Duplicate resolution is the blocker; do not disguise it as ordinary
-		// missing category/date review.
 	default:
 		if row.CategoryConflict {
 			decision.DecisionClass, decision.InteractionMode = reviewdec.ClassEvidenceConflict, reviewdec.ModeConflictResolution
@@ -223,6 +221,17 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 		decision.MissingFacts = screenshotMissingFacts(categoryKnown, row.DateKnown)
 		if row.CategoryConflict && row.DateKnown {
 			decision.MissingFacts = []string{"category"}
+		}
+	}
+	if reviewType == "TRANSFER_CLASSIFICATION" || reviewType == "POSSIBLE_DUPLICATE" {
+		if row.Type == "EXPENSE" && !categoryKnown {
+			decision.MissingFacts = append(decision.MissingFacts, "category")
+		}
+		if !row.DateKnown {
+			decision.MissingFacts = append(decision.MissingFacts, "transaction_at")
+		}
+		if reviewType == "POSSIBLE_DUPLICATE" && row.Type == "INCOME" {
+			decision.MissingFacts = append(decision.MissingFacts, "transfer_relationship")
 		}
 	}
 	return decision
