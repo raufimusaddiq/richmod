@@ -99,7 +99,10 @@ func newPipe(t *testing.T) *pipe {
 		t.Fatal(err)
 	}
 	at := time.Now().Add(-30 * time.Minute).In(time.FixedZone("WIB", 7*3600)).Truncate(time.Minute).Format(time.RFC3339)
-	extraction := fmt.Sprintf(`{"account_hint":"","payment_status":"PAID","confidence":0.97,"transactions":[{"direction":"OUT","amount":"7500","currency":"IDR","transaction_at":%q,"merchant":"Synthetic Store","description":"Payment to Synthetic Store","category_slug":"food-and-drink","category_confidence":0.96,"confidence":0.97}]}`, at)
+	// The extraction includes a printed transaction ID so identical repeat
+	// evidence retains its established safe auto-link behavior; everything else
+	// in the fixture remains synthetic and non-identifying.
+	extraction := fmt.Sprintf(`{"account_hint":"","payment_status":"PAID","confidence":0.97,"transactions":[{"direction":"OUT","amount":"7500","currency":"IDR","transaction_at":%q,"merchant":"Synthetic Store","description":"Payment to Synthetic Store","category_slug":"food-and-drink","category_confidence":0.96,"confidence":0.97,"transaction_identifiers":[{"kind":"TRANSACTION_ID","value":"SYNTHETIC-DISPUTE-REPEAT"}],"transaction_time_precision":"TIME"}]}`, at)
 	p.gw = &scriptGW{extraction: json.RawMessage(extraction), agent: disputeCall}
 	p.docs = document.NewProcessorWithStorage(pool, p.gw, store)
 	p.tg = telegram.NewProcessor(pool, p.gw)
