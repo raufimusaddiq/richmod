@@ -83,7 +83,7 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 
 	t.Run("expense_without_category", func(t *testing.T) {
 		transactionID, _, _ := seedUnclassifiedTransfer(t, pool, householdID, stamp+90)
-		if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"missingFacts":["transfer_relationship","category","transaction_at"]}'::jsonb)`, householdID, transactionID); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["transfer_relationship","category","transaction_at"],"allowedActions":["CLASSIFY_TRANSFER","IGNORE"]}'::jsonb)`, householdID, transactionID); err != nil {
 			t.Fatal(err)
 		}
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/classify-transfer", bytes.NewBufferString(`{"classification":"EXPENSE"}`))

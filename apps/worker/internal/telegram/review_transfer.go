@@ -178,7 +178,7 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 	})
 	if err != nil {
 		var missing *reviewdomain.ErrMissingFacts
-		if errors.As(err, &missing) {
+		if errors.As(err, &missing) && transfer.Status == "NEEDS_REVIEW" {
 			if err = refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update); err != nil {
 				return err
 			}

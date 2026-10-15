@@ -85,7 +85,7 @@ func TestTransferPartialClassificationRetainsAndRevalidatesCandidates(t *testing
 			must(err)
 			_, err = pool.Exec(ctx, `UPDATE transaction_proposal SET proposed_type='UNCLASSIFIED',proposal_status='NEEDS_REVIEW',metadata_json=metadata_json||'{"date_known":false}' WHERE id=$1`, f.proposal)
 			must(err)
-			_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"missingFacts":["transfer_relationship","transaction_at"]}'::jsonb)`, f.household, f.original)
+			_, err = pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","missingFacts":["transfer_relationship","transaction_at"],"allowedActions":["CLASSIFY_TRANSFER","IGNORE"]}'::jsonb)`, f.household, f.original)
 			must(err)
 			var wealth, category string
 			if choice.wealthRole != "" {
