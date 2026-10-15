@@ -1,0 +1,6 @@
+# Synthetic test fixture, not a credential: a revision-token UUID built into a
+# unit-test assertion (issue #348). No real ID, amount, or secret; nothing to
+# rotate. The literal was later replaced with a runtime-built fixture, but the
+# original commit stays in this branch's history, so the exact finding is
+# suppressed by fingerprint only - no path glob, no rule-level exclusion.
+41378fbd3a9d29aa22e60baae0a0001ce81c27da:apps/worker/internal/telegram/id_format_test.go:generic-api-key:29

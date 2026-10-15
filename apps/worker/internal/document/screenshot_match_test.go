@@ -33,7 +33,7 @@ func TestScreenshotDifferentPrintedTimeCreatesSeparateTransaction(t *testing.T) 
 		merchant string
 		linked   bool
 	}{
-		{"same merchant near time links", 0.25, "Calorie Snacks & Desserts", true},
+		{"same merchant near time requires identity", 0.25, "Calorie Snacks & Desserts", false},
 		{"same merchant different time links nothing", 5.4, "Calorie Snacks & Desserts", false},
 		{"different merchant 12h links nothing", 12, "Other Merchant", false},
 	} {

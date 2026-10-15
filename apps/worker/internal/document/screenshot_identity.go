@@ -96,6 +96,8 @@ func reconcileScreenshotCandidate(candidate matchCandidate, row validatedScreens
 		candidate.Score = min(candidate.Score, .80)
 		return candidate, true // Keep plausible duplicates visible; never auto-link uncertain identity.
 	}
+	// Time/amount/merchant cannot prove event identity, even at an identical timestamp.
+	candidate.Score = min(candidate.Score, .80)
 	// Preserve the prior guard for receipts/bank candidates without screenshot facts.
 	if sameMerchant(candidate.Merchant, row.Value.Merchant) && candidate.Hours >= 1 {
 		return candidate, false

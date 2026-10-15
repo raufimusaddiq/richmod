@@ -54,10 +54,10 @@ func TestScreenshotIdentityReconciliation(t *testing.T) {
 		{"actual duplicate", `{"transaction_identifiers":[{"kind":"TRANSACTION_ID","value":"SYNTHETIC-A"}],"date_known":true}`, -10 * time.Minute, true, 1},
 		{"known conflict wins equal other kind", `{"transaction_identifiers":[{"kind":"TRANSACTION_ID","value":"SYNTHETIC-B"},{"kind":"ORDER_ID","value":"order-1"}]}`, 0, false, .95},
 		{"legacy close time conflict", `{}`, -10 * time.Minute, true, .80},
-		{"legacy exact repeat", `{}`, 0, true, .95},
+		{"legacy exact repeat", `{}`, 0, true, .80},
 		{"disjoint ids", `{"transaction_identifiers":[{"kind":"REFERENCE_NUMBER","value":"000123"}]}`, -10 * time.Minute, true, .80},
-		{"date only", `{"transaction_time_precision":"DATE","date_known":true}`, -10 * time.Minute, true, .95},
-		{"received fallback", `{"date_known":false}`, -10 * time.Minute, true, .95},
+		{"date only", `{"transaction_time_precision":"DATE","date_known":true}`, -10 * time.Minute, true, .80},
+		{"received fallback", `{"date_known":false}`, -10 * time.Minute, true, .80},
 		{"invalid legacy identity", `{"transaction_identifiers":[{"kind":"TRANSACTION_ID","value":"bad value"}]}`, 0, true, .80},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -56,10 +56,12 @@ func (p *Processor) agentRecordTransaction(ctx context.Context, state *agentStat
 		return result, true, nil
 	}
 	if value.Type == "EXPENSE" {
-		if offered, err := p.offerExistingEdit(ctx, state.HouseholdID, state.Update, state.SourceEventID, value, false); offered {
-			if err != nil {
-				return result, true, err
-			}
+		token, err := p.offerExistingEdit(ctx, state.HouseholdID, state.Update, state.SourceEventID, value, false)
+		if err != nil {
+			return result, true, err
+		}
+		if token != "" {
+			result.confirmationToken = token
 			result.Status = "EDIT_CONFIRMATION_REQUIRED"
 			result.Mutation = map[string]any{"action": "POSSIBLE_EXISTING_TRANSACTION"}
 			return result, false, nil
@@ -278,7 +280,7 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 			return result, true, nil
 		}
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_batch(household_id,telegram_user_id,telegram_chat_id,source_event_id,items_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET source_event_id=excluded.source_event_id,items_json=excluded.items_json,expires_at=now()+interval '5 minutes',created_at=now()`, state.HouseholdID, state.Update.Message.From.ID, state.Update.Message.Chat.ID, state.SourceEventID, string(encoded)); err != nil {
+	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_batch(household_id,telegram_user_id,telegram_chat_id,source_event_id,items_json,status) VALUES($1,$2,$3,$4,$5::jsonb,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET source_event_id=excluded.source_event_id,items_json=excluded.items_json,confirmation_token=gen_random_uuid(),expires_at=now()+interval '5 minutes',created_at=now() RETURNING confirmation_token::text`, state.HouseholdID, state.Update.Message.From.ID, state.Update.Message.Chat.ID, state.SourceEventID, string(encoded)).Scan(&result.confirmationToken); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent-batch-proposal',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
@@ -373,7 +375,7 @@ func (p *Processor) agentStageCorrection(ctx context.Context, state *agentState,
 	if err = tx.QueryRow(ctx, `SELECT COALESCE(counterparty_name,description,'Transaksi'),amount::text FROM transaction WHERE id=$1 AND household_id=$2 AND status<>'VOIDED' FOR UPDATE`, transactionID, state.HouseholdID).Scan(&label, &amount); err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description,status) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=excluded.proposed_category_id,proposed_description=excluded.proposed_description,expires_at=now()+interval '5 minutes',created_at=now()`, state.HouseholdID, state.Update.Message.From.ID, state.Update.Message.Chat.ID, transactionID, proposedAt, categoryID, clean(description, 500)); err != nil {
+	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description,status) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=excluded.proposed_category_id,proposed_description=excluded.proposed_description,confirmation_token=gen_random_uuid(),expires_at=now()+interval '5 minutes',created_at=now() RETURNING confirmation_token::text`, state.HouseholdID, state.Update.Message.From.ID, state.Update.Message.Chat.ID, transactionID, proposedAt, categoryID, clean(description, 500)).Scan(&result.confirmationToken); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent-correction-proposal',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
@@ -414,7 +416,7 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=COALESCE($2,transaction_at),category_id=COALESCE($3,category_id),description=COALESCE(NULLIF($4,''),description),updated_at=now() WHERE id=$1 AND household_id=$5`, transactionID, proposedAt, proposedCategoryID, proposedDescription, state.HouseholdID); err != nil {
 			return result, true, err
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz,'category_id',$4::uuid,'description',$5) FROM telegram_identity ti WHERE ti.telegram_user_id=$6 AND ti.household_id=$1 AND ti.active`, state.HouseholdID, transactionID, proposedAt, proposedCategoryID, proposedDescription, state.Update.Message.From.ID); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz,'category_id',$4::uuid,'description',$5::text) FROM telegram_identity ti WHERE ti.telegram_user_id=$6 AND ti.household_id=$1 AND ti.active`, state.HouseholdID, transactionID, proposedAt, proposedCategoryID, proposedDescription, state.Update.Message.From.ID); err != nil {
 			return result, true, err
 		}
 	}
@@ -544,7 +546,7 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 			item.Description = clean(*patch.Description, 500)
 		}
 		encoded, _ := json.Marshal(items)
-		if _, err = tx.Exec(ctx, `UPDATE telegram_pending_batch SET items_json=$2::jsonb,expires_at=now()+interval '5 minutes' WHERE id=$1`, batchID, string(encoded)); err != nil {
+		if err = tx.QueryRow(ctx, `UPDATE telegram_pending_batch SET items_json=$2::jsonb,confirmation_token=gen_random_uuid(),expires_at=now()+interval '5 minutes' WHERE id=$1 RETURNING confirmation_token::text`, batchID, string(encoded)).Scan(&result.confirmationToken); err != nil {
 			return result, true, err
 		}
 	}

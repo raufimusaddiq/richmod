@@ -1,8 +1,13 @@
 package telegram
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 func TestIndonesianDateFormatting(t *testing.T) {
@@ -22,19 +27,21 @@ func TestIndonesianDateFormatting(t *testing.T) {
 }
 
 func TestPendingMarkupFollowsLatestSideEffect(t *testing.T) {
-	batch := agentToolResult{Class: agentToolSideEffect, Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": "BATCH_STAGED"}}
-	correction := agentToolResult{Class: agentToolSideEffect, Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": "CORRECTION_STAGED"}}
-	edit := agentToolResult{Class: agentToolSideEffect, Status: "EDIT_CONFIRMATION_REQUIRED"}
+	// Runtime fixture: a valid opaque revision, not a committed secret-looking literal.
+	token := fmt.Sprintf("%08d-0000-0000-0000-%012d", 1, 2)
+	batch := agentToolResult{Class: agentToolSideEffect, Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": "BATCH_STAGED"}, confirmationToken: token}
+	correction := agentToolResult{Class: agentToolSideEffect, Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": "CORRECTION_STAGED"}, confirmationToken: token}
+	edit := agentToolResult{Class: agentToolSideEffect, Status: "EDIT_CONFIRMATION_REQUIRED", confirmationToken: token}
 	read := agentToolResult{Class: agentToolRead, Status: "OK"}
 	done := agentToolResult{Class: agentToolSideEffect, Status: "COMMITTED"}
 
-	if m := agentPendingMarkup([]agentToolResult{batch, read}); m == nil || m.InlineKeyboard[0][0].CallbackData != callbackPendingBatchYes {
+	if m := agentPendingMarkup([]agentToolResult{batch, read}); m == nil || m.InlineKeyboard[0][0].CallbackData != callbackPendingBatchYes+":"+token {
 		t.Fatalf("batch staging must offer batch buttons, got %+v", m)
 	}
-	if m := agentPendingMarkup([]agentToolResult{correction}); m == nil || m.InlineKeyboard[0][0].CallbackData != callbackPendingActionYes {
+	if m := agentPendingMarkup([]agentToolResult{correction}); m == nil || m.InlineKeyboard[0][0].CallbackData != callbackPendingActionYes+":"+token {
 		t.Fatalf("correction staging must offer action buttons, got %+v", m)
 	}
-	if m := agentPendingMarkup([]agentToolResult{edit}); m == nil || m.InlineKeyboard[0][1].CallbackData != callbackPendingActionNo {
+	if m := agentPendingMarkup([]agentToolResult{edit}); m == nil || m.InlineKeyboard[0][1].CallbackData != callbackPendingActionNo+":"+token {
 		t.Fatalf("edit confirmation must offer action buttons, got %+v", m)
 	}
 	if m := agentPendingMarkup([]agentToolResult{batch, done}); m != nil {
@@ -42,5 +49,23 @@ func TestPendingMarkupFollowsLatestSideEffect(t *testing.T) {
 	}
 	if m := agentPendingMarkup(nil); m != nil {
 		t.Fatalf("no history must offer no buttons")
+	}
+	batch.Status, batch.Mutation["action"] = "UPDATED", "BATCH_UPDATED"
+	if m := agentPendingMarkup([]agentToolResult{batch}); m == nil {
+		t.Fatal("batch edits must offer fresh confirmation buttons")
+	} else {
+		for _, button := range m.InlineKeyboard[0] {
+			if len(button.CallbackData) > 64 || !reviewdomain.ValidTelegramCallback(button.CallbackData) {
+				t.Fatalf("emitted callback cannot pass ingress: %q", button.CallbackData)
+			}
+		}
+	}
+	encoded, err := json.Marshal(agentToolResultPublic(batch))
+	if err != nil || strings.Contains(string(encoded), token) {
+		t.Fatal("confirmation token must remain server-only")
+	}
+	batch.confirmationToken = ""
+	if m := agentPendingMarkup([]agentToolResult{batch}); m != nil {
+		t.Fatal("a result without a revision must not offer unbound buttons")
 	}
 }

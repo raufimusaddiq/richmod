@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Pending corrections and pending batches are confirmed with buttons, not by
-// typing "yes"/"no". The callback carries only the bounded choice; the pending
-// row is still resolved by the same Go functions the typed path uses, scoped to
-// the household, Telegram user, and chat, so a stale or foreign button cannot
-// confirm anything.
+// typing "yes"/"no". Each callback binds the displayed revision; replacements
+// and batch edits rotate the token while the row remains pending.
 const (
 	callbackPendingActionYes = "pending:action:yes"
 	callbackPendingActionNo  = "pending:action:no"
@@ -20,12 +19,18 @@ const (
 	callbackPendingBatchNo   = "pending:batch:no"
 )
 
-func pendingActionMarkup() *InlineKeyboardMarkup {
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ya, simpan perubahan", CallbackData: callbackPendingActionYes}, {Text: "Batal", CallbackData: callbackPendingActionNo}}}}
+func pendingActionMarkup(token string) *InlineKeyboardMarkup {
+	if uuid.Validate(token) != nil {
+		return nil
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ya, simpan perubahan", CallbackData: callbackPendingActionYes + ":" + token}, {Text: "Batal", CallbackData: callbackPendingActionNo + ":" + token}}}}
 }
 
-func pendingBatchMarkup() *InlineKeyboardMarkup {
-	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ya, catat semua", CallbackData: callbackPendingBatchYes}, {Text: "Batal", CallbackData: callbackPendingBatchNo}}}}
+func pendingBatchMarkup(token string) *InlineKeyboardMarkup {
+	if uuid.Validate(token) != nil {
+		return nil
+	}
+	return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ya, catat semua", CallbackData: callbackPendingBatchYes + ":" + token}, {Text: "Batal", CallbackData: callbackPendingBatchNo + ":" + token}}}}
 }
 
 // agentPendingMarkup returns confirmation buttons when the turn's latest
@@ -38,10 +43,10 @@ func agentPendingMarkup(history []agentToolResult) *InlineKeyboardMarkup {
 		}
 		action, _ := result.Mutation["action"].(string)
 		switch {
-		case result.Status == "PENDING_CONFIRMATION" && action == "BATCH_STAGED":
-			return pendingBatchMarkup()
+		case result.Status == "PENDING_CONFIRMATION" && action == "BATCH_STAGED", result.Status == "UPDATED" && action == "BATCH_UPDATED":
+			return pendingBatchMarkup(result.confirmationToken)
 		case result.Status == "PENDING_CONFIRMATION" && action == "CORRECTION_STAGED", result.Status == "EDIT_CONFIRMATION_REQUIRED":
-			return pendingActionMarkup()
+			return pendingActionMarkup(result.confirmationToken)
 		}
 		return nil
 	}
@@ -54,15 +59,22 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 	}
 	var handled bool
 	var err error
-	switch data {
+	choice, token := "", ""
+	if index := strings.LastIndex(data, ":"); index >= 0 {
+		choice, token = data[:index], data[index+1:]
+	}
+	if uuid.Validate(token) != nil {
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+	}
+	switch choice {
 	case callbackPendingActionYes:
-		handled, err = p.processPendingEdit(ctx, householdID, update, sourceEventID, true)
+		handled, err = p.processPendingEdit(ctx, householdID, update, sourceEventID, true, token)
 	case callbackPendingActionNo:
-		handled, err = p.processPendingEdit(ctx, householdID, update, sourceEventID, false)
+		handled, err = p.processPendingEdit(ctx, householdID, update, sourceEventID, false, token)
 	case callbackPendingBatchYes:
-		handled, err = p.processPendingBatch(ctx, householdID, update, sourceEventID, true)
+		handled, err = p.processPendingBatch(ctx, householdID, update, sourceEventID, true, token)
 	case callbackPendingBatchNo:
-		handled, err = p.processPendingBatch(ctx, householdID, update, sourceEventID, false)
+		handled, err = p.processPendingBatch(ctx, householdID, update, sourceEventID, false, token)
 	}
 	if err != nil {
 		return true, err
@@ -73,7 +85,7 @@ func (p *Processor) processPendingConfirmCallback(ctx context.Context, sourceEve
 	// The answer is final, so the buttons on the question must stop working.
 	// Best effort: the decision above is already committed and idempotent.
 	outcome := "Dikonfirmasi."
-	if strings.HasSuffix(data, ":no") {
+	if strings.HasSuffix(choice, ":no") {
 		outcome = "Dibatalkan."
 	}
 	_ = enqueueRetireButtons(ctx, p.pool, update, outcome)

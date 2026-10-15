@@ -159,6 +159,19 @@ Open review state does not implicitly own arbitrary future chat messages.
 
 Route-first behavior from ADR-038 remains.
 
+### Pending correction/batch revision binding (issue #348, F03)
+
+Pending correction and batch buttons carry a server-issued `confirmation_token`
+UUID (migration `00082`), not just a yes/no choice or mutable row ID. Every
+replacement and batch item edit rotates it. The executor matches that token,
+household, numeric Telegram user, chat, unexpired PENDING status under the same
+row lock as the mutation. Old, tokenless, resolved and replaced buttons return
+the stale-action response without editing, posting or cancelling current work.
+Tokens are excluded from model context and persisted tool history. A date-only
+replacement also clears previously proposed category/description fields.
+Existing pending prompts must be staged again after upgrade; no financial
+records are automatically repaired or inferred.
+
 ## Partial resolution
 
 A review may remain open after one residual fact is supplied.

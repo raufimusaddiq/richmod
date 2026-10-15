@@ -114,6 +114,14 @@ erDiagram
     USER ||--o{ CYCLE_DECISION : authors
     TRANSACTION ||--o{ TELEGRAM_PENDING_ACTION : may_be_edited_by
     CATEGORY ||--o{ TELEGRAM_PENDING_ACTION : proposed_category
+    HOUSEHOLD ||--o{ TELEGRAM_PENDING_BATCH : stages
+    SOURCE_EVENT ||--o{ TELEGRAM_PENDING_BATCH : proposes
+    TELEGRAM_PENDING_ACTION {
+        uuid confirmation_token "rotated on replacement"
+    }
+    TELEGRAM_PENDING_BATCH {
+        uuid confirmation_token "rotated on replacement or edit"
+    }
 ```
 
 ## Table reference
@@ -174,8 +182,8 @@ erDiagram
 | `review_request` | Telegram delivery/request for review. | `review_item_id` is required (NOT NULL since migration `00081`): every request projects a canonical review item; the older transaction/proposal linkage columns are kept. `review_type` is CHECK-constrained to the same reason set as `review_item` (migration `00070`, extended by `00071` with `FINANCIAL_EMAIL_FACTS`), so a document, payslip, bank, financial-email, wealth, or cycle review can be projected to Telegram (UIR-02). The AFTER UPDATE OF status trigger `review_request_retire_telegram_cards` (migration `00079`) calls `enqueue_review_card_retirement` when a request moves from `PENDING_SEND`/`OPEN` to `RESOLVED`/`CANCELLED`/`EXPIRED`, queuing one `RETIRE_TELEGRAM_REVIEW_CARD` job per recipient with a delivered message so the card's buttons are removed. |
 | `review_request_recipient` | Per-recipient Telegram delivery binding. | `review_request_id → review_request`; stores chat/message IDs. `delivered_text` (migration `00079`) is the last text Telegram shows on the bound card (written at bind and after each successful edit) so retirement can append a closure note; `merchant_learning_message_id` (unique per chat when set) binds the separate post-confirm merchant-learning question. |
 | `review_conversation` | Human review messages and resolution context. | `review_request_id → review_request`. `state` is CHECK-constrained (`AWAITING_MERCHANT`, `AWAITING_CATEGORY`, `AWAITING_DETAIL`, `AWAITING_DATE`, `AWAITING_PURPOSE`, `AWAITING_CONFIRMATION`, `AWAITING_MERCHANT_DECISION`, `RESOLVED`); `AWAITING_DATE` binds a date-only review reply to the transaction-date resolver (UIR-03); `AWAITING_MERCHANT_DECISION` tracks the optional post-confirm merchant-learning question independently of `review_request.status`, so the review item completes at confirm time (UIR-08). |
-| `telegram_pending_action` | Deterministically bound Telegram correction awaiting confirmation. | Household/Telegram scoped; references `transaction`; nullable proposed transaction time plus optional `proposed_category_id → category` and proposed description. |
-| `telegram_pending_batch` | Pending multi-expense Telegram batch. | Household/Telegram scoped; binds batch selection safely. |
+| `telegram_pending_action` | Deterministically bound Telegram correction awaiting confirmation. | Household/Telegram scoped; references `transaction`; nullable proposed transaction time plus optional `proposed_category_id → category` and proposed description. `confirmation_token` UUID (NOT NULL, migration `00082`) binds buttons to the displayed revision; every replacement rotates it. Execution checks token, household, Telegram user/chat, pending status and expiry under lock. Legacy tokenless buttons are stale, never authority for the current row. |
+| `telegram_pending_batch` | Pending multi-expense Telegram batch. | Household/Telegram scoped; references source event. `confirmation_token` UUID (NOT NULL, migration `00082`) rotates on replacement and item edit; callback execution validates the exact revision plus household/user/chat/status/expiry under lock. Tokens stay server-only, excluded from model context and tool history. |
 | `telegram_conversation_turn` | Bounded finance conversation turn. | Household/Telegram scoped; optional source event; tool turns hold public context only. |
 | `telegram_turn_reference` | Short-lived reference usable in a Telegram turn: `TRANSACTION`, `REVIEW`, or `EVIDENCE` (CEU-01, migration `00075`). | `turn_id → telegram_conversation_turn`; typed target ID is intentionally polymorphic and server-only. An `EVIDENCE` ref (`a<hash8>_p<n>r<n>_ev<n>`) holds a `document.id`, is household + Telegram user + chat scoped, expires after 60 minutes, and is resolved only by Go; the id is never model-visible. |
 | `telegram_message_binding` | The bot's own outbound message about a document (CEU-02), so a reply to it binds to that evidence. | `household_id → household`; `(telegram_chat_id, telegram_message_id)` unique; `entity_type` is `DOCUMENT`; `entity_id` is a server-only `document.id`, enforced by a composite foreign key `(entity_id, household_id) → document(id, household_id)` so a row can never dangle or cross households (migration `00077`). Written by the worker after a send whose job carries `bind_document_id`; idempotent. Review cards keep binding through `review_request_recipient`. |

@@ -85,6 +85,23 @@ printed precise times remain duplicate ambiguity for human review rather than
 an automatic merge. Receipt and bank-email matching policies are unchanged.
 No provider-specific parser or production-history repair is introduced.
 
+## Amendment - multipage extraction (2026-10-15, issue #348 F01)
+
+Screenshot extraction reads all stored document pages in page-index order using
+the same loader as receipts, with the legacy primary-attachment fallback only
+when no page rows exist. All pages reach the single extraction/repair input;
+an unreadable page fails processing rather than silently extracting a subset.
+Rows retain their existing document/proposal/evidence linkage and row indices.
+
+## Amendment - positive identity before auto-link (2026-10-15, issue #348 F02)
+
+Automatic screenshot evidence linking requires matching comparable observed
+event identifiers with no contradictory/invalid bound evidence. Amount, merchant,
+date-only timestamps, and even identical precise timestamps alone do not prove
+identity: their candidate scores are capped at .80 and remain duplicate review.
+Matching identifiers still allow repeated-evidence linking; conflicting
+identifiers still exclude distinct events. Receipt/bank matching is unchanged.
+
 ## Consequences
 
 - Clear rows reach canonical state with no user interaction; only genuinely

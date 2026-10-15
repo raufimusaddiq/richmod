@@ -35,6 +35,15 @@ Kept on purpose: `POST /api/v1/transactions/{id}/void`,
 `POST /api/v1/reconciliation-merges/{id}/reverse`. They are correction tools
 the owner may need by hand, even though no screen calls them yet.
 
+### Review boundary amendment - 2026-10-15 (issue #348, F04)
+
+Ledger confirm/void are correction tools only outside active review. They return
+409 without mutation for `NEEDS_REVIEW` transactions or transactions with an
+`OPEN`/`PENDING_SEND` canonical review item, including inconsistent historical
+status combinations. Use the canonical review endpoints to validate facts and
+complete proposal, source, and review lifecycle state. A missing review item does
+not make a `NEEDS_REVIEW` transaction eligible for the alternate ledger route.
+
 No migration. The `budget` table and historical `INTERPRETATION_SHADOW*`
 extraction rows stay, because canonical and audit history is never
 hard-deleted; nothing reads or writes them.

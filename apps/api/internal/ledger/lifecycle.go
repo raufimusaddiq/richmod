@@ -235,11 +235,16 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 	}
 	defer tx.Rollback(r.Context())
 	var before string
-	if err := tx.QueryRow(r.Context(), `SELECT status FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`, id, household).Scan(&before); errors.Is(err, pgx.ErrNoRows) {
+	var reviewOpen bool
+	if err := tx.QueryRow(r.Context(), `SELECT t.status,EXISTS(SELECT 1 FROM review_item ri WHERE ri.transaction_id=t.id AND ri.household_id=t.household_id AND ri.status IN ('OPEN','PENDING_SEND')) FROM transaction t WHERE t.id=$1 AND t.household_id=$2 FOR UPDATE OF t`, id, household).Scan(&before, &reviewOpen); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "transaction not found"})
 		return
 	} else if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to update transaction"})
+		return
+	}
+	if before == "NEEDS_REVIEW" || reviewOpen {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "resolve this transaction through the review endpoint"})
 		return
 	}
 	if !canTransition(before, target) {
@@ -268,10 +273,10 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, target stri
 
 func canTransition(from, to string) bool {
 	if to == "CONFIRMED" {
-		return from == "PENDING" || from == "NEEDS_REVIEW"
+		return from == "PENDING"
 	}
 	if to == "VOIDED" {
-		return from != "VOIDED"
+		return from == "PENDING" || from == "CONFIRMED"
 	}
 	return false
 }

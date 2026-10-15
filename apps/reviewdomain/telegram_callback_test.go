@@ -2,6 +2,27 @@ package reviewdomain
 
 import "testing"
 
+func TestPendingConfirmationCallbackRevisionGrammar(t *testing.T) {
+	for _, prefix := range []string{"pending:action:yes", "pending:action:no", "pending:batch:yes", "pending:batch:no"} {
+		if !ValidTelegramCallback(prefix) {
+			t.Errorf("legacy callback must reach the worker's stale-action response: %s", prefix)
+		}
+		for _, test := range []struct {
+			token string
+			valid bool
+		}{
+			{"8a97e069-0278-4f49-9195-fbbfe81fdfd5", true},
+			{"", false}, {"1", false}, {"../../admin", false},
+			{"8a97e069-0278-4f49-9195-fbbfe81fdfdg", false},
+		} {
+			data := prefix + ":" + test.token
+			if got := ValidTelegramCallback(data); got != test.valid {
+				t.Errorf("callback %q accepted=%v, want %v", data, got, test.valid)
+			}
+		}
+	}
+}
+
 func TestEverySampleIsValidAndUnsafeCallbacksAreRejected(t *testing.T) {
 	for _, sample := range TelegramCallbackSamples() {
 		if !ValidTelegramCallback(sample) {

@@ -39,6 +39,46 @@ func TestScreenshotIdentityLegacyTimeConflict(t *testing.T) {
 	}
 }
 
+func TestScreenshotF02IdentitylessPaymentsStayDistinct(t *testing.T) {
+	for _, precision := range []string{"DATE", "TIME", ""} {
+		t.Run("precision_"+precision, func(t *testing.T) {
+			f := seedScreenshotFixture(t, "Synthetic identityless payments")
+			ctx := context.Background()
+			at := screenshotRowTime()
+			metadata, err := json.Marshal(map[string]any{"date_known": true, "transaction_time_precision": precision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := seedScreenshotIdentityCandidate(t, f, string(metadata), at)
+			// A separate upload is a separate source, never a replay of the first.
+			if err := f.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',now(),$2,'PROCESSING') RETURNING id`, f.householdID, []byte("synthetic second payment")).Scan(&f.sourceID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.pool.Exec(ctx, `UPDATE document SET source_event_id=$2 WHERE id=$1`, f.documentID, f.sourceID); err != nil {
+				t.Fatal(err)
+			}
+			row := screenshotDataRow("EXPENSE", "7500", "Synthetic Store")
+			row.Value.Direction, row.Value.TransactionTimePrecision = "OUT", precision
+			row.CategoryID, row.CategoryDecided = &f.categoryID, true
+			row.Candidates, err = (&Processor{pool: f.pool}).findScreenshotMatches(ctx, f.householdID, row)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(row.Candidates) != 1 || row.Candidates[0].ID != first || row.Candidates[0].Score >= .90 {
+				t.Fatalf("identityless event can auto-link: %v", row.Candidates)
+			}
+			f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+			var confirmed, pending, merged, reviews int
+			if err := f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'),(SELECT count(*) FROM transaction WHERE household_id=$1 AND status='NEEDS_REVIEW'),(SELECT count(*) FROM transaction_proposal WHERE source_event_id=$2 AND proposal_status='MERGED'),(SELECT count(*) FROM review_item WHERE household_id=$1 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND'))`, f.householdID, f.sourceID).Scan(&confirmed, &pending, &merged, &reviews); err != nil {
+				t.Fatal(err)
+			}
+			if confirmed != 1 || pending != 1 || merged != 0 || reviews != 1 {
+				t.Fatalf("confirmed=%d pending=%d merged=%d reviews=%d", confirmed, pending, merged, reviews)
+			}
+		})
+	}
+}
+
 func TestScreenshotIdentityDifferentCloseEvents(t *testing.T) {
 	f := seedScreenshotFixture(t, "Synthetic distinct screenshot identities")
 	at := screenshotRowTime()
