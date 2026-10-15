@@ -107,6 +107,20 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	if kind == "EXPENSE" && categoryID == nil {
 		return result, ErrMissingCategory
 	}
+	if !cmd.CategorySupplied && categoryID != nil {
+		if err := ValidateCategoryForHousehold(ctx, tx, cmd.HouseholdID, *categoryID); err != nil {
+			return result, err
+		}
+	}
+	if kind == "TRANSFER" {
+		var compatible bool
+		if err := tx.QueryRow(ctx, `SELECT transfer_wealth_compatible(purpose,related_wealth_account_id,household_id) FROM transaction WHERE id=$1 AND household_id=$2`, cmd.TransactionID, cmd.HouseholdID).Scan(&compatible); err != nil {
+			return result, err
+		}
+		if !compatible {
+			return result, ErrWealthAccountIncompatible
+		}
+	}
 	if len(cmd.Blocked) > 0 {
 		return result, &ErrMissingFacts{Facts: cmd.Blocked}
 	}
@@ -116,6 +130,10 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	relationship := "DISTINCT"
 	if kind == "INCOME" {
 		relationship = "INCOME"
+	}
+	if kind == "TRANSFER" {
+		// A date/category continuation must not replace the accepted transfer choice.
+		relationship = ""
 	}
 	facts := ReviewFacts{HouseholdID: cmd.HouseholdID, TransactionID: cmd.TransactionID, TransactionAt: cmd.TransactionAt, Relationship: relationship}
 	if cmd.CategorySupplied {
@@ -174,7 +192,7 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		result.CategoryID = *categoryID
 	}
 	if !cmd.ResolveReview {
-		return result, RefreshTransactionLifecycle(ctx, tx, cmd.TransactionID)
+		return result, RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, cmd.TransactionID)
 	}
 	action := cmd.Action
 	if action == "" {

@@ -63,7 +63,7 @@ func TestAuditLifecycleSettlesAllOutstandingWork(t *testing.T) {
 				_, err = ConfirmTransactionReview(ctx, tx, ConfirmCommand{HouseholdID: f.household, ActorUserID: f.user, TransactionID: f.original, ResolveReview: true})
 				must(err)
 				if scenario == "document_sibling" {
-					must(PromoteEvidenceDocuments(ctx, tx, f.original))
+					must(PromoteEvidenceDocuments(ctx, tx, f.household, f.original))
 				}
 			}
 			must(tx.Commit(ctx))
@@ -80,5 +80,54 @@ func TestAuditLifecycleSettlesAllOutstandingWork(t *testing.T) {
 				t.Fatalf("source=%s document=%s; want %s/%s", sourceStatus, documentStatus, wantSource, wantDocument)
 			}
 		})
+	}
+}
+
+func TestLifecycleRefreshIsHouseholdScoped(t *testing.T) {
+	if os.Getenv("TEST_DATABASE_URL") == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner := seedMergedScreenshot(t, ctx, pool, "lifecycle-owner")
+	foreign := seedMergedScreenshot(t, ctx, pool, "lifecycle-foreign")
+	for _, f := range []disputeFixture{owner, foreign} {
+		_, err := pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSING' WHERE id=$1`, f.source)
+		must(err)
+		_, err = pool.Exec(ctx, `UPDATE document SET status='NEEDS_REVIEW' WHERE id=$1`, f.document)
+		must(err)
+	}
+	// Even an inconsistent page link must not expand the aggregate across tenants.
+	for _, pair := range [][2]string{{owner.document, foreign.source}, {foreign.document, owner.source}} {
+		_, err := pool.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) SELECT id,$2,attachment_id,0 FROM document WHERE id=$1`, pair[0], pair[1])
+		must(err)
+	}
+	tx, err := pool.Begin(ctx)
+	must(err)
+	defer tx.Rollback(ctx)
+	must(RefreshSourceLifecycle(ctx, tx, owner.household, foreign.source))
+	must(RefreshTransactionLifecycle(ctx, tx, owner.household, foreign.original))
+	must(RefreshTransactionLifecycle(ctx, tx, owner.household, owner.original))
+	must(tx.Commit(ctx))
+	for _, f := range []disputeFixture{owner, foreign} {
+		var sourceStatus, documentStatus string
+		must(pool.QueryRow(ctx, `SELECT s.processing_status,d.status FROM source_event s JOIN document d ON d.source_event_id=s.id WHERE s.id=$1`, f.source).Scan(&sourceStatus, &documentStatus))
+		wantSource, wantDocument := "PROCESSED", "EXTRACTED"
+		if f.household == foreign.household {
+			wantSource, wantDocument = "PROCESSING", "NEEDS_REVIEW"
+		}
+		if sourceStatus != wantSource || documentStatus != wantDocument {
+			t.Fatalf("foreign=%v source=%s document=%s; want %s/%s", f.household == foreign.household, sourceStatus, documentStatus, wantSource, wantDocument)
+		}
 	}
 }

@@ -81,6 +81,21 @@ func TestClassifyTransferStatesAndHouseholdScope(t *testing.T) {
 		})
 	}
 
+	t.Run("expense_without_category", func(t *testing.T) {
+		transactionID, _, _ := seedUnclassifiedTransfer(t, pool, householdID, stamp+90)
+		if _, err := pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"missingFacts":["transfer_relationship","category","transaction_at"]}'::jsonb)`, householdID, transactionID); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/reviews/"+transactionID+"/classify-transfer", bytes.NewBufferString(`{"classification":"EXPENSE"}`))
+		request.SetPathValue("id", transactionID)
+		request = request.WithContext(auth.ContextWithPrincipal(request.Context(), principal))
+		response := httptest.NewRecorder()
+		handler.ClassifyTransfer(response, request)
+		if response.Code != http.StatusBadRequest || response.Body.String() != "{\"error\":\"expense category is required\"}\n" {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+	})
+
 	otherHousehold, otherUser, _ := seedTransferReviewOwner(t, pool, stamp+99)
 	foreignTransaction, _, _ := seedUnclassifiedTransfer(t, pool, householdID, stamp+100)
 	raw, _ := json.Marshal(map[string]any{"classification": "IGNORE"})

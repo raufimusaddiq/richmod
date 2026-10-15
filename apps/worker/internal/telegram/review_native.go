@@ -192,7 +192,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		merchantID = nil
 	}
 	// A confirmed review also completes the document workflow (ADR-046: shared op).
-	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, transactionID); err != nil {
+	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, householdID, transactionID); err != nil {
 		return err
 	}
 	if value.PayDate != "" {
@@ -213,7 +213,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 			}
 		}
 	}
-	if err := reviewdomain.RefreshTransactionLifecycle(ctx, tx, transactionID); err != nil {
+	if err := reviewdomain.RefreshTransactionLifecycle(ctx, tx, householdID, transactionID); err != nil {
 		return err
 	}
 	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""

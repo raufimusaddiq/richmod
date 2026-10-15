@@ -179,39 +179,24 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 	if err != nil {
 		var missing *reviewdomain.ErrMissingFacts
 		if errors.As(err, &missing) {
-			_ = tx.Rollback(ctx)
-			continuation, err := p.pool.Begin(ctx)
-			if err != nil {
+			if err = refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update); err != nil {
 				return err
 			}
-			defer continuation.Rollback(ctx)
-			if _, err = reviewdomain.ApplyTransactionReviewFacts(ctx, continuation, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID}); err != nil {
-				return err
-			}
-			if err = refreshReviewFactsProjection(ctx, continuation, householdID, reviewID, update); err != nil {
-				return err
-			}
-			if _, err = continuation.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); err != nil {
-				return err
-			}
-			return continuation.Commit(ctx)
-		}
-		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
+		} else if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
 			_ = tx.Rollback(ctx)
 			return p.offerInvestmentChooser(ctx, sourceEventID, householdID, reviewID, transactionID, update)
-		}
-		if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
+		} else if errors.Is(err, reviewdomain.ErrWealthAccountIncompatible) {
 			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Akun kekayaan tujuan bukan aset yang kompatibel.")
-		}
-		if errors.Is(err, reviewdomain.ErrTransferNotFound) {
+		} else if errors.Is(err, reviewdomain.ErrTransferNotFound) {
 			// The choice does not apply to this transaction (an old card, or an
 			// outgoing choice on money coming in). Say so instead of failing the
 			// callback job, which the household would only see as silence.
 			_ = tx.Rollback(ctx)
 			return p.continueReview(ctx, sourceEventID, reviewID, transactionID, update, "Pilihan ini tidak berlaku untuk transaksi ini. Tinjauan masih terbuka, pilih jawaban lain.")
+		} else {
+			return err
 		}
-		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, reviewID); err != nil {
 		return err
@@ -225,8 +210,10 @@ func (p *Processor) resolveTransferReviewTx(ctx context.Context, tx pgx.Tx, sour
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CLASSIFY_TRANSFER','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'classification',$5::text,'type',$6::text,'purpose',$7::text,'related_wealth_account_id',NULLIF($8,'')::text,'status',$9::text))`, householdID, userID, transactionID, reviewID, classification, transfer.Type, transfer.Purpose, transfer.WealthAccountID, transfer.Status); err != nil {
 		return err
 	}
-	if err = enqueueReply(ctx, tx, update, message); err != nil {
-		return err
+	if transfer.Status != "NEEDS_REVIEW" {
+		if err = enqueueReply(ctx, tx, update, message); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

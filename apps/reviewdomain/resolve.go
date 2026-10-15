@@ -92,7 +92,7 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if _, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID); err != nil {
 		return err
 	}
-	return RefreshTransactionLifecycle(ctx, tx, cmd.SubjectID)
+	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, cmd.SubjectID)
 }
 
 // ResolveByID completes one exact review item after locking and validating its
@@ -144,5 +144,5 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if _, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{itemID}); err != nil {
 		return err
 	}
-	return RefreshTransactionLifecycle(ctx, tx, subjectID)
+	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, subjectID)
 }

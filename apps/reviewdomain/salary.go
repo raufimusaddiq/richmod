@@ -105,8 +105,8 @@ func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (Salar
 // PromoteEvidenceDocuments marks documents linked to one transaction's evidence
 // as extracted. Both surfaces performed this after a confirmed document-backed
 // review; keeping it here avoids two divergent status filters.
-func PromoteEvidenceDocuments(ctx context.Context, tx pgx.Tx, transactionID string) error {
-	return RefreshTransactionLifecycle(ctx, tx, transactionID)
+func PromoteEvidenceDocuments(ctx context.Context, tx pgx.Tx, householdID, transactionID string) error {
+	return RefreshTransactionLifecycle(ctx, tx, householdID, transactionID)
 }
 
 // PayslipFacts reads the employer and payroll period from the payslip evidence

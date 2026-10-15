@@ -204,6 +204,18 @@ Expense confirmation always requires a category. Telegram refreshes the active
 card after a partial answer. Transfer classification accepts a validated
 `transactionAt` date through the same boundary; ignore does not require a date.
 
+Transfer classification validates category/Wealth Account choices before
+residual-fact handling. An expense choice without a category retains its HTTP
+400 contract, rather than becoming a residual-facts 409. A validated partial
+classification returns `ErrMissingFacts` with transaction/proposal state still
+`NEEDS_REVIEW`; Telegram commits that same transaction, including the selected
+type, purpose, account/category and relationship evidence. Date-only completion
+confirms the persisted classification, never defaults a transfer back to income
+or overwrites its accepted relationship with a generic confirm choice. It
+revalidates retained categories and Wealth Account compatibility before final
+confirmation, so a deactivated choice cannot survive the continuation. Web still
+rolls back incomplete requests and returns its existing residual-facts 409.
+
 ### Issue #349: aggregate lifecycle
 
 Review completion derives source/document state from all active evidence,
@@ -211,6 +223,9 @@ transaction and proposal siblings, and open canonical reviews. Completing one
 row cannot settle its unresolved siblings. All album page sources settle with
 their shared document. Web and Telegram use the same aggregate; the documents
 API reports that stored aggregate, including proposal-only reviews.
+The aggregate requires an explicit household throughout source/document/page
+expansion and transaction refresh; foreign IDs or page links cannot settle a
+different household's lifecycle.
 
 A review may remain open after one residual fact is supplied.
 

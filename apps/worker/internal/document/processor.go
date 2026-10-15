@@ -290,7 +290,7 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 			return err
 		}
 	}
-	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, sourceID); err != nil {
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

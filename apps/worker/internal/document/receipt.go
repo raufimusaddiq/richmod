@@ -335,7 +335,7 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, receiptRecordedNotice(value.Merchant, value.Total)); err != nil {
 		return err
 	}
-	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, sourceID); err != nil {
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -431,7 +431,7 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, receiptLinkedNotice(value.Merchant, value.Total)); err != nil {
 		return err
 	}
-	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, sourceID); err != nil {
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -542,7 +542,7 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
 		return err
 	}
-	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, sourceID); err != nil {
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

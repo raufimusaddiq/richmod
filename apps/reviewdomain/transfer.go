@@ -56,6 +56,8 @@ var (
 // the subject, resolves Wealth Account/category candidates deterministically,
 // mutates the transaction and proposal, refreshes source-event state, and
 // completes the review item(s). Web and Telegram both call it (ADR-046).
+// ErrMissingFacts leaves a validated classification pending in this transaction;
+// a partial-answer adapter may commit it without completing the review.
 func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand) (TransferResult, error) {
 	var result TransferResult
 	var transactionType string
@@ -69,15 +71,6 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	}
 	if !transferClassificationApplies(transactionType, cmd.Classification) {
 		return result, ErrTransferNotFound
-	}
-	if cmd.Classification != "IGNORE" {
-		remaining, err := ApplyTransactionReviewFacts(ctx, tx, ReviewFacts{HouseholdID: cmd.HouseholdID, TransactionID: cmd.TransactionID, CategoryID: cmd.CategoryID, TransactionAt: cmd.TransactionAt, Relationship: cmd.Classification})
-		if err != nil {
-			return result, err
-		}
-		if len(remaining) > 0 {
-			return result, &ErrMissingFacts{Facts: remaining}
-		}
 	}
 	result.Type, result.Status, result.Purpose = "TRANSFER", "CONFIRMED", "INTERNAL_TRANSFER"
 	result.Counterparty = counterparty
@@ -147,11 +140,24 @@ func ClassifyTransferReview(ctx context.Context, tx pgx.Tx, cmd TransferCommand)
 	if categoryID != nil {
 		result.CategoryID = *categoryID
 	}
+	var remaining []string
+	if cmd.Classification != "IGNORE" {
+		remaining, err = ApplyTransactionReviewFacts(ctx, tx, ReviewFacts{HouseholdID: cmd.HouseholdID, TransactionID: cmd.TransactionID, CategoryID: cmd.CategoryID, TransactionAt: cmd.TransactionAt, Relationship: cmd.Classification})
+		if err != nil {
+			return result, err
+		}
+		if len(remaining) > 0 {
+			result.Status, proposalStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
+		}
+	}
 	if _, err = tx.Exec(ctx, "UPDATE transaction SET type=$2,purpose=$3,related_wealth_account_id=$4,status=$5,category_id=$6,confirmed_at=CASE WHEN $5='CONFIRMED' THEN now() END,voided_at=CASE WHEN $5='VOIDED' THEN now() END,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'", cmd.TransactionID, result.Type, result.Purpose, wealthAccountID, result.Status, categoryID); err != nil {
 		return result, err
 	}
 	if _, err = tx.Exec(ctx, "UPDATE transaction_proposal SET proposed_type=$2,proposal_status=$3,category_candidate_id=$4,metadata_json=metadata_json||jsonb_build_object('transfer_classification',$5::text,'purpose',$6::text,'related_wealth_account_id',NULLIF($7,'')::text),updated_at=now() WHERE id IN(SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, result.Type, proposalStatus, categoryID, cmd.Classification, result.Purpose, result.WealthAccountID); err != nil {
 		return result, err
+	}
+	if len(remaining) > 0 {
+		return result, &ErrMissingFacts{Facts: remaining}
 	}
 	if _, err = tx.Exec(ctx, "UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE transaction_id=$1 AND status IN('PENDING_SEND','OPEN')", cmd.TransactionID); err != nil {
 		return result, err
