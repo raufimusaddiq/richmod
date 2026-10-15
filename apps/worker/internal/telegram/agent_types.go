@@ -63,6 +63,8 @@ type agentToolResult struct {
 	References []agentPublicRef `json:"references,omitempty"`
 	Mutation   map[string]any   `json:"mutation,omitempty"`
 	Review     map[string]any   `json:"review,omitempty"`
+
+	confirmationToken string
 }
 
 type agentPublicRef struct {

@@ -307,41 +307,42 @@ func stringPtr(v any) *string {
 	return &s
 }
 
-func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, value validatedExtraction, enqueueMessage bool) (bool, error) {
+func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, value validatedExtraction, enqueueMessage bool) (string, error) {
 	if value.Merchant == "" {
-		return false, nil
+		return "", nil
 	}
 	var transactionID, label string
 	var existingAt time.Time
 	err := p.pool.QueryRow(ctx, `SELECT id,COALESCE(counterparty_name,description,'Transaksi'),transaction_at FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND type='EXPENSE' AND amount=$2 AND transaction_at>=now()-interval '7 days' AND (counterparty_name ILIKE '%'||$3||'%' OR description ILIKE '%'||$3||'%') ORDER BY transaction_at DESC LIMIT 1`, householdID, value.Amount, value.Merchant).Scan(&transactionID, &label, &existingAt)
 	if errors.Is(err, pgx.ErrNoRows) || existingAt.Equal(value.TransactionAt) {
-		return false, nil
+		return "", nil
 	}
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return true, err
+		return "", err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,expires_at=now()+interval '5 minutes',created_at=now()`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, value.TransactionAt); err != nil {
-		return true, err
+	var token string
+	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=NULL,proposed_description=NULL,confirmation_token=gen_random_uuid(),expires_at=now()+interval '5 minutes',created_at=now() RETURNING confirmation_token::text`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, value.TransactionAt).Scan(&token); err != nil {
+		return "", err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-proposal',parser_version='1' WHERE id=$1`, sourceID); err != nil {
-		return true, err
+		return "", err
 	}
 	message := fmt.Sprintf("Aku menemukan %s · Rp%s. Mau ubah tanggalnya ke %s?", label, FormatIDR(value.Amount), formatIDDateTime(value.TransactionAt))
 	if enqueueMessage {
-		err = enqueueReplyMarkup(ctx, tx, update, message, pendingActionMarkup())
+		err = enqueueReplyMarkup(ctx, tx, update, message, pendingActionMarkup(token))
 	}
 	if err != nil {
-		return true, err
+		return "", err
 	}
-	return true, tx.Commit(ctx)
+	return token, tx.Commit(ctx)
 }
 
-func (p *Processor) processPendingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) (bool, error) {
+func (p *Processor) processPendingEdit(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool, token string) (bool, error) {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return true, err
@@ -351,7 +352,7 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 	var proposedAt *time.Time
 	var proposedCategoryID *string
 	var proposedDescription *string
-	err = tx.QueryRow(ctx, `SELECT id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&actionID, &transactionID, &proposedAt, &proposedCategoryID, &proposedDescription)
+	err = tx.QueryRow(ctx, `SELECT id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND confirmation_token::text=$4 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID, token).Scan(&actionID, &transactionID, &proposedAt, &proposedCategoryID, &proposedDescription)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -371,7 +372,7 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 		}
 	}
 	if confirm {
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz,'category_id',$4::uuid,'description',$5) FROM telegram_identity ti WHERE ti.telegram_user_id=$6 AND ti.household_id=$1 AND ti.active`, householdID, transactionID, proposedAt, proposedCategoryID, proposedDescription, update.Message.From.ID); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz,'category_id',$4::uuid,'description',$5::text) FROM telegram_identity ti WHERE ti.telegram_user_id=$6 AND ti.household_id=$1 AND ti.active`, householdID, transactionID, proposedAt, proposedCategoryID, proposedDescription, update.Message.From.ID); err != nil {
 			return true, err
 		}
 	}
@@ -387,14 +388,14 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 	return true, tx.Commit(ctx)
 }
 
-func (p *Processor) processPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) (bool, error) {
+func (p *Processor) processPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool, token string) (bool, error) {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return true, err
 	}
 	defer tx.Rollback(ctx)
 	var batchID, raw string
-	err = tx.QueryRow(ctx, `SELECT id,items_json::text FROM telegram_pending_batch WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID).Scan(&batchID, &raw)
+	err = tx.QueryRow(ctx, `SELECT id,items_json::text FROM telegram_pending_batch WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND confirmation_token::text=$4 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID, token).Scan(&batchID, &raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -545,16 +546,6 @@ func nativeValidatedExtraction(args map[string]any, now time.Time) (validatedExt
 		provenance = "USER_STATED"
 	}
 	return validatedExtraction{Type: typ, Amount: amount, TransactionAt: resolved.At, DateProvenance: provenance, Merchant: clean(merchant, 160), CategorySlug: clean(category, 120), Description: clean(description, 500), Note: clean(note, 1000), Confidence: confidence, CategoryConfidence: categoryConfidence, Ambiguous: ambiguous, TimePrecision: resolved.Precision, TimePeriod: resolved.Period}, nil
-}
-
-func (p *Processor) finishPendingAction(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
-	_, err := p.processPendingEdit(ctx, householdID, update, sourceID, confirm)
-	return err
-}
-
-func (p *Processor) finishPendingBatch(ctx context.Context, householdID string, update telegramUpdate, sourceID string, confirm bool) error {
-	_, err := p.processPendingBatch(ctx, householdID, update, sourceID, confirm)
-	return err
 }
 
 func resolveTime(now time.Time, dateReference, explicitDate, localTime *string) (time.Time, error) {

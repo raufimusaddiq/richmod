@@ -1,6 +1,9 @@
 package reviewdomain
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Telegram inline-button callback grammar, shared by the API webhook (which
 // admits only this grammar before persisting anything) and the worker (which
@@ -11,6 +14,8 @@ import "strings"
 //
 // Telegram rejects callback_data longer than 64 bytes.
 const telegramCallbackMaxBytes = 64
+
+var pendingCallbackToken = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 var telegramCallbackExact = map[string]struct{}{
 	"review:expense": {}, "review:asset": {}, "review:own": {}, "review:household": {}, "review:income": {},
@@ -25,6 +30,7 @@ var telegramCallbackExact = map[string]struct{}{
 // Opaque-token callbacks: the token is a server-issued identifier of a choice
 // the worker re-validates against the household.
 var telegramCallbackTokenPrefixes = []string{
+	"pending:action:yes:", "pending:action:no:", "pending:batch:yes:", "pending:batch:no:",
 	"review:cat:", "review:category:", "review:fe:account:", "review:fe:wealth:",
 	"review:invest:", "review:bank:",
 }
@@ -44,7 +50,11 @@ func ValidTelegramCallback(data string) bool {
 	}
 	for _, prefix := range telegramCallbackTokenPrefixes {
 		if strings.HasPrefix(data, prefix) {
-			return validCallbackToken(strings.TrimPrefix(data, prefix))
+			token := strings.TrimPrefix(data, prefix)
+			if strings.HasPrefix(prefix, "pending:") {
+				return pendingCallbackToken.MatchString(token)
+			}
+			return validCallbackToken(token)
 		}
 	}
 	for _, prefix := range telegramCallbackNumberPrefixes {
