@@ -234,11 +234,7 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 	if !ok || len(raw) < 1 || len(raw) > 10 {
 		return result, true, fmt.Errorf("invalid batch")
 	}
-	type pending struct {
-		Type, Amount, Merchant, CategorySlug, Description string
-		TransactionAt                                     time.Time
-	}
-	vals := make([]pending, 0, len(raw))
+	vals := make([]agentPendingBatchItem, 0, len(raw))
 	total := big.NewInt(0)
 	public := make([]map[string]any, 0, len(raw))
 	for i, entryRaw := range raw {
@@ -252,8 +248,8 @@ func (p *Processor) agentStageBatch(ctx context.Context, state *agentState, call
 		}
 		n, _ := new(big.Int).SetString(v.Amount, 10)
 		total.Add(total, n)
-		vals = append(vals, pending{Type: v.Type, Amount: v.Amount, Merchant: v.Merchant, CategorySlug: v.CategorySlug, Description: v.Description, TransactionAt: v.TransactionAt})
-		public = append(public, map[string]any{"item_ref": fmt.Sprintf("batch_%d", i+1), "type": v.Type, "amount_idr": v.Amount, "merchant": v.Merchant, "category_slug": v.CategorySlug, "description": v.Description, "transaction_at": v.TransactionAt.In(jakartaLocation()).Format(time.RFC3339)})
+		vals = append(vals, agentPendingBatchItem{Type: v.Type, Amount: v.Amount, Merchant: v.Merchant, CategorySlug: v.CategorySlug, Description: v.Description, Note: v.Note, TransactionAt: v.TransactionAt})
+		public = append(public, map[string]any{"item_ref": fmt.Sprintf("batch_%d", i+1), "type": v.Type, "amount_idr": v.Amount, "merchant": v.Merchant, "category_slug": v.CategorySlug, "description": v.Description, "note": v.Note, "transaction_at": v.TransactionAt.In(jakartaLocation()).Format(time.RFC3339)})
 	}
 
 	encoded, _ := json.Marshal(vals)
@@ -493,6 +489,7 @@ type agentPendingBatchItem struct {
 	Merchant      string    `json:"Merchant"`
 	CategorySlug  string    `json:"CategorySlug"`
 	Description   string    `json:"Description"`
+	Note          string    `json:"Note"`
 	TransactionAt time.Time `json:"TransactionAt"`
 }
 
@@ -624,10 +621,10 @@ func (p *Processor) agentFinalizePendingBatch(ctx context.Context, state *agentS
 		}
 		prop := fmt.Sprintf("batch-%d", i)
 		var pid, tid string
-		if err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),$3,$4,$5,'IDR',$6,NULLIF($7,''),$8,NULLIF($9,''),1,'ACCEPTED') RETURNING id`, state.HouseholdID, batchID, prop, v.Type, v.Amount, v.TransactionAt, v.Merchant, cat, v.Description).Scan(&pid); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,note,confidence,proposal_status) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),$3,$4,$5,'IDR',$6,NULLIF($7,''),$8,NULLIF($9,''),NULLIF($10,''),1,'ACCEPTED') RETURNING id`, state.HouseholdID, batchID, prop, v.Type, v.Amount, v.TransactionAt, v.Merchant, cat, v.Description, v.Note).Scan(&pid); err != nil {
 			return result, true, err
 		}
-		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,'CONFIRMED',$3,'IDR',$4,$5,NULLIF($6,''),NULLIF($7,''),1,1,$8,now()) RETURNING id`, state.HouseholdID, v.Type, v.Amount, v.TransactionAt, cat, v.Description, v.Merchant, userID).Scan(&tid); err != nil {
+		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,note,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,'CONFIRMED',$3,'IDR',$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),1,1,$9,now()) RETURNING id`, state.HouseholdID, v.Type, v.Amount, v.TransactionAt, cat, v.Description, v.Note, v.Merchant, userID).Scan(&tid); err != nil {
 			return result, true, err
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CONFIRM_PENDING_BATCH','transaction',$3,jsonb_build_object('batch_id',$4::uuid,'item_index',$5::integer))`, state.HouseholdID, userID, tid, batchID, i); err != nil {

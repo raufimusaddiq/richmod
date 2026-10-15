@@ -104,6 +104,17 @@ The canonical review_item must remain resolvable even if no review_request exist
 
 ## Projection creation
 
+### Issue #349: honest review entry and batch notes
+
+`OTHER_FINANCIAL_DOCUMENT` retains its classification and source evidence as
+`CLASSIFIED`/`PROCESSED`. No supported extractor/resolver exists for that type,
+so it does not claim `NEEDS_REVIEW` or create a financial transaction. This does
+not reclassify or repair existing production records.
+
+Accepted batch notes travel in the existing pending item, displayed confirmation
+facts, proposal, and canonical transaction through both finalizers. Legacy
+pending items without a note retain their prior empty-note behavior.
+
 A canonical review producer SHOULD NOT need Telegram-specific code.
 
 Preferred shape:

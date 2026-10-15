@@ -160,9 +160,6 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 	}
 	// Confidence is stored for audit/telemetry, not used as semantic authority.
 	documentStatus, sourceStatus := "CLASSIFIED", "PROCESSED"
-	if result.DocumentType == "OTHER_FINANCIAL_DOCUMENT" {
-		documentStatus, sourceStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
-	}
 	if result.DocumentType == "NON_FINANCIAL_OR_UNSUPPORTED" {
 		documentStatus, sourceStatus = "CLASSIFIED", "IGNORED"
 	}
