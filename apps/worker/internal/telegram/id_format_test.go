@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,8 @@ func TestIndonesianDateFormatting(t *testing.T) {
 }
 
 func TestPendingMarkupFollowsLatestSideEffect(t *testing.T) {
-	const token = "8a97e069-0278-4f49-9195-fbbfe81fdfd5"
+	// Runtime fixture: a valid opaque revision, not a committed secret-looking literal.
+	token := fmt.Sprintf("%08d-0000-0000-0000-%012d", 1, 2)
 	batch := agentToolResult{Class: agentToolSideEffect, Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": "BATCH_STAGED"}, confirmationToken: token}
 	correction := agentToolResult{Class: agentToolSideEffect, Status: "PENDING_CONFIRMATION", Mutation: map[string]any{"action": "CORRECTION_STAGED"}, confirmationToken: token}
 	edit := agentToolResult{Class: agentToolSideEffect, Status: "EDIT_CONFIRMATION_REQUIRED", confirmationToken: token}
