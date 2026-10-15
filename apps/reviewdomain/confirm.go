@@ -157,9 +157,6 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 			return result, err
 		}
 	}
-	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID); err != nil {
-		return result, err
-	}
 	if merchantID != nil {
 		result.MerchantID = *merchantID
 	}
@@ -167,7 +164,7 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		result.CategoryID = *categoryID
 	}
 	if !cmd.ResolveReview {
-		return result, nil
+		return result, RefreshTransactionLifecycle(ctx, tx, cmd.TransactionID)
 	}
 	action := cmd.Action
 	if action == "" {

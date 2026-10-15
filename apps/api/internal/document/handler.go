@@ -239,13 +239,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.pool.Query(r.Context(), `
 		SELECT d.id,d.document_type,d.status,a.media_type,a.byte_size,a.width,a.height,d.created_at,
-		       s.source_type,x.confidence::text,x.output_json,COALESCE(linked.transaction_ids,'{}'::text[]),COALESCE(linked.needs_review,false)
+		       s.source_type,x.confidence::text,x.output_json,COALESCE(linked.transaction_ids,'{}'::text[]),d.status='NEEDS_REVIEW'
 		FROM document d
 		JOIN attachment a ON a.id=d.attachment_id
 		JOIN source_event s ON s.id=d.source_event_id
 		LEFT JOIN LATERAL (SELECT confidence,output_json FROM document_extraction WHERE document_id=d.id ORDER BY created_at DESC LIMIT 1) x ON true
 		LEFT JOIN LATERAL (
-			SELECT array_agg(DISTINCT t.id::text) AS transaction_ids,bool_or(t.status='NEEDS_REVIEW') AS needs_review
+			SELECT array_agg(DISTINCT t.id::text) AS transaction_ids
 			FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id
 			WHERE te.source_event_id=d.source_event_id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'
 		) linked ON true

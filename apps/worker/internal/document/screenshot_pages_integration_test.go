@@ -104,6 +104,15 @@ func TestScreenshotExtractionReadsEveryPage(t *testing.T) {
 			if transactions != want || proposals != want || linked != want {
 				t.Fatalf("transactions=%d proposals=%d linked=%d want=%d", transactions, proposals, linked, want)
 			}
+			if mode == "telegram_album" {
+				var unfinished int
+				if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM document_page dp JOIN source_event s ON s.id=dp.source_event_id WHERE dp.document_id=$1 AND s.processing_status<>'PROCESSED'`, f.documentID).Scan(&unfinished); err != nil {
+					t.Fatal(err)
+				}
+				if unfinished != 0 {
+					t.Fatalf("album has %d unfinished sources after successful extraction", unfinished)
+				}
+			}
 		})
 	}
 }

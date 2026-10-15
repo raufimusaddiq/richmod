@@ -66,7 +66,7 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			}
 			id = cmd.CandidateID
 			if kind == "UNCLASSIFIED" || status == "NEEDS_REVIEW" {
-				if err := FinalizeTransferReviewLifecycle(ctx, tx, cmd.HouseholdID, cmd.ActorUserID, id, "TRANSFER", "ACCEPTED", "PROCESSED", nil, "TRANSFER_RECONCILED", "TRANSFER_RECONCILED"); err != nil {
+				if err := FinalizeTransferReviewLifecycle(ctx, tx, cmd.HouseholdID, cmd.ActorUserID, id, "TRANSFER", "ACCEPTED", nil, "TRANSFER_RECONCILED", "TRANSFER_RECONCILED"); err != nil {
 					return "", err
 				}
 			}

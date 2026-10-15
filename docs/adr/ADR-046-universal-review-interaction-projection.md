@@ -174,6 +174,14 @@ records are automatically repaired or inferred.
 
 ## Partial resolution
 
+### Issue #349: aggregate lifecycle
+
+Review completion derives source/document state from all active evidence,
+transaction and proposal siblings, and open canonical reviews. Completing one
+row cannot settle its unresolved siblings. All album page sources settle with
+their shared document. Web and Telegram use the same aggregate; the documents
+API reports that stored aggregate, including proposal-only reviews.
+
 A review may remain open after one residual fact is supplied.
 
 The shared resolver returns an updated decision/residual state.

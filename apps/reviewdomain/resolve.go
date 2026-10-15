@@ -89,8 +89,10 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 		return err
 	}
 	rows.Close()
-	_, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID)
-	return err
+	if _, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID); err != nil {
+		return err
+	}
+	return RefreshTransactionLifecycle(ctx, tx, cmd.SubjectID)
 }
 
 // ResolveByID completes one exact review item after locking and validating its
@@ -139,6 +141,8 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved
 	}
-	_, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{itemID})
-	return err
+	if _, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{itemID}); err != nil {
+		return err
+	}
+	return RefreshTransactionLifecycle(ctx, tx, subjectID)
 }

@@ -277,6 +277,9 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','CREATE_PAYSLIP_REVIEW','document',$2,jsonb_build_object('review_type',$3::text,'proposal_id',$4::uuid))`, householdID, documentID, reviewType, proposalID); err != nil {
 			return err
 		}
+		if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, sourceID); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	if !autoConfirm {
@@ -286,6 +289,9 @@ func (p *Processor) persistPayslip(ctx context.Context, documentID, householdID,
 		return err
 	}
 	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, payslipRecordedNotice(value.Employer, value.NetPay)); err != nil {
+		return err
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

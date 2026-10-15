@@ -131,10 +131,7 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	} else if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, at, cmd.UserID); err != nil {
 		return result, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE id=$1`, source); err != nil {
-		return result, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE document SET status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'EXTRACTED' END,updated_at=now() WHERE id=$2`, source, document); err != nil {
+	if err := RefreshSourceLifecycle(ctx, tx, source); err != nil {
 		return result, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'SET_SCREENSHOT_AMOUNT','transaction',$4,jsonb_build_object('review_item_id',$5::uuid,'proposal_id',$6::uuid,'needs_duplicate_review',$7::boolean))`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, result.TransactionID, cmd.ReviewItemID, cmd.ProposalID, duplicate)
@@ -171,10 +168,7 @@ func IgnoreMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmou
 	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE id=$1 AND household_id=$2`, source, cmd.HouseholdID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE document SET status=CASE WHEN EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'EXTRACTED' END,updated_at=now() WHERE id=$2 AND household_id=$3 AND source_event_id=$1`, source, document, cmd.HouseholdID); err != nil {
+	if err := RefreshSourceLifecycle(ctx, tx, source); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'IGNORE_SCREENSHOT_AMOUNT','transaction_proposal',$4,'{}'::jsonb)`, cmd.HouseholdID, cmd.ActorType, cmd.UserID, cmd.ProposalID)

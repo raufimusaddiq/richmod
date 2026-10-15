@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/blob"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
@@ -291,6 +292,9 @@ func (p *Processor) Process(ctx context.Context, documentID string) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json,max_attempts) VALUES ('PROCESS_TRANSACTION_SCREENSHOT',jsonb_build_object('document_id',$1::uuid),5)`, documentID); err != nil {
 			return err
 		}
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, sourceID); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

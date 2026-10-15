@@ -106,11 +106,7 @@ func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (Salar
 // as extracted. Both surfaces performed this after a confirmed document-backed
 // review; keeping it here avoids two divergent status filters.
 func PromoteEvidenceDocuments(ctx context.Context, tx pgx.Tx, transactionID string) error {
-	_, err := tx.Exec(ctx, `UPDATE document d SET status='EXTRACTED',updated_at=now()
-		WHERE d.status='NEEDS_REVIEW' AND d.id IN (
-			SELECT NULLIF(te.metadata_json->>'document_id','')::uuid FROM transaction_evidence te
-			WHERE te.transaction_id=$1 AND te.metadata_json ? 'document_id')`, transactionID)
-	return err
+	return RefreshTransactionLifecycle(ctx, tx, transactionID)
 }
 
 // PayslipFacts reads the employer and payroll period from the payslip evidence
