@@ -56,7 +56,7 @@ func TestScreenshotExtractionReadsEveryPage(t *testing.T) {
 				pages = pages[:1]
 			}
 			for i, page := range pages {
-				ref := fmt.Sprintf("synthetic/page-%d.jpg", i)
+				ref := fmt.Sprintf("synthetic/%s/page-%d.jpg", f.documentID, i)
 				if mode != "unreadable_secondary" || i == 0 {
 					if err := storage.Put(ctx, ref, []byte(page), "image/jpeg"); err != nil {
 						t.Fatal(err)
