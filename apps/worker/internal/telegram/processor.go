@@ -405,10 +405,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 	status := "CANCELLED"
 	msg := "Pencatatan daftar transaksi dibatalkan."
 	if confirm {
-		var items []struct {
-			Type, Amount, Merchant, CategorySlug, Description string
-			TransactionAt                                     time.Time
-		}
+		var items []agentPendingBatchItem
 		if err = json.Unmarshal([]byte(raw), &items); err != nil {
 			return true, err
 		}
@@ -455,10 +452,10 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 			}
 			prop := fmt.Sprintf("batch-%d", i)
 			var pid, tid string
-			if err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,confidence,proposal_status) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),$3,$4,$5,'IDR',$6,NULLIF($7,''),$8,NULLIF($9,''),1,'ACCEPTED') RETURNING id`, householdID, batchID, prop, v.Type, v.Amount, v.TransactionAt, v.Merchant, cat, v.Description).Scan(&pid); err != nil {
+			if err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,note,confidence,proposal_status) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),$3,$4,$5,'IDR',$6,NULLIF($7,''),$8,NULLIF($9,''),NULLIF($10,''),1,'ACCEPTED') RETURNING id`, householdID, batchID, prop, v.Type, v.Amount, v.TransactionAt, v.Merchant, cat, v.Description, v.Note).Scan(&pid); err != nil {
 				return true, err
 			}
-			if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,'CONFIRMED',$3,'IDR',$4,$5,NULLIF($6,''),NULLIF($7,''),1,1,$8,now()) RETURNING id`, householdID, v.Type, v.Amount, v.TransactionAt, cat, v.Description, v.Merchant, userID).Scan(&tid); err != nil {
+			if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,note,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,'CONFIRMED',$3,'IDR',$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),1,1,$9,now()) RETURNING id`, householdID, v.Type, v.Amount, v.TransactionAt, cat, v.Description, v.Note, v.Merchant, userID).Scan(&tid); err != nil {
 				return true, err
 			}
 			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CONFIRM_PENDING_BATCH','transaction',$3,jsonb_build_object('batch_id',$4::uuid,'item_index',$5::integer))`, householdID, userID, tid, batchID, i); err != nil {

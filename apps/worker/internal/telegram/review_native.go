@@ -185,6 +185,16 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		ResolveReview: false,
 	})
 	if err != nil {
+		var missing *reviewdomain.ErrMissingFacts
+		if errors.As(err, &missing) {
+			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_FACTS','transaction',$3)`, householdID, userID, transactionID); err != nil {
+				return err
+			}
+			return refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update)
+		}
+		if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
+			return enqueueReply(ctx, tx, update, "Pilih kategori rumah tangga yang masih aktif.")
+		}
 		return err
 	}
 	merchantID = &confirmResult.MerchantID
@@ -192,7 +202,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		merchantID = nil
 	}
 	// A confirmed review also completes the document workflow (ADR-046: shared op).
-	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, transactionID); err != nil {
+	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, householdID, transactionID); err != nil {
 		return err
 	}
 	if value.PayDate != "" {
@@ -213,7 +223,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 			}
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, transactionID); err != nil {
+	if err := reviewdomain.RefreshTransactionLifecycle(ctx, tx, householdID, transactionID); err != nil {
 		return err
 	}
 	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""

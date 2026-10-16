@@ -254,10 +254,15 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 // rendered now.
 func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID string, replyTo int64, message string, originatingChatID int64) error {
 	var reviewID, reviewType, transactionID, documentID, status string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),review_type,COALESCE(document_id::text,''),status FROM review_item WHERE id=$1 AND household_id=$2`, itemID, householdID).Scan(&transactionID, &reviewType, &documentID, &status); err != nil {
+	var observationBacked bool
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,''),review_type,COALESCE(document_id::text,''),status,financial_email_observation_id IS NOT NULL FROM review_item WHERE id=$1 AND household_id=$2`, itemID, householdID).Scan(&transactionID, &reviewType, &documentID, &status, &observationBacked); err != nil {
 		return err
 	}
 	if status != "OPEN" && status != "PENDING_SEND" {
+		return nil
+	}
+	// This observation resolver exists in Web, not the transaction-bound callbacks.
+	if observationBacked && reviewType == "TRANSFER_CLASSIFICATION" && transactionID == "" {
 		return nil
 	}
 	// The document action handler requires an actual document binding. Bank

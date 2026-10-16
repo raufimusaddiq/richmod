@@ -104,7 +104,7 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 			categoryID = &selected
 		}
 	}
-	if kind == "EXPENSE" && categoryID == nil && cmd.ReviewType != "POSSIBLE_DUPLICATE" {
+	if kind == "EXPENSE" && categoryID == nil {
 		return result, ErrMissingCategory
 	}
 	if len(cmd.Blocked) > 0 {
@@ -112,6 +112,25 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	}
 	if kind == "UNCLASSIFIED" {
 		return result, ErrTransferClassificationRequired
+	}
+	relationship := "DISTINCT"
+	if kind == "INCOME" {
+		relationship = "INCOME"
+	}
+	if kind == "TRANSFER" {
+		// A date/category continuation must not replace the accepted transfer choice.
+		relationship = ""
+	}
+	facts := ReviewFacts{HouseholdID: cmd.HouseholdID, TransactionID: cmd.TransactionID, TransactionAt: cmd.TransactionAt, Relationship: relationship}
+	if cmd.CategorySupplied {
+		facts.CategoryID = cmd.CategoryID
+	}
+	remaining, err := ApplyTransactionReviewFacts(ctx, tx, facts)
+	if err != nil {
+		return result, err
+	}
+	if len(remaining) > 0 {
+		return result, &ErrMissingFacts{Facts: remaining}
 	}
 	merchantName := cleanText(cmd.MerchantName, 160)
 	if merchantName != "" {
@@ -127,11 +146,6 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 	_, err = tx.Exec(ctx, "UPDATE transaction SET status='CONFIRMED',category_id=$2,merchant_id=COALESCE($5::uuid,merchant_id),description=COALESCE(NULLIF($3,''),description),note=COALESCE(NULLIF($4,''),note),transaction_at=COALESCE($6,transaction_at),confirmed_at=now(),voided_at=NULL,updated_at=now() WHERE id=$1 AND status='NEEDS_REVIEW'", cmd.TransactionID, categoryID, cleanText(cmd.Description, 500), cleanText(cmd.Note, 1000), merchantID, cmd.TransactionAt)
 	if err != nil {
 		return result, err
-	}
-	if cmd.TransactionAt != nil {
-		if _, err := tx.Exec(ctx, "UPDATE transaction_proposal SET transaction_at=$2,metadata_json=metadata_json||'{\"date_known\":true,\"date_source\":\"USER\"}'::jsonb,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id' AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID, cmd.TransactionAt); err != nil {
-			return result, err
-		}
 	}
 	var confirmedAt time.Time
 	if err := tx.QueryRow(ctx, `SELECT transaction_at FROM transaction WHERE id=$1`, cmd.TransactionID).Scan(&confirmedAt); err != nil {
@@ -157,9 +171,6 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 			return result, err
 		}
 	}
-	if _, err := tx.Exec(ctx, "UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE' AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1 AND COALESCE(metadata_json->>'link_status','ACTIVE')='ACTIVE')", cmd.TransactionID); err != nil {
-		return result, err
-	}
 	if merchantID != nil {
 		result.MerchantID = *merchantID
 	}
@@ -167,7 +178,7 @@ func ConfirmTransactionReview(ctx context.Context, tx pgx.Tx, cmd ConfirmCommand
 		result.CategoryID = *categoryID
 	}
 	if !cmd.ResolveReview {
-		return result, nil
+		return result, RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, cmd.TransactionID)
 	}
 	action := cmd.Action
 	if action == "" {

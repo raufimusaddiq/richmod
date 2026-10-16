@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -334,6 +335,9 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, receiptRecordedNotice(value.Merchant, value.Total)); err != nil {
 		return err
 	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -425,6 +429,9 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 		return err
 	}
 	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, receiptLinkedNotice(value.Merchant, value.Total)); err != nil {
+		return err
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -533,6 +540,9 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 		return err
 	}
 	if err := p.projectDocumentReview(ctx, tx, householdID, sourceID, reviewItemID); err != nil {
+		return err
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

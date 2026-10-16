@@ -353,12 +353,20 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "expense category is required"})
 		return
 	}
+	if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "choose an active household category", "missingFacts": []string{"category"}})
+		return
+	}
 	if errors.Is(err, reviewdomain.ErrMerchantRequiredForLearning) {
 		writeJSON(w, 400, map[string]string{"error": "merchant is required to remember a category"})
 		return
 	}
 	var missing *reviewdomain.ErrMissingFacts
 	if errors.As(err, &missing) {
+		if err := audit(r.Context(), tx, household, p.UserID, "UPDATE_REVIEW_FACTS", id, map[string]any{"missingFacts": missing.Facts}); err != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to save review facts"})
+			return
+		}
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": missing.Facts})
 		return
 	}
@@ -395,6 +403,7 @@ type transferClassificationInput struct {
 	Institution     string  `json:"institution"`
 	DisplayName     string  `json:"displayName"`
 	MatchHint       string  `json:"matchHint"`
+	TransactionAt   *string `json:"transactionAt"`
 }
 
 func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
@@ -408,6 +417,11 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Classification = strings.ToUpper(strings.TrimSpace(input.Classification))
+	suppliedAt, err := parseReviewDate(input.TransactionAt)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid transaction date"})
+		return
+	}
 	input.Institution = clean(&input.Institution, 120)
 	input.DisplayName = clean(&input.DisplayName, 160)
 	input.MatchHint = clean(&input.MatchHint, 80)
@@ -431,8 +445,13 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 		HouseholdID: household, ActorUserID: p.UserID, TransactionID: id,
 		Classification: input.Classification, CategoryID: stringValue(input.CategoryID),
 		WealthAccountID: stringValue(input.WealthAccountID), Action: "CLASSIFY_TRANSFER",
+		TransactionAt: suppliedAt,
 	})
+	var missing *reviewdomain.ErrMissingFacts
 	switch {
+	case errors.As(err, &missing):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": missing.Facts})
+		return
 	case errors.Is(err, reviewdomain.ErrTransferNotFound):
 		writeJSON(w, 404, map[string]string{"error": "transfer review not found"})
 		return

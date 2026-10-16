@@ -60,7 +60,7 @@ func (p *Processor) agentRejectTransactionReview(ctx context.Context, state *age
 	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='CONFIRMED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, review.transactionID); err != nil {
+	if err = reviewdomain.RefreshTransactionLifecycle(ctx, tx, state.HouseholdID, review.transactionID); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
@@ -200,7 +200,13 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 		result.Mutation = map[string]any{"action": "REVIEW_DETAIL_SAVED_AND_CONFIRMED", "field": field, "value": value}
 		return result, true, nil
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
+	if field == "transaction_at" && review.messageID != 0 {
+		original := state.Update
+		original.Message.MessageID = review.messageID
+		if err = refreshReviewFactsProjection(ctx, tx, state.HouseholdID, review.reviewID, original); err != nil {
+			return result, true, err
+		}
+	} else if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
 		return result, true, err
 	}
 	if field == "merchant" && review.messageID != 0 {
@@ -233,6 +239,20 @@ func (p *Processor) agentConfirmTransactionReview(ctx context.Context, state *ag
 	if err = p.agentConfirmReviewTx(ctx, tx, state, review, categoryID, value, userID); err != nil {
 		var residual errReviewResidualFactsRequired
 		if errors.As(err, &residual) {
+			original := state.Update
+			original.Message.MessageID = review.messageID
+			if err = refreshReviewFactsProjection(ctx, tx, state.HouseholdID, review.reviewID, original); err != nil {
+				return result, true, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1 AND household_id=$2`, state.SourceEventID, state.HouseholdID); err != nil {
+				return result, true, err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'UPDATE_REVIEW_FACTS','transaction',$3)`, state.HouseholdID, userID, review.transactionID); err != nil {
+				return result, true, err
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return result, true, err
+			}
 			result.Status = "RESIDUAL_FACTS_REQUIRED"
 			result.Review = map[string]any{"required": true, "review_type": review.reviewType, "missing_fields": residual.facts}
 			return result, true, nil
@@ -291,6 +311,13 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		ResolveReview: false,
 	})
 	if err != nil {
+		var missing *reviewdomain.ErrMissingFacts
+		if errors.As(err, &missing) {
+			return errReviewResidualFactsRequired{facts: missing.Facts}
+		}
+		if errors.Is(err, reviewdomain.ErrInvalidCandidate) {
+			return errReviewResidualFactsRequired{facts: []string{"category"}}
+		}
 		return err
 	}
 	if confirmResult.MerchantID != "" {
@@ -298,7 +325,7 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 	}
 	// A confirmed review also completes the document workflow and any payslip
 	// salary recording, both through the shared operations.
-	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, review.transactionID); err != nil {
+	if err := reviewdomain.PromoteEvidenceDocuments(ctx, tx, state.HouseholdID, review.transactionID); err != nil {
 		return err
 	}
 	if value.PayDate != "" {
@@ -316,7 +343,7 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 			}
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event s SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM transaction_evidence te JOIN transaction other_t ON other_t.id=te.transaction_id WHERE te.source_event_id=s.id AND other_t.status='NEEDS_REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END WHERE s.id IN (SELECT source_event_id FROM transaction_evidence WHERE transaction_id=$1)`, review.transactionID); err != nil {
+	if err := reviewdomain.RefreshTransactionLifecycle(ctx, tx, state.HouseholdID, review.transactionID); err != nil {
 		return err
 	}
 	askRemember := merchantID != nil && categoryID != ""
@@ -393,7 +420,14 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		Action: "TELEGRAM_TRANSFER_CLASSIFIED", Classification: classification,
 		CategoryID: categoryID, WealthAccountID: wealthID,
 	})
-	if err != nil {
+	var missing *reviewdomain.ErrMissingFacts
+	if errors.As(err, &missing) && transfer.Status == "NEEDS_REVIEW" {
+		original := state.Update
+		original.Message.MessageID = review.messageID
+		if err = refreshReviewFactsProjection(ctx, tx, state.HouseholdID, review.reviewID, original); err != nil {
+			return result, true, err
+		}
+	} else if err != nil {
 		if errors.Is(err, reviewdomain.ErrInvestmentAccountAmbiguous) {
 			_ = tx.Rollback(ctx)
 			if err := p.offerInvestmentChooser(ctx, state.SourceEventID, state.HouseholdID, review.reviewID, review.transactionID, state.Update); err != nil {
@@ -417,7 +451,7 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		}
 		return result, true, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state=CASE WHEN $2='NEEDS_REVIEW' THEN state ELSE 'RESOLVED' END,last_message_at=now(),updated_at=now() WHERE review_request_id=$1`, review.reviewID, transfer.Status); err != nil {
 		return result, true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
@@ -433,6 +467,10 @@ func (p *Processor) agentResolveTransferClassification(ctx context.Context, stat
 		return result, true, err
 	}
 	result.Status = "RESOLVED"
+	if transfer.Status == "NEEDS_REVIEW" {
+		result.Status = "NEEDS_REVIEW"
+		result.Review = map[string]any{"required": true, "missing_fields": missing.Facts}
+	}
 	result.Mutation = map[string]any{"action": "REVIEW_TRANSFER_CLASSIFIED", "classification": classification, "transaction_type": transfer.Type, "status": transfer.Status, "purpose": transfer.Purpose}
 	return result, true, nil
 }

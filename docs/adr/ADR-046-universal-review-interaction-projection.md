@@ -104,6 +104,17 @@ The canonical review_item must remain resolvable even if no review_request exist
 
 ## Projection creation
 
+### Issue #349: honest review entry and batch notes
+
+`OTHER_FINANCIAL_DOCUMENT` retains its classification and source evidence as
+`CLASSIFIED`/`PROCESSED`. No supported extractor/resolver exists for that type,
+so it does not claim `NEEDS_REVIEW` or create a financial transaction. This does
+not reclassify or repair existing production records.
+
+Accepted batch notes travel in the existing pending item, displayed confirmation
+facts, proposal, and canonical transaction through both finalizers. Legacy
+pending items without a note retain their prior empty-note behavior.
+
 A canonical review producer SHOULD NOT need Telegram-specific code.
 
 Preferred shape:
@@ -139,6 +150,14 @@ Telegram interaction capability exists.
 
 ## Candidate safety
 
+### Issue #349: subject-specific transfer controls
+
+Incoming transaction-backed relationship reviews use the transfer card in Web,
+offering income, own account, household account and ignore only. Observation-
+backed financial-email transfer classification remains actionable in Web; it
+does not project Telegram's transaction-only callbacks. Missing transaction
+subjects never receive the generic outgoing-transfer keyboard.
+
 Categories, accounts, Wealth Accounts, duplicate candidates, and other bounded
 choices are server-owned.
 
@@ -173,6 +192,46 @@ Existing pending prompts must be staged again after upgrade; no financial
 records are automatically repaired or inferred.
 
 ## Partial resolution
+
+### Issue #349: category/date residuals
+
+Duplicate and transfer relationships coexist with missing category/date facts;
+a relationship choice cannot erase them. The shared review boundary persists
+accepted facts, proposal provenance (`date_known=true`, `date_source=USER`) and
+the reduced decision atomically. It also checks persisted fallback provenance,
+so an older incomplete decision cannot authorize the received-at fallback.
+Expense confirmation always requires a category. Telegram refreshes the active
+card after a partial answer. Transfer classification accepts a validated
+`transactionAt` date through the same boundary; ignore does not require a date.
+
+Transfer classification validates category/Wealth Account choices before
+residual-fact handling. An expense choice without a category retains its HTTP
+400 contract, rather than becoming a residual-facts 409. A validated partial
+classification returns `ErrMissingFacts` with transaction/proposal state still
+`NEEDS_REVIEW`; Telegram commits that same transaction, including the selected
+type, purpose, account/category and relationship evidence. Date-only completion
+confirms the persisted classification, never defaults a transfer back to income
+or overwrites its accepted relationship with a generic confirm choice. It
+revalidates retained categories and Wealth Account compatibility in the shared
+residual boundary before final confirmation. An inactive retained choice becomes
+an explicit `category` or `wealth_account` residual, never a 500 or job failure.
+Both surfaces retain accepted facts while re-asking only the invalid candidate;
+Web returns 409 and reloads the reduced contract, Telegram refreshes its bound
+card. Replacing an account on an open TRANSFER uses the same classifier and must
+preserve its asset-purchase/investment purpose; the replacement must be active,
+compatible and household-owned. No automatic candidate choice or reactivation
+occurs. First-payslip policy choice precedes date entry when both remain pending.
+
+### Issue #349: aggregate lifecycle
+
+Review completion derives source/document state from all active evidence,
+transaction and proposal siblings, and open canonical reviews. Completing one
+row cannot settle its unresolved siblings. All album page sources settle with
+their shared document. Web and Telegram use the same aggregate; the documents
+API reports that stored aggregate, including proposal-only reviews.
+The aggregate requires an explicit household throughout source/document/page
+expansion and transaction refresh; foreign IDs or page links cannot settle a
+different household's lifecycle.
 
 A review may remain open after one residual fact is supplied.
 

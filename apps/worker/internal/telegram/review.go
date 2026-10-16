@@ -71,6 +71,8 @@ func reviewNeedsFactsMessage(facts []string) string {
 			labels = append(labels, "kategori")
 		case "merchant":
 			labels = append(labels, "merchant")
+		case "wealth_account":
+			labels = append(labels, "akun kekayaan aktif")
 		}
 	}
 	return "Masih perlu " + strings.Join(labels, " dan ") + ". Balas pesan ini (Reply) dengan detail tersebut untuk menyelesaikan tinjauan."
@@ -102,18 +104,16 @@ func parseSuppliedReviewDate(value string) (*string, error) {
 // through the canonical operation and reports completed, so no resolved review is
 // left behind an open transaction.
 func (p *Processor) applyReviewTransactionDate(ctx context.Context, tx pgx.Tx, householdID, userID, reviewID, transactionID, date string) (bool, error) {
-	if _, err := tx.Exec(ctx, `UPDATE transaction SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id=$1 AND household_id=$3 AND status='NEEDS_REVIEW'`, transactionID, date, householdID); err != nil {
-		return false, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE transaction_proposal SET transaction_at=$2::date::timestamptz,updated_at=now() WHERE id IN (SELECT NULLIF(metadata_json->>'proposal_id','')::uuid FROM transaction_evidence WHERE transaction_id=$1 AND metadata_json ? 'proposal_id')`, transactionID, date); err != nil {
-		return false, err
-	}
-	if reviewNeedsCategory(ctx, tx, reviewID) || !p.transactionConfirmableWithoutCategory(ctx, tx, transactionID) {
-		return false, nil
-	}
 	dateAt, err := time.ParseInLocation("2006-01-02", date, jakartaLocation())
 	if err != nil {
 		return false, err
+	}
+	remaining, err := reviewdomain.ApplyTransactionReviewFacts(ctx, tx, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID, TransactionAt: &dateAt})
+	if err != nil {
+		return false, err
+	}
+	if len(remaining) > 0 {
+		return false, nil
 	}
 	if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
@@ -296,8 +296,8 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Tombol tinjauan ini sudah kedaluwarsa. Buka Kotak Tinjauan untuk melanjutkan.")
 	}
 	// Only the transfer buttons reach this point (see Process). They answer a
-	// transfer-relationship review; on any other review they are not handled here.
-	if missingFactsJSON == nil || !reviewRequiresFact(*missingFactsJSON, "transfer_relationship") {
+	// relationship or retained-account review; all other cards leave this lane.
+	if missingFactsJSON == nil || !(reviewRequiresFact(*missingFactsJSON, "transfer_relationship") || reviewRequiresFact(*missingFactsJSON, "wealth_account")) {
 		return false, nil
 	}
 	if update.CallbackQuery.Data == "review:asset" {
@@ -433,6 +433,22 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		}
 		// ADR-046: confirming the duplicate as a distinct event is the canonical
 		// transaction confirm, not a Telegram-specific status update.
+		remaining, err := reviewdomain.ApplyTransactionReviewFacts(ctx, tx, reviewdomain.ReviewFacts{HouseholdID: householdID, TransactionID: transactionID, Relationship: "DISTINCT"})
+		if err != nil {
+			return true, err
+		}
+		if len(remaining) > 0 {
+			if err := refreshReviewFactsProjection(ctx, tx, householdID, reviewID, update); err != nil {
+				return true, err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id) VALUES($1,'TELEGRAM',$2,'REVIEW_DISTINCT_EVENT','transaction',$3)`, householdID, userID, transactionID); err != nil {
+				return true, err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceEventID); err != nil {
+				return true, err
+			}
+			return true, tx.Commit(ctx)
+		}
 		if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 			HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 			ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
@@ -773,14 +789,21 @@ func reviewActionMarkupPage(ctx context.Context, tx pgx.Tx, reviewID, reviewType
 		// the household's own money moving between accounts, while an unclassified
 		// transfer allows every choice. Offering an invalid button would only
 		// produce a stale-action reply, so the keyboard follows the subject.
-		var kind string
-		if tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind) == nil {
-			switch kind {
-			case "EXPENSE":
-				return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}, {Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
-			case "INCOME":
-				return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Penghasilan", CallbackData: "review:income"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+		var kind, purpose string
+		if tx.QueryRow(ctx, `SELECT t.type,t.purpose FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&kind, &purpose) != nil {
+			return nil
+		}
+		switch kind {
+		case "TRANSFER":
+			choice := InlineKeyboardButton{Text: "Pilih akun pembelian aset", CallbackData: "review:asset"}
+			if purpose == "INVESTMENT_CONTRIBUTION" {
+				choice = InlineKeyboardButton{Text: "Pilih akun investasi", CallbackData: "review:investment"}
 			}
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{choice}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+		case "EXPENSE":
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}, {Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+		case "INCOME":
+			return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Penghasilan", CallbackData: "review:income"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Abaikan", CallbackData: "review:ignore"}}}}
 		}
 		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Pengeluaran", CallbackData: "review:expense"}}, {{Text: "Beli aset", CallbackData: "review:asset"}}, {{Text: "Rekening sendiri", CallbackData: "review:own"}, {Text: "Household", CallbackData: "review:household"}}, {{Text: "Kontribusi investasi", CallbackData: "review:investment"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
 	}

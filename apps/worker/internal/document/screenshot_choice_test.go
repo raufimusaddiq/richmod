@@ -51,6 +51,9 @@ func TestScreenshotDuplicateUsesSharedReviewContract(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing shared preset for %s", reason)
 		}
+		if reason == "POSSIBLE_DUPLICATE" {
+			want.MissingFacts = append(want.MissingFacts, "category")
+		}
 		if got.ReasonCode != reason || got.DecisionClass != want.DecisionClass || got.InteractionMode != want.InteractionMode || !reflect.DeepEqual(got.MissingFacts, want.MissingFacts) || !reflect.DeepEqual(got.AllowedActions, want.AllowedActions) {
 			t.Fatalf("screenshot %s must use the shared contract: got=%+v want=%+v", reason, got, want)
 		}
@@ -67,7 +70,8 @@ func TestScreenshotReviewDecisionNamesOnlyResidualFacts(t *testing.T) {
 		{"category and date", "TRANSACTION_FACTS_MISSING", validatedScreenshotRow{Type: "EXPENSE"}, []string{"category", "transaction_at"}},
 		{"category conflict and date", "AMBIGUOUS_CATEGORY", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryConflict: true}, []string{"category"}},
 		{"category conflict and missing date", "TRANSACTION_FACTS_MISSING", validatedScreenshotRow{Type: "EXPENSE", CategoryConflict: true}, []string{"category", "transaction_at"}},
-		{"duplicate takes priority", "POSSIBLE_DUPLICATE", validatedScreenshotRow{Type: "EXPENSE"}, []string{"duplicate_relationship"}},
+		{"duplicate retains facts", "POSSIBLE_DUPLICATE", validatedScreenshotRow{Type: "EXPENSE"}, []string{"duplicate_relationship", "category", "transaction_at"}},
+		{"incoming retains date", "TRANSFER_CLASSIFICATION", validatedScreenshotRow{Type: "INCOME"}, []string{"transfer_relationship", "transaction_at"}},
 		{"missing amount only", "MISSING_AMOUNT", validatedScreenshotRow{Type: "EXPENSE", DateKnown: true, CategoryID: ptr("food"), CategoryDecided: true, Value: screenshotRow{CategorySlug: ptr("food")}}, []string{"amount"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

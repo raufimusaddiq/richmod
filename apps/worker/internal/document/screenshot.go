@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/merchantmemory"
@@ -438,6 +439,9 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','PROCESS_TRANSACTION_SCREENSHOT','source_event',$2,jsonb_build_object('document_id',$3::uuid,'document_type',$4::text,'row_count',$5::integer,'needs_review',$6::boolean,'auto_confirmed_rows',$7::integer,'linked_rows',$8::integer,'review_rows',$9::integer,'category_policy_version',$10::text))`, householdID, sourceID, documentID, documentType, len(rows), needsReview, recorded, linked, pending, provenance.PolicyVersion); err != nil {
+		return err
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
