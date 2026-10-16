@@ -452,7 +452,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 			HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 			ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
-			Action: "TELEGRAM_CONFIRM_AS_NEW", ReviewType: "POSSIBLE_DUPLICATE", ResolveReview: true,
+			Action: "TELEGRAM_CONFIRM_AS_NEW", ResolveReview: true,
 		}); err != nil {
 			return true, err
 		}

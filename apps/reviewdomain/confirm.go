@@ -21,10 +21,7 @@ type ConfirmCommand struct {
 	// RequestID is the exact Telegram projection identity; never substitute the
 	// review_item ID here.
 	RequestID string
-	// ReviewType scopes bounded duplicate resolution without changing the normal
-	// confirmation behavior for other transaction reviews.
-	ReviewType string
-	Action     string
+	Action    string
 	// CategorySupplied distinguishes an explicit choice from "unchanged".
 	CategorySupplied bool
 	CategoryID       string
