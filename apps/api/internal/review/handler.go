@@ -425,6 +425,10 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	input.Institution = clean(&input.Institution, 120)
 	input.DisplayName = clean(&input.DisplayName, 160)
 	input.MatchHint = clean(&input.MatchHint, 80)
+	if input.Classification == "" {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "choose a transfer classification", "missingFacts": []string{"transfer_relationship"}})
+		return
+	}
 	if input.Classification != "EXPENSE" && input.Classification != "OWN_ACCOUNT" && input.Classification != "HOUSEHOLD_ACCOUNT" && input.Classification != "INVESTMENT_ACCOUNT" && input.Classification != "ASSET_PURCHASE" && input.Classification != "IGNORE" {
 		writeJSON(w, 400, map[string]string{"error": "invalid transfer classification"})
 		return
@@ -450,6 +454,10 @@ func (h *Handler) ClassifyTransfer(w http.ResponseWriter, r *http.Request) {
 	var missing *reviewdomain.ErrMissingFacts
 	switch {
 	case errors.As(err, &missing):
+		if err := audit(r.Context(), tx, household, p.UserID, "UPDATE_REVIEW_FACTS", id, map[string]any{"classification": input.Classification, "missingFacts": missing.Facts}); err != nil || tx.Commit(r.Context()) != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to save review facts"})
+			return
+		}
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "review still has unresolved required facts", "missingFacts": missing.Facts})
 		return
 	case errors.Is(err, reviewdomain.ErrTransferNotFound):

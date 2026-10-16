@@ -23,6 +23,16 @@ function component(filename) {
 }
 
 const TransferCard = component("app/components/review/TransferCard.js").default;
+test("legacy account replacement asks for the missing classification", () => {
+  const html = renderToStaticMarkup(React.createElement(TransferCard, {
+    item: { id: "synthetic", type: "TRANSFER", missingFacts: ["wealth_account"], knownFacts: {} },
+    categories: [], wealthAccounts: [{ id: "replacement", name: "Synthetic replacement", active: true, side: "ASSET", usageRole: "INVESTMENT" }], action() {},
+  }));
+  assert.match(html, /select name="classification" required=""/);
+  assert.match(html, /value="ASSET_PURCHASE"/);
+  assert.match(html, /value="INVESTMENT_ACCOUNT"/);
+  assert.doesNotMatch(html, /Rekening sendiri|Catat sebagai penghasilan/);
+});
 for (const classification of ["ASSET_PURCHASE", "INVESTMENT_ACCOUNT"]) {
   test(`${classification} recovery offers active compatible replacements without changing classification`, () => {
     const ReviewCards = component("app/components/ReviewCards.js").default;

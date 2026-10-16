@@ -216,11 +216,17 @@ revalidates retained categories and Wealth Account compatibility in the shared
 residual boundary before final confirmation. An inactive retained choice becomes
 an explicit `category` or `wealth_account` residual, never a 500 or job failure.
 Both surfaces retain accepted facts while re-asking only the invalid candidate;
-Web returns 409 and reloads the reduced contract, Telegram refreshes its bound
-card. Replacing an account on an open TRANSFER uses the same classifier and must
+Web commits the validated partial classification and its audit in the same
+transaction before returning 409; reloading exposes newly discovered residuals
+such as a fallback-provenance date. Telegram refreshes its bound card.
+Replacing an account on an open TRANSFER uses the same classifier and must
 preserve its asset-purchase/investment purpose; the replacement must be active,
 compatible and household-owned. No automatic candidate choice or reactivation
-occurs. First-payslip policy choice precedes date entry when both remain pending.
+occurs. A legacy replacement card without a stored relationship asks for an
+explicit classification; an omitted classification returns a repairable 409
+with `missingFacts:["transfer_relationship"]`, not a generic 400. Nonempty
+invalid classifications still fail validation. First-payslip policy choice
+precedes date entry when both remain pending.
 
 ### Issue #349: aggregate lifecycle
 
@@ -228,7 +234,11 @@ Review completion derives source/document state from all active evidence,
 transaction and proposal siblings, and open canonical reviews. Completing one
 row cannot settle its unresolved siblings. All album page sources settle with
 their shared document. Web and Telegram use the same aggregate; the documents
-API reports that stored aggregate, including proposal-only reviews.
+API reports that stored aggregate, including proposal-only reviews, OR an active
+household-scoped linked transaction awaiting review. This includes a staged
+evidence dispute's explicit `disputed_document_id` link when its evidence source
+is the correction reply, not the original document. Superseded links do not
+raise the flag. No backfill or production-record repair is implied.
 The aggregate requires an explicit household throughout source/document/page
 expansion and transaction refresh; foreign IDs or page links cannot settle a
 different household's lifecycle.

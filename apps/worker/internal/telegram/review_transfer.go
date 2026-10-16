@@ -90,7 +90,7 @@ func (p *Processor) confirmIncomeTransferReview(ctx context.Context, sourceEvent
 	if _, err = reviewdomain.ConfirmTransactionReview(ctx, tx, reviewdomain.ConfirmCommand{
 		HouseholdID: householdID, ActorUserID: userID, TransactionID: transactionID,
 		ReviewItemID: pendingReviewItemID(ctx, tx, reviewID), RequestID: reviewID,
-		Action: "TELEGRAM_CONFIRMED", ReviewType: "TRANSFER_CLASSIFICATION", ResolveReview: true,
+		Action: "TELEGRAM_CONFIRMED", ResolveReview: true,
 	}); err != nil {
 		if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
 			return finishStaleReviewCallback(ctx, tx, sourceEventID, update)

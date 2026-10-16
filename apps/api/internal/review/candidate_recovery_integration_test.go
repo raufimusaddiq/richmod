@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 func TestConfirmRecoversDeactivatedPartialClassificationCandidate(t *testing.T) {
@@ -50,21 +48,6 @@ func TestConfirmRecoversDeactivatedPartialClassificationCandidate(t *testing.T) 
 				must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,side,wealth_type,usage_role) VALUES($1,'Synthetic old asset','ASSET','GOLD',$2) RETURNING id`, household, choice.role).Scan(&account))
 				category = ""
 			}
-			tx, err := pool.Begin(ctx)
-			must(err)
-			_, err = reviewdomain.ClassifyTransferReview(ctx, tx, reviewdomain.TransferCommand{HouseholdID: household, ActorUserID: user, TransactionID: transaction, Classification: choice.classification, CategoryID: category, WealthAccountID: account})
-			var missing *reviewdomain.ErrMissingFacts
-			if !errors.As(err, &missing) {
-				_ = tx.Rollback(ctx)
-				t.Fatalf("partial classification: %v", err)
-			}
-			must(tx.Commit(ctx))
-			if account != "" {
-				_, err = pool.Exec(ctx, `UPDATE wealth_account SET active=false WHERE id=$1`, account)
-			} else {
-				_, err = pool.Exec(ctx, `UPDATE category SET active=false WHERE id=$1`, category)
-			}
-			must(err)
 			handler := NewHandler(pool)
 			principal := auth.Principal{UserID: user, Memberships: []auth.Membership{{HouseholdID: household, Role: "OWNER"}}}
 			request := func(action string, values map[string]any) *httptest.ResponseRecorder {
@@ -82,7 +65,28 @@ func TestConfirmRecoversDeactivatedPartialClassificationCandidate(t *testing.T) 
 				}
 				return w
 			}
-			w := request("confirm", map[string]any{"transactionAt": "2026-10-03"})
+			initial := map[string]any{"classification": choice.classification}
+			if account != "" {
+				initial["wealthAccountId"] = account
+			} else {
+				initial["categoryId"] = category
+			}
+			w := request("classify-transfer", initial)
+			if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "transaction_at") {
+				t.Fatalf("partial classification: status=%d body=%s", w.Code, w.Body.String())
+			}
+			var storedChoice, storedCandidate string
+			must(pool.QueryRow(ctx, `SELECT COALESCE(ri.decision->'knownFacts'->>'relationship_choice',''),COALESCE(t.related_wealth_account_id::text,t.category_id::text,'') FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE t.id=$1`, transaction).Scan(&storedChoice, &storedCandidate))
+			if storedChoice != choice.classification || storedCandidate == "" || storedCandidate != account && storedCandidate != category {
+				t.Fatalf("partial answer discarded: classification=%q candidateRetained=%v", storedChoice, storedCandidate != "")
+			}
+			if account != "" {
+				_, err = pool.Exec(ctx, `UPDATE wealth_account SET active=false WHERE id=$1`, account)
+			} else {
+				_, err = pool.Exec(ctx, `UPDATE category SET active=false WHERE id=$1`, category)
+			}
+			must(err)
+			w = request("confirm", map[string]any{"transactionAt": "2026-10-03"})
 			if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), choice.fact) {
 				t.Fatalf("candidate re-ask: status=%d body=%s", w.Code, w.Body.String())
 			}
