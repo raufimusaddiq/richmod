@@ -92,6 +92,14 @@ func seedSettleFixture(t *testing.T, sizes map[string]int) *settleFixture {
 		f.item("wealth_observation_id", obs, "MANUAL_CORRECTION", "SNAPSHOT_CREATED")
 		f.groups["C"] = append(f.groups["C"], id)
 	}
+	for i := 0; i < sizes["Cbad"]; i++ {
+		// Looks like group C but a live review item points at the event itself.
+		id := f.event("TELEGRAM_IMAGE", "NEEDS_REVIEW", ptr("cloud-llm-gateway"))
+		doc := f.document(id, "WEALTH_OBSERVATION", "EXTRACTED")
+		f.exec(`INSERT INTO wealth_observation(household_id,document_id,institution,account_hint,observed_value_idr,status) VALUES($1,$2,'Fixture','x',1000,'APPLIED')`, f.household, doc)
+		f.exec(`INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'MANUAL_CORRECTION','OPEN',$3::jsonb)`, f.household, id, stuckTestDecision)
+		f.groups["Cbad"] = append(f.groups["Cbad"], id)
+	}
 	for i := 0; i < sizes["D"]; i++ {
 		id := f.event("TELEGRAM_IMAGE", "NEEDS_REVIEW", ptr("cloud-llm-gateway"))
 		f.item("document_id", f.document(id, "EWALLET_SCREENSHOT", "EXTRACTED"), "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", "IGNORE")
@@ -439,5 +447,37 @@ func TestSettleStuckSourceEventsUpRunsAfterDownSkippedADismissedEvent(t *testing
 	}
 	if stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household); err != nil || len(stuck) != 0 {
 		t.Fatalf("detection must be zero: %+v err=%v", stuck, err)
+	}
+}
+
+// An event with a live review item pointing at itself is reachable, so group C must
+// not mark it PROCESSED while that review is still open.
+func TestSettleStuckSourceEventsLeavesAnEventWithItsOwnOpenReviewAlone(t *testing.T) {
+	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1, "D": 5, "Cbad": 1})
+	f.mustMigrate("up")
+	if got := f.statuses()[f.groups["Cbad"][0]]; got != "NEEDS_REVIEW" {
+		t.Fatalf("an event with an open review of its own must be left alone, got %s", got)
+	}
+}
+
+// After the repair a worker path finishes some of these chat events for real (it
+// rewrites parser_name). A rollback must not flip those back to NEEDS_REVIEW.
+func TestSettleStuckSourceEventsDownKeepsAnEventAWorkerProcessedSince(t *testing.T) {
+	f := seedSettleFixture(t, fullSizes)
+	f.mustMigrate("up")
+	worked, untouched := f.groups["A"][0], f.groups["A"][1]
+	f.exec(`UPDATE source_event SET parser_name='telegram-conversational-agent' WHERE id=$1`, worked)
+	f.mustMigrate("down")
+	status := f.statuses()
+	if status[worked] != "PROCESSED" {
+		t.Fatalf("down must keep an event a worker processed since: %s", status[worked])
+	}
+	if status[untouched] != "NEEDS_REVIEW" {
+		t.Fatalf("down still restores an untouched event: %s", status[untouched])
+	}
+	var parser *string
+	f.must(f.pool.QueryRow(context.Background(), `SELECT parser_name FROM source_event WHERE id=$1`, untouched).Scan(&parser))
+	if parser != nil {
+		t.Fatalf("restoring must put back the original (null) parser_name, got %q", *parser)
 	}
 }

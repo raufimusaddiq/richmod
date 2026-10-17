@@ -52,6 +52,7 @@ DECLARE
     prior_counts jsonb;
     cutoff CONSTANT timestamptz := '2026-10-07 00:00:00+07';
     mig CONSTANT text := '00084_settle_stuck_source_events';
+    stamp CONSTANT text := 'repair-00084';
 BEGIN
     -- Events an earlier run of this migration settled and that were not rolled back
     -- (a Down skips an event the household has acted on since) count toward each
@@ -71,8 +72,7 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id)
-      AND NOT EXISTS (SELECT 1 FROM document d WHERE d.source_event_id = se.id)
-      AND NOT EXISTS (SELECT 1 FROM telegram_pending_batch b WHERE b.source_event_id = se.id AND b.status = 'PENDING');
+      AND NOT EXISTS (SELECT 1 FROM document d WHERE d.source_event_id = se.id);
     n := COALESCE(cardinality(ids), 0);
     IF n = 0 THEN
         IF COALESCE((prior_counts->>'A')::int, 0) > 0 THEN covered := covered || 'A'; END IF;
@@ -83,10 +83,10 @@ BEGIN
         settled := settled || 'A';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
         SELECT household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', id,
-               jsonb_build_object('group', 'A', 'processing_status', 'NEEDS_REVIEW'),
-               jsonb_build_object('group', 'A', 'processing_status', 'PROCESSED', 'migration', mig, 'ticket', '356')
+               jsonb_build_object('group', 'A', 'processing_status', 'NEEDS_REVIEW', 'parser_name', parser_name),
+               jsonb_build_object('group', 'A', 'processing_status', 'PROCESSED', 'parser_name', stamp, 'migration', mig, 'ticket', '356')
         FROM source_event WHERE id = ANY(ids);
-        UPDATE source_event SET processing_status = 'PROCESSED' WHERE id = ANY(ids) AND processing_status = 'NEEDS_REVIEW';
+        UPDATE source_event SET processing_status = 'PROCESSED', parser_name = stamp WHERE id = ANY(ids) AND processing_status = 'NEEDS_REVIEW';
         GET DIAGNOSTICS changed = ROW_COUNT;
         IF changed <> n THEN RAISE EXCEPTION '00084 group A: % of % rows changed', changed, n; END IF;
     END IF;
@@ -137,6 +137,7 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM review_item ri JOIN wealth_observation w ON w.id = ri.wealth_observation_id JOIN document d ON d.id = w.document_id
                       WHERE (d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id))
                         AND ri.status IN ('OPEN','PENDING_SEND'))
+      AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id AND p.proposal_status = 'NEEDS_REVIEW')
       AND NOT EXISTS (SELECT 1 FROM transaction_evidence te JOIN transaction t ON t.id = te.transaction_id WHERE te.source_event_id = se.id AND t.status = 'NEEDS_REVIEW');
     n := COALESCE(cardinality(ids), 0);
@@ -149,10 +150,10 @@ BEGIN
         settled := settled || 'C';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
         SELECT household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', id,
-               jsonb_build_object('group', 'C', 'processing_status', 'NEEDS_REVIEW'),
-               jsonb_build_object('group', 'C', 'processing_status', 'PROCESSED', 'migration', mig, 'ticket', '356')
+               jsonb_build_object('group', 'C', 'processing_status', 'NEEDS_REVIEW', 'parser_name', parser_name),
+               jsonb_build_object('group', 'C', 'processing_status', 'PROCESSED', 'parser_name', stamp, 'migration', mig, 'ticket', '356')
         FROM source_event WHERE id = ANY(ids);
-        UPDATE source_event SET processing_status = 'PROCESSED' WHERE id = ANY(ids) AND processing_status = 'NEEDS_REVIEW';
+        UPDATE source_event SET processing_status = 'PROCESSED', parser_name = stamp WHERE id = ANY(ids) AND processing_status = 'NEEDS_REVIEW';
         GET DIAGNOSTICS changed = ROW_COUNT;
         IF changed <> n THEN RAISE EXCEPTION '00084 group C: % of % rows changed', changed, n; END IF;
     END IF;
@@ -212,9 +213,10 @@ DECLARE
     rec record;
     restored boolean;
     mig CONSTANT text := '00084_settle_stuck_source_events';
+    stamp CONSTANT text := 'repair-00084';
 BEGIN
     FOR rec IN
-        SELECT a.entity_id AS id, a.household_id AS hh, a.before_json->>'group' AS grp, a.created_at AS at
+        SELECT a.entity_id AS id, a.household_id AS hh, a.before_json->>'group' AS grp, a.before_json->>'parser_name' AS before_parser, a.created_at AS at
         FROM audit_log a
         WHERE a.action = 'REPAIR_STUCK_SOURCE_EVENT' AND a.after_json->>'migration' = mig AND (scope IS NULL OR a.household_id = scope)
           AND NOT EXISTS (SELECT 1 FROM audit_log r WHERE r.action = 'ROLLBACK_REPAIR_STUCK_SOURCE_EVENT' AND r.entity_id = a.entity_id
@@ -223,7 +225,10 @@ BEGIN
     LOOP
         restored := false;
         IF rec.grp IN ('A', 'C') THEN
-            UPDATE source_event SET processing_status = 'NEEDS_REVIEW' WHERE id = rec.id AND processing_status = 'PROCESSED';
+            -- Only while the event still carries the stamp Up wrote: any worker path that
+            -- finishes the event afterwards rewrites parser_name, and must not be undone.
+            UPDATE source_event SET processing_status = 'NEEDS_REVIEW', parser_name = rec.before_parser
+            WHERE id = rec.id AND processing_status = 'PROCESSED' AND parser_name = stamp;
             restored := FOUND;
         ELSIF rec.grp = 'B' THEN
             -- Restore unless the household already dismissed the failed-source item;

@@ -87,8 +87,10 @@ proposal, job or review row.
 | C | document wealth observation `APPLIED`, item resolved | `PROCESSED` |
 | D | document item resolved `IGNORE`, document `EXTRACTED` | source `IGNORED` (the document stays `EXTRACTED`) |
 
-`Down` restores each event from its audit row while it is still in the state Up
-left it in; an event the household has acted on since is left alone, and a later
+Groups A and C also stamp `parser_name = 'repair-00084'` (the prior value is in
+the audit row). `Down` restores each event from its audit row only while it is
+still in the state Up left it in, including that stamp, so an event a worker
+processed since is never flipped back; an event the household has acted on since is left alone, and a later
 Up counts it as already settled.
 
 **All-or-nothing, and what that means between deploys.** If some groups match
