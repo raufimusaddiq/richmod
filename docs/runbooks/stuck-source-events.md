@@ -68,3 +68,44 @@ per-request path.
 A healthy system returns zero rows. Any row is a defect to triage, not noise;
 run the query after deploys and when the Review Inbox count looks lower than the
 ledger's unfinished count.
+
+## Ticket #356 repair (migration 00084)
+
+Migration `00084_settle_stuck_source_events.sql` settles the 17 events found in
+production. It names no row: each group is found by its state signature and the
+migration raises unless the group has exactly its expected size (A 6, B 3,
+C 1, D 5, E 2) or is empty. Per event it writes one `audit_log` row
+(`REPAIR_STUCK_SOURCE_EVENT`, with the prior state) and never creates, changes
+or deletes a transaction, evidence or review row.
+
+| Group | Signature | Settlement |
+| --- | --- | --- |
+| A | `TELEGRAM_TEXT`, `NEEDS_REVIEW`, no parser, nothing linked | `PROCESSED` |
+| B | `BANK_EMAIL`, extraction `INVALID`/`NEEDS_REVIEW`, nothing linked | `FAILED` plus the dismissable failed-source item (same text as `RecordFailedSourceAction`); not re-extracted |
+| C | document wealth observation `APPLIED`, item resolved | `PROCESSED` |
+| D | document item resolved `IGNORE`, document `EXTRACTED` | source `IGNORED` (the document stays `EXTRACTED`) |
+| E | `TRANSFER_PROOF`, listed in a `MANUAL_UNLINK_EVIDENCE` audit row | stale proposals `REJECTED` (key prefixed `superseded-`), document `CLASSIFIED`, source `PROCESSING`, one `PROCESS_TRANSACTION_SCREENSHOT` job per document |
+
+`Down` restores each event from its audit row while it is still in the state Up
+left it in; group E is restored only while its job has not started.
+
+### After deploying it
+
+1. The detection query above must return zero rows. Group E reads as unfinished
+   again only if its reprocess fails; check `job` for failed
+   `PROCESS_TRANSACTION_SCREENSHOT` rows.
+2. Group E must not duplicate money. Once both jobs have run, for each
+   reprocessed source (replace `:source`) the evidence must point at the
+   transaction the superseded proposal matched, and the household's transaction
+   count must not have grown:
+
+   ```sql
+   SELECT p.proposal_key, p.proposal_status, p.metadata_json->>'matched_transaction_id' AS matched
+   FROM transaction_proposal p WHERE p.source_event_id = :source ORDER BY p.created_at;
+   SELECT te.transaction_id, te.evidence_type, COALESCE(te.metadata_json->>'link_status','ACTIVE') AS link
+   FROM transaction_evidence te WHERE te.source_event_id = :source;
+   ```
+
+   A new `NEEDS_REVIEW` transaction or review item is also a valid outcome (the
+   fixed matcher may now reject the match); it must be reachable, i.e. the
+   detection query stays at zero.
