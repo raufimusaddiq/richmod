@@ -55,11 +55,11 @@ func (p *Processor) ignoreBankReview(ctx context.Context, sourceEventID, househo
 func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, householdID, reviewID, userID, bankSourceID string, update telegramUpdate) error {
 	amountIDR, transactionAt := parseBankFactsReply(update.Message.Text)
 	if reviewdomain.ValidateBankFactValues(amountIDR, transactionAt) != nil {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Balas pesan ini (Reply) dengan nominal dan waktu transaksi. Contoh: 54000 2026-09-23T13:45:00+07:00.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Balas pesan ini (Reply) dengan nominal dan waktu transaksi. Contoh: 54000 2026-09-23T13:45:00+07:00.")
 	}
 	at, parseErr := time.Parse(time.RFC3339, transactionAt)
 	if parseErr != nil {
-		return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Waktunya perlu format ISO 8601 dengan zona waktu. Balas pesan ini (Reply), contoh: 54000 2026-09-23T13:45:00+07:00.")
+		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Waktunya perlu format ISO 8601 dengan zona waktu. Balas pesan ini (Reply), contoh: 54000 2026-09-23T13:45:00+07:00.")
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -76,7 +76,7 @@ func (p *Processor) completeBankFactsReply(ctx context.Context, sourceEventID, h
 				return listErr
 			}
 			if len(accounts) == 0 {
-				return p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu.")
+				return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu.")
 			}
 			_ = tx.Rollback(ctx)
 			return p.offerBankAccountChooser(ctx, sourceEventID, householdID, reviewID, accounts, amountIDR, transactionAt, update)

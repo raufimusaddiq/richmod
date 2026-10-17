@@ -304,7 +304,7 @@ func (p *Processor) processBoundReview(ctx context.Context, sourceEventID, house
 		return true, p.promptAssetWealthAccount(ctx, sourceEventID, householdID, update)
 	}
 	if transferReviewCallbackAction(update.CallbackQuery.Data) == "" {
-		return true, p.finishWithoutTransaction(ctx, sourceEventID, "NEEDS_REVIEW", update, "Pilihan ini tidak tersedia. Tinjauan masih terbuka.")
+		return true, p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, "Pilihan ini tidak tersedia. Tinjauan masih terbuka.")
 	}
 	return true, p.applyTransferReviewCallback(ctx, sourceEventID, householdID, reviewID, transactionID, update, update.CallbackQuery.Data)
 }
