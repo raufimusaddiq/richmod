@@ -29,10 +29,15 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	for name, text := range map[string]string{
-		"missing amount and time": "halo",
-		"time without a zone":     "54000 2026-09-23 13:45",
+	for _, tc := range []struct {
+		name, text string
+		unlinked   bool // a bank source with no bound account and no active account to offer
+	}{
+		{"missing amount and time", "halo", false},
+		{"time without a zone", "54000 2026-09-23 13:45", false},
+		{"unlinked bank source and no active account", "54000 2026-09-23T13:45:00+07:00", true},
 	} {
+		name, text := tc.name, tc.text
 		t.Run(name, func(t *testing.T) {
 			must := func(err error) {
 				if err != nil {
@@ -49,6 +54,14 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 			must(err)
 
 			messageID := 1000 + stamp%1000000000
+			if tc.unlinked {
+				var listener string
+				must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id) VALUES($1,'Fixture bank',$2,$3) RETURNING id`, household, fmt.Sprintf("reask-%d@example.test", stamp), user).Scan(&listener))
+				_, err = pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','v1','{}','VALID')`, bankSource, listener)
+				must(err)
+				_, err = pool.Exec(ctx, `UPDATE account SET active=false WHERE household_id=$1`, household)
+				must(err)
+			}
 			replySource := seedTelegramReply(t, pool, household, chat, messageID, 769, text)
 			var payload string
 			must(pool.QueryRow(ctx, `SELECT payload_json::text FROM source_event_payload WHERE source_event_id=$1`, replySource).Scan(&payload))
@@ -78,11 +91,16 @@ func TestBankFactsReAskSettlesTheReplyEventAndKeepsTheReviewOpen(t *testing.T) {
 }
 
 // No production path may park a chat reply or button tap as NEEDS_REVIEW: the
-// event is not a review subject, so it can never be resolved. This covers the
-// call sites that need a Telegram round trip to exercise (no active account,
-// unavailable transfer choice) as well.
+// event is not a review subject, so it can never be resolved. The guard sees both
+// the helper and direct `SET processing_status='NEEDS_REVIEW'` writes, and only
+// covers this package (filepath.Glob is not recursive).
+//
+// The one allowed direct write is agentStageTransferReview, which writes the
+// source event's own review item in the same transaction, so the event is a
+// real review subject. A new site must do the same or settle PROCESSED.
 func TestNoTelegramReplyEventIsParkedAsNeedsReview(t *testing.T) {
-	calls := regexp.MustCompile(`finishWithoutTransaction\([^)]*"NEEDS_REVIEW"`)
+	calls := regexp.MustCompile(`finishWithoutTransaction\([^)]*"NEEDS_REVIEW"|SET\s+processing_status\s*=\s*'NEEDS_REVIEW'`)
+	allowed := map[string]bool{"agent_specialized_mutations.go": true}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +113,10 @@ func TestNoTelegramReplyEventIsParkedAsNeedsReview(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if loc := calls.FindIndex(raw); loc != nil {
+		for _, loc := range calls.FindAllIndex(raw, -1) {
+			if allowed[file] {
+				continue
+			}
 			line := 1 + strings.Count(string(raw[:loc[0]]), "\n")
 			t.Errorf("%s:%d parks a Telegram reply event as NEEDS_REVIEW; settle it PROCESSED and leave the review on its own item", file, line)
 		}
