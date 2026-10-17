@@ -62,6 +62,24 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 	item("proposal_id", proposal, "PENDING_SEND")
 	event("processed", "PROCESSED") // not unfinished
 
+	// Album member: only the primary event owns the document; the member is a
+	// document_page row and is reachable through the document's review item.
+	primary, member := event("album-primary", "NEEDS_REVIEW"), event("album-member", "NEEDS_REVIEW")
+	var document, attachment string
+	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,decode(md5($2),'hex'),'image/jpeg',1,1,1,$2) RETURNING id`, household, fmt.Sprintf("album-%d", stamp)).Scan(&attachment))
+	must(pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,status) VALUES($1,$2,$3,'NEEDS_REVIEW') RETURNING id`, household, primary, attachment).Scan(&document))
+	_, err := pool.Exec(ctx, `INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,1)`, document, member, attachment)
+	must(err)
+	item("document_id", document, "OPEN")
+
+	// Superseded evidence is not a live link: the event is stuck although a
+	// needs-review transaction with an open item is still attached to it.
+	supersededOnly := event("superseded", "NEEDS_REVIEW")
+	supersededTx := transactionFor(supersededOnly)
+	item("transaction_id", supersededTx, "OPEN")
+	_, err = pool.Exec(ctx, `UPDATE transaction_evidence SET metadata_json=jsonb_build_object('link_status','SUPERSEDED') WHERE transaction_id=$1`, supersededTx)
+	must(err)
+
 	stuck, err := StuckSourceEvents(ctx, pool, household)
 	if err != nil {
 		t.Fatal(err)
@@ -70,8 +88,8 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 	for _, e := range stuck {
 		got[e.SourceEventID] = e
 	}
-	if len(got) != 3 || got[bare].SourceEventID == "" || got[orphanTx].SourceEventID == "" || got[resolvedOnly].SourceEventID == "" {
-		t.Fatalf("want exactly bare, orphan-tx and resolved-only, got %+v", stuck)
+	if len(got) != 4 || got[supersededOnly].SourceEventID == "" || got[bare].SourceEventID == "" || got[orphanTx].SourceEventID == "" || got[resolvedOnly].SourceEventID == "" {
+		t.Fatalf("want exactly bare, orphan-tx, resolved-only and superseded, got %+v", stuck)
 	}
 	if got[orphanTx].NeedsReviewTransactions != 1 || got[bare].NeedsReviewTransactions != 0 || !got[resolvedOnly].HadSourceReview || got[bare].HadSourceReview {
 		t.Fatalf("diagnostic columns wrong: %+v", got)
@@ -79,7 +97,7 @@ func TestStuckSourceEventsFindsOnlyEventsWithoutAReviewPath(t *testing.T) {
 
 	// Giving the stuck event a review item removes it from the count.
 	item("source_event_id", bare, "OPEN")
-	if after, err := StuckSourceEvents(ctx, pool, household); err != nil || len(after) != 2 {
+	if after, err := StuckSourceEvents(ctx, pool, household); err != nil || len(after) != 3 {
 		t.Fatalf("after adding a review item: %d rows, err=%v", len(after), err)
 	}
 	// Another household's stuck events never leak into a scoped scan.
