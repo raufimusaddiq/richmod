@@ -433,7 +433,7 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 				if _, e := tx.Exec(ctx, `UPDATE telegram_pending_batch SET status='CANCELLED',resolved_at=now() WHERE id=$1`, batchID); e != nil {
 					return true, e
 				}
-				if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); e != nil {
+				if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); e != nil {
 					return true, e
 				}
 				if e := enqueueReply(ctx, tx, update, "Daftar ini belum bisa dicatat karena ada kategori yang tidak tersedia. Kirim ulang dengan kategori pengeluaran yang tersedia, ya."); e != nil {
@@ -714,7 +714,7 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2 WHERE id=$1`, sourceEventID, status); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name=COALESCE(parser_name,'telegram-reply'),parser_version=COALESCE(parser_version,'1') WHERE id=$1`, sourceEventID, status); err != nil {
 		return err
 	}
 	if err := enqueueReply(ctx, tx, update, message); err != nil {
