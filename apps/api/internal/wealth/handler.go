@@ -16,6 +16,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/financialmath"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/financialperiod"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 type Handler struct{ pool *pgxpool.Pool }
@@ -810,8 +811,8 @@ func completeSnapshotSet(r *http.Request, tx pgx.Tx, snapshotID string, items []
 }
 
 func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observationID string, items []itemInput) bool {
-	var accountID, value, financialObservationID string
-	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text,COALESCE(financial_email_observation_id::text,'') FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status IN ('PENDING','ACCEPTED') FOR UPDATE`, observationID, householdID).Scan(&accountID, &value, &financialObservationID); err != nil {
+	var accountID, value, financialObservationID, documentSourceID string
+	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text,COALESCE(financial_email_observation_id::text,''),COALESCE((SELECT d.source_event_id::text FROM document d WHERE d.id=wealth_observation.document_id AND d.household_id=wealth_observation.household_id),'') FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status IN ('PENDING','ACCEPTED') FOR UPDATE`, observationID, householdID).Scan(&accountID, &value, &financialObservationID, &documentSourceID); err != nil {
 		return false
 	}
 	matched := false
@@ -838,8 +839,15 @@ func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observati
 	if _, err := tx.Exec(r.Context(), `UPDATE review_item SET status='RESOLVED',resolution_action='SNAPSHOT_CREATED',resolved_by_user_id=$2,resolved_at=now(),updated_at=now() WHERE wealth_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observationID, userID); err != nil {
 		return false
 	}
-	_, err := tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id IN (SELECT id FROM review_item WHERE wealth_observation_id=$1) AND status IN ('OPEN','PENDING_SEND')`, observationID)
-	return err == nil
+	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id IN (SELECT id FROM review_item WHERE wealth_observation_id=$1) AND status IN ('OPEN','PENDING_SEND')`, observationID); err != nil {
+		return false
+	}
+	// Document-sourced observations settle through the shared lifecycle, after
+	// the review item above is resolved, so the source never stays NEEDS_REVIEW.
+	if financialObservationID == "" && documentSourceID != "" {
+		return reviewdomain.RefreshSourceLifecycle(r.Context(), tx, householdID, documentSourceID) == nil
+	}
+	return true
 }
 
 func insertItems(r *http.Request, tx pgx.Tx, snapshotID string, items []itemInput) bool {

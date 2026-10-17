@@ -166,3 +166,53 @@ func TestAcceptedWealthObservationsAreReadableWithoutSnapshot(t *testing.T) {
 		t.Fatalf("accepted observation created %d snapshots; want 0", snapshots)
 	}
 }
+
+// A document-sourced observation confirmed through a snapshot resolves its review
+// item, so the shared lifecycle must settle the source event (#360).
+func TestDocumentObservationSnapshotSettlesSourceEvent(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	stamp := time.Now().UnixNano()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var household, user, account, source, attachment, document, observation, review string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("wealth-settle-%d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("wealth-settle-%d@example.test", stamp)).Scan(&user))
+	_, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, household, user)
+	must(err)
+	must(pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Reksadana','Bibit','ASSET','MUTUAL_FUND','INVESTMENT') RETURNING id`, household).Scan(&account))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprintf("wealth-settle-%d", stamp), []byte(fmt.Sprint(stamp))).Scan(&source))
+	must(pool.QueryRow(ctx, `INSERT INTO attachment(household_id,content_hash,media_type,byte_size,width,height,storage_ref) VALUES($1,$2,'image/png',100,10,10,$3) RETURNING id`, household, []byte(fmt.Sprint(stamp)), fmt.Sprintf("%s/settle.png", household)).Scan(&attachment))
+	must(pool.QueryRow(ctx, `INSERT INTO document(household_id,source_event_id,attachment_id,document_type,status) VALUES($1,$2,$3,'WEALTH_OBSERVATION','NEEDS_REVIEW') RETURNING id`, household, source, attachment).Scan(&document))
+	must(pool.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,document_id,resolved_wealth_account_id,institution,account_hint,observed_value_idr) VALUES($1,$2,$3,'Bibit','Reksadana',42700000) RETURNING id`, household, document, account).Scan(&observation))
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,review_type,status,decision) VALUES($1,$2,'WEALTH_OBSERVATION_CONFIRMATION','OPEN','{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}'::jsonb) RETURNING id`, household, observation).Scan(&review))
+
+	body, err := json.Marshal(map[string]any{"observedAt": "2026-09-01T00:00:00Z", "observationId": observation, "items": []map[string]any{{"wealthAccountId": account, "valueIdr": "42700000", "source": "DOCUMENT"}}})
+	must(err)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/wealth/snapshots", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.Principal{UserID: user, HouseholdID: household, HouseholdRole: "OWNER", HasHousehold: true}))
+	w := httptest.NewRecorder()
+	NewHandler(pool).Snapshots(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var reviewStatus, sourceStatus, documentStatus string
+	must(pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, review).Scan(&reviewStatus))
+	must(pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, source).Scan(&sourceStatus))
+	must(pool.QueryRow(ctx, `SELECT status FROM document WHERE id=$1`, document).Scan(&documentStatus))
+	if reviewStatus != "RESOLVED" || sourceStatus != "PROCESSED" || documentStatus != "EXTRACTED" {
+		t.Fatalf("review=%s source=%s document=%s; want RESOLVED/PROCESSED/EXTRACTED", reviewStatus, sourceStatus, documentStatus)
+	}
+}
