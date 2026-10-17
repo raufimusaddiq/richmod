@@ -72,8 +72,9 @@ ledger's unfinished count.
 ## Ticket #356 repair (migration 00084)
 
 Migration `00084_settle_stuck_source_events.sql` settles the 17 events found in
-production. It names no row: each group is found by its state signature and the
-migration raises unless the group has exactly its expected size (A 6, B 3,
+production. It names no row: each group is found by its state signature among
+events received before 2026-10-07 (later events are never touched and stay
+visible to the detection query) and the migration raises unless the group has exactly its expected size (A 6, B 3,
 C 1, D 5, E 2) or is empty. Per event it writes one `audit_log` row
 (`REPAIR_STUCK_SOURCE_EVENT`, with the prior state) and never creates, changes
 or deletes a transaction, evidence or review row.

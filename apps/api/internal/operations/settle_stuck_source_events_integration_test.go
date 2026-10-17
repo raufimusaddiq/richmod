@@ -16,13 +16,14 @@ const settleMigration = "00084_settle_stuck_source_events.sql"
 
 // settleFixture seeds the five stuck groups of ticket #356 in one household.
 type settleFixture struct {
-	t         *testing.T
-	pool      *pgxpool.Pool
-	household string
-	stamp     int64
-	seq       int
-	groups    map[string][]string // group letter -> source event ids
-	matched   string              // the confirmed transaction group E matched
+	t          *testing.T
+	pool       *pgxpool.Pool
+	household  string
+	stamp      int64
+	seq        int
+	groups     map[string][]string // group letter -> source event ids
+	matched    string              // the confirmed transaction group E matched
+	receivedAt time.Time           // inside the inspected window unless a test moves it
 }
 
 func (f *settleFixture) must(err error) {
@@ -41,7 +42,7 @@ func (f *settleFixture) event(sourceType, status string, parser *string) string 
 	f.t.Helper()
 	var id string
 	name := f.next("settle")
-	f.must(f.pool.QueryRow(context.Background(), `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,parser_name) VALUES($1,$2,$3,now(),decode(md5($3),'hex'),$4,$5) RETURNING id`, f.household, sourceType, name, status, parser).Scan(&id))
+	f.must(f.pool.QueryRow(context.Background(), `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status,parser_name) VALUES($1,$2,$3,$6,decode(md5($3),'hex'),$4,$5) RETURNING id`, f.household, sourceType, name, status, parser, f.receivedAt).Scan(&id))
 	return id
 }
 
@@ -69,7 +70,7 @@ func seedSettleFixture(t *testing.T, sizes map[string]int) *settleFixture {
 	t.Helper()
 	pool := integrationPool(t)
 	ctx := context.Background()
-	f := &settleFixture{t: t, pool: pool, stamp: time.Now().UnixNano(), groups: map[string][]string{}}
+	f := &settleFixture{t: t, pool: pool, stamp: time.Now().UnixNano(), groups: map[string][]string{}, receivedAt: time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)}
 	f.must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Settle %d", f.stamp)).Scan(&f.household))
 	var user, listener string
 	f.must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Settle','unused') RETURNING id`, fmt.Sprintf("settle-%d@example.test", f.stamp)).Scan(&user))
@@ -358,5 +359,54 @@ func TestSettleStuckSourceEventsDownKeepsAReprocessThatAlreadyRan(t *testing.T) 
 		if status[id] != "NEEDS_REVIEW" {
 			t.Fatalf("other groups still roll back: %s is %s", id, status[id])
 		}
+	}
+}
+
+func TestSettleStuckSourceEventsLeavesLaterEventsAlone(t *testing.T) {
+	f := seedSettleFixture(t, fullSizes)
+	// Group A's cause is still live in code: a chat reply received after the inspected
+	// batch must neither block the migration nor be touched by it.
+	f.receivedAt = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	late := f.event("TELEGRAM_TEXT", "NEEDS_REVIEW", nil)
+	f.mustMigrate("up")
+	if got := f.statuses()[late]; got != "NEEDS_REVIEW" {
+		t.Fatalf("an event after the cutoff must be left alone, got %s", got)
+	}
+	stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household)
+	if err != nil || len(stuck) != 1 || stuck[0].SourceEventID != late {
+		t.Fatalf("the late event stays visible to the detection query: %+v err=%v", stuck, err)
+	}
+}
+
+func TestSettleStuckSourceEventsSettlesAlbumPageMembers(t *testing.T) {
+	sizes := map[string]int{"A": 6, "B": 3, "C": 1, "D": 4, "E": 2}
+	f := seedSettleFixture(t, sizes)
+	// A fifth group D event is an album member: only the primary owns the document.
+	member := f.event("TELEGRAM_IMAGE", "NEEDS_REVIEW", ptr("cloud-llm-gateway"))
+	var doc, attachment string
+	f.must(f.pool.QueryRow(context.Background(), `SELECT d.id::text,d.attachment_id::text FROM document d WHERE d.source_event_id=$1`, f.groups["D"][0]).Scan(&doc, &attachment))
+	f.exec(`INSERT INTO document_page(document_id,source_event_id,attachment_id,page_index) VALUES($1,$2,$3,1)`, doc, member, attachment)
+	f.groups["D"] = append(f.groups["D"], member)
+	f.mustMigrate("up")
+	if got := f.statuses()[member]; got != "IGNORED" {
+		t.Fatalf("album member must settle with its document: %s", got)
+	}
+	if stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household); err != nil || len(stuck) != 0 {
+		t.Fatalf("detection must be zero: %+v err=%v", stuck, err)
+	}
+}
+
+func TestSettleStuckSourceEventsDownRestoresBankEmailWithAPreexistingItem(t *testing.T) {
+	f := seedSettleFixture(t, fullSizes)
+	existing := f.groups["B"][0]
+	// A failed-source item for this event already exists, so Up's insert is a no-op.
+	f.exec(`INSERT INTO integration_action(household_id,integration_type,action_type,status,title,dedupe_key,metadata_json) VALUES($1,'SOURCE_PROCESSING','SOURCE_FAILED','OPEN','existing',$2,'{}')`, f.household, existing)
+	f.mustMigrate("up")
+	f.mustMigrate("down")
+	if got := f.statuses()[existing]; got != "NEEDS_REVIEW" {
+		t.Fatalf("rollback must restore the event even when it did not write the item: %s", got)
+	}
+	if f.count(`SELECT count(*) FROM integration_action WHERE household_id=$1 AND dedupe_key=$2 AND title='existing'`, f.household, existing) != 1 {
+		t.Fatal("rollback must keep an item the migration did not write")
 	}
 }

@@ -18,9 +18,13 @@
 --        PROCESS_TRANSACTION_SCREENSHOT job; no evidence row is written here.
 --
 -- No row id is named. Each group is found by the state signature the inspection
--- established, and the migration refuses to run unless the group has exactly
--- its expected size (A 6, B 3, C 1, D 5, E 2) or is empty, so a database that
--- differs from the inspected one fails loudly instead of being half-repaired.
+-- established among events received before 2026-10-07 (the batch inspected;
+-- group A's cause is still live in code, so later events must neither be
+-- touched nor block this deploy), and the migration refuses to run unless the
+-- group has exactly its expected size (A 6, B 3, C 1, D 5, E 2) or is empty, so
+-- a database that differs from the inspected one fails loudly instead of being
+-- half-repaired. Events at or after the cutoff stay visible to the detection
+-- query for their own follow-up.
 -- An empty group is a NOTICE and a no-op: fresh and already-repaired databases
 -- migrate cleanly and re-running is idempotent. The optional session setting
 -- richmod.repair_household narrows every group to one household; it is unset
@@ -45,11 +49,12 @@ DECLARE
     ids uuid[];
     n int;
     changed int;
+    cutoff CONSTANT timestamptz := '2026-10-07 00:00:00+07';
     mig CONSTANT text := '00084_settle_stuck_source_events';
 BEGIN
     -- A: chat replies parked as NEEDS_REVIEW.
     SELECT array_agg(se.id) INTO ids FROM source_event se
-    WHERE (scope IS NULL OR se.household_id = scope)
+    WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.source_type = 'TELEGRAM_TEXT' AND se.processing_status = 'NEEDS_REVIEW' AND se.parser_name IS NULL
       AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id = se.id)
@@ -74,7 +79,7 @@ BEGIN
 
     -- B: bank emails with an INVALID extraction recorded as NEEDS_REVIEW.
     SELECT array_agg(se.id) INTO ids FROM source_event se
-    WHERE (scope IS NULL OR se.household_id = scope)
+    WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.source_type = 'BANK_EMAIL' AND se.processing_status = 'NEEDS_REVIEW'
       AND EXISTS (SELECT 1 FROM bank_email_extraction x WHERE x.source_event_id = se.id AND x.validation_status = 'INVALID' AND x.policy_result = 'NEEDS_REVIEW')
       AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id = se.id)
@@ -107,12 +112,14 @@ BEGIN
 
     -- C: document-sourced wealth observation applied, item resolved, source never settled.
     SELECT array_agg(se.id) INTO ids FROM source_event se
-    WHERE (scope IS NULL OR se.household_id = scope)
+    WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.processing_status = 'NEEDS_REVIEW'
       AND EXISTS (SELECT 1 FROM document d JOIN wealth_observation w ON w.document_id = d.id
-                  WHERE d.source_event_id = se.id AND d.document_type = 'WEALTH_OBSERVATION' AND w.status = 'APPLIED')
+                  WHERE (d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id))
+                    AND d.document_type = 'WEALTH_OBSERVATION' AND w.status = 'APPLIED')
       AND NOT EXISTS (SELECT 1 FROM review_item ri JOIN wealth_observation w ON w.id = ri.wealth_observation_id JOIN document d ON d.id = w.document_id
-                      WHERE d.source_event_id = se.id AND ri.status IN ('OPEN','PENDING_SEND'))
+                      WHERE (d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id))
+                        AND ri.status IN ('OPEN','PENDING_SEND'))
       AND NOT EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id AND p.proposal_status = 'NEEDS_REVIEW')
       AND NOT EXISTS (SELECT 1 FROM transaction_evidence te JOIN transaction t ON t.id = te.transaction_id WHERE te.source_event_id = se.id AND t.status = 'NEEDS_REVIEW');
     n := COALESCE(cardinality(ids), 0);
@@ -133,17 +140,19 @@ BEGIN
 
     -- D: documents whose only review items were resolved IGNORE.
     SELECT array_agg(se.id) INTO ids FROM source_event se
-    WHERE (scope IS NULL OR se.household_id = scope)
+    WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.processing_status = 'NEEDS_REVIEW'
-      AND EXISTS (SELECT 1 FROM document d WHERE d.source_event_id = se.id AND d.status = 'EXTRACTED')
-      AND EXISTS (SELECT 1 FROM review_item ri JOIN document d ON d.id = ri.document_id WHERE d.source_event_id = se.id)
+      AND EXISTS (SELECT 1 FROM document d WHERE (d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id)) AND d.status = 'EXTRACTED')
+      AND EXISTS (SELECT 1 FROM review_item ri JOIN document d ON d.id = ri.document_id
+                  WHERE d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id))
       AND NOT EXISTS (SELECT 1 FROM review_item ri JOIN document d ON d.id = ri.document_id
-                      WHERE d.source_event_id = se.id
+                      WHERE (d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id))
                         AND NOT (ri.status = 'RESOLVED' AND ri.resolution_action = 'IGNORE' AND ri.review_type = 'DOCUMENT_EXTRACTION_LOW_CONFIDENCE'))
       AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id = se.id)
-      AND NOT EXISTS (SELECT 1 FROM wealth_observation w JOIN document d ON d.id = w.document_id WHERE d.source_event_id = se.id);
+      AND NOT EXISTS (SELECT 1 FROM wealth_observation w JOIN document d ON d.id = w.document_id
+                      WHERE d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id));
     n := COALESCE(cardinality(ids), 0);
     IF n = 0 THEN
         RAISE NOTICE '00084 group D: nothing to settle';
@@ -162,7 +171,7 @@ BEGIN
 
     -- E: transfer proofs a manual unlink left with stale NEEDS_REVIEW proposals.
     SELECT array_agg(se.id) INTO ids FROM source_event se
-    WHERE (scope IS NULL OR se.household_id = scope)
+    WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
       AND se.source_type = 'TELEGRAM_IMAGE' AND se.processing_status = 'NEEDS_REVIEW'
       AND EXISTS (SELECT 1 FROM document d WHERE d.source_event_id = se.id AND d.document_type = 'TRANSFER_PROOF' AND d.status = 'EXTRACTED')
       AND EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'MANUAL_UNLINK_EVIDENCE' AND a.household_id = se.household_id
@@ -200,6 +209,8 @@ BEGIN
         INSERT INTO job(type, payload_json, max_attempts)
         SELECT 'PROCESS_TRANSACTION_SCREENSHOT', jsonb_build_object('document_id', d.id), 5
         FROM document d WHERE d.source_event_id = ANY(ids);
+        GET DIAGNOSTICS changed = ROW_COUNT;
+        IF changed <> n THEN RAISE EXCEPTION '00084 group E: % of % jobs queued', changed, n; END IF;
     END IF;
 END;
 $$;
@@ -215,6 +226,7 @@ $$;
 -- +goose StatementBegin
 DO $$
 DECLARE
+    scope uuid := NULLIF(current_setting('richmod.repair_household', true), '')::uuid;
     rec record;
     restored boolean;
     mig CONSTANT text := '00084_settle_stuck_source_events';
@@ -222,7 +234,7 @@ BEGIN
     FOR rec IN
         SELECT a.entity_id AS id, a.household_id AS hh, a.before_json->>'group' AS grp, a.created_at AS at
         FROM audit_log a
-        WHERE a.action = 'REPAIR_STUCK_SOURCE_EVENT' AND a.after_json->>'migration' = mig
+        WHERE a.action = 'REPAIR_STUCK_SOURCE_EVENT' AND a.after_json->>'migration' = mig AND (scope IS NULL OR a.household_id = scope)
           AND NOT EXISTS (SELECT 1 FROM audit_log r WHERE r.action = 'ROLLBACK_REPAIR_STUCK_SOURCE_EVENT' AND r.entity_id = a.entity_id
                           AND r.after_json->>'migration' = mig AND r.created_at >= a.created_at)
         ORDER BY a.created_at
@@ -232,9 +244,11 @@ BEGIN
             UPDATE source_event SET processing_status = 'NEEDS_REVIEW' WHERE id = rec.id AND processing_status = 'PROCESSED';
             restored := FOUND;
         ELSIF rec.grp = 'B' THEN
+            -- Restore unless the household already dismissed the failed-source item;
+            -- remove the item only when this migration wrote it.
             UPDATE source_event SET processing_status = 'NEEDS_REVIEW' WHERE id = rec.id AND processing_status = 'FAILED'
-              AND EXISTS (SELECT 1 FROM integration_action ia WHERE ia.household_id = rec.hh AND ia.dedupe_key = rec.id::text AND ia.action_type = 'SOURCE_FAILED'
-                          AND ia.status = 'OPEN' AND ia.metadata_json->>'repair_migration' = mig);
+              AND NOT EXISTS (SELECT 1 FROM integration_action ia WHERE ia.household_id = rec.hh AND ia.dedupe_key = rec.id::text
+                              AND ia.action_type = 'SOURCE_FAILED' AND ia.status <> 'OPEN');
             restored := FOUND;
             IF restored THEN
                 DELETE FROM integration_action WHERE household_id = rec.hh AND dedupe_key = rec.id::text AND action_type = 'SOURCE_FAILED'
