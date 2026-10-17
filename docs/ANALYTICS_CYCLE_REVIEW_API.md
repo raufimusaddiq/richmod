@@ -149,6 +149,8 @@ the existing Wealth summary. A missing snapshot, unchanged snapshot, or changed
 account set leaves reconciliation unavailable. This is not investment P/L or
 an inferred savings transfer.
 
+The ledger's "complete" (`status='CONFIRMED'` with no active review item) and the cycle's `OPEN_REVIEWS` share the same columns. `UNCATEGORIZED_EXPENSE` is a separate data-quality block: a manual entry may legitimately be confirmed without a category. The one review-flow record that violated this (legacy, #353) is reopened by migration `00083`.
+
 Concrete blockers include open/pending reviews (deduplicated against unresolved
 transactions), uncategorized confirmed expense with amount, incomplete source
 processing, missing salary anchor, missing snapshots, observations preceding the
