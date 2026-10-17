@@ -20,9 +20,27 @@
 -- Effect: status -> NEEDS_REVIEW (confirmed_at cleared, as the
 -- transaction_confirmed_timestamp CHECK requires) plus one OPEN
 -- AMBIGUOUS_CATEGORY review item, the same contract the live flow writes for a
--- single missing category. No Telegram review_request is created, so nothing is
--- sent from a migration; the item is completed from the Web Inbox. An audit_log
--- row keeps the prior state so Down can restore it exactly.
+-- single missing category, with preferred_user_id taken from
+-- transaction.created_by_user_id exactly as the live reopen contract does
+-- (reviewdomain/reopen.go). An audit_log row keeps the prior state so Down can
+-- restore it exactly.
+--
+-- Completable from the Web Inbox (option "a" of the #354 review): the legacy
+-- row still carries an ACTIVE transaction_evidence row with
+-- evidence_link_dispute='true' (the dispute-confirm path superseded the ORIGINAL
+-- evidence, never the dispute row). ConfirmTransactionReview refuses a Web
+-- CONFIRM_REVIEW while such an active row exists
+-- (ErrEvidenceDisputeConfirmationRequired -> 409), and the only resolver for it
+-- is the Telegram card. That dispute is already decided (its review is RESOLVED),
+-- so Up marks the dispute row link_status='SUPERSEDED', the same marker
+-- ResolveEvidenceDispute uses for superseded evidence. confirm.go and
+-- duplicate.go only count ACTIVE dispute rows, so Web confirm then works. No
+-- Telegram review_request is created, so nothing is sent from a migration.
+--
+-- Target id: the id was read from the production database (read-only) while
+-- investigating #353. On any database where that id does not exist, or no longer
+-- matches the guards above, every statement below is a no-op (the guarded SELECT
+-- finds no row and the block returns before writing anything).
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -41,8 +59,12 @@ BEGIN
         RETURN;
     END IF;
     UPDATE transaction SET status = 'NEEDS_REVIEW', confirmed_at = NULL, updated_at = now() WHERE id = target;
-    INSERT INTO review_item(household_id, transaction_id, review_type, status, decision)
-    VALUES (hh, target, 'AMBIGUOUS_CATEGORY', 'OPEN', jsonb_build_object(
+    UPDATE transaction_evidence
+    SET metadata_json = metadata_json || jsonb_build_object('link_status', 'SUPERSEDED', 'superseded_by_migration', '00083_reopen_uncategorized_dispute_expense')
+    WHERE transaction_id = target AND metadata_json->>'evidence_link_dispute' = 'true'
+      AND COALESCE(metadata_json->>'link_status', 'ACTIVE') = 'ACTIVE';
+    INSERT INTO review_item(household_id, transaction_id, review_type, status, decision, preferred_user_id)
+    SELECT hh, target, 'AMBIGUOUS_CATEGORY', 'OPEN', jsonb_build_object(
         'version', 1,
         'subject', jsonb_build_object('type', 'transaction', 'id', target::text),
         'reasonCode', 'AMBIGUOUS_CATEGORY',
@@ -56,7 +78,8 @@ BEGIN
         'decisionProvenance', jsonb_build_object('migration', '00083_reopen_uncategorized_dispute_expense', 'ticket', '353'),
         'whyNotAutoConfirm', 'an expense needs a category and none was recorded when it was confirmed',
         'allowedActions', jsonb_build_array('CONFIRM_REVIEW', 'IGNORE'),
-        'interactionMode', 'SINGLE_FIELD'));
+        'interactionMode', 'SINGLE_FIELD'), t.created_by_user_id
+    FROM transaction t WHERE t.id = target;
     INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
     VALUES (hh, 'SYSTEM', 'REOPEN_LEGACY_UNCATEGORIZED', 'transaction', target,
             jsonb_build_object('status', 'CONFIRMED', 'confirmed_at', prior_confirmed_at),
@@ -93,6 +116,9 @@ BEGIN
         RAISE EXCEPTION 'cannot restore transaction %: original confirmed_at not found in audit_log', target;
     END IF;
     UPDATE review_item SET status = 'CANCELLED', resolution_action = 'MIGRATION_ROLLBACK', updated_at = now() WHERE id = item;
+    UPDATE transaction_evidence
+    SET metadata_json = (metadata_json - 'link_status' - 'superseded_by_migration')
+    WHERE transaction_id = target AND metadata_json->>'superseded_by_migration' = '00083_reopen_uncategorized_dispute_expense';
     UPDATE transaction SET status = 'CONFIRMED', confirmed_at = prior_confirmed_at, updated_at = now() WHERE id = target;
     INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
     VALUES (hh, 'SYSTEM', 'ROLLBACK_REOPEN_LEGACY_UNCATEGORIZED', 'transaction', target,
