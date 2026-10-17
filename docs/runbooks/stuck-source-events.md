@@ -93,12 +93,19 @@ left it in; group E is restored only while its job has not started.
 ### After deploying it
 
 1. The detection query above must return zero rows. A non-zero result for the two
-   transfer-proof sources has two possible causes: the reprocess failed (check
-   `job` for failed `PROCESS_TRANSACTION_SCREENSHOT` rows) or the migration never
-   matched group E. The migration is all-or-nothing, so the second cannot happen
-   silently: a database that lacks the group E signature fails the deploy.
-   Group E's signature is the production `MANUAL_UNLINK_EVIDENCE` audit row (no
-   code writes it; one row, SYSTEM, 2026-10-07, listing both source events).
+   transfer-proof sources has three possible causes, and a failed job is only one:
+   - the reprocess failed: check `job` for failed `PROCESS_TRANSACTION_SCREENSHOT`
+     rows;
+   - group E matched nothing (a no-op): the sources are still `NEEDS_REVIEW` with
+     their `NEEDS_REVIEW` proposals, no `REPAIR_STUCK_SOURCE_EVENT` audit row, and
+     no queued job. The migration is all-or-nothing, so this cannot pass a deploy
+     silently; if it appears anyway, check the selector, not the worker;
+   - the worker re-parked the source: the job succeeded but the reprocess ended
+     `NEEDS_REVIEW` with no review item. That is a new defect in the screenshot
+     path, not a repair failure; report it on #356.
+   Group E's selector rests on the production `MANUAL_UNLINK_EVIDENCE` audit row
+   (no code writes it; one row, SYSTEM, 2026-10-07, listing both source events).
+
 2. Group E must not duplicate money. Once both jobs have run, for each
    reprocessed source (replace `:source`) the evidence must point at the
    transaction the superseded proposal matched, and the household's transaction
