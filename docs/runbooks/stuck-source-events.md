@@ -68,3 +68,97 @@ per-request path.
 A healthy system returns zero rows. Any row is a defect to triage, not noise;
 run the query after deploys and when the Review Inbox count looks lower than the
 ledger's unfinished count.
+
+## Ticket #356 repair (migration 00084)
+
+Migration `00084_settle_stuck_source_events.sql` settles 15 of the 17 events
+found in production. It names no row: each group is found by its state
+signature among events received before 2026-10-07 (later events are never
+touched and stay visible to the detection query), and the migration raises
+unless the group has exactly its expected size (A 6, B 3, C 1, D 5) or is empty.
+Per event it writes one `audit_log` row (`REPAIR_STUCK_SOURCE_EVENT`, with the
+prior state) and never creates, changes or deletes a transaction, evidence,
+proposal, job or review row.
+
+| Group | Signature | Settlement |
+| --- | --- | --- |
+| A | `TELEGRAM_TEXT`, `NEEDS_REVIEW`, no parser, nothing linked | `PROCESSED` |
+| B | `BANK_EMAIL`, extraction `INVALID`/`NEEDS_REVIEW`, nothing linked | `FAILED` plus the dismissable failed-source item (same text as `RecordFailedSourceAction`); not re-extracted |
+| C | document wealth observation `APPLIED`, item resolved | `PROCESSED` |
+| D | document item resolved `IGNORE`, document `EXTRACTED` | source `IGNORED` (the document stays `EXTRACTED`) |
+
+Groups A and C also stamp `parser_name = 'repair-00084'` (the prior value is in
+the audit row). `Down` restores each event from its audit row only while it is
+still in the state Up left it in, including that stamp, so an event a worker
+processed since is never flipped back; an event the household has acted on since is left alone, and a later
+Up counts it as already settled.
+
+**All-or-nothing, and what that means between deploys.** If some groups match
+and others match nothing, the migration raises and the deploy fails loudly. That
+is the expected result if any of these events was already settled by hand
+before the deploy (for example group D dismissed in the Inbox, or the two
+transfer proofs below if they somehow matched a group). Settle by hand only
+after the deploy, or re-run the detection query first and expect the sizes
+above.
+
+### After deploying it
+
+The detection query above must return exactly two rows: the transfer proofs
+below. Any other row is a defect to triage.
+
+### The two transfer-proof events (settled by hand, not by the migration)
+
+Two `TELEGRAM_IMAGE` events (`TRANSFER_PROOF` documents, `EXTRACTED`) carry one
+stale `NEEDS_REVIEW` proposal each and no evidence. A one-off manual statement
+(audit action `MANUAL_UNLINK_EVIDENCE`, SYSTEM, 2026-10-07 06:44, reason "PR300
+screenshot time guard") unlinked both from the same CONFIRMED expense after the
+screenshots had been matched to it, and left the proposals `NEEDS_REVIEW` with
+no review item.
+
+They are not in the migration on purpose. Reprocessing queues
+`PROCESS_TRANSACTION_SCREENSHOT`; if the matcher no longer finds the original
+transaction (amount drift, or outside the 72-hour window) the auto-confirm path
+(`confirmScreenshotRow`) writes a second CONFIRMED row for the same real
+transfer. The original unlink was the time guard rejecting at validation, so
+that outcome is plausible. Do not reprocess these two until a code fix makes a
+reprocess prefer the superseded proposal's `matched_transaction_id` over
+auto-confirm (tracked in #363).
+
+Settle them by hand with owner approval, one source at a time (`:source` is the
+source event id; `:matched` is the transaction in the proposal's
+`matched_transaction_id`):
+
+1. **Before:** record the household's CONFIRMED transaction count and the
+   matched transaction's evidence:
+
+   ```sql
+   SELECT count(*) FROM transaction WHERE household_id = :household AND status = 'CONFIRMED';
+   SELECT te.source_event_id, te.evidence_type, COALESCE(te.metadata_json->>'link_status','ACTIVE')
+   FROM transaction_evidence te WHERE te.transaction_id = :matched;
+   SELECT p.id, p.proposal_status, p.metadata_json->>'matched_transaction_id' FROM transaction_proposal p WHERE p.source_event_id = :source;
+   ```
+
+2. **Settle**, in one reviewed transaction with an `audit_log` row per event.
+   First look at what the unlink left behind:
+
+   ```sql
+   SELECT transaction_id, COALESCE(metadata_json->>'link_status','ACTIVE') AS link
+   FROM transaction_evidence WHERE source_event_id = :source;
+   ```
+
+   `transaction_evidence` is unique on `(transaction_id, source_event_id)` and the
+   worker's link insert is `ON CONFLICT DO NOTHING`, so copying that insert is a
+   silent no-op if a row survived the unlink. If a row exists for `:matched`
+   with `link` other than `ACTIVE`, set its `metadata_json` `link_status` back to
+   `ACTIVE` (drop the superseded marker); if none exists, insert it
+   (`TRANSACTION_SCREENSHOT`, the shape `LINK_SCREENSHOT_EVIDENCE` writes). Then
+   set the proposal `MERGED` and the source event `PROCESSED`. Do not queue a job
+   and do not insert a transaction. If the owner decides the screenshots are not
+   wanted as evidence, set the proposal `REJECTED` and the source `IGNORED`
+   instead (and leave any superseded evidence row alone).
+3. **After:** re-run the queries. The CONFIRMED count must be unchanged, no second
+   transaction may exist for the same amount and time, and, in the evidence case,
+   `transaction_evidence` must show exactly one row for `(:matched, :source)`
+   whose `link` is `ACTIVE` (a stale superseded row does not count; the
+   detection query only counts `ACTIVE`). The detection query must now return
+   zero rows for these sources.
