@@ -23,7 +23,8 @@
 -- touched nor block this deploy), and the migration refuses to run unless the
 -- group has exactly its expected size (A 6, B 3, C 1, D 5, E 2) or is empty, so
 -- a database that differs from the inspected one fails loudly instead of being
--- half-repaired. Events at or after the cutoff stay visible to the detection
+-- half-repaired. The five groups are all-or-nothing: if some match and others
+-- match nothing, the whole migration raises. Events at or after the cutoff stay visible to the detection
 -- query for their own follow-up.
 -- An empty group is a NOTICE and a no-op: fresh and already-repaired databases
 -- migrate cleanly and re-running is idempotent. The optional session setting
@@ -49,6 +50,7 @@ DECLARE
     ids uuid[];
     n int;
     changed int;
+    settled text := '';
     cutoff CONSTANT timestamptz := '2026-10-07 00:00:00+07';
     mig CONSTANT text := '00084_settle_stuck_source_events';
 BEGIN
@@ -67,6 +69,7 @@ BEGIN
     ELSIF n <> 6 THEN
         RAISE EXCEPTION '00084 group A: % events match, expected 6; resolve by hand', n;
     ELSE
+        settled := settled || 'A';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
         SELECT household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', id,
                jsonb_build_object('group', 'A', 'processing_status', 'NEEDS_REVIEW'),
@@ -91,6 +94,7 @@ BEGIN
     ELSIF n <> 3 THEN
         RAISE EXCEPTION '00084 group B: % events match, expected 3; resolve by hand', n;
     ELSE
+        settled := settled || 'B';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
         SELECT household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', id,
                jsonb_build_object('group', 'B', 'processing_status', 'NEEDS_REVIEW'),
@@ -128,6 +132,7 @@ BEGIN
     ELSIF n <> 1 THEN
         RAISE EXCEPTION '00084 group C: % events match, expected 1; resolve by hand', n;
     ELSE
+        settled := settled || 'C';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
         SELECT household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', id,
                jsonb_build_object('group', 'C', 'processing_status', 'NEEDS_REVIEW'),
@@ -159,6 +164,7 @@ BEGIN
     ELSIF n <> 5 THEN
         RAISE EXCEPTION '00084 group D: % events match, expected 5; resolve by hand', n;
     ELSE
+        settled := settled || 'D';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
         SELECT household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', id,
                jsonb_build_object('group', 'D', 'processing_status', 'NEEDS_REVIEW'),
@@ -190,6 +196,7 @@ BEGIN
     ELSIF n <> 2 THEN
         RAISE EXCEPTION '00084 group E: % events match, expected 2; resolve by hand', n;
     ELSE
+        settled := settled || 'E';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
         SELECT se.household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', se.id,
                jsonb_build_object('group', 'E', 'processing_status', 'NEEDS_REVIEW', 'document_status', 'EXTRACTED'),
@@ -211,6 +218,13 @@ BEGIN
         FROM document d WHERE d.source_event_id = ANY(ids);
         GET DIAGNOSTICS changed = ROW_COUNT;
         IF changed <> n THEN RAISE EXCEPTION '00084 group E: % of % jobs queued', changed, n; END IF;
+    END IF;
+
+    -- All five groups or none. Group E is found through an audit row written by a
+    -- one-off manual statement, not by any code, so a database whose signature
+    -- differs must fail here instead of silently leaving that group stuck.
+    IF settled <> '' AND length(settled) <> 5 THEN
+        RAISE EXCEPTION '00084: groups % matched but the others matched nothing; this is not the inspected database, resolve by hand', settled;
     END IF;
 END;
 $$;

@@ -75,7 +75,7 @@ Migration `00084_settle_stuck_source_events.sql` settles the 17 events found in
 production. It names no row: each group is found by its state signature among
 events received before 2026-10-07 (later events are never touched and stay
 visible to the detection query) and the migration raises unless the group has exactly its expected size (A 6, B 3,
-C 1, D 5, E 2) or is empty. Per event it writes one `audit_log` row
+C 1, D 5, E 2) or is empty, and raises if some groups match and others match nothing (group E is found through an audit row a manual statement wrote, so a different signature must not pass silently). Per event it writes one `audit_log` row
 (`REPAIR_STUCK_SOURCE_EVENT`, with the prior state) and never creates, changes
 or deletes a transaction, evidence or review row.
 

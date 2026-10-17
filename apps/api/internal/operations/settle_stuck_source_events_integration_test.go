@@ -410,3 +410,21 @@ func TestSettleStuckSourceEventsDownRestoresBankEmailWithAPreexistingItem(t *tes
 		t.Fatal("rollback must keep an item the migration did not write")
 	}
 }
+
+// Group E is found through an audit row a manual statement wrote, not through
+// code, so a missing signature must fail the migration instead of leaving the
+// two screenshots stuck while everything else is settled.
+func TestSettleStuckSourceEventsRefusesAPartialMatch(t *testing.T) {
+	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1, "D": 5})
+	err := f.migrate("up")
+	if err == nil || !strings.Contains(err.Error(), "the others matched nothing") {
+		t.Fatalf("a partial match must raise, got %v", err)
+	}
+	for _, ids := range f.groups {
+		for _, id := range ids {
+			if got := f.statuses()[id]; got != "NEEDS_REVIEW" {
+				t.Fatalf("a refused migration must roll back; %s is %s", id, got)
+			}
+		}
+	}
+}
