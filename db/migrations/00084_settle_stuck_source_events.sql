@@ -225,8 +225,10 @@ BEGIN
     LOOP
         restored := false;
         IF rec.grp IN ('A', 'C') THEN
-            -- Only while the event still carries the stamp Up wrote: any worker path that
-            -- finishes the event afterwards rewrites parser_name, and must not be undone.
+            -- Only while the event still carries the stamp Up wrote: most worker paths
+            -- that finish the event afterwards rewrite parser_name and must not be undone; the
+            -- A and C selectors also require no review item, proposal or evidence, which the
+            -- few paths that keep parser_name only write.
             UPDATE source_event SET processing_status = 'NEEDS_REVIEW', parser_name = rec.before_parser
             WHERE id = rec.id AND processing_status = 'PROCESSED' AND parser_name = stamp;
             restored := FOUND;

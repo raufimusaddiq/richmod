@@ -138,14 +138,27 @@ source event id; `:matched` is the transaction in the proposal's
    SELECT p.id, p.proposal_status, p.metadata_json->>'matched_transaction_id' FROM transaction_proposal p WHERE p.source_event_id = :source;
    ```
 
-2. **Settle**, in one reviewed transaction with an `audit_log` row per event:
-   re-link the screenshot as evidence of `:matched` (`transaction_evidence`,
-   `TRANSACTION_SCREENSHOT`, the same shape `LINK_SCREENSHOT_EVIDENCE` writes),
-   set the proposal `MERGED`, and set the source event `PROCESSED`. Do not
-   queue a job and do not insert a transaction. If the owner decides the
-   screenshots are not wanted as evidence, set the proposal `REJECTED` and the
-   source `IGNORED` instead.
-3. **After:** re-run the three queries. The CONFIRMED count must be unchanged,
-   the matched transaction must show the new evidence (or none, for the reject
-   case), and no second transaction may exist for the same amount and time. The
-   detection query must now return zero rows.
+2. **Settle**, in one reviewed transaction with an `audit_log` row per event.
+   First look at what the unlink left behind:
+
+   ```sql
+   SELECT transaction_id, COALESCE(metadata_json->>'link_status','ACTIVE') AS link
+   FROM transaction_evidence WHERE source_event_id = :source;
+   ```
+
+   `transaction_evidence` is unique on `(transaction_id, source_event_id)` and the
+   worker's link insert is `ON CONFLICT DO NOTHING`, so copying that insert is a
+   silent no-op if a row survived the unlink. If a row exists for `:matched`
+   with `link` other than `ACTIVE`, set its `metadata_json` `link_status` back to
+   `ACTIVE` (drop the superseded marker); if none exists, insert it
+   (`TRANSACTION_SCREENSHOT`, the shape `LINK_SCREENSHOT_EVIDENCE` writes). Then
+   set the proposal `MERGED` and the source event `PROCESSED`. Do not queue a job
+   and do not insert a transaction. If the owner decides the screenshots are not
+   wanted as evidence, set the proposal `REJECTED` and the source `IGNORED`
+   instead (and leave any superseded evidence row alone).
+3. **After:** re-run the queries. The CONFIRMED count must be unchanged, no second
+   transaction may exist for the same amount and time, and, in the evidence case,
+   `transaction_evidence` must show exactly one row for `(:matched, :source)`
+   whose `link` is `ACTIVE` (a stale superseded row does not count; the
+   detection query only counts `ACTIVE`). The detection query must now return
+   zero rows for these sources.
