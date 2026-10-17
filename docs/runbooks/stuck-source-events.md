@@ -71,13 +71,14 @@ ledger's unfinished count.
 
 ## Ticket #356 repair (migration 00084)
 
-Migration `00084_settle_stuck_source_events.sql` settles the 17 events found in
-production. It names no row: each group is found by its state signature among
-events received before 2026-10-07 (later events are never touched and stay
-visible to the detection query) and the migration raises unless the group has exactly its expected size (A 6, B 3,
-C 1, D 5, E 2) or is empty, and raises if some groups match and others match nothing (group E is found through an audit row a manual statement wrote, so a different signature must not pass silently). Per event it writes one `audit_log` row
-(`REPAIR_STUCK_SOURCE_EVENT`, with the prior state) and never creates, changes
-or deletes a transaction, evidence or review row.
+Migration `00084_settle_stuck_source_events.sql` settles 15 of the 17 events
+found in production. It names no row: each group is found by its state
+signature among events received before 2026-10-07 (later events are never
+touched and stay visible to the detection query), and the migration raises
+unless the group has exactly its expected size (A 6, B 3, C 1, D 5) or is empty.
+Per event it writes one `audit_log` row (`REPAIR_STUCK_SOURCE_EVENT`, with the
+prior state) and never creates, changes or deletes a transaction, evidence,
+proposal, job or review row.
 
 | Group | Signature | Settlement |
 | --- | --- | --- |
@@ -85,39 +86,64 @@ or deletes a transaction, evidence or review row.
 | B | `BANK_EMAIL`, extraction `INVALID`/`NEEDS_REVIEW`, nothing linked | `FAILED` plus the dismissable failed-source item (same text as `RecordFailedSourceAction`); not re-extracted |
 | C | document wealth observation `APPLIED`, item resolved | `PROCESSED` |
 | D | document item resolved `IGNORE`, document `EXTRACTED` | source `IGNORED` (the document stays `EXTRACTED`) |
-| E | `TRANSFER_PROOF`, listed in a `MANUAL_UNLINK_EVIDENCE` audit row | stale proposals `REJECTED` (key prefixed `superseded-`), document `CLASSIFIED`, source `PROCESSING`, one `PROCESS_TRANSACTION_SCREENSHOT` job per document |
 
 `Down` restores each event from its audit row while it is still in the state Up
-left it in; group E is restored only while its job has not started.
+left it in; an event the household has acted on since is left alone, and a later
+Up counts it as already settled.
+
+**All-or-nothing, and what that means between deploys.** If some groups match
+and others match nothing, the migration raises and the deploy fails loudly. That
+is the expected result if any of these events was already settled by hand
+before the deploy (for example group D dismissed in the Inbox, or the two
+transfer proofs below if they somehow matched a group). Settle by hand only
+after the deploy, or re-run the detection query first and expect the sizes
+above.
 
 ### After deploying it
 
-1. The detection query above must return zero rows. A non-zero result for the two
-   transfer-proof sources has three possible causes, and a failed job is only one:
-   - the reprocess failed: check `job` for failed `PROCESS_TRANSACTION_SCREENSHOT`
-     rows;
-   - group E matched nothing (a no-op): the sources are still `NEEDS_REVIEW` with
-     their `NEEDS_REVIEW` proposals, no `REPAIR_STUCK_SOURCE_EVENT` audit row, and
-     no queued job. The migration is all-or-nothing, so this cannot pass a deploy
-     silently; if it appears anyway, check the selector, not the worker;
-   - the worker re-parked the source: the job succeeded but the reprocess ended
-     `NEEDS_REVIEW` with no review item. That is a new defect in the screenshot
-     path, not a repair failure; report it on #356.
-   Group E's selector rests on the production `MANUAL_UNLINK_EVIDENCE` audit row
-   (no code writes it; one row, SYSTEM, 2026-10-07, listing both source events).
+The detection query above must return exactly two rows: the transfer proofs
+below. Any other row is a defect to triage.
 
-2. Group E must not duplicate money. Once both jobs have run, for each
-   reprocessed source (replace `:source`) the evidence must point at the
-   transaction the superseded proposal matched, and the household's transaction
-   count must not have grown:
+### The two transfer-proof events (settled by hand, not by the migration)
+
+Two `TELEGRAM_IMAGE` events (`TRANSFER_PROOF` documents, `EXTRACTED`) carry one
+stale `NEEDS_REVIEW` proposal each and no evidence. A one-off manual statement
+(audit action `MANUAL_UNLINK_EVIDENCE`, SYSTEM, 2026-10-07 06:44, reason "PR300
+screenshot time guard") unlinked both from the same CONFIRMED expense after the
+screenshots had been matched to it, and left the proposals `NEEDS_REVIEW` with
+no review item.
+
+They are not in the migration on purpose. Reprocessing queues
+`PROCESS_TRANSACTION_SCREENSHOT`; if the matcher no longer finds the original
+transaction (amount drift, or outside the 72-hour window) the auto-confirm path
+(`confirmScreenshotRow`) writes a second CONFIRMED row for the same real
+transfer. The original unlink was the time guard rejecting at validation, so
+that outcome is plausible. Do not reprocess these two until a code fix makes a
+reprocess prefer the superseded proposal's `matched_transaction_id` over
+auto-confirm (tracked in #363).
+
+Settle them by hand with owner approval, one source at a time (`:source` is the
+source event id; `:matched` is the transaction in the proposal's
+`matched_transaction_id`):
+
+1. **Before:** record the household's CONFIRMED transaction count and the
+   matched transaction's evidence:
 
    ```sql
-   SELECT p.proposal_key, p.proposal_status, p.metadata_json->>'matched_transaction_id' AS matched
-   FROM transaction_proposal p WHERE p.source_event_id = :source ORDER BY p.created_at;
-   SELECT te.transaction_id, te.evidence_type, COALESCE(te.metadata_json->>'link_status','ACTIVE') AS link
-   FROM transaction_evidence te WHERE te.source_event_id = :source;
+   SELECT count(*) FROM transaction WHERE household_id = :household AND status = 'CONFIRMED';
+   SELECT te.source_event_id, te.evidence_type, COALESCE(te.metadata_json->>'link_status','ACTIVE')
+   FROM transaction_evidence te WHERE te.transaction_id = :matched;
+   SELECT p.id, p.proposal_status, p.metadata_json->>'matched_transaction_id' FROM transaction_proposal p WHERE p.source_event_id = :source;
    ```
 
-   A new `NEEDS_REVIEW` transaction or review item is also a valid outcome (the
-   fixed matcher may now reject the match); it must be reachable, i.e. the
-   detection query stays at zero.
+2. **Settle**, in one reviewed transaction with an `audit_log` row per event:
+   re-link the screenshot as evidence of `:matched` (`transaction_evidence`,
+   `TRANSACTION_SCREENSHOT`, the same shape `LINK_SCREENSHOT_EVIDENCE` writes),
+   set the proposal `MERGED`, and set the source event `PROCESSED`. Do not
+   queue a job and do not insert a transaction. If the owner decides the
+   screenshots are not wanted as evidence, set the proposal `REJECTED` and the
+   source `IGNORED` instead.
+3. **After:** re-run the three queries. The CONFIRMED count must be unchanged,
+   the matched transaction must show the new evidence (or none, for the reject
+   case), and no second transaction may exist for the same amount and time. The
+   detection query must now return zero rows.

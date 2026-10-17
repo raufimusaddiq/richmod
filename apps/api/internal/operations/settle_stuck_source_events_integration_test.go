@@ -116,7 +116,7 @@ func seedSettleFixture(t *testing.T, sizes map[string]int) *settleFixture {
 
 func ptr(s string) *string { return &s }
 
-var fullSizes = map[string]int{"A": 6, "B": 3, "C": 1, "D": 5, "E": 2}
+var fullSizes = map[string]int{"A": 6, "B": 3, "C": 1, "D": 5}
 
 func (f *settleFixture) migrate(section string) error {
 	f.t.Helper()
@@ -188,8 +188,8 @@ func (f *settleFixture) jobs() int {
 func TestSettleStuckSourceEventsRepairsEveryGroupAndLeavesNothingStuck(t *testing.T) {
 	f := seedSettleFixture(t, fullSizes)
 	ctx := context.Background()
-	if stuck, err := StuckSourceEvents(ctx, f.pool, f.household); err != nil || len(stuck) != 17 {
-		t.Fatalf("fixture must reproduce 17 stuck events, got %d err=%v", len(stuck), err)
+	if stuck, err := StuckSourceEvents(ctx, f.pool, f.household); err != nil || len(stuck) != 15 {
+		t.Fatalf("fixture must reproduce 15 stuck events, got %d err=%v", len(stuck), err)
 	}
 	transactionsBefore := f.count(`SELECT count(*) FROM transaction WHERE household_id=$1`, f.household)
 	evidenceBefore := f.count(`SELECT count(*) FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id WHERE t.household_id=$1`, f.household)
@@ -218,25 +218,14 @@ func TestSettleStuckSourceEventsRepairsEveryGroupAndLeavesNothingStuck(t *testin
 			t.Fatalf("group D %s: %s", id, status[id])
 		}
 	}
-	for _, id := range f.groups["E"] {
-		if status[id] != "PROCESSING" ||
-			f.count(`SELECT count(*) FROM document WHERE source_event_id=$1 AND status='CLASSIFIED'`, id) != 1 ||
-			f.count(`SELECT count(*) FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='REJECTED' AND proposal_key='superseded-row-001'`, id) != 1 {
-			t.Fatalf("group E %s not staged for reprocess: %s", id, status[id])
-		}
-	}
-	if got := f.jobs(); got != 2 {
-		t.Fatalf("group E must queue exactly one job per document, got %d", got)
-	}
 	// Canonical ledger state is untouched: the repair writes no transaction, evidence or review row.
 	if f.count(`SELECT count(*) FROM transaction WHERE household_id=$1`, f.household) != transactionsBefore ||
 		f.count(`SELECT count(*) FROM transaction_evidence te JOIN transaction t ON t.id=te.transaction_id WHERE t.household_id=$1`, f.household) != evidenceBefore ||
-		f.count(`SELECT count(*) FROM review_item WHERE household_id=$1`, f.household) != reviewsBefore ||
-		f.count(`SELECT count(*) FROM transaction WHERE id=$1 AND status='CONFIRMED'`, f.matched) != 1 {
+		f.count(`SELECT count(*) FROM review_item WHERE household_id=$1`, f.household) != reviewsBefore {
 		t.Fatal("repair changed canonical state")
 	}
-	if got := f.audits("REPAIR_STUCK_SOURCE_EVENT"); got != 17 {
-		t.Fatalf("want one audit row per event (17), got %d", got)
+	if got := f.audits("REPAIR_STUCK_SOURCE_EVENT"); got != 15 {
+		t.Fatalf("want one audit row per event (15), got %d", got)
 	}
 
 	// Group B's Tindakan item is exactly what the worker writes for a BANK_EMAIL / INVALID failure.
@@ -248,7 +237,6 @@ func TestSettleStuckSourceEventsRepairsEveryGroupAndLeavesNothingStuck(t *testin
 		}
 	}
 
-	// Group E is waiting on its reprocess job, which is not "stuck"; everything else is settled.
 	if stuck, err := StuckSourceEvents(ctx, f.pool, f.household); err != nil || len(stuck) != 0 {
 		t.Fatalf("detection query must return zero rows after the repair, got %+v err=%v", stuck, err)
 	}
@@ -266,7 +254,7 @@ func TestSettleStuckSourceEventsRerunIsANoOp(t *testing.T) {
 			t.Fatalf("%s changed on re-run: %s -> %s", id, status, after[id])
 		}
 	}
-	if f.audits("REPAIR_STUCK_SOURCE_EVENT") != 17 || f.jobs() != 2 ||
+	if f.audits("REPAIR_STUCK_SOURCE_EVENT") != 15 || f.jobs() != 0 ||
 		f.count(`SELECT count(*) FROM integration_action WHERE household_id=$1`, f.household) != 3 {
 		t.Fatal("re-run must not add audit rows, jobs or Tindakan items")
 	}
@@ -282,7 +270,6 @@ func TestSettleStuckSourceEventsRefusesAGroupOfTheWrongSize(t *testing.T) {
 		"group A excess": {"A", 7, "group A: 7 events match, expected 6"},
 		"group B short":  {"B", 2, "group B: 2 events match, expected 3"},
 		"group D excess": {"D", 6, "group D: 6 events match, expected 5"},
-		"group E short":  {"E", 1, "group E: 1 events match, expected 2"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			sizes := map[string]int{tc.group: tc.size}
@@ -326,39 +313,19 @@ func TestSettleStuckSourceEventsDownRestoresAndUpRunsAgain(t *testing.T) {
 		}
 	}
 	if f.jobs() != 0 || f.count(`SELECT count(*) FROM integration_action WHERE household_id=$1`, f.household) != 0 ||
-		f.count(`SELECT count(*) FROM transaction_proposal WHERE household_id=$1 AND proposal_status='NEEDS_REVIEW' AND proposal_key='row-001'`, f.household) != 2 ||
-		f.count(`SELECT count(*) FROM document WHERE household_id=$1 AND status='EXTRACTED'`, f.household) != 8 {
-		t.Fatal("down must restore proposals, documents and remove the queued jobs and Tindakan items")
+		f.count(`SELECT count(*) FROM document WHERE household_id=$1 AND status='EXTRACTED'`, f.household) != 6 {
+		t.Fatal("down must leave documents alone and remove the Tindakan items")
 	}
-	if f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT") != 17 {
+	if f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT") != 15 {
 		t.Fatalf("one rollback audit row per event, got %d", f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT"))
 	}
 	f.mustMigrate("down") // second down: nothing left to roll back
-	if f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT") != 17 {
+	if f.audits("ROLLBACK_REPAIR_STUCK_SOURCE_EVENT") != 15 {
 		t.Fatal("second down must be a no-op")
 	}
 	f.mustMigrate("up") // Up -> Down -> Up settles everything again
-	if stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household); err != nil || len(stuck) != 0 || f.jobs() != 2 {
+	if stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household); err != nil || len(stuck) != 0 || f.jobs() != 0 {
 		t.Fatalf("second up must settle again: stuck=%d jobs=%d err=%v", len(stuck), f.jobs(), err)
-	}
-}
-
-func TestSettleStuckSourceEventsDownKeepsAReprocessThatAlreadyRan(t *testing.T) {
-	f := seedSettleFixture(t, fullSizes)
-	f.mustMigrate("up")
-	// The worker picked the jobs up: their outcome is real and must survive a rollback.
-	f.exec(`UPDATE job SET status='SUCCEEDED' WHERE type='PROCESS_TRANSACTION_SCREENSHOT' AND payload_json->>'document_id' IN (SELECT d.id::text FROM document d WHERE d.household_id=$1)`, f.household)
-	f.mustMigrate("down")
-	status := f.statuses()
-	for _, id := range f.groups["E"] {
-		if status[id] != "PROCESSING" {
-			t.Fatalf("down must not undo a reprocess that already ran: %s is %s", id, status[id])
-		}
-	}
-	for _, id := range f.groups["A"] {
-		if status[id] != "NEEDS_REVIEW" {
-			t.Fatalf("other groups still roll back: %s is %s", id, status[id])
-		}
 	}
 }
 
@@ -379,7 +346,7 @@ func TestSettleStuckSourceEventsLeavesLaterEventsAlone(t *testing.T) {
 }
 
 func TestSettleStuckSourceEventsSettlesAlbumPageMembers(t *testing.T) {
-	sizes := map[string]int{"A": 6, "B": 3, "C": 1, "D": 4, "E": 2}
+	sizes := map[string]int{"A": 6, "B": 3, "C": 1, "D": 4}
 	f := seedSettleFixture(t, sizes)
 	// A fifth group D event is an album member: only the primary owns the document.
 	member := f.event("TELEGRAM_IMAGE", "NEEDS_REVIEW", ptr("cloud-llm-gateway"))
@@ -411,11 +378,10 @@ func TestSettleStuckSourceEventsDownRestoresBankEmailWithAPreexistingItem(t *tes
 	}
 }
 
-// Group E is found through an audit row a manual statement wrote, not through
-// code, so a missing signature must fail the migration instead of leaving the
-// two screenshots stuck while everything else is settled.
+// A group already settled by hand (the runbook's expected state between deploys)
+// makes the migration fail loudly rather than settle the others and hide the gap.
 func TestSettleStuckSourceEventsRefusesAPartialMatch(t *testing.T) {
-	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1, "D": 5})
+	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1})
 	err := f.migrate("up")
 	if err == nil || !strings.Contains(err.Error(), "the others matched nothing") {
 		t.Fatalf("a partial match must raise, got %v", err)
@@ -426,5 +392,52 @@ func TestSettleStuckSourceEventsRefusesAPartialMatch(t *testing.T) {
 				t.Fatalf("a refused migration must roll back; %s is %s", id, got)
 			}
 		}
+	}
+}
+
+// The two transfer-proof screenshots are not touched: reprocessing them can mint a
+// second CONFIRMED transaction, so the runbook settles them by hand.
+func TestSettleStuckSourceEventsLeavesTransferProofsAlone(t *testing.T) {
+	f := seedSettleFixture(t, map[string]int{"A": 6, "B": 3, "C": 1, "D": 5, "E": 2})
+	f.mustMigrate("up")
+	for _, id := range f.groups["E"] {
+		if got := f.statuses()[id]; got != "NEEDS_REVIEW" {
+			t.Fatalf("transfer proof %s must stay NEEDS_REVIEW, got %s", id, got)
+		}
+		if f.count(`SELECT count(*) FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='NEEDS_REVIEW' AND proposal_key='row-001'`, id) != 1 ||
+			f.count(`SELECT count(*) FROM document WHERE source_event_id=$1 AND status='EXTRACTED'`, id) != 1 {
+			t.Fatalf("transfer proof %s proposal or document changed", id)
+		}
+	}
+	if f.jobs() != 0 || f.count(`SELECT count(*) FROM transaction WHERE household_id=$1`, f.household) != 1 {
+		t.Fatal("no job may be queued and no transaction written")
+	}
+	if stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household); err != nil || len(stuck) != 2 {
+		t.Fatalf("exactly the two transfer proofs stay for the manual path: %d err=%v", len(stuck), err)
+	}
+}
+
+func TestSettleStuckSourceEventsUpRunsAfterDownSkippedADismissedEvent(t *testing.T) {
+	f := seedSettleFixture(t, fullSizes)
+	f.mustMigrate("up")
+	dismissed := f.groups["B"][0]
+	f.exec(`UPDATE integration_action SET status='DISMISSED' WHERE household_id=$1 AND dedupe_key=$2`, f.household, dismissed)
+	f.exec(`UPDATE source_event SET processing_status='IGNORED' WHERE id=$1`, dismissed)
+	f.mustMigrate("down")
+	if got := f.statuses()[dismissed]; got != "IGNORED" {
+		t.Fatalf("down must not undo the household's dismissal: %s", got)
+	}
+	if got := f.statuses()[f.groups["B"][1]]; got != "NEEDS_REVIEW" {
+		t.Fatalf("down still restores the untouched events: %s", got)
+	}
+	if err := f.migrate("up"); err != nil {
+		t.Fatalf("up after a skipped rollback must run: %v", err)
+	}
+	status := f.statuses()
+	if status[dismissed] != "IGNORED" || status[f.groups["B"][1]] != "FAILED" || status[f.groups["B"][2]] != "FAILED" {
+		t.Fatalf("second up must settle the other two and leave the dismissed one: %+v", status)
+	}
+	if stuck, err := StuckSourceEvents(context.Background(), f.pool, f.household); err != nil || len(stuck) != 0 {
+		t.Fatalf("detection must be zero: %+v err=%v", stuck, err)
 	}
 }

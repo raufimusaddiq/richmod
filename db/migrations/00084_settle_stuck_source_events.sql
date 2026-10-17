@@ -1,5 +1,5 @@
 -- +goose Up
--- Ticket #356: 17 source events show as NEEDS_REVIEW although no active review
+-- Ticket #356: 15 source events show as NEEDS_REVIEW although no active review
 -- item can resolve them (detected by the stuck-source-events query, see
 -- docs/runbooks/stuck-source-events.md). Each group below has one root cause,
 -- found by read-only inspection of production, and one settlement:
@@ -12,45 +12,34 @@
 --        -> PROCESSED.
 --   D  5 documents whose DOCUMENT_EXTRACTION_LOW_CONFIDENCE item was resolved
 --        IGNORE without settling the source -> source IGNORED. The document
---        stays EXTRACTED: document.status has no IGNORED value (see below).
---   E  2 transfer-proof documents whose evidence a manual unlink removed
---        (audit_log MANUAL_UNLINK_EVIDENCE, see below) -> reprocessed through the normal
---        PROCESS_TRANSACTION_SCREENSHOT job; no evidence row is written here.
+--        stays EXTRACTED: document.status has no IGNORED value.
+--
+-- Two transfer-proof events (group E in the ticket) are deliberately NOT here.
+-- Reprocessing them can write a second CONFIRMED transaction for a transfer that
+-- is already recorded, which is money and not a status settlement; the runbook
+-- settles them by hand with a before/after check.
 --
 -- No row id is named. Each group is found by the state signature the inspection
 -- established among events received before 2026-10-07 (the batch inspected;
 -- group A's cause is still live in code, so later events must neither be
 -- touched nor block this deploy), and the migration refuses to run unless the
--- group has exactly its expected size (A 6, B 3, C 1, D 5, E 2) or is empty, so
--- a database that differs from the inspected one fails loudly instead of being
--- half-repaired. The five groups are all-or-nothing: if some match and others
--- match nothing, the whole migration raises. Events at or after the cutoff stay visible to the detection
--- query for their own follow-up.
--- An empty group is a NOTICE and a no-op: fresh and already-repaired databases
--- migrate cleanly and re-running is idempotent. The optional session setting
--- richmod.repair_household narrows every group to one household; it is unset
--- in a normal migrate.
+-- group has exactly its expected size (A 6, B 3, C 1, D 5) or is empty, so a
+-- database that differs from the inspected one fails loudly instead of being
+-- half-repaired. The four groups are all-or-nothing: if some match and others
+-- match nothing (for instance because one was already settled by hand), the
+-- whole migration raises. Events at or after the cutoff stay visible to the
+-- detection query for their own follow-up. An empty database is a notice and a
+-- no-op, so fresh and already-repaired databases migrate cleanly and re-running
+-- is idempotent. The optional session setting richmod.repair_household narrows
+-- every group to one household; it is unset in a normal migrate.
 --
--- Group E's signature: no code writes the audit action MANUAL_UNLINK_EVIDENCE.
--- In production exactly one such row exists (read-only inspection for #356):
--- actor_type SYSTEM, entity_type transaction, created 2026-10-07 06:44 +07, and
--- an after_json carrying reason "PR300 screenshot time guard" and a
--- source_events array naming the two documents' source events. A one-off manual
--- statement wrote it. Because the signature is not code-owned, the all-or-nothing
--- check at the end turns a database without it into a loud failure.
+-- Every changed event gets one audit_log row (REPAIR_STUCK_SOURCE_EVENT) holding
+-- the prior state, which Down uses to restore it. No transaction, evidence,
+-- proposal, job or review row is created, changed or deleted.
 --
 -- Note on D: reviewdomain.ResolveDocumentReview writes document.status='IGNORED',
 -- which document_status_check forbids; that is a separate defect tracked outside
 -- this repair, so the migration does not depend on it.
---
--- Every changed event gets one audit_log row (REPAIR_STUCK_SOURCE_EVENT) holding
--- the prior state, which Down uses to restore it. No transaction, evidence or
--- review row is created, changed or deleted. For group E the migration only
--- retires the two stale NEEDS_REVIEW proposals (REJECTED, key prefixed
--- 'superseded-' so the reprocess can create row-001 again), resets the document
--- to CLASSIFIED, marks the source PROCESSING and queues the job. After the worker
--- runs, verify the matched transaction is still one canonical row with the
--- steps in docs/runbooks/stuck-source-events.md.
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -59,9 +48,22 @@ DECLARE
     n int;
     changed int;
     settled text := '';
+    covered text := '';
+    prior_counts jsonb;
     cutoff CONSTANT timestamptz := '2026-10-07 00:00:00+07';
     mig CONSTANT text := '00084_settle_stuck_source_events';
 BEGIN
+    -- Events an earlier run of this migration settled and that were not rolled back
+    -- (a Down skips an event the household has acted on since) count toward each
+    -- group's expected size, so Down -> Up stays runnable.
+    SELECT COALESCE(jsonb_object_agg(g, c), '{}'::jsonb) INTO prior_counts FROM (
+        SELECT a.before_json->>'group' AS g, count(DISTINCT a.entity_id) AS c
+        FROM audit_log a
+        WHERE a.action = 'REPAIR_STUCK_SOURCE_EVENT' AND a.after_json->>'migration' = mig AND (scope IS NULL OR a.household_id = scope)
+          AND NOT EXISTS (SELECT 1 FROM audit_log r WHERE r.action = 'ROLLBACK_REPAIR_STUCK_SOURCE_EVENT' AND r.entity_id = a.entity_id
+                          AND r.after_json->>'migration' = mig AND r.created_at >= a.created_at)
+        GROUP BY 1) t;
+
     -- A: chat replies parked as NEEDS_REVIEW.
     SELECT array_agg(se.id) INTO ids FROM source_event se
     WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
@@ -73,9 +75,10 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM telegram_pending_batch b WHERE b.source_event_id = se.id AND b.status = 'PENDING');
     n := COALESCE(cardinality(ids), 0);
     IF n = 0 THEN
+        IF COALESCE((prior_counts->>'A')::int, 0) > 0 THEN covered := covered || 'A'; END IF;
         RAISE NOTICE '00084 group A: nothing to settle';
-    ELSIF n <> 6 THEN
-        RAISE EXCEPTION '00084 group A: % events match, expected 6; resolve by hand', n;
+    ELSIF n <> 6 - COALESCE((prior_counts->>'A')::int, 0) THEN
+        RAISE EXCEPTION '00084 group A: % events match, expected %; resolve by hand', n, 6 - COALESCE((prior_counts->>'A')::int, 0);
     ELSE
         settled := settled || 'A';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
@@ -98,9 +101,10 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id);
     n := COALESCE(cardinality(ids), 0);
     IF n = 0 THEN
+        IF COALESCE((prior_counts->>'B')::int, 0) > 0 THEN covered := covered || 'B'; END IF;
         RAISE NOTICE '00084 group B: nothing to settle';
-    ELSIF n <> 3 THEN
-        RAISE EXCEPTION '00084 group B: % events match, expected 3; resolve by hand', n;
+    ELSIF n <> 3 - COALESCE((prior_counts->>'B')::int, 0) THEN
+        RAISE EXCEPTION '00084 group B: % events match, expected %; resolve by hand', n, 3 - COALESCE((prior_counts->>'B')::int, 0);
     ELSE
         settled := settled || 'B';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
@@ -137,9 +141,10 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM transaction_evidence te JOIN transaction t ON t.id = te.transaction_id WHERE te.source_event_id = se.id AND t.status = 'NEEDS_REVIEW');
     n := COALESCE(cardinality(ids), 0);
     IF n = 0 THEN
+        IF COALESCE((prior_counts->>'C')::int, 0) > 0 THEN covered := covered || 'C'; END IF;
         RAISE NOTICE '00084 group C: nothing to settle';
-    ELSIF n <> 1 THEN
-        RAISE EXCEPTION '00084 group C: % events match, expected 1; resolve by hand', n;
+    ELSIF n <> 1 - COALESCE((prior_counts->>'C')::int, 0) THEN
+        RAISE EXCEPTION '00084 group C: % events match, expected %; resolve by hand', n, 1 - COALESCE((prior_counts->>'C')::int, 0);
     ELSE
         settled := settled || 'C';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
@@ -170,9 +175,10 @@ BEGIN
                       WHERE d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id));
     n := COALESCE(cardinality(ids), 0);
     IF n = 0 THEN
+        IF COALESCE((prior_counts->>'D')::int, 0) > 0 THEN covered := covered || 'D'; END IF;
         RAISE NOTICE '00084 group D: nothing to settle';
-    ELSIF n <> 5 THEN
-        RAISE EXCEPTION '00084 group D: % events match, expected 5; resolve by hand', n;
+    ELSIF n <> 5 - COALESCE((prior_counts->>'D')::int, 0) THEN
+        RAISE EXCEPTION '00084 group D: % events match, expected %; resolve by hand', n, 5 - COALESCE((prior_counts->>'D')::int, 0);
     ELSE
         settled := settled || 'D';
         INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
@@ -185,55 +191,9 @@ BEGIN
         IF changed <> n THEN RAISE EXCEPTION '00084 group D: % of % rows changed', changed, n; END IF;
     END IF;
 
-    -- E: transfer proofs a manual unlink left with stale NEEDS_REVIEW proposals.
-    SELECT array_agg(se.id) INTO ids FROM source_event se
-    WHERE (scope IS NULL OR se.household_id = scope) AND se.received_at < cutoff
-      AND se.source_type = 'TELEGRAM_IMAGE' AND se.processing_status = 'NEEDS_REVIEW'
-      AND EXISTS (SELECT 1 FROM document d WHERE d.source_event_id = se.id AND d.document_type = 'TRANSFER_PROOF' AND d.status = 'EXTRACTED')
-      AND EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'MANUAL_UNLINK_EVIDENCE' AND a.household_id = se.household_id
-                  AND jsonb_typeof(a.after_json->'source_events') = 'array' AND (a.after_json->'source_events') ? se.id::text)
-      AND EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id)
-      AND NOT EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id AND (p.proposal_status <> 'NEEDS_REVIEW' OR p.proposal_key !~ '^row-'))
-      AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id = se.id)
-      AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id = se.id
-                      OR ri.document_id IN (SELECT d.id FROM document d WHERE d.source_event_id = se.id)
-                      OR ri.proposal_id IN (SELECT p.id FROM transaction_proposal p WHERE p.source_event_id = se.id))
-      AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type = 'PROCESS_TRANSACTION_SCREENSHOT' AND j.status IN ('PENDING','RUNNING')
-                      AND j.payload_json->>'document_id' IN (SELECT d.id::text FROM document d WHERE d.source_event_id = se.id));
-    n := COALESCE(cardinality(ids), 0);
-    IF n = 0 THEN
-        RAISE NOTICE '00084 group E: nothing to settle';
-    ELSIF n <> 2 THEN
-        RAISE EXCEPTION '00084 group E: % events match, expected 2; resolve by hand', n;
-    ELSE
-        settled := settled || 'E';
-        INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
-        SELECT se.household_id, 'SYSTEM', 'REPAIR_STUCK_SOURCE_EVENT', 'source_event', se.id,
-               jsonb_build_object('group', 'E', 'processing_status', 'NEEDS_REVIEW', 'document_status', 'EXTRACTED'),
-               jsonb_build_object('group', 'E', 'processing_status', 'PROCESSING', 'document_status', 'CLASSIFIED',
-                                  'proposal_status', 'REJECTED', 'queued_job', 'PROCESS_TRANSACTION_SCREENSHOT', 'migration', mig, 'ticket', '356')
-        FROM source_event se WHERE se.id = ANY(ids);
-        UPDATE transaction_proposal
-        SET proposal_status = 'REJECTED', proposal_key = 'superseded-' || proposal_key,
-            metadata_json = metadata_json || jsonb_build_object('superseded_by_migration', mig)
-        WHERE source_event_id = ANY(ids) AND proposal_status = 'NEEDS_REVIEW';
-        UPDATE document SET status = 'CLASSIFIED', updated_at = now() WHERE source_event_id = ANY(ids) AND status = 'EXTRACTED';
-        GET DIAGNOSTICS changed = ROW_COUNT;
-        IF changed <> n THEN RAISE EXCEPTION '00084 group E: % of % documents changed', changed, n; END IF;
-        UPDATE source_event SET processing_status = 'PROCESSING' WHERE id = ANY(ids) AND processing_status = 'NEEDS_REVIEW';
-        GET DIAGNOSTICS changed = ROW_COUNT;
-        IF changed <> n THEN RAISE EXCEPTION '00084 group E: % of % rows changed', changed, n; END IF;
-        INSERT INTO job(type, payload_json, max_attempts)
-        SELECT 'PROCESS_TRANSACTION_SCREENSHOT', jsonb_build_object('document_id', d.id), 5
-        FROM document d WHERE d.source_event_id = ANY(ids);
-        GET DIAGNOSTICS changed = ROW_COUNT;
-        IF changed <> n THEN RAISE EXCEPTION '00084 group E: % of % jobs queued', changed, n; END IF;
-    END IF;
-
-    -- All five groups or none. Group E is found through an audit row written by a
-    -- one-off manual statement, not by any code, so a database whose signature
-    -- differs must fail here instead of silently leaving that group stuck.
-    IF settled <> '' AND length(settled) <> 5 THEN
+    -- All four groups or none: a database where only some groups match is not the
+    -- inspected one (or was partly settled by hand) and must fail here.
+    IF settled <> '' AND length(settled || covered) <> 4 THEN
         RAISE EXCEPTION '00084: groups % matched but the others matched nothing; this is not the inspected database, resolve by hand', settled;
     END IF;
 END;
@@ -243,9 +203,7 @@ $$;
 -- +goose Down
 -- Restores each event this migration settled, from the prior state held in its
 -- audit_log row, and only while the event is still in the state Up left it in.
--- An event the household or a worker has moved on from is left alone. Group E is
--- restored only while its queued job has not started; once the reprocess has run
--- its outcome is real evidence and stays. Each rollback writes its own audit row
+-- An event the household or a worker has moved on from is left alone. Each rollback writes its own audit row
 -- so a second Down is a no-op and a later Up can run again.
 -- +goose StatementBegin
 DO $$
@@ -281,22 +239,6 @@ BEGIN
         ELSIF rec.grp = 'D' THEN
             UPDATE source_event SET processing_status = 'NEEDS_REVIEW' WHERE id = rec.id AND processing_status = 'IGNORED';
             restored := FOUND;
-        ELSIF rec.grp = 'E' THEN
-            IF EXISTS (SELECT 1 FROM source_event WHERE id = rec.id AND processing_status = 'PROCESSING')
-               AND EXISTS (SELECT 1 FROM document d WHERE d.source_event_id = rec.id AND d.status = 'CLASSIFIED')
-               AND NOT EXISTS (SELECT 1 FROM job j WHERE j.type = 'PROCESS_TRANSACTION_SCREENSHOT' AND j.status <> 'PENDING' AND j.created_at >= rec.at
-                               AND j.payload_json->>'document_id' IN (SELECT d.id::text FROM document d WHERE d.source_event_id = rec.id))
-               AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id = rec.id) THEN
-                DELETE FROM job j WHERE j.type = 'PROCESS_TRANSACTION_SCREENSHOT' AND j.status = 'PENDING' AND j.created_at >= rec.at
-                  AND j.payload_json->>'document_id' IN (SELECT d.id::text FROM document d WHERE d.source_event_id = rec.id);
-                UPDATE transaction_proposal
-                SET proposal_status = 'NEEDS_REVIEW', proposal_key = regexp_replace(proposal_key, '^superseded-', ''),
-                    metadata_json = metadata_json - 'superseded_by_migration'
-                WHERE source_event_id = rec.id AND metadata_json->>'superseded_by_migration' = mig;
-                UPDATE document SET status = 'EXTRACTED', updated_at = now() WHERE source_event_id = rec.id AND status = 'CLASSIFIED';
-                UPDATE source_event SET processing_status = 'NEEDS_REVIEW' WHERE id = rec.id;
-                restored := true;
-            END IF;
         END IF;
         IF restored THEN
             INSERT INTO audit_log(household_id, actor_type, action, entity_type, entity_id, before_json, after_json)
