@@ -14,7 +14,7 @@
 --        IGNORE without settling the source -> source IGNORED. The document
 --        stays EXTRACTED: document.status has no IGNORED value (see below).
 --   E  2 transfer-proof documents whose evidence a manual unlink removed
---        (audit_log MANUAL_UNLINK_EVIDENCE) -> reprocessed through the normal
+--        (audit_log MANUAL_UNLINK_EVIDENCE, see below) -> reprocessed through the normal
 --        PROCESS_TRANSACTION_SCREENSHOT job; no evidence row is written here.
 --
 -- No row id is named. Each group is found by the state signature the inspection
@@ -30,6 +30,14 @@
 -- migrate cleanly and re-running is idempotent. The optional session setting
 -- richmod.repair_household narrows every group to one household; it is unset
 -- in a normal migrate.
+--
+-- Group E's signature: no code writes the audit action MANUAL_UNLINK_EVIDENCE.
+-- In production exactly one such row exists (read-only inspection for #356):
+-- actor_type SYSTEM, entity_type transaction, created 2026-10-07 06:44 +07, and
+-- an after_json carrying reason "PR300 screenshot time guard" and a
+-- source_events array naming the two documents' source events. A one-off manual
+-- statement wrote it. Because the signature is not code-owned, the all-or-nothing
+-- check at the end turns a database without it into a loud failure.
 --
 -- Note on D: reviewdomain.ResolveDocumentReview writes document.status='IGNORED',
 -- which document_status_check forbids; that is a separate defect tracked outside
@@ -103,7 +111,8 @@ BEGIN
         UPDATE source_event SET processing_status = 'FAILED' WHERE id = ANY(ids) AND processing_status = 'NEEDS_REVIEW';
         GET DIAGNOSTICS changed = ROW_COUNT;
         IF changed <> n THEN RAISE EXCEPTION '00084 group B: % of % rows changed', changed, n; END IF;
-        -- Same item reviewdomain.RecordFailedSourceAction writes for a BANK_EMAIL / INVALID source.
+        -- Same item reviewdomain.RecordFailedSourceAction writes for a BANK_EMAIL / INVALID source;
+        -- the text is reviewdomain.FailedSourceCopy("BANK_EMAIL", "INVALID"), pinned by a test.
         INSERT INTO integration_action(household_id, integration_type, action_type, status, title, description, dedupe_key, metadata_json)
         SELECT se.household_id, 'SOURCE_PROCESSING', 'SOURCE_FAILED', 'OPEN',
                'Email bank tidak bisa dibaca',
@@ -156,6 +165,7 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM review_item ri WHERE ri.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_proposal p WHERE p.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id = se.id)
+      AND NOT EXISTS (SELECT 1 FROM financial_email_observation f WHERE f.source_event_id = se.id)
       AND NOT EXISTS (SELECT 1 FROM wealth_observation w JOIN document d ON d.id = w.document_id
                       WHERE d.source_event_id = se.id OR EXISTS (SELECT 1 FROM document_page dp WHERE dp.document_id = d.id AND dp.source_event_id = se.id));
     n := COALESCE(cardinality(ids), 0);
