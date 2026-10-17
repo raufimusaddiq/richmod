@@ -166,7 +166,7 @@ func TestLegacyUncategorizedDisputeExpenseAgreesAfterReopenMigration(t *testing.
 	}
 
 	// Not a dead end: the household completes it through the real Web confirm.
-	if w := f.webConfirm(t, legacy, f.category); w.Code != http.StatusOK {
+	if w := f.webConfirm(t, legacy, f.category); w.Code != http.StatusNoContent {
 		t.Fatalf("web confirm of the reopened record: status=%d body=%s", w.Code, w.Body.String())
 	}
 	done := f.surfaces(t, legacy)
