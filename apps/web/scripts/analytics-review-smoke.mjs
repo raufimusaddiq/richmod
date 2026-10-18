@@ -76,7 +76,7 @@ try {
         status = aiAvailable ? generationStatus : 503;
         body = { id: cycleCommentary.id };
       } else if (url.pathname === "/api/v1/analytics/cashflow") {
-        body = [{ period: "2026-08", income: "12000000", expense: "2800000", netCashflow: "9200000" }, { period: "2026-09", income: "12000000", expense: "4200000", netCashflow: "7800000" }];
+        body = [{ period: "2026-07", income: "0", expense: "0", refund: "0", netCashflow: "0" }, { period: "2026-08", income: "12000000", expense: "2800000", netCashflow: "9200000" }, { period: "2026-09", income: "12000000", expense: "4200000", netCashflow: "7800000" }];
       } else if (url.pathname === "/api/v1/analytics/categories") {
         body = cycleFacts().categoryChanges;
       } else if (url.pathname === "/api/v1/analytics/merchants") { if (merchantsFail) status = 500; body = cycleFacts().merchantDrivers; }
@@ -335,6 +335,17 @@ try {
     assert.equal(new URL(page.url()).searchParams.get("range"), "3");
     // Calendar hygiene: months are formatted, and a custom range is validated beside its fields instead of failing after a request.
     assert.equal(await page.getByRole("rowheader", { name: /Sep 26/ }).count(), 1, "months are formatted, not raw YYYY-MM");
+    const monthTable = page.getByRole("region", { name: "Arus kas per bulan, geser untuk semua kolom", exact: true });
+    const monthLink = monthTable.getByRole("link", { name: "Lihat pengeluaran Agu 26", exact: true });
+    assert.equal(await monthLink.getAttribute("href"), "/transactions?from=2026-08-01&to=2026-08-31&status=CONFIRMED&type=SPENDING&cycle=2026-08-26");
+    assert.equal(await monthTable.getByRole("row").filter({ hasText: "belum ada transaksi" }).count(), 1, "empty month remains visible");
+    assert.equal(await monthTable.getByRole("row").filter({ hasText: "belum ada transaksi" }).getByRole("link").count(), 0, "empty month stays non-interactive");
+    await monthLink.focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("link", { name: "Kembali ke tinjauan siklus", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/transactions", "month link works by keyboard");
+    await page.goBack({ waitUntil: "networkidle" });
+    await monthTable.waitFor();
     await page.getByLabel("Bulan mulai").fill("2025-03");
     await page.getByLabel("Bulan selesai").fill("2025-01");
     await page.getByRole("button", { name: "Kustom", exact: true }).click();
@@ -396,6 +407,16 @@ try {
     for (const id of ["drivers", "destinations", "household", "discussion", "decisions"]) assert.equal(await page.locator(`#${id} > details`).evaluate(element => element.open), false, "the same button closes everything it opened");
     await page.getByRole("button", { name: "Buka semua detail", exact: true }).click();
     assert.equal(await page.locator(".review-daily table").first().locator("tbody tr").count(), 7, "all exact daily rows retained");
+    const dailyTable = page.getByRole("region", { name: "Nilai pengeluaran harian, geser untuk semua kolom", exact: true });
+    const dayName = "Lihat pengeluaran 25 Sep 2026";
+    const dayHref = "/transactions?from=2026-09-25&to=2026-09-25&status=CONFIRMED&type=SPENDING&cycle=2026-09-25";
+    const dayLink = dailyTable.getByRole("link", { name: dayName, exact: true });
+    assert.equal(await dayLink.getAttribute("href"), dayHref, "spending day row links to exactly that day");
+    assert.equal(await dailyTable.getByRole("row").filter({ hasText: "26 Sep 2026" }).count(), 1, "zero-spend day remains visible");
+    assert.equal(await dailyTable.getByRole("row").filter({ hasText: "26 Sep 2026" }).getByRole("link").count(), 0, "zero-spend day has no table link");
+    const dayChart = page.locator(".cycle-spending-chart");
+    assert.equal(await dayChart.getByRole("link", { name: dayName, exact: true }).getAttribute("href"), dayHref, "chart and table share the same drill");
+    assert.equal(await dayChart.getByRole("link", { name: "Lihat pengeluaran 26 Sep 2026", exact: true }).count(), 0, "zero-spend day has no chart link");
     const rentRanking = page.locator(".change-ranking > li").filter({ has: page.getByRole("button", { name: "Tempat Tinggal", exact: true }) });
     assert.match(await rentRanking.textContent(), /0%/);
     assert.doesNotMatch(await rentRanking.textContent(), /100%/);
@@ -412,7 +433,35 @@ try {
     generationStatus = 409;
     await page.locator("#discussion").getByRole("button", { name: "Coba lagi", exact: true }).click();
     await page.getByText("Pembahasan sebelumnya masih diproses. Tunggu sampai selesai.", { exact: true }).waitFor();
+    await page.keyboard.press("Tab");
+    await dayLink.focus();
+    assert.equal(await dayLink.evaluate(element => element === document.activeElement && getComputedStyle(element).outlineStyle !== "none"), true, "daily row has visible keyboard focus");
+    await page.keyboard.press("Enter");
+    const dayReturn = page.getByRole("link", { name: "Kembali ke tinjauan siklus", exact: true });
+    await dayReturn.waitFor();
+    assert.equal(new URL(page.url()).search, dayHref.slice(dayHref.indexOf("?")), "daily row navigates with the same-day query");
+    await dayReturn.click();
+    await dayChart.getByRole("link", { name: dayName, exact: true }).waitFor();
+    const chartLink = dayChart.getByRole("link", { name: dayName, exact: true });
+    await chartLink.focus();
+    await page.keyboard.press("Tab");
+    assert.equal(await dayChart.getByRole("link", { name: "Lihat pengeluaran 27 Sep 2026", exact: true }).evaluate(element => element === document.activeElement), true, "Tab reaches the next spending day, skipping zero");
+    await chartLink.focus();
+    assert.equal(await chartLink.evaluate(element => getComputedStyle(element).outlineStyle !== "none"), true, "chart day has visible keyboard focus");
+    await page.keyboard.press("Enter");
+    await dayReturn.waitFor();
+    assert.equal(new URL(page.url()).search, dayHref.slice(dayHref.indexOf("?")), "chart link works by keyboard");
+    await dayReturn.click();
+    await dayChart.getByRole("link", { name: dayName, exact: true }).click();
+    await dayReturn.waitFor();
+    assert.equal(new URL(page.url()).search, dayHref.slice(dayHref.indexOf("?")), "chart link works by pointer");
+    await page.goto(`${base}/analytics?view=calendar`, { waitUntil: "networkidle" });
+    await monthTable.getByRole("link", { name: "Lihat pengeluaran Agu 26", exact: true }).click();
+    await page.getByRole("heading", { name: "Riwayat Transaksi", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).search, "?from=2026-08-01&to=2026-08-31&status=CONFIRMED&type=SPENDING&cycle=", "direct calendar entry keeps month bounds without guessing a salary anchor");
+    assert.equal(await page.getByRole("link", { name: "Kembali ke tinjauan siklus", exact: true }).count(), 0, "no invalid cycle backlink without a reviewed cycle");
     assert.deepEqual(errors, [], `${name} runtime errors`);
+    console.log(`Analytics review PASS: ${name}, including daily chart/table and active/empty month drills`);
     await page.close();
   }
 } finally {

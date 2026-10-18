@@ -1,9 +1,10 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { compactCategories, dayLabel, mapDailySpending, mapMonthlyCashflow, rankCategories } from "../lib/chartData";
 import { compactMillions, hasPace, mapPace, monthMarkers, paceCurves } from "../lib/cycleLedger";
 import { money } from "../lib/format";
+import { transactionHref } from "../lib/cycleReview";
 
 const colors = ["var(--chart-category-1)", "var(--chart-category-2)", "var(--chart-category-3)", "var(--chart-category-4)", "var(--chart-category-5)", "var(--chart-category-6)"];
 const defaultTooltipStyle = { border: "2px solid var(--ink)", borderRadius: 12, background: "var(--surface-strong)", boxShadow: "var(--shadow)", fontSize: 12 };
@@ -29,11 +30,15 @@ export function DashboardDailySpendingChart({ items, height = 280 }) {
   return <div className="chart-wrap chart-fill" role="img" aria-label="Grafik pengeluaran harian" style={{ minHeight: height }}><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} padding={{ left: 14, right: 14 }} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis hide/><Tooltip content={<DailyTooltip/>}/><Line type="linear" dataKey="expenseValue" stroke="var(--chart-expense)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--butter)", stroke: "var(--ink)", strokeWidth: 2 }} isAnimationActive={false}/></LineChart></ResponsiveContainer></div>;
 }
 
-export function CycleSpendingPatternChart({ items, spent, daysElapsed, average: suppliedAverage, height = 340 }) {
+export function CycleSpendingPatternChart({ items, period, spent, daysElapsed, average: suppliedAverage, height = 340 }) {
   const data = mapDailySpending(items);
   const average = suppliedAverage != null ? Number(suppliedAverage) : Number(spent || 0) / Math.max(Number(daysElapsed || 0), 1);
   if (!data.length || data.every(item => item.expense === "0")) return <p className="empty compact">Belum ada pengeluaran bersih pada periode ini. Nilai harian tetap dapat dilihat di bawah.</p>;
-  return <div className="chart-wrap cycle-spending-chart" role="img" aria-label="Pola pengeluaran harian siklus gaji dalam IDR" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer data={data} margin={{ top: 16, right: 10, left: 0, bottom: 0 }} barCategoryGap="20%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis hide/><Tooltip content={<DailyTooltip/>}/><ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 6" ifOverflow="extendDomain" label={{ value: `Rata-rata ${money(String(Math.round(average)))}`, position: "insideTopRight", fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={28}/></BarChart></ResponsiveContainer></div>;
+  const dayBar = ({ x, y, width, height, payload, fill, stroke, strokeWidth, radius }) => {
+    const rectangle = <Rectangle {...{ x, y, width, height, fill, stroke, strokeWidth, radius }}/>;
+    return period && payload.expenseValue !== 0 ? <a href={transactionHref(period, { from: payload.period, to: payload.period })} tabIndex={0} aria-label={`Lihat pengeluaran ${dayLabel(payload.period)}`}>{rectangle}</a> : rectangle;
+  };
+  return <div className="chart-wrap cycle-spending-chart" role="group" aria-label="Pola pengeluaran harian siklus gaji dalam IDR" style={{ height }}><ResponsiveContainer width="100%" height="100%"><BarChart accessibilityLayer data={data} margin={{ top: 16, right: 10, left: 0, bottom: 0 }} barCategoryGap="20%"><CartesianGrid stroke="var(--chart-grid)" vertical={false}/><XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ ...axisTick, fill: "var(--chart-axis)" }} interval={data.length > 14 ? 2 : 0}/><YAxis hide/><Tooltip content={<DailyTooltip/>}/><ReferenceLine y={average} stroke="var(--chart-reference)" strokeDasharray="6 6" ifOverflow="extendDomain" label={{ value: `Rata-rata ${money(String(Math.round(average)))}`, position: "insideTopRight", fill: "var(--chart-axis)", fontFamily: "var(--font-body)", fontSize: 12 }}/><Bar isAnimationActive={false} dataKey="expenseValue" fill="var(--chart-expense)" {...bar} maxBarSize={28} shape={dayBar}/></BarChart></ResponsiveContainer></div>;
 }
 
 function PaceTooltip({ active, payload }) {

@@ -4,6 +4,7 @@ import test from "node:test";
 import { globalCss, tree } from "./source.mjs";
 import { changeWidth, cycleLabel, inclusiveEnd, measuredLabel, ratioLabel, readReviewSelection, selectionHref, signedMoney, transactionHref } from "../app/lib/cycleReview.js";
 import { money } from "../app/lib/format.js";
+import { addMonths } from "../app/lib/calendarReview.js";
 
 const text = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
@@ -56,13 +57,30 @@ test("rent compares full cycles by default, not a zero equal-day prefix", () => 
   assert.match(page, /Sebelumnya · hari yang sama/);
 });
 
-test("drill-down URLs carry deterministic cycle boundaries with exclusive end", () => {
+test("period drill-down keeps its existing inclusive query end", () => {
+  assert.equal(transactionHref({ start: "2026-08-26", measuredUntil: "2026-09-25" }), "/transactions?from=2026-08-26&to=2026-09-24&status=CONFIRMED&type=SPENDING&cycle=2026-08-26");
   const href = transactionHref({ start: "2026-08-26", measuredUntil: "2026-09-25" }, { categoryId: "cat-1" });
   const query = new URLSearchParams(href.split("?")[1]);
   assert.equal(query.get("from"), "2026-08-26");
   assert.equal(query.get("to"), "2026-09-24");
   assert.equal(query.get("categoryId"), "cat-1");
   assert.equal(query.get("status"), "CONFIRMED");
+  assert.equal(href, "/transactions?from=2026-08-26&to=2026-09-24&status=CONFIRMED&type=SPENDING&categoryId=cat-1&cycle=2026-08-26");
+});
+
+test("single-day drill uses the same inclusive from/to and preserves cycle and review", () => {
+  const period = { start: "2026-08-26", measuredUntil: "2026-09-25", reviewStep: "spending-shape" };
+  for (const day of ["2026-08-31", "2026-09-01", "2026-09-24"]) {
+    assert.equal(transactionHref(period, { from: day, to: day }), `/transactions?from=${day}&to=${day}&status=CONFIRMED&type=SPENDING&cycle=2026-08-26&review=spending-shape`);
+  }
+});
+
+test("month drill uses the first and last inclusive dates, retaining the reviewed cycle", () => {
+  for (const [month, end] of [["2026-09", "2026-09-30"], ["2026-12", "2026-12-31"], ["2028-02", "2028-02-29"]]) {
+    const href = transactionHref({ start: "2026-08-26", measuredUntil: `${addMonths(month, 1)}-01` }, { from: `${month}-01` });
+    assert.equal(href, `/transactions?from=${month}-01&to=${end}&status=CONFIRMED&type=SPENDING&cycle=2026-08-26`);
+  }
+  assert.equal(transactionHref({ start: "", measuredUntil: "2026-10-01" }, { from: "2026-09-01" }), "/transactions?from=2026-09-01&to=2026-09-30&status=CONFIRMED&type=SPENDING&cycle=");
 });
 
 test("URL state is explicit and round-trips view, cycle, and range", () => {

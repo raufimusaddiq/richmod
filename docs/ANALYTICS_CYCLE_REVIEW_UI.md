@@ -37,6 +37,27 @@ state, never zero-valued financial facts or another cycle's stale result.
 - Each section explainer names its subject ("Tentang posisi siklus", "Tentang pola
   pengeluaran", …) instead of ten identical "Tentang data ini" disclosures.
 
+## Transaction drills (ticket #368)
+
+The cycle daily-spending bars and date labels in **Lihat nilai harian** link to
+confirmed spending and refunds for that Jakarta day. A zero-net-spending day
+remains plain text with no chart link. Native links announce the actual date,
+support keyboard navigation, and preserve the cycle and any meeting step for
+**Kembali ke tinjauan siklus**. The period-level spending link is unchanged.
+
+The **Arus kas per bulan** month label links to that month's first through last
+inclusive dates when the month has activity. Empty months retain **belum ada
+transaksi**, without a link. A reviewed cycle survives this drill. Opening the
+calendar directly has no selected cycle, so no salary-cycle backlink is invented.
+
+All drills reuse `transactionHref`. Query dates are inclusive: a single day uses
+`from=day&to=day`. The Go request parser converts `to` to next-day Jakarta
+midnight before SQL applies its exclusive upper bound. Existing parser evidence:
+`TestTransactionFiltersValidateQueryParameters` in
+`apps/api/internal/ledger/lifecycle_test.go`; DB boundary coverage:
+`TestTransactionListFiltersAndProvenance` in `list_integration_test.go`.
+No transaction filtering or backend behavior changes.
+
 ## Code layout
 
 `app/analytics/page.js` owns URL selection, data loading (facts, commentary, the
@@ -382,6 +403,9 @@ HTTP 409 explains pending earlier work, rather than returning a mismatched ID.
 
 - `npm test`: formatting/null baselines, date boundaries, URL selection,
   historical commentary exclusion, deterministic rendering boundaries.
+- `npm run test:visual -- analytics-` compares the seven analytics baselines;
+  `npm run test:visual:update -- analytics-` deliberately refreshes only those
+  baselines. The optional prefix leaves all browser smoke checks enabled.
 - API integration tests: exact merchant matching, refunds, inclusive cutoff
   translation, uncategorized spending, household isolation.
 - CI web build and `scripts/analytics-review-smoke.mjs`: synthetic active and

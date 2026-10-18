@@ -108,6 +108,7 @@ async function waitForServer() {
 }
 
 async function compareScreenshot(page, name) {
+  if (process.argv[2] && !name.startsWith(process.argv[2])) return;
   const screenshot = await page.screenshot({ animations: "disabled", caret: "hide", fullPage: true });
   await writeFile(new URL(`${name}.png`, regressionOutput), screenshot);
   const baselinePath = new URL(`${name}.png`, baselines);
