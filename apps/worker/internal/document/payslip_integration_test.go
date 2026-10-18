@@ -40,9 +40,6 @@ func TestPayslipQualityAndFirstSalaryPolicy(t *testing.T) {
 			if err := f.pool.QueryRow(ctx, `SELECT user_id::text FROM telegram_identity WHERE household_id=$1`, f.householdID).Scan(&user); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := f.pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, f.householdID, user); err != nil {
-				t.Fatal(err)
-			}
 			if !first {
 				if _, err := f.pool.Exec(ctx, `INSERT INTO salary_source(household_id,user_id,employer,normalized_employer,is_primary) VALUES($1,$2,'Existing','existing',true)`, f.householdID, user); err != nil {
 					t.Fatal(err)

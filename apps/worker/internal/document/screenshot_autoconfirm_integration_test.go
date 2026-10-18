@@ -60,6 +60,9 @@ func seedScreenshotFixture(t *testing.T, label string) screenshotFixture {
 		t.Fatal(err)
 	}
 	fixture.chatID = stamp % 1000000000
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, fixture.householdID, userID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, fixture.chatID, fixture.householdID, userID); err != nil {
 		t.Fatal(err)
 	}

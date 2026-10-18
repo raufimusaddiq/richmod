@@ -68,6 +68,37 @@ required when they protect different correctness properties.
 
 ## Consequences
 
+### Auto-confirm notices and recipient eligibility (2026-10-19)
+
+Each auto-confirm queues one Indonesian recorded notice per active Telegram
+identity whose membership in the source event's household is also active.
+Human-completed reviews keep their existing completion notice, without fan-out.
+The notice states that the transaction was recorded, with amount, WIB time, and
+description formatted by the same local helper as bank-email review messages.
+It has no `reply_to_message_id` because bank email has no originating chat.
+It does not invite corrections by reply: transaction notice replies have no
+exact-reply binding, so the router cannot offer correction tools. Building that
+correction channel is outside #366's recorded-notification scope.
+`bank_email_extraction.notice_at` is claimed in the same transaction as the
+ledger mutation and jobs. Extraction-row locking and the durable marker prevent
+repeated persistence from duplicating the mutation or notices after job pruning.
+Zero eligible recipients still commits the transaction and marker, without jobs.
+Every `persist()` path locks the existing extraction row and compares the source
+event's household with the listener's household before any ledger writes,
+including NEEDS_REVIEW and human-completed persistence. Ingestion stores the
+extraction before calling `persist()`; completion loads it through an inner join.
+
+Bank-email review and screenshot fallback recipient selection also requires
+active household membership. Screenshot uploads prefer the stored source chat
+only when its identity and membership are eligible in the same household.
+Otherwise they select that household's first eligible identity by `created_at`;
+a recorded but inactive, missing, or foreign source chat does not suppress
+delivery to an eligible household member. Only households without any eligible
+identity take the non-Telegram path. The production audit on 2026-10-19
+found no foreign-household recipients, unknown chats, foreign-chat send jobs,
+or Telegram users linked to multiple households. Member filtering protects
+against future deactivation; this is not remediation of an observed leak.
+
 ### Amendment — channel-independent merchant-first review (2026-09-30)
 
 `UNKNOWN_MERCHANT` reviews collect the merchant name before category selection,

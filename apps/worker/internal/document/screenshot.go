@@ -291,17 +291,13 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Prefer the chat the upload came from; the household's first active identity is
-	// only the fallback for evidence that did not record one.
 	var chatID int64
 	hasChat := true
 	var sourceChat *int64
 	if err := tx.QueryRow(ctx, `SELECT telegram_chat_id FROM source_event WHERE id=$1`, sourceID).Scan(&sourceChat); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	if sourceChat != nil {
-		chatID = *sourceChat
-	} else if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT ti.telegram_user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1 AND ti.active ORDER BY CASE WHEN ti.telegram_user_id=$2::bigint THEN 0 ELSE 1 END,ti.created_at LIMIT 1`, householdID, sourceChat).Scan(&chatID); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
