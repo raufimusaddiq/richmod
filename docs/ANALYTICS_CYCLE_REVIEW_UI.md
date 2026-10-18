@@ -405,7 +405,8 @@ HTTP 409 explains pending earlier work, rather than returning a mismatched ID.
   historical commentary exclusion, deterministic rendering boundaries.
 - `npm run test:visual -- analytics-` compares the seven analytics baselines;
   `npm run test:visual:update -- analytics-` deliberately refreshes only those
-  baselines. The optional prefix leaves all browser smoke checks enabled.
+  baselines. The optional prefix leaves all browser smoke checks enabled and
+  fails the run if no baseline matches.
 - API integration tests: exact merchant matching, refunds, inclusive cutoff
   translation, uncategorized spending, household isolation.
 - CI web build and `scripts/analytics-review-smoke.mjs`: synthetic active and
