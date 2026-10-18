@@ -299,9 +299,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	if err := tx.QueryRow(ctx, `SELECT telegram_chat_id FROM source_event WHERE id=$1`, sourceID).Scan(&sourceChat); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	if sourceChat != nil {
-		chatID = *sourceChat
-	} else if err := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, householdID).Scan(&chatID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT ti.telegram_user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1 AND ti.active AND ($2::bigint IS NULL OR ti.telegram_user_id=$2) ORDER BY ti.created_at LIMIT 1`, householdID, sourceChat).Scan(&chatID); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}

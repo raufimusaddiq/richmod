@@ -669,6 +669,23 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var noticeHousehold string
+	// Complete already owns the notice for human-completed reviews.
+	autoNotice := result.AutoConfirm && completingReviewID == ""
+	if autoNotice {
+		var noticeAt *time.Time
+		err = tx.QueryRow(ctx, `SELECT s.household_id,e.notice_at FROM source_event s JOIN bank_email_extraction e ON e.source_event_id=s.id WHERE s.id=$1 FOR UPDATE OF e`, sourceID).Scan(&noticeHousehold, &noticeAt)
+		if err != nil {
+			return err
+		}
+		if noticeHousehold != listener.HouseholdID {
+			return fmt.Errorf("bank email source household mismatch")
+		}
+		// Serialize retries before ledger inserts; the marker survives job pruning.
+		if noticeAt != nil {
+			return nil
+		}
+	}
 	categoryID := result.CategoryID
 	merchantID, err := resolveMerchantID(ctx, tx, listener.HouseholdID, value(extraction.Merchant))
 	if err != nil {
@@ -703,6 +720,24 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,merchant_id,category_id,description,counterparty_name,external_reference,source_confidence,classification_confidence,confirmed_at,auto_confirmed_at) VALUES($1,NULLIF($2,'')::uuid,$3,$4,$5,'IDR',$6,NULLIF($7,'')::uuid,NULLIF($8,'')::uuid,NULLIF($9,''),NULLIF($10,''),NULLIF($11,''),$12,$13,CASE WHEN $4='CONFIRMED' THEN now() END,CASE WHEN $14 THEN now() END) RETURNING id`, listener.HouseholdID, listener.AccountID, transactionType, transactionStatus, amount, *at, merchantID, categoryID, description, counterparty, reference, extraction.Confidence, extraction.Confidence, result.AutoConfirm).Scan(&transactionID)
 	if err != nil {
 		return err
+	}
+	if autoNotice {
+		var claimed string
+		err = tx.QueryRow(ctx, `UPDATE bank_email_extraction SET notice_at=now() WHERE source_event_id=$1 AND notice_at IS NULL RETURNING source_event_id::text`, sourceID).Scan(&claimed)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		message := "Transaksi bank Rp" + workerTelegram.FormatIDR(amount) + " sudah tercatat.\nWaktu: " + at.In(time.FixedZone("WIB", 7*60*60)).Format("02/01/2006 15:04") + " WIB\nKeterangan: " + description + ". Balas pesan ini kalau ada yang perlu dibetulkan."
+		if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json)
+			SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',ti.telegram_user_id,'text',$2::text)
+			FROM telegram_identity ti
+			JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active
+			WHERE ti.household_id=$1 AND ti.active`, noticeHousehold, message); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'BANK_EMAIL',$3,jsonb_build_object('proposal_id',$4::uuid,'listener_id',$5::uuid,'transaction_at_source',$6::text))`, transactionID, sourceID, extraction.Confidence, proposalID, listener.ID, extraction.TransactionAtSource); err != nil {
 		return err
@@ -745,11 +780,13 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		// Telegram; Telegram is only a delivery projection of the same decision.
 		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
 		var chatID int64
-		if e := tx.QueryRow(ctx, `SELECT telegram_user_id FROM telegram_identity WHERE household_id=$1 AND active ORDER BY created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
+		if e := tx.QueryRow(ctx, `SELECT ti.telegram_user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1 AND ti.active ORDER BY ti.created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
 			if err = workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, result.ReviewType, chatID, 0, message, decision); err != nil {
 				return err
 			}
+		} else if !errors.Is(e, pgx.ErrNoRows) {
+			return e
 		} else if _, err = workerTelegram.CreateTransactionReviewItem(ctx, tx, transactionID, result.ReviewType, "OPEN", decision); err != nil {
 			return err
 		}

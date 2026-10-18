@@ -68,6 +68,26 @@ required when they protect different correctness properties.
 
 ## Consequences
 
+### Auto-confirm notices and recipient eligibility (2026-10-19)
+
+Each auto-confirm queues one Indonesian recorded notice per active Telegram
+identity whose membership in the source event's household is also active.
+Human-completed reviews keep their existing completion notice, without fan-out.
+The notice includes amount, WIB time, description, and a correction invitation;
+it has no `reply_to_message_id` because bank email has no originating chat.
+`bank_email_extraction.notice_at` is claimed in the same transaction as the
+ledger mutation and jobs. Extraction-row locking and the durable marker prevent
+repeated persistence from duplicating the mutation or notices after job pruning.
+Zero eligible recipients still commits the transaction and marker, without jobs.
+
+Bank-email review and screenshot fallback recipient selection also requires
+active household membership. Screenshot uploads also recheck the stored source
+chat against that household's active identities and memberships. Without eligible
+identities, their existing non-Telegram review paths remain available. The production audit on 2026-10-19
+found no foreign-household recipients, unknown chats, foreign-chat send jobs,
+or Telegram users linked to multiple households. Member filtering protects
+against future deactivation; this is not remediation of an observed leak.
+
 ### Amendment — channel-independent merchant-first review (2026-09-30)
 
 `UNKNOWN_MERCHANT` reviews collect the merchant name before category selection,
