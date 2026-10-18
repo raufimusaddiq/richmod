@@ -670,17 +670,17 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	}
 	defer tx.Rollback(ctx)
 	var noticeHousehold string
+	var noticeAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT s.household_id,e.notice_at FROM source_event s JOIN bank_email_extraction e ON e.source_event_id=s.id WHERE s.id=$1 FOR UPDATE OF e`, sourceID).Scan(&noticeHousehold, &noticeAt)
+	if err != nil {
+		return err
+	}
+	if noticeHousehold != listener.HouseholdID {
+		return fmt.Errorf("bank email source household mismatch")
+	}
 	// Complete already owns the notice for human-completed reviews.
 	autoNotice := result.AutoConfirm && completingReviewID == ""
 	if autoNotice {
-		var noticeAt *time.Time
-		err = tx.QueryRow(ctx, `SELECT s.household_id,e.notice_at FROM source_event s JOIN bank_email_extraction e ON e.source_event_id=s.id WHERE s.id=$1 FOR UPDATE OF e`, sourceID).Scan(&noticeHousehold, &noticeAt)
-		if err != nil {
-			return err
-		}
-		if noticeHousehold != listener.HouseholdID {
-			return fmt.Errorf("bank email source household mismatch")
-		}
 		// Serialize retries before ledger inserts; the marker survives job pruning.
 		if noticeAt != nil {
 			return nil

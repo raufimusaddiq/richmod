@@ -13,7 +13,7 @@ import (
 )
 
 func TestBankEmailPersistRecipients(t *testing.T) {
-	for _, mode := range []string{"all_active", "inactive_identity", "inactive_member", "foreign_household", "no_identities", "retry_after_pruning", "concurrent_retry", "rollback_after_notice", "review_inactive_member", "review_active_members", "completion_no_notice", "source_household_mismatch"} {
+	for _, mode := range []string{"all_active", "inactive_identity", "inactive_member", "foreign_household", "no_identities", "retry_after_pruning", "concurrent_retry", "rollback_after_notice", "review_inactive_member", "review_active_members", "completion_no_notice", "source_household_mismatch", "review_source_household_mismatch"} {
 		t.Run(mode, func(t *testing.T) {
 			if os.Getenv("TEST_DATABASE_URL") == "" {
 				t.Skip("TEST_DATABASE_URL is not configured")
@@ -54,7 +54,7 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 			}
 			var want []int64
 			switch mode {
-			case "all_active", "retry_after_pruning", "concurrent_retry", "rollback_after_notice", "review_active_members", "completion_no_notice", "source_household_mismatch":
+			case "all_active", "retry_after_pruning", "concurrent_retry", "rollback_after_notice", "review_active_members", "completion_no_notice", "source_household_mismatch", "review_source_household_mismatch":
 				want = []int64{addIdentity(household, true, true, 1), addIdentity(household, true, true, 2)}
 				addIdentity(household, false, true, 3)
 				addIdentity(household, true, false, 4)
@@ -77,7 +77,8 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 			if mode == "completion_no_notice" {
 				completing, want = source, nil
 			}
-			if mode == "source_household_mismatch" {
+			mismatchedHousehold := strings.HasSuffix(mode, "source_household_mismatch")
+			if mismatchedHousehold {
 				listener.HouseholdID = foreign
 				want = nil
 			}
@@ -108,9 +109,9 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 			} else {
 				err = processor.persist(ctx, listener, source, extraction, result, completing)
 			}
-			if mode == "source_household_mismatch" {
-				if err == nil {
-					t.Fatal("foreign caller household accepted")
+			if mismatchedHousehold {
+				if err == nil || err.Error() != "bank email source household mismatch" {
+					t.Fatalf("foreign caller household error=%v", err)
 				}
 			} else {
 				must(err)
@@ -139,9 +140,22 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 			}
 			var transactions, reviews int
 			must(pool.QueryRow(ctx, `SELECT count(*) FROM transaction_evidence WHERE source_event_id=$1`, source).Scan(&transactions))
-			if mode == "source_household_mismatch" {
+			if mismatchedHousehold {
 				if transactions != 0 {
 					t.Fatal("household mismatch wrote ledger evidence")
+				}
+				for _, table := range []string{"transaction_proposal", "transaction", "audit_log", "review_item", "review_request", "merchant"} {
+					var count int
+					must(pool.QueryRow(ctx, `SELECT count(*) FROM `+table+` WHERE household_id IN ($1,$2)`, household, foreign).Scan(&count))
+					if count != 0 {
+						t.Fatalf("household mismatch wrote %s rows: %d", table, count)
+					}
+				}
+				var marked bool
+				var status string
+				must(pool.QueryRow(ctx, `SELECT e.notice_at IS NOT NULL,s.processing_status FROM bank_email_extraction e JOIN source_event s ON s.id=e.source_event_id WHERE s.id=$1`, source).Scan(&marked, &status))
+				if marked || status != "RECEIVED" {
+					t.Fatalf("household mismatch changed marker=%v source=%s", marked, status)
 				}
 				return
 			}

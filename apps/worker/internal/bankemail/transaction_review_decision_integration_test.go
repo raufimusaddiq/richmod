@@ -53,6 +53,9 @@ func TestTransactionReviewDecisionIsPersistedOnTheReviewRow(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(household_id,user_id,telegram_user_id) VALUES($1,$2,$3)`, householdID, userID, stamp); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, sourceEventID, listenerID); err != nil {
+		t.Fatal(err)
+	}
 
 	amount, direction, channel, merchant := "54000", "OUTGOING", "DEBIT_CARD", "Warung Baru"
 	at := time.Now().Add(-time.Hour).UTC()

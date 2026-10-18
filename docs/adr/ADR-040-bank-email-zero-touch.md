@@ -83,11 +83,18 @@ correction channel is outside #366's recorded-notification scope.
 ledger mutation and jobs. Extraction-row locking and the durable marker prevent
 repeated persistence from duplicating the mutation or notices after job pruning.
 Zero eligible recipients still commits the transaction and marker, without jobs.
+Every `persist()` path locks the existing extraction row and compares the source
+event's household with the listener's household before any ledger writes,
+including NEEDS_REVIEW and human-completed persistence. Ingestion stores the
+extraction before calling `persist()`; completion loads it through an inner join.
 
 Bank-email review and screenshot fallback recipient selection also requires
-active household membership. Screenshot uploads also recheck the stored source
-chat against that household's active identities and memberships. Without eligible
-identities, their existing non-Telegram review paths remain available. The production audit on 2026-10-19
+active household membership. Screenshot uploads prefer the stored source chat
+only when its identity and membership are eligible in the same household.
+Otherwise they select that household's first eligible identity by `created_at`;
+a recorded but inactive, missing, or foreign source chat does not suppress
+delivery to an eligible household member. Only households without any eligible
+identity take the non-Telegram path. The production audit on 2026-10-19
 found no foreign-household recipients, unknown chats, foreign-chat send jobs,
 or Telegram users linked to multiple households. Member filtering protects
 against future deactivation; this is not remediation of an observed leak.
