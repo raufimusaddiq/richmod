@@ -73,8 +73,12 @@ required when they protect different correctness properties.
 Each auto-confirm queues one Indonesian recorded notice per active Telegram
 identity whose membership in the source event's household is also active.
 Human-completed reviews keep their existing completion notice, without fan-out.
-The notice includes amount, WIB time, description, and a correction invitation;
-it has no `reply_to_message_id` because bank email has no originating chat.
+The notice states that the transaction was recorded, with amount, WIB time, and
+description formatted by the same local helper as bank-email review messages.
+It has no `reply_to_message_id` because bank email has no originating chat.
+It does not invite corrections by reply: transaction notice replies have no
+exact-reply binding, so the router cannot offer correction tools. Building that
+correction channel is outside #366's recorded-notification scope.
 `bank_email_extraction.notice_at` is claimed in the same transaction as the
 ledger mutation and jobs. Extraction-row locking and the durable marker prevent
 repeated persistence from duplicating the mutation or notices after job pruning.

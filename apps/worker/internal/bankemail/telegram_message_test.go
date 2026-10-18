@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+func TestBankTransactionContextMissingDescription(t *testing.T) {
+	at := time.Date(2026, time.September, 2, 20, 24, 0, 0, time.UTC)
+	got := bankTransactionContext("4000", at, " \n\t")
+	want := "Nominal: Rp4.000\nWaktu: 03/09/2026 03:24 WIB\nKeterangan: Belum tersedia"
+	if got != want {
+		t.Fatalf("context=%q; want %q", got, want)
+	}
+}
+
 func TestBankReviewMessageKeepsKnownFactsForMerchantReview(t *testing.T) {
 	at := time.Date(2026, time.September, 2, 2, 24, 0, 0, time.UTC)
 	got := bankReviewMessage("UNKNOWN_MERCHANT", "18502", at, "Pembayaran kartu debit")

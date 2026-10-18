@@ -730,7 +730,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		if err != nil {
 			return err
 		}
-		message := "Transaksi bank Rp" + workerTelegram.FormatIDR(amount) + " sudah tercatat.\nWaktu: " + at.In(time.FixedZone("WIB", 7*60*60)).Format("02/01/2006 15:04") + " WIB\nKeterangan: " + description + ". Balas pesan ini kalau ada yang perlu dibetulkan."
+		message := "Transaksi bank sudah tercatat.\n\n" + bankTransactionContext(amount, *at, description)
 		if _, err = tx.Exec(ctx, `INSERT INTO job(type,payload_json)
 			SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',ti.telegram_user_id,'text',$2::text)
 			FROM telegram_identity ti
@@ -817,14 +817,18 @@ func ledgerDescription(extraction Extraction, result PolicyResult) string {
 	return description
 }
 
-func bankReviewMessage(reviewType, amount string, transactionAt time.Time, description string) string {
+func bankTransactionContext(amount string, transactionAt time.Time, description string) string {
 	description = strings.TrimSpace(description)
 	if description == "" {
 		description = "Belum tersedia"
 	}
-	context := "Nominal: Rp" + workerTelegram.FormatIDR(amount) +
+	return "Nominal: Rp" + workerTelegram.FormatIDR(amount) +
 		"\nWaktu: " + transactionAt.In(time.FixedZone("WIB", 7*60*60)).Format("02/01/2006 15:04") + " WIB" +
 		"\nKeterangan: " + description
+}
+
+func bankReviewMessage(reviewType, amount string, transactionAt time.Time, description string) string {
+	context := bankTransactionContext(amount, transactionAt, description)
 	if reviewType == "UNKNOWN_MERCHANT" || reviewType == "UNKNOWN_PURPOSE" {
 		return context
 	}

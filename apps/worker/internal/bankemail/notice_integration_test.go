@@ -127,7 +127,8 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 				var reply bool
 				must(rows.Scan(&chat, &text, &reply))
 				got = append(got, chat)
-				if result.AutoConfirm && (reply || !strings.Contains(text, "Rp54.000") || !strings.Contains(text, "19/10/2026 08:30 WIB") || !strings.HasSuffix(text, " Balas pesan ini kalau ada yang perlu dibetulkan.")) {
+				wantNotice := "Transaksi bank sudah tercatat.\n\nNominal: Rp54.000\nWaktu: 19/10/2026 08:30 WIB\nKeterangan: " + description
+				if result.AutoConfirm && (reply || text != wantNotice) {
 					t.Fatalf("invalid recorded notice: reply=%v text=%q", reply, text)
 				}
 			}
@@ -146,6 +147,10 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 			}
 			if transactions != 1 {
 				t.Fatalf("transaction evidence=%d; want 1", transactions)
+			}
+			must(pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&transactions))
+			if transactions != 1 {
+				t.Fatalf("ledger transactions=%d; want 1", transactions)
 			}
 			var marked bool
 			must(pool.QueryRow(ctx, `SELECT notice_at IS NOT NULL FROM bank_email_extraction WHERE source_event_id=$1`, source).Scan(&marked))
@@ -173,6 +178,10 @@ func TestBankEmailPersistRecipients(t *testing.T) {
 				must(pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'text' LIKE $1`, "%"+description+"%").Scan(&sends))
 				if sends != 0 {
 					t.Fatalf("pruned notice requeued: %d", sends)
+				}
+				must(pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1`, household).Scan(&transactions))
+				if transactions != 1 {
+					t.Fatalf("ledger transactions after pruning=%d; want 1", transactions)
 				}
 			}
 		})
