@@ -11,6 +11,7 @@ const output = new URL("../test-results/visual-smoke/", import.meta.url);
 const regressionOutput = new URL("../test-results/visual-regression/", import.meta.url);
 const baselines = new URL("../tests/visual-baselines/", import.meta.url);
 const updateBaselines = process.env.UPDATE_VISUAL_BASELINES === "1";
+let comparedBaselines = 0;
 const routes = ["/", "/transactions", "/analytics", "/inbox", "/documents", "/household", "/settings", "/admin"];
 const viewports = [
   ["desktop", 1440, 900],
@@ -109,6 +110,7 @@ async function waitForServer() {
 
 async function compareScreenshot(page, name) {
   if (process.argv[2] && !name.startsWith(process.argv[2])) return;
+  comparedBaselines += 1;
   const screenshot = await page.screenshot({ animations: "disabled", caret: "hide", fullPage: true });
   await writeFile(new URL(`${name}.png`, regressionOutput), screenshot);
   const baselinePath = new URL(`${name}.png`, baselines);
@@ -387,3 +389,5 @@ async function run() {
 }
 
 await run();
+assert.ok(comparedBaselines > 0, "No visual baselines matched the requested prefix");
+console.log(`Visual baselines: ${comparedBaselines} ${updateBaselines ? "updated" : "compared"}`);
