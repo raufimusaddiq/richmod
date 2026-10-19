@@ -182,14 +182,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) candidates(ctx context.Context, household string, source item) ([]candidate, error) {
+	// Same rule as the Telegram card: the window candidates plus the
+	// transactions a reprocessed document was already linked to, carried in the
+	// review decision, even when amount or date drifted.
 	rows, err := h.pool.Query(ctx, `
+		WITH prior AS (SELECT jsonb_array_elements_text(ri.decision->'knownFacts'->'prior_match_transaction_ids') AS id FROM review_item ri WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array')
 		SELECT t.id,t.amount::text,t.transaction_at,t.description,t.account_id,t.category_id,
-		       COALESCE(m.normalized_name,t.counterparty_name,'')
+		       COALESCE(m.normalized_name,t.counterparty_name,''), t.id::text IN (SELECT id FROM prior)
 		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id
 		WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED'
-		  AND t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric
-		  AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours'
-		ORDER BY abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 5`,
+		  AND ((t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric
+		  AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours')
+		  OR (t.type=$3 AND t.currency=$4 AND t.id::text IN (SELECT id FROM prior)))
+		ORDER BY t.id::text IN (SELECT id FROM prior) DESC, abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 5`,
 		household, source.ID, source.Type, source.Currency, source.Amount, source.TransactionAt)
 	if err != nil {
 		return nil, err
@@ -200,13 +205,14 @@ func (h *Handler) candidates(ctx context.Context, household string, source item)
 		var value candidate
 		var accountID, categoryID *string
 		var merchant string
-		if err := rows.Scan(&value.ID, &value.Amount, &value.TransactionAt, &value.Description, &accountID, &categoryID, &merchant); err != nil {
+		var carried bool
+		if err := rows.Scan(&value.ID, &value.Amount, &value.TransactionAt, &value.Description, &accountID, &categoryID, &merchant, &carried); err != nil {
 			return nil, err
 		}
 		hours := math.Abs(value.TransactionAt.Sub(source.TransactionAt).Hours())
 		accountMatch := source.AccountID != nil && accountID != nil && *source.AccountID == *accountID
 		value.Score = reconciliationScore(hours, sameText(merchant, firstText(source.MerchantName, source.Counterparty)), accountMatch, source.CategoryID != nil && categoryID != nil && *source.CategoryID == *categoryID)
-		if value.Score >= 0.70 {
+		if carried || value.Score >= 0.70 {
 			result = append(result, value)
 		}
 	}

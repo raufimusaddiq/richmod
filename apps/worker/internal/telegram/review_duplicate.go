@@ -163,7 +163,11 @@ type duplicateCandidate struct {
 func duplicateCandidateRows(ctx context.Context, q interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }, householdID, transactionID, sourceType, sourceCurrency, sourceAmount string, sourceAt time.Time) ([]duplicateCandidate, error) {
-	rows, err := q.Query(ctx, `SELECT t.id::text,t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),t.transaction_at FROM transaction t WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED' AND t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 9`, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
+	// One query: the window rule plus, for a reprocessed document, the
+	// transactions it was already linked to (carried in the review decision),
+	// which are offered first even after amount or date drifted.
+	rows, err := q.Query(ctx, `WITH prior AS (SELECT jsonb_array_elements_text(ri.decision->'knownFacts'->'prior_match_transaction_ids') AS id FROM review_item ri WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array')
+		SELECT t.id::text,t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),t.transaction_at FROM transaction t WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED' AND ((t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours') OR (t.type=$3 AND t.currency=$4 AND t.id::text IN (SELECT id FROM prior))) ORDER BY (t.id::text IN (SELECT id FROM prior)) DESC,abs(extract(epoch FROM (t.transaction_at-$6::timestamptz))) LIMIT 9`, householdID, transactionID, sourceType, sourceCurrency, sourceAmount, sourceAt)
 	if err != nil {
 		return nil, err
 	}

@@ -164,6 +164,9 @@ func screenshotRowDecision(household, sourceEventID, transactionID, reviewType s
 	if merchant := strings.TrimSpace(row.Value.Merchant); merchant != "" {
 		known["merchant"] = merchant
 	}
+	if len(row.PriorMatchIDs) > 0 {
+		known["prior_match_transaction_ids"] = row.PriorMatchIDs
+	}
 	categoryKnown := row.CategoryDecided && row.CategoryID != nil && !row.CategoryConflict
 	if categoryKnown {
 		known["category"] = row.Value.CategorySlug

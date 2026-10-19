@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -61,7 +62,10 @@ type validatedScreenshotRow struct {
 	CategoryDecided  bool
 	CategoryConflict bool
 	Candidates       []matchCandidate
-	Matched          *matchCandidate
+	// PriorMatchIDs are transactions earlier proposals of this source event were
+	// linked to; the review decision carries them so the duplicate card can offer them.
+	PriorMatchIDs []string
+	Matched       *matchCandidate
 }
 
 // autoConfirmable reports the conditions this source can check before writing
@@ -303,10 +307,28 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		}
 		hasChat = false
 	}
+	// A reprocess must never turn a document that was already matched into a new
+	// CONFIRMED row just because today's matcher finds nothing (amount drift,
+	// outside the window). Prior matches make every unmatched row a possible
+	// duplicate, which only a household decision may resolve. This deliberately
+	// over-blocks an unrelated new row of the same document: the prior proposal
+	// cannot say which row it belonged to, and amount drift is the case to protect.
+	priorMatches, usedKeys, err := priorScreenshotState(ctx, tx, householdID, sourceID)
+	if err != nil {
+		return err
+	}
 	needsReview := false
 	recorded, jevRecorded, linked, pending := 0, 0, 0, 0
 	for index, row := range rows {
-		proposalKey := fmt.Sprintf("row-%03d", index+1)
+		if row.Matched == nil {
+			for _, prior := range priorMatches {
+				if !slices.ContainsFunc(row.Candidates, func(candidate matchCandidate) bool { return candidate.ID == prior.ID }) {
+					row.Candidates = append(row.Candidates, prior)
+				}
+				row.PriorMatchIDs = append(row.PriorMatchIDs, prior.ID)
+			}
+		}
+		proposalKey := reprocessProposalKey(fmt.Sprintf("row-%03d", index+1), usedKeys)
 		if row.Value.Amount == nil {
 			needsReview, pending = true, pending+1
 			var proposalID, itemID string
@@ -441,6 +463,69 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+var priorUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// priorScreenshotState returns the household transactions earlier proposals of
+// this source event were matched to, whatever their status now (merged,
+// rejected, superseded by a reprocess), and the proposal keys already taken.
+
+func priorScreenshotState(ctx context.Context, tx pgx.Tx, householdID, sourceID string) ([]matchCandidate, map[string]bool, error) {
+	keys := map[string]bool{}
+	var matched []string
+	proposals, err := tx.Query(ctx, `SELECT proposal_key,metadata_json->>'matched_transaction_id',metadata_json->>'merged_into' FROM transaction_proposal WHERE household_id=$1 AND source_event_id=$2`, householdID, sourceID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer proposals.Close()
+	for proposals.Next() {
+		var key string
+		var id, mergedInto *string
+		if err := proposals.Scan(&key, &id, &mergedInto); err != nil {
+			return nil, nil, err
+		}
+		keys[key] = true
+		// merged_into is the same link after a duplicate merge; legacy or foreign
+		// values that are not UUIDs are ignored instead of failing the reprocess.
+		for _, value := range []*string{id, mergedInto} {
+			if value != nil && priorUUID.MatchString(*value) {
+				matched = append(matched, strings.ToLower(*value))
+			}
+		}
+	}
+	if err := proposals.Err(); err != nil {
+		return nil, nil, err
+	}
+	proposals.Close()
+	if len(matched) == 0 {
+		return nil, keys, nil
+	}
+	owned, err := tx.Query(ctx, `SELECT id::text FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND id=ANY($2::uuid[]) ORDER BY id`, householdID, matched)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer owned.Close()
+	var prior []matchCandidate
+	for owned.Next() {
+		var id string
+		if err := owned.Scan(&id); err != nil {
+			return nil, nil, err
+		}
+		prior = append(prior, matchCandidate{ID: id, Score: 1})
+	}
+	return prior, keys, owned.Err()
+}
+
+// reprocessProposalKey keeps earlier proposals of the same source event as
+// history: a reprocess takes the next free key instead of colliding with them.
+func reprocessProposalKey(base string, used map[string]bool) string {
+	key := base
+	for attempt := 2; used[key]; attempt++ {
+		key = fmt.Sprintf("%s-r%d", base, attempt)
+	}
+	used[key] = true
+	return key
 }
 
 func screenshotSchema(slugs []string) map[string]any {

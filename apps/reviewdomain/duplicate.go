@@ -76,8 +76,19 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 	if err != nil {
 		return result, err
 	}
-	if sourceType != targetType || sourceAmount != targetAmount || sourceCurrency != targetCurrency || math.Abs(targetTime.Sub(sourceTime).Hours()) > mergeWindowHours {
+	if sourceType != targetType || sourceCurrency != targetCurrency {
 		return result, ErrDuplicateTargetInvalid
+	}
+	if sourceAmount != targetAmount || math.Abs(targetTime.Sub(sourceTime).Hours()) > mergeWindowHours {
+		// A reprocessed document may name the transaction it was already linked
+		// to even after amount or date drifted; only that carried target is exempt.
+		var carried bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array' AND ri.decision->'knownFacts'->'prior_match_transaction_ids' ? $3)", cmd.HouseholdID, cmd.TransactionID, cmd.TargetTransactionID).Scan(&carried); err != nil {
+			return result, err
+		}
+		if !carried {
+			return result, ErrDuplicateTargetInvalid
+		}
 	}
 	if err = tx.QueryRow(ctx, "INSERT INTO reconciliation_merge(household_id,source_transaction_id,target_transaction_id,status,created_by_user_id) VALUES($1,$2,$3,'ACTIVE',$4) RETURNING id", cmd.HouseholdID, cmd.TransactionID, cmd.TargetTransactionID, cmd.ActorUserID).Scan(&result.MergeID); err != nil {
 		return result, ErrAlreadyMerged

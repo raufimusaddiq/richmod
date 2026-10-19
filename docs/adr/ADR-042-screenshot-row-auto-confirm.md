@@ -113,3 +113,24 @@ identifiers still exclude distinct events. Receipt/bank matching is unchanged.
 - No provider-specific branch, no new table, no new dependency, and no extra
   bounded call per row.
 
+
+## Amendment: reprocess never auto-confirms past a prior match (#363)
+
+Auto-confirm assumes "the matcher found nothing" means "new transaction". After
+a reprocess that is not true: a source event whose earlier proposals (any
+status) carry `matched_transaction_id` was already linked to a real
+transaction, and amount drift or the 72-hour window can hide it from today's
+matcher. `persistScreenshot` therefore adds those household-owned transactions
+as candidates of every unmatched row, so the row goes to `POSSIBLE_DUPLICATE`
+review instead of writing a second CONFIRMED row. Earlier proposals stay as
+history; a reprocess takes the next free `proposal_key` (`row-001-r2`) instead of
+colliding with the `(source_event_id, proposal_key)` unique constraint. No
+schema change: proposal metadata already retains the match.
+
+The prior matches (`matched_transaction_id`, or `merged_into` after a duplicate
+merge; non-UUID values ignored, VOIDED rows skipped) are stored in the review
+decision as `knownFacts.prior_match_transaction_ids`. `duplicateCandidateRows`,
+shared by the Telegram card and the conversational flow, offers them first even
+when amount or window no longer match. Every unmatched row of such a document is
+sent to review, which can over-block an unrelated new row; that is accepted
+because a prior proposal cannot say which row it belonged to.
