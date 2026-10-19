@@ -465,10 +465,11 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	return tx.Commit(ctx)
 }
 
+var priorUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 // priorScreenshotState returns the household transactions earlier proposals of
 // this source event were matched to, whatever their status now (merged,
 // rejected, superseded by a reprocess), and the proposal keys already taken.
-var priorUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func priorScreenshotState(ctx context.Context, tx pgx.Tx, householdID, sourceID string) ([]matchCandidate, map[string]bool, error) {
 	keys := map[string]bool{}
