@@ -55,9 +55,8 @@ func ResolveDocumentReview(ctx context.Context, tx pgx.Tx, cmd DocumentReviewCom
 		return out, ErrDocumentReviewInvalid
 	}
 	if cmd.Action == "IGNORE" {
-		if _, err := tx.Exec(ctx, `UPDATE document SET status='IGNORED',updated_at=now() WHERE id=$1 AND household_id=$2`, cmd.DocumentID, cmd.HouseholdID); err != nil {
-			return out, err
-		}
+		// document.status has no IGNORED value; the source event carries the
+		// terminal ignored state and RefreshSourceLifecycle settles the document.
 		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1 AND household_id=$2`, *documentSource, cmd.HouseholdID); err != nil {
 			return out, err
 		}
@@ -82,6 +81,13 @@ func ResolveDocumentReview(ctx context.Context, tx pgx.Tx, cmd DocumentReviewCom
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action',$5::text))`, cmd.HouseholdID, actorType, cmd.UserID, cmd.ReviewItemID, cmd.Action); err != nil {
 		return out, err
+	}
+	if cmd.Action == "IGNORE" {
+		// Runs after the review is resolved so the document leaves NEEDS_REVIEW; the
+		// source stays IGNORED unless a sibling review or accepted work says otherwise.
+		if err := RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, *documentSource); err != nil {
+			return out, err
+		}
 	}
 	out.SourceEventID = *documentSource
 	return out, nil
