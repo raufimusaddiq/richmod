@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -61,7 +62,10 @@ type validatedScreenshotRow struct {
 	CategoryDecided  bool
 	CategoryConflict bool
 	Candidates       []matchCandidate
-	Matched          *matchCandidate
+	// PriorMatchIDs are transactions earlier proposals of this source event were
+	// linked to; the review decision carries them so the duplicate card can offer them.
+	PriorMatchIDs []string
+	Matched       *matchCandidate
 }
 
 // autoConfirmable reports the conditions this source can check before writing
@@ -306,7 +310,9 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 	// A reprocess must never turn a document that was already matched into a new
 	// CONFIRMED row just because today's matcher finds nothing (amount drift,
 	// outside the window). Prior matches make every unmatched row a possible
-	// duplicate, which only a household decision may resolve.
+	// duplicate, which only a household decision may resolve. This deliberately
+	// over-blocks an unrelated new row of the same document: the prior proposal
+	// cannot say which row it belonged to, and amount drift is the case to protect.
 	priorMatches, usedKeys, err := priorScreenshotState(ctx, tx, householdID, sourceID)
 	if err != nil {
 		return err
@@ -319,6 +325,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 				if !slices.ContainsFunc(row.Candidates, func(candidate matchCandidate) bool { return candidate.ID == prior.ID }) {
 					row.Candidates = append(row.Candidates, prior)
 				}
+				row.PriorMatchIDs = append(row.PriorMatchIDs, prior.ID)
 			}
 		}
 		proposalKey := reprocessProposalKey(fmt.Sprintf("row-%03d", index+1), usedKeys)
@@ -461,23 +468,29 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 // priorScreenshotState returns the household transactions earlier proposals of
 // this source event were matched to, whatever their status now (merged,
 // rejected, superseded by a reprocess), and the proposal keys already taken.
+var priorUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 func priorScreenshotState(ctx context.Context, tx pgx.Tx, householdID, sourceID string) ([]matchCandidate, map[string]bool, error) {
 	keys := map[string]bool{}
 	var matched []string
-	proposals, err := tx.Query(ctx, `SELECT proposal_key,metadata_json->>'matched_transaction_id' FROM transaction_proposal WHERE household_id=$1 AND source_event_id=$2`, householdID, sourceID)
+	proposals, err := tx.Query(ctx, `SELECT proposal_key,metadata_json->>'matched_transaction_id',metadata_json->>'merged_into' FROM transaction_proposal WHERE household_id=$1 AND source_event_id=$2`, householdID, sourceID)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer proposals.Close()
 	for proposals.Next() {
 		var key string
-		var id *string
-		if err := proposals.Scan(&key, &id); err != nil {
+		var id, mergedInto *string
+		if err := proposals.Scan(&key, &id, &mergedInto); err != nil {
 			return nil, nil, err
 		}
 		keys[key] = true
-		if id != nil && *id != "" {
-			matched = append(matched, *id)
+		// merged_into is the same link after a duplicate merge; legacy or foreign
+		// values that are not UUIDs are ignored instead of failing the reprocess.
+		for _, value := range []*string{id, mergedInto} {
+			if value != nil && priorUUID.MatchString(*value) {
+				matched = append(matched, strings.ToLower(*value))
+			}
 		}
 	}
 	if err := proposals.Err(); err != nil {
@@ -487,7 +500,7 @@ func priorScreenshotState(ctx context.Context, tx pgx.Tx, householdID, sourceID 
 	if len(matched) == 0 {
 		return nil, keys, nil
 	}
-	owned, err := tx.Query(ctx, `SELECT id::text FROM transaction WHERE household_id=$1 AND id=ANY($2::uuid[]) ORDER BY id`, householdID, matched)
+	owned, err := tx.Query(ctx, `SELECT id::text FROM transaction WHERE household_id=$1 AND status<>'VOIDED' AND id=ANY($2::uuid[]) ORDER BY id`, householdID, matched)
 	if err != nil {
 		return nil, nil, err
 	}

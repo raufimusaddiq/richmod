@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -176,5 +177,36 @@ func duplicateCandidateRows(ctx context.Context, q interface {
 		}
 		out = append(out, candidate)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// A reprocess carries the transactions the document was already linked to in
+	// the review decision. They are offered first even when amount or date have
+	// since drifted out of the window above, which is exactly when they matter.
+	prior, err := q.Query(ctx, `SELECT t.id::text,t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),t.transaction_at FROM transaction t WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED' AND t.id::text IN (SELECT jsonb_array_elements_text(ri.decision->'knownFacts'->'prior_match_transaction_ids') FROM review_item ri WHERE ri.household_id=$1 AND ri.transaction_id=$2 AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array') ORDER BY t.id`, householdID, transactionID)
+	if err != nil {
+		return nil, err
+	}
+	defer prior.Close()
+	var merged []duplicateCandidate
+	for prior.Next() {
+		var candidate duplicateCandidate
+		if err := prior.Scan(&candidate.ID, &candidate.Amount, &candidate.Merchant, &candidate.At); err != nil {
+			return nil, err
+		}
+		merged = append(merged, candidate)
+	}
+	if err := prior.Err(); err != nil {
+		return nil, err
+	}
+	for _, candidate := range out {
+		if !slices.ContainsFunc(merged, func(existing duplicateCandidate) bool { return existing.ID == candidate.ID }) {
+			merged = append(merged, candidate)
+		}
+	}
+	if len(merged) > 9 {
+		merged = merged[:9]
+	}
+	return merged, nil
 }

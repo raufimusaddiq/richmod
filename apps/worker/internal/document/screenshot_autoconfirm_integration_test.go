@@ -453,7 +453,7 @@ func assertScreenshotReviewDecisions(t *testing.T, fixture screenshotFixture, wa
 func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) {
 	// "primary" is the key of proposals written before per-row keys existed
 	// (no key collision, the real duplicate path); "row-001" collides.
-	for _, tc := range []struct{ status, key string }{{"MERGED", "primary"}, {"REJECTED", "primary"}, {"NEEDS_REVIEW", "primary"}, {"MERGED", "row-001"}, {"REJECTED", "row-001"}} {
+	for _, tc := range []struct{ status, key string }{{"MERGED", "primary"}, {"REJECTED", "primary"}, {"NEEDS_REVIEW", "primary"}, {"MERGED", "row-001"}, {"REJECTED", "row-001"}, {"MERGED", "merged_into"}, {"REJECTED", "garbage"}} {
 		priorStatus, priorKey := tc.status, tc.key
 		t.Run(priorStatus+"/"+priorKey, func(t *testing.T) {
 			f := seedScreenshotFixture(t, "Screenshot reprocess "+priorStatus)
@@ -462,7 +462,14 @@ func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) 
 			if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,source_confidence,classification_confidence,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR',$2,$3,.9,.9,now()) RETURNING id`, f.householdID, screenshotRowTime().Add(-100*time.Hour), f.categoryID).Scan(&originalID); err != nil {
 				t.Fatal(err)
 			}
-			if err := f.pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,confidence,proposal_status,metadata_json) VALUES($1,$2,$7,'EXPENSE',54000,'IDR',$3,.9,$4,jsonb_build_object('document_id',$5::uuid,'row_index',0,'matched_transaction_id',$6::uuid)) RETURNING id`, f.householdID, f.sourceID, screenshotRowTime(), priorStatus, f.documentID, originalID, priorKey).Scan(&priorProposalID); err != nil {
+			link := "matched_transaction_id"
+			if priorKey == "merged_into" {
+				link, priorKey = "merged_into", "primary"
+			}
+			if _, err := f.pool.Exec(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,confidence,proposal_status,metadata_json) VALUES($1,$2,'legacy-garbage','EXPENSE',54000,'IDR',$3,.9,'REJECTED','{"matched_transaction_id":"not-a-uuid"}')`, f.householdID, f.sourceID, screenshotRowTime()); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.pool.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,confidence,proposal_status,metadata_json) VALUES($1,$2,$7,'EXPENSE',54000,'IDR',$3,.9,$4,jsonb_build_object('document_id',$5::uuid,'row_index',0,$8::text,$6::uuid)) RETURNING id`, f.householdID, f.sourceID, screenshotRowTime(), priorStatus, f.documentID, originalID, priorKey, link).Scan(&priorProposalID); err != nil {
 				t.Fatal(err)
 			}
 			categoryID := f.categoryID
@@ -488,6 +495,10 @@ func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) 
 			}
 			if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE household_id=$1 AND review_type='POSSIBLE_DUPLICATE' AND status IN ('OPEN','PENDING_SEND')`, f.householdID).Scan(&openReviews); err != nil {
 				t.Fatal(err)
+			}
+			var carried bool
+			if err := f.pool.QueryRow(ctx, `SELECT COALESCE(decision->'knownFacts'->'prior_match_transaction_ids' ? $2,false) FROM review_item WHERE household_id=$1 AND review_type='POSSIBLE_DUPLICATE'`, f.householdID, originalID).Scan(&carried); err != nil || !carried {
+				t.Fatalf("review decision must carry the prior match %s: carried=%v err=%v", originalID, carried, err)
 			}
 			if evidenceOnOriginal == 0 && openReviews == 0 {
 				t.Fatal("reprocess must link evidence to the prior match or open a review")
