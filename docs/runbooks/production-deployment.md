@@ -299,6 +299,13 @@ attachment volume. Production must use an off-host `RESTIC_REPOSITORY`; the
 local repository default is for drills only. Retention is 14 daily, 8 weekly,
 and 12 monthly snapshots.
 
+Retention groups snapshots by tag (`forget --group-by tags`), and every backup
+pins `--host family-finance` and a fixed staging path so consecutive runs share
+a parent. Before #385 each run had a random container hostname and `mktemp`
+path, so each snapshot was its own group and nothing was ever forgotten. The
+first run after that fix applies the policy to the whole backlog at once; take a
+`restic forget --dry-run --group-by tags ...` listing before deploying it.
+
 1. Create `/opt/family-finance/restic-password` with a long random value and
    mode `0600`. Keep a separate recovery copy outside this server.
 2. Set `RESTIC_REPOSITORY` and any repository credentials in the restricted
@@ -325,6 +332,15 @@ change to those scripts, rebuild it on the host:
 docker compose --env-file /opt/family-finance/finance.env -f compose.yaml \
   -f compose.production.yaml --profile operations build backup
 ```
+
+If the change touches retention (`forget` flags or grouping), rebuild only after
+the owner has approved the `restic forget --dry-run` listing of snapshots the
+next run will remove. The first rebuild after #385 removes 36 snapshots
+(2026-08-30 → 2026-10-12; listing in PR #387).
+
+`backup.sh` holds an exclusive `flock` on its staging directory, so a manual run
+that overlaps the timer exits with "another backup run holds …" instead of
+racing it; rerun it after the timer finishes.
 
 If a run fails with "repository is already locked", `backup.sh` clears stale
 locks itself; a lock held by a live process is never removed.
