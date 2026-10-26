@@ -76,8 +76,17 @@ func applyVerificationGate(result PolicyResult, verified bool) PolicyResult {
 	if result.Status == "" || result.Status == "CONFIRMED" {
 		result.Status = "NEEDS_REVIEW"
 	}
+	// An auto-confirm carries no review type; the household then confirms the
+	// same choice the policy made, not a fact-free extraction card.
 	if result.ReviewType == "" {
-		result.ReviewType = "DOCUMENT_EXTRACTION_LOW_CONFIDENCE"
+		switch result.Type {
+		case "TRANSFER":
+			result.ReviewType = "TRANSFER_CLASSIFICATION"
+		case "EXPENSE":
+			result.ReviewType = "AMBIGUOUS_CATEGORY"
+		default:
+			result.ReviewType = "DOCUMENT_EXTRACTION_LOW_CONFIDENCE"
+		}
 	}
 	if result.Description == "" {
 		result.Description = "Ekstraksi belum diverifikasi oleh bidang semantik."
@@ -388,7 +397,11 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 			// inconsistent ruling, not a human fact to fabricate.
 			return fmt.Errorf("bank email verification has no failed material predicate")
 		}
-		return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
+		if verification.needsBankFactsReview() {
+			return p.reviewIncompleteExtraction(ctx, household, payload.SourceEventID, ToolSchemaVersion, "UNKNOWN_BANK_TEMPLATE", verificationReviewDecision(household, payload.SourceEventID, extraction, verification, fact, conflict))
+		}
+		// Unverified, so the gate below keeps it a household review.
+		verified = false
 	}
 	// The deterministic policy may only auto-confirm when a bounded plane
 	// independently verified the semantics. With no verifier the extractor's own
