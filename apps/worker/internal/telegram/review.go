@@ -480,7 +480,7 @@ func (p *Processor) processReviewDetailCallback(ctx context.Context, sourceEvent
 		if err = tx.Commit(ctx); err != nil {
 			return true, err
 		}
-		return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, update)
+		return true, p.rejectBoundReview(ctx, sourceEventID, householdID, reviewID, transactionID, reviewType, update)
 	}
 	if data == "review:asset" {
 		if err = tx.Commit(ctx); err != nil {
@@ -652,12 +652,11 @@ func incomeReviewChoice(text string) string {
 	return ""
 }
 
-// ignoreFinancialEmailFacts resolves a FINANCIAL_EMAIL_FACTS review: the provider
-// email did not support a required financial fact, so no canonical transaction
-// exists and the only bounded action is to acknowledge it. It binds the open
-// observation review by the replied/callback Telegram message, marks the
-// observation IGNORED, and completes the review item.
-func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate) error {
+// rejectBoundReview handles the generic "Abaikan" button on any transaction-bound
+// review card: it voids the transaction and completes the review. The audit
+// records the card's review type, not an assumed reason, because the same
+// button appears on transfer, expense, and income cards.
+func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, householdID, reviewID, transactionID, reviewType string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -685,10 +684,10 @@ func (p *Processor) rejectBoundReview(ctx context.Context, sourceEventID, househ
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,metadata_json) VALUES($1,$2,'TELEGRAM_REVIEW_REPLY',jsonb_build_object('review_request_id',$3::uuid,'classification','REJECT')) ON CONFLICT DO NOTHING`, transactionID, sourceEventID, reviewID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REJECT_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'reason','own_transfer_or_not_income'))`, householdID, userID, transactionID, reviewID); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'REJECT_REVIEW','transaction',$3,jsonb_build_object('review_request_id',$4::uuid,'reason','telegram_ignore','review_type',$5::text))`, householdID, userID, transactionID, reviewID, reviewType); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, "Tidak dicatat sebagai penghasilan."); err != nil {
+	if err := enqueueReply(ctx, tx, update, "Diabaikan, transaksi tidak dicatat."); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
