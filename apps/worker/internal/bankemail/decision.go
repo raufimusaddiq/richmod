@@ -36,6 +36,16 @@ func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok
 	return "", false, false
 }
 
+// needsBankFactsReview reports whether a material residual must park the email
+// for the household to complete bank facts. Direction alone undecided, with the
+// transaction and amount verified and nothing contradicted, does not: that
+// review could only re-enter amount and time the email already holds, while the
+// policy review shows the extracted direction to confirm or reject.
+func (v EvidenceVerification) needsBankFactsReview() bool {
+	fact, conflict, _ := v.materialResidual()
+	return fact != "direction" || conflict || v.ClaimOutcomes["transaction_observed"] != "YES"
+}
+
 // reviewPolicyVersion names the policy that actually decided each review type,
 // so the stored contract stays reproducible.
 func reviewPolicyVersion(reviewType string) string {
