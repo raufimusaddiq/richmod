@@ -11,7 +11,14 @@ if [ ! -r "$RESTIC_PASSWORD_FILE" ]; then
     exit 1
 fi
 
-backup_tmp="$(mktemp -d)"
+# Snapshots must share host and paths across runs: restic picks a parent and
+# `forget` groups by them. `compose run` gives every container a random
+# hostname and mktemp a random path, which made every snapshot its own
+# retention group (nothing was ever forgotten) and every run parentless.
+backup_host="family-finance"
+backup_tmp="${TMPDIR:-/tmp}/family-finance-backup"
+rm -rf "$backup_tmp"
+mkdir -m 700 "$backup_tmp"
 trap 'rm -rf "$backup_tmp"' EXIT INT TERM
 
 # A run killed mid-prune leaves an exclusive lock that blocks every later restic
@@ -43,6 +50,8 @@ set -- "$backup_tmp"
 if [ -d /var/lib/finance/attachments ]; then
     set -- "$@" /var/lib/finance/attachments
 fi
-restic backup --tag family-finance --tag daily "$@"
-restic forget --tag family-finance --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
+restic backup --host "$backup_host" --tag family-finance --tag daily "$@"
+# Group by tags, not host+paths, so snapshots written before the host and path
+# were pinned fall under the same policy as new ones.
+restic forget --tag family-finance --group-by tags --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
 restic check --read-data-subset=5%

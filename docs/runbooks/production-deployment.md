@@ -299,6 +299,13 @@ attachment volume. Production must use an off-host `RESTIC_REPOSITORY`; the
 local repository default is for drills only. Retention is 14 daily, 8 weekly,
 and 12 monthly snapshots.
 
+Retention groups snapshots by tag (`forget --group-by tags`), and every backup
+pins `--host family-finance` and a fixed staging path so consecutive runs share
+a parent. Before #385 each run had a random container hostname and `mktemp`
+path, so each snapshot was its own group and nothing was ever forgotten. The
+first run after that fix applies the policy to the whole backlog at once; take a
+`restic forget --dry-run --group-by tags ...` listing before deploying it.
+
 1. Create `/opt/family-finance/restic-password` with a long random value and
    mode `0600`. Keep a separate recovery copy outside this server.
 2. Set `RESTIC_REPOSITORY` and any repository credentials in the restricted
