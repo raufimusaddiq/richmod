@@ -100,6 +100,7 @@ type Payload struct {
 	AmountIDR      *string `json:"amount_idr,omitempty"`
 	TransactionAt  *string `json:"transaction_at,omitempty"`
 	TelegramChatID int64   `json:"telegram_chat_id,omitempty"`
+	UserID         string  `json:"user_id,omitempty"`
 }
 
 // Complete resumes a source-bound review with only the facts a person entered.
@@ -224,7 +225,7 @@ func auditBankCompletion(ctx context.Context, tx pgx.Tx, household string, paylo
 	if payload.TelegramChatID != 0 {
 		actor = "TELEGRAM"
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id) VALUES($1,$2,'RESOLVE_REVIEW','review_item',$3)`, household, actor, payload.ReviewID)
+	_, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,NULLIF($4,'')::uuid,'RESOLVE_REVIEW','review_item',$3,jsonb_build_object('action','COMPLETE_BANK_FACTS'))`, household, actor, payload.ReviewID, payload.UserID)
 	return err
 }
 
