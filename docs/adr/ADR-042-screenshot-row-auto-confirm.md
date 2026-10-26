@@ -134,3 +134,12 @@ shared by the Telegram card and the conversational flow, offers them first even
 when amount or window no longer match. Every unmatched row of such a document is
 sent to review, which can over-block an unrelated new row; that is accepted
 because a prior proposal cannot say which row it belonged to.
+
+A row with no extracted amount carries the same ids on its `MISSING_AMOUNT`
+decision (#373). When the household supplies the amount,
+`ResolveMissingAmountProposal` treats every carried id that is still a live
+transaction of the household as a duplicate signal regardless of amount and
+window, writes the new row as `NEEDS_REVIEW`, and passes the ids on to the
+resulting `POSSIBLE_DUPLICATE` decision so the card can offer them. Carried
+candidates have no match score: `Score` 1 means exact identity to the
+strong-match selector, and a carried id is a review signal, not an identity.

@@ -506,3 +506,57 @@ func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) 
 		})
 	}
 }
+
+// A reprocess that no longer extracts the amount still carries the prior match
+// on its MISSING_AMOUNT review. Supplying a drifted amount must not write a
+// second CONFIRMED row, and the duplicate review must offer the prior match.
+func TestScreenshotReprocessMissingAmountKeepsPriorMatch(t *testing.T) {
+	f := seedScreenshotFixture(t, "Screenshot reprocess missing amount")
+	ctx := context.Background()
+	var originalID, userID string
+	if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,source_confidence,classification_confidence,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR',$2,$3,.9,.9,now()) RETURNING id`, f.householdID, screenshotRowTime().Add(-100*time.Hour), f.categoryID).Scan(&originalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,confidence,proposal_status,metadata_json) VALUES($1,$2,'primary','EXPENSE',54000,'IDR',$3,.9,'MERGED',jsonb_build_object('document_id',$4::uuid,'row_index',0,'matched_transaction_id',$5::uuid))`, f.householdID, f.sourceID, screenshotRowTime(), f.documentID, originalID); err != nil {
+		t.Fatal(err)
+	}
+	categoryID := f.categoryID
+	row := screenshotDataRow("EXPENSE", "54000", "Indomaret")
+	row.Value.Amount = nil
+	row.Value.Direction, row.Value.CategorySlug = "OUT", &f.categorySlug
+	row.CategoryID, row.CategoryDecided = &categoryID, true
+	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	var proposalID, reviewID string
+	if err := f.pool.QueryRow(ctx, `SELECT p.id::text,ri.id::text,(SELECT user_id::text FROM telegram_identity WHERE household_id=p.household_id LIMIT 1) FROM transaction_proposal p JOIN review_item ri ON ri.proposal_id=p.id WHERE p.source_event_id=$1 AND ri.review_type='MISSING_AMOUNT'`, f.sourceID).Scan(&proposalID, &reviewID, &userID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	// Drifted amount, far outside the duplicate window of the original.
+	amountIDR := "58000"
+	result, err := reviewdomain.ResolveMissingAmountProposal(ctx, tx, reviewdomain.MissingAmountCommand{HouseholdID: f.householdID, UserID: userID, ReviewItemID: reviewID, ProposalID: proposalID, SourceEventID: f.sourceID, ActorType: "USER", AmountIDR: &amountIDR})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var confirmed int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND status='CONFIRMED'`, f.householdID).Scan(&confirmed); err != nil {
+		t.Fatal(err)
+	}
+	if confirmed != 1 {
+		t.Fatalf("supplying the amount wrote a duplicate CONFIRMED transaction: confirmed=%d", confirmed)
+	}
+	var status string
+	var carried bool
+	if err := f.pool.QueryRow(ctx, `SELECT t.status,COALESCE(ri.decision->'knownFacts'->'prior_match_transaction_ids' ? $2,false) FROM transaction t JOIN review_item ri ON ri.transaction_id=t.id AND ri.review_type='POSSIBLE_DUPLICATE' AND ri.status='OPEN' WHERE t.id=$1`, result.TransactionID, originalID).Scan(&status, &carried); err != nil {
+		t.Fatalf("a POSSIBLE_DUPLICATE review must open for the new row: %v", err)
+	}
+	if status != "NEEDS_REVIEW" || !carried {
+		t.Fatalf("new row status=%s, review carries prior match=%v", status, carried)
+	}
+}

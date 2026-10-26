@@ -512,7 +512,9 @@ func priorScreenshotState(ctx context.Context, tx pgx.Tx, householdID, sourceID 
 		if err := owned.Scan(&id); err != nil {
 			return nil, nil, err
 		}
-		prior = append(prior, matchCandidate{ID: id, Score: 1})
+		// A carried prior match is a review signal, not a scored identity
+		// match: Score 1 means exact identity to the strong-match selector.
+		prior = append(prior, matchCandidate{ID: id})
 	}
 	return prior, keys, owned.Err()
 }
