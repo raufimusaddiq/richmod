@@ -103,6 +103,11 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}
+		// The relationship choices come from the shared kind contract; the IGNORE-only
+		// default above would leave a classification review with no way to classify.
+		if preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", transactionID); ok {
+			decision.AllowedActions = preset.AllowedActions
+		}
 		decision.InteractionMode = reviewdec.ModePolicyChoice
 		decision.WhyNotAuto = "own-account versus expense is a human policy choice the evidence cannot decide"
 	default:

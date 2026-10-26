@@ -1,8 +1,11 @@
 package bankemail
 
 import (
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // An unknown merchant is collected first on any channel; amount/time remain
@@ -54,5 +57,21 @@ func TestPartialDecisionListsEveryMissingRequiredFact(t *testing.T) {
 	}
 	if decision.Subject.ID != "source" {
 		t.Fatalf("subject=%q", decision.Subject.ID)
+	}
+}
+
+// A bank transfer parked for classification must offer the relationship choices
+// of the shared contract, not only IGNORE (#384).
+func TestTransferClassificationDecisionOffersRelationshipChoices(t *testing.T) {
+	d := transactionReviewDecision("h", "s", Extraction{}, PolicyResult{ReviewType: "TRANSFER_CLASSIFICATION"}, "t")
+	preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", "t")
+	if !ok {
+		t.Fatal("TRANSFER_CLASSIFICATION preset missing")
+	}
+	if !slices.Equal(d.AllowedActions, preset.AllowedActions) || !slices.Contains(d.AllowedActions, "CLASSIFY_TRANSFER") {
+		t.Fatalf("allowed actions=%v, want %v", d.AllowedActions, preset.AllowedActions)
+	}
+	if err := d.Validate(); err != nil {
+		t.Fatalf("decision must stay valid: %v", err)
 	}
 }
