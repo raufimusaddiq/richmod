@@ -89,6 +89,18 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE household_id=$1 AND status='CONFIRMED' AND type=$2 AND currency='IDR' AND amount=$3::numeric AND (transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' OR transaction_at BETWEEN $5::timestamptz-interval '72 hours' AND $5::timestamptz+interval '96 hours'))`, cmd.HouseholdID, typ, *cmd.AmountIDR, probeAt, at).Scan(&duplicate); err != nil {
 		return result, err
 	}
+	// A reprocess carries the transactions this source event was already linked
+	// to. They are a duplicate signal regardless of amount and window: the drift
+	// that hid them from the matcher is exactly what this review must not miss.
+	// Only live transactions of this household survive; the rest is history.
+	var priorMatches []string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(array_agg(t.id::text ORDER BY t.id),'{}') FROM review_item ri
+		CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array' THEN ri.decision->'knownFacts'->'prior_match_transaction_ids' ELSE '[]'::jsonb END) prior(id)
+		JOIN transaction t ON t.id::text=lower(prior.id) AND t.household_id=ri.household_id AND t.status<>'VOIDED'
+		WHERE ri.id=$1 AND ri.household_id=$2`, cmd.ReviewItemID, cmd.HouseholdID).Scan(&priorMatches); err != nil {
+		return result, err
+	}
+	duplicate = duplicate || len(priorMatches) > 0
 	status, proposalStatus := "CONFIRMED", "ACCEPTED"
 	if duplicate {
 		status, proposalStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"
@@ -121,7 +133,11 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 		return result, err
 	}
 	if duplicate {
-		encoded, err := possibleDuplicateDecision(result.TransactionID, map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at, "merchant": merchant})
+		known := map[string]any{"amount_idr": *cmd.AmountIDR, "transaction_at": at, "merchant": merchant}
+		if len(priorMatches) > 0 {
+			known["prior_match_transaction_ids"] = priorMatches
+		}
+		encoded, err := possibleDuplicateDecision(result.TransactionID, known)
 		if err != nil {
 			return result, err
 		}
