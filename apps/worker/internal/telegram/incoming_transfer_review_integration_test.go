@@ -97,6 +97,14 @@ func TestIncomingRowReviewIsAnswerableFromTelegram(t *testing.T) {
 			if resolved := tc.wantStatus != "NEEDS_REVIEW"; resolved != (itemStatus == "RESOLVED") {
 				t.Fatalf("%s: review item status=%s for transaction %s", tc.callback, itemStatus, gotStatus)
 			}
+			if tc.callback == "review:ignore" {
+				// Abaikan on a transfer card must not claim an income-specific reason.
+				var reason, reviewType string
+				must(pool.QueryRow(ctx, `SELECT after_json->>'reason',after_json->>'review_type' FROM audit_log WHERE entity_id=$1 AND action='REJECT_REVIEW' AND actor_type='TELEGRAM'`, transactionID).Scan(&reason, &reviewType))
+				if reason != "telegram_ignore" || reviewType != "TRANSFER_CLASSIFICATION" {
+					t.Fatalf("ignore audit reason=%s review_type=%s", reason, reviewType)
+				}
+			}
 		})
 	}
 }
