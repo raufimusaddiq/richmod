@@ -333,6 +333,15 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml \
   -f compose.production.yaml --profile operations build backup
 ```
 
+If the change touches retention (`forget` flags or grouping), rebuild only after
+the owner has approved the `restic forget --dry-run` listing of snapshots the
+next run will remove. The first rebuild after #385 removes 36 snapshots
+(2026-08-30 → 2026-10-12; listing in PR #387).
+
+`backup.sh` holds an exclusive `flock` on its staging directory, so a manual run
+that overlaps the timer exits with "another backup run holds …" instead of
+racing it; rerun it after the timer finishes.
+
 If a run fails with "repository is already locked", `backup.sh` clears stale
 locks itself; a lock held by a live process is never removed.
 

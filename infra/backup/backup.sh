@@ -17,9 +17,30 @@ fi
 # retention group (nothing was ever forgotten) and every run parentless.
 backup_host="family-finance"
 backup_tmp="${TMPDIR:-/tmp}/family-finance-backup"
-rm -rf "$backup_tmp"
-mkdir -m 700 "$backup_tmp"
-trap 'rm -rf "$backup_tmp"' EXIT INT TERM
+
+# The fixed path is shared by any run on the same filesystem, so one run at a
+# time: a second run must not clear the dump the first is backing up.
+exec 9>"$backup_tmp.lock"
+if ! flock -n 9; then
+    echo "another backup run holds $backup_tmp.lock" >&2
+    exit 1
+fi
+
+# Only the files this script writes are ever removed; the path is predictable,
+# so a symlink or foreign file there is refused instead of followed.
+backup_files="database.dump created-at.txt"
+clear_staging() {
+    for name in $backup_files; do
+        rm -f "$backup_tmp/$name"
+    done
+}
+if [ -L "$backup_tmp" ] || { [ -e "$backup_tmp" ] && [ ! -d "$backup_tmp" ]; }; then
+    echo "refusing backup: $backup_tmp is not a plain directory" >&2
+    exit 1
+fi
+[ -d "$backup_tmp" ] || mkdir -m 700 "$backup_tmp"
+clear_staging
+trap clear_staging EXIT INT TERM
 
 # A run killed mid-prune leaves an exclusive lock that blocks every later restic
 # command. `unlock` removes only stale locks, never one held by a live process.
