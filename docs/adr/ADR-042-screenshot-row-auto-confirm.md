@@ -140,6 +140,10 @@ decision (#373). When the household supplies the amount,
 `ResolveMissingAmountProposal` treats every carried id that is still a live
 transaction of the household as a duplicate signal regardless of amount and
 window, writes the new row as `NEEDS_REVIEW`, and passes the ids on to the
-resulting `POSSIBLE_DUPLICATE` decision so the card can offer them. Carried
+resulting `POSSIBLE_DUPLICATE` decision so the card can offer them. Only
+carried ids of the same type and currency are offered, matching the API and
+Telegram candidate queries, because a merge waives amount and time for a
+carried target but never type or currency (#388); a live carried id of another
+type still blocks auto-confirm. Carried
 candidates have no match score: `Score` 1 means exact identity to the
 strong-match selector, and a carried id is a review signal, not an identity.

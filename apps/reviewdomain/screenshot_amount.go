@@ -93,14 +93,18 @@ func ResolveMissingAmountProposal(ctx context.Context, tx pgx.Tx, cmd MissingAmo
 	// to. They are a duplicate signal regardless of amount and window: the drift
 	// that hid them from the matcher is exactly what this review must not miss.
 	// Only live transactions of this household survive; the rest is history.
+	// Any survivor blocks auto-confirm, since drift can flip the extracted type
+	// too, but only same type and currency ones are offered: MergeDuplicateReview
+	// waives amount and time for a carried target, never type or currency.
+	var carried int
 	var priorMatches []string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(array_agg(t.id::text ORDER BY t.id),'{}') FROM review_item ri
+	if err := tx.QueryRow(ctx, `SELECT count(*),COALESCE(array_agg(t.id::text ORDER BY t.id) FILTER (WHERE t.type=$3 AND t.currency='IDR'),'{}') FROM review_item ri
 		CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array' THEN ri.decision->'knownFacts'->'prior_match_transaction_ids' ELSE '[]'::jsonb END) prior(id)
 		JOIN transaction t ON t.id::text=lower(prior.id) AND t.household_id=ri.household_id AND t.status<>'VOIDED'
-		WHERE ri.id=$1 AND ri.household_id=$2`, cmd.ReviewItemID, cmd.HouseholdID).Scan(&priorMatches); err != nil {
+		WHERE ri.id=$1 AND ri.household_id=$2`, cmd.ReviewItemID, cmd.HouseholdID, typ).Scan(&carried, &priorMatches); err != nil {
 		return result, err
 	}
-	duplicate = duplicate || len(priorMatches) > 0
+	duplicate = duplicate || carried > 0
 	status, proposalStatus := "CONFIRMED", "ACCEPTED"
 	if duplicate {
 		status, proposalStatus = "NEEDS_REVIEW", "NEEDS_REVIEW"

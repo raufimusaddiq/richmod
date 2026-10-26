@@ -509,12 +509,23 @@ func TestScreenshotReprocessWithPriorMatchNeverAutoConfirmsNewRow(t *testing.T) 
 
 // A reprocess that no longer extracts the amount still carries the prior match
 // on its MISSING_AMOUNT review. Supplying a drifted amount must not write a
-// second CONFIRMED row, and the duplicate review must offer the prior match.
+// second CONFIRMED row. The duplicate review offers the prior match only when
+// it can be merged (same type); a prior of another type still blocks
+// auto-confirm, since drift can flip the extracted direction too.
 func TestScreenshotReprocessMissingAmountKeepsPriorMatch(t *testing.T) {
-	f := seedScreenshotFixture(t, "Screenshot reprocess missing amount")
+	for _, tc := range []struct {
+		priorType string
+		offered   bool
+	}{{"EXPENSE", true}, {"INCOME", false}} {
+		t.Run("prior "+tc.priorType, func(t *testing.T) { reprocessMissingAmountWithPrior(t, tc.priorType, tc.offered) })
+	}
+}
+
+func reprocessMissingAmountWithPrior(t *testing.T, priorType string, offered bool) {
+	f := seedScreenshotFixture(t, "Screenshot reprocess missing amount "+priorType)
 	ctx := context.Background()
 	var originalID, userID string
-	if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,source_confidence,classification_confidence,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR',$2,$3,.9,.9,now()) RETURNING id`, f.householdID, screenshotRowTime().Add(-100*time.Hour), f.categoryID).Scan(&originalID); err != nil {
+	if err := f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,source_confidence,classification_confidence,confirmed_at) VALUES($1,$4,'CONFIRMED',54000,'IDR',$2,$3,.9,.9,now()) RETURNING id`, f.householdID, screenshotRowTime().Add(-100*time.Hour), f.categoryID, priorType).Scan(&originalID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,confidence,proposal_status,metadata_json) VALUES($1,$2,'primary','EXPENSE',54000,'IDR',$3,.9,'MERGED',jsonb_build_object('document_id',$4::uuid,'row_index',0,'matched_transaction_id',$5::uuid))`, f.householdID, f.sourceID, screenshotRowTime(), f.documentID, originalID); err != nil {
@@ -556,7 +567,7 @@ func TestScreenshotReprocessMissingAmountKeepsPriorMatch(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `SELECT t.status,COALESCE(ri.decision->'knownFacts'->'prior_match_transaction_ids' ? $2,false) FROM transaction t JOIN review_item ri ON ri.transaction_id=t.id AND ri.review_type='POSSIBLE_DUPLICATE' AND ri.status='OPEN' WHERE t.id=$1`, result.TransactionID, originalID).Scan(&status, &carried); err != nil {
 		t.Fatalf("a POSSIBLE_DUPLICATE review must open for the new row: %v", err)
 	}
-	if status != "NEEDS_REVIEW" || !carried {
-		t.Fatalf("new row status=%s, review carries prior match=%v", status, carried)
+	if status != "NEEDS_REVIEW" || carried != offered {
+		t.Fatalf("new row status=%s, review offers prior match=%v, want offered=%v", status, carried, offered)
 	}
 }
