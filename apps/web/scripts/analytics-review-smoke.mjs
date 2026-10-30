@@ -223,8 +223,28 @@ try {
     await page.waitForFunction(() => document.activeElement?.id === "drivers-title");
     assert.equal(await page.locator("#category-drivers").getByRole("link", { name: "Kembali ke ringkasan siklus", exact: true }).isVisible(), true, "the evidence links back to the ledger");
     await matrixRow.focus();
+    // DIAG(395): record when the URL loses ?category and when aria-pressed flips, on one clock.
+    await page.evaluate(() => {
+      const row = document.querySelector('button[aria-label="Buka bukti Belanja rumah"]');
+      const t0 = performance.now();
+      const log = window.__diag = { urlClearedAt: null, pressedFalseAt: null, samples: [] };
+      const tick = () => {
+        const now = Math.round((performance.now() - t0) * 10) / 10;
+        const urlHas = new URL(location.href).searchParams.has("category");
+        const pressed = document.querySelector('button[aria-label="Buka bukti Belanja rumah"]')?.getAttribute("aria-pressed");
+        if (log.urlClearedAt === null && !urlHas) log.urlClearedAt = now;
+        if (log.pressedFalseAt === null && pressed === "false") log.pressedFalseAt = now;
+        if (log.samples.length < 60) log.samples.push([now, urlHas, pressed]);
+        if (log.pressedFalseAt === null && now < 3000) requestAnimationFrame(tick);
+      };
+      row.addEventListener("keydown", () => { log.keydownAt = Math.round((performance.now() - t0) * 10) / 10; requestAnimationFrame(tick); }, { once: true, capture: true });
+    });
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
+    const diagAtUrlWait = await matrixRow.getAttribute("aria-pressed");
+    await page.waitForFunction(() => window.__diag.pressedFalseAt !== null, null, { timeout: 5000 }).catch(() => {});
+    console.log("DIAG395 aria-pressed right after URL wait:", diagAtUrlWait);
+    console.log("DIAG395", JSON.stringify(await page.evaluate(() => window.__diag)));
     assert.equal(await matrixRow.getAttribute("aria-pressed"), "false", "choosing the selected category again clears it");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
     const charts = await page.evaluate(() => { const [a, b] = [".shape-charts > :nth-child(1)", ".shape-charts > :nth-child(2)"].map(selector => document.querySelector(selector)?.getBoundingClientRect()); return { sameRow: Boolean(a && b) && Math.abs(a.top - b.top) < 4 && a.right <= b.left + 1, section: Math.round(document.querySelector("#spending-shape")?.getBoundingClientRect().width ?? 0) }; });
