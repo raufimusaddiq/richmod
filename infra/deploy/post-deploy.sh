@@ -17,7 +17,7 @@ if [ "$RICHMOD_PREVIOUS_IMAGE_TAG" = "$RICHMOD_IMAGE_TAG" ]; then
 	exit 0
 fi
 
-for repository in api worker migrate web; do
+for repository in api worker migrate; do
 	image_repository="$RICHMOD_IMAGE_REGISTRY/richmod-$repository"
 	$docker_bin image ls "$image_repository" --format '{{.Repository}}:{{.Tag}}' |
 	while IFS= read -r image; do

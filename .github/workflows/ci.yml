@@ -154,5 +154,4 @@ jobs:
           docker build -f infra/docker/api.Dockerfile -t family-finance-api:ci .
           docker build -f infra/docker/worker.Dockerfile -t family-finance-worker:ci .
           docker build -f infra/docker/migrate.Dockerfile -t family-finance-migrate:ci .
-          docker build -f infra/docker/web.Dockerfile -t family-finance-web:ci .
           docker build -f infra/docker/backup.Dockerfile -t family-finance-backup:ci .

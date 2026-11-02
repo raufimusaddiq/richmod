@@ -6,10 +6,12 @@ The production hostname is `finance.investdx.biz.id`. DNS currently resolves to
 the server public address. The host's existing Caddy container already owns ports
 80 and 443, so this application must not start a second public Caddy instance.
 
-The `compose.production.yaml` override joins `finance-api` and `finance-web` to
-the existing external Docker network, `idx_default`. Add the reviewed site block
-from `infra/caddy/finance.investdx.biz.id.caddy` to the host-managed Caddyfile
-and validate it before reloading Caddy.
+The `compose.production.yaml` override joins `finance-api` to the existing
+external Docker network, `idx_default`; the Go binary serves both the API and the
+embedded static frontend, so there is no separate web container. Add the reviewed
+site block from `infra/caddy/finance.investdx.biz.id.caddy` to the host-managed
+Caddyfile and validate it before reloading Caddy. The block proxies every path to
+`finance-api:8080`; the Go handler owns the per-route `Cache-Control` values.
 
 The production override also sets `WEB_ORIGIN` to the public HTTPS URL, causing
 the API to issue `Secure` session cookies. Do not override it with an HTTP URL.

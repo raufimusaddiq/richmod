@@ -3,9 +3,6 @@ import "./detail-drawer.css";
 import AuthProvider from "./components/AuthProvider";
 import InboxCountProvider from "./components/InboxCountProvider";
 
-// The browser-authenticated app must not reuse an HTML shell from an older
-// deployment whose client chunks may have been replaced.
-export const dynamic = "force-dynamic";
 
 // viewport-fit=cover makes the safe-area insets real (Home Screen app, landscape).
 export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };

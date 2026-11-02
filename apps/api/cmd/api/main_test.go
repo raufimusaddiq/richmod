@@ -20,3 +20,16 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Fatal("Content-Security-Policy must be set")
 	}
 }
+
+func TestAPIOwnedPath(t *testing.T) {
+	for _, path := range []string{"/api", "/api/v1/transactions", "/webhooks/telegram", "/finance/v1/email/inbond", "/healthz", "/readyz"} {
+		if !apiOwnedPath(path) {
+			t.Errorf("apiOwnedPath(%q) = false, want true", path)
+		}
+	}
+	for _, path := range []string{"/", "/transactions", "/apiary", "/webhooks2", "/health", "/healthz/extra"} {
+		if apiOwnedPath(path) {
+			t.Errorf("apiOwnedPath(%q) = true, want false", path)
+		}
+	}
+}

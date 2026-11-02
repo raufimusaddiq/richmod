@@ -1,5 +1,8 @@
 # Include this site block in the host-managed Caddyfile.
-# finance-api and finance-web must join the external idx_default Docker network.
+# finance-api is the only upstream: the Go binary serves both the API and the
+# embedded static frontend. Caddy must not set Cache-Control; the Go handler
+# owns the per-route cache classes. After editing the host Caddyfile, reload
+# Caddy (for example: docker exec idx-caddy caddy reload --config /etc/caddy/Caddyfile).
 finance.investdx.biz.id {
 	encode zstd gzip
 
@@ -13,16 +16,11 @@ finance.investdx.biz.id {
 		-X-Powered-By
 	}
 
-	@api path /api/* /webhooks/* /healthz /readyz
-	handle @api {
+	handle {
 		request_body {
 			max_size 12MB
 		}
 		reverse_proxy finance-api:8080
-	}
-
-	handle {
-		reverse_proxy finance-web:3000
 	}
 
 	log {

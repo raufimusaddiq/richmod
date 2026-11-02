@@ -7,3 +7,5 @@ node_modules
 coverage/
 dist/
 test-results/
+apps/web/out/
+.cache/

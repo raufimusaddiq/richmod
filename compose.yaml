@@ -43,7 +43,7 @@ services:
       TZ: Asia/Jakarta
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       API_ADDR: ${API_ADDR:-:8080}
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       LLM_GATEWAY_BASE_URL: ${LLM_GATEWAY_BASE_URL:-}
       LLM_GATEWAY_API_KEY: ${LLM_GATEWAY_API_KEY:-}
@@ -69,7 +69,7 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:8080:8080"
-    networks: [edge, internal]
+    networks: [internal]
     restart: unless-stopped
 
   worker:
@@ -118,21 +118,6 @@ services:
     networks: [internal]
     restart: unless-stopped
 
-  web:
-    image: ${RICHMOD_WEB_IMAGE:-family-finance-web:latest}
-    build:
-      context: .
-      dockerfile: infra/docker/web.Dockerfile
-    environment:
-      TZ: Asia/Jakarta
-    depends_on:
-      api:
-        condition: service_started
-    ports:
-      - "127.0.0.1:3000:3000"
-    networks: [edge]
-    restart: unless-stopped
-
   backup:
     profiles: [operations]
     build:
@@ -156,7 +141,6 @@ services:
     restart: "no"
 
 networks:
-  edge:
   internal:
     internal: true
 
