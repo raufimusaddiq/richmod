@@ -17,6 +17,7 @@ func testAssets() fstest.MapFS {
 		"_next/static/chunks/app.js": {Data: []byte("js")},
 		"fonts/inter.woff2":          {Data: []byte("font")},
 		"transactions.txt":           {Data: []byte("rsc")},
+		"login.txt":                  {Data: []byte("login rsc")},
 	}
 	for _, route := range []string{"actions", "admin", "analytics", "documents", "household", "inbox", "invite", "privacy", "reviews", "settings", "terms", "wealth"} {
 		files[route+".html"] = &fstest.MapFile{Data: []byte(route)}
@@ -41,9 +42,10 @@ func TestHandlerRoutesAndCacheClasses(t *testing.T) {
 		{path: "/_next/static/chunks/app.js", status: http.StatusOK, cache: cacheImmutable, mediaType: "text/javascript; charset=utf-8", body: "js"},
 		{path: "/fonts/inter.woff2", status: http.StatusOK, cache: cachePublic, mediaType: "font/woff2", body: "font"},
 		{path: "/transactions.txt", status: http.StatusOK, cache: cacheAppHTML, mediaType: "text/plain; charset=utf-8", body: "rsc"},
+		{path: "/login.txt", status: http.StatusOK, cache: cacheOtherHTML, mediaType: "text/plain; charset=utf-8", body: "login rsc"},
 		{path: "/opengraph-image", status: http.StatusOK, cache: cacheMetadata, mediaType: "image/png", body: "png"},
 		{path: "/transactions/", status: http.StatusPermanentRedirect, location: "/transactions"},
-		{path: "/missing", status: http.StatusNotFound, mediaType: "text/html; charset=utf-8", body: "missing"},
+		{path: "/missing", status: http.StatusNotFound, cache: "no-store", mediaType: "text/html; charset=utf-8", body: "missing"},
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {

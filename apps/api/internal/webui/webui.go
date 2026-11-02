@@ -104,6 +104,9 @@ func (h handler) notFound(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// A path that 404s today may exist after the next deploy; never let a shared
+	// cache serve this body for it.
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
 	if r.Method != http.MethodHead {
@@ -111,6 +114,8 @@ func (h handler) notFound(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// exists is only a cheap guard: path.Clean already removed traversal and the
+// embedded FS is rooted at assets. The root, not this check, is the boundary.
 func (h handler) exists(name string) bool {
 	if name == "" || strings.Contains(name, "..") {
 		return false
@@ -128,15 +133,21 @@ func cacheFor(name string) string {
 		return cacheImmutable
 	}
 	if strings.HasSuffix(name, ".html") {
-		if _, ok := appRoutes[routeOf(name)]; ok {
-			return cacheAppHTML
-		}
-		return cacheOtherHTML
+		return htmlCacheFor(routeOf(name))
 	}
-	if strings.HasSuffix(name, ".txt") || strings.HasSuffix(name, ".rsc") {
-		return cacheAppHTML
+	// The static export's client router loads RSC payloads as `<route>.txt`;
+	// they carry the same class as the route's HTML.
+	if strings.HasSuffix(name, ".txt") {
+		return htmlCacheFor(routeOf(strings.TrimSuffix(name, ".txt") + ".html"))
 	}
 	return cachePublic
+}
+
+func htmlCacheFor(route string) string {
+	if _, ok := appRoutes[route]; ok {
+		return cacheAppHTML
+	}
+	return cacheOtherHTML
 }
 
 func routeOf(name string) string {
