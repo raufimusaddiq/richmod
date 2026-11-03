@@ -90,7 +90,30 @@ whole family of defects.
    `register("/sw.js", { scope: "/", updateViaCache: "none" })`. The worker
    script is fetched on the normal update schedule; because it holds no state,
    an update cannot change what a page loads.
-6. **Handler classes stay as ADR-056 set them.** `webui.go` serves
+6. **The push card is a view of three facts, not of the last action.** The
+   settings card in `apps/web/app/settings/page.js` derives everything from:
+   **B**, whether this browser holds an endpoint (`true`/`false`); **S**, what
+   the server says about that endpoint for this session's user and household
+   (`live`/`retired`/`absent`/`unknown`); and **E**, whether push is enabled on
+   the server (`enabled`/`disabled`/`unknown`). Unknown is not false. Four
+   rules follow:
+
+   1. The opt-out is offered whenever B is true. Nothing else may remove it;
+      it survives an unreachable server, a disabled server, a stale row and a
+      different account. It is a safety property.
+   2. An endpoint is discarded only on a definitive answer about it: a
+      subscription created in this call and a definitive 4xx. A 5xx, 429,
+      timeout, thrown request, or a 4xx on an endpoint that already existed is
+      unknown, so the endpoint is kept and the next refresh asks the server.
+   3. “Aktif” is painted only when B is true and S is `live`.
+   4. `E == disabled` stops new registrations. It does not mean the device is
+      unsubscribed, and it never removes the opt-out.
+
+   The server list comes from authenticated
+   `GET /api/v1/push/subscriptions`, scoped by the same user and household as
+   the sender. There is no cache in the worker and no second counter for the
+   badge; `InboxCountProvider` owns the count.
+7. **Handler classes stay as ADR-056 set them.** `webui.go` serves
    `/manifest.webmanifest` as `application/manifest+json` with
    `public, max-age=0, must-revalidate`, and `/sw.js` with `no-cache`. Icons keep
    the public class, app HTML keeps `no-store`, other HTML keeps the private
@@ -128,8 +151,8 @@ the install surface.
 - Existing installs free the old cache stores once when they activate this
   worker; nothing else migrates.
 - Offline use is not supported; a cold start without network shows the
-  browser's error. Push notifications, background sync and offline editing
-  remain out of scope.
+  browser's error. Background sync and offline editing remain out of scope;
+  Web Push delivery is the only background feature.
 - Icons must be regenerated with Chromium when the brand mark changes; the
   PNGs are committed artefacts, not build output.
 - Launch images follow the same rule: `node apps/web/scripts/build-splash.mjs`

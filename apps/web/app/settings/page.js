@@ -80,12 +80,32 @@ export default function SettingsPage() {
   </AppShell>;
 }
 
-// The card is a view of browser permission, the browser's endpoint, and the
-// server's own list for this session — never of what the app last did.
-export function notificationState({ supported, ios, installed, serverEnabled = true, serverDisabled = !serverEnabled, permission, subscribed }) {
-  if (!supported || serverDisabled || (ios && !installed)) return "unsupported";
+// The state model. Three independent facts, each of which may be unknown;
+// unknown is not false.
+//
+//   B — does this browser hold a push endpoint?  true | false
+//   S — what does the server say about this endpoint for this session's
+//       user+household?  live | retired | absent | unknown
+//   E — is push enabled on the server?  enabled | disabled | unknown
+//
+// Four rules, and every branch below is one of them:
+//
+//   1. Opt-out is available whenever B is true. Nothing else may remove it:
+//      it must survive an unreachable server, a disabled server, a stale row
+//      and a wrong account. This is a safety property.
+//   2. The endpoint is discarded only on a definitive answer about that
+//      endpoint: a subscription created in this call and a definitive 4xx.
+//      A 5xx, 429, timeout, thrown request, or any 4xx on a pre-existing
+//      endpoint is unknown, so the endpoint is kept.
+//   3. "Aktif" is painted only when B is true and S is live.
+//   4. E == disabled means new registrations will not work. It does not mean
+//      this device has no subscription and never removes the opt-out.
+export function notificationState({ supported, ios, installed, permission, browserEndpoint, serverState, serverEnabled }) {
+  if (!supported || (ios && !installed)) return "unsupported"; // platform cannot hold an endpoint
   if (permission === "denied") return "denied";
-  if (permission === "granted") return subscribed ? "subscribed" : "granted";
+  if (browserEndpoint && serverState === "live") return "subscribed"; // rule 3
+  if (serverEnabled === "disabled" && !browserEndpoint) return "unsupported"; // rule 4, and nothing to opt out of
+  if (permission === "granted") return "granted";
   return "not-asked";
 }
 
@@ -94,18 +114,18 @@ function base64Key(value) {
   return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
 }
 
-// A browser endpoint only counts as active when the server lists that same
-// endpoint as live for this session. An endpoint the server does not know
-// belongs to another account (or was pruned); a retired row must not read as
-// active. When the list is unavailable the truth is unknown, so the card must
-// not say Aktif — but the browser endpoint still exists, so the opt-out stays
-// available as `canDisable`.
+// S for this endpoint. An endpoint the server does not know belongs to
+// another account (or was pruned); a retired row is not live. When the list is
+// unavailable S is unknown. `canDisable` is exactly B: rule 1 keeps the opt-out
+// available even when S is absent, retired, or unknown.
 export function reconcileSubscription({ browserEndpoint = null, serverSubscriptions = null }) {
-  if (!browserEndpoint) return { subscribed: false, canDisable: false, issue: "" };
-  if (!Array.isArray(serverSubscriptions)) return { subscribed: false, canDisable: true, issue: "unknown" };
+  if (!browserEndpoint) return { serverState: "absent", canDisable: false, issue: "" };
+  if (!Array.isArray(serverSubscriptions)) return { serverState: "unknown", canDisable: true, issue: "unknown" };
   const row = serverSubscriptions.find(item => item?.endpoint === browserEndpoint);
-  if (!row) return { subscribed: false, canDisable: false, issue: "unregistered" };
-  return row.active ? { subscribed: true, canDisable: true, issue: "" } : { subscribed: false, canDisable: false, issue: "retired" };
+  if (!row) return { serverState: "absent", canDisable: true, issue: "unregistered" };
+  return row.active
+    ? { serverState: "live", canDisable: true, issue: "" }
+    : { serverState: "retired", canDisable: true, issue: "retired" };
 }
 
 // Three outcomes, never collapsed: `ok`, `definitive` (the server answered no)
@@ -133,8 +153,8 @@ export async function loadPushView({ supported, ios, installed, permission, serv
   ]);
   const keyUnavailable = key.status === "unavailable" || (key.status === "ok" && typeof key.value?.enabled !== "boolean");
   const listUnavailable = listed.status !== "ok" || !Array.isArray(listed.value?.subscriptions);
-  const serverDisabled = key.status === "definitive" || (key.status === "ok" && key.value?.enabled === false);
-  const serverUnavailable = keyUnavailable || listUnavailable;
+  const serverEnabled = key.status === "ok" && typeof key.value?.enabled === "boolean" ? (key.value.enabled ? "enabled" : "disabled") : key.status === "definitive" ? "disabled" : "unknown";
+  const serverUnavailable = serverEnabled === "unknown" || listUnavailable;
   let browserEndpoint = null;
   if (supported) {
     try {
@@ -144,25 +164,26 @@ export async function loadPushView({ supported, ios, installed, permission, serv
       // No registration means no browser subscription; the server list decides.
     }
   }
-  const { subscribed, canDisable, issue } = reconcileSubscription({ browserEndpoint, serverSubscriptions: listUnavailable ? null : listed.value.subscriptions });
-  const state = notificationState({ supported, ios, installed, serverDisabled, permission, subscribed });
+  const { serverState, canDisable, issue } = reconcileSubscription({ browserEndpoint, serverSubscriptions: listUnavailable ? null : listed.value.subscriptions });
+  const state = notificationState({ supported, ios, installed, permission, browserEndpoint, serverState, serverEnabled });
   return {
-    state, issue, canDisable, serverUnavailable, keyUnavailable,
+    state, issue, canDisable, serverState, serverEnabled, serverUnavailable, keyUnavailable,
     iosNotInstalled: ios && !installed,
-    serverDisabled: supported && (!ios || installed) && serverDisabled,
+    serverDisabled: supported && (!ios || installed) && serverEnabled === "disabled",
     publicKey: key.status === "ok" ? key.value?.publicKey || key.value?.public_key || "" : "",
   };
 }
 
-// A rejected POST is confirmed-not-registered, so the local subscription is
-// dropped and retry starts clean. A 5xx or a thrown POST is unknown: the server
-// may have committed before the response failed, so the endpoint is kept and
-// the next refresh asks the server. Re-registering the same endpoint is an
-// upsert.
+// Rule 2: only a subscription created in this call may be discarded, and only
+// on a definitive 4xx. A pre-existing endpoint is never discarded on a
+// rejection, because the server may already hold a live row for it. Everything
+// else is unknown: keep the endpoint and let the server list decide on the next
+// refresh. Re-registering the same endpoint is an upsert.
 export async function registerSubscription(serviceWorker, publicKey, request = fetch) {
   const registration = await serviceWorker.getRegistration() || await serviceWorker.register("/sw.js", { scope: "/" });
   let subscription = await registration.pushManager.getSubscription();
-  if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(publicKey) });
+  const created = !subscription;
+  if (created) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(publicKey) });
   try {
     const response = await request("/api/v1/push/subscriptions", {
       method: "POST",
@@ -170,7 +191,8 @@ export async function registerSubscription(serviceWorker, publicKey, request = f
       body: JSON.stringify({ endpoint: subscription.endpoint, keys: subscription.toJSON().keys }),
     });
     if (!response.ok) {
-      if (response.status >= 500) return { status: "unconfirmed", subscription };
+      const definitive = created && response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429;
+      if (!definitive) return { status: "unconfirmed", subscription };
       await subscription.unsubscribe().catch(() => {});
       return { status: "rejected", subscription };
     }
@@ -220,13 +242,15 @@ const PUSH_ISSUE = {
 export function NotificationsView({ state, issue = "", canDisable = false, serverUnavailable = false, iosNotInstalled = false, serverDisabled = false, working = false, status = "", onEnable, onDisable }) {
   const [fallbackTitle, fallbackBody] = (state === "granted" && PUSH_ISSUE[issue]) || PUSH_COPY[state] || ["Memeriksa status notifikasi", "Richmod memeriksa dukungan notifikasi di peramban ini."];
   const title = state === "unsupported" && iosNotInstalled ? "Perlu dipasang ke Layar Utama" : fallbackTitle;
-  const body = state === "unsupported" && iosNotInstalled
+  const baseBody = state === "unsupported" && iosNotInstalled
     ? "Safari di iPhone dan iPad hanya menerima notifikasi setelah Richmod ditambahkan ke Layar Utama. Buka menu Bagikan lalu pilih Tambahkan ke Layar Utama."
     : state === "unsupported" && serverDisabled
       ? "Server ini belum mengaktifkan notifikasi push, jadi perangkat belum dapat mendaftar."
       : fallbackBody;
-  const showDisable = canDisable && (state === "granted" || state === "subscribed");
-  const showEnable = (state === "not-asked" || state === "granted") && !showDisable;
+  // Rule 4: a disabled server stops new registrations, not this device's opt-out.
+  const body = `${baseBody}${serverDisabled && canDisable ? " Server tidak menerima pendaftaran baru, tetapi perangkat ini tetap dapat dimatikan." : ""}`;
+  const showDisable = canDisable; // Rule 1: B alone.
+  const showEnable = (state === "not-asked" || state === "granted") && !serverDisabled;
   const note = status || (serverUnavailable ? "Server tidak dapat dihubungi. Status langganan belum dapat dikonfirmasi." : "");
   return <>
     <div className="notification-state">

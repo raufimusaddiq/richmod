@@ -37,31 +37,32 @@ const { notificationState, reconcileSubscription, loadPushView, NotificationsVie
 const { applyBadge } = component("app/components/InboxCountProvider.js");
 const render = props => renderToStaticMarkup(React.createElement(NotificationsView, props));
 
-test("each of the five card states is detected from browser truth", () => {
-  const base = { supported: true, ios: false, installed: false, serverEnabled: true, permission: "default", subscribed: false };
+test("each of the five card states is detected from the three facts", () => {
+  const base = { supported: true, ios: false, installed: false, permission: "default", browserEndpoint: false, serverState: "absent", serverEnabled: "enabled" };
   assert.equal(notificationState({ ...base, supported: false }), "unsupported");
-  assert.equal(notificationState({ ...base, serverEnabled: false }), "unsupported");
   assert.equal(notificationState({ ...base, permission: "denied" }), "denied");
   assert.equal(notificationState({ ...base, permission: "granted" }), "granted");
-  assert.equal(notificationState({ ...base, permission: "granted", subscribed: true }), "subscribed");
+  assert.equal(notificationState({ ...base, permission: "granted", browserEndpoint: true, serverState: "live" }), "subscribed");
   assert.equal(notificationState(base), "not-asked");
-  assert.equal(notificationState({ ...base, serverEnabled: false, permission: "granted", subscribed: true }), "unsupported", "a disabled server outranks a live browser subscription");
+  assert.equal(notificationState({ ...base, serverEnabled: "disabled" }), "unsupported", "no endpoint and no registrations");
+  assert.equal(notificationState({ ...base, serverEnabled: "disabled", permission: "granted", browserEndpoint: true, serverState: "live" }), "subscribed", "E disabled does not hide a live device");
+  assert.equal(notificationState({ ...base, serverEnabled: "unknown", permission: "granted" }), "granted", "E unknown is not E disabled");
 });
 
 test("a browser endpoint only counts as active when the server lists it live for this session", () => {
   const endpoint = "https://push.example/device";
-  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint, active: true }] }), { subscribed: true, canDisable: true, issue: "" });
-  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint, active: false }] }), { subscribed: false, canDisable: false, issue: "retired" });
-  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint: "https://push.example/other", active: true }] }), { subscribed: false, canDisable: false, issue: "unregistered" }, "another account's row is not this session's row");
-  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: null }), { subscribed: false, canDisable: true, issue: "unknown" }, "an unknown server keeps the opt-out");
-  assert.deepEqual(reconcileSubscription({ browserEndpoint: null, serverSubscriptions: [{ endpoint, active: true }] }), { subscribed: false, canDisable: false, issue: "" });
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint, active: true }] }), { serverState: "live", canDisable: true, issue: "" });
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint, active: false }] }), { serverState: "retired", canDisable: true, issue: "retired" });
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint: "https://push.example/other", active: true }] }), { serverState: "absent", canDisable: true, issue: "unregistered" }, "another account's row is not this session's row");
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: null }), { serverState: "unknown", canDisable: true, issue: "unknown" }, "an unknown server keeps the opt-out");
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: null, serverSubscriptions: [{ endpoint, active: true }] }), { serverState: "absent", canDisable: false, issue: "" });
 });
 
 test("an unregistered or retired endpoint is never painted active", () => {
   for (const issue of ["unregistered", "retired", "unknown"]) {
-    const state = notificationState({ supported: true, ios: false, installed: false, serverEnabled: true, permission: "granted", subscribed: false });
+    const state = notificationState({ supported: true, ios: false, installed: false, permission: "granted", browserEndpoint: true, serverState: issue === "unregistered" ? "absent" : issue === "retired" ? "retired" : "unknown", serverEnabled: "enabled" });
     assert.equal(state, "granted");
-    const html = render({ state, issue });
+    const html = render({ state, issue, canDisable: true });
     assert.match(html, /<button[^>]*>Coba lagi<\/button>/, `${issue} keeps the retry affordance`);
     assert.doesNotMatch(html, />Aktif</, `${issue} must not say Aktif`);
   }
@@ -90,7 +91,7 @@ test("a 5xx registration POST keeps the endpoint and lets the server list decide
   assert.equal(view.canDisable, true);
 });
 
-test("a 4xx registration POST is a definitive refusal and drops the endpoint", async () => {
+test("a 4xx on a pre-existing endpoint keeps it, because the server may still hold the row", async () => {
   let unsubscribed = false;
   const subscription = {
     endpoint: "https://push.example/device",
@@ -98,6 +99,20 @@ test("a 4xx registration POST is a definitive refusal and drops the endpoint", a
     unsubscribe: async () => { unsubscribed = true; },
   };
   const registration = { pushManager: { getSubscription: async () => subscription } };
+  const serviceWorker = { getRegistration: async () => registration, register: async () => registration };
+  const result = await registerSubscription(serviceWorker, "BEl6", async () => ({ ok: false, status: 401 }));
+  assert.equal(result.status, "unconfirmed");
+  assert.equal(unsubscribed, false, "a pre-existing endpoint is never discarded on a rejection");
+});
+
+test("a 4xx on an endpoint created in this call is a definitive refusal", async () => {
+  let unsubscribed = false;
+  const subscription = {
+    endpoint: "https://push.example/device",
+    toJSON: () => ({ endpoint: "https://push.example/device", keys: { p256dh: "p", auth: "a" } }),
+    unsubscribe: async () => { unsubscribed = true; },
+  };
+  const registration = { pushManager: { getSubscription: async () => null, subscribe: async () => subscription } };
   const serviceWorker = { getRegistration: async () => registration, register: async () => registration };
   const result = await registerSubscription(serviceWorker, "BEl6", async () => ({ ok: false, status: 409 }));
   assert.equal(result.status, "rejected");
@@ -153,6 +168,22 @@ test("a 503 key answer is unavailable, not disabled", async () => {
   assert.notEqual(view.state, "unsupported");
 });
 
+test("a disabled server still shows a live device and its opt-out", async () => {
+  const endpoint = "https://push.example/device";
+  const serviceWorker = { getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint }) } }) };
+  const request = async url => url === "/api/v1/push/public-key"
+    ? { ok: true, json: async () => ({ enabled: false }) }
+    : { ok: true, json: async () => ({ subscriptions: [{ endpoint, active: true }] }) };
+  const view = await loadPushView({ supported: true, ios: false, installed: false, permission: "granted", serviceWorker, request });
+  assert.equal(view.serverDisabled, true);
+  assert.equal(view.state, "subscribed", "a live device is not collapsed into unsupported");
+  assert.equal(view.canDisable, true);
+  const html = render(view);
+  assert.match(html, /<button[^>]*>Matikan notifikasi<\/button>/);
+  assert.match(html, /tetap dapat dimatikan/);
+  assert.doesNotMatch(html, /belum terdaftar|tidak aktif/i);
+});
+
 test("a thrown registration POST keeps the endpoint and reports unconfirmed", async () => {
   let unsubscribed = false;
   const subscription = {
@@ -183,23 +214,10 @@ test("a confirmed registration posts this endpoint and keys without a household"
   assert.deepEqual(JSON.parse(calls[0].options.body), { endpoint: "https://push.example/device", keys: { p256dh: "p", auth: "a" } });
 });
 
-test("a rejected registration drops the local endpoint", async () => {
-  let unsubscribed = false;
-  const subscription = {
-    endpoint: "https://push.example/device",
-    toJSON: () => ({ endpoint: "https://push.example/device", keys: { p256dh: "p", auth: "a" } }),
-    unsubscribe: async () => { unsubscribed = true; },
-  };
-  const registration = { pushManager: { getSubscription: async () => subscription } };
-  const serviceWorker = { getRegistration: async () => registration, register: async () => registration };
-  const result = await registerSubscription(serviceWorker, "BEl6", async () => ({ ok: false }));
-  assert.equal(result.status, "rejected");
-  assert.equal(unsubscribed, true);
-});
-
 test("iOS outside the home screen is unsupported and asks for an install", () => {
-  assert.equal(notificationState({ supported: true, ios: true, installed: false, serverEnabled: true, permission: "default", subscribed: false }), "unsupported");
-  assert.equal(notificationState({ supported: true, ios: true, installed: true, serverEnabled: true, permission: "default", subscribed: false }), "not-asked");
+  const base = { supported: true, ios: true, permission: "default", browserEndpoint: false, serverState: "absent", serverEnabled: "enabled" };
+  assert.equal(notificationState({ ...base, installed: false }), "unsupported");
+  assert.equal(notificationState({ ...base, installed: true }), "not-asked");
   const html = render({ state: "unsupported", iosNotInstalled: true });
   assert.match(html, /Layar Utama/);
   assert.match(html, /Tambahkan ke Layar Utama/);
