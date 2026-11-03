@@ -27,7 +27,7 @@ func LoadAPI() (API, error) {
 	cfg := API{
 		Address:                        valueOr("API_ADDR", ":8080"),
 		DatabaseURL:                    os.Getenv("DATABASE_URL"),
-		WebOrigin:                      valueOr("WEB_ORIGIN", "http://localhost:3000"),
+		WebOrigin:                      valueOr("WEB_ORIGIN", "http://localhost:8080"),
 		SessionKey:                     os.Getenv("SESSION_SECRET"),
 		LLMGatewayBaseURL:              os.Getenv("LLM_GATEWAY_BASE_URL"),
 		LLMGatewayAPIKey:               os.Getenv("LLM_GATEWAY_API_KEY"),

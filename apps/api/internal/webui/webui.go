@@ -48,6 +48,17 @@ func Handler() http.Handler {
 	return NewHandler(assets)
 }
 
+// Embedded reports whether this binary contains a built export. A tree without
+// a web build still compiles and serves 404s for the UI, so main warns at startup.
+func Embedded() bool {
+	return hasIndex(embedded)
+}
+
+func hasIndex(fsys fs.FS) bool {
+	_, err := fs.Stat(fsys, "assets/index.html")
+	return err == nil
+}
+
 // NewHandler serves a static export from assets. Tests pass an fstest.MapFS.
 func NewHandler(assets fs.FS) http.Handler {
 	return handler{assets: assets}

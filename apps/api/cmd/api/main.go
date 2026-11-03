@@ -204,6 +204,9 @@ func run(logger *slog.Logger) error {
 	// except the API CSP: default-src 'none' would block the export's own scripts
 	// and styles, so the UI only forbids framing.
 	apiHandler := securityHeaders(httpmw.RequestID(httpmw.AccessLog(logger, httpmw.SameOrigin(cfg.WebOrigin, mux))))
+	if !webui.Embedded() {
+		logger.Warn("embedded web UI is missing; build apps/web with npm run build:embed before building the binary")
+	}
 	uiHandler := newUIHandler(logger, webui.Handler())
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if apiOwnedPath(r.URL.Path) {

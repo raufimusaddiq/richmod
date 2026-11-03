@@ -69,7 +69,7 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:8080:8080"
-    networks: [internal]
+    networks: [edge, internal]
     restart: unless-stopped
 
   worker:
@@ -141,6 +141,8 @@ services:
     restart: "no"
 
 networks:
+  # Non-internal: the API reaches OSS and the LLM gateway on outbound requests.
+  edge:
   internal:
     internal: true
 

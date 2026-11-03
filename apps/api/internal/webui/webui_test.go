@@ -101,3 +101,12 @@ func TestHandlerRejectsTraversal(t *testing.T) {
 		t.Fatalf("status = %d, want 404", response.Code)
 	}
 }
+
+func TestHasIndex(t *testing.T) {
+	if hasIndex(fstest.MapFS{}) {
+		t.Fatal("hasIndex reported an export for an empty assets tree")
+	}
+	if !hasIndex(fstest.MapFS{"assets/index.html": {Data: []byte("home")}}) {
+		t.Fatal("hasIndex missed an embedded index.html")
+	}
+}

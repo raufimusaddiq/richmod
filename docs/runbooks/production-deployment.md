@@ -16,6 +16,20 @@ Caddyfile and validate it before reloading Caddy. The block proxies every path t
 The production override also sets `WEB_ORIGIN` to the public HTTPS URL, causing
 the API to issue `Secure` session cookies. Do not override it with an HTTP URL.
 
+## One-time cleanup after ADR-056
+
+The `web` service and its image no longer exist, and the release script does not
+remove orphans. After the first deploy of the single-container layout is healthy,
+delete the leftover web container and its unused release images on the host:
+
+```bash
+docker ps --filter 'name=family-finance-web' --format '{{.Names}}' | xargs -r docker rm -f
+docker image ls --format '{{.Repository}}:{{.Tag}}' | grep 'richmod-web:sha-' | xargs -r docker image rm
+```
+
+The `edge` network stays: the API uses it for outbound OSS and LLM gateway
+requests. Do not run `docker system prune`.
+
 ## Preconditions
 
 - `idx_default` Docker network exists.
