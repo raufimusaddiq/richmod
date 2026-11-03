@@ -36,6 +36,16 @@ func (v EvidenceVerification) materialResidual() (fact string, conflict bool, ok
 	return "", false, false
 }
 
+// needsBankFactsReview reports whether a material residual must park the email
+// for the household to complete bank facts. Direction alone undecided, with the
+// transaction and amount verified and nothing contradicted, does not: that
+// review could only re-enter amount and time the email already holds, while the
+// policy review shows the extracted direction to confirm or reject.
+func (v EvidenceVerification) needsBankFactsReview() bool {
+	fact, conflict, _ := v.materialResidual()
+	return fact != "direction" || conflict || v.ClaimOutcomes["transaction_observed"] != "YES"
+}
+
 // reviewPolicyVersion names the policy that actually decided each review type,
 // so the stored contract stays reproducible.
 func reviewPolicyVersion(reviewType string) string {
@@ -103,6 +113,11 @@ func transactionReviewDecision(household, sourceEventID string, extraction Extra
 	case "TRANSFER_CLASSIFICATION":
 		decision.DecisionClass = reviewdec.ClassHumanPolicyChoice
 		decision.MissingFacts = []string{"transfer_relationship"}
+		// The relationship choices come from the shared kind contract; the IGNORE-only
+		// default above would leave a classification review with no way to classify.
+		if preset, ok := reviewdec.Preset("TRANSFER_CLASSIFICATION", "transaction", transactionID); ok {
+			decision.AllowedActions = preset.AllowedActions
+		}
 		decision.InteractionMode = reviewdec.ModePolicyChoice
 		decision.WhyNotAuto = "own-account versus expense is a human policy choice the evidence cannot decide"
 	default:

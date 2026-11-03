@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, LockKey } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import LoadingShell from "../components/LoadingShell";
 import useAuth from "../components/useAuth";
 import { PublicNav, PublicTrustNote } from "../components/PublicShell";
 
@@ -13,7 +14,7 @@ export default function LoginPage() {
 
   useEffect(() => { if (user && user !== false) window.location.replace("/"); }, [user]);
 
-  if (user === null || (user && user !== false)) return <main className="login-shell"><div className="login-loading">Memuat Richmod…</div></main>;
+  if (user === null || (user && user !== false)) return <LoadingShell variant="login" />;
 
   async function login(event) {
     event.preventDefault(); setError(""); setSubmitting(true);

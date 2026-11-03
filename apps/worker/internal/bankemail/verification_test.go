@@ -163,6 +163,24 @@ func TestUndecidedMaterialFactIsMissingNotConflict(t *testing.T) {
 	if decision.DecisionClass == reviewdec.ClassEvidenceConflict {
 		t.Fatalf("an undecided fact must not be labelled an evidence conflict: %+v", decision)
 	}
+	if !verification.needsBankFactsReview() {
+		t.Fatal("an undecided amount must still be completed as a bank fact")
+	}
+}
+
+// Direction alone undecided goes straight to the policy review (#384); a
+// contradicted direction, or an unobserved transaction, still parks for bank
+// facts.
+func TestOnlyUndecidedDirectionSkipsBankFactsReview(t *testing.T) {
+	for _, tc := range []struct {
+		observed, direction string
+		want                bool
+	}{{"YES", "UNDECIDED", false}, {"YES", "NO", true}, {"UNDECIDED", "UNDECIDED", true}} {
+		verification := EvidenceVerification{ClaimOutcomes: map[string]string{"transaction_observed": tc.observed, "amount_supported": "YES", "direction_supported": tc.direction, "semantic_grounded": "UNDECIDED"}}
+		if got := verification.needsBankFactsReview(); got != tc.want {
+			t.Errorf("observed=%s direction=%s: needsBankFactsReview=%v, want %v", tc.observed, tc.direction, got, tc.want)
+		}
+	}
 }
 
 // 5) No additional intelligence pass: the whole ruling rides in the single

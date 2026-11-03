@@ -45,7 +45,7 @@ func TestCompleteBankReviewRecordsSuppliedFactsOnce(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb) RETURNING id`, householdID, sourceEventID).Scan(&itemID))
 
 	amount, at := "54000", "2026-09-23T13:45:00+07:00"
-	payload := Payload{SourceEventID: sourceEventID, ReviewID: itemID, AmountIDR: &amount, TransactionAt: &at}
+	payload := Payload{SourceEventID: sourceEventID, ReviewID: itemID, AmountIDR: &amount, TransactionAt: &at, UserID: userID}
 	processor := &Processor{pool: pool}
 	must(processor.Complete(ctx, payload))
 
@@ -59,6 +59,12 @@ func TestCompleteBankReviewRecordsSuppliedFactsOnce(t *testing.T) {
 	must(pool.QueryRow(ctx, `SELECT count(*),COALESCE(max(amount)::text,'') FROM transaction_proposal WHERE source_event_id=$1`, sourceEventID).Scan(&proposals, &proposedAmount))
 	if proposals != 1 || proposedAmount != "54000" && proposedAmount != "54000.00" {
 		t.Fatalf("proposals=%d amount=%s, want one proposal for 54000", proposals, proposedAmount)
+	}
+	// The completion is credited to the person who supplied the facts (#384).
+	var actor, action string
+	must(pool.QueryRow(ctx, `SELECT COALESCE(actor_id::text,''),COALESCE(after_json->>'action','') FROM audit_log WHERE entity_id=$1 AND action='RESOLVE_REVIEW'`, itemID).Scan(&actor, &action))
+	if actor != userID || action != "COMPLETE_BANK_FACTS" {
+		t.Fatalf("completion audit actor=%q action=%q, want %s/COMPLETE_BANK_FACTS", actor, action, userID)
 	}
 
 	// A replayed job is a no-op: the review is resolved and nothing is recorded twice.

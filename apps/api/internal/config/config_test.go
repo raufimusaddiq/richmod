@@ -25,10 +25,23 @@ func TestLoadAPIAcceptsRequiredConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadAPIWebOriginDefaultsToServedPort(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
+	t.Setenv("WEB_ORIGIN", "")
+	cfg, err := LoadAPI()
+	if err != nil {
+		t.Fatalf("LoadAPI() error = %v", err)
+	}
+	if cfg.WebOrigin != "http://localhost:8080" {
+		t.Fatalf("WebOrigin = %q, want http://localhost:8080", cfg.WebOrigin)
+	}
+}
+
 func TestLoadAPIUsesSecureCookiesForHTTPSOrigin(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
-	t.Setenv("WEB_ORIGIN", "https://finance.investdx.biz.id")
+	t.Setenv("WEB_ORIGIN", "https://finance.musaddiqr.com")
 	cfg, err := LoadAPI()
 	if err != nil {
 		t.Fatalf("LoadAPI() error = %v", err)

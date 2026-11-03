@@ -7,6 +7,7 @@ import AppShell from "./components/AppShell";
 import { ErrorNotice, Skeleton } from "./components/Feedback";
 import { CategoryDonutChart, DashboardDailySpendingChart } from "./components/Charts";
 import TransactionList from "./components/TransactionList";
+import LoadingShell from "./components/LoadingShell";
 import useAuth from "./components/useAuth";
 import { elapsedDaily } from "./lib/chartData";
 import { money } from "./lib/format";
@@ -101,4 +102,4 @@ export default function Home() {
   </AppShell>;
 }
 
-function Loading() { return <main className="loading" role="status" aria-live="polite"><div className="spinner"/><span>Memuat Richmod…</span></main>; }
+function Loading() { return <LoadingShell />; }

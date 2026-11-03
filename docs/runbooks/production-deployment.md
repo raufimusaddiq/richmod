@@ -2,17 +2,33 @@
 
 ## Public endpoint
 
-The production hostname is `finance.investdx.biz.id`. DNS currently resolves to
+The production hostname is `finance.musaddiqr.com`. DNS currently resolves to
 the server public address. The host's existing Caddy container already owns ports
 80 and 443, so this application must not start a second public Caddy instance.
 
-The `compose.production.yaml` override joins `finance-api` and `finance-web` to
-the existing external Docker network, `idx_default`. Add the reviewed site block
-from `infra/caddy/finance.investdx.biz.id.caddy` to the host-managed Caddyfile
-and validate it before reloading Caddy.
+The `compose.production.yaml` override joins `finance-api` to the existing
+external Docker network, `idx_default`; the Go binary serves both the API and the
+embedded static frontend, so there is no separate web container. Add the reviewed
+site block from `infra/caddy/finance.musaddiqr.com.caddy` to the host-managed
+Caddyfile and validate it before reloading Caddy. The block proxies every path to
+`finance-api:8080`; the Go handler owns the per-route `Cache-Control` values.
 
 The production override also sets `WEB_ORIGIN` to the public HTTPS URL, causing
 the API to issue `Secure` session cookies. Do not override it with an HTTP URL.
+
+## One-time cleanup after ADR-056
+
+The `web` service and its image no longer exist, and the release script does not
+remove orphans. After the first deploy of the single-container layout is healthy,
+delete the leftover web container and its unused release images on the host:
+
+```bash
+docker ps --filter 'name=family-finance-web' --format '{{.Names}}' | xargs -r docker rm -f
+docker image ls --format '{{.Repository}}:{{.Tag}}' | grep 'richmod-web:sha-' | xargs -r docker image rm
+```
+
+The `edge` network stays: the API uses it for outbound OSS and LLM gateway
+requests. Do not run `docker system prune`.
 
 ## Preconditions
 
@@ -193,12 +209,41 @@ Monitor the worker after deployment and after the smoke checks. The owner-only
 and no unexpected queue backlog. Investigate residual-generation or wealth-related
 job failures before considering the release complete.
 
-Before first login, run the one-time owner bootstrap and supply the owner's numeric
-Telegram user ID with `--telegram-user-id`. Then register
-`https://finance.investdx.biz.id/webhooks/telegram` with Telegram using the same
-webhook secret. The bootstrap refuses to run after an owner exists.
+### Telegram webhook verification
 
-Verify `https://finance.investdx.biz.id` after deployment. Do not expose the
+Telegram does not follow redirects. If the public hostname or its Caddy host block
+changes, the registered webhook keeps answering `301 Moved Permanently`, so every
+inbound update is rejected — and because `pending_update_count` stays at `0`
+(rejected updates are not queued), inbound loss is invisible to `/healthz`,
+`/readyz`, and the operations status endpoint.
+
+After the health checks pass, with `WEB_ORIGIN`, `TELEGRAM_BOT_TOKEN`, and
+`TELEGRAM_WEBHOOK_SECRET` loaded from the deployment environment file, verify the
+registered URL:
+
+```bash
+scripts/set-telegram-webhook.sh --check
+```
+
+It exits non-zero when the registered URL is not `${WEB_ORIGIN}/webhooks/telegram`.
+On failure, re-register it with the same script and no flag:
+
+```bash
+scripts/set-telegram-webhook.sh
+```
+
+Both modes refuse to run when any of the three variables is unset, keep
+`allowed_updates` at `["message","callback_query"]`, never drop pending updates,
+and never print the token or secret. `infra/deploy/post-deploy.sh` runs `--check`
+after its health checks and warns loudly — without failing the deploy — when the
+webhook is stale.
+
+Before first login, run the one-time owner bootstrap and supply the owner's numeric
+Telegram user ID with `--telegram-user-id`. Then register the webhook with
+`scripts/set-telegram-webhook.sh`, which derives the URL from `WEB_ORIGIN` and
+uses the same webhook secret. The bootstrap refuses to run after an owner exists.
+
+Verify `https://finance.musaddiqr.com` after deployment. Do not expose the
 database, worker, API, or web ports directly in production.
 
 ## Runtime security and health
@@ -299,6 +344,13 @@ attachment volume. Production must use an off-host `RESTIC_REPOSITORY`; the
 local repository default is for drills only. Retention is 14 daily, 8 weekly,
 and 12 monthly snapshots.
 
+Retention groups snapshots by tag (`forget --group-by tags`), and every backup
+pins `--host family-finance` and a fixed staging path so consecutive runs share
+a parent. Before #385 each run had a random container hostname and `mktemp`
+path, so each snapshot was its own group and nothing was ever forgotten. The
+first run after that fix applies the policy to the whole backlog at once; take a
+`restic forget --dry-run --group-by tags ...` listing before deploying it.
+
 1. Create `/opt/family-finance/restic-password` with a long random value and
    mode `0600`. Keep a separate recovery copy outside this server.
 2. Set `RESTIC_REPOSITORY` and any repository credentials in the restricted
@@ -325,6 +377,15 @@ change to those scripts, rebuild it on the host:
 docker compose --env-file /opt/family-finance/finance.env -f compose.yaml \
   -f compose.production.yaml --profile operations build backup
 ```
+
+If the change touches retention (`forget` flags or grouping), rebuild only after
+the owner has approved the `restic forget --dry-run` listing of snapshots the
+next run will remove. The first rebuild after #385 removes 36 snapshots
+(2026-08-30 → 2026-10-12; listing in PR #387).
+
+`backup.sh` holds an exclusive `flock` on its staging directory, so a manual run
+that overlaps the timer exits with "another backup run holds …" instead of
+racing it; rerun it after the timer finishes.
 
 If a run fails with "repository is already locked", `backup.sh` clears stale
 locks itself; a lock held by a live process is never removed.
@@ -377,7 +438,7 @@ Deploy 1 adds the generated `richmod.link` recipient and keeps Gmail runtime
 available for migration. Deploy with `EMAIL_INGRESS_HMAC_SECRET` and
 `EMAIL_INGRESS_DOMAIN`; `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS` may remain unset
 during the `PROVISIONED` bootstrap. The public Caddy allowlist must route only
-`POST /finance/v1/email/inbond` on `api.investdx.biz.id` to `finance-api:8080`.
+`POST /finance/v1/email/inbond` on `api.musaddiqr.com` to `finance-api:8080`.
 After receiving a real forwarded `.eml`, inspect its authentication headers and
 set the observed trusted auth-service IDs before activating any household. An
 `ACTIVE` address without this configuration fails closed. Provisioned deliveries

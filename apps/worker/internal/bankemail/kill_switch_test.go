@@ -86,4 +86,11 @@ func TestUnverifiedPolicyCannotAutoConfirm(t *testing.T) {
 	if got.AutoConfirm || got.Status != "NEEDS_REVIEW" || got.ReviewType != "UNKNOWN_MERCHANT" {
 		t.Fatalf("unverified policy must remain review with its actual residual: %+v", got)
 	}
+	// An auto-confirm has no review type: the household confirms the policy's
+	// own choice instead of an action-less extraction card.
+	for typ, want := range map[string]string{"TRANSFER": "TRANSFER_CLASSIFICATION", "EXPENSE": "AMBIGUOUS_CATEGORY"} {
+		if got := applyVerificationGate(PolicyResult{Type: typ, Status: "CONFIRMED", AutoConfirm: true}, false); got.ReviewType != want {
+			t.Errorf("unverified %s auto-confirm review=%q, want %q", typ, got.ReviewType, want)
+		}
+	}
 }

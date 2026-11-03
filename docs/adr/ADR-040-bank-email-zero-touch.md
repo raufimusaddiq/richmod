@@ -138,3 +138,20 @@ Financial Provider Email resolution are unchanged.
 - Rare flaky negatives cost one extra bounded call instead of a review.
 - Provider-specific behaviour is unchanged and still absent: classification is
   generic over the household category set.
+
+### Amendment — an undecided direction is not a bank-facts review (2026-10-27, #384)
+
+When the bounded plane verified the transaction and the amount, contradicted
+nothing, and only left `direction_supported` UNDECIDED, the email no longer parks
+as `UNKNOWN_BANK_TEMPLATE`. That review could only accept amount and time
+(`COMPLETE_BANK_FACTS`), which the email already held, and never asked the
+undecided direction; completing it just released the same email into a second,
+policy review. The email now goes straight to that policy review, marked
+unverified, so it never auto-confirms; the card shows the extracted direction
+for the household to confirm or reject. Any NO, an undecided amount, or an
+unobserved transaction still parks for bank facts.
+
+When the verification gate blocks an unverified auto-confirm that has no review
+type, the review is the policy's own choice: `TRANSFER_CLASSIFICATION` for a
+transfer, `AMBIGUOUS_CATEGORY` for an expense. Previously it became
+`DOCUMENT_EXTRACTION_LOW_CONFIDENCE`, whose decision offered only IGNORE.

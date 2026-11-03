@@ -270,6 +270,8 @@ docker compose up --build
 ```
 
 Health checks: `http://localhost:8080/healthz` and `http://localhost:8080/readyz`.
+The UI is served by the same `api` service at `http://localhost:8080`: the
+frontend is a static export embedded in the Go binary.
 
 **3. Create the first owner.** Bootstrap runs exactly once and creates the first
 `OWNER`, the household and the Indonesian category seeds in one transaction.

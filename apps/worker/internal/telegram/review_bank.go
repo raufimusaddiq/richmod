@@ -105,7 +105,7 @@ func enqueueBankFactsCompletion(ctx context.Context, tx pgx.Tx, command reviewdo
 	if err := reviewdomain.ValidateBankSourceAccount(ctx, tx, command); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text,'telegram_chat_id',$5::bigint))`, command.SourceEventID, command.ReviewItemID, command.AmountIDR, command.TransactionAt, chatID)
+	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',jsonb_build_object('source_event_id',$1::uuid,'review_id',$2::uuid,'amount_idr',$3::text,'transaction_at',$4::text,'telegram_chat_id',$5::bigint,'user_id',NULLIF($6,'')::uuid))`, command.SourceEventID, command.ReviewItemID, command.AmountIDR, command.TransactionAt, chatID, command.UserID)
 	return err
 }
 

@@ -356,7 +356,7 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": "bank facts are required"})
 			return
 		}
-		payload, _ := json.Marshal(map[string]any{"source_event_id": *source, "review_id": r.PathValue("id"), "amount_idr": values.AmountIDR, "transaction_at": values.TransactionAt})
+		payload, _ := json.Marshal(map[string]any{"source_event_id": *source, "review_id": r.PathValue("id"), "amount_idr": values.AmountIDR, "transaction_at": values.TransactionAt, "user_id": p.UserID})
 		if _, err = tx.Exec(r.Context(), `INSERT INTO job(type,payload_json) VALUES('COMPLETE_BANK_REVIEW',$1::jsonb)`, string(payload)); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "unable to queue bank review"})
 			return
