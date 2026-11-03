@@ -106,15 +106,10 @@ test("maskable icon keeps its mark inside the 80% safe circle", () => {
   assert.ok(corner < 100, "maskable icon is full-bleed, not transparent at the corners");
 });
 
-test("built export ships a stamped worker and the manifest", { skip: !existsSync(file("out/sw.js")) }, () => {
-  const worker = readFileSync(file("out/sw.js"), "utf8");
-  assert.doesNotMatch(worker, /__BUILD_ID__/, "build stamp was substituted");
-  const build = worker.match(/const BUILD = "([0-9a-f]{12})";/)?.[1];
-  assert.ok(build, "worker carries a release id");
-  // The page names its generation from this meta tag; it must be the same value
-  // the worker uses, or an open window claims the wrong cache.
-  const html = readFileSync(file("out/index.html"), "utf8");
-  assert.match(html, new RegExp(`<meta name="richmod-build" content="${build}"`), "page carries the same release id");
+test("built export ships the worker and the manifest", { skip: !existsSync(file("out/sw.js")) }, () => {
+  // The worker is a static public file now: no build stamp, no cache, nothing
+  // that can drift from the page.
+  assert.equal(readFileSync(file("out/sw.js"), "utf8"), readFileSync(file("public/sw.js"), "utf8"));
   assert.equal(readFileSync(file("out/manifest.webmanifest"), "utf8"), readFileSync(file("public/manifest.webmanifest"), "utf8"));
   for (const icon of manifest.icons) assert.ok(existsSync(file(`out${icon.src}`)), `${icon.src} is exported`);
 });

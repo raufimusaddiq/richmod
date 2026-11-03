@@ -26,8 +26,8 @@ const (
 	cacheImmutable = "public, max-age=31536000, immutable"
 	cachePublic    = "public, max-age=0"
 	cacheMetadata  = "public, max-age=0, must-revalidate"
-	// The service worker decides when an installed client updates. Revalidate it
-	// on every navigation; the browser's update check reads the new body.
+	// The worker is a pass-through with no cache; revalidate its script so a new
+	// release is picked up on the browser's next update check.
 	cacheServiceWorker = "no-cache"
 )
 

@@ -16,9 +16,6 @@ export const metadata = {
   title: socialTitle,
   description: "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
   manifest: "/manifest.webmanifest",
-  // Read by ServiceWorkerRegistrar so a window can name its cache generation
-  // exactly; script URLs are shared between builds and cannot identify one.
-  other: { "richmod-build": process.env.NEXT_PUBLIC_RICHMOD_BUILD || "dev" },
   // iOS ignores the manifest for install and reads these instead.
   appleWebApp: { capable: true, title: "Richmod", statusBarStyle: "default" },
   icons: {
