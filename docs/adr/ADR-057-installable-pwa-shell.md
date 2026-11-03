@@ -45,12 +45,15 @@ white page that the user cannot clear by reloading.
    | `/_next/static/*` | cache-first across retained generations | Next hashes these names; a cache hit is byte-identical to the URL. A failing cache lookup or write falls through to the network response instead of failing the chunk |
    | manifest, icons, fonts, brand art | network-only | revalidated as before; nothing stale is served from a worker cache |
 
-   There is no precached shell and no offline fallback page. On install the
-   worker calls `skipWaiting()`; on activate it calls `clients.claim()` and
-   retains the current and immediately previous `richmod-static-<build>`
-   generations (`richmod-generations` records the ordered list) while deleting
-   only older ones. A page still open on the previous build keeps requesting
-   that build's chunks, and the new worker answers them from the retained cache
+   There is no precached shell and no offline fallback page. At install the
+   worker precaches the complete `/_next/static` set for its build — a page only
+   fetches the chunks it uses, so caching on demand would leave holes that no
+   later deploy can fill — then calls `skipWaiting()`. On activate it calls
+   `clients.claim()` and retains the current and immediately previous
+   `richmod-static-<build>` generations (`richmod-generations` records the
+   ordered list) while deleting only older ones. A page still open on the
+   previous build keeps requesting that build's chunks, including chunks it
+   never fetched before, and the new worker answers them from the retained cache
    because `caches.match` searches every generation. Because HTML is
    network-only, immediate activation cannot expose an old shell. Cache Storage
    failures (denied access, quota) are caught: a chunk that arrived from the
@@ -70,15 +73,25 @@ white page that the user cannot clear by reloading.
 
 - Installing from the browser gives a standalone window with the same layout as
   the tab; deep links and cold starts resolve through the existing file lookup.
+- A first visit downloads the export's whole `_next/static` set (about 1.5 MB)
+  at install time instead of only the chunks that page uses. That is the cost of
+  guaranteeing an open build can still resolve chunks it never touched after
+  the next deploy. The precache is best effort: a failed request, a refused
+  Cache Storage or browser eviction leaves holes, and those chunks then 404 once
+  the server has moved on.
+- The guarantee starts with clients installed by this worker. A client that
+  installed an earlier worker and is still open across *this* deploy keeps its
+  on-demand cache, so a chunk it never fetched can still be missing.
 - Every release changes `sw.js` (the build hash covers chunk content), so
   installed clients observe an update on their next launch. There is no prompt
-  UI and no update banner. Storage is bounded to the current and previous
-  generations; a client that stays open across two releases is expected to
-  reload before its chunks are pruned.
+  UI, no forced reload, and no update banner. Storage is bounded to the current
+  and previous generations; a client that stays open across two releases is
+  expected to reload before its chunks are pruned.
 - `apps/web/tests/service-worker.test.mjs` executes the template in a VM against
   a controllable Cache Storage: a denied `open` and a rejected `put` must still
-  deliver the network chunk, and a worker upgrade must keep resolving the
-  previous build's chunk for an open client.
+  deliver the network chunk, install must precache the complete set, and a
+  worker upgrade must resolve a chunk an open client never fetched before the
+  deploy.
 - Offline use is not supported; a cold start without network shows the
   browser's error. Push notifications, background sync and offline editing
   remain out of scope.

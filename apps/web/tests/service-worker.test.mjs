@@ -52,7 +52,7 @@ function createStorage({ failOpen = false, failPut = false, network = request =>
   return storage;
 }
 
-function createWorker(build, storage) {
+function createWorker(build, storage, assets = []) {
   const listeners = {};
   const sandbox = {
     self: {
@@ -62,7 +62,8 @@ function createWorker(build, storage) {
       clients: { claim: async () => {} },
     },
     caches: storage,
-    fetch: request => {
+    fetch: input => {
+      const request = typeof input === "string" ? new Request(new URL(input, origin)) : input;
       storage.requests.push(request.url);
       return Promise.resolve(storage.network(request));
     },
@@ -70,8 +71,14 @@ function createWorker(build, storage) {
     Response,
     URL,
   };
-  runInNewContext(template.replaceAll("__BUILD_ID__", build), sandbox);
+  const source = template.replaceAll("__BUILD_ID__", build).replace("__ASSETS__", JSON.stringify(assets));
+  runInNewContext(source, sandbox);
   return {
+    async install() {
+      const event = { waitUntil(promise) { event.done = promise; } };
+      listeners.install(event);
+      await event.done;
+    },
     async fetch(url) {
       const event = { request: new Request(url), respondWith(promise) { event.response = promise; } };
       listeners.fetch(event);
@@ -104,33 +111,50 @@ test("a rejected cache put still returns the fetched chunk", async () => {
   assert.equal(storage.entries("richmod-static-build1").size, 0, "nothing was cached");
 });
 
-test("an open client from the previous build keeps resolving its chunk after upgrade", async () => {
+test("install caches the complete chunk set, not just visited chunks", async () => {
+  const first = `${origin}/_next/static/chunks/a.js`;
+  const second = `${origin}/_next/static/chunks/b.js`;
+  const storage = createStorage();
+  const worker = createWorker("build1", storage, [first, second]);
+  await worker.install();
+  const entries = storage.entries("richmod-static-build1");
+  assert.ok(entries.has(first) && entries.has(second), "every exported chunk is precached");
+});
+
+test("an open client gets a chunk it never fetched before the deploy", async () => {
+  const oldChunk = `${origin}/_next/static/chunks/old.js`;
+  const shared = `${origin}/_next/static/chunks/shared.js`;
   let deployed = false;
   const storage = createStorage({
-    network: request => new URL(request.url).pathname.endsWith("old.js")
-      ? new Response(deployed ? "not found" : "old-chunk-bytes", { status: deployed ? 404 : 200 })
-      : new Response("new-chunk-bytes", { status: 200 }),
+    network: request => {
+      const path = new URL(request.url).pathname;
+      if (deployed && path === "/_next/static/chunks/old.js") return new Response("not found", { status: 404 });
+      return new Response(`bytes:${path}`, { status: 200 });
+    },
   });
-  const chunk = `${origin}/_next/static/chunks/old.js`;
-  const first = createWorker("buildA", storage);
-  const cached = await first.fetch(chunk);
-  assert.equal(await cached.text(), "old-chunk-bytes");
 
-  // Deploy build B: the old chunk is gone from the server.
+  // Build A installs and precaches its whole set; the client never asks for
+  // old.js, so only the install-time precache can have it.
+  const first = createWorker("buildA", storage, [oldChunk, shared]);
+  await first.install();
+  assert.ok(storage.entries("richmod-static-buildA").has(oldChunk), "install precached the unvisited chunk");
+
+  // Deploy build B: the server no longer has A's assets.
   deployed = true;
-  const second = createWorker("buildB", storage);
+  const second = createWorker("buildB", storage, [shared]);
+  await second.install();
   await second.activate();
   assert.ok(storage.entries("richmod-static-buildA"), "the previous generation was retained");
-  await second.fetch(`${origin}/_next/static/chunks/new.js`);
 
   const networkCallsBefore = storage.requests.length;
-  const stillOpen = await second.fetch(chunk);
-  assert.equal(stillOpen.status, 200, "the open client's chunk still resolves");
-  assert.equal(await stillOpen.text(), "old-chunk-bytes");
+  const stillOpen = await second.fetch(oldChunk);
+  assert.equal(stillOpen.status, 200, "the open client's unvisited chunk still resolves");
+  assert.equal(await stillOpen.text(), "bytes:/_next/static/chunks/old.js");
   assert.equal(storage.requests.length, networkCallsBefore, "no request went to the deleted asset");
 
   // The next release prunes only the generation before the previous one.
-  const third = createWorker("buildC", storage);
+  const third = createWorker("buildC", storage, [shared]);
+  await third.install();
   await third.activate();
   assert.equal(storage.entries("richmod-static-buildA"), undefined, "two-generations-old cache is pruned");
   assert.ok(storage.entries("richmod-static-buildB"), "the immediately previous generation survives");

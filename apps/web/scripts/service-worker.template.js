@@ -8,20 +8,43 @@
 //     whose chunks the next release deleted.
 //   - /api, /webhooks, /finance, /healthz, /readyz: never intercepted.
 //   - /_next/static/* : cache-first. Next hashes these filenames, so a cached
-//     entry can never be the wrong bytes for its URL.
+//     entry can never be the wrong bytes for its URL. The whole set is
+//     precached at install; the previous generation is retained on activate.
 //   - everything else (manifest, icons, fonts, brand art): network-only.
 // There is no precached shell. Offline browsing is deliberately out of scope.
 const BUILD = "__BUILD_ID__";
+const ASSETS = __ASSETS__;
 const CACHE = `richmod-static-${BUILD}`;
 const STATIC_PREFIX = "richmod-static-";
 const GENERATIONS = "richmod-generations";
 
-self.addEventListener("install", () => {
-  // Take over on the next launch instead of waiting for every tab to close: the
-  // cache name is build-scoped and HTML is never served from cache, so an
-  // immediate activation cannot hand out a stale shell.
-  self.skipWaiting();
+self.addEventListener("install", event => {
+  event.waitUntil((async () => {
+    // Cache this build's complete chunk set before taking over. Caching only the
+    // chunks a page happened to load leaves holes that no later deploy can fill:
+    // the old URLs are gone from the server while the page is still open.
+    await precache();
+    // Take over on the next launch instead of waiting for every tab to close: the
+    // cache name is build-scoped and HTML is never served from cache, so an
+    // immediate activation cannot hand out a stale shell.
+    await self.skipWaiting();
+  })());
 });
+
+async function precache() {
+  try {
+    const cache = await caches.open(CACHE);
+    // One failing chunk must not abandon the rest; caching is best effort.
+    await Promise.allSettled(ASSETS.map(async url => {
+      if (await cache.match(url)) return;
+      const response = await fetch(url);
+      if (response.ok) await cache.put(url, response);
+    }));
+  } catch {
+    // Cache Storage refused. Serve from the network as before; install must not
+    // fail because storage is unavailable.
+  }
+}
 
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
