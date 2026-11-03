@@ -11,7 +11,7 @@ services:
   api:
     ports: !reset []
     environment:
-      WEB_ORIGIN: https://finance.investdx.biz.id
+      WEB_ORIGIN: https://finance.musaddiqr.com
     volumes:
     networks:
       internal:
