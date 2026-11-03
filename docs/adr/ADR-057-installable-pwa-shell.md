@@ -48,11 +48,14 @@ white page that the user cannot clear by reloading.
    There is no precached shell and no offline fallback page. At install the
    worker precaches the complete `/_next/static` set for its build — a page only
    fetches the chunks it uses, so caching on demand would leave holes that no
-   later deploy can fill — then calls `skipWaiting()`. On activate it asks every
-   open window for its generation through a `MessageChannel`; the page answers
-   with the `/_next/static` script URLs it runs, and the worker keeps the cache
-   generation that contains the most of them. It retains the current build,
-   every generation an open window still claims, and the immediately previous
+   later deploy can fill — then calls `skipWaiting()`. The release id is derived
+   from the frontend sources before Next runs and stamped into every page as
+   `<meta name="richmod-build">` and into the worker as `BUILD`; both come from
+   `scripts/build-id.mjs`, so they are identical by construction. On activate
+   the worker asks every open window for its generation through a
+   `MessageChannel`; the page answers with that meta value, which maps
+   one-to-one onto `richmod-static-<build>`. It retains the current build, every
+   generation an open window still claims, and the immediately previous
    generation for windows that do not answer, deleting the rest. A hard cap of
    four generations keeps storage bounded; past the cap the oldest unclaimed
    generation goes first, then the oldest claimed one. `richmod-generations`
@@ -98,8 +101,10 @@ white page that the user cannot clear by reloading.
   a controllable Cache Storage: a denied `open` and a rejected `put` must still
   deliver the network chunk, install must precache the complete set, a build-A
   window held open across the activation of build B and then build C must still
-  resolve a chunk it never fetched, and pruning must stay within four
-  generations.
+  resolve a chunk it never fetched, a build-B window that shares most scripts
+  with A must keep B while C and D activate, and pruning must stay within four
+  generations. The built-export test additionally asserts the page's
+  `richmod-build` meta equals the worker's `BUILD`.
 - Offline use is not supported; a cold start without network shows the
   browser's error. Push notifications, background sync and offline editing
   remain out of scope.

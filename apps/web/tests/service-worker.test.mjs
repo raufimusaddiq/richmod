@@ -18,11 +18,11 @@ function createMessageChannel() {
   return channel;
 }
 
-function windowClient(chunk) {
+function windowClient(build) {
   return {
     type: "window",
     postMessage(message, transfer) {
-      if (message?.type === "richmod:generation" && transfer?.[0]) transfer[0].postMessage([chunk]);
+      if (message?.type === "richmod:generation" && transfer?.[0]) transfer[0].postMessage(build);
     },
   };
 }
@@ -160,7 +160,7 @@ test("an A client held open across B and C still gets its unvisited chunk", asyn
   await first.install();
   await first.activate();
   assert.ok(storage.entries("richmod-static-buildA").has(oldChunk), "install precached the unvisited chunk");
-  storage.windows = [windowClient(oldChunk)];
+  storage.windows = [windowClient("buildA")];
 
   // Deploy build B: the server no longer has A's assets.
   deployed = true;
@@ -184,6 +184,50 @@ test("an A client held open across B and C still gets its unvisited chunk", asyn
   assert.deepEqual(generations, ["buildA", "buildB", "buildC"], "all three generations are recorded while A is claimed");
 });
 
+test("a B window sharing scripts with A still claims B while C and D activate", async () => {
+  const shared = `${origin}/_next/static/chunks/shared.js`;
+  const aOnly = `${origin}/_next/static/chunks/a-only.js`;
+  const bOnly = `${origin}/_next/static/chunks/b-only.js`;
+  const cOnly = `${origin}/_next/static/chunks/c-only.js`;
+  const dOnly = `${origin}/_next/static/chunks/d-only.js`;
+  let deployed = false;
+  const storage = createStorage({
+    network: request => {
+      const path = new URL(request.url).pathname;
+      if (deployed && path.endsWith("b-only.js")) return new Response("not found", { status: 404 });
+      return new Response(`bytes:${path}`, { status: 200 });
+    },
+  });
+
+  // A and B share every framework chunk and differ in one chunk each; the point
+  // is that a claim must not be inferred from script URLs.
+  await (async () => {
+    const a = createWorker("buildA", storage, [shared, aOnly]);
+    await a.install();
+    await a.activate();
+  })();
+  const b = createWorker("buildB", storage, [shared, bOnly]);
+  await b.install();
+  await b.activate();
+  storage.windows = [windowClient("buildB")];
+  deployed = true;
+
+  const c = createWorker("buildC", storage, [shared, cOnly]);
+  await c.install();
+  await c.activate();
+  const d = createWorker("buildD", storage, [shared, dOnly]);
+  await d.install();
+  await d.activate();
+
+  assert.equal(storage.entries("richmod-static-buildA"), undefined, "the unclaimed A generation is pruned");
+  assert.ok(storage.entries("richmod-static-buildB"), "the claimed B generation survives C and D");
+  const networkCallsBefore = storage.requests.length;
+  const stillOpen = await d.fetch(bOnly);
+  assert.equal(stillOpen.status, 200, "the B-only chunk still resolves after C and D");
+  assert.equal(await stillOpen.text(), "bytes:/_next/static/chunks/b-only.js");
+  assert.equal(storage.requests.length, networkCallsBefore, "the deleted B chunk was never requested from the server");
+});
+
 test("pruning stays bounded when many builds remain claimed", async () => {
   const storage = createStorage();
   for (let index = 0; index < 6; index += 1) {
@@ -191,7 +235,7 @@ test("pruning stays bounded when many builds remain claimed", async () => {
     const worker = createWorker(`build${index}`, storage, [chunk]);
     await worker.install();
     await worker.activate();
-    storage.windows.push(windowClient(chunk));
+    storage.windows.push(windowClient(`build${index}`));
   }
   const statics = (await storage.keys()).filter(name => name.startsWith("richmod-static-"));
   assert.equal(statics.length, 4, "the cache window never exceeds MAX_GENERATIONS");

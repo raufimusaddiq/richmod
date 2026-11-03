@@ -9,14 +9,12 @@ export default function ServiceWorkerRegistrar() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
     // The worker asks which build this window is running so it does not prune a
-    // cache an open tab still needs. The first static script is this build's
-    // own chunk; the worker maps it back to its generation.
+    // cache an open tab still needs. The meta tag carries this build's id
+    // exactly; script URLs are shared between builds and would be ambiguous.
     const claim = event => {
       if (event.data?.type !== "richmod:generation" || !event.ports?.[0]) return;
-      const chunks = [...document.scripts]
-        .map(script => script.src)
-        .filter(src => src.includes("/_next/static/"));
-      event.ports[0].postMessage(chunks);
+      const build = document.querySelector('meta[name="richmod-build"]')?.content;
+      event.ports[0].postMessage(build || null);
     };
     navigator.serviceWorker.addEventListener("message", claim);
     let registration;

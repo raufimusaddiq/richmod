@@ -1,11 +1,11 @@
-// Stamps the service worker with a release identity and the complete chunk list
+// Stamps the service worker with the release id and the complete chunk list
 // derived from the export, and writes it into out/ so webui.go serves it as a
 // file. The install handler precaches that list, which is why it ships in the
 // worker rather than being fetched from the server after a deploy.
-import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildId } from "./build-id.mjs";
 
 const root = fileURLToPath(new URL("../out/", import.meta.url));
 const template = await readFile(new URL("service-worker.template.js", import.meta.url), "utf8");
@@ -16,16 +16,16 @@ async function list(dir, prefix = "") {
   for (const entry of entries) {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) files.push(...(await list(join(dir, entry.name), path)));
-    else files.push({ path, size: (await readFile(join(root, dir, entry.name))).length });
+    else files.push(path);
   }
   return files;
 }
 
-// Content hashes already name the chunks; their sorted list is the build
-// identity. It changes whenever any page, chunk or public file changes.
-const files = (await list("_next/static")).sort((left, right) => (left.path < right.path ? -1 : 1));
-const build = createHash("sha256").update(files.map(file => `${file.path}:${file.size}`).join("\n")).digest("hex").slice(0, 12);
-const assets = files.map(file => `/_next/static/${file.path}`);
+// Content hashes already name the chunks; files are listed only to precache them.
+const files = (await list("_next/static")).sort();
+const assets = files.map(path => `/_next/static/${path}`);
+const build = process.env.RICHMOD_BUILD_ID || await buildId();
+if (!/^[0-9a-f]{12}$/.test(build)) throw new Error(`invalid RICHMOD_BUILD_ID: ${build}`);
 
 const worker = template
   .replaceAll("__BUILD_ID__", build)

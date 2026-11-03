@@ -64,8 +64,9 @@ self.addEventListener("activate", event => {
   })());
 });
 
-// Ask every open window which build it is running, then resolve that answer to a
-// cache generation. A tab can stay open across several redeploys, so its
+// Ask every open window which build it is running. Each page answers with the
+// build id from its own meta tag, which maps one-to-one onto
+// richmod-static-<build>; a tab can stay open across several redeploys, so its
 // generation must outlive the current and previous ones.
 const MAX_GENERATIONS = 4;
 
@@ -81,27 +82,7 @@ async function claimedGenerations() {
     client.postMessage({ type: "richmod:generation" }, [channel.port2]);
   })));
   const names = await caches.keys();
-  const builds = [];
-  for (const chunks of claims) {
-    if (!Array.isArray(chunks) || chunks.length === 0) continue;
-    // The page sends every static script it runs. The generation that contains
-    // the most of them is the build that page belongs to.
-    let best = null;
-    let bestCount = 0;
-    for (const name of names) {
-      if (!name.startsWith(STATIC_PREFIX)) continue;
-      let count = 0;
-      for (const chunk of chunks) {
-        if (await caches.match(chunk, { cacheName: name })) count += 1;
-      }
-      if (count > bestCount) {
-        bestCount = count;
-        best = name.slice(STATIC_PREFIX.length);
-      }
-    }
-    if (best) builds.push(best);
-  }
-  return builds;
+  return claims.filter(build => typeof build === "string" && names.includes(STATIC_PREFIX + build));
 }
 
 // Keep this build, every generation an open window still claims, and the one
