@@ -48,14 +48,14 @@ async function precache() {
 
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
-    let live = [];
+    let claims = { windows: 0, claimed: [], uncertain: false };
     try {
-      live = await claimedGenerations();
+      claims = await clientClaims();
     } catch {
-      // An unresponsive client falls back to the previous-generation rule.
+      // Claims are advisory for retention; on failure treat it as no evidence.
     }
     try {
-      await retainGenerations(live);
+      await retainGenerations(claims);
     } catch {
       // Pruning is housekeeping. If Cache Storage refuses, keep serving rather
       // than failing activation.
@@ -64,52 +64,86 @@ self.addEventListener("activate", event => {
   })());
 });
 
-// Ask every open window which build it is running. Each page answers with the
-// build id from its own meta tag, which maps one-to-one onto
-// richmod-static-<build>; a tab can stay open across several redeploys, so its
-// generation must outlive the current and previous ones.
+// Claim outcomes are deliberately three-valued:
+//   - a build id: the window answered with its stamped build;
+//   - uncertain: a window exists but did not answer in time (a suspended or
+//     frozen tab), which must not be read as "nobody is using this generation";
+//   - no window at all: prune immediately, because no client can be running.
 const MAX_GENERATIONS = 4;
+// A generation that is not claimed is kept for a day. Deploys are hours apart
+// at most, so this covers a phone that suspends the tab through a release or
+// two without holding storage forever.
+const GRACE_MS = 24 * 60 * 60 * 1000;
 
-async function claimedGenerations() {
+async function clientClaims() {
   const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  const claims = await Promise.all(windows.map(client => new Promise(resolve => {
+  if (windows.length === 0) return { windows: 0, claimed: [], uncertain: false };
+  const answers = await Promise.all(windows.map(client => new Promise(resolve => {
     const channel = new MessageChannel();
-    const timer = setTimeout(() => resolve(null), 1000);
+    const timer = setTimeout(() => resolve({ timedOut: true }), 1000);
     channel.port1.onmessage = message => {
       clearTimeout(timer);
-      resolve(message.data);
+      resolve({ build: message.data });
     };
     client.postMessage({ type: "richmod:generation" }, [channel.port2]);
   })));
   const names = await caches.keys();
-  return claims.filter(build => typeof build === "string" && names.includes(STATIC_PREFIX + build));
+  const claimed = answers
+    .map(answer => answer.build)
+    .filter(build => typeof build === "string" && names.includes(STATIC_PREFIX + build));
+  return {
+    windows: windows.length,
+    claimed,
+    uncertain: answers.some(answer => answer.timedOut || typeof answer.build !== "string"),
+  };
 }
 
-// Keep this build, every generation an open window still claims, and the one
-// before it for windows that did not answer. MAX_GENERATIONS caps storage; past
-// it the oldest unclaimed generation goes first, then the oldest claimed one.
-async function retainGenerations(live) {
+// Keep this build and every generation a window claims. An unclaimed
+// generation survives until GRACE_MS has passed since it was last claimed (or
+// created), which covers silent windows; with no window open there is nothing to
+// protect. MAX_GENERATIONS is the last-resort ceiling: when the cap and the
+// grace period disagree, the cap wins and the oldest generation goes first,
+// claimed or not, except for the current build.
+async function retainGenerations({ windows, claimed }) {
+  const now = Date.now();
   const names = (await caches.keys()).filter(name => name.startsWith(STATIC_PREFIX));
-  const known = await readGenerations();
+  const entries = await readGenerations();
+  const known = new Set(entries.map(entry => entry.build));
   for (const name of names) {
     const build = name.slice(STATIC_PREFIX.length);
-    if (!known.includes(build)) known.push(build);
+    if (!known.has(build)) {
+      entries.push({ build, seen: now });
+      known.add(build);
+    }
   }
-  const ordered = known.filter(build => build !== BUILD);
-  ordered.push(BUILD);
-  // Cache names keep their creation order, so the tail is the newest generation.
-  const keep = new Set([BUILD, ...live.filter(build => names.includes(STATIC_PREFIX + build))]);
-  const previous = ordered[ordered.length - 2];
-  if (previous) keep.add(previous);
-  const claimed = new Set(live);
-  while (keep.size > MAX_GENERATIONS) {
-    const candidates = ordered.filter(build => keep.has(build) && build !== BUILD);
-    const victim = candidates.find(build => !claimed.has(build)) || candidates[0];
-    if (!victim) break;
-    keep.delete(victim);
+  if (!known.has(BUILD)) entries.push({ build: BUILD, seen: now });
+
+  const claimedSet = new Set(claimed);
+  claimedSet.add(BUILD);
+  for (const entry of entries) {
+    if (claimedSet.has(entry.build)) entry.seen = now;
   }
-  const retained = ordered.filter(build => keep.has(build));
-  const keepNames = new Set(retained.map(build => STATIC_PREFIX + build));
+
+  const ordered = entries.filter(entry => entry.build !== BUILD);
+  ordered.push(entries.find(entry => entry.build === BUILD));
+  let keep = ordered.filter(entry => {
+    if (claimedSet.has(entry.build)) return true;
+    if (windows === 0) return false;
+    return now - entry.seen <= GRACE_MS;
+  });
+  while (keep.length > MAX_GENERATIONS) {
+    let victim = -1;
+    for (let index = 0; index < keep.length; index += 1) {
+      if (keep[index].build === BUILD) continue;
+      if (victim < 0 || keep[index].seen < keep[victim].seen) victim = index;
+    }
+    if (victim < 0) break;
+    keep.splice(victim, 1);
+  }
+
+  const keepBuilds = new Set(keep.map(entry => entry.build));
+  const retained = ordered.filter(entry => keepBuilds.has(entry.build));
+  const keepNames = new Set(retained.map(entry => STATIC_PREFIX + entry.build));
   for (const name of names) {
     if (!keepNames.has(name)) await caches.delete(name);
   }
@@ -119,12 +153,20 @@ async function retainGenerations(live) {
 async function readGenerations() {
   const cache = await caches.open(GENERATIONS);
   const response = await cache.match("/generations");
-  return response ? await response.json() : [];
+  if (!response) return [];
+  const stored = await response.json();
+  if (!Array.isArray(stored)) return [];
+  // Earlier releases stored plain build ids; give those a fresh grace window.
+  return stored
+    .map(entry => (typeof entry === "string"
+      ? { build: entry, seen: Date.now() }
+      : { build: entry?.build, seen: Number(entry?.seen) || Date.now() }))
+    .filter(entry => typeof entry.build === "string" && entry.build);
 }
 
-async function writeGenerations(builds) {
+async function writeGenerations(entries) {
   const cache = await caches.open(GENERATIONS);
-  await cache.put("/generations", new Response(JSON.stringify(builds), { headers: { "Content-Type": "application/json" } }));
+  await cache.put("/generations", new Response(JSON.stringify(entries), { headers: { "Content-Type": "application/json" } }));
 }
 
 self.addEventListener("fetch", event => {

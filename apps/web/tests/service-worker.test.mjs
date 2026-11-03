@@ -27,12 +27,18 @@ function windowClient(build) {
   };
 }
 
+// A backgrounded or frozen tab: it never answers the claim message.
+function silentClient() {
+  return { type: "window", postMessage() {} };
+}
+
 function createStorage({ failOpen = false, failPut = false, network = request => new Response(`network:${request.url}`, { status: 200 }) } = {}) {
   const stores = new Map();
   const storage = {
     requests: [],
     network,
     windows: [],
+    now: () => Date.now(),
     async open(name) {
       if (failOpen) throw new Error("cache storage unavailable");
       if (!stores.has(name)) stores.set(name, new Map());
@@ -81,6 +87,7 @@ function createWorker(build, storage, assets = []) {
     },
     caches: storage,
     MessageChannel: createMessageChannel,
+    Date: { now: () => storage.now() },
     setTimeout,
     clearTimeout,
     fetch: input => {
@@ -181,7 +188,7 @@ test("an A client held open across B and C still gets its unvisited chunk", asyn
   assert.equal(await stillOpen.text(), "bytes:/_next/static/chunks/old.js");
   assert.equal(storage.requests.length, networkCallsBefore, "no request went to the deleted asset");
   const generations = await (await storage.open("richmod-generations")).match("/generations").then(response => response.json());
-  assert.deepEqual(generations, ["buildA", "buildB", "buildC"], "all three generations are recorded while A is claimed");
+  assert.deepEqual(generations.map(entry => entry.build), ["buildA", "buildB", "buildC"], "all three generations are recorded while A is claimed");
 });
 
 test("a B window sharing scripts with A still claims B while C and D activate", async () => {
@@ -211,6 +218,10 @@ test("a B window sharing scripts with A still claims B while C and D activate", 
   await b.activate();
   storage.windows = [windowClient("buildB")];
   deployed = true;
+  // A is unclaimed, so only the grace period may expire it; move the clock past
+  // GRACE_MS to keep asserting eventual pruning.
+  const later = Date.now() + 25 * 60 * 60 * 1000;
+  storage.now = () => later;
 
   const c = createWorker("buildC", storage, [shared, cOnly]);
   await c.install();
@@ -226,6 +237,54 @@ test("a B window sharing scripts with A still claims B while C and D activate", 
   assert.equal(stillOpen.status, 200, "the B-only chunk still resolves after C and D");
   assert.equal(await stillOpen.text(), "bytes:/_next/static/chunks/b-only.js");
   assert.equal(storage.requests.length, networkCallsBefore, "the deleted B chunk was never requested from the server");
+});
+
+test("a frozen window that never answers keeps its generation across two deploys", async () => {
+  const shared = `${origin}/_next/static/chunks/shared.js`;
+  const aOnly = `${origin}/_next/static/chunks/a-only.js`;
+  let deployed = false;
+  const storage = createStorage({
+    network: request => {
+      const path = new URL(request.url).pathname;
+      if (deployed && path.endsWith("a-only.js")) return new Response("not found", { status: 404 });
+      return new Response(`bytes:${path}`, { status: 200 });
+    },
+  });
+
+  const a = createWorker("buildA", storage, [shared, aOnly]);
+  await a.install();
+  await a.activate();
+  // The tab is backgrounded/frozen: the claim message is never answered, so the
+  // worker gets "uncertain", not "claimed" and not "no window".
+  storage.windows = [silentClient()];
+  deployed = true;
+
+  const b = createWorker("buildB", storage, [shared]);
+  await b.install();
+  await b.activate();
+  const c = createWorker("buildC", storage, [shared]);
+  await c.install();
+  await c.activate();
+
+  assert.ok(storage.entries("richmod-static-buildA"), "silence is not abandonment");
+  const networkCallsBefore = storage.requests.length;
+  const stillOpen = await c.fetch(aOnly);
+  assert.equal(stillOpen.status, 200, "the never-fetched A chunk still resolves");
+  assert.equal(await stillOpen.text(), "bytes:/_next/static/chunks/a-only.js");
+  assert.equal(storage.requests.length, networkCallsBefore, "the deleted A chunk was never requested from the server");
+});
+
+test("no open window prunes old generations immediately", async () => {
+  const storage = createStorage();
+  const a = createWorker("buildA", storage, [`${origin}/_next/static/chunks/a.js`]);
+  await a.install();
+  await a.activate();
+  assert.ok(storage.entries("richmod-static-buildA"), "the active build is kept");
+
+  const b = createWorker("buildB", storage, [`${origin}/_next/static/chunks/b.js`]);
+  await b.install();
+  await b.activate();
+  assert.equal(storage.entries("richmod-static-buildA"), undefined, "nothing can be using A once no window is open");
 });
 
 test("pruning stays bounded when many builds remain claimed", async () => {

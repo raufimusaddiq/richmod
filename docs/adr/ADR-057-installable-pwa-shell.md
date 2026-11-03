@@ -54,13 +54,18 @@ white page that the user cannot clear by reloading.
    `scripts/build-id.mjs`, so they are identical by construction. On activate
    the worker asks every open window for its generation through a
    `MessageChannel`; the page answers with that meta value, which maps
-   one-to-one onto `richmod-static-<build>`. It retains the current build, every
-   generation an open window still claims, and the immediately previous
-   generation for windows that do not answer, deleting the rest. A hard cap of
-   four generations keeps storage bounded; past the cap the oldest unclaimed
-   generation goes first, then the oldest claimed one. `richmod-generations`
-   records the ordered list. A page that was open across several redeploys keeps
-   requesting its build's chunks, including chunks it never fetched before, and
+   one-to-one onto `richmod-static-<build>`. A claim has three outcomes: an exact
+   build id, *uncertain* when a window exists but does not answer within one
+   second (a suspended or frozen tab), and *no window at all*. Silence is not
+   abandonment. The worker prunes only when no window is open, or when a
+   generation has gone unclaimed for 24 hours since it was last claimed or
+   created; the timestamps live in `richmod-generations`. Twenty-four hours
+   covers a phone suspending a tab through one or two releases without holding
+   every old generation forever. The current build is always kept. A hard cap of
+   four generations is the last-resort ceiling: when the cap and the grace
+   period disagree the cap wins and the oldest generation, claimed or not, is
+   deleted first. A page that was open across several redeploys keeps requesting
+   its build's chunks, including chunks it never fetched before, and
    every worker answers them from the retained cache because `caches.match`
    searches all generations. Because HTML is network-only, immediate activation
    cannot expose an old shell. Cache Storage failures (denied access, quota) are
@@ -87,24 +92,28 @@ white page that the user cannot clear by reloading.
   the next deploy. The precache is best effort: a failed request, a refused
   Cache Storage or browser eviction leaves holes, and those chunks then 404 once
   the server has moved on.
-- The guarantee starts with clients running this worker code. A window built by
-  an earlier worker cannot answer the generation question; it only benefits when
-  its generation is the immediately previous one, since a chunk it never fetched
-  before that worker's deploy was never precached.
+- The guarantee starts with builds that shipped the precache. A window built by
+  an earlier worker cannot answer the generation question, so it counts as
+  unclaimed and only keeps its generation for the 24-hour grace period; a chunk
+  it never fetched from a pre-precache build was never cached either.
 - Every release changes `sw.js` (the build hash covers chunk content), so
   installed clients observe an update on their next launch. There is no prompt
-  UI, no forced reload, and no update banner. Storage is bounded to four
-  generations: the current and previous builds are always kept, a generation
-  claimed by an open window survives further releases, and at the cap the oldest
-  claimed generation is dropped even if a window still uses it.
+  UI, no forced reload, and no update banner. A generation claimed by an open
+  window survives any number of releases; an unclaimed one survives its 24-hour
+  grace period; with no window open, older generations go at the next
+  activation. Storage is bounded to four generations, and at that cap the oldest
+  generation is dropped even if a window still uses it.
 - `apps/web/tests/service-worker.test.mjs` executes the template in a VM against
   a controllable Cache Storage: a denied `open` and a rejected `put` must still
   deliver the network chunk, install must precache the complete set, a build-A
   window held open across the activation of build B and then build C must still
-  resolve a chunk it never fetched, a build-B window that shares most scripts
-  with A must keep B while C and D activate, and pruning must stay within four
-  generations. The built-export test additionally asserts the page's
-  `richmod-build` meta equals the worker's `BUILD`.
+  resolve a chunk it never fetched, a frozen window that never answers must keep
+  its generation across two deploys, no-window activation must prune
+  immediately, a build-B window that shares most scripts with A must keep B
+  while C and D activate (with the clock moved past the grace period so A still
+  expires), and pruning must stay within four generations. The built-export test
+  additionally asserts the page's `richmod-build` meta equals the worker's
+  `BUILD`.
 - Offline use is not supported; a cold start without network shows the
   browser's error. Push notifications, background sync and offline editing
   remain out of scope.
