@@ -142,6 +142,11 @@ func cacheFor(name string) string {
 	switch name {
 	case "opengraph-image", "icon.svg", "manifest.webmanifest":
 		return cacheMetadata
+	// The deployed build identity (#413). It changes on every release and open
+	// tabs ask for it repeatedly, so it must revalidate: an immutable or max-age
+	// answer would keep telling a tab it is current.
+	case "build-id.txt":
+		return cacheMetadata
 	case "sw.js":
 		return cacheServiceWorker
 	}

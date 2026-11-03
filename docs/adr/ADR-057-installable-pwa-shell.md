@@ -129,8 +129,35 @@ whole family of defects.
    `public, max-age=0, must-revalidate`, and `/sw.js` with `no-cache`. Icons keep
    the public class, app HTML keeps `no-store`, other HTML keeps the private
    dynamic default, `_next/static` keeps the one-year immutable browser class,
-   and 404s keep `no-store`. These are HTTP cache rules between the browser and
-   the Go server; the service worker does not participate.
+   and 404s keep `no-store`. `/build-id.txt` (see 8) uses the metadata class,
+   `public, max-age=0, must-revalidate`, because that answer changes every
+   release. These are HTTP cache rules between the browser and the Go server;
+   the service worker does not participate.
+
+8. **Update discovery is a build-id comparison (#413).** Because the worker
+   `skipWaiting()`s and keeps no cache, `registration.waiting` is always null,
+   so the signal cannot be a waiting worker as it is in Antares. Each build
+   gets an identity from `apps/web/scripts/build-id.mjs`: a 12-character
+   SHA-256 prefix over every file that feeds the export (`app/`, `public/`,
+   `scripts/` — `app/layout.js` imports `scripts/splash-devices.mjs` — plus
+   `next.config.mjs`, `package.json`, `package-lock.json`), sorted by path with
+   the path hashed alongside the contents, run before every `build` and `dev`.
+   Only generated output is excluded (`public/build-id.txt`,
+   `app/lib/buildId.generated.js`), or the hash could not stabilise. The release SHA is deliberately not used: the container
+   builds `apps/web` without `.git`. One computation writes both
+   `app/lib/buildId.generated.js`, which the page imports so it knows its own
+   id with no request, and `public/build-id.txt`, which `webui.go` serves for
+   the deployed build. `BuildUpdateNotice` checks once at mount — every route
+   mounts a new shell, so a timer started fresh on mount would never reach its
+   first tick for an active user — then polls `/build-id.txt` every ten minutes
+   only while the tab is visible, and checks once on `visibilitychange` to
+   visible. The comparison is seeded with the page's own id, and a failed,
+   empty or malformed response is "no update". It shows a dismissible
+   in-flow bar ("Versi baru tersedia" + "Muat ulang") above the page header;
+   the reload is the user's choice, and a dismissal lasts only this page
+   load (module state, so it survives client-side navigation but not a
+   reload). The root layout's shell renders it, so every signed-in page has it
+   without each page knowing.
 
 ## Abandoned design
 
@@ -158,7 +185,8 @@ the install surface.
   A first install now opens `/login`: a signed-out user sees the form, and a
   signed-in user is redirected to `/` by the login page.
 - Nothing can be served stale by the worker. A release is visible on the next
-  network load.
+  network load, and an open tab is told about it within one poll interval
+  instead of waiting for a manual reload.
 - Existing installs free the old cache stores once when they activate this
   worker; nothing else migrates.
 - Offline use is not supported; a cold start without network shows the
