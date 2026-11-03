@@ -5,8 +5,8 @@ set -eu
 : "${RICHMOD_IMAGE_TAG:?set RICHMOD_IMAGE_TAG}"
 : "${RICHMOD_PREVIOUS_IMAGE_TAG:?set RICHMOD_PREVIOUS_IMAGE_TAG}"
 
-health_url=${RICHMOD_HEALTH_URL:-https://finance.investdx.biz.id/healthz}
-ready_url=${RICHMOD_READY_URL:-https://finance.investdx.biz.id/readyz}
+health_url=${RICHMOD_HEALTH_URL:-https://finance.musaddiqr.com/healthz}
+ready_url=${RICHMOD_READY_URL:-https://finance.musaddiqr.com/readyz}
 docker_bin=${DOCKER_BIN:-docker}
 
 curl --fail --silent --show-error "$health_url" >/dev/null

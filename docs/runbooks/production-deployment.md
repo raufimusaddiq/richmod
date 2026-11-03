@@ -2,14 +2,14 @@
 
 ## Public endpoint
 
-The production hostname is `finance.investdx.biz.id`. DNS currently resolves to
+The production hostname is `finance.musaddiqr.com`. DNS currently resolves to
 the server public address. The host's existing Caddy container already owns ports
 80 and 443, so this application must not start a second public Caddy instance.
 
 The `compose.production.yaml` override joins `finance-api` to the existing
 external Docker network, `idx_default`; the Go binary serves both the API and the
 embedded static frontend, so there is no separate web container. Add the reviewed
-site block from `infra/caddy/finance.investdx.biz.id.caddy` to the host-managed
+site block from `infra/caddy/finance.musaddiqr.com.caddy` to the host-managed
 Caddyfile and validate it before reloading Caddy. The block proxies every path to
 `finance-api:8080`; the Go handler owns the per-route `Cache-Control` values.
 
@@ -243,7 +243,7 @@ Telegram user ID with `--telegram-user-id`. Then register the webhook with
 `scripts/set-telegram-webhook.sh`, which derives the URL from `WEB_ORIGIN` and
 uses the same webhook secret. The bootstrap refuses to run after an owner exists.
 
-Verify `https://finance.investdx.biz.id` after deployment. Do not expose the
+Verify `https://finance.musaddiqr.com` after deployment. Do not expose the
 database, worker, API, or web ports directly in production.
 
 ## Runtime security and health
@@ -438,7 +438,7 @@ Deploy 1 adds the generated `richmod.link` recipient and keeps Gmail runtime
 available for migration. Deploy with `EMAIL_INGRESS_HMAC_SECRET` and
 `EMAIL_INGRESS_DOMAIN`; `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS` may remain unset
 during the `PROVISIONED` bootstrap. The public Caddy allowlist must route only
-`POST /finance/v1/email/inbond` on `api.investdx.biz.id` to `finance-api:8080`.
+`POST /finance/v1/email/inbond` on `api.musaddiqr.com` to `finance-api:8080`.
 After receiving a real forwarded `.eml`, inspect its authentication headers and
 set the observed trusted auth-service IDs before activating any household. An
 `ACTIVE` address without this configuration fails closed. Provisioned deliveries
