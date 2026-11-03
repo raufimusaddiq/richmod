@@ -58,6 +58,23 @@ test("a browser endpoint only counts as active when the server lists it live for
   assert.deepEqual(reconcileSubscription({ browserEndpoint: null, serverSubscriptions: [{ endpoint, active: true }] }), { serverState: "absent", canDisable: false, issue: "" });
 });
 
+test("reconciliation asks for this endpoint instead of a truncated list", async () => {
+  const endpoint = "https://push.example/device";
+  const serviceWorker = { getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint }) } }) };
+  const seen = [];
+  const request = async url => {
+    seen.push(url);
+    if (url === "/api/v1/push/public-key") return { ok: true, json: async () => ({ enabled: true, publicKey: "BEl6" }) };
+    if (url === `/api/v1/push/subscriptions?endpoint=${encodeURIComponent(endpoint)}`) return { ok: true, json: async () => ({ subscriptions: [{ endpoint, active: true }] }) };
+    return { ok: true, json: async () => ({ subscriptions: [] }) };
+  };
+  const view = await loadPushView({ supported: true, ios: false, installed: false, permission: "granted", serviceWorker, request });
+  assert.ok(seen.includes(`/api/v1/push/subscriptions?endpoint=${encodeURIComponent(endpoint)}`), "the filtered endpoint call is made");
+  assert.equal(view.serverState, "live");
+  assert.equal(view.issue, "");
+  assert.equal(view.state, "subscribed");
+});
+
 test("an unregistered or retired endpoint is never painted active", () => {
   for (const issue of ["unregistered", "retired", "unknown"]) {
     const state = notificationState({ supported: true, ios: false, installed: false, permission: "granted", browserEndpoint: true, serverState: issue === "unregistered" ? "absent" : issue === "retired" ? "retired" : "unknown", serverEnabled: "enabled" });
@@ -145,16 +162,19 @@ test("only a definitive key answer asserts push is disabled", async () => {
   assert.equal(view.state, "unsupported");
 });
 
-test("a definitive disabled key still wins when the subscription list is unavailable", async () => {
+test("a definitive disabled key wins when there is no browser endpoint", async () => {
   const serviceWorker = { getRegistration: async () => undefined };
+  const seen = [];
   const request = async url => {
+    seen.push(url);
     if (url === "/api/v1/push/public-key") return { ok: true, json: async () => ({ enabled: false }) };
     throw new TypeError("offline");
   };
   const view = await loadPushView({ supported: true, ios: false, installed: false, permission: "default", serviceWorker, request });
   assert.equal(view.serverDisabled, true);
-  assert.equal(view.serverUnavailable, true);
+  assert.equal(view.serverUnavailable, false);
   assert.equal(view.state, "unsupported");
+  assert.equal(seen.some(url => url.startsWith("/api/v1/push/subscriptions")), false, "no endpoint means no list request");
 });
 
 test("a 503 key answer is unavailable, not disabled", async () => {

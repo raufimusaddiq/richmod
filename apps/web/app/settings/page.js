@@ -147,14 +147,6 @@ async function requestOutcome(request, url) {
 }
 
 export async function loadPushView({ supported, ios, installed, permission, serviceWorker, request = fetch }) {
-  const [key, listed] = await Promise.all([
-    requestOutcome(request, "/api/v1/push/public-key"),
-    requestOutcome(request, "/api/v1/push/subscriptions"),
-  ]);
-  const keyUnavailable = key.status === "unavailable" || (key.status === "ok" && typeof key.value?.enabled !== "boolean");
-  const listUnavailable = listed.status !== "ok" || !Array.isArray(listed.value?.subscriptions);
-  const serverEnabled = key.status === "ok" && typeof key.value?.enabled === "boolean" ? (key.value.enabled ? "enabled" : "disabled") : key.status === "definitive" ? "disabled" : "unknown";
-  const serverUnavailable = serverEnabled === "unknown" || listUnavailable;
   let browserEndpoint = null;
   if (supported) {
     try {
@@ -164,6 +156,17 @@ export async function loadPushView({ supported, ios, installed, permission, serv
       // No registration means no browser subscription; the server list decides.
     }
   }
+  // Ask for this endpoint, not for a page of the caller's rows: a truncated
+  // list must never make a live endpoint look absent.
+  const endpointQuery = browserEndpoint ? `/api/v1/push/subscriptions?endpoint=${encodeURIComponent(browserEndpoint)}` : null;
+  const [key, listed] = await Promise.all([
+    requestOutcome(request, "/api/v1/push/public-key"),
+    endpointQuery ? requestOutcome(request, endpointQuery) : Promise.resolve({ status: "ok", value: { subscriptions: [] } }),
+  ]);
+  const keyUnavailable = key.status === "unavailable" || (key.status === "ok" && typeof key.value?.enabled !== "boolean");
+  const listUnavailable = listed.status !== "ok" || !Array.isArray(listed.value?.subscriptions);
+  const serverEnabled = key.status === "ok" && typeof key.value?.enabled === "boolean" ? (key.value.enabled ? "enabled" : "disabled") : key.status === "definitive" ? "disabled" : "unknown";
+  const serverUnavailable = serverEnabled === "unknown" || (Boolean(browserEndpoint) && listUnavailable);
   const { serverState, canDisable, issue } = reconcileSubscription({ browserEndpoint, serverSubscriptions: listUnavailable ? null : listed.value.subscriptions });
   const state = notificationState({ supported, ios, installed, permission, browserEndpoint, serverState, serverEnabled });
   return {

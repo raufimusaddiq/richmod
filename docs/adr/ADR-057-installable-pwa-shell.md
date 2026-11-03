@@ -116,10 +116,14 @@ whole family of defects.
    posts that one, so the new account registers without repointing the old
    account's row. The old endpoint is reported for logging, never its keys.
 
-   The server list comes from authenticated
-   `GET /api/v1/push/subscriptions`, scoped by the same user and household as
-   the sender. There is no cache in the worker and no second counter for the
-   badge; `InboxCountProvider` owns the count.
+   Reconciliation asks for the one endpoint the browser holds:
+   `GET /api/v1/push/subscriptions?endpoint=<url>`, scoped by the same user and
+   household as the sender. It returns that row (live or retired) or nothing;
+   an endpoint owned by another user is indistinguishable from absent. The
+   unfiltered list is paginated (`limit`, default 100, max 200; `offset`) with
+   `nextOffset`, so it is never silently truncated. There is no cache in the
+   worker and no second counter for the badge; `InboxCountProvider` owns the
+   count.
 7. **Handler classes stay as ADR-056 set them.** `webui.go` serves
    `/manifest.webmanifest` as `application/manifest+json` with
    `public, max-age=0, must-revalidate`, and `/sw.js` with `no-cache`. Icons keep

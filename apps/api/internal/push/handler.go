@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -47,22 +48,46 @@ type subscriptionView struct {
 }
 
 // List returns the caller's own subscriptions in the caller's household,
-// including retired rows. The client needs both: an endpoint the server does
-// not know means another account registered it (or it was pruned), and a
-// retired row must not render as active. It is scoped by the same
-// (user, household) predicate the sender uses.
+// including retired rows. With ?endpoint= it answers for exactly that endpoint
+// (live or retired) and nothing else, so the client never infers from a list
+// that may be truncated. Without it, the list is paginated with a visible
+// nextOffset. Both forms use the same (user, household) predicate as the
+// sender; an endpoint owned by another user is indistinguishable from absent.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !principal.HasHousehold || principal.UserID == "" || principal.HouseholdID == "" {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "household membership required"})
 		return
 	}
-	rows, err := h.pool.Query(r.Context(), `
-		SELECT endpoint,disabled_at IS NULL
-		FROM push_subscriptions
-		WHERE user_id=$1 AND household_id=$2
-		ORDER BY created_at DESC
-		LIMIT 100`, principal.UserID, principal.HouseholdID)
+	params := r.URL.Query()
+	_, filtered := params["endpoint"]
+	endpoint := strings.TrimSpace(params.Get("endpoint"))
+	if filtered && endpoint == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"subscriptions": []subscriptionView{}})
+		return
+	}
+	query := `SELECT endpoint,disabled_at IS NULL FROM push_subscriptions WHERE user_id=$1 AND household_id=$2`
+	args := []any{principal.UserID, principal.HouseholdID}
+	limit, offset := 0, 0
+	if filtered {
+		query += ` AND endpoint=$3`
+		args = append(args, endpoint)
+	} else {
+		var invalid bool
+		limit, invalid = pagination(params.Get("limit"), 100, 1, 200)
+		if invalid {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
+			return
+		}
+		offset, invalid = pagination(params.Get("offset"), 0, 0, 1_000_000)
+		if invalid {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid offset"})
+			return
+		}
+		query += ` ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4`
+		args = append(args, limit, offset)
+	}
+	rows, err := h.pool.Query(r.Context(), query, args...)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to list subscriptions"})
 		return
@@ -81,7 +106,28 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to list subscriptions"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"subscriptions": items})
+	if filtered {
+		writeJSON(w, http.StatusOK, map[string]any{"subscriptions": items})
+		return
+	}
+	var nextOffset any
+	if len(items) == limit {
+		nextOffset = offset + len(items)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"subscriptions": items, "nextOffset": nextOffset})
+}
+
+// pagination parses an optional bounded integer. An empty value returns the
+// default; a value outside [minimum, maximum] is invalid.
+func pagination(raw string, fallback, minimum, maximum int) (int, bool) {
+	if raw == "" {
+		return fallback, false
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < minimum || value > maximum {
+		return 0, true
+	}
+	return value, false
 }
 
 type subscriptionRequest struct {
