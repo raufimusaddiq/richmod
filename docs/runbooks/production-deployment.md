@@ -2,14 +2,14 @@
 
 ## Public endpoint
 
-The production hostname is `finance.investdx.biz.id`. DNS currently resolves to
+The production hostname is `finance.musaddiqr.com`. DNS currently resolves to
 the server public address. The host's existing Caddy container already owns ports
 80 and 443, so this application must not start a second public Caddy instance.
 
 The `compose.production.yaml` override joins `finance-api` to the existing
 external Docker network, `idx_default`; the Go binary serves both the API and the
 embedded static frontend, so there is no separate web container. Add the reviewed
-site block from `infra/caddy/finance.investdx.biz.id.caddy` to the host-managed
+site block from `infra/caddy/finance.musaddiqr.com.caddy` to the host-managed
 Caddyfile and validate it before reloading Caddy. The block proxies every path to
 `finance-api:8080`; the Go handler owns the per-route `Cache-Control` values.
 
@@ -209,12 +209,41 @@ Monitor the worker after deployment and after the smoke checks. The owner-only
 and no unexpected queue backlog. Investigate residual-generation or wealth-related
 job failures before considering the release complete.
 
-Before first login, run the one-time owner bootstrap and supply the owner's numeric
-Telegram user ID with `--telegram-user-id`. Then register
-`https://finance.investdx.biz.id/webhooks/telegram` with Telegram using the same
-webhook secret. The bootstrap refuses to run after an owner exists.
+### Telegram webhook verification
 
-Verify `https://finance.investdx.biz.id` after deployment. Do not expose the
+Telegram does not follow redirects. If the public hostname or its Caddy host block
+changes, the registered webhook keeps answering `301 Moved Permanently`, so every
+inbound update is rejected — and because `pending_update_count` stays at `0`
+(rejected updates are not queued), inbound loss is invisible to `/healthz`,
+`/readyz`, and the operations status endpoint.
+
+After the health checks pass, with `WEB_ORIGIN`, `TELEGRAM_BOT_TOKEN`, and
+`TELEGRAM_WEBHOOK_SECRET` loaded from the deployment environment file, verify the
+registered URL:
+
+```bash
+scripts/set-telegram-webhook.sh --check
+```
+
+It exits non-zero when the registered URL is not `${WEB_ORIGIN}/webhooks/telegram`.
+On failure, re-register it with the same script and no flag:
+
+```bash
+scripts/set-telegram-webhook.sh
+```
+
+Both modes refuse to run when any of the three variables is unset, keep
+`allowed_updates` at `["message","callback_query"]`, never drop pending updates,
+and never print the token or secret. `infra/deploy/post-deploy.sh` runs `--check`
+after its health checks and warns loudly — without failing the deploy — when the
+webhook is stale.
+
+Before first login, run the one-time owner bootstrap and supply the owner's numeric
+Telegram user ID with `--telegram-user-id`. Then register the webhook with
+`scripts/set-telegram-webhook.sh`, which derives the URL from `WEB_ORIGIN` and
+uses the same webhook secret. The bootstrap refuses to run after an owner exists.
+
+Verify `https://finance.musaddiqr.com` after deployment. Do not expose the
 database, worker, API, or web ports directly in production.
 
 ## Runtime security and health
@@ -409,7 +438,7 @@ Deploy 1 adds the generated `richmod.link` recipient and keeps Gmail runtime
 available for migration. Deploy with `EMAIL_INGRESS_HMAC_SECRET` and
 `EMAIL_INGRESS_DOMAIN`; `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS` may remain unset
 during the `PROVISIONED` bootstrap. The public Caddy allowlist must route only
-`POST /finance/v1/email/inbond` on `api.investdx.biz.id` to `finance-api:8080`.
+`POST /finance/v1/email/inbond` on `api.musaddiqr.com` to `finance-api:8080`.
 After receiving a real forwarded `.eml`, inspect its authentication headers and
 set the observed trusted auth-service IDs before activating any household. An
 `ACTIVE` address without this configuration fails closed. Provisioned deliveries

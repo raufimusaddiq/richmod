@@ -71,8 +71,17 @@ whole family of defects.
    - `activate`: deletes the abandoned `richmod-static-*` and
      `richmod-generations` stores left by earlier releases, then
      `clients.claim()`;
+   - `push`: shows a notification, falling back to a generic title and body
+     when the payload is empty or malformed, because iOS drops a subscription
+     after repeated pushes that show nothing;
+   - `notificationclick`: focuses an open window and navigates it to the
+     payload's target, or opens one when none is open; a target that is not a
+     same-origin path becomes `/inbox`;
    - no `fetch` listener at all, so `respondWith` is never called and every
      request goes to the network exactly as it would without a worker.
+
+   Push listeners do not cache: no `caches.open` call exists, and the worker
+   still intercepts no request.
 
    HTML, RSC payloads, `_next/static`, the manifest and the API are therefore
    always fresh, and no release can leave an installed client on a build whose
@@ -81,13 +90,74 @@ whole family of defects.
    `register("/sw.js", { scope: "/", updateViaCache: "none" })`. The worker
    script is fetched on the normal update schedule; because it holds no state,
    an update cannot change what a page loads.
-6. **Handler classes stay as ADR-056 set them.** `webui.go` serves
+6. **The push card is a view of three facts, not of the last action.** The
+   settings card in `apps/web/app/settings/page.js` derives everything from:
+   **B**, whether this browser holds an endpoint (`true`/`false`); **S**, what
+   the server says about that endpoint for this session's user and household
+   (`live`/`retired`/`absent`/`unknown`); and **E**, whether push is enabled on
+   the server (`enabled`/`disabled`/`unknown`). Unknown is not false. Four
+   rules follow:
+
+   1. The opt-out is offered whenever B is true. Nothing else may remove it;
+      it survives an unreachable server, a disabled server, a stale row and a
+      different account. It is a safety property.
+   2. An endpoint is discarded only on a definitive answer about it: a
+      subscription created in this call and a definitive 4xx. A 5xx, 429,
+      timeout, thrown request, or a 4xx on an endpoint that already existed is
+      unknown, so the endpoint is kept and the next refresh asks the server.
+   3. “Aktif” is painted only when B is true and S is `live`.
+   4. `E == disabled` stops new registrations. It does not mean the device is
+      unsubscribed, and it never removes the opt-out.
+
+   When a different account signs in on a device that already holds an
+   endpoint, the server answers `409` with
+   `code: ENDPOINT_OWNED_BY_ANOTHER_USER`; ownership is never transferred. The
+   client removes the old browser subscription, subscribes a new endpoint, and
+   posts that one, so the new account registers without repointing the old
+   account's row. The old endpoint is reported for logging, never its keys.
+
+   Reconciliation asks for the one endpoint the browser holds:
+   `GET /api/v1/push/subscriptions?endpoint=<url>`, scoped by the same user and
+   household as the sender. It returns that row (live or retired) or nothing;
+   an endpoint owned by another user is indistinguishable from absent. The
+   unfiltered list is paginated (`limit`, default 100, max 200; `offset`) with
+   `nextOffset`, so it is never silently truncated. There is no cache in the
+   worker and no second counter for the badge; `InboxCountProvider` owns the
+   count.
+7. **Handler classes stay as ADR-056 set them.** `webui.go` serves
    `/manifest.webmanifest` as `application/manifest+json` with
    `public, max-age=0, must-revalidate`, and `/sw.js` with `no-cache`. Icons keep
    the public class, app HTML keeps `no-store`, other HTML keeps the private
    dynamic default, `_next/static` keeps the one-year immutable browser class,
-   and 404s keep `no-store`. These are HTTP cache rules between the browser and
-   the Go server; the service worker does not participate.
+   and 404s keep `no-store`. `/build-id.txt` (see 8) uses the metadata class,
+   `public, max-age=0, must-revalidate`, because that answer changes every
+   release. These are HTTP cache rules between the browser and the Go server;
+   the service worker does not participate.
+
+8. **Update discovery is a build-id comparison (#413).** Because the worker
+   `skipWaiting()`s and keeps no cache, `registration.waiting` is always null,
+   so the signal cannot be a waiting worker as it is in Antares. Each build
+   gets an identity from `apps/web/scripts/build-id.mjs`: a 12-character
+   SHA-256 prefix over every file that feeds the export (`app/`, `public/`,
+   `scripts/` — `app/layout.js` imports `scripts/splash-devices.mjs` — plus
+   `next.config.mjs`, `package.json`, `package-lock.json`), sorted by path with
+   the path hashed alongside the contents, run before every `build` and `dev`.
+   Only generated output is excluded (`public/build-id.txt`,
+   `app/lib/buildId.generated.js`), or the hash could not stabilise. The release SHA is deliberately not used: the container
+   builds `apps/web` without `.git`. One computation writes both
+   `app/lib/buildId.generated.js`, which the page imports so it knows its own
+   id with no request, and `public/build-id.txt`, which `webui.go` serves for
+   the deployed build. `BuildUpdateNotice` checks once at mount — every route
+   mounts a new shell, so a timer started fresh on mount would never reach its
+   first tick for an active user — then polls `/build-id.txt` every ten minutes
+   only while the tab is visible, and checks once on `visibilitychange` to
+   visible. The comparison is seeded with the page's own id, and a failed,
+   empty or malformed response is "no update". It shows a dismissible
+   in-flow bar ("Versi baru tersedia" + "Muat ulang") above the page header;
+   the reload is the user's choice, and a dismissal lasts only this page
+   load (module state, so it survives client-side navigation but not a
+   reload). The root layout's shell renders it, so every signed-in page has it
+   without each page knowing.
 
 ## Abandoned design
 
@@ -115,12 +185,13 @@ the install surface.
   A first install now opens `/login`: a signed-out user sees the form, and a
   signed-in user is redirected to `/` by the login page.
 - Nothing can be served stale by the worker. A release is visible on the next
-  network load.
+  network load, and an open tab is told about it within one poll interval
+  instead of waiting for a manual reload.
 - Existing installs free the old cache stores once when they activate this
   worker; nothing else migrates.
 - Offline use is not supported; a cold start without network shows the
-  browser's error. Push notifications, background sync and offline editing
-  remain out of scope.
+  browser's error. Background sync and offline editing remain out of scope;
+  Web Push delivery is the only background feature.
 - Icons must be regenerated with Chromium when the brand mark changes; the
   PNGs are committed artefacts, not build output.
 - Launch images follow the same rule: `node apps/web/scripts/build-splash.mjs`
