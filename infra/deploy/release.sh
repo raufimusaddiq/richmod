@@ -30,14 +30,13 @@ trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
 export RICHMOD_API_IMAGE="$RICHMOD_IMAGE_REGISTRY/richmod-api:$RICHMOD_IMAGE_TAG"
 export RICHMOD_WORKER_IMAGE="$RICHMOD_IMAGE_REGISTRY/richmod-worker:$RICHMOD_IMAGE_TAG"
-export RICHMOD_WEB_IMAGE="$RICHMOD_IMAGE_REGISTRY/richmod-web:$RICHMOD_IMAGE_TAG"
 export RICHMOD_MIGRATE_IMAGE="$RICHMOD_IMAGE_REGISTRY/richmod-migrate:$RICHMOD_IMAGE_TAG"
 
 compose='docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml'
 $compose config --quiet
 
 previous_image_tag=
-for service in api worker web; do
+for service in api worker; do
   container_id=$($compose ps -q "$service" 2>/dev/null || true)
   [ -n "$container_id" ] || continue
   image_ref=$(docker inspect --format '{{.Config.Image}}' "$container_id" 2>/dev/null || true)
@@ -48,9 +47,9 @@ for service in api worker web; do
       ;;
   esac
 done
-$compose pull migrate api worker web
+$compose pull migrate api worker
 $compose run --rm migrate
-$compose up -d --no-build --wait api worker web
+$compose up -d --no-build --wait api worker
 if [ -n "$previous_image_tag" ]; then
   RICHMOD_PREVIOUS_IMAGE_TAG="$previous_image_tag" ./infra/deploy/post-deploy.sh
 else

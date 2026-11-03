@@ -1,5 +1,8 @@
 import { ImageResponse } from "next/og";
 
+// Rendered once at build time; the static export cannot generate it on demand.
+export const dynamic = "force-static";
+
 export const alt = "Richmod — keuangan keluarga, tanpa menebak";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

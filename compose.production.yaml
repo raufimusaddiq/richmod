@@ -14,21 +14,10 @@ services:
       WEB_ORIGIN: https://finance.investdx.biz.id
     volumes:
     networks:
-      edge:
       internal:
       caddy_public:
         aliases: [finance-api]
     mem_limit: 768m
-    pids_limit: 256
-    security_opt: [no-new-privileges:true]
-
-  web:
-    ports: !reset []
-    networks:
-      edge:
-      caddy_public:
-        aliases: [finance-web]
-    mem_limit: 512m
     pids_limit: 256
     security_opt: [no-new-privileges:true]
 

@@ -9,7 +9,6 @@ import useDrawerA11y from "../components/useDrawerA11y";
 import { dateTime, money, statusLabel, typeLabel } from "../lib/format";
 import { selectionHref } from "../lib/cycleReview";
 
-export const dynamic = "force-dynamic";
 
 export default function TransactionsPage() {
   const user = useAuth();

@@ -5,3 +5,5 @@
 **/.next
 coverage
 docs
+apps/web/out
+**/test-results

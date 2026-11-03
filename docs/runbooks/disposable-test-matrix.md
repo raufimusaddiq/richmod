@@ -181,7 +181,6 @@ TEST_IMAGE_PREFIX="richmod-test-${TEST_RUN_ID}"
 docker build -f infra/docker/api.Dockerfile -t "${TEST_IMAGE_PREFIX}-api" .
 docker build -f infra/docker/worker.Dockerfile -t "${TEST_IMAGE_PREFIX}-worker" .
 docker build -f infra/docker/migrate.Dockerfile -t "${TEST_IMAGE_PREFIX}-migrate" .
-docker build -f infra/docker/web.Dockerfile -t "${TEST_IMAGE_PREFIX}-web" .
 docker build -f infra/docker/backup.Dockerfile -t "${TEST_IMAGE_PREFIX}-backup" .
 ```
 
@@ -192,12 +191,11 @@ docker image rm \
   "${TEST_IMAGE_PREFIX}-api" \
   "${TEST_IMAGE_PREFIX}-worker" \
   "${TEST_IMAGE_PREFIX}-migrate" \
-  "${TEST_IMAGE_PREFIX}-web" \
   "${TEST_IMAGE_PREFIX}-backup"
 ```
 
 Do not run `docker system prune` or delete shared BuildKit caches. CI rebuilds
-all five images independently before release images are published.
+all four images independently before release images are published.
 
 ## D6 — Disposable Playwright capture
 

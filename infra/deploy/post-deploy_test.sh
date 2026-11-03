@@ -31,5 +31,5 @@ DOCKER_BIN=docker RICHMOD_HEALTH_URL=http://health RICHMOD_READY_URL=http://read
 "$root/post-deploy.sh"
 
 [ "$(wc -l <"$tmp/curl.log")" -eq 2 ]
-[ "$(wc -l <"$tmp/rm.log")" -eq 4 ]
+[ "$(wc -l <"$tmp/rm.log")" -eq 3 ]
 ! grep -Eq 'sha-current|sha-previous' "$tmp/rm.log"

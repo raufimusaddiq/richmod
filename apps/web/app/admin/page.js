@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { get } from "./shared";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
@@ -24,7 +24,12 @@ const tabs = [
   ["audit", "Audit"],
 ];
 
+// The static export prerenders this route, and useSearchParams needs a boundary.
 export default function AdminPage() {
+  return <Suspense fallback={<main className="loading" role="status" aria-live="polite">Memuat…</main>}><AdminConsole/></Suspense>;
+}
+
+function AdminConsole() {
   const router = useRouter(),
     params = useSearchParams(),
     tab = tabs.some(([key]) => key === params.get("tab"))

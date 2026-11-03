@@ -31,6 +31,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/wealth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/webui"
 )
 
 func main() {
@@ -199,11 +200,21 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/operations/status", authHandler.RequireSession(http.HandlerFunc(operationsHandler.Status)))
 	mux.Handle("POST /webhooks/telegram", webhookLimiter.Handler(http.HandlerFunc(telegramHandler.Webhook)))
 	mux.Handle("POST /finance/v1/email/inbond", emailIngressLimiter.Handler(http.HandlerFunc(emailIngressHandler.Inbound)))
-	var handler http.Handler = mux
-	handler = httpmw.SameOrigin(cfg.WebOrigin, handler)
-	handler = httpmw.AccessLog(logger, handler)
-	handler = httpmw.RequestID(handler)
-	handler = securityHeaders(handler)
+	// API routes keep their middleware chain. The UI keeps the same hardening
+	// except the API CSP: default-src 'none' would block the export's own scripts
+	// and styles, so the UI only forbids framing.
+	apiHandler := securityHeaders(httpmw.RequestID(httpmw.AccessLog(logger, httpmw.SameOrigin(cfg.WebOrigin, mux))))
+	if !webui.Embedded() {
+		logger.Warn("embedded web UI is missing; build apps/web with npm run build:embed before building the binary")
+	}
+	uiHandler := newUIHandler(logger, webui.Handler())
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if apiOwnedPath(r.URL.Path) {
+			apiHandler.ServeHTTP(w, r)
+			return
+		}
+		uiHandler.ServeHTTP(w, r)
+	})
 
 	server := &http.Server{
 		Addr:              cfg.Address,
@@ -233,12 +244,35 @@ func run(logger *slog.Logger) error {
 	}
 }
 
+// apiOwnedPath reports whether a path belongs to the API. Unregistered paths
+// under these prefixes must stay API 404s instead of falling through to the UI.
+func apiOwnedPath(p string) bool {
+	for _, prefix := range []string{"/api", "/webhooks", "/finance"} {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return true
+		}
+	}
+	return p == "/healthz" || p == "/readyz"
+}
+
+func newUIHandler(logger *slog.Logger, ui http.Handler) http.Handler {
+	return uiSecurityHeaders(httpmw.RequestID(httpmw.AccessLog(logger, ui)))
+}
+
 func securityHeaders(next http.Handler) http.Handler {
+	return securityHeadersWithPolicy("default-src 'none'; frame-ancestors 'none'", next)
+}
+
+func uiSecurityHeaders(next http.Handler) http.Handler {
+	return securityHeadersWithPolicy("frame-ancestors 'none'", next)
+}
+
+func securityHeadersWithPolicy(csp string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)
 	})
 }
