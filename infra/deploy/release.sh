@@ -54,6 +54,6 @@ if [ -n "$previous_image_tag" ]; then
   RICHMOD_PREVIOUS_IMAGE_TAG="$previous_image_tag" ./infra/deploy/post-deploy.sh
 else
   echo "unable to identify previous release image; skipping image cleanup" >&2
-  curl --fail --silent --show-error https://finance.investdx.biz.id/healthz >/dev/null
-  curl --fail --silent --show-error https://finance.investdx.biz.id/readyz >/dev/null
+  curl --fail --silent --show-error https://finance.musaddiqr.com/healthz >/dev/null
+  curl --fail --silent --show-error https://finance.musaddiqr.com/readyz >/dev/null
 fi

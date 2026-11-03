@@ -6,7 +6,7 @@ The public Richmod experience exposes social-sharing metadata from the root Next
 
 ## Production metadata
 
-- Canonical production origin for metadata asset resolution: `https://finance.investdx.biz.id`.
+- Canonical production origin for metadata asset resolution: `https://finance.musaddiqr.com`.
 - Open Graph includes Richmod title, social description, site name, Indonesian locale, website type, and a 1200×630 preview image.
 - Twitter/X uses `summary_large_image` with the same title, description, and preview image.
 - The preview image is generated as PNG by `apps/web/app/opengraph-image.js` using the existing warm-neutral and dried-plum public brand language.

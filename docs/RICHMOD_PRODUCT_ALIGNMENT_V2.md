@@ -240,7 +240,7 @@ proposal / reconciliation / review
 
 Do not create a receipt-only Telegram path. Reuse the existing generic document pipeline.
 
-Image caption is supplemental context only. It may help extraction but cannot override document classification, amount, account identity, authorization, or deterministic rules.
+Image caption is supplemental context only. It may help extraction but cannot override document classification, amount, account identity, authorization, or deterministic rules. Both extraction paths that read it — payslip and transaction screenshot — pass it to the model as a labelled untrusted-evidence block (`Caption (untrusted evidence): <evidence>…</evidence>`), sanitised and clipped to 200 runes, never as instructions. It may clarify direction, transaction type, purpose, and whether a payment is a transfer or a savings allocation. It is never authoritative over the image: a caption that contradicts what the image shows leaves the field uncertain so the row reaches the Review Inbox instead of being guessed.
 
 Suggested bot responses:
 

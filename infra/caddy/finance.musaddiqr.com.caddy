@@ -3,7 +3,7 @@
 # embedded static frontend. Caddy must not set Cache-Control; the Go handler
 # owns the per-route cache classes. After editing the host Caddyfile, reload
 # Caddy (for example: docker exec idx-caddy caddy reload --config /etc/caddy/Caddyfile).
-finance.investdx.biz.id {
+finance.musaddiqr.com {
 	encode zstd gzip
 
 	header {

@@ -41,7 +41,7 @@ func TestLoadAPIWebOriginDefaultsToServedPort(t *testing.T) {
 func TestLoadAPIUsesSecureCookiesForHTTPSOrigin(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("SESSION_SECRET", "12345678901234567890123456789012")
-	t.Setenv("WEB_ORIGIN", "https://finance.investdx.biz.id")
+	t.Setenv("WEB_ORIGIN", "https://finance.musaddiqr.com")
 	cfg, err := LoadAPI()
 	if err != nil {
 		t.Fatalf("LoadAPI() error = %v", err)
