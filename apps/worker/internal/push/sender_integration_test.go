@@ -279,6 +279,111 @@ func TestSenderSkipsWhenVAPIDMissing(t *testing.T) {
 	}
 }
 
+// TestPurgeDeletesOnlyOldTerminalRows seeds an old SENT outbox with an old SENT
+// delivery, an old PENDING outbox with an old PENDING delivery, and an old SENT
+// outbox whose delivery is still inside the retention window. Only the first
+// pair may disappear; the third stays because its delivery row still exists.
+func TestPurgeDeletesOnlyOldTerminalRows(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	household, user := seedMember(t, pool)
+	subscription := seedSubscription(t, pool, household, user, "https://1.1.1.1/purge?"+user)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	oldSent := seedPurgeOutbox(t, pool, household, user, 30, true)
+	seedPurgeDelivery(t, pool, oldSent, subscription, "SENT", 30)
+
+	pending := seedPurgeOutbox(t, pool, household, user, 30, false)
+	seedPurgeDelivery(t, pool, pending, subscription, "PENDING", 30)
+
+	// Terminal outbox, delivery still fresh: deleting the outbox would strand
+	// the delivery on a missing foreign key, so the sweep must skip it.
+	freshDelivery := seedPurgeOutbox(t, pool, household, user, 30, true)
+	seedPurgeDelivery(t, pool, freshDelivery, subscription, "SENT", 0)
+
+	if _, err := Purge(ctx, pool, logger, DefaultRetention); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, row := range []struct {
+		query string
+		id    any
+		want  int
+	}{
+		{`SELECT count(*) FROM push_outbox WHERE id=$1`, oldSent, 0},
+		{`SELECT count(*) FROM push_outbox_delivery WHERE outbox_id=$1`, oldSent, 0},
+		{`SELECT count(*) FROM push_outbox WHERE id=$1 AND sent_at IS NULL AND abandoned_at IS NULL`, pending, 1},
+		{`SELECT count(*) FROM push_outbox_delivery WHERE outbox_id=$1 AND status='PENDING'`, pending, 1},
+		{`SELECT count(*) FROM push_outbox WHERE id=$1`, freshDelivery, 1},
+		{`SELECT count(*) FROM push_outbox_delivery WHERE outbox_id=$1`, freshDelivery, 1},
+	} {
+		var got int
+		if err := pool.QueryRow(ctx, row.query, row.id).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != row.want {
+			t.Fatalf("%s: got %d, want %d", row.query, got, row.want)
+		}
+	}
+}
+
+// TestPurgeRunsWithoutVAPID proves the sweep does not depend on push
+// configuration: the Sender cannot even be constructed with an empty key, and
+// Purge still removes the row.
+func TestPurgeRunsWithoutVAPID(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	household, user := seedMember(t, pool)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if _, err := NewSender(pool, "", "", logger); err == nil {
+		t.Fatal("expected the sender to be disabled without VAPID keys")
+	}
+
+	abandoned := seedPurgeOutbox(t, pool, household, user, 30, false)
+	if _, err := pool.Exec(ctx, `UPDATE push_outbox SET abandoned_at=now()-interval '30 days',last_error='expired' WHERE id=$1`, abandoned); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := Purge(ctx, pool, logger, DefaultRetention)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed=%d", removed)
+	}
+	var remaining int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM push_outbox WHERE id=$1`, abandoned).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("abandoned row still present")
+	}
+}
+
+// seedPurgeOutbox inserts one outbox row created ageDays ago; sent marks it
+// terminal, otherwise it stays pending.
+func seedPurgeOutbox(t *testing.T, pool *pgxpool.Pool, household, user string, ageDays int, sent bool) int64 {
+	t.Helper()
+	var id int64
+	if err := pool.QueryRow(context.Background(), `
+		INSERT INTO push_outbox(household_id,user_id,kind,payload,created_at,sent_at)
+		VALUES($1,$2,'REVIEW','{}',now()-($3*interval '1 day'),
+			CASE WHEN $4::boolean THEN now()-($3*interval '1 day') END)
+		RETURNING id`, household, user, ageDays, sent).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func seedPurgeDelivery(t *testing.T, pool *pgxpool.Pool, outbox int64, subscription, status string, ageDays int) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO push_outbox_delivery(outbox_id,subscription_id,status,created_at,updated_at)
+		VALUES($1,$2,$3,now()-($4*interval '1 day'),now()-($4*interval '1 day'))`,
+		outbox, subscription, status, ageDays); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

@@ -24,6 +24,14 @@ const (
 	// A review push is useful while the inbox item is fresh; replaying a month
 	// of history to a newly subscribed device is noise, not notification.
 	DefaultExpiry = time.Hour
+	// DefaultRetention bounds how long a terminal row is kept for diagnosis.
+	// Delivery outcomes are only useful while chasing a user's "I did not get
+	// that notification" report, which resolves within days; a week leaves a
+	// full week of history on hand without letting either table grow forever.
+	DefaultRetention = 7 * 24 * time.Hour
+	// purgeBatch caps one sweep so the first purge after a long uptime deletes
+	// in bounded chunks instead of holding locks over an arbitrarily large set.
+	purgeBatch = 1000
 )
 
 // Sender claims pending outbox rows and delivers them to live subscriptions.
@@ -196,6 +204,59 @@ func Expire(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, maxAge
 		logger.Info("push outbox expired", "rows", len(ids))
 	}
 	return len(ids), nil
+}
+
+// Purge deletes terminal push rows older than retention, in batches of at most
+// purgeBatch per table. Expire bounds how long a row stays eligible for
+// delivery; without this sweep both tables would grow for the life of the
+// deployment. Like Expire it is a free function: the worker runs it on the same
+// unconditional tick, so a deployment with no VAPID keys still cleans up.
+//
+// The outbox -> delivery foreign key has no ON DELETE CASCADE, so nothing is
+// taken along implicitly: deliveries are deleted first (oldest first), then
+// outbox rows that no longer have any delivery row. Outbox rows whose
+// deliveries are newer than retention therefore wait for the next sweeps
+// instead of failing the delete. PENDING deliveries are never matched, and an
+// outbox row that still has a PENDING delivery keeps its row either way.
+//
+// It returns the number of outbox rows removed; both counts are logged.
+func Purge(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, retention time.Duration) (int, error) {
+	deliveries, err := pool.Exec(ctx, `
+		WITH doomed AS (
+			SELECT id FROM push_outbox_delivery
+			WHERE status IN ('SENT','DEAD','FAILED')
+			  AND updated_at < now()-($1*interval '1 second')
+			ORDER BY updated_at,id
+			LIMIT $2
+			FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM push_outbox_delivery d USING doomed
+		WHERE d.id=doomed.id`,
+		int(retention.Seconds()), purgeBatch)
+	if err != nil {
+		return 0, err
+	}
+	outbox, err := pool.Exec(ctx, `
+		WITH doomed AS (
+			SELECT id FROM push_outbox o
+			WHERE (o.sent_at IS NOT NULL OR o.abandoned_at IS NOT NULL)
+			  AND COALESCE(o.sent_at,o.abandoned_at) < now()-($1*interval '1 second')
+			  AND NOT EXISTS (SELECT 1 FROM push_outbox_delivery d WHERE d.outbox_id=o.id)
+			ORDER BY COALESCE(o.sent_at,o.abandoned_at),id
+			LIMIT $2
+			FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM push_outbox o USING doomed
+		WHERE o.id=doomed.id`,
+		int(retention.Seconds()), purgeBatch)
+	if err != nil {
+		return 0, err
+	}
+	removed := int(outbox.RowsAffected())
+	if logger != nil && (removed > 0 || deliveries.RowsAffected() > 0) {
+		logger.Info("push retention purge", "outbox_rows", removed, "delivery_rows", deliveries.RowsAffected())
+	}
+	return removed, nil
 }
 
 func (s *Sender) claim(ctx context.Context) ([]outboxRow, error) {
