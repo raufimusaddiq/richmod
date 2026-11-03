@@ -363,3 +363,17 @@ test("transaction date filters carry visible labels", () => {
   assert.match(page, /<label className="filter-date"><span>Dari tanggal<\/span><input name="from" type="date"/);
   assert.match(page, /<label className="filter-date"><span>Sampai tanggal<\/span><input name="to" type="date"/);
 });
+
+test("motion uses one scale and one reduced-motion guard", () => {
+  const source = css();
+  assert.equal((source.match(/prefers-reduced-motion: reduce/g) || []).length, 1, "the reduce guard is declared exactly once");
+  const motion = text("app/styles/15-motion.css");
+  const guard = motion.indexOf("@media (prefers-reduced-motion: reduce)");
+  assert.ok(guard > 0, "the motion piece owns the guard");
+  assert.match(motion.slice(guard), /animation-duration: \.01ms !important/);
+  assert.match(motion.slice(guard), /transition-duration: \.01ms !important/);
+  for (const token of ["motion-fast", "motion-base", "motion-slow", "ease-standard", "ease-out"]) assert.match(source, new RegExp(`--${token}: `), `--${token} is missing from the scale`);
+  // Every animation the app adds reads the scale; a literal duration outside
+  // the guard would be a second timing the scale does not describe.
+  assert.doesNotMatch(motion.slice(0, guard), /\b\d*\.?\d+m?s\b/, "motion rules must not hard-code a duration");
+});
