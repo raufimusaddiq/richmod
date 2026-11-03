@@ -210,6 +210,11 @@ func run(logger *slog.Logger) error {
 			if _, err := push.Expire(ctx, pool, logger, push.DefaultExpiry); err != nil {
 				logger.Warn("push outbox expiry failed", "error", err)
 			}
+			// Same unconditional tick: terminal rows are deleted even when VAPID
+			// is unset and no Sender exists, so neither table grows unbounded.
+			if _, err := push.Purge(ctx, pool, logger, push.DefaultRetention); err != nil {
+				logger.Warn("push retention purge failed", "error", err)
+			}
 			catchUpResidualReviews(ctx, logger, pool, 25)
 			if created, err := reviewdomain.SweepFailedSources(ctx, pool, 50); err != nil {
 				logger.Warn("failed source sweep failed", "error", err)
