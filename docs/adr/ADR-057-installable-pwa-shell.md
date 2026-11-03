@@ -138,19 +138,25 @@ whole family of defects.
    `skipWaiting()`s and keeps no cache, `registration.waiting` is always null,
    so the signal cannot be a waiting worker as it is in Antares. Each build
    gets an identity from `apps/web/scripts/build-id.mjs`: a 12-character
-   SHA-256 prefix over the files that ship (`app/`, `public/`,
-   `next.config.mjs`, `package.json`, `package-lock.json`), run before every
-   `build` and `dev`. The release SHA is deliberately not used: the container
+   SHA-256 prefix over every file that feeds the export (`app/`, `public/`,
+   `scripts/` — `app/layout.js` imports `scripts/splash-devices.mjs` — plus
+   `next.config.mjs`, `package.json`, `package-lock.json`), sorted by path with
+   the path hashed alongside the contents, run before every `build` and `dev`.
+   Only generated output is excluded (`public/build-id.txt`,
+   `app/lib/buildId.generated.js`), or the hash could not stabilise. The release SHA is deliberately not used: the container
    builds `apps/web` without `.git`. One computation writes both
    `app/lib/buildId.generated.js`, which the page imports so it knows its own
    id with no request, and `public/build-id.txt`, which `webui.go` serves for
-   the deployed build. `BuildUpdateNotice` polls `/build-id.txt` every ten
-   minutes only while the tab is visible, checks once on `visibilitychange`
-   to visible, seeds the comparison with its own id, and treats a failed,
-   empty or malformed response as "no update". It shows a dismissible
+   the deployed build. `BuildUpdateNotice` checks once at mount — every route
+   mounts a new shell, so a timer started fresh on mount would never reach its
+   first tick for an active user — then polls `/build-id.txt` every ten minutes
+   only while the tab is visible, and checks once on `visibilitychange` to
+   visible. The comparison is seeded with the page's own id, and a failed,
+   empty or malformed response is "no update". It shows a dismissible
    in-flow bar ("Versi baru tersedia" + "Muat ulang") above the page header;
    the reload is the user's choice, and a dismissal lasts only this page
-   load. The root layout's shell renders it, so every signed-in page has it
+   load (module state, so it survives client-side navigation but not a
+   reload). The root layout's shell renders it, so every signed-in page has it
    without each page knowing.
 
 ## Abandoned design

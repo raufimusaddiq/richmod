@@ -85,6 +85,12 @@ export function startBuildWatch({
   }
 
   doc?.addEventListener?.("visibilitychange", onVisibilityChange);
+  // Check once at mount, after the page has painted: every route mounts a new
+  // shell, so a timer that starts fresh here would be reset by an active user
+  // before it ever fired. The comparison is seeded with the page's own id, so
+  // this first check cannot announce an update by itself. Navigating then costs
+  // one small conditional request, and a hidden document still checks nothing.
+  void check();
   schedule();
 
   return {
