@@ -6,7 +6,7 @@ COPY apps/web ./
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM golang:1.27.1-alpine AS build
+FROM golang:1.27.3-alpine AS build
 WORKDIR /src
 COPY apps/api/go.mod ./apps/api/
 COPY apps/reviewdomain/go.mod ./apps/reviewdomain/
