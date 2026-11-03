@@ -71,8 +71,17 @@ whole family of defects.
    - `activate`: deletes the abandoned `richmod-static-*` and
      `richmod-generations` stores left by earlier releases, then
      `clients.claim()`;
+   - `push`: shows a notification, falling back to a generic title and body
+     when the payload is empty or malformed, because iOS drops a subscription
+     after repeated pushes that show nothing;
+   - `notificationclick`: focuses an open window and navigates it to the
+     payload's target, or opens one when none is open; a target that is not a
+     same-origin path becomes `/inbox`;
    - no `fetch` listener at all, so `respondWith` is never called and every
      request goes to the network exactly as it would without a worker.
+
+   Push listeners do not cache: no `caches.open` call exists, and the worker
+   still intercepts no request.
 
    HTML, RSC payloads, `_next/static`, the manifest and the API are therefore
    always fresh, and no release can leave an installed client on a build whose

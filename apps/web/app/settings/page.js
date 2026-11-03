@@ -75,8 +75,153 @@ export default function SettingsPage() {
       <SettingsSection title="Email, Telegram, dan gateway" description="Alamat email dibuat Richmod dan aktif hanya setelah pemilik melakukan cutover.">
         <div className="integration-grid"><article><span className={`health-dot ${data.emailIngress?.status === "ACTIVE" ? "ok" : ""}`}/><div><b>Email notifikasi bank</b><small>{data.emailIngress?.address || "Alamat belum dibuat"}{data.emailIngress?.status ? ` · ${data.emailIngress.status}` : ""}{data.emailIngress?.lastReceivedAt ? ` · diterima ${dateTime(data.emailIngress.lastReceivedAt)}` : ""}</small></div><div className="integration-actions">{owner && !data.emailIngress?.address && <button className="secondary" disabled={working === "email-ingress-create"} onClick={() => emailIngressAction()}>Buat alamat</button>}{data.emailIngress?.address && <button className="secondary" onClick={copyEmailIngress}>Salin</button>}{owner && data.emailIngress?.status === "PROVISIONED" && <button disabled={working === "email-ingress-activate"} onClick={() => emailIngressAction("activate")}>Aktifkan</button>}{owner && data.emailIngress?.address && <button className="secondary" disabled={working === "email-ingress-rotate"} onClick={async () => { if (await confirm("Alamat lama akan dinonaktifkan. Lanjutkan?", { confirmLabel: "Rotasi alamat", danger: true })) emailIngressAction("rotate"); }}>Rotasi</button>}</div></article><article><span className={`health-dot ${data.members.some(item => item.telegramConnected) ? "ok" : ""}`}/><div><b>Telegram bot</b><small>{data.members.filter(item => item.telegramConnected).length} anggota terhubung</small></div><a className="button secondary" href="/household">Kelola</a></article><article><span className={`health-dot ${data.operations?.worker?.healthy && data.operations?.llmGateway?.configured ? "ok" : ""}`}/><div><b>Worker & LLM gateway</b><small>Worker {data.operations?.worker?.healthy ? "sehat" : "perlu perhatian"} · gateway {data.operations?.llmGateway?.configured ? "terkonfigurasi" : "tidak dikonfigurasi"}</small></div></article></div>
       </SettingsSection>
+      <NotificationsSection />
     </div>
   </AppShell>;
+}
+
+// The browser owns the truth: the card is a view of Notification.permission
+// and PushManager.getSubscription(), never of what the app last did.
+export function notificationState({ supported, ios, installed, serverEnabled, permission, subscribed }) {
+  if (!supported || !serverEnabled || (ios && !installed)) return "unsupported";
+  if (permission === "denied") return "denied";
+  if (permission === "granted") return subscribed ? "subscribed" : "granted";
+  return "not-asked";
+}
+
+function base64Key(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
+}
+
+// Unsubscribing locally and deleting the server row are one action; either
+// alone leaves a subscription the sender keeps trying to reach.
+export async function disableNotifications(serviceWorker, request = fetch) {
+  const registration = await serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager?.getSubscription();
+  if (!subscription) return "missing";
+  const response = await request("/api/v1/push/subscriptions", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+  await subscription.unsubscribe();
+  return response.ok ? "off" : "unconfirmed";
+}
+
+const PUSH_COPY = {
+  unsupported: ["Tidak didukung di perangkat ini", "Peramban ini belum mendukung notifikasi push."],
+  "not-asked": ["Belum diaktifkan", "Aktifkan untuk menerima pemberitahuan saat ada tinjauan atau tindakan yang menunggu."],
+  denied: ["Diblokir", "Notifikasi diblokir untuk situs ini. Buka pengaturan situs di peramban, izinkan notifikasi, lalu muat ulang halaman ini. Richmod tidak dapat meminta izin lagi."],
+  granted: ["Belum terdaftar", "Izin notifikasi sudah diberikan, tetapi perangkat ini belum terdaftar. Coba daftarkan ulang."],
+  subscribed: ["Aktif", "Notifikasi aktif di perangkat ini. Pemberitahuan muncul saat ada tinjauan atau tindakan baru."],
+};
+
+export function NotificationsView({ state, iosNotInstalled = false, serverDisabled = false, working = false, status = "", onEnable, onDisable }) {
+  const [fallbackTitle, fallbackBody] = PUSH_COPY[state] || ["Memeriksa status notifikasi", "Richmod memeriksa dukungan notifikasi di peramban ini."];
+  const title = state === "unsupported" && iosNotInstalled ? "Perlu dipasang ke Layar Utama" : fallbackTitle;
+  const body = state === "unsupported" && iosNotInstalled
+    ? "Safari di iPhone dan iPad hanya menerima notifikasi setelah Richmod ditambahkan ke Layar Utama. Buka menu Bagikan lalu pilih Tambahkan ke Layar Utama."
+    : state === "unsupported" && serverDisabled
+      ? "Server ini belum mengaktifkan notifikasi push, jadi perangkat belum dapat mendaftar."
+      : fallbackBody;
+  return <>
+    <div className="notification-state">
+      <div className="notification-copy"><b>{title}</b><p>{body}</p></div>
+      {(state === "not-asked" || state === "granted") && <button type="button" disabled={working} onClick={onEnable}>{working ? "Memproses…" : state === "granted" ? "Coba lagi" : "Aktifkan notifikasi"}</button>}
+      {state === "subscribed" && <button type="button" className="secondary" disabled={working} onClick={onDisable}>{working ? "Mematikan…" : "Matikan notifikasi"}</button>}
+    </div>
+    <p className="notification-status" role="status" aria-live="polite">{status}</p>
+  </>;
+}
+
+function NotificationsSection() {
+  const [view, setView] = useState({ state: "checking", iosNotInstalled: false, serverDisabled: false, publicKey: "" });
+  const [working, setWorking] = useState(false);
+  const [status, setStatus] = useState("");
+
+  const refresh = useCallback(async () => {
+    const supported = typeof window !== "undefined" && "PushManager" in window && "serviceWorker" in navigator && "Notification" in window;
+    const ios = typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    const installed = typeof navigator !== "undefined" && (navigator.standalone === true || window.matchMedia?.("(display-mode: standalone)")?.matches === true);
+    let server = null;
+    try {
+      const response = await fetch("/api/v1/push/public-key");
+      if (response.ok) server = await response.json();
+    } catch {
+      // A server that cannot answer is treated as not configured.
+    }
+    let subscribed = false;
+    if (supported) {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        subscribed = Boolean(await registration?.pushManager.getSubscription());
+      } catch {
+        // No registration means no subscription; the state below says so.
+      }
+    }
+    const serverEnabled = Boolean(server?.enabled);
+    const state = notificationState({ supported, ios, installed, serverEnabled, permission: supported ? Notification.permission : "default", subscribed });
+    setView({ state, iosNotInstalled: ios && !installed, serverDisabled: supported && (!ios || installed) && !serverEnabled, publicKey: server?.publicKey || server?.public_key || "" });
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const onVisible = () => { if (!document.hidden) refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refresh]);
+
+  async function enable() {
+    if (working) return;
+    setWorking(true); setStatus("");
+    try {
+      if (!("PushManager" in window)) { setStatus("Peramban ini belum mendukung notifikasi."); return; }
+      if (Notification.permission === "denied") { setStatus("Notifikasi diblokir untuk situs ini dan hanya dapat diizinkan dari pengaturan peramban."); return; }
+      if (Notification.permission === "default" && await Notification.requestPermission() !== "granted") {
+        setStatus(Notification.permission === "denied" ? "Izin notifikasi ditolak dan hanya dapat diubah dari pengaturan peramban." : "Izin notifikasi belum diberikan.");
+        return;
+      }
+      if (!view.publicKey) { setStatus("Server ini belum mengaktifkan notifikasi push."); return; }
+      const registration = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(view.publicKey) });
+      const response = await fetch("/api/v1/push/subscriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: subscription.endpoint, keys: subscription.toJSON().keys }),
+      });
+      if (!response.ok) {
+        await subscription.unsubscribe().catch(() => {});
+        setStatus("Perangkat ini belum dapat didaftarkan. Coba lagi.");
+        return;
+      }
+      setStatus("Notifikasi aktif di perangkat ini.");
+    } catch {
+      setStatus("Notifikasi belum dapat diaktifkan. Coba lagi.");
+    } finally {
+      setWorking(false);
+      await refresh();
+    }
+  }
+
+  async function disable() {
+    if (working) return;
+    setWorking(true); setStatus("");
+    try {
+      const result = await disableNotifications(navigator.serviceWorker);
+      setStatus(result === "missing" ? "Perangkat ini memang belum terdaftar." : result === "off" ? "Notifikasi dimatikan di perangkat ini." : "Notifikasi dimatikan di perangkat ini, tetapi server belum mengonfirmasi. Coba lagi nanti.");
+    } catch {
+      setStatus("Notifikasi belum dapat dimatikan. Coba lagi.");
+    } finally {
+      setWorking(false);
+      await refresh();
+    }
+  }
+
+  return <SettingsSection title="Notifikasi" description="Notifikasi dikirim ke perangkat ini saat ada transaksi atau tindakan integrasi yang menunggu tinjauan.">
+    <NotificationsView state={view.state} iosNotInstalled={view.iosNotInstalled} serverDisabled={view.serverDisabled} working={working} status={status} onEnable={enable} onDisable={disable} />
+  </SettingsSection>;
 }
 
 function SettingsSection({ title, description, children }) {
