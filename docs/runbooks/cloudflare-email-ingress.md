@@ -32,7 +32,7 @@ Raw RFC822 bytes stay in private R2. Queue messages carry delivery metadata only
 | Delivery Queue | `richmod-email-delivery` | Durable delivery metadata between Workers |
 | Delivery Worker | `richmod-email-delivery-worker` | Reads R2, signs, and sends MIME to Richmod API |
 | Dead-letter Queue | `richmod-email-dlq` | Parks messages after retry exhaustion |
-| Richmod endpoint | `https://api.investdx.biz.id/finance/v1/email/inbond` | Machine-to-machine ingress endpoint |
+| Richmod endpoint | `https://api.musaddiqr.com/finance/v1/email/inbond` | Machine-to-machine ingress endpoint |
 
 > The endpoint is intentionally spelled `/inbond`. Do not change a Cloudflare variable to `/inbound` unless the Go route changes too.
 
@@ -174,7 +174,7 @@ Secret
   RICHMOD_INGRESS_SECRET
 
 Variable
-  RICHMOD_INGRESS_URL=https://api.investdx.biz.id/finance/v1/email/inbond
+  RICHMOD_INGRESS_URL=https://api.musaddiqr.com/finance/v1/email/inbond
 ```
 
 `RICHMOD_INGRESS_SECRET` must be the same literal secret string configured as `EMAIL_INGRESS_HMAC_SECRET` in the Richmod API environment.

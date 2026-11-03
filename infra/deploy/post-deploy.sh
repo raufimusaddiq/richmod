@@ -5,12 +5,21 @@ set -eu
 : "${RICHMOD_IMAGE_TAG:?set RICHMOD_IMAGE_TAG}"
 : "${RICHMOD_PREVIOUS_IMAGE_TAG:?set RICHMOD_PREVIOUS_IMAGE_TAG}"
 
-health_url=${RICHMOD_HEALTH_URL:-https://finance.investdx.biz.id/healthz}
-ready_url=${RICHMOD_READY_URL:-https://finance.investdx.biz.id/readyz}
+health_url=${RICHMOD_HEALTH_URL:-https://finance.musaddiqr.com/healthz}
+ready_url=${RICHMOD_READY_URL:-https://finance.musaddiqr.com/readyz}
 docker_bin=${DOCKER_BIN:-docker}
 
 curl --fail --silent --show-error "$health_url" >/dev/null
 curl --fail --silent --show-error "$ready_url" >/dev/null
+
+# Telegram does not follow redirects, so a stale registered webhook URL drops
+# every inbound update while the health checks above stay green. Warn only: a
+# webhook mismatch must not roll back an otherwise healthy deploy.
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if ! sh "$script_dir/../../scripts/set-telegram-webhook.sh" --check; then
+	printf '%s\n' "warning: telegram webhook --check failed; inbound Telegram updates are being dropped" >&2
+	printf '%s\n' "warning: re-register with scripts/set-telegram-webhook.sh after confirming WEB_ORIGIN and the bot secret" >&2
+fi
 
 if [ "$RICHMOD_PREVIOUS_IMAGE_TAG" = "$RICHMOD_IMAGE_TAG" ]; then
 	printf '%s\n' "current and previous image tags are identical; skipping image cleanup" >&2
