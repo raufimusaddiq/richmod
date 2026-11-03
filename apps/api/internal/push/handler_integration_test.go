@@ -6,8 +6,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -144,8 +146,15 @@ func TestSubscriptionScopedToCaller(t *testing.T) {
 
 	// Another user cannot take it over by re-subscribing to the same endpoint.
 	otherP256DH, _ := newTestSubscriptionKeys()
-	if response := subscribe(handler, userB, householdB, endpoint, otherP256DH); response.Code != http.StatusConflict {
-		t.Fatalf("subscribe B same endpoint=%d %s", response.Code, response.Body.String())
+	conflict := subscribe(handler, userB, householdB, endpoint, otherP256DH)
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("subscribe B same endpoint=%d %s", conflict.Code, conflict.Body.String())
+	}
+	var conflictBody struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(conflict.Body.Bytes(), &conflictBody); err != nil || conflictBody.Code != "ENDPOINT_OWNED_BY_ANOTHER_USER" {
+		t.Fatalf("conflict code=%q body=%s", conflictBody.Code, conflict.Body.String())
 	}
 	var owner string
 	var storedKey string
@@ -278,5 +287,165 @@ func heartbeat(handler *Handler, user, endpoint string) *httptest.ResponseRecord
 	}))
 	recorder := httptest.NewRecorder()
 	handler.Heartbeat(recorder, request)
+	return recorder
+}
+
+func TestListRequiresHouseholdMembership(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/push/subscriptions", nil)
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user", HasHousehold: false}))
+	newTestHandler(nil, "", "").List(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("list without household=%d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestListReturnsOnlyCallerSubscriptionsIncludingRetired(t *testing.T) {
+	pool := apiTestPool(t)
+	handler := newTestHandler(pool, testVAPIDPrivate, "mailto:test@example.invalid")
+	householdA, userA := apiSeedMember(t, pool)
+	householdB, userB := apiSeedMember(t, pool)
+	live := "https://1.1.1.1/list-live/" + householdA
+	retired := "https://1.1.1.1/list-retired/" + householdA
+	other := "https://1.1.1.1/list-other/" + householdB
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5)`, userA, householdA, live, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth,disabled_at) VALUES($1,$2,$3,$4,$5,now())`, userA, householdA, retired, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5)`, userB, householdB, other, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	recorder := list(handler, userA, householdA)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list=%d %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Subscriptions []struct {
+			Endpoint string `json:"endpoint"`
+			Active   bool   `json:"active"`
+		} `json:"subscriptions"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Subscriptions) != 2 {
+		t.Fatalf("caller sees %d subscriptions, want 2: %s", len(payload.Subscriptions), recorder.Body.String())
+	}
+	states := map[string]bool{}
+	for _, item := range payload.Subscriptions {
+		states[item.Endpoint] = item.Active
+	}
+	if active, ok := states[live]; !ok || !active {
+		t.Fatalf("live subscription missing or inactive: %v", states)
+	}
+	if active, ok := states[retired]; !ok || active {
+		t.Fatalf("retired subscription missing or active: %v", states)
+	}
+	if _, ok := states[other]; ok {
+		t.Fatal("another household's subscription leaked into the list")
+	}
+}
+
+func TestListFiltersByEndpointBeyondAnyPage(t *testing.T) {
+	pool := apiTestPool(t)
+	handler := newTestHandler(pool, testVAPIDPrivate, "mailto:test@example.invalid")
+	household, user := apiSeedMember(t, pool)
+	target := "https://1.1.1.1/oldest-active/" + household
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth,created_at) VALUES($1,$2,$3,$4,$5,now()-interval '2 days')`, user, household, target, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 100; index++ {
+		endpoint := fmt.Sprintf("https://1.1.1.1/retired-%03d/%s", index, household)
+		if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth,created_at,disabled_at) VALUES($1,$2,$3,$4,$5,now()-interval '1 hour',now())`, user, household, endpoint, testP256DH, testAuth); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recorder := listEndpoint(handler, user, household, target)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("filtered list=%d %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Subscriptions []struct {
+			Endpoint string `json:"endpoint"`
+			Active   bool   `json:"active"`
+		} `json:"subscriptions"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Subscriptions) != 1 || payload.Subscriptions[0].Endpoint != target || !payload.Subscriptions[0].Active {
+		t.Fatalf("filtered payload=%s", recorder.Body.String())
+	}
+}
+
+func TestListFilterNeverReturnsAnotherUsersEndpoint(t *testing.T) {
+	pool := apiTestPool(t)
+	handler := newTestHandler(pool, testVAPIDPrivate, "mailto:test@example.invalid")
+	householdA, userA := apiSeedMember(t, pool)
+	householdB, userB := apiSeedMember(t, pool)
+	own := "https://1.1.1.1/own/" + householdA
+	foreign := "https://1.1.1.1/foreign/" + householdB
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5)`, userA, householdA, own, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5)`, userB, householdB, foreign, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	recorder := listEndpoint(handler, userA, householdA, foreign)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("foreign filter=%d %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Subscriptions []any `json:"subscriptions"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Subscriptions) != 0 {
+		t.Fatalf("foreign endpoint leaked: %s", recorder.Body.String())
+	}
+	// The caller still sees its own row when filtering for it, with whitespace trimmed.
+	trimmed := listEndpoint(handler, userA, householdA, "  "+own+"  ")
+	if !strings.Contains(trimmed.Body.String(), own) {
+		t.Fatalf("own endpoint not returned: %s", trimmed.Body.String())
+	}
+}
+
+func TestResubscribeSameEndpointIsIdempotent(t *testing.T) {
+	pool := apiTestPool(t)
+	handler := newTestHandler(pool, testVAPIDPrivate, "mailto:test@example.invalid")
+	household, user := apiSeedMember(t, pool)
+	endpoint := "https://1.1.1.1/idempotent/" + household
+	for attempt := 1; attempt <= 2; attempt++ {
+		if response := subscribe(handler, user, household, endpoint, testP256DH); response.Code != http.StatusCreated {
+			t.Fatalf("subscribe attempt %d=%d %s", attempt, response.Code, response.Body.String())
+		}
+	}
+	var count int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2 AND disabled_at IS NULL`, endpoint, user).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("re-subscribe left %d live rows, want 1", count)
+	}
+}
+
+func listEndpoint(handler *Handler, user, household, endpoint string) *httptest.ResponseRecorder {
+	return listWithQuery(handler, user, household, "?endpoint="+url.QueryEscape(endpoint))
+}
+
+func list(handler *Handler, user, household string) *httptest.ResponseRecorder {
+	return listWithQuery(handler, user, household, "")
+}
+
+func listWithQuery(handler *Handler, user, household, query string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/push/subscriptions"+query, nil)
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{
+		UserID: user, HouseholdID: household, HouseholdRole: "OWNER", HasHousehold: true,
+	}))
+	recorder := httptest.NewRecorder()
+	handler.List(recorder, request)
 	return recorder
 }
