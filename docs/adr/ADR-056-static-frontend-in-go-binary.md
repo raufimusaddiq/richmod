@@ -29,7 +29,10 @@ executing any application logic.
    the seven former `no-store, max-age=0` routes keep that value, other HTML
    keeps Next's dynamic default (`private, no-cache, no-store, max-age=0,
    must-revalidate`), `/_next/static/` stays immutable for one year, and public
-   files keep `public, max-age=0`.
+   files keep `public, max-age=0`. Since ADR-057's update notice, the generated
+   `/build-id.txt` uses the revalidating metadata class
+   (`public, max-age=0, must-revalidate`), because its value changes on every
+   release.
 4. API-owned paths (`/api`, `/webhooks`, `/finance`, `/healthz`, `/readyz`) keep
    the existing handlers and middleware. The UI is served outside
    `securityHeaders`, whose `Content-Security-Policy: default-src 'none'` would

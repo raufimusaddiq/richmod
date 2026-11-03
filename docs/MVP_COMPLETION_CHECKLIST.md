@@ -4,7 +4,7 @@
 
 **Governing document:** [`RICHMOD_PRODUCT_ALIGNMENT_V2.md`](RICHMOD_PRODUCT_ALIGNMENT_V2.md)
 
-**Production:** `https://finance.investdx.biz.id`, schema version 14
+**Production:** `https://finance.musaddiqr.com`, schema version 14
 **Scope:** household income and expense tracking, IDR only, `Asia/Jakarta`
 
 This is the living delivery checklist for Product Alignment v2. A backend

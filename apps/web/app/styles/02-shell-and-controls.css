@@ -31,6 +31,16 @@
 .header-meta { color: var(--muted); font-size: var(--text-xs); }
 .page-intro { max-width: 68ch; margin: -17px 0 26px; color: var(--muted); line-height: 1.65; }
 
+/* A newer build is deployed (#413). It sits in the shell's flow above the page
+   header rather than floating over it: an overlay would hide whatever the user
+   is reading, which matters more than the one-time push-down when it appears.
+   The message is text, never colour alone. */
+.build-update { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; padding: 8px 8px 8px 14px; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--accent-soft); }
+.build-update-body { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.build-update p { flex: 1 1 auto; min-width: 0; margin: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.build-update button { min-height: 44px; }
+.build-update-dismiss { flex: 0 0 auto; width: 44px; padding: 0; border-color: transparent; background: transparent; }
+
 button, .button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; border: 2px solid var(--ink); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--ink); font-weight: var(--weight-semibold); text-decoration: none; cursor: pointer; transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard); }
 button:hover:not(:disabled), .button:hover { background: var(--accent-hover); color: var(--surface-strong); }
 button:active:not(:disabled), .button:active { transform: translateY(1px); }
