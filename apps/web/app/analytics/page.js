@@ -35,6 +35,15 @@ function AnalyticsReview() {
   const [insightError, setInsightError] = useState("");
   const insightAbort = useRef(null);
   const [drafts, setDrafts] = useState({});
+  // A cycle the reader picked is the only thing allowed to mark an updated
+  // figure; the first load and the insight poll are not.
+  const valueNav = useRef(false);
+  const [valueUpdated, setValueUpdated] = useState(0);
+  useEffect(() => {
+    if (!facts || !valueNav.current) return;
+    valueNav.current = false;
+    setValueUpdated(value => value + 1);
+  }, [facts]);
 
   useEffect(() => {
     if (!Object.values(drafts).some(body => body.trim())) return;
@@ -52,6 +61,7 @@ function AnalyticsReview() {
   }, [drafts]);
 
   function navigate(change) {
+    if ("cycle" in change) valueNav.current = true;
     window.history.pushState(null, "", selectionHref({ ...selection, ...change }));
   }
 
@@ -174,7 +184,7 @@ function AnalyticsReview() {
           {meeting && <MeetingNav step={step} selection={selection} navigate={navigate}/>}
           {facts.history?.length > 0 && <CycleLedger history={facts.history} selected={facts.period.start} median={facts.period.state === "CLOSED" ? facts.comparison.expense.median3 : null} verdict={verdictPairs(facts)} onSelect={start => navigate({ cycle: start, category: "", step: "" })} categoryHistory={facts.categoryHistory} selectedCategory={selection.category} selectable={facts.categoryChanges.map(item => item.id || "uncategorized")} onSelectCategory={chooseCategory}/>}
           {selectedCategory && !meeting && <p className="ledger-selection" role="status"><span>Bukti kategori <strong>{selectedCategory.name}</strong> terbuka di bagian bawah.</span> <a href="#drivers-title" onClick={showEvidence}>Lihat bukti</a><button type="button" className="secondary" onClick={() => navigate({ category: "" })}>Hapus pilihan</button></p>}
-          <CyclePosition facts={facts}/>
+          <CyclePosition facts={facts} updated={valueUpdated}/>
           <section id="spending-shape" className="review-section analytics-chart" aria-labelledby="shape-title">
             <SectionTitle id="shape-title" about="pola pengeluaran" title={facts.period.state === "ACTIVE" ? "Pola pengeluaran siklus ini" : "Pola pengeluaran siklus terpilih"} description="Kapan pengeluaran terjadi? Nilai harian sudah dikurangi refund; transfer tidak termasuk."/>
             <div className="shape-charts">

@@ -8,7 +8,8 @@ const port = "3210";
 const base = `http://127.0.0.1:${port}`;
 const output = new URL("../test-results/cycle-review/", import.meta.url);
 const user = { id: "synthetic-user", displayName: "Rafi", householdName: "Rumah keluarga", household: { role: "OWNER" } };
-const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", port], { stdio: "inherit" });
+// Serve the static export the API embeds; `next start` cannot run an export.
+const server = spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: port } });
 let browser;
 
 async function waitForServer() {

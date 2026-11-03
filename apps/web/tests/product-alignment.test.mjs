@@ -68,7 +68,6 @@ test("transaction filters are query-backed", () => {
 test("ledger request failures are recoverable instead of leaving the page loading", () => {
   const source = text("app/transactions/page.js");
   assert.match(source, /<ErrorNotice message=\{error\} retry=\{load\}\/>/);
-  assert.match(source, /dynamic = "force-dynamic"/);
   assert.match(text("app/components/AuthProvider.js"), /setLoaded\(true\)/);
 });
 
@@ -81,9 +80,12 @@ test("manual transactions use an accessible dialog and refresh the ledger", () =
 });
 
 test("authenticated app shells are not cached across deployments", () => {
-  const source = text("next.config.mjs");
-  assert.match(source, /no-store/);
-  assert.match(source, /\/transactions/);
+  // The shell is a static export embedded in the Go binary; the handler owns the
+  // cache classes that next.config headers used to set.
+  const handler = readFileSync(new URL("../../api/internal/webui/webui.go", import.meta.url), "utf8");
+  assert.match(handler, /no-store, max-age=0/);
+  assert.match(handler, /"\/transactions": \{\}/);
+  assert.match(text("next.config.mjs"), /output: "export"/);
 });
 
 test("mobile shell keeps navigation usable and dismissable", () => {

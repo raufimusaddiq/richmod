@@ -43,7 +43,7 @@ services:
       TZ: Asia/Jakarta
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       API_ADDR: ${API_ADDR:-:8080}
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       LLM_GATEWAY_BASE_URL: ${LLM_GATEWAY_BASE_URL:-}
       LLM_GATEWAY_API_KEY: ${LLM_GATEWAY_API_KEY:-}
@@ -54,6 +54,8 @@ services:
       EMAIL_INGRESS_DOMAIN: ${EMAIL_INGRESS_DOMAIN:-richmod.link}
       EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS: ${EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS:-}
       DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       OSS_ENDPOINT: ${OSS_ENDPOINT:-}
       OSS_REGION: ${OSS_REGION:-}
       OSS_BUCKET: ${OSS_BUCKET:-}
@@ -87,6 +89,8 @@ services:
       LLM_MODEL_BANK_EXTRACT: ${LLM_MODEL_BANK_EXTRACT:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       DOCUMENT_STORAGE_PATH: ${DOCUMENT_STORAGE_PATH:-/var/lib/finance/attachments}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       OSS_ENDPOINT: ${OSS_ENDPOINT:-}
       OSS_REGION: ${OSS_REGION:-}
       OSS_BUCKET: ${OSS_BUCKET:-}
@@ -118,21 +122,6 @@ services:
     networks: [internal]
     restart: unless-stopped
 
-  web:
-    image: ${RICHMOD_WEB_IMAGE:-family-finance-web:latest}
-    build:
-      context: .
-      dockerfile: infra/docker/web.Dockerfile
-    environment:
-      TZ: Asia/Jakarta
-    depends_on:
-      api:
-        condition: service_started
-    ports:
-      - "127.0.0.1:3000:3000"
-    networks: [edge]
-    restart: unless-stopped
-
   backup:
     profiles: [operations]
     build:
@@ -156,6 +145,7 @@ services:
     restart: "no"
 
 networks:
+  # Non-internal: the API reaches OSS and the LLM gateway on outbound requests.
   edge:
   internal:
     internal: true

@@ -24,7 +24,7 @@
 .public-shell .button.public-button-primary svg { width: 17px; height: 17px; }
 .public-text-link { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 12px; font-weight: 750; text-decoration: none; }
 .public-text-link:hover { color: var(--accent-hover); }
-.landing-actions .public-text-link svg { transition: transform .18s ease; }
+.landing-actions .public-text-link svg { transition: transform var(--motion-base) var(--ease-out); }
 .landing-actions .public-text-link:hover svg { transform: translateY(2px); }
 .public-trust-note { display: inline-flex; align-items: center; gap: 8px; margin: 38px 0 0; color: var(--muted); font-size: var(--text-xs); }
 .public-trust-note svg { width: 15px; height: 15px; color: var(--accent); }
@@ -114,5 +114,4 @@
 .login-card-foot { display: block; margin-top: 22px; color: var(--faint); font-size: var(--text-xs); }
 .login-footer { display: flex; max-width: 1120px; margin: 0 auto; align-items: center; gap: 20px; padding: 0 28px 28px; color: var(--faint); font-size: var(--text-xs); }
 .login-footer span { margin-right: auto; }
-.login-loading { display: grid; min-height: 100dvh; place-items: center; color: var(--muted); font-size: 12px; }
 

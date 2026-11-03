@@ -15,11 +15,11 @@ export function MeetingNav({ step, selection, navigate }) {
   </div>;
 }
 
-export function CyclePosition({ facts }) {
+export function CyclePosition({ facts, updated = 0 }) {
   const active = facts.period.state === "ACTIVE"; // income lands on day 1, so net cashflow is not the headline until the cycle closes
-  return <section id="position" className="review-section cycle-position" aria-labelledby="position-title">
+  return <section id="position" className="review-section cycle-position" aria-labelledby="position-title" data-updated={updated || undefined}>
     <SectionTitle id="position-title" about="posisi siklus" title="Posisi siklus" description={active ? "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran. Selama siklus berjalan, arus kas bersih belum final karena pengeluaran masih bertambah." : "Hanya transaksi terkonfirmasi. Pengeluaran bersih setelah refund; transfer bukan pengeluaran."}/>
-    <dl className="cycle-outcome">
+    <dl className="cycle-outcome" key={updated}>
       {active
         ? <div className="cycle-net"><dt>Pengeluaran bersih sejauh ini</dt><dd>{money(facts.cashflow.expense)}</dd></div>
         : <div className="cycle-net"><dt>Arus kas bersih</dt><dd>{money(facts.cashflow.netCashflow)}</dd></div>}

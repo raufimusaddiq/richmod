@@ -12,6 +12,22 @@ export function publishInboxCount(count) {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(INBOX_COUNT_EVENT, { detail: count }));
 }
 
+// Mirror the one shared count onto the installed icon where the Badging API
+// exists. It is a no-op elsewhere; nothing else may keep a second count.
+export function applyBadge(target, count) {
+  if (!target) return;
+  const value = Number.isFinite(count) ? count : 0;
+  try {
+    if (value > 0) {
+      if (typeof target.setAppBadge === "function") Promise.resolve(target.setAppBadge(value)).catch(() => {});
+      return;
+    }
+    if (typeof target.clearAppBadge === "function") Promise.resolve(target.clearAppBadge()).catch(() => {});
+  } catch {
+    // Badging is decorative; a refusal must not break the app.
+  }
+}
+
 // One shared count for the whole session. The shell used to download both full
 // lists on every navigation; now it loads once, again when the tab regains
 // focus (at most once a minute), and whenever the inbox publishes a new count.
@@ -36,6 +52,8 @@ export default function InboxCountProvider({ children }) {
       loading.current = false;
     }
   }, []);
+
+  useEffect(() => { applyBadge(typeof navigator === "undefined" ? null : navigator, signedIn ? count : 0); }, [count, signedIn]);
 
   useEffect(() => {
     if (!signedIn) { setCount(0); return undefined; }

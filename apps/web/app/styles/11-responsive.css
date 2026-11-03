@@ -173,11 +173,6 @@
   .wealth-drawer-summary > div:first-child { border-top: 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
-}
-
-
 /* Tap targets: keep the visual size of small links, extend the hit area. */
 .settings-index a, .section-title a, .review-split a, .review-table-wrap a, .review-table-wrap td button { display: inline-flex; align-items: center; min-height: 32px; }
 @media (pointer: coarse) {

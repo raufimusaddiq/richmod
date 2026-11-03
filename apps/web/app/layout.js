@@ -1,22 +1,36 @@
 import "./globals.css";
 import "./detail-drawer.css";
+import { splashDevices } from "../scripts/splash-devices.mjs";
 import AuthProvider from "./components/AuthProvider";
 import InboxCountProvider from "./components/InboxCountProvider";
+import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 
-// The browser-authenticated app must not reuse an HTML shell from an older
-// deployment whose client chunks may have been replaced.
-export const dynamic = "force-dynamic";
 
 // viewport-fit=cover makes the safe-area insets real (Home Screen app, landscape).
-export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#245C54" };
 
 const socialTitle = "Richmod · Keuangan keluarga, tanpa menebak";
 const socialDescription = "Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan.";
 
 export const metadata = {
-  metadataBase: new URL("https://finance.investdx.biz.id"),
+  metadataBase: new URL("https://finance.musaddiqr.com"),
   title: socialTitle,
   description: "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
+  manifest: "/manifest.webmanifest",
+  // iOS ignores the manifest for install and reads these instead.
+  appleWebApp: {
+    capable: true,
+    title: "Richmod",
+    statusBarStyle: "default",
+    // iOS paints this before it makes any request, so it is the only thing
+    // covering the cold-start gap. One image per distinct phone geometry; the
+    // media query needs the logical size and the pixel ratio or iOS ignores it.
+    startupImage: splashDevices.map(device => ({ url: `/splash/${device.file}`, media: device.media })),
+  },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/apple-touch-icon-180.png", sizes: "180x180", type: "image/png" }],
+  },
   openGraph: {
     title: socialTitle,
     description: socialDescription,
@@ -43,7 +57,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
-      <body><AuthProvider><InboxCountProvider>{children}</InboxCountProvider></AuthProvider></body>
+      <body><meta name="apple-mobile-web-app-capable" content="yes" /><ServiceWorkerRegistrar /><AuthProvider><InboxCountProvider>{children}</InboxCountProvider></AuthProvider></body>
     </html>
   );
 }

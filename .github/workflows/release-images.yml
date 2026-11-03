@@ -57,10 +57,3 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/richmod-migrate:sha-${{ steps.release.outputs.sha }}
           labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: infra/docker/web.Dockerfile
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/richmod-web:sha-${{ steps.release.outputs.sha }}
-          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}

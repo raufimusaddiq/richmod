@@ -21,13 +21,15 @@ type API struct {
 	EmailIngressDomain             string
 	EmailIngressTrustedAuthservIDs string
 	DocumentStoragePath            string
+	VAPIDPrivateKey                string
+	VAPIDSubject                   string
 }
 
 func LoadAPI() (API, error) {
 	cfg := API{
 		Address:                        valueOr("API_ADDR", ":8080"),
 		DatabaseURL:                    os.Getenv("DATABASE_URL"),
-		WebOrigin:                      valueOr("WEB_ORIGIN", "http://localhost:3000"),
+		WebOrigin:                      valueOr("WEB_ORIGIN", "http://localhost:8080"),
 		SessionKey:                     os.Getenv("SESSION_SECRET"),
 		LLMGatewayBaseURL:              os.Getenv("LLM_GATEWAY_BASE_URL"),
 		LLMGatewayAPIKey:               os.Getenv("LLM_GATEWAY_API_KEY"),
@@ -38,6 +40,8 @@ func LoadAPI() (API, error) {
 		EmailIngressDomain:             valueOr("EMAIL_INGRESS_DOMAIN", "richmod.link"),
 		EmailIngressTrustedAuthservIDs: os.Getenv("EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS"),
 		DocumentStoragePath:            valueOr("DOCUMENT_STORAGE_PATH", "/var/lib/finance/attachments"),
+		VAPIDPrivateKey:                os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:                   os.Getenv("VAPID_SUBJECT"),
 	}
 	if cfg.DatabaseURL == "" {
 		return API{}, fmt.Errorf("DATABASE_URL is required")
