@@ -5,7 +5,7 @@
   "description": "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
   "lang": "id",
   "dir": "ltr",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f7f3e8",

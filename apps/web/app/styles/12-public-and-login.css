@@ -114,5 +114,4 @@
 .login-card-foot { display: block; margin-top: 22px; color: var(--faint); font-size: var(--text-xs); }
 .login-footer { display: flex; max-width: 1120px; margin: 0 auto; align-items: center; gap: 20px; padding: 0 28px 28px; color: var(--faint); font-size: var(--text-xs); }
 .login-footer span { margin-right: auto; }
-.login-loading { display: grid; min-height: 100dvh; place-items: center; color: var(--muted); font-size: 12px; }
 

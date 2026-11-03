@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import test from "node:test";
+import { splashDevices } from "../scripts/splash-devices.mjs";
 
 const file = path => new URL(`../${path}`, import.meta.url);
 const manifest = JSON.parse(readFileSync(file("public/manifest.webmanifest"), "utf8"));
@@ -59,7 +60,9 @@ function decodePng(buffer) {
 test("manifest is installable on iOS Safari and Android Chrome", () => {
   assert.equal(manifest.name, "Richmod — Keuangan keluarga");
   assert.equal(manifest.short_name, "Richmod");
-  assert.equal(manifest.start_url, "/");
+  // An installed app opens on the login form; a signed-in visitor is redirected
+  // to the dashboard by app/login/page.js.
+  assert.equal(manifest.start_url, "/login");
   assert.equal(manifest.scope, "/");
   assert.equal(manifest.display, "standalone");
   assert.match(manifest.background_color, /^#[0-9a-f]{6}$/i);
@@ -106,10 +109,27 @@ test("maskable icon keeps its mark inside the 80% safe circle", () => {
   assert.ok(corner < 100, "maskable icon is full-bleed, not transparent at the corners");
 });
 
+// The launch images are what iOS paints before the first request; a file whose
+// pixels do not match the media query that points at it is silently ignored.
+test("every iOS launch image is a real PNG of the size its media query claims", () => {
+  assert.equal(splashDevices.length, 12);
+  for (const device of splashDevices) {
+    const path = file(`public/splash/${device.file}`);
+    assert.ok(statSync(path).isFile(), `${device.file} is committed`);
+    const png = decodePng(readFileSync(path));
+    assert.deepEqual([png.width, png.height], [device.pixelWidth, device.pixelHeight], `${device.file} pixel size`);
+    assert.equal(png.channels, 3, `${device.file} is opaque`);
+    assert.match(device.media, new RegExp(`\\(device-width: ${device.width}px\\) and \\(device-height: ${device.height}px\\) and \\(-webkit-device-pixel-ratio: ${device.ratio}\\)`), `${device.file} media query`);
+  }
+  const sizes = new Set(splashDevices.map(device => device.pixelWidth + "x" + device.pixelHeight));
+  assert.equal(sizes.size, splashDevices.length, "no two devices share an image");
+});
+
 test("built export ships the worker and the manifest", { skip: !existsSync(file("out/sw.js")) }, () => {
   // The worker is a static public file now: no build stamp, no cache, nothing
   // that can drift from the page.
   assert.equal(readFileSync(file("out/sw.js"), "utf8"), readFileSync(file("public/sw.js"), "utf8"));
   assert.equal(readFileSync(file("out/manifest.webmanifest"), "utf8"), readFileSync(file("public/manifest.webmanifest"), "utf8"));
+  for (const device of splashDevices) assert.ok(existsSync(file(`out/splash/${device.file}`)), `${device.file} is exported`);
   for (const icon of manifest.icons) assert.ok(existsSync(file(`out${icon.src}`)), `${icon.src} is exported`);
 });
