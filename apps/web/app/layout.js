@@ -1,5 +1,6 @@
 import "./globals.css";
 import "./detail-drawer.css";
+import { splashDevices } from "../scripts/splash-devices.mjs";
 import AuthProvider from "./components/AuthProvider";
 import InboxCountProvider from "./components/InboxCountProvider";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
@@ -17,7 +18,15 @@ export const metadata = {
   description: "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
   manifest: "/manifest.webmanifest",
   // iOS ignores the manifest for install and reads these instead.
-  appleWebApp: { capable: true, title: "Richmod", statusBarStyle: "default" },
+  appleWebApp: {
+    capable: true,
+    title: "Richmod",
+    statusBarStyle: "default",
+    // iOS paints this before it makes any request, so it is the only thing
+    // covering the cold-start gap. One image per distinct phone geometry; the
+    // media query needs the logical size and the pixel ratio or iOS ignores it.
+    startupImage: splashDevices.map(device => ({ url: `/splash/${device.file}`, media: device.media })),
+  },
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     apple: [{ url: "/icons/apple-touch-icon-180.png", sizes: "180x180", type: "image/png" }],

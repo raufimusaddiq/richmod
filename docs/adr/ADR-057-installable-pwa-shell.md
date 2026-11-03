@@ -5,7 +5,10 @@
 Accepted — 2026-11-03. Extends ADR-056; the frontend stack is unchanged.
 Amended the same day after review: the service worker is a pass-through and
 keeps no cache. The abandoned caching design is recorded below so it is not
-re-introduced by accident.
+re-introduced by accident. Amended again the same day (issue #408): the
+installed app starts at `/login`, and iOS launch images are shipped, because a
+cold start from the home screen drew a blank white frame before the first
+request.
 
 ## Context
 
@@ -31,19 +34,36 @@ whole family of defects.
    by `next build` and embedded by `//go:embed all:assets`. Nothing is generated
    at request time. `scripts/build-icons.mjs` rasterises the two committed SVG
    sources.
-2. **Manifest.** `name`, `short_name`, `start_url: "/"`, `scope: "/"`,
+2. **Manifest.** `name`, `short_name`, `start_url: "/login"`, `scope: "/"`,
    `display: "standalone"`, colors, and 192/512 `any` icons plus a 512
    `maskable` icon whose mark sits inside the 80% safe circle. Icon dimensions
    and the maskable safe circle are asserted in `apps/web/tests/pwa.test.mjs`,
    which decodes the committed PNGs.
+
+   `start_url` was `/` in the first revision. `/` is a real landing page for a
+   signed-out visitor, so an installed app opened on marketing copy and needed
+   a second tap to reach the form. `/login` starts a signed-out user on the
+   form; `app/login/page.js` redirects a signed-in user to `/` once the session
+   is known. `scope` stays `/` so both are inside the installed window.
 3. **iOS metadata** lives in `app/layout.js`: `manifest`, `appleWebApp`
-   (`capable`, `title`, `statusBarStyle: "default"`), the 180px
+   (`capable`, `title`, `statusBarStyle: "default"`, `startupImage`), the 180px
    `apple-touch-icon`, and `themeColor` in the viewport export. Next 16 emits
    only `mobile-web-app-capable` for `appleWebApp.capable`, so the legacy
    `apple-mobile-web-app-capable` meta is rendered explicitly and React 19
    hoists it into `<head>`. `viewport-fit=cover` and the existing
    `safe-area-inset-*` rules keep the standalone window clear of the notch and
    home indicator; the drawers use the same insets.
+
+   `appleWebApp.startupImage` is an array of `{ url, media }`; Next renders one
+   `<link rel="apple-touch-startup-image">` per entry. iOS paints that image
+   before it makes any request, so it is the only thing that can cover the
+   cold-start gap that the pass-through worker deliberately leaves. The files
+   are committed under `apps/web/public/splash/`, one per distinct portrait
+   iPhone geometry, and `scripts/splash-devices.mjs` is the single source for
+   both the generator (`scripts/build-splash.mjs`) and the metadata. Each media
+   query carries the logical width, logical height and `-webkit-device-pixel-ratio`,
+   because iOS ignores an entry that omits any of them. Tablets and landscape
+   are out of scope; the launch image is the mark on the manifest background.
 4. **The service worker is a pass-through.** `apps/web/public/sw.js` is a
    static public file with no cache and no request interception:
 
@@ -92,6 +112,8 @@ the install surface.
 
 - Installing from the browser gives a standalone window with the same layout as
   the tab; deep links and cold starts resolve through the existing file lookup.
+  A first install now opens `/login`: a signed-out user sees the form, and a
+  signed-in user is redirected to `/` by the login page.
 - Nothing can be served stale by the worker. A release is visible on the next
   network load.
 - Existing installs free the old cache stores once when they activate this
@@ -101,3 +123,6 @@ the install surface.
   remain out of scope.
 - Icons must be regenerated with Chromium when the brand mark changes; the
   PNGs are committed artefacts, not build output.
+- Launch images follow the same rule: `node apps/web/scripts/build-splash.mjs`
+  after editing the mark or the device table. They add ~230 KiB of committed
+  PNGs, fetched once by iOS and revalidated like other public files.
