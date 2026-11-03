@@ -38,7 +38,7 @@
 .inline-form button { flex: 0 0 auto; }
 
 .drawer-backdrop, .mobile-more { position: fixed; inset: 0; z-index: 80; background: rgba(37, 58, 54, .42); backdrop-filter: blur(2px); }
-.detail-drawer, .admin-drawer { position: absolute; inset: 0 0 0 auto; width: min(560px, 100%); overflow-y: auto; padding: 32px; border-left: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-float); }
+.detail-drawer, .admin-drawer { position: absolute; inset: 0 0 0 auto; width: min(560px, 100%); overflow-y: auto; padding: max(32px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left)); border-left: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-float); }
 .drawer-close, .mobile-more-header button { display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border-color: var(--line); background: var(--surface); color: var(--ink-soft); }
 .drawer-close { position: sticky; top: 0; z-index: 2; float: right; }
 .detail-drawer > h2, .admin-drawer h2 { margin: 18px 0 8px; font-size: 25px; }

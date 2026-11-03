@@ -2,7 +2,7 @@
 
 An ADR records a decision that changes architecture, infrastructure, or a security boundary. `AGENTS.md` requires one before any material architecture change or new infrastructure. Product decisions live in [`../bdr/`](../bdr/) as Business Decision Records.
 
-- **Adding one:** use the next number, **ADR-057**, and the file name `ADR-057-short-title.md` with Context, Decision and Status sections like the existing records.
+- **Adding one:** use the next number, **ADR-058**, and the file name `ADR-058-short-title.md` with Context, Decision and Status sections like the existing records.
 - **Current versus superseded:** the Status line of each record is authoritative. Where an ADR was amended, the Status names the amending ADR; read both.
 - **Duplicate number:** ADR-033 is used by two records on different topics. Both are current. References elsewhere in the docs use the full file name, so this index lists both rows rather than renaming either.
 
@@ -67,3 +67,4 @@ This table is generated from each file's title and Status by `scripts/generate-a
 | [ADR-054](ADR-054-review-kind-registry.md) | Review kind registry is the single owner of review semantics | Accepted — 2026-10-13. Phase 1 (the kind table) implemented the same day; later phases below are open. Refines ADR-039 (ReviewDecision contract) and ADR-046 (universal review interaction projection). Does not change BDR-002. |
 | [ADR-055](ADR-055-bounded-repair-of-rejected-tool-arguments.md) | Rejected tool arguments get one bounded repair round | Accepted — 2026-10-13. Refines ADR-024 and ADR-033; Go remains the only validator and mutation authority. |
 | [ADR-056](ADR-056-static-frontend-in-go-binary.md) | Serve the static frontend from the Go API | Accepted — 2026-11-03. Amends the deployment model of ADR-002 and ADR-019; the frontend stack itself is unchanged. |
+| [ADR-057](ADR-057-installable-pwa-shell.md) | Installable PWA shell served by the Go binary | Accepted — 2026-11-03. Extends ADR-056; the frontend stack is unchanged. Amended the same day after review: the service worker is a pass-through and keeps no cache. The abandoned caching design is recorded below so it is not re-introduced by accident. |

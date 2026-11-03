@@ -52,3 +52,6 @@ executing any application logic.
   image. `infra/deploy/release.sh` no longer pulls or starts `web`.
 - The host-managed Caddyfile must be updated to the single-upstream site block and
   reloaded; the repository copy documents the required configuration.
+- [ADR-057](ADR-057-installable-pwa-shell.md) extends this handler with the
+  manifest, committed icons and a build-stamped service worker; their cache
+  classes live in the same `webui` switch.
