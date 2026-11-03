@@ -82,8 +82,8 @@ export default function SettingsPage() {
 
 // The card is a view of browser permission, the browser's endpoint, and the
 // server's own list for this session — never of what the app last did.
-export function notificationState({ supported, ios, installed, serverEnabled, permission, subscribed }) {
-  if (!supported || !serverEnabled || (ios && !installed)) return "unsupported";
+export function notificationState({ supported, ios, installed, serverEnabled = true, serverDisabled = !serverEnabled, permission, subscribed }) {
+  if (!supported || serverDisabled || (ios && !installed)) return "unsupported";
   if (permission === "denied") return "denied";
   if (permission === "granted") return subscribed ? "subscribed" : "granted";
   return "not-asked";
@@ -97,19 +97,68 @@ function base64Key(value) {
 // A browser endpoint only counts as active when the server lists that same
 // endpoint as live for this session. An endpoint the server does not know
 // belongs to another account (or was pruned); a retired row must not read as
-// active. An unavailable list is unknown, never active.
+// active. When the list is unavailable the truth is unknown, so the card must
+// not say Aktif — but the browser endpoint still exists, so the opt-out stays
+// available as `canDisable`.
 export function reconcileSubscription({ browserEndpoint = null, serverSubscriptions = null }) {
-  if (!browserEndpoint) return { subscribed: false, issue: "" };
-  if (!Array.isArray(serverSubscriptions)) return { subscribed: false, issue: "unknown" };
+  if (!browserEndpoint) return { subscribed: false, canDisable: false, issue: "" };
+  if (!Array.isArray(serverSubscriptions)) return { subscribed: false, canDisable: true, issue: "unknown" };
   const row = serverSubscriptions.find(item => item?.endpoint === browserEndpoint);
-  if (!row) return { subscribed: false, issue: "unregistered" };
-  return row.active ? { subscribed: true, issue: "" } : { subscribed: false, issue: "retired" };
+  if (!row) return { subscribed: false, canDisable: false, issue: "unregistered" };
+  return row.active ? { subscribed: true, canDisable: true, issue: "" } : { subscribed: false, canDisable: false, issue: "retired" };
+}
+
+// Three outcomes, never collapsed: `ok`, `definitive` (the server answered no)
+// and `unavailable` (5xx/429, thrown, unreadable). Only a definitive answer may
+// change what the user is offered.
+async function requestOutcome(request, url) {
+  let response;
+  try {
+    response = await request(url);
+  } catch {
+    return { status: "unavailable" };
+  }
+  if (!response.ok) return { status: response.status >= 500 || response.status === 429 ? "unavailable" : "definitive" };
+  try {
+    return { status: "ok", value: await response.json() };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+export async function loadPushView({ supported, ios, installed, permission, serviceWorker, request = fetch }) {
+  const [key, listed] = await Promise.all([
+    requestOutcome(request, "/api/v1/push/public-key"),
+    requestOutcome(request, "/api/v1/push/subscriptions"),
+  ]);
+  const keyUnavailable = key.status === "unavailable" || (key.status === "ok" && typeof key.value?.enabled !== "boolean");
+  const listUnavailable = listed.status !== "ok" || !Array.isArray(listed.value?.subscriptions);
+  const serverDisabled = key.status === "definitive" || (key.status === "ok" && key.value?.enabled === false);
+  const serverUnavailable = keyUnavailable || listUnavailable;
+  let browserEndpoint = null;
+  if (supported) {
+    try {
+      const registration = await serviceWorker.getRegistration();
+      browserEndpoint = (await registration?.pushManager.getSubscription())?.endpoint || null;
+    } catch {
+      // No registration means no browser subscription; the server list decides.
+    }
+  }
+  const { subscribed, canDisable, issue } = reconcileSubscription({ browserEndpoint, serverSubscriptions: listUnavailable ? null : listed.value.subscriptions });
+  const state = notificationState({ supported, ios, installed, serverDisabled, permission, subscribed });
+  return {
+    state, issue, canDisable, serverUnavailable, keyUnavailable,
+    iosNotInstalled: ios && !installed,
+    serverDisabled: supported && (!ios || installed) && serverDisabled,
+    publicKey: key.status === "ok" ? key.value?.publicKey || key.value?.public_key || "" : "",
+  };
 }
 
 // A rejected POST is confirmed-not-registered, so the local subscription is
-// dropped and retry starts clean. A thrown POST is unknown: the server may have
-// committed before the socket died, so the endpoint is kept and the next
-// refresh asks the server. Re-registering the same endpoint is an upsert.
+// dropped and retry starts clean. A 5xx or a thrown POST is unknown: the server
+// may have committed before the response failed, so the endpoint is kept and
+// the next refresh asks the server. Re-registering the same endpoint is an
+// upsert.
 export async function registerSubscription(serviceWorker, publicKey, request = fetch) {
   const registration = await serviceWorker.getRegistration() || await serviceWorker.register("/sw.js", { scope: "/" });
   let subscription = await registration.pushManager.getSubscription();
@@ -121,6 +170,7 @@ export async function registerSubscription(serviceWorker, publicKey, request = f
       body: JSON.stringify({ endpoint: subscription.endpoint, keys: subscription.toJSON().keys }),
     });
     if (!response.ok) {
+      if (response.status >= 500) return { status: "unconfirmed", subscription };
       await subscription.unsubscribe().catch(() => {});
       return { status: "rejected", subscription };
     }
@@ -164,10 +214,10 @@ const PUSH_COPY = {
 const PUSH_ISSUE = {
   unregistered: ["Belum terdaftar untuk akun ini", "Perangkat ini masih menyimpan langganan lama yang tidak terdaftar untuk akun yang sedang masuk. Coba lagi untuk mendaftarkannya kembali."],
   retired: ["Dinonaktifkan server", "Server menonaktifkan langganan perangkat ini, mungkin karena rumah tangga berubah. Coba lagi untuk mendaftarkannya kembali."],
-  unknown: ["Belum terkonfirmasi", "Status langganan belum dapat dikonfirmasi dari server. Coba lagi untuk memeriksa ulang."],
+  unknown: ["Belum terkonfirmasi", "Server tidak dapat dihubungi. Perangkat ini masih menyimpan langganan, jadi notifikasi mungkin masih aktif. Matikan notifikasi tetap tersedia."],
 };
 
-export function NotificationsView({ state, issue = "", iosNotInstalled = false, serverDisabled = false, working = false, status = "", onEnable, onDisable }) {
+export function NotificationsView({ state, issue = "", canDisable = false, serverUnavailable = false, iosNotInstalled = false, serverDisabled = false, working = false, status = "", onEnable, onDisable }) {
   const [fallbackTitle, fallbackBody] = (state === "granted" && PUSH_ISSUE[issue]) || PUSH_COPY[state] || ["Memeriksa status notifikasi", "Richmod memeriksa dukungan notifikasi di peramban ini."];
   const title = state === "unsupported" && iosNotInstalled ? "Perlu dipasang ke Layar Utama" : fallbackTitle;
   const body = state === "unsupported" && iosNotInstalled
@@ -175,18 +225,21 @@ export function NotificationsView({ state, issue = "", iosNotInstalled = false, 
     : state === "unsupported" && serverDisabled
       ? "Server ini belum mengaktifkan notifikasi push, jadi perangkat belum dapat mendaftar."
       : fallbackBody;
+  const showDisable = canDisable && (state === "granted" || state === "subscribed");
+  const showEnable = (state === "not-asked" || state === "granted") && !showDisable;
+  const note = status || (serverUnavailable ? "Server tidak dapat dihubungi. Status langganan belum dapat dikonfirmasi." : "");
   return <>
     <div className="notification-state">
       <div className="notification-copy"><b>{title}</b><p>{body}</p></div>
-      {(state === "not-asked" || state === "granted") && <button type="button" disabled={working} onClick={onEnable}>{working ? "Memproses…" : state === "granted" ? "Coba lagi" : "Aktifkan notifikasi"}</button>}
-      {state === "subscribed" && <button type="button" className="secondary" disabled={working} onClick={onDisable}>{working ? "Mematikan…" : "Matikan notifikasi"}</button>}
+      {showEnable && <button type="button" disabled={working} onClick={onEnable}>{working ? "Memproses…" : state === "granted" ? "Coba lagi" : "Aktifkan notifikasi"}</button>}
+      {showDisable && <button type="button" className="secondary" disabled={working} onClick={onDisable}>{working ? "Mematikan…" : "Matikan notifikasi"}</button>}
     </div>
-    <p className="notification-status" role="status" aria-live="polite">{status}</p>
+    <p className="notification-status" role="status" aria-live="polite">{note}</p>
   </>;
 }
 
 function NotificationsSection() {
-  const [view, setView] = useState({ state: "checking", issue: "", iosNotInstalled: false, serverDisabled: false, publicKey: "" });
+  const [view, setView] = useState({ state: "checking", issue: "", canDisable: false, serverUnavailable: false, keyUnavailable: false, iosNotInstalled: false, serverDisabled: false, publicKey: "" });
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -194,24 +247,11 @@ function NotificationsSection() {
     const supported = typeof window !== "undefined" && "PushManager" in window && "serviceWorker" in navigator && "Notification" in window;
     const ios = typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
     const installed = typeof navigator !== "undefined" && (navigator.standalone === true || window.matchMedia?.("(display-mode: standalone)")?.matches === true);
-    const [server, listed] = await Promise.all([
-      fetch("/api/v1/push/public-key").then(response => response.ok ? response.json() : null).catch(() => null),
-      fetch("/api/v1/push/subscriptions").then(response => response.ok ? response.json() : null).catch(() => null),
-    ]);
-    const serverSubscriptions = Array.isArray(listed?.subscriptions) ? listed.subscriptions : null;
-    let browserEndpoint = null;
-    if (supported) {
-      try {
-        const registration = await navigator.serviceWorker.getRegistration();
-        browserEndpoint = (await registration?.pushManager.getSubscription())?.endpoint || null;
-      } catch {
-        // No registration means no browser subscription; the server list decides.
-      }
-    }
-    const { subscribed, issue } = reconcileSubscription({ browserEndpoint, serverSubscriptions });
-    const serverEnabled = Boolean(server?.enabled);
-    const state = notificationState({ supported, ios, installed, serverEnabled, permission: supported ? Notification.permission : "default", subscribed });
-    setView({ state, issue, iosNotInstalled: ios && !installed, serverDisabled: supported && (!ios || installed) && !serverEnabled, publicKey: server?.publicKey || server?.public_key || "" });
+    setView(await loadPushView({
+      supported, ios, installed,
+      permission: supported ? Notification.permission : "default",
+      serviceWorker: navigator.serviceWorker,
+    }));
   }, []);
 
   useEffect(() => {
@@ -231,6 +271,7 @@ function NotificationsSection() {
         setStatus(Notification.permission === "denied" ? "Izin notifikasi ditolak dan hanya dapat diubah dari pengaturan peramban." : "Izin notifikasi belum diberikan.");
         return;
       }
+      if (view.keyUnavailable) { setStatus("Server tidak dapat dihubungi. Coba lagi nanti."); return; }
       if (!view.publicKey) { setStatus("Server ini belum mengaktifkan notifikasi push."); return; }
       const result = await registerSubscription(navigator.serviceWorker, view.publicKey);
       setStatus(result.status === "registered" ? "Notifikasi aktif di perangkat ini." : result.status === "rejected" ? "Perangkat ini belum dapat didaftarkan. Coba lagi." : "Pendaftaran belum terkonfirmasi. Status diperiksa ulang dari server.");
@@ -260,7 +301,7 @@ function NotificationsSection() {
   }
 
   return <SettingsSection title="Notifikasi" description="Notifikasi dikirim ke perangkat ini saat ada transaksi atau tindakan integrasi yang menunggu tinjauan.">
-    <NotificationsView state={view.state} issue={view.issue} iosNotInstalled={view.iosNotInstalled} serverDisabled={view.serverDisabled} working={working} status={status} onEnable={enable} onDisable={disable} />
+    <NotificationsView state={view.state} issue={view.issue} canDisable={view.canDisable} serverUnavailable={view.serverUnavailable} iosNotInstalled={view.iosNotInstalled} serverDisabled={view.serverDisabled} working={working} status={status} onEnable={enable} onDisable={disable} />
   </SettingsSection>;
 }
 
