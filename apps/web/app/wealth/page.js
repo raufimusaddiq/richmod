@@ -71,6 +71,14 @@ export default function WealthPage() {
     } catch { setError("Data kekayaan belum dapat dimuat. Coba lagi."); } finally { setLoading(false); }
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
+  // Consume the saved-value comparison after the commit that painted the
+  // changed figures. Mutating the ref, not state, keeps data-updated on the
+  // painted figures for the whole flash; a later retry or unrelated re-render
+  // compares nothing and stays still. Skip while loading: the save's first
+  // commit is the skeleton, before the figures exist.
+  useEffect(() => {
+    if (!loading) beforeSave.current = null;
+  }, [loading, data]);
   useEffect(() => {
     const snapshotId = new URLSearchParams(window.location.search).get("snapshotId");
     if (user && snapshotId) openSnapshot(snapshotId);

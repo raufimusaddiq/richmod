@@ -48,6 +48,20 @@ set per figure and only when the saved value differs from what the page showed
 before the save, so an account that did not move never flashes. It is never set
 on first paint or by a poll.
 
+### One-shot markers
+
+`data-refreshed` and `data-updated` are one-shot markers: they record one
+action and are consumed when that action's render is on screen. Consumption is
+a ref mutation in a `useEffect` that runs after the commit which painted the
+marker, not a state update: a state update would re-render immediately and
+remove the attribute while the animation is still running. The effect skips
+while the page is loading, because the first commit after a filter or save is
+the skeleton, before the panel or figures exist. The next unrelated render -
+pagination, a create, a retry - then compares equal and stays still. There is
+no timer, so the CSS duration remains the only source of timing.
+`scripts/motion-one-shot-smoke.mjs` (`npm run test:motion`) drives the real
+export to assert the first render animates and the next one does not.
+
 ## What is deliberately not animated
 
 - **The dimmed backdrop.** It is a full-screen `backdrop-filter`; fading it
