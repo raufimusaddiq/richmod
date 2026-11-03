@@ -26,6 +26,9 @@ const (
 	cacheImmutable = "public, max-age=31536000, immutable"
 	cachePublic    = "public, max-age=0"
 	cacheMetadata  = "public, max-age=0, must-revalidate"
+	// The service worker decides when an installed client updates. Revalidate it
+	// on every navigation; the browser's update check reads the new body.
+	cacheServiceWorker = "no-cache"
 )
 
 // appRoutes are the paths next.config.mjs used to send "no-store, max-age=0".
@@ -137,8 +140,10 @@ func (h handler) exists(name string) bool {
 
 func cacheFor(name string) string {
 	switch name {
-	case "opengraph-image", "icon.svg":
+	case "opengraph-image", "icon.svg", "manifest.webmanifest":
 		return cacheMetadata
+	case "sw.js":
+		return cacheServiceWorker
 	}
 	if strings.HasPrefix(name, "_next/static/") {
 		return cacheImmutable
@@ -171,6 +176,12 @@ func routeOf(name string) string {
 func contentType(name string) string {
 	if name == "opengraph-image" {
 		return "image/png"
+	}
+	// Go's built-in table has no .webmanifest entry and the host mime.types file
+	// is not part of the contract; a manifest must be application/manifest+json
+	// or browsers ignore it.
+	if name == "manifest.webmanifest" {
+		return "application/manifest+json"
 	}
 	if value := mime.TypeByExtension(path.Ext(name)); value != "" {
 		return value

@@ -2,10 +2,11 @@ import "./globals.css";
 import "./detail-drawer.css";
 import AuthProvider from "./components/AuthProvider";
 import InboxCountProvider from "./components/InboxCountProvider";
+import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 
 
 // viewport-fit=cover makes the safe-area insets real (Home Screen app, landscape).
-export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#245C54" };
 
 const socialTitle = "Richmod · Keuangan keluarga, tanpa menebak";
 const socialDescription = "Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan.";
@@ -14,6 +15,13 @@ export const metadata = {
   metadataBase: new URL("https://finance.investdx.biz.id"),
   title: socialTitle,
   description: "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
+  manifest: "/manifest.webmanifest",
+  // iOS ignores the manifest for install and reads these instead.
+  appleWebApp: { capable: true, title: "Richmod", statusBarStyle: "default" },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/apple-touch-icon-180.png", sizes: "180x180", type: "image/png" }],
+  },
   openGraph: {
     title: socialTitle,
     description: socialDescription,
@@ -40,7 +48,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
-      <body><AuthProvider><InboxCountProvider>{children}</InboxCountProvider></AuthProvider></body>
+      <body><meta name="apple-mobile-web-app-capable" content="yes" /><ServiceWorkerRegistrar /><AuthProvider><InboxCountProvider>{children}</InboxCountProvider></AuthProvider></body>
     </html>
   );
 }

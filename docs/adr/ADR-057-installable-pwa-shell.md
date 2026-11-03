@@ -1,0 +1,74 @@
+# ADR-057: Installable PWA shell served by the Go binary
+
+## Status
+
+Accepted — 2026-11-03. Extends ADR-056; the frontend stack is unchanged.
+
+## Context
+
+Richmod is used from a home-screen icon on iOS Safari and Android Chrome. After
+ADR-056 there is no Node runtime in production: `apps/api/internal/webui` serves
+the static export from the Go binary and owns the `Cache-Control` class of every
+file. A PWA that serves a cached HTML shell is actively harmful here — the shell
+names content-hashed chunks, and a release deletes them, so a stale shell is a
+white page that the user cannot clear by reloading.
+
+## Decision
+
+1. **Assets are real files in the export.** `apps/web/public/manifest.webmanifest`
+   and the committed PNGs under `apps/web/public/icons/` are copied into `out/`
+   by `next build` and embedded by `//go:embed all:assets`. Nothing is generated
+   at request time. `scripts/build-icons.mjs` rasterises the two committed SVG
+   sources with the Playwright Chromium that is already a dev dependency.
+2. **Manifest.** `name`, `short_name`, `start_url: "/"`, `scope: "/"`,
+   `display: "standalone"`, colors, and 192/512 `any` icons plus a 512
+   `maskable` icon whose mark sits inside the 80% safe circle. Icon dimensions
+   and the maskable safe circle are asserted in `apps/web/tests/pwa.test.mjs`,
+   which decodes the committed PNGs.
+3. **iOS metadata** lives in `app/layout.js`: `manifest`, `appleWebApp`
+   (`capable`, `title`, `statusBarStyle: "default"`), the 180px
+   `apple-touch-icon`, and `themeColor` in the viewport export. Next 16 emits
+   only `mobile-web-app-capable` for `appleWebApp.capable`, so the legacy
+   `apple-mobile-web-app-capable` meta is rendered explicitly and React 19
+   hoists it into `<head>`. `viewport-fit=cover` was already set; the shell
+   already used `safe-area-inset-*` for the body, bottom nav, “more” sheet and
+   main padding. The drawers gained the same insets so the detail/admin panel
+   does not run under the home indicator.
+4. **Service worker** (`scripts/service-worker.template.js`) is stamped by
+   `scripts/build-service-worker.mjs` with a hash of the sorted `_next/static`
+   file list and written to `out/sw.js` as part of `npm run build`.
+
+   | Request class | Strategy | Why it cannot strand a client |
+   | --- | --- | --- |
+   | Navigations and `.txt` RSC payloads | network-only, not intercepted | HTML never comes from a cache, so it always names the current release's chunks |
+   | `/api`, `/webhooks`, `/finance`, `/healthz`, `/readyz` | not intercepted | the worker never sees financial state |
+   | `/_next/static/*` | cache-first in `richmod-static-<build>` | Next hashes these names; a cache hit is byte-identical to the URL |
+   | manifest, icons, fonts, brand art | network-only | revalidated as before; nothing stale is served from a worker cache |
+
+   There is no precached shell and no offline fallback page. On install the
+   worker calls `skipWaiting()`; on activate it deletes every other
+   `richmod-static-*` cache and calls `clients.claim()`. Because HTML is
+   network-only, immediate activation cannot expose an old shell.
+5. **Registration** is a production-only client component in the root layout,
+   with `updateViaCache: "none"` and an extra `registration.update()` whenever
+   a long-lived standalone window becomes visible. A release is picked up on
+   the next foreground/navigation: the worker script bytes change, the new
+   worker activates, and the new HTML is fetched from the network.
+6. **Handler classes.** `webui.go` serves `/manifest.webmanifest` as
+   `application/manifest+json` with `public, max-age=0, must-revalidate`, and
+   `/sw.js` with `no-cache` (revalidate every time). Icons stay in the existing
+   public class. Per-route HTML, `.txt` sibling and immutable-chunk rules are
+   untouched; `apps/api/internal/webui/webui_test.go` covers the new files.
+
+## Consequences
+
+- Installing from the browser gives a standalone window with the same layout as
+  the tab; deep links and cold starts resolve through the existing file lookup.
+- Every release changes `sw.js` (the build hash covers chunk content), so
+  installed clients observe an update on their next launch. There is no prompt
+  UI and no update banner.
+- Offline use is not supported; a cold start without network shows the
+  browser's error. Push notifications, background sync and offline editing
+  remain out of scope.
+- Icons must be regenerated with Chromium when the brand mark changes; the
+  PNGs are committed artefacts, not build output.

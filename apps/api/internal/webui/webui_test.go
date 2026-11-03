@@ -9,15 +9,20 @@ import (
 
 func testAssets() fstest.MapFS {
 	files := fstest.MapFS{
-		"index.html":                 {Data: []byte("home")},
-		"404.html":                   {Data: []byte("missing")},
-		"opengraph-image":            {Data: []byte("png")},
-		"transactions.html":          {Data: []byte("transactions")},
-		"login.html":                 {Data: []byte("login")},
-		"_next/static/chunks/app.js": {Data: []byte("js")},
-		"fonts/inter.woff2":          {Data: []byte("font")},
-		"transactions.txt":           {Data: []byte("rsc")},
-		"login.txt":                  {Data: []byte("login rsc")},
+		"index.html":                     {Data: []byte("home")},
+		"404.html":                       {Data: []byte("missing")},
+		"opengraph-image":                {Data: []byte("png")},
+		"transactions.html":              {Data: []byte("transactions")},
+		"login.html":                     {Data: []byte("login")},
+		"_next/static/chunks/app.js":     {Data: []byte("js")},
+		"fonts/inter.woff2":              {Data: []byte("font")},
+		"transactions.txt":               {Data: []byte("rsc")},
+		"login.txt":                      {Data: []byte("login rsc")},
+		"manifest.webmanifest":           {Data: []byte(`{"name":"Richmod"}`)},
+		"sw.js":                          {Data: []byte(`const BUILD = "abc123";`)},
+		"icons/icon-192.png":             {Data: []byte("png192")},
+		"icons/maskable-512.png":         {Data: []byte("pngmaskable")},
+		"icons/apple-touch-icon-180.png": {Data: []byte("pngapple")},
 	}
 	for _, route := range []string{"actions", "admin", "analytics", "documents", "household", "inbox", "invite", "privacy", "reviews", "settings", "terms", "wealth"} {
 		files[route+".html"] = &fstest.MapFile{Data: []byte(route)}
@@ -44,6 +49,11 @@ func TestHandlerRoutesAndCacheClasses(t *testing.T) {
 		{path: "/transactions.txt", status: http.StatusOK, cache: cacheAppHTML, mediaType: "text/plain; charset=utf-8", body: "rsc"},
 		{path: "/login.txt", status: http.StatusOK, cache: cacheOtherHTML, mediaType: "text/plain; charset=utf-8", body: "login rsc"},
 		{path: "/opengraph-image", status: http.StatusOK, cache: cacheMetadata, mediaType: "image/png", body: "png"},
+		{path: "/manifest.webmanifest", status: http.StatusOK, cache: cacheMetadata, mediaType: "application/manifest+json", body: `{"name":"Richmod"}`},
+		{path: "/sw.js", status: http.StatusOK, cache: cacheServiceWorker, mediaType: "text/javascript; charset=utf-8", body: `const BUILD = "abc123";`},
+		{path: "/icons/icon-192.png", status: http.StatusOK, cache: cachePublic, mediaType: "image/png", body: "png192"},
+		{path: "/icons/maskable-512.png", status: http.StatusOK, cache: cachePublic, mediaType: "image/png", body: "pngmaskable"},
+		{path: "/icons/apple-touch-icon-180.png", status: http.StatusOK, cache: cachePublic, mediaType: "image/png", body: "pngapple"},
 		{path: "/transactions/", status: http.StatusPermanentRedirect, location: "/transactions"},
 		{path: "/missing", status: http.StatusNotFound, cache: "no-store", mediaType: "text/html; charset=utf-8", body: "missing"},
 	}
