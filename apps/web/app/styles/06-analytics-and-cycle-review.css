@@ -127,7 +127,7 @@
 /* Cycle ledger: one column per salary cycle. Design: docs/assets/analytics-cycle-ledger-mock.html */
 .cycle-step { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ledger-loading { margin: 0; color: var(--muted); font-size: var(--text-sm); }
-.cycle-review[data-stale] > :not(.range-controls):not(.ledger-loading) { opacity: .5; pointer-events: none; transition: opacity .15s; }
+.cycle-review[data-stale] > :not(.range-controls):not(.ledger-loading) { opacity: .5; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-standard); }
 .ledger-verdict { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-8); margin: 0 0 var(--space-4); }
 .ledger-verdict > div { display: grid; gap: 2px; }
 .ledger-verdict dt { color: var(--muted); font-size: var(--text-sm); }
@@ -136,7 +136,7 @@
 /* Edge shadows appear only while the figure overflows, so a cut-off column is never the only hint to scroll. */
 .ledger-figure { background-image: linear-gradient(to right, var(--surface) 30%, rgb(255 252 244 / 0)), linear-gradient(to left, var(--surface) 30%, rgb(255 252 244 / 0)), radial-gradient(farthest-side at 0 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)), radial-gradient(farthest-side at 100% 50%, rgb(37 58 54 / .22), rgb(37 58 54 / 0)); background-position: left center, right center, left center, right center; background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%; background-repeat: no-repeat; background-attachment: local, local, scroll, scroll; }
 .ledger-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
-.ledger-table th, .ledger-table td { padding: 0; text-align: center; vertical-align: middle; transition: background-color .2s; }
+.ledger-table th, .ledger-table td { padding: 0; text-align: center; vertical-align: middle; transition: background-color var(--motion-fast) var(--ease-standard); }
 .ledger-table thead th:first-child, .ledger-table tbody th { position: sticky; left: 0; z-index: 2; width: 9.5rem; padding: 0 var(--space-3); background: var(--surface); text-align: left; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
 .ledger-unit { color: var(--muted); font-weight: 400; }
 .ledger-table thead th { border-bottom: 2px solid var(--ink); font-weight: 400; }
@@ -210,7 +210,7 @@
 /* end cycle ledger */
 .evidence-back { display: inline-block; margin: var(--space-1) 0 var(--space-2); font-size: var(--text-sm); }
 /* Calendar view: a section keeps its previous range, dimmed, while a new one loads. */
-.calendar-section[data-stale] { opacity: .5; pointer-events: none; transition: opacity .15s; }
+.calendar-section[data-stale] { opacity: .5; pointer-events: none; transition: opacity var(--motion-fast) var(--ease-standard); }
 .calendar-body th small { display: block; color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
 
 .ledger-selection { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
@@ -219,5 +219,4 @@
 .shape-charts { display: grid; gap: var(--space-4); }
 .shape-charts > * { min-width: 0; }
 @container (min-width: 820px) { .shape-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (prefers-reduced-motion: no-preference) { .ledger-table td[data-selected], .ledger-table th[data-selected], .ledger-table th[data-selected] button { transition: background-color .2s ease; } }
 .shape-charts > .cycle-pace { margin-top: 0; }

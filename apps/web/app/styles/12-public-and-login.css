@@ -24,7 +24,7 @@
 .public-shell .button.public-button-primary svg { width: 17px; height: 17px; }
 .public-text-link { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 12px; font-weight: 750; text-decoration: none; }
 .public-text-link:hover { color: var(--accent-hover); }
-.landing-actions .public-text-link svg { transition: transform .18s ease; }
+.landing-actions .public-text-link svg { transition: transform var(--motion-base) var(--ease-out); }
 .landing-actions .public-text-link:hover svg { transform: translateY(2px); }
 .public-trust-note { display: inline-flex; align-items: center; gap: 8px; margin: 38px 0 0; color: var(--muted); font-size: var(--text-xs); }
 .public-trust-note svg { width: 15px; height: 15px; color: var(--accent); }

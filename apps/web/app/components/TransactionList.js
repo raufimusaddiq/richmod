@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowDownLeft, ArrowUpRight, ArrowsLeftRight } from "@phosphor-icons/react";
 import { dateTime, money, sourceLabel, statusLabel, typeLabel } from "../lib/format";
 
-export default function TransactionList({ items, compact = false, onSelect }) {
+export default function TransactionList({ items, compact = false, onSelect, newId = "" }) {
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
     <div className="table-head"><span>Transaksi</span><span>Kategori / sumber</span><span>Status</span><span>Jumlah</span></div>
     {items.map(item => {
@@ -20,7 +20,8 @@ export default function TransactionList({ items, compact = false, onSelect }) {
         <strong className={`transaction-amount ${incoming ? "positive" : neutral ? "neutral" : "negative"}`}>{sign} {money(item.amount)}</strong>
       </>;
       const label = `${merchant}, ${typeLabel[item.type] || item.type}, ${money(item.amount)}`;
-      return onSelect ? <button className="transaction-row" key={item.id} aria-label={label} onClick={() => onSelect(item)}>{content}</button> : <Link className="transaction-row" key={item.id} aria-label={label} href={`/transactions?id=${item.id}`}>{content}</Link>;
+      const className = `transaction-row${item.id === newId ? " is-new" : ""}`;
+      return onSelect ? <button className={className} key={item.id} aria-label={label} onClick={() => onSelect(item)}>{content}</button> : <Link className={className} key={item.id} aria-label={label} href={`/transactions?id=${item.id}`}>{content}</Link>;
     })}
     {!items.length && <p className="empty">Belum ada transaksi untuk ditampilkan.</p>}
   </div>;
