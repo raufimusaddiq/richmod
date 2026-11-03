@@ -49,6 +49,7 @@ older specs.
 ## Interface and quality
 
 - [`brand-guidelines.md`](brand-guidelines.md): colors, type scale, hit areas and shape, enforced by `apps/web/tests/ui-audit-locks.test.mjs`.
+- [`UI_MOTION.md`](UI_MOTION.md): the motion scale, what animates and why, the single reduced-motion guard, and what is deliberately still.
 - [`audits/UI-AUDIT-2026-10-02.md`](audits/UI-AUDIT-2026-10-02.md): the phone, tablet and desktop UI audit, what each fix changed, and what remains open.
 - [`RICHMOD_UI_REDESIGN_2026-09-07.md`](RICHMOD_UI_REDESIGN_2026-09-07.md): the redesign the current interface grew from.
 

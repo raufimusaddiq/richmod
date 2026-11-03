@@ -5,7 +5,8 @@ import { chromium, webkit } from "playwright";
 
 const base = "http://127.0.0.1:3211";
 const output = new URL("../test-results/transaction-date/", import.meta.url);
-const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", "3211"], { stdio: "inherit" });
+// Serve the static export the API embeds; `next start` cannot run an export.
+const server = spawn(process.execPath, ["scripts/static-server.mjs"], { stdio: "inherit", env: { ...process.env, PORT: "3211" } });
 let browser;
 
 async function fits(input) {

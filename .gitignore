@@ -7,3 +7,7 @@ node_modules
 coverage/
 dist/
 test-results/
+apps/web/out/
+.cache/
+apps/web/app/lib/buildId.generated.js
+apps/web/public/build-id.txt

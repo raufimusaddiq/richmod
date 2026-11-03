@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export function ErrorNotice({ message, retry }) {
   if (!message) return null;
@@ -8,15 +8,25 @@ export function ErrorNotice({ message, retry }) {
 }
 
 export function Toast({ message, onClose }) {
+  // `shown` outlives `message` by one animation so the exit can play; the
+  // unmount is still owned by the caller through onClose.
+  const [shown, setShown] = useState(message);
+  const [leaving, setLeaving] = useState(false);
   // ponytail: the timer lives on the call site because a parent re-creating the
   // onClose prop restarted this effect; move it back here if onClose is stabilised.
   useEffect(() => {
     if (!message) return undefined;
-    const timer = window.setTimeout(() => onClose(), 3500);
+    setShown(message); setLeaving(false);
+    const timer = window.setTimeout(() => setLeaving(true), 3500);
     return () => window.clearTimeout(timer);
   }, [message]);
-  if (!message) return null;
-  return <div className="toast" role="status" aria-live="polite"><span aria-hidden="true">✓</span>{message}<button aria-label="Tutup notifikasi" onClick={onClose}><span aria-hidden="true">×</span></button></div>;
+  if (!shown) return null;
+  const dismiss = () => setLeaving(true);
+  function settle(event) {
+    if (!leaving || event.target !== event.currentTarget || event.animationName !== "toast-out") return;
+    setShown(""); setLeaving(false); onClose();
+  }
+  return <div className={`toast${leaving ? " leaving" : ""}`} role="status" aria-live="polite" onAnimationEnd={settle}><span aria-hidden="true">✓</span>{shown}<button aria-label="Tutup notifikasi" onClick={dismiss}><span aria-hidden="true">×</span></button></div>;
 }
 
 export function Skeleton({ cards = 4, rows = 3, label = "Memuat data" }) {

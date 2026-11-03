@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import useAuth from "../components/useAuth";
 import useDrawerA11y from "../components/useDrawerA11y";
@@ -53,6 +53,9 @@ export default function WealthPage() {
   const user = useAuth();
   const [data, setData] = useState(empty), [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null), [working, setWorking] = useState(false), [correcting, setCorrecting] = useState(false);
+  // The figures the page showed before the user saved, so only a value the
+  // save actually moved is marked. A load that follows no save marks nothing.
+  const beforeSave = useRef(null);
   const drawerRef = useDrawerA11y(Boolean(selected), () => closeSnapshot());
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const load = useCallback(async () => {
@@ -68,6 +71,14 @@ export default function WealthPage() {
     } catch { setError("Data kekayaan belum dapat dimuat. Coba lagi."); } finally { setLoading(false); }
   }, []);
   useEffect(() => { if (user) load(); }, [user, load]);
+  // Consume the saved-value comparison after the commit that painted the
+  // changed figures. Mutating the ref, not state, keeps data-updated on the
+  // painted figures for the whole flash; a later retry or unrelated re-render
+  // compares nothing and stays still. Skip while loading: the save's first
+  // commit is the skeleton, before the figures exist.
+  useEffect(() => {
+    if (!loading) beforeSave.current = null;
+  }, [loading, data]);
   useEffect(() => {
     const snapshotId = new URLSearchParams(window.location.search).get("snapshotId");
     if (user && snapshotId) openSnapshot(snapshotId);
@@ -83,7 +94,7 @@ export default function WealthPage() {
     });
     const observedAt = jakartaLocalToRFC3339(form.get("observedAt"));
     const response = await fetch("/api/v1/wealth/snapshots", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ observedAt, observationId: data.observation?.id || null, items }) });
-    if (!response.ok) setError("Catatan posisi belum dapat disimpan."); else { setSnapshotOpen(false); window.history.replaceState({}, "", "/wealth"); await load(); }
+    if (!response.ok) setError("Catatan posisi belum dapat disimpan."); else { beforeSave.current = latest ? [latest.netWorthIdr, latest.assetTotalIdr, latest.liabilityTotalIdr] : null; setSnapshotOpen(false); window.history.replaceState({}, "", "/wealth"); await load(); }
     setWorking(false);
   }
 
@@ -103,7 +114,7 @@ export default function WealthPage() {
     const form = new FormData(event.currentTarget);
     const items = (selected.items || []).map(item => ({ wealthAccountId: item.wealthAccountId, valueIdr: form.get(`value-${item.wealthAccountId}`), quantity: form.get(`quantity-${item.wealthAccountId}`) || null, unit: form.get(`unit-${item.wealthAccountId}`) || null, unitPriceIdr: form.get(`unitPrice-${item.wealthAccountId}`) || null, source: form.get(`source-${item.wealthAccountId}`) || "MANUAL", note: form.get(`note-${item.wealthAccountId}`) || null }));
     const response = await fetch(`/api/v1/wealth/snapshots/${selected.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ observedAt: selected.observedAt, items }) });
-    if (!response.ok) setError("Koreksi catatan posisi belum dapat disimpan."); else { closeSnapshot(); await load(); }
+    if (!response.ok) setError("Koreksi catatan posisi belum dapat disimpan."); else { beforeSave.current = latest ? [latest.netWorthIdr, latest.assetTotalIdr, latest.liabilityTotalIdr] : null; closeSnapshot(); await load(); }
     setWorking(false);
   }
 
@@ -111,6 +122,8 @@ export default function WealthPage() {
   if (!user) return null;
 
   const latest = data.latest || data.snapshots?.[0];
+  // A figure is marked only when the user's save changed that figure.
+  const moved = (value, index) => Boolean(beforeSave.current) && beforeSave.current[index] !== value;
   const previous = data.summary?.previous || data.previous;
   const previousValues = new Map((latest?.items || []).map(item => [item.wealthAccountId, item.valueIdr]));
   if (data.observation?.resolvedWealthAccountId) previousValues.set(data.observation.resolvedWealthAccountId, data.observation.observedValueIdr);
@@ -126,10 +139,10 @@ export default function WealthPage() {
       {loading ? <Skeleton cards={3} rows={3}/> : <>
         {!latest ? <section className="surface wealth-empty"><span className="eyebrow">MULAI DARI POSISI SEKARANG</span><h2>Kekayaan belum diatur</h2><p>Tambahkan semua akun aset dan kewajiban, lalu simpan satu catatan lengkap untuk mulai melihat kekayaan bersih dan perubahannya.</p><a className="button secondary" href="/settings#wealth-accounts">Siapkan akun kekayaan</a></section> : <>
           <section className="surface wealth-position">
-            <div className="wealth-position-primary"><span className="eyebrow">POSISI TERKINI</span><h2>Kekayaan bersih</h2><strong>{money(latest.netWorthIdr)}</strong><p>Diamati {dateTime(latest.observedAt)}</p></div>
+            <div className="wealth-position-primary"><span className="eyebrow">POSISI TERKINI</span><h2>Kekayaan bersih</h2><strong data-updated={moved(latest.netWorthIdr, 0) || undefined}>{money(latest.netWorthIdr)}</strong><p>Diamati {dateTime(latest.observedAt)}</p></div>
             <div className="wealth-balance-summary">
-              <article><span>Total aset</span><strong className="positive">{money(latest.assetTotalIdr)}</strong><small>{assets.length} akun pada catatan posisi</small></article>
-              <article><span>Total kewajiban</span><strong className="negative">{money(latest.liabilityTotalIdr)}</strong><small>{liabilities.length} akun pada catatan posisi</small></article>
+              <article><span>Total aset</span><strong className="positive" data-updated={moved(latest.assetTotalIdr, 1) || undefined}>{money(latest.assetTotalIdr)}</strong><small>{assets.length} akun pada catatan posisi</small></article>
+              <article><span>Total kewajiban</span><strong className="negative" data-updated={moved(latest.liabilityTotalIdr, 2) || undefined}>{money(latest.liabilityTotalIdr)}</strong><small>{liabilities.length} akun pada catatan posisi</small></article>
             </div>
           </section>
 
