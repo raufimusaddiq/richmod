@@ -48,16 +48,21 @@ white page that the user cannot clear by reloading.
    There is no precached shell and no offline fallback page. At install the
    worker precaches the complete `/_next/static` set for its build — a page only
    fetches the chunks it uses, so caching on demand would leave holes that no
-   later deploy can fill — then calls `skipWaiting()`. On activate it calls
-   `clients.claim()` and retains the current and immediately previous
-   `richmod-static-<build>` generations (`richmod-generations` records the
-   ordered list) while deleting only older ones. A page still open on the
-   previous build keeps requesting that build's chunks, including chunks it
-   never fetched before, and the new worker answers them from the retained cache
-   because `caches.match` searches every generation. Because HTML is
-   network-only, immediate activation cannot expose an old shell. Cache Storage
-   failures (denied access, quota) are caught: a chunk that arrived from the
-   network is returned even when it could not be cached.
+   later deploy can fill — then calls `skipWaiting()`. On activate it asks every
+   open window for its generation through a `MessageChannel`; the page answers
+   with the `/_next/static` script URLs it runs, and the worker keeps the cache
+   generation that contains the most of them. It retains the current build,
+   every generation an open window still claims, and the immediately previous
+   generation for windows that do not answer, deleting the rest. A hard cap of
+   four generations keeps storage bounded; past the cap the oldest unclaimed
+   generation goes first, then the oldest claimed one. `richmod-generations`
+   records the ordered list. A page that was open across several redeploys keeps
+   requesting its build's chunks, including chunks it never fetched before, and
+   every worker answers them from the retained cache because `caches.match`
+   searches all generations. Because HTML is network-only, immediate activation
+   cannot expose an old shell. Cache Storage failures (denied access, quota) are
+   caught: a chunk that arrived from the network is returned even when it could
+   not be cached.
 5. **Registration** is a production-only client component in the root layout,
    with `updateViaCache: "none"` and an extra `registration.update()` whenever
    a long-lived standalone window becomes visible. A release is picked up on
@@ -79,19 +84,22 @@ white page that the user cannot clear by reloading.
   the next deploy. The precache is best effort: a failed request, a refused
   Cache Storage or browser eviction leaves holes, and those chunks then 404 once
   the server has moved on.
-- The guarantee starts with clients installed by this worker. A client that
-  installed an earlier worker and is still open across *this* deploy keeps its
-  on-demand cache, so a chunk it never fetched can still be missing.
+- The guarantee starts with clients running this worker code. A window built by
+  an earlier worker cannot answer the generation question; it only benefits when
+  its generation is the immediately previous one, since a chunk it never fetched
+  before that worker's deploy was never precached.
 - Every release changes `sw.js` (the build hash covers chunk content), so
   installed clients observe an update on their next launch. There is no prompt
-  UI, no forced reload, and no update banner. Storage is bounded to the current
-  and previous generations; a client that stays open across two releases is
-  expected to reload before its chunks are pruned.
+  UI, no forced reload, and no update banner. Storage is bounded to four
+  generations: the current and previous builds are always kept, a generation
+  claimed by an open window survives further releases, and at the cap the oldest
+  claimed generation is dropped even if a window still uses it.
 - `apps/web/tests/service-worker.test.mjs` executes the template in a VM against
   a controllable Cache Storage: a denied `open` and a rejected `put` must still
-  deliver the network chunk, install must precache the complete set, and a
-  worker upgrade must resolve a chunk an open client never fetched before the
-  deploy.
+  deliver the network chunk, install must precache the complete set, a build-A
+  window held open across the activation of build B and then build C must still
+  resolve a chunk it never fetched, and pruning must stay within four
+  generations.
 - Offline use is not supported; a cold start without network shows the
   browser's error. Push notifications, background sync and offline editing
   remain out of scope.

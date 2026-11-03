@@ -11,11 +11,28 @@ const template = readFileSync(new URL("../scripts/service-worker.template.js", i
 const origin = "https://richmod.test";
 const entryKey = request => new URL(typeof request === "string" ? request : request.url, origin).href;
 
+function createMessageChannel() {
+  const channel = {};
+  channel.port1 = { onmessage: null, postMessage: data => queueMicrotask(() => channel.port2.onmessage?.({ data })) };
+  channel.port2 = { onmessage: null, postMessage: data => queueMicrotask(() => channel.port1.onmessage?.({ data })) };
+  return channel;
+}
+
+function windowClient(chunk) {
+  return {
+    type: "window",
+    postMessage(message, transfer) {
+      if (message?.type === "richmod:generation" && transfer?.[0]) transfer[0].postMessage([chunk]);
+    },
+  };
+}
+
 function createStorage({ failOpen = false, failPut = false, network = request => new Response(`network:${request.url}`, { status: 200 }) } = {}) {
   const stores = new Map();
   const storage = {
     requests: [],
     network,
+    windows: [],
     async open(name) {
       if (failOpen) throw new Error("cache storage unavailable");
       if (!stores.has(name)) stores.set(name, new Map());
@@ -37,10 +54,11 @@ function createStorage({ failOpen = false, failPut = false, network = request =>
     async delete(name) {
       return stores.delete(name);
     },
-    async match(request) {
+    async match(request, options = {}) {
       const key = entryKey(request);
-      for (const entries of stores.values()) {
-        const hit = entries.get(key);
+      const names = options.cacheName ? [options.cacheName] : [...stores.keys()];
+      for (const name of names) {
+        const hit = stores.get(name)?.get(key);
         if (hit) return hit.clone();
       }
       return undefined;
@@ -59,9 +77,12 @@ function createWorker(build, storage, assets = []) {
       location: { origin },
       addEventListener: (type, handler) => { listeners[type] = handler; },
       skipWaiting: () => {},
-      clients: { claim: async () => {} },
+      clients: { claim: async () => {}, matchAll: async () => storage.windows },
     },
     caches: storage,
+    MessageChannel: createMessageChannel,
+    setTimeout,
+    clearTimeout,
     fetch: input => {
       const request = typeof input === "string" ? new Request(new URL(input, origin)) : input;
       storage.requests.push(request.url);
@@ -121,7 +142,7 @@ test("install caches the complete chunk set, not just visited chunks", async () 
   assert.ok(entries.has(first) && entries.has(second), "every exported chunk is precached");
 });
 
-test("an open client gets a chunk it never fetched before the deploy", async () => {
+test("an A client held open across B and C still gets its unvisited chunk", async () => {
   const oldChunk = `${origin}/_next/static/chunks/old.js`;
   const shared = `${origin}/_next/static/chunks/shared.js`;
   let deployed = false;
@@ -133,31 +154,47 @@ test("an open client gets a chunk it never fetched before the deploy", async () 
     },
   });
 
-  // Build A installs and precaches its whole set; the client never asks for
-  // old.js, so only the install-time precache can have it.
+  // Build A installs and activate; the tab then stays open for the whole test.
+  // It never asks for old.js, so only the install-time precache can have it.
   const first = createWorker("buildA", storage, [oldChunk, shared]);
   await first.install();
+  await first.activate();
   assert.ok(storage.entries("richmod-static-buildA").has(oldChunk), "install precached the unvisited chunk");
+  storage.windows = [windowClient(oldChunk)];
 
   // Deploy build B: the server no longer has A's assets.
   deployed = true;
   const second = createWorker("buildB", storage, [shared]);
   await second.install();
   await second.activate();
-  assert.ok(storage.entries("richmod-static-buildA"), "the previous generation was retained");
 
-  const networkCallsBefore = storage.requests.length;
-  const stillOpen = await second.fetch(oldChunk);
-  assert.equal(stillOpen.status, 200, "the open client's unvisited chunk still resolves");
-  assert.equal(await stillOpen.text(), "bytes:/_next/static/chunks/old.js");
-  assert.equal(storage.requests.length, networkCallsBefore, "no request went to the deleted asset");
-
-  // The next release prunes only the generation before the previous one.
+  // Deploy build C while the A tab is still open. A plain two-generation window
+  // would slide to B and C and delete A here.
   const third = createWorker("buildC", storage, [shared]);
   await third.install();
   await third.activate();
-  assert.equal(storage.entries("richmod-static-buildA"), undefined, "two-generations-old cache is pruned");
-  assert.ok(storage.entries("richmod-static-buildB"), "the immediately previous generation survives");
+  assert.ok(storage.entries("richmod-static-buildA"), "the generation an open window claims survives two activations");
+
+  const networkCallsBefore = storage.requests.length;
+  const stillOpen = await third.fetch(oldChunk);
+  assert.equal(stillOpen.status, 200, "the open client's unvisited chunk still resolves");
+  assert.equal(await stillOpen.text(), "bytes:/_next/static/chunks/old.js");
+  assert.equal(storage.requests.length, networkCallsBefore, "no request went to the deleted asset");
   const generations = await (await storage.open("richmod-generations")).match("/generations").then(response => response.json());
-  assert.deepEqual(generations, ["buildB", "buildC"], "the ordered generation list keeps previous and current only");
+  assert.deepEqual(generations, ["buildA", "buildB", "buildC"], "all three generations are recorded while A is claimed");
+});
+
+test("pruning stays bounded when many builds remain claimed", async () => {
+  const storage = createStorage();
+  for (let index = 0; index < 6; index += 1) {
+    const chunk = `${origin}/_next/static/chunks/chunk-${index}.js`;
+    const worker = createWorker(`build${index}`, storage, [chunk]);
+    await worker.install();
+    await worker.activate();
+    storage.windows.push(windowClient(chunk));
+  }
+  const statics = (await storage.keys()).filter(name => name.startsWith("richmod-static-"));
+  assert.equal(statics.length, 4, "the cache window never exceeds MAX_GENERATIONS");
+  assert.equal(storage.entries("richmod-static-build0"), undefined, "the oldest claimed generation is dropped at the cap");
+  assert.ok(storage.entries("richmod-static-build5"), "the current generation is always kept");
 });

@@ -48,8 +48,14 @@ async function precache() {
 
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
+    let live = [];
     try {
-      await retainPreviousGeneration();
+      live = await claimedGenerations();
+    } catch {
+      // An unresponsive client falls back to the previous-generation rule.
+    }
+    try {
+      await retainGenerations(live);
     } catch {
       // Pruning is housekeeping. If Cache Storage refuses, keep serving rather
       // than failing activation.
@@ -58,10 +64,50 @@ self.addEventListener("activate", event => {
   })());
 });
 
-// Keep this build and the one before it. Pages that are still open keep running
-// the previous build's JS, and after a deploy the server no longer has its
-// chunks; those requests must still resolve from the retained cache.
-async function retainPreviousGeneration() {
+// Ask every open window which build it is running, then resolve that answer to a
+// cache generation. A tab can stay open across several redeploys, so its
+// generation must outlive the current and previous ones.
+const MAX_GENERATIONS = 4;
+
+async function claimedGenerations() {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const claims = await Promise.all(windows.map(client => new Promise(resolve => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), 1000);
+    channel.port1.onmessage = message => {
+      clearTimeout(timer);
+      resolve(message.data);
+    };
+    client.postMessage({ type: "richmod:generation" }, [channel.port2]);
+  })));
+  const names = await caches.keys();
+  const builds = [];
+  for (const chunks of claims) {
+    if (!Array.isArray(chunks) || chunks.length === 0) continue;
+    // The page sends every static script it runs. The generation that contains
+    // the most of them is the build that page belongs to.
+    let best = null;
+    let bestCount = 0;
+    for (const name of names) {
+      if (!name.startsWith(STATIC_PREFIX)) continue;
+      let count = 0;
+      for (const chunk of chunks) {
+        if (await caches.match(chunk, { cacheName: name })) count += 1;
+      }
+      if (count > bestCount) {
+        bestCount = count;
+        best = name.slice(STATIC_PREFIX.length);
+      }
+    }
+    if (best) builds.push(best);
+  }
+  return builds;
+}
+
+// Keep this build, every generation an open window still claims, and the one
+// before it for windows that did not answer. MAX_GENERATIONS caps storage; past
+// it the oldest unclaimed generation goes first, then the oldest claimed one.
+async function retainGenerations(live) {
   const names = (await caches.keys()).filter(name => name.startsWith(STATIC_PREFIX));
   const known = await readGenerations();
   for (const name of names) {
@@ -71,13 +117,22 @@ async function retainPreviousGeneration() {
   const ordered = known.filter(build => build !== BUILD);
   ordered.push(BUILD);
   // Cache names keep their creation order, so the tail is the newest generation.
-  const keep = ordered.slice(-2);
-  const keepNames = new Set(keep.map(build => STATIC_PREFIX + build));
-  keepNames.add(CACHE);
+  const keep = new Set([BUILD, ...live.filter(build => names.includes(STATIC_PREFIX + build))]);
+  const previous = ordered[ordered.length - 2];
+  if (previous) keep.add(previous);
+  const claimed = new Set(live);
+  while (keep.size > MAX_GENERATIONS) {
+    const candidates = ordered.filter(build => keep.has(build) && build !== BUILD);
+    const victim = candidates.find(build => !claimed.has(build)) || candidates[0];
+    if (!victim) break;
+    keep.delete(victim);
+  }
+  const retained = ordered.filter(build => keep.has(build));
+  const keepNames = new Set(retained.map(build => STATIC_PREFIX + build));
   for (const name of names) {
     if (!keepNames.has(name)) await caches.delete(name);
   }
-  await writeGenerations(keep);
+  await writeGenerations(retained);
 }
 
 async function readGenerations() {
