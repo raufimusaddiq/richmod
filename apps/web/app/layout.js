@@ -13,7 +13,7 @@ const socialTitle = "Richmod · Keuangan keluarga, tanpa menebak";
 const socialDescription = "Bukti masuk. Richmod memahami. Kamu tetap memegang keputusan.";
 
 export const metadata = {
-  metadataBase: new URL("https://finance.investdx.biz.id"),
+  metadataBase: new URL("https://finance.musaddiqr.com"),
   title: socialTitle,
   description: "Richmod menyatukan bukti keuangan rumah tangga menjadi satu ledger keluarga yang dapat dijelaskan.",
   manifest: "/manifest.webmanifest",
