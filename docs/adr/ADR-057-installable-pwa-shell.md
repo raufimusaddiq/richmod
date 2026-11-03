@@ -109,6 +109,13 @@ whole family of defects.
    4. `E == disabled` stops new registrations. It does not mean the device is
       unsubscribed, and it never removes the opt-out.
 
+   When a different account signs in on a device that already holds an
+   endpoint, the server answers `409` with
+   `code: ENDPOINT_OWNED_BY_ANOTHER_USER`; ownership is never transferred. The
+   client removes the old browser subscription, subscribes a new endpoint, and
+   posts that one, so the new account registers without repointing the old
+   account's row. The old endpoint is reported for logging, never its keys.
+
    The server list comes from authenticated
    `GET /api/v1/push/subscriptions`, scoped by the same user and household as
    the sender. There is no cache in the worker and no second counter for the

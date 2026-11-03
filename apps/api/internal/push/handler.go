@@ -119,7 +119,9 @@ func (h *Handler) Subscribe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if member {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "subscription already registered"})
+			// The endpoint exists for another user. Never transfer ownership;
+			// the client replaces its browser subscription instead.
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "subscription already registered", "code": "ENDPOINT_OWNED_BY_ANOTHER_USER"})
 			return
 		}
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "household membership required"})

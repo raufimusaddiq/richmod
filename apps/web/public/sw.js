@@ -13,10 +13,15 @@
 // path from the payload.
 const FALLBACK = { title: "Richmod", body: "Ada pembaruan di kotak masuk." };
 
+// Return a path that cannot change origin at the call site. A pathname that
+// starts with "//" is protocol-relative to openWindow() and navigate(), even
+// though new URL() reports this origin, so it is rejected rather than handed
+// back as a string that looks local.
 function sameOriginPath(value) {
   try {
     const url = new URL(typeof value === "string" && value ? value : "/inbox", self.location.origin);
-    return url.origin === self.location.origin ? `${url.pathname}${url.search}${url.hash}` : "/inbox";
+    if (url.origin !== self.location.origin || url.pathname.startsWith("//")) return "/inbox";
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/inbox";
   }

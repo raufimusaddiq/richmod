@@ -182,14 +182,31 @@ export async function loadPushView({ supported, ios, installed, permission, serv
 export async function registerSubscription(serviceWorker, publicKey, request = fetch) {
   const registration = await serviceWorker.getRegistration() || await serviceWorker.register("/sw.js", { scope: "/" });
   let subscription = await registration.pushManager.getSubscription();
-  const created = !subscription;
+  let created = !subscription;
   if (created) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(publicKey) });
+  const post = target => request("/api/v1/push/subscriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: target.endpoint, keys: target.toJSON().keys }),
+  });
   try {
-    const response = await request("/api/v1/push/subscriptions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint: subscription.endpoint, keys: subscription.toJSON().keys }),
-    });
+    let response = await post(subscription);
+    let body = {};
+    if (!response.ok && response.status === 409) {
+      try { body = await response.json(); } catch { body = {}; }
+    }
+    let replacedEndpoint = "";
+    if (!response.ok && response.status === 409 && body?.code === "ENDPOINT_OWNED_BY_ANOTHER_USER") {
+      // Another account registered this browser endpoint. Never repoint that
+      // row; replace the browser subscription with a new endpoint instead.
+      // The old endpoint is returned for the log line, never its keys.
+      replacedEndpoint = subscription.endpoint;
+      await subscription.unsubscribe();
+      subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(publicKey) });
+      created = true;
+      response = await post(subscription);
+      if (response.ok) return { status: "registered", subscription, replacedEndpoint };
+    }
     if (!response.ok) {
       const definitive = created && response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429;
       if (!definitive) return { status: "unconfirmed", subscription };
@@ -298,7 +315,8 @@ function NotificationsSection() {
       if (view.keyUnavailable) { setStatus("Server tidak dapat dihubungi. Coba lagi nanti."); return; }
       if (!view.publicKey) { setStatus("Server ini belum mengaktifkan notifikasi push."); return; }
       const result = await registerSubscription(navigator.serviceWorker, view.publicKey);
-      setStatus(result.status === "registered" ? "Notifikasi aktif di perangkat ini." : result.status === "rejected" ? "Perangkat ini belum dapat didaftarkan. Coba lagi." : "Pendaftaran belum terkonfirmasi. Status diperiksa ulang dari server.");
+      if (result.replacedEndpoint) console.info(`push subscription replaced: ${result.replacedEndpoint}`);
+      setStatus(result.status === "registered" ? result.replacedEndpoint ? "Notifikasi didaftarkan ulang untuk akun ini." : "Notifikasi aktif di perangkat ini." : result.status === "rejected" ? "Perangkat ini belum dapat didaftarkan. Coba lagi." : "Pendaftaran belum terkonfirmasi. Status diperiksa ulang dari server.");
     } catch {
       setStatus("Notifikasi belum dapat diaktifkan. Coba lagi.");
     } finally {

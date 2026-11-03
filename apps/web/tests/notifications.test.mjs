@@ -184,6 +184,43 @@ test("a disabled server still shows a live device and its opt-out", async () => 
   assert.doesNotMatch(html, /belum terdaftar|tidak aktif/i);
 });
 
+test("an endpoint owned by another account is replaced, not retried", async () => {
+  const oldEndpoint = "https://push.example/old-device";
+  const newEndpoint = "https://push.example/new-device";
+  let unsubscribed = 0;
+  let subscribed = 0;
+  const oldSubscription = {
+    endpoint: oldEndpoint,
+    toJSON: () => ({ endpoint: oldEndpoint, keys: { p256dh: "old", auth: "old" } }),
+    unsubscribe: async () => { unsubscribed += 1; },
+  };
+  const newSubscription = {
+    endpoint: newEndpoint,
+    toJSON: () => ({ endpoint: newEndpoint, keys: { p256dh: "new", auth: "new" } }),
+  };
+  const registration = {
+    pushManager: {
+      getSubscription: async () => oldSubscription,
+      subscribe: async () => { subscribed += 1; return newSubscription; },
+    },
+  };
+  const serviceWorker = { getRegistration: async () => registration, register: async () => registration };
+  const calls = [];
+  const request = async (url, options) => {
+    calls.push({ url, options });
+    if (calls.length === 1) return { ok: false, status: 409, json: async () => ({ code: "ENDPOINT_OWNED_BY_ANOTHER_USER" }) };
+    return { ok: true, json: async () => ({}) };
+  };
+  const result = await registerSubscription(serviceWorker, "BEl6", request);
+  assert.equal(result.status, "registered");
+  assert.equal(result.replacedEndpoint, oldEndpoint);
+  assert.equal(unsubscribed, 1, "the old browser subscription is removed once");
+  assert.equal(subscribed, 1, "a new browser subscription is created once");
+  assert.equal(calls.length, 2);
+  assert.equal(JSON.parse(calls[1].options.body).endpoint, newEndpoint, "the second POST carries the new endpoint");
+  assert.deepEqual(JSON.parse(calls[1].options.body).keys, { p256dh: "new", auth: "new" });
+});
+
 test("a thrown registration POST keeps the endpoint and reports unconfirmed", async () => {
   let unsubscribed = false;
   const subscription = {

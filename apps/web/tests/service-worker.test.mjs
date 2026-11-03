@@ -145,6 +145,21 @@ test("notificationclick treats a protocol-relative target as off-origin", async 
   assert.deepEqual(worker.opened, ["/inbox"]);
 });
 
+test("a same-origin URL with a protocol-relative path falls back to the inbox", async () => {
+  const worker = createWorker({ windows: [] });
+  await worker.dispatch("notificationclick", click(`${origin}//attacker.example/path`));
+  assert.deepEqual(worker.opened, ["/inbox"]);
+  assert.equal(worker.opened.some(target => target.startsWith("//")), false, "openWindow never receives a protocol-relative string");
+});
+
+test("a protocol-relative path is not navigated to even when a window is open", async () => {
+  const navigated = [];
+  const worker = createWorker({ windows: [{ url: `${origin}/inbox`, focus: async () => {}, navigate: async url => navigated.push(url) }] });
+  await worker.dispatch("notificationclick", click(`${origin}//attacker.example/path`));
+  assert.deepEqual(navigated, ["/inbox"]);
+  assert.equal(navigated.some(target => target.startsWith("//")), false, "navigate never receives a protocol-relative string");
+});
+
 test("a same-origin absolute target is reduced to its path", async () => {
   const worker = createWorker({ windows: [] });
   await worker.dispatch("notificationclick", click(`${origin}/inbox?view=actions`));

@@ -144,8 +144,15 @@ func TestSubscriptionScopedToCaller(t *testing.T) {
 
 	// Another user cannot take it over by re-subscribing to the same endpoint.
 	otherP256DH, _ := newTestSubscriptionKeys()
-	if response := subscribe(handler, userB, householdB, endpoint, otherP256DH); response.Code != http.StatusConflict {
-		t.Fatalf("subscribe B same endpoint=%d %s", response.Code, response.Body.String())
+	conflict := subscribe(handler, userB, householdB, endpoint, otherP256DH)
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("subscribe B same endpoint=%d %s", conflict.Code, conflict.Body.String())
+	}
+	var conflictBody struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(conflict.Body.Bytes(), &conflictBody); err != nil || conflictBody.Code != "ENDPOINT_OWNED_BY_ANOTHER_USER" {
+		t.Fatalf("conflict code=%q body=%s", conflictBody.Code, conflict.Body.String())
 	}
 	var owner string
 	var storedKey string
