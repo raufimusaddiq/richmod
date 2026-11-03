@@ -26,6 +26,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/api/internal/operations"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/httpmw"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/push"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/review"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/salary"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/settings"
@@ -78,6 +79,7 @@ func run(logger *slog.Logger) error {
 	operationsHandler := operations.NewHandler(pool, cfg.LLMGatewayBaseURL != "" && cfg.LLMGatewayAPIKey != "", cfg.LLMGatewayProtocol)
 	telegramHandler := telegram.NewHandler(telegram.NewPostgreSQLStore(pool), cfg.TelegramWebhookSecret)
 	emailIngressHandler := emailingress.NewHandler(emailingress.NewService(pool, cfg.EmailIngressDomain, strings.Split(cfg.EmailIngressTrustedAuthservIDs, ",")), cfg.EmailIngressHMACSecret)
+	pushHandler := push.NewHandler(pool, cfg.VAPIDPrivateKey, cfg.VAPIDSubject)
 	loginLimiter := httpmw.NewLimiter(10, time.Minute)
 	webhookLimiter := httpmw.NewLimiter(300, time.Minute)
 	emailIngressLimiter := httpmw.NewLimiter(120, time.Minute)
@@ -130,6 +132,10 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/transactions/{id}/void", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.VoidTransaction)))
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
 	mux.Handle("GET /api/v1/transactions/{id}/audit", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Audit)))
+	mux.HandleFunc("GET /api/v1/push/public-key", pushHandler.PublicKey)
+	mux.Handle("POST /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.Subscribe)))
+	mux.Handle("DELETE /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.Unsubscribe)))
+	mux.Handle("POST /api/v1/push/subscriptions/heartbeat", authHandler.RequireSession(http.HandlerFunc(pushHandler.Heartbeat)))
 	mux.Handle("GET /api/v1/reviews", authHandler.RequireSession(http.HandlerFunc(reviewHandler.List)))
 	mux.Handle("POST /api/v1/reviews/{id}/resolve", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Resolve)))
 	mux.Handle("POST /api/v1/reviews/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Confirm)))
