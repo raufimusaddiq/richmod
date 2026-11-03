@@ -1,4 +1,4 @@
-FROM node:26.12.1-alpine AS web
+FROM node:26.13.0-alpine AS web
 WORKDIR /web
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
