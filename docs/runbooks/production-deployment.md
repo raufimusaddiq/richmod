@@ -209,10 +209,39 @@ Monitor the worker after deployment and after the smoke checks. The owner-only
 and no unexpected queue backlog. Investigate residual-generation or wealth-related
 job failures before considering the release complete.
 
+### Telegram webhook verification
+
+Telegram does not follow redirects. If the public hostname or its Caddy host block
+changes, the registered webhook keeps answering `301 Moved Permanently`, so every
+inbound update is rejected — and because `pending_update_count` stays at `0`
+(rejected updates are not queued), inbound loss is invisible to `/healthz`,
+`/readyz`, and the operations status endpoint.
+
+After the health checks pass, with `WEB_ORIGIN`, `TELEGRAM_BOT_TOKEN`, and
+`TELEGRAM_WEBHOOK_SECRET` loaded from the deployment environment file, verify the
+registered URL:
+
+```bash
+scripts/set-telegram-webhook.sh --check
+```
+
+It exits non-zero when the registered URL is not `${WEB_ORIGIN}/webhooks/telegram`.
+On failure, re-register it with the same script and no flag:
+
+```bash
+scripts/set-telegram-webhook.sh
+```
+
+Both modes refuse to run when any of the three variables is unset, keep
+`allowed_updates` at `["message","callback_query"]`, never drop pending updates,
+and never print the token or secret. `infra/deploy/post-deploy.sh` runs `--check`
+after its health checks and warns loudly — without failing the deploy — when the
+webhook is stale.
+
 Before first login, run the one-time owner bootstrap and supply the owner's numeric
-Telegram user ID with `--telegram-user-id`. Then register
-`https://finance.investdx.biz.id/webhooks/telegram` with Telegram using the same
-webhook secret. The bootstrap refuses to run after an owner exists.
+Telegram user ID with `--telegram-user-id`. Then register the webhook with
+`scripts/set-telegram-webhook.sh`, which derives the URL from `WEB_ORIGIN` and
+uses the same webhook secret. The bootstrap refuses to run after an owner exists.
 
 Verify `https://finance.investdx.biz.id` after deployment. Do not expose the
 database, worker, API, or web ports directly in production.
