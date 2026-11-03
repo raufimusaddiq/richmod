@@ -133,6 +133,7 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/transactions/{id}/evidence", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Evidence)))
 	mux.Handle("GET /api/v1/transactions/{id}/audit", authHandler.RequireSession(http.HandlerFunc(ledgerHandler.Audit)))
 	mux.HandleFunc("GET /api/v1/push/public-key", pushHandler.PublicKey)
+	mux.Handle("GET /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.List)))
 	mux.Handle("POST /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.Subscribe)))
 	mux.Handle("DELETE /api/v1/push/subscriptions", authHandler.RequireSession(http.HandlerFunc(pushHandler.Unsubscribe)))
 	mux.Handle("POST /api/v1/push/subscriptions/heartbeat", authHandler.RequireSession(http.HandlerFunc(pushHandler.Heartbeat)))

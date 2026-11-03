@@ -41,6 +41,49 @@ func (h *Handler) PublicKey(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "publicKey": h.publicKey})
 }
 
+type subscriptionView struct {
+	Endpoint string `json:"endpoint"`
+	Active   bool   `json:"active"`
+}
+
+// List returns the caller's own subscriptions in the caller's household,
+// including retired rows. The client needs both: an endpoint the server does
+// not know means another account registered it (or it was pruned), and a
+// retired row must not render as active. It is scoped by the same
+// (user, household) predicate the sender uses.
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.HasHousehold || principal.UserID == "" || principal.HouseholdID == "" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "household membership required"})
+		return
+	}
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT endpoint,disabled_at IS NULL
+		FROM push_subscriptions
+		WHERE user_id=$1 AND household_id=$2
+		ORDER BY created_at DESC
+		LIMIT 100`, principal.UserID, principal.HouseholdID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to list subscriptions"})
+		return
+	}
+	defer rows.Close()
+	items := make([]subscriptionView, 0)
+	for rows.Next() {
+		var item subscriptionView
+		if err := rows.Scan(&item.Endpoint, &item.Active); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to list subscriptions"})
+			return
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to list subscriptions"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"subscriptions": items})
+}
+
 type subscriptionRequest struct {
 	Endpoint string `json:"endpoint"`
 	Keys     struct {

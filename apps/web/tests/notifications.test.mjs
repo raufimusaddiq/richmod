@@ -33,7 +33,7 @@ function component(filename) {
 }
 
 const settings = component("app/settings/page.js");
-const { notificationState, NotificationsView, disableNotifications } = settings;
+const { notificationState, reconcileSubscription, NotificationsView, registerSubscription, disableNotifications } = settings;
 const { applyBadge } = component("app/components/InboxCountProvider.js");
 const render = props => renderToStaticMarkup(React.createElement(NotificationsView, props));
 
@@ -45,6 +45,73 @@ test("each of the five card states is detected from browser truth", () => {
   assert.equal(notificationState({ ...base, permission: "granted" }), "granted");
   assert.equal(notificationState({ ...base, permission: "granted", subscribed: true }), "subscribed");
   assert.equal(notificationState(base), "not-asked");
+  assert.equal(notificationState({ ...base, serverEnabled: false, permission: "granted", subscribed: true }), "unsupported", "a disabled server outranks a live browser subscription");
+});
+
+test("a browser endpoint only counts as active when the server lists it live for this session", () => {
+  const endpoint = "https://push.example/device";
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint, active: true }] }), { subscribed: true, issue: "" });
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint, active: false }] }), { subscribed: false, issue: "retired" });
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: [{ endpoint: "https://push.example/other", active: true }] }), { subscribed: false, issue: "unregistered" }, "another account's row is not this session's row");
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: endpoint, serverSubscriptions: null }), { subscribed: false, issue: "unknown" });
+  assert.deepEqual(reconcileSubscription({ browserEndpoint: null, serverSubscriptions: [{ endpoint, active: true }] }), { subscribed: false, issue: "" });
+});
+
+test("an unregistered or retired endpoint is never painted active", () => {
+  for (const issue of ["unregistered", "retired", "unknown"]) {
+    const state = notificationState({ supported: true, ios: false, installed: false, serverEnabled: true, permission: "granted", subscribed: false });
+    assert.equal(state, "granted");
+    const html = render({ state, issue });
+    assert.match(html, /<button[^>]*>Coba lagi<\/button>/, `${issue} keeps the retry affordance`);
+    assert.doesNotMatch(html, />Aktif</, `${issue} must not say Aktif`);
+  }
+  assert.match(render({ state: "granted", issue: "unregistered" }), /akun yang sedang masuk/);
+  assert.match(render({ state: "granted", issue: "retired" }), /Server menonaktifkan/);
+  assert.match(render({ state: "granted", issue: "unknown" }), /belum dapat dikonfirmasi dari server/);
+});
+
+test("a thrown registration POST keeps the endpoint and reports unconfirmed", async () => {
+  let unsubscribed = false;
+  const subscription = {
+    endpoint: "https://push.example/device",
+    toJSON: () => ({ endpoint: "https://push.example/device", keys: { p256dh: "p", auth: "a" } }),
+    unsubscribe: async () => { unsubscribed = true; },
+  };
+  const registration = { pushManager: { getSubscription: async () => subscription } };
+  const serviceWorker = { getRegistration: async () => registration, register: async () => registration };
+  const result = await registerSubscription(serviceWorker, "BEl6", async () => { throw new TypeError("network down"); });
+  assert.equal(result.status, "unconfirmed");
+  assert.equal(unsubscribed, false, "an unknown outcome must not discard the endpoint");
+});
+
+test("a confirmed registration posts this endpoint and keys without a household", async () => {
+  const calls = [];
+  const subscription = {
+    endpoint: "https://push.example/device",
+    toJSON: () => ({ endpoint: "https://push.example/device", keys: { p256dh: "p", auth: "a" } }),
+    unsubscribe: async () => { throw new Error("must not unsubscribe"); },
+  };
+  const registration = { pushManager: { getSubscription: async () => subscription } };
+  const serviceWorker = { getRegistration: async () => registration, register: async () => registration };
+  const result = await registerSubscription(serviceWorker, "BEl6", async (url, options) => { calls.push({ url, options }); return { ok: true }; });
+  assert.equal(result.status, "registered");
+  assert.equal(calls[0].url, "/api/v1/push/subscriptions");
+  assert.equal(calls[0].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { endpoint: "https://push.example/device", keys: { p256dh: "p", auth: "a" } });
+});
+
+test("a rejected registration drops the local endpoint", async () => {
+  let unsubscribed = false;
+  const subscription = {
+    endpoint: "https://push.example/device",
+    toJSON: () => ({ endpoint: "https://push.example/device", keys: { p256dh: "p", auth: "a" } }),
+    unsubscribe: async () => { unsubscribed = true; },
+  };
+  const registration = { pushManager: { getSubscription: async () => subscription } };
+  const serviceWorker = { getRegistration: async () => registration, register: async () => registration };
+  const result = await registerSubscription(serviceWorker, "BEl6", async () => ({ ok: false }));
+  assert.equal(result.status, "rejected");
+  assert.equal(unsubscribed, true);
 });
 
 test("iOS outside the home screen is unsupported and asks for an install", () => {
@@ -114,11 +181,22 @@ test("turning off both deletes the server row and unsubscribes locally", async (
   assert.equal(unsubscribed, true, "the local subscription is removed too");
 });
 
-test("turning off says the server did not confirm when the delete fails", async () => {
+test("a failed delete keeps the endpoint so it can be retried", async () => {
+  let unsubscribed = false;
   const serviceWorker = {
-    getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: "https://push.example/device", unsubscribe: async () => {} }) } }),
+    getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: "https://push.example/device", unsubscribe: async () => { unsubscribed = true; } }) } }),
   };
   assert.equal(await disableNotifications(serviceWorker, async () => ({ ok: false })), "unconfirmed");
+  assert.equal(unsubscribed, false, "the endpoint survives an unconfirmed delete");
+});
+
+test("a thrown delete keeps the endpoint and reports an error", async () => {
+  let unsubscribed = false;
+  const serviceWorker = {
+    getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: "https://push.example/device", unsubscribe: async () => { unsubscribed = true; } }) } }),
+  };
+  assert.equal(await disableNotifications(serviceWorker, async () => { throw new TypeError("network down"); }), "error");
+  assert.equal(unsubscribed, false, "the endpoint survives a network failure");
 });
 
 test("turning off does not call the server when this device holds no subscription", async () => {

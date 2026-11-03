@@ -80,8 +80,8 @@ export default function SettingsPage() {
   </AppShell>;
 }
 
-// The browser owns the truth: the card is a view of Notification.permission
-// and PushManager.getSubscription(), never of what the app last did.
+// The card is a view of browser permission, the browser's endpoint, and the
+// server's own list for this session — never of what the app last did.
 export function notificationState({ supported, ios, installed, serverEnabled, permission, subscribed }) {
   if (!supported || !serverEnabled || (ios && !installed)) return "unsupported";
   if (permission === "denied") return "denied";
@@ -94,19 +94,62 @@ function base64Key(value) {
   return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
 }
 
+// A browser endpoint only counts as active when the server lists that same
+// endpoint as live for this session. An endpoint the server does not know
+// belongs to another account (or was pruned); a retired row must not read as
+// active. An unavailable list is unknown, never active.
+export function reconcileSubscription({ browserEndpoint = null, serverSubscriptions = null }) {
+  if (!browserEndpoint) return { subscribed: false, issue: "" };
+  if (!Array.isArray(serverSubscriptions)) return { subscribed: false, issue: "unknown" };
+  const row = serverSubscriptions.find(item => item?.endpoint === browserEndpoint);
+  if (!row) return { subscribed: false, issue: "unregistered" };
+  return row.active ? { subscribed: true, issue: "" } : { subscribed: false, issue: "retired" };
+}
+
+// A rejected POST is confirmed-not-registered, so the local subscription is
+// dropped and retry starts clean. A thrown POST is unknown: the server may have
+// committed before the socket died, so the endpoint is kept and the next
+// refresh asks the server. Re-registering the same endpoint is an upsert.
+export async function registerSubscription(serviceWorker, publicKey, request = fetch) {
+  const registration = await serviceWorker.getRegistration() || await serviceWorker.register("/sw.js", { scope: "/" });
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(publicKey) });
+  try {
+    const response = await request("/api/v1/push/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: subscription.endpoint, keys: subscription.toJSON().keys }),
+    });
+    if (!response.ok) {
+      await subscription.unsubscribe().catch(() => {});
+      return { status: "rejected", subscription };
+    }
+    return { status: "registered", subscription };
+  } catch {
+    return { status: "unconfirmed", subscription };
+  }
+}
+
 // Unsubscribing locally and deleting the server row are one action; either
-// alone leaves a subscription the sender keeps trying to reach.
+// alone leaves a subscription the sender keeps trying to reach. The endpoint
+// stays until the server confirms, so a failed delete can be retried.
 export async function disableNotifications(serviceWorker, request = fetch) {
   const registration = await serviceWorker.getRegistration();
   const subscription = await registration?.pushManager?.getSubscription();
   if (!subscription) return "missing";
-  const response = await request("/api/v1/push/subscriptions", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint: subscription.endpoint }),
-  });
+  let response;
+  try {
+    response = await request("/api/v1/push/subscriptions", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    });
+  } catch {
+    return "error";
+  }
+  if (!response.ok) return "unconfirmed";
   await subscription.unsubscribe();
-  return response.ok ? "off" : "unconfirmed";
+  return "off";
 }
 
 const PUSH_COPY = {
@@ -117,8 +160,15 @@ const PUSH_COPY = {
   subscribed: ["Aktif", "Notifikasi aktif di perangkat ini. Pemberitahuan muncul saat ada tinjauan atau tindakan baru."],
 };
 
-export function NotificationsView({ state, iosNotInstalled = false, serverDisabled = false, working = false, status = "", onEnable, onDisable }) {
-  const [fallbackTitle, fallbackBody] = PUSH_COPY[state] || ["Memeriksa status notifikasi", "Richmod memeriksa dukungan notifikasi di peramban ini."];
+// Adornment inside `granted`; these are not additional states.
+const PUSH_ISSUE = {
+  unregistered: ["Belum terdaftar untuk akun ini", "Perangkat ini masih menyimpan langganan lama yang tidak terdaftar untuk akun yang sedang masuk. Coba lagi untuk mendaftarkannya kembali."],
+  retired: ["Dinonaktifkan server", "Server menonaktifkan langganan perangkat ini, mungkin karena rumah tangga berubah. Coba lagi untuk mendaftarkannya kembali."],
+  unknown: ["Belum terkonfirmasi", "Status langganan belum dapat dikonfirmasi dari server. Coba lagi untuk memeriksa ulang."],
+};
+
+export function NotificationsView({ state, issue = "", iosNotInstalled = false, serverDisabled = false, working = false, status = "", onEnable, onDisable }) {
+  const [fallbackTitle, fallbackBody] = (state === "granted" && PUSH_ISSUE[issue]) || PUSH_COPY[state] || ["Memeriksa status notifikasi", "Richmod memeriksa dukungan notifikasi di peramban ini."];
   const title = state === "unsupported" && iosNotInstalled ? "Perlu dipasang ke Layar Utama" : fallbackTitle;
   const body = state === "unsupported" && iosNotInstalled
     ? "Safari di iPhone dan iPad hanya menerima notifikasi setelah Richmod ditambahkan ke Layar Utama. Buka menu Bagikan lalu pilih Tambahkan ke Layar Utama."
@@ -136,7 +186,7 @@ export function NotificationsView({ state, iosNotInstalled = false, serverDisabl
 }
 
 function NotificationsSection() {
-  const [view, setView] = useState({ state: "checking", iosNotInstalled: false, serverDisabled: false, publicKey: "" });
+  const [view, setView] = useState({ state: "checking", issue: "", iosNotInstalled: false, serverDisabled: false, publicKey: "" });
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -144,25 +194,24 @@ function NotificationsSection() {
     const supported = typeof window !== "undefined" && "PushManager" in window && "serviceWorker" in navigator && "Notification" in window;
     const ios = typeof navigator !== "undefined" && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
     const installed = typeof navigator !== "undefined" && (navigator.standalone === true || window.matchMedia?.("(display-mode: standalone)")?.matches === true);
-    let server = null;
-    try {
-      const response = await fetch("/api/v1/push/public-key");
-      if (response.ok) server = await response.json();
-    } catch {
-      // A server that cannot answer is treated as not configured.
-    }
-    let subscribed = false;
+    const [server, listed] = await Promise.all([
+      fetch("/api/v1/push/public-key").then(response => response.ok ? response.json() : null).catch(() => null),
+      fetch("/api/v1/push/subscriptions").then(response => response.ok ? response.json() : null).catch(() => null),
+    ]);
+    const serverSubscriptions = Array.isArray(listed?.subscriptions) ? listed.subscriptions : null;
+    let browserEndpoint = null;
     if (supported) {
       try {
         const registration = await navigator.serviceWorker.getRegistration();
-        subscribed = Boolean(await registration?.pushManager.getSubscription());
+        browserEndpoint = (await registration?.pushManager.getSubscription())?.endpoint || null;
       } catch {
-        // No registration means no subscription; the state below says so.
+        // No registration means no browser subscription; the server list decides.
       }
     }
+    const { subscribed, issue } = reconcileSubscription({ browserEndpoint, serverSubscriptions });
     const serverEnabled = Boolean(server?.enabled);
     const state = notificationState({ supported, ios, installed, serverEnabled, permission: supported ? Notification.permission : "default", subscribed });
-    setView({ state, iosNotInstalled: ios && !installed, serverDisabled: supported && (!ios || installed) && !serverEnabled, publicKey: server?.publicKey || server?.public_key || "" });
+    setView({ state, issue, iosNotInstalled: ios && !installed, serverDisabled: supported && (!ios || installed) && !serverEnabled, publicKey: server?.publicKey || server?.public_key || "" });
   }, []);
 
   useEffect(() => {
@@ -183,20 +232,8 @@ function NotificationsSection() {
         return;
       }
       if (!view.publicKey) { setStatus("Server ini belum mengaktifkan notifikasi push."); return; }
-      const registration = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      let subscription = await registration.pushManager.getSubscription();
-      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64Key(view.publicKey) });
-      const response = await fetch("/api/v1/push/subscriptions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: subscription.endpoint, keys: subscription.toJSON().keys }),
-      });
-      if (!response.ok) {
-        await subscription.unsubscribe().catch(() => {});
-        setStatus("Perangkat ini belum dapat didaftarkan. Coba lagi.");
-        return;
-      }
-      setStatus("Notifikasi aktif di perangkat ini.");
+      const result = await registerSubscription(navigator.serviceWorker, view.publicKey);
+      setStatus(result.status === "registered" ? "Notifikasi aktif di perangkat ini." : result.status === "rejected" ? "Perangkat ini belum dapat didaftarkan. Coba lagi." : "Pendaftaran belum terkonfirmasi. Status diperiksa ulang dari server.");
     } catch {
       setStatus("Notifikasi belum dapat diaktifkan. Coba lagi.");
     } finally {
@@ -210,7 +247,10 @@ function NotificationsSection() {
     setWorking(true); setStatus("");
     try {
       const result = await disableNotifications(navigator.serviceWorker);
-      setStatus(result === "missing" ? "Perangkat ini memang belum terdaftar." : result === "off" ? "Notifikasi dimatikan di perangkat ini." : "Notifikasi dimatikan di perangkat ini, tetapi server belum mengonfirmasi. Coba lagi nanti.");
+      setStatus(result === "missing" ? "Perangkat ini memang belum terdaftar."
+        : result === "off" ? "Notifikasi dimatikan di perangkat ini."
+          : result === "unconfirmed" ? "Penghapusan belum dikonfirmasi server. Perangkat ini masih terdaftar; coba matikan lagi."
+            : "Server tidak dapat dihubungi. Perangkat ini masih terdaftar; coba matikan lagi.");
     } catch {
       setStatus("Notifikasi belum dapat dimatikan. Coba lagi.");
     } finally {
@@ -220,7 +260,7 @@ function NotificationsSection() {
   }
 
   return <SettingsSection title="Notifikasi" description="Notifikasi dikirim ke perangkat ini saat ada transaksi atau tindakan integrasi yang menunggu tinjauan.">
-    <NotificationsView state={view.state} iosNotInstalled={view.iosNotInstalled} serverDisabled={view.serverDisabled} working={working} status={status} onEnable={enable} onDisable={disable} />
+    <NotificationsView state={view.state} issue={view.issue} iosNotInstalled={view.iosNotInstalled} serverDisabled={view.serverDisabled} working={working} status={status} onEnable={enable} onDisable={disable} />
   </SettingsSection>;
 }
 

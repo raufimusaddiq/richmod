@@ -280,3 +280,90 @@ func heartbeat(handler *Handler, user, endpoint string) *httptest.ResponseRecord
 	handler.Heartbeat(recorder, request)
 	return recorder
 }
+
+func TestListRequiresHouseholdMembership(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/push/subscriptions", nil)
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{UserID: "user", HasHousehold: false}))
+	newTestHandler(nil, "", "").List(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("list without household=%d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestListReturnsOnlyCallerSubscriptionsIncludingRetired(t *testing.T) {
+	pool := apiTestPool(t)
+	handler := newTestHandler(pool, testVAPIDPrivate, "mailto:test@example.invalid")
+	householdA, userA := apiSeedMember(t, pool)
+	householdB, userB := apiSeedMember(t, pool)
+	live := "https://1.1.1.1/list-live/" + householdA
+	retired := "https://1.1.1.1/list-retired/" + householdA
+	other := "https://1.1.1.1/list-other/" + householdB
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5)`, userA, householdA, live, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth,disabled_at) VALUES($1,$2,$3,$4,$5,now())`, userA, householdA, retired, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5)`, userB, householdB, other, testP256DH, testAuth); err != nil {
+		t.Fatal(err)
+	}
+	recorder := list(handler, userA, householdA)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("list=%d %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Subscriptions []struct {
+			Endpoint string `json:"endpoint"`
+			Active   bool   `json:"active"`
+		} `json:"subscriptions"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Subscriptions) != 2 {
+		t.Fatalf("caller sees %d subscriptions, want 2: %s", len(payload.Subscriptions), recorder.Body.String())
+	}
+	states := map[string]bool{}
+	for _, item := range payload.Subscriptions {
+		states[item.Endpoint] = item.Active
+	}
+	if active, ok := states[live]; !ok || !active {
+		t.Fatalf("live subscription missing or inactive: %v", states)
+	}
+	if active, ok := states[retired]; !ok || active {
+		t.Fatalf("retired subscription missing or active: %v", states)
+	}
+	if _, ok := states[other]; ok {
+		t.Fatal("another household's subscription leaked into the list")
+	}
+}
+
+func TestResubscribeSameEndpointIsIdempotent(t *testing.T) {
+	pool := apiTestPool(t)
+	handler := newTestHandler(pool, testVAPIDPrivate, "mailto:test@example.invalid")
+	household, user := apiSeedMember(t, pool)
+	endpoint := "https://1.1.1.1/idempotent/" + household
+	for attempt := 1; attempt <= 2; attempt++ {
+		if response := subscribe(handler, user, household, endpoint, testP256DH); response.Code != http.StatusCreated {
+			t.Fatalf("subscribe attempt %d=%d %s", attempt, response.Code, response.Body.String())
+		}
+	}
+	var count int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2 AND disabled_at IS NULL`, endpoint, user).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("re-subscribe left %d live rows, want 1", count)
+	}
+}
+
+func list(handler *Handler, user, household string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/push/subscriptions", nil)
+	request = request.WithContext(auth.ContextWithPrincipal(context.Background(), auth.Principal{
+		UserID: user, HouseholdID: household, HouseholdRole: "OWNER", HasHousehold: true,
+	}))
+	recorder := httptest.NewRecorder()
+	handler.List(recorder, request)
+	return recorder
+}
