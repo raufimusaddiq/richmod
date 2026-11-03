@@ -42,13 +42,19 @@ white page that the user cannot clear by reloading.
    | --- | --- | --- |
    | Navigations and `.txt` RSC payloads | network-only, not intercepted | HTML never comes from a cache, so it always names the current release's chunks |
    | `/api`, `/webhooks`, `/finance`, `/healthz`, `/readyz` | not intercepted | the worker never sees financial state |
-   | `/_next/static/*` | cache-first in `richmod-static-<build>` | Next hashes these names; a cache hit is byte-identical to the URL |
+   | `/_next/static/*` | cache-first across retained generations | Next hashes these names; a cache hit is byte-identical to the URL. A failing cache lookup or write falls through to the network response instead of failing the chunk |
    | manifest, icons, fonts, brand art | network-only | revalidated as before; nothing stale is served from a worker cache |
 
    There is no precached shell and no offline fallback page. On install the
-   worker calls `skipWaiting()`; on activate it deletes every other
-   `richmod-static-*` cache and calls `clients.claim()`. Because HTML is
-   network-only, immediate activation cannot expose an old shell.
+   worker calls `skipWaiting()`; on activate it calls `clients.claim()` and
+   retains the current and immediately previous `richmod-static-<build>`
+   generations (`richmod-generations` records the ordered list) while deleting
+   only older ones. A page still open on the previous build keeps requesting
+   that build's chunks, and the new worker answers them from the retained cache
+   because `caches.match` searches every generation. Because HTML is
+   network-only, immediate activation cannot expose an old shell. Cache Storage
+   failures (denied access, quota) are caught: a chunk that arrived from the
+   network is returned even when it could not be cached.
 5. **Registration** is a production-only client component in the root layout,
    with `updateViaCache: "none"` and an extra `registration.update()` whenever
    a long-lived standalone window becomes visible. A release is picked up on
@@ -66,7 +72,13 @@ white page that the user cannot clear by reloading.
   the tab; deep links and cold starts resolve through the existing file lookup.
 - Every release changes `sw.js` (the build hash covers chunk content), so
   installed clients observe an update on their next launch. There is no prompt
-  UI and no update banner.
+  UI and no update banner. Storage is bounded to the current and previous
+  generations; a client that stays open across two releases is expected to
+  reload before its chunks are pruned.
+- `apps/web/tests/service-worker.test.mjs` executes the template in a VM against
+  a controllable Cache Storage: a denied `open` and a rejected `put` must still
+  deliver the network chunk, and a worker upgrade must keep resolving the
+  previous build's chunk for an open client.
 - Offline use is not supported; a cold start without network shows the
   browser's error. Push notifications, background sync and offline editing
   remain out of scope.
