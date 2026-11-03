@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00085_bank_email_notice.sql`.
+forward migration set through `db/migrations/00086_push_notifications.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -105,6 +105,10 @@ erDiagram
     }
     EMAIL_INGRESS_ADDRESS ||--o{ EMAIL_INGRESS_DELIVERY : receives
     EMAIL_INGRESS_DELIVERY ||--o{ INTEGRATION_ACTION : may_require
+    USER ||--o{ PUSH_SUBSCRIPTION : owns
+    HOUSEHOLD ||--o{ PUSH_SUBSCRIPTION : scopes
+    USER ||--o{ PUSH_OUTBOX : notified_by
+    HOUSEHOLD ||--o{ PUSH_OUTBOX : scopes
     HOUSEHOLD ||--o{ JOB : queues
     JOB ||--o{ JOB_RETRY_LOG : retries
     HOUSEHOLD ||--o{ LLM_CALL : observes
@@ -209,6 +213,9 @@ erDiagram
 | `audit_log` | Household financial/audit trail. | Household/user optional; typed entity ID is polymorphic. |
 | `platform_audit_log` | Platform-admin audit trail. | `actor_user_id → user`; typed entity ID is polymorphic. |
 | `integration_action` | Setup/integration action surfaced in Inbox. | Household-scoped; optional email-ingress delivery and resolving user. |
+| `push_subscriptions` | Web Push device subscription owned by one user. | `user_id → user`, `household_id → household`; `endpoint` is unique, `p256dh`/`auth` are the browser's public encryption keys. A user has one active household (migration `00045`), so the row follows that household; re-subscribing moves `household_id` and retires the old household's pending delivery rows. `created_at` is the first registration; `active_since` starts the current active period and is reset only when a disabled subscription is reactivated, so a refresh of a live subscription keeps its period. Reactivating also retires that subscription's pending delivery rows. `failure_count` is a diagnostic count of consecutive transient delivery failures; it does not disable anything, so a push-service outage cannot retire every device. `disabled_at` is set only for a dead endpoint (404/410), without deleting the evidence row. Re-subscribing the same endpoint clears both `disabled_at` and `failure_count`, because the user is asserting the device is healthy. Only live rows (`disabled_at IS NULL`) receive sends. |
+| `push_outbox` | Durable per-user notification queue. | `household_id → household`, `user_id → user`; `kind` is `REVIEW` or `INTEGRATION_ACTION`, `payload` carries only review/action IDs and bounded copy. AFTER INSERT triggers on `review_item` and `integration_action` insert one row per active household member that has a live subscription in that same household, in the creating transaction, with `available_at = now() + 30 seconds` so a burst coalesces into one notification. The sender claims with `FOR UPDATE SKIP LOCKED`, retries with backoff, and sets `abandoned_at` after bounded attempts. Rows older than one hour are abandoned at claim, and the same expiry sweep runs from the worker maintenance loop even when VAPID is absent, so a disabled push period cannot replay history or grow the table without bound. No secret, endpoint key, or financial value is stored here. |
+| `push_outbox_delivery` | Per-device outcome for one outbox row. | `outbox_id → push_outbox`, `subscription_id → push_subscriptions`; unique per pair. `status` is `PENDING`, `SENT`, `DEAD` (404/410), or `FAILED` (per-device attempts exhausted). An outbox row is sent only when every delivery is terminal and at least one is `SENT`; otherwise it is abandoned or rescheduled, so one failing device is retried rather than hidden by another device's success. |
 
 ## Change checklist
 

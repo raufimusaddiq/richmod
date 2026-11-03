@@ -21,6 +21,7 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 	workerInsight "github.com/raufimusaddiq/richmod/apps/worker/internal/insight"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/judgment/systemone"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/push"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/queue"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/residual"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/telegram"
@@ -170,6 +171,15 @@ func run(logger *slog.Logger) error {
 	workerID := hostname + ":" + strconv.Itoa(os.Getpid())
 
 	logger.Info("worker started", "worker_id", workerID)
+	// Missing VAPID configuration degrades quietly: the sender never starts, so
+	// outbox rows stay pending until the owner installs the keys. Nothing else
+	// in the worker or the health path depends on it.
+	pushSender, pushErr := push.NewSender(pool, os.Getenv("VAPID_PRIVATE_KEY"), os.Getenv("VAPID_SUBJECT"), logger)
+	if pushErr != nil {
+		logger.Warn("push notifications disabled", "reason", pushErr.Error())
+	} else {
+		go pushSender.Run(ctx)
+	}
 	catchUpResidualReviews(ctx, logger, pool, 100)
 	if err := documentProcessor.EvictTerminalCaches(ctx); err != nil {
 		logger.Warn("attachment cache eviction failed", "error", err)
@@ -195,6 +205,11 @@ func run(logger *slog.Logger) error {
 		case <-ctx.Done():
 			return nil
 		case <-maintenanceTicker.C:
+			// Runs even when VAPID is absent and the sender never started, so
+			// the outbox cannot grow without bound behind a disabled feature.
+			if _, err := push.Expire(ctx, pool, logger, push.DefaultExpiry); err != nil {
+				logger.Warn("push outbox expiry failed", "error", err)
+			}
 			catchUpResidualReviews(ctx, logger, pool, 25)
 			if created, err := reviewdomain.SweepFailedSources(ctx, pool, 50); err != nil {
 				logger.Warn("failed source sweep failed", "error", err)
