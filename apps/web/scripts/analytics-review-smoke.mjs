@@ -225,7 +225,9 @@ try {
     assert.equal(await page.locator("#category-drivers").getByRole("link", { name: "Kembali ke ringkasan siklus", exact: true }).isVisible(), true, "the evidence links back to the ledger");
     await matrixRow.focus();
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => !new URL(location.href).searchParams.has("category"));
+    // The URL changes before React re-renders (next 16.4 defers the update), so
+    // wait for the state this line asserts, not for a proxy for it.
+    await page.waitForFunction(() => !new URL(location.href).searchParams.has("category") && document.querySelector('button.ledger-row-button[aria-label="Buka bukti Belanja rumah"]')?.getAttribute("aria-pressed") === "false");
     assert.equal(await matrixRow.getAttribute("aria-pressed"), "false", "choosing the selected category again clears it");
     assert.equal(await page.locator(".cycle-pace-chart").isVisible(), true, "pace is its own single-series chart");
     const charts = await page.evaluate(() => { const [a, b] = [".shape-charts > :nth-child(1)", ".shape-charts > :nth-child(2)"].map(selector => document.querySelector(selector)?.getBoundingClientRect()); return { sameRow: Boolean(a && b) && Math.abs(a.top - b.top) < 4 && a.right <= b.left + 1, section: Math.round(document.querySelector("#spending-shape")?.getBoundingClientRect().width ?? 0) }; });
@@ -326,6 +328,8 @@ try {
     await page.locator("dialog[open]").getByRole("button", { name: "Ya, batalkan", exact: true }).click();
     await page.getByText("Keputusan dibatalkan. Riwayat tetap tersimpan.", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Selesai meninjau", exact: true }).click();
+    // Same rule: closing the meeting clears the URL first, then swaps the view back.
+    await page.waitForFunction(() => !new URL(location.href).searchParams.has("review") && document.querySelector("#position")?.checkVisibility({ checkVisibilityCSS: true, checkOpacity: false }) === true);
     assert.equal(new URL(page.url()).searchParams.has("review"), false);
     assert.equal(await page.locator("#position").isVisible(), true);
 
