@@ -1,4 +1,9 @@
 -- +goose Up
+-- Financial-email observations get the same active-uniqueness guarantee every
+-- other review subject has (00029, 00046, 00047): one observation never carries
+-- two open reviews, including after a repeated reopen.
+CREATE UNIQUE INDEX review_item_open_financial_email_observation_unique ON review_item(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN');
+
 -- MISSING_TRANSACTION_DATE and TRANSACTION_FACTS_MISSING stored the payslip
 -- action name SET_PAY_DATE for a transaction date. They now store their own
 -- action, SET_TRANSACTION_DATE, plus the bounded one-tap date choices
@@ -28,6 +33,7 @@ WHERE review_type IN ('MISSING_TRANSACTION_DATE','TRANSACTION_FACTS_MISSING')
   AND decision->'allowedActions' ? 'SET_PAY_DATE';
 
 -- +goose Down
+DROP INDEX IF EXISTS review_item_open_financial_email_observation_unique;
 -- Restore the previous action name on active reviews; the bounded choices are
 -- additive metadata older code ignores, so they are left in place.
 UPDATE review_item

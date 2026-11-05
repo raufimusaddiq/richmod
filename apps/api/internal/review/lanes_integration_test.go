@@ -181,6 +181,18 @@ func TestFinancialEmailFactsIsANoticeOutsideTheDecisionCount(t *testing.T) {
 	if got := f.status(source); got != "IGNORED" {
 		t.Fatalf("source=%s", got)
 	}
+	// Reopening twice (or racing) never gives one observation two open reviews.
+	if w := f.reopen(notice); w.Code != http.StatusOK {
+		t.Fatalf("reopen=%d %s", w.Code, w.Body.String())
+	}
+	if w := f.reopen(notice); w.Code != http.StatusConflict {
+		t.Fatalf("second reopen=%d %s", w.Code, w.Body.String())
+	}
+	var open int
+	f.must(f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE financial_email_observation_id=$1 AND status IN ('OPEN','PENDING_SEND')`, observation).Scan(&open))
+	if open != 1 || f.status(source) != "NEEDS_REVIEW" {
+		t.Fatalf("open reviews=%d source=%s", open, f.status(source))
+	}
 }
 
 // Choosing the wealth account is one action that resolves the review; the

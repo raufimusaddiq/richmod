@@ -760,7 +760,7 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		if len(duplicateCandidates) > 0 {
 			// Plausible but not provably the same event: ask, never guess.
 			transactionStatus, proposalStatus, autoNotice = "NEEDS_REVIEW", "NEEDS_REVIEW", false
-			result.AutoConfirm, result.ReviewType = false, "POSSIBLE_DUPLICATE"
+			result.AutoConfirm, result.ReviewType, result.Status = false, "POSSIBLE_DUPLICATE", "NEEDS_REVIEW"
 		}
 	}
 	var proposalID string

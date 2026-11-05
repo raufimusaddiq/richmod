@@ -99,6 +99,11 @@ func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 				if transactions != 2 || linked || reviewType != "POSSIBLE_DUPLICATE" || !named || sourceStatus != "NEEDS_REVIEW" {
 					t.Fatalf("ambiguity must ask, never guess: transactions=%d linked=%v review=%s named=%v source=%s", transactions, linked, reviewType, named, sourceStatus)
 				}
+				var policy string
+				must(pool.QueryRow(ctx, `SELECT after_json->>'policy_result' FROM audit_log WHERE household_id=$1 AND action='CREATE_FROM_BANK_EMAIL'`, household).Scan(&policy))
+				if policy != "NEEDS_REVIEW" {
+					t.Fatalf("audit records policy_result=%s for a transaction parked in review", policy)
+				}
 			case "NEW":
 				if transactions != 2 || linked || sourceStatus != "PROCESSED" {
 					t.Fatalf("a second bank email is a second event: transactions=%d linked=%v source=%s", transactions, linked, sourceStatus)
