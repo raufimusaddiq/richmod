@@ -40,6 +40,14 @@ type boundCardItem struct {
 	Decision                              []byte
 }
 
+func (item boundCardItem) allows(action string) bool {
+	var stored struct {
+		AllowedActions []string `json:"allowedActions"`
+	}
+	_ = json.Unmarshal(item.Decision, &stored)
+	return contains(stored.AllowedActions, action)
+}
+
 // bindOpenCardItem locks the open review item bound to the tapped card for the
 // authorized household member who tapped it.
 func bindOpenCardItem(ctx context.Context, tx pgx.Tx, householdID string, update telegramUpdate) (boundCardItem, error) {
@@ -165,11 +173,10 @@ func (p *Processor) processCycleLeaveCallback(ctx context.Context, sourceEventID
 		return err
 	}
 	var caseID string
-	var allowed bool
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(cycle_residual_case_id::text,''),COALESCE(decision->'allowedActions','[]'::jsonb) ? 'LEAVE_UNALLOCATED' FROM review_item WHERE id=$1 AND household_id=$2`, item.ItemID, householdID).Scan(&caseID, &allowed); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(cycle_residual_case_id::text,'') FROM review_item WHERE id=$1 AND household_id=$2`, item.ItemID, householdID).Scan(&caseID); err != nil {
 		return err
 	}
-	if caseID == "" || !allowed {
+	if caseID == "" || !item.allows("LEAVE_UNALLOCATED") {
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
 	outcome, err := reviewdomain.ApplyCycleResidual(ctx, tx, reviewdomain.CycleResidualCommand{
