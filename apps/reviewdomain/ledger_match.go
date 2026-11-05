@@ -96,16 +96,14 @@ func LockLedgerEvent(ctx context.Context, tx pgx.Tx, householdID, amountIDR stri
 	return err
 }
 
-// SameLedgerCandidates reports whether a match result taken under the lock adds
-// no candidate the lane did not decide on. A new candidate means another lane
-// wrote a transaction meanwhile; the caller must re-run its decision.
-func SameLedgerCandidates(decided []string, now []LedgerMatch) bool {
-	seen := map[string]bool{}
-	for _, id := range decided {
-		seen[id] = true
-	}
+// SameLedgerCandidates reports whether a match result taken under the lock is
+// the one the lane decided on: no new candidate and no candidate whose score
+// changed (another lane may have enriched its merchant meanwhile). Any change
+// means the caller must re-run its decision.
+func SameLedgerCandidates(decided map[string]float64, now []LedgerMatch) bool {
 	for _, match := range now {
-		if !seen[match.ID] {
+		score, ok := decided[match.ID]
+		if !ok || score != match.Score {
 			return false
 		}
 	}

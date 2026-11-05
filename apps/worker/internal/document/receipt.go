@@ -61,7 +61,7 @@ type receiptValidation struct {
 	ArithmeticOK        bool
 	// decidedMatches are the candidate ids the decision was taken on; the write
 	// re-checks them under the ledger lock (cross-lane serialization).
-	decidedMatches []string
+	decidedMatches map[string]float64
 }
 
 type matchCandidate struct {
@@ -290,9 +290,9 @@ func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, househol
 	if err != nil {
 		return err
 	}
-	validation.decidedMatches = make([]string, 0, len(candidates))
+	validation.decidedMatches = make(map[string]float64, len(candidates))
 	for _, candidate := range candidates {
-		validation.decidedMatches = append(validation.decidedMatches, candidate.ID)
+		validation.decidedMatches[candidate.ID] = candidate.Score
 	}
 	// The shared rule judges the strong match against every candidate and fails
 	// closed when too many plausible events exist.

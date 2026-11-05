@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/ledger"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
@@ -278,15 +279,17 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 	if status != "RESOLVED" || resolution != "TRANSACTION_MISSING" || route.Route != "CANONICAL_TRANSACTION_FLOW" || route.CycleStart != "2026-08-25" {
 		t.Fatalf("status=%s resolution=%s route=%+v", status, resolution, route)
 	}
-	// The household records the missing expense in that cycle.
-	tx, err := f.pool.Begin(ctx)
-	f.must(err)
-	defer tx.Rollback(ctx)
+	// The household records the missing expense through manual entry, where
+	// the Inbox sends it.
 	at := time.Date(2026, 9, 1, 5, 0, 0, 0, time.UTC)
-	_, err = tx.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',300000,$2,'GENERAL',now())`, f.household, at)
-	f.must(err)
-	f.must(reviewdomain.RefreshOpenCycleResiduals(ctx, tx, f.household, at, f.user))
-	f.must(tx.Commit(ctx))
+	var category string
+	f.must(f.pool.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 LIMIT 1`, f.household).Scan(&category))
+	manual := f.principal(httptest.NewRequest(http.MethodPost, "/api/v1/transactions", bytes.NewBufferString(`{"type":"EXPENSE","amount":"300000","transactionAt":"`+at.Format(time.RFC3339)+`","categoryId":"`+category+`","description":"Belanja yang terlewat"}`)))
+	mw := httptest.NewRecorder()
+	ledger.NewHandler(f.pool).CreateManualTransaction(mw, manual)
+	if mw.Code != http.StatusCreated {
+		t.Fatalf("manual entry=%d %s", mw.Code, mw.Body.String())
+	}
 	var reopened, residual string
 	f.must(f.pool.QueryRow(ctx, `SELECT ri.decision->'knownFacts'->>'residual_idr',c.basis_residual_idr::text FROM review_item ri JOIN cycle_residual_case c ON c.id=ri.cycle_residual_case_id WHERE ri.cycle_residual_case_id=$1 AND ri.status='OPEN'`, caseID).Scan(&reopened, &residual))
 	if reopened != "700000" || residual != "700000" {
@@ -298,7 +301,7 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 	if w := f.resolve(reopenedItem, `{"action":"TRANSACTION_MISSING"}`); w.Code != http.StatusOK {
 		t.Fatalf("second transaction missing=%d %s", w.Code, w.Body.String())
 	}
-	tx, err = f.pool.Begin(ctx)
+	tx, err := f.pool.Begin(ctx)
 	f.must(err)
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',700000,$2,'GENERAL',now())`, f.household, at)
@@ -419,5 +422,23 @@ func TestReopenedTransactionReviewCarriesAFreshDecision(t *testing.T) {
 	f.must(f.pool.QueryRow(ctx, `SELECT decision->>'missingFacts',decision->'knownFacts'->>'amount_idr' FROM review_item WHERE transaction_id=$1 AND status='OPEN'`, transaction).Scan(&missing, &amount))
 	if missing != `["merchant"]` || amount != "25000" {
 		t.Fatalf("reopened decision missing=%s amount=%s", missing, amount)
+	}
+}
+
+// IGNORE through the canonical resolve on an open transaction review is the
+// transaction lane's rejection, so offered and accepted agree.
+func TestIgnoreOnOpenTransactionReviewRejectsThroughTheTransactionLane(t *testing.T) {
+	f := newLaneFixture(t)
+	ctx := context.Background()
+	var transaction, item string
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',1000,now()) RETURNING id`, f.household).Scan(&transaction))
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","knownFacts":{},"missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction).Scan(&item))
+	if w := f.resolve(item, `{"action":"IGNORE"}`); w.Code != http.StatusNoContent {
+		t.Fatalf("ignore=%d %s", w.Code, w.Body.String())
+	}
+	var status, itemStatus string
+	f.must(f.pool.QueryRow(ctx, `SELECT (SELECT status FROM transaction WHERE id=$1),(SELECT status FROM review_item WHERE id=$2)`, transaction, item).Scan(&status, &itemStatus))
+	if status != "VOIDED" || itemStatus != "RESOLVED" {
+		t.Fatalf("transaction=%s item=%s", status, itemStatus)
 	}
 }

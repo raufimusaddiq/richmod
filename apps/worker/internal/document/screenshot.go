@@ -366,7 +366,13 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			return err
 		}
 		if slices.ContainsFunc(now, func(candidate matchCandidate) bool {
-			return (row.Matched == nil || row.Matched.ID != candidate.ID) && !slices.ContainsFunc(row.Candidates, func(decided matchCandidate) bool { return decided.ID == candidate.ID })
+			// A new candidate, or one whose score changed, invalidates the decision.
+			if row.Matched != nil && row.Matched.ID == candidate.ID {
+				return row.Matched.Score != candidate.Score
+			}
+			return !slices.ContainsFunc(row.Candidates, func(decided matchCandidate) bool {
+				return decided.ID == candidate.ID && decided.Score == candidate.Score
+			})
 		}) {
 			return reviewdomain.ErrLedgerRaced
 		}

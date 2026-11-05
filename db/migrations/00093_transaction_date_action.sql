@@ -2,6 +2,16 @@
 -- Financial-email observations get the same active-uniqueness guarantee every
 -- other review subject has (00029, 00046, 00047): one observation never carries
 -- two open reviews, including after a repeated reopen.
+-- Precondition: should any observation already carry two open reviews, the
+-- newer ones are closed as duplicates (status change with an audit row; nothing
+-- is deleted) so the index can be built.
+INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json)
+SELECT household_id,'SYSTEM','RESOLVE_DUPLICATE_OPEN_REVIEW','review_item',id,jsonb_build_object('migration','00093','financial_email_observation_id',financial_email_observation_id)
+FROM (SELECT id,household_id,financial_email_observation_id,row_number() OVER (PARTITION BY financial_email_observation_id ORDER BY created_at,id) AS n
+      FROM review_item WHERE financial_email_observation_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN')) d WHERE n>1;
+UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='DUPLICATE_OPEN_REVIEW',updated_at=now()
+WHERE id IN (SELECT id FROM (SELECT id,row_number() OVER (PARTITION BY financial_email_observation_id ORDER BY created_at,id) AS n
+      FROM review_item WHERE financial_email_observation_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN')) d WHERE n>1);
 CREATE UNIQUE INDEX review_item_open_financial_email_observation_unique ON review_item(financial_email_observation_id) WHERE financial_email_observation_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN');
 
 -- MISSING_TRANSACTION_DATE and TRANSACTION_FACTS_MISSING stored the payslip

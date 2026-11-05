@@ -172,7 +172,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		value.ProposedFacts = stored.ProposedFacts
 		value.MissingFacts = stored.MissingFacts
 		value.WhyNotAutoConfirm = stored.WhyNotAuto
-		value.Presentation = reviewdomain.PresentationDecision
+		value.Presentation = reviewdomain.PresentationFor(value.AllowedActions)
 		if containsString(value.MissingFacts, "transaction_at") {
 			value.DateChoices = reviewdomain.TransactionDateChoices(value.TransactionAt, stored.KnownFacts["transaction_time_source"] == "RECEIVED_AT_FALLBACK", time.Now())
 		}
@@ -189,8 +189,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		last := items[len(items)-1]
 		w.Header().Set("X-Next-Cursor", encodeReviewCursor(last.TransactionAt, last.ID))
 	}
+	if cursorAt != nil {
+		// Later pages carry only transaction reviews; the canonical items and
+		// the decision count arrive with the first page.
+		writeJSON(w, 200, items)
+		return
+	}
 	var transactionDecisions int
-	if err := h.pool.QueryRow(r.Context(), `SELECT count(*) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW'`, household).Scan(&transactionDecisions); err != nil {
+	if err := h.pool.QueryRow(r.Context(), `SELECT count(*) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' AND CASE WHEN jsonb_typeof(ri.decision->'allowedActions')='array' AND jsonb_array_length(ri.decision->'allowedActions')>0 THEN NOT (ri.decision->'allowedActions' <@ '["IGNORE"]'::jsonb) ELSE true END`, household).Scan(&transactionDecisions); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 		return
 	}
@@ -207,11 +213,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	// The needs-your-decision count spans every page and excludes notices.
 	w.Header().Set("X-Decision-Count", strconv.Itoa(transactionDecisions+canonicalDecisions))
-	if cursorAt != nil {
-		// Canonical (non-transaction) items are few and arrive with the first page.
-		writeJSON(w, 200, items)
-		return
-	}
 	for _, value := range canonical {
 		sourceType := value.Channel
 		stored := proposalFacts(value.Decision)

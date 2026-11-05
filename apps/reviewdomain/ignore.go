@@ -8,9 +8,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrUseTransactionAction reports an IGNORE against a transaction review that
-// still awaits its decision: the transaction lane (confirm/reject/merge) owns it.
+// ErrUseTransactionAction is kept for callers that still map it; IGNORE on an
+// open transaction review now rejects it through the transaction lane.
 var ErrUseTransactionAction = errors.New("reviewdomain: use the transaction review action")
+
+// ErrResidualNotIgnorable reports an IGNORE against a cycle residual review,
+// whose "leave unallocated" answer is the dismissal.
+var ErrResidualNotIgnorable = errors.New("reviewdomain: a residual review is answered, not ignored")
 
 // IgnoreCommand dismisses or acknowledges one review item. It is the generic
 // IGNORE every surface shares (ADR-046): the lane-specific ignores (bank facts,
@@ -46,7 +50,7 @@ func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 		return ErrAlreadyResolved
 	}
 	if residual != nil {
-		return ErrUseTransactionAction
+		return ErrResidualNotIgnorable
 	}
 	actorType := cmd.ActorType
 	if actorType == "" {
@@ -58,7 +62,9 @@ func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 			return err
 		}
 		if txStatus == "NEEDS_REVIEW" {
-			return ErrUseTransactionAction
+			// Dismissing an open transaction review is the canonical rejection
+			// (Web "Abaikan", Telegram ignore): offered and accepted are one rule.
+			return RejectTransactionReview(ctx, tx, RejectCommand{HouseholdID: cmd.HouseholdID, ActorUserID: cmd.ActorUserID, TransactionID: *transaction, ReviewItemID: cmd.ReviewItemID, Action: "IGNORE"})
 		}
 		if err := resolveItem(ctx, tx, cmd, "NO_LONGER_APPLICABLE", []byte(`{"reason":"transaction_already_final"}`)); err != nil {
 			return err

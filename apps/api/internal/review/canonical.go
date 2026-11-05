@@ -292,8 +292,8 @@ func (h *Handler) Resolve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = reviewdomain.IgnoreReviewItem(r.Context(), tx, reviewdomain.IgnoreCommand{HouseholdID: household, ActorUserID: p.UserID, ActorType: "USER", ReviewItemID: r.PathValue("id")})
-		if errors.Is(err, reviewdomain.ErrUseTransactionAction) {
-			writeJSON(w, 409, map[string]string{"error": "use the existing transaction action for this review"})
+		if errors.Is(err, reviewdomain.ErrAlreadyResolved) {
+			writeJSON(w, 409, map[string]string{"error": "review is already resolved"})
 			return
 		}
 		if err != nil || tx.Commit(r.Context()) != nil {
