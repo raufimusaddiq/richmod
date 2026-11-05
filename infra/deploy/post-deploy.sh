@@ -15,6 +15,19 @@ curl --fail --silent --show-error "$ready_url" >/dev/null
 # Telegram does not follow redirects, so a stale registered webhook URL drops
 # every inbound update while the health checks above stay green. Warn only: a
 # webhook mismatch must not roll back an otherwise healthy deploy.
+# The check needs WEB_ORIGIN and the bot credentials, which live only in the
+# deployment environment file. Read just those three keys as literal KEY=value
+# lines (the Docker env-file format, not shell), so the rest of the file is
+# never evaluated; values already in the environment win.
+env_file=${RICHMOD_ENV_FILE:-/opt/family-finance/finance.env}
+env_value() {
+	[ -r "$env_file" ] || return 0
+	sed -n "s/^$1=//p" "$env_file" | tail -n 1
+}
+WEB_ORIGIN=${WEB_ORIGIN:-$(env_value WEB_ORIGIN)}
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-$(env_value TELEGRAM_BOT_TOKEN)}
+TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET:-$(env_value TELEGRAM_WEBHOOK_SECRET)}
+export WEB_ORIGIN TELEGRAM_BOT_TOKEN TELEGRAM_WEBHOOK_SECRET
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if ! sh "$script_dir/../../scripts/set-telegram-webhook.sh" --check; then
 	printf '%s\n' "warning: telegram webhook --check failed; inbound Telegram updates are being dropped" >&2

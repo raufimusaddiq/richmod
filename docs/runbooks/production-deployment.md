@@ -238,7 +238,12 @@ Both modes refuse to run when any of the three variables is unset, keep
 `allowed_updates` at `["message","callback_query"]`, never drop pending updates,
 and never print the token or secret. `infra/deploy/post-deploy.sh` runs `--check`
 after its health checks and warns loudly — without failing the deploy — when the
-webhook is stale.
+webhook is stale. It reads only `WEB_ORIGIN`, `TELEGRAM_BOT_TOKEN`, and
+`TELEGRAM_WEBHOOK_SECRET` from `/opt/family-finance/finance.env` (override with
+`RICHMOD_ENV_FILE`) as literal `KEY=value` lines, never evaluating the file as
+shell. `WEB_ORIGIN` there must be the public origin,
+`https://finance.musaddiqr.com`; a stale value makes the check warn even while
+Telegram delivery is healthy.
 
 Before first login, run the one-time owner bootstrap and supply the owner's numeric
 Telegram user ID with `--telegram-user-id`. Then register the webhook with
