@@ -228,7 +228,7 @@ The Review Inbox listed non-transaction items with the registry fallback
 - **SET_TRANSACTION_DATE.** `MISSING_TRANSACTION_DATE` and
   `TRANSACTION_FACTS_MISSING` stored the payslip verb `SET_PAY_DATE`. They now store
   `SET_TRANSACTION_DATE` with bounded choices `TODAY`, `YESTERDAY`, `MESSAGE_DATE`
-  (the message's received date, read by Go). Active rows were migrated by `00093`
+  (the message's received date, read by Go). Active rows were migrated by `00096`
   with an audit row each; `SET_PAY_DATE` on a transaction-bound item stays
   executable for the rolling window. The agent enum is unchanged (`CONFIRM` with a
   date); Telegram completes the action through its date reply lane.

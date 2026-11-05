@@ -90,12 +90,12 @@ func TestDecodeRetireCardPayloadRequiresTheCard(t *testing.T) {
 
 func TestReviewClosureNoteOnlyForTerminalStatus(t *testing.T) {
 	for _, status := range []string{"RESOLVED", "CANCELLED", "EXPIRED"} {
-		if reviewClosureNote(status) == "" {
+		if reviewClosureNote(status, "") == "" {
 			t.Fatalf("%s card has no closure note", status)
 		}
 	}
 	for _, status := range []string{"OPEN", "PENDING_SEND", ""} {
-		if reviewClosureNote(status) != "" {
+		if reviewClosureNote(status, "") != "" {
 			t.Fatalf("%s card must stay live", status)
 		}
 	}

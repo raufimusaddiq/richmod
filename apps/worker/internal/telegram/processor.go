@@ -165,7 +165,10 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 	} else if !authorized {
 		return ignoreUnauthorizedSender(ctx, p.pool, sourceEventID)
 	}
-	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
+	// Only a typed reply renews a card past its projection window. A tap never
+	// does: the expiry sweep removes an expired card's buttons, and a tap that
+	// races the sweep must not keep the projection alive forever.
+	if update.CallbackQuery == nil && update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
 		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
 			return err
 		}
@@ -686,7 +689,12 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=$2,parser_name=COALESCE(parser_name,'telegram-reply'),parser_version=COALESCE(parser_version,'1') WHERE id=$1`, sourceEventID, status); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, message); err != nil {
+	reply := message
+	if update.CallbackQuery != nil && message == staleActionMessage {
+		// A tap on a review card that was answered elsewhere names the outcome.
+		reply = staleReviewReplyForSource(ctx, tx, sourceEventID, update, message)
+	}
+	if err := enqueueReply(ctx, tx, update, reply); err != nil {
 		return err
 	}
 	if update.CallbackQuery != nil && message == staleActionMessage {
@@ -698,10 +706,11 @@ func (p *Processor) finishWithoutTransaction(ctx context.Context, sourceEventID,
 }
 
 func enqueueReply(ctx context.Context, tx pgx.Tx, update telegramUpdate, message string) error {
-	// Callback queries are acknowledged synchronously by the webhook after
-	// durable capture. Do not enqueue a second ACK: Telegram rejects duplicate
-	// answerCallbackQuery calls with HTTP 400 once the callback is answered or
-	// expires. The reply job only sends the resulting user-facing message.
+	// Callback queries are acknowledged by the API webhook itself: after durable
+	// capture it answers with answerCallbackQuery as the webhook's HTTP reply
+	// (apps/api/internal/telegram). Do not enqueue a second ACK: Telegram rejects
+	// duplicate answerCallbackQuery calls with HTTP 400. The reply job only sends
+	// the resulting user-facing message.
 	_, err := tx.Exec(ctx, `INSERT INTO job (type,payload_json) VALUES ('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',$2::bigint,'text',$3::text))`, update.Message.Chat.ID, update.Message.MessageID, clean(message, 4000))
 	return err
 }

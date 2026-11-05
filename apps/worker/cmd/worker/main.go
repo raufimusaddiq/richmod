@@ -223,6 +223,11 @@ func run(logger *slog.Logger) error {
 				logger.Warn("push retention purge failed", "error", err)
 			}
 			catchUpResidualReviews(ctx, logger, pool, 25)
+			if expired, released, err := processor.SweepReviewProjections(ctx, 100); err != nil {
+				logger.Warn("review projection sweep failed", "error", err)
+			} else if expired > 0 || released > 0 {
+				logger.Info("review projection sweep", "expired", expired, "released", released)
+			}
 			if created, err := reviewdomain.SweepFailedSources(ctx, pool, 50); err != nil {
 				logger.Warn("failed source sweep failed", "error", err)
 			} else if created > 0 {
@@ -415,6 +420,14 @@ func terminalStep(job queue.Job, cause error, processor *telegram.Processor, ban
 			id = payload.SourceEventID
 		}
 		return func(ctx context.Context, tx pgx.Tx) error { return processor.TerminalCallbackFailureTx(ctx, tx, id) }
+	case "SEND_TELEGRAM_MESSAGE":
+		payload, err := telegram.DecodeSendPayload(job.Payload)
+		if err != nil {
+			return nil
+		}
+		return func(ctx context.Context, tx pgx.Tx) error {
+			return telegram.ReviewDeliveryFailedTx(ctx, tx, job.ID, payload, cause)
+		}
 	case "PROCESS_BANK_EMAIL":
 		id := ""
 		if payload, err := bankemail.DecodePayload(job.Payload); err == nil {
@@ -498,15 +511,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 	ctx = telegram.WithHousehold(ctx, job.HouseholdID)
 	switch job.Type {
 	case "PROCESS_TELEGRAM_CALLBACK":
+		// The webhook already answered the callback query in its HTTP response
+		// (answerCallbackQuery as the webhook reply), so the tap spinner clears
+		// without waiting for this lane. A second answer would only be refused.
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)
 		if err != nil {
 			return err
-		}
-		ackCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
-		ackErr := bot.AnswerCallback(ackCtx, payload.CallbackQueryID)
-		cancel()
-		if ackErr != nil {
-			slog.Default().Warn("Telegram callback ACK failed", "error", ackErr)
 		}
 		if err := processor.Process(ctx, payload.SourceEventID); err != nil {
 			return err
@@ -532,92 +542,13 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		if err != nil {
 			return err
 		}
-		// The recipient may have been removed from the household (or the
-		// user disabled) after this message was queued; drop it unsent.
-		if authorized, err := processor.RecipientAuthorized(ctx, payload.ChatID, job.HouseholdID); err != nil {
-			return err
-		} else if !authorized {
-			slog.Default().Info("queued Telegram message dropped: recipient no longer authorized", "job_id", job.ID)
-			if payload.CallbackQueryID != "" {
-				return bot.AnswerCallback(ctx, payload.CallbackQueryID)
-			}
-			return nil
-		}
-		// A review card resolved (or cancelled/expired) between enqueue and
-		// send must not arrive as a fresh live card; skip the send but still answer a
-		// pending callback so the client spinner clears.
-		if payload.ReviewRequestID != "" {
-			open, err := processor.ReviewProjectionOpen(ctx, payload.ReviewRequestID)
-			if err != nil {
-				return err
-			}
-			if !open {
-				if payload.CallbackQueryID != "" {
-					return bot.AnswerCallback(ctx, payload.CallbackQueryID)
-				}
-				return nil
-			}
-		}
-		messageID, err := bot.Send(ctx, payload)
-		if err != nil {
-			return err
-		}
-		if payload.ReviewRequestID != "" {
-			if err := processor.BindReviewMessage(ctx, payload.ReviewRequestID, payload.ChatID, messageID, payload.Text); err != nil {
-				return err
-			}
-		}
-		if payload.BindMerchantLearningRequestID != "" {
-			if err := processor.BindMerchantLearningMessage(ctx, payload.BindMerchantLearningRequestID, payload.ChatID, messageID); err != nil {
-				return err
-			}
-		}
-		if payload.BindDocumentID != "" {
-			if err := processor.BindEvidenceMessage(ctx, payload.ChatID, messageID, payload.BindDocumentID); err != nil {
-				return err
-			}
-		}
-		if payload.CallbackQueryID != "" {
-			return bot.AnswerCallback(ctx, payload.CallbackQueryID)
-		}
-		return nil
+		return processor.DeliverSend(ctx, bot, job.ID, job.HouseholdID, payload)
 	case "EDIT_TELEGRAM_MESSAGE":
 		payload, err := telegram.DecodeEditPayload(job.Payload)
 		if err != nil {
 			return err
 		}
-		if authorized, err := processor.RecipientAuthorized(ctx, payload.ChatID, job.HouseholdID); err != nil {
-			return err
-		} else if !authorized {
-			slog.Default().Info("queued Telegram edit dropped: recipient no longer authorized", "job_id", job.ID)
-			return nil
-		}
-		// An edit of a review card queued while it was open must not restore its
-		// buttons after the request closed; RETIRE_TELEGRAM_REVIEW_CARD owns it now.
-		if payload.ReviewRequestID != "" {
-			live, err := processor.ReviewCardLive(ctx, payload.ReviewRequestID)
-			if err != nil {
-				return err
-			}
-			if !live {
-				return nil
-			}
-		}
-		if err := bot.Edit(ctx, payload); err != nil {
-			// Financial state is already committed; send a repair notification instead
-			// of retrying the mutation.
-			_, sendErr := bot.Send(ctx, telegram.SendPayload{ChatID: payload.ChatID, Text: payload.Text})
-			if sendErr != nil {
-				return fmt.Errorf("edit Telegram message: %v; fallback send: %w", err, sendErr)
-			}
-			return nil
-		}
-		// The edit is delivered; a failure to remember its text only costs a
-		// later retirement its closure note, so it must not retry the edit.
-		if err := processor.RecordReviewCardText(ctx, payload.ChatID, payload.MessageID, payload.Text); err != nil {
-			slog.Default().Warn("record edited Telegram review card text failed", "job_id", job.ID, "error", err)
-		}
-		return nil
+		return processor.DeliverEdit(ctx, bot, job.ID, job.HouseholdID, payload)
 	case "RETIRE_TELEGRAM_REVIEW_CARD":
 		payload, err := telegram.DecodeRetireCardPayload(job.Payload)
 		if err != nil {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,12 +47,15 @@ type EditPayload struct {
 	ReviewRequestID string `json:"review_request_id,omitempty"`
 }
 
-// APIError is a Telegram Bot API rejection: the HTTP status and Telegram's own
-// description. It never carries the request URL, which contains the bot token.
+// APIError is a Telegram Bot API rejection: the HTTP status, Telegram's own
+// description, and the retry_after a rate limit names. It never carries the
+// request URL, which contains the bot token.
 type APIError struct {
 	Method      string
 	StatusCode  int
 	Description string
+	// RetryAfterSeconds is Telegram's parameters.retry_after on a 429.
+	RetryAfterSeconds int
 }
 
 func (e *APIError) Error() string {
@@ -61,14 +65,41 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("Telegram %s API returned HTTP %d: %s", e.Method, e.StatusCode, e.Description)
 }
 
-// apiError reads Telegram's error description from a non-2xx response. The body
-// is bounded and only the description string is kept.
+// Permanent reports a rejection that the same request will never pass: a 400
+// (bad request, chat not found, message gone) or a 403 (bot blocked, user
+// deactivated). The queue stops retrying it and records the job FAILED. A 429
+// is a rate limit, and 401/404 mean a wrong or rotated bot token, which an
+// operator can fix, so those keep retrying; so do 5xx and transport failures.
+func (e *APIError) Permanent() bool {
+	return e.StatusCode == http.StatusBadRequest || e.StatusCode == http.StatusForbidden
+}
+
+// RetryAfter is the wait Telegram asked for on a rate limit; the queue uses it
+// instead of its own backoff. Zero means no hint.
+func (e *APIError) RetryAfter() time.Duration {
+	if e.StatusCode != http.StatusTooManyRequests || e.RetryAfterSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(e.RetryAfterSeconds) * time.Second
+}
+
+// apiError reads Telegram's error description and retry hint from a non-2xx
+// response. The body is bounded and only those fields are kept.
 func apiError(method string, response *http.Response) *APIError {
 	var body struct {
 		Description string `json:"description"`
+		Parameters  struct {
+			RetryAfter int `json:"retry_after"`
+		} `json:"parameters"`
 	}
 	_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&body)
-	return &APIError{Method: method, StatusCode: response.StatusCode, Description: clean(body.Description, 200)}
+	retryAfter := body.Parameters.RetryAfter
+	if retryAfter <= 0 {
+		if header, err := strconv.Atoi(strings.TrimSpace(response.Header.Get("Retry-After"))); err == nil {
+			retryAfter = header
+		}
+	}
+	return &APIError{Method: method, StatusCode: response.StatusCode, Description: clean(body.Description, 200), RetryAfterSeconds: retryAfter}
 }
 
 type InlineKeyboardMarkup struct {
@@ -146,7 +177,7 @@ func (b *Bot) Send(ctx context.Context, payload SendPayload) (int64, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return 0, fmt.Errorf("Telegram API returned HTTP %d", response.StatusCode)
+		return 0, apiError("sendMessage", response)
 	}
 	var result struct {
 		OK     bool `json:"ok"`
@@ -244,6 +275,34 @@ func editFinished(err error) bool {
 	description := strings.ToLower(apiErr.Description)
 	for _, finished := range []string{"message is not modified", "message to edit not found", "message can't be edited", "message_id_invalid", "chat not found", "bot was blocked", "user is deactivated"} {
 		if strings.Contains(description, finished) {
+			return true
+		}
+	}
+	return false
+}
+
+// editNotModified reports Telegram refusing an edit because the message already
+// shows that text and keyboard (a double tap, a repeated edit). The edit's goal
+// is met, so it is a success.
+func editNotModified(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "message is not modified")
+}
+
+// editUnreachable reports a chat the bot can no longer write to (blocked,
+// kicked, deactivated, unknown chat). Neither an edit nor a new message can
+// reach it.
+func editUnreachable(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.StatusCode == http.StatusForbidden {
+		return true
+	}
+	description := strings.ToLower(apiErr.Description)
+	for _, unreachable := range []string{"chat not found", "bot was blocked", "user is deactivated"} {
+		if strings.Contains(description, unreachable) {
 			return true
 		}
 	}

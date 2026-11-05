@@ -108,7 +108,7 @@ var kinds = []Kind{
 		// A source fact that is genuinely absent. The internal received-at fallback
 		// is provenance, not a known transaction time.
 		// SET_TRANSACTION_DATE is the transaction-date answer; SET_PAY_DATE stays
-		// the payslip pay-date answer only (stored rows migrated by 00093). When
+		// the payslip pay-date answer only (stored rows migrated by 00096). When
 		// the source never printed a date the household picks a bounded one-tap
 		// date instead of typing an unknowable one.
 		Reason: "MISSING_TRANSACTION_DATE", Class: ClassEvidenceGap,

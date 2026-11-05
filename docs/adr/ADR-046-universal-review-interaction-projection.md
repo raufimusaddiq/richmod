@@ -451,8 +451,9 @@ Go validates and commits.
   model extracts amount and time into `COMPLETE_BANK_FACTS`; Go validates them
   and queues the shared `COMPLETE_BANK_REVIEW` job, or offers the account chooser
   when the listener has no account.
-- A typed reply to a card past its 7-day projection window renews it, as the
-  button lane does, while the canonical review is open.
+- A typed reply to a card past its 7-day projection window renews it while the
+  canonical review is open. (Superseded 2026-11-05: a button tap no longer
+  renews; see below.)
 - `resolve_review` offers only the arguments the bound card's actions read
   (`focusReviewArguments`), for transaction and bank-fact bindings.
 - A `POSSIBLE_DUPLICATE` card stores its candidates when it is sent and shows one
@@ -509,3 +510,89 @@ to answer (migrations `00083`/`00084`, `docs/runbooks/stuck-source-events.md`).
 - The Web dispatcher accepts an action only when the list would offer it
   (`reviewdomain.ExecutableActions`, ADR-054 amendment): offered and accepted are
   one rule.
+
+## 2026-11-05 — card delivery, binding and hygiene
+
+From the Telegram delivery audit. Canonical review semantics are unchanged; this
+amendment governs only how cards reach chats and leave them.
+
+**Recipients and threading.** Every active, authorized household member still
+receives every card (household awareness; the 2026-09-28 recipient path is
+unchanged and every queued send re-checks authorization). The card is threaded
+only in the chat of the member who raised the review: the producer's own
+message, or the review's earliest source event when it is a Telegram upload. The
+other members' copies carry no `reply_to_message_id` (a message id from another
+chat points at an unrelated message) and end with "Dari <nama>". A
+household-level source (bank or provider email, cycle residual, wealth from
+email, system) has no originating member: no thread and no line.
+
+**Pacing.** A chat shows at most three live review cards (recipients `PENDING`
+or `SENT` on an active request). A further card is rendered and stored `QUEUED`
+and released oldest-first when a live card in that chat closes, expires, fails,
+or is skipped. Admission, release and per-copy expiry are SQL functions under
+one advisory lock per chat (migration `00094`), so the release happens in the
+same transaction as the close, whichever surface closed it. Lock order: every
+path takes the chat lock before it waits for a recipient row (copy expiry takes
+the locks of all of its request's chats, in chat order, first; a close and a
+typed-reply renewal hold the request row, then take the chat lock, then touch
+recipients; a projection takes all its recipients' chat locks in chat order
+before admitting any copy, whatever order the copies are presented in; nothing
+waits for a request row while holding a chat lock), and a release
+claims every row with `SKIP LOCKED`, so it never waits while holding the lock;
+a request skipped because another transaction is closing it is released by
+that close's own trigger. A member's typed reply that renews their own expired
+copy is never refused for pacing.
+
+**Expiry is per copy.** Each copy has its own seven-day window
+(`review_request_recipient.card_expires_at`), starting when Telegram first
+delivers that copy (its first bind; follow-up messages do not extend it), so a
+copy that waited in the pacing queue or behind send retries gets its full
+window, and the request's `expires_at` is extended to cover it. The worker's
+maintenance tick expires due copies: the copy becomes `EXPIRED`, every message
+of it loses its buttons and gains "⏳ Tombol tinjauan ini sudah kedaluwarsa.
+Tinjauannya masih ada di Kotak Tinjauan.", and its slot is released, while the
+other members' copies keep their own windows. The request closes as `EXPIRED`
+only when no copy is live or waiting. A copy still queued when the projection
+expires (by the sweep or the lazy tap path) stays queued; releasing it reopens
+the request without reviving the expired copies, which stay retired and
+uncounted. The `review_item` stays open on the web throughout. A tap never
+renews; a typed reply to the exact card renews the projection and that
+member's copy. A follow-up message delivered after its copy expired does not
+revive the copy or take a pacing slot; the late message is retired.
+
+**One live message per recipient.** `review_request_recipient.telegram_message_id`
+is the recipient's current card. When a follow-up message (chooser, typed-value
+prompt, re-sent card) of the same review is bound, the previous message is kept
+in `review_request_message` as superseded and loses its buttons at once
+("Dilanjutkan di pesan berikutnya."). Closing a request retires every message of
+it, current and superseded, in every member's chat; a resolved card shows the
+outcome from canonical state ("✅ Tinjauan ini sudah selesai: dicatat sebagai
+Makan oleh Rina.").
+
+**Delivery.** Telegram errors are classified: 400/403 are permanent (no blind
+retry; the job is recorded `FAILED`), 429 waits Telegram's `retry_after`, and
+5xx, 401/404 (token) and transport failures retry with backoff. Card sends get 8
+attempts. A card that never arrives marks its recipient `FAILED` with the
+redacted error in the job's final transaction, frees its pacing slot, and is
+counted in the household review diagnostics; the review stays actionable in the
+Review Inbox. The message id of every accepted send is recorded against its job
+(`telegram_outbound_delivery`) before binding, so a retry after a failed bind
+binds that message instead of sending a duplicate. A producer that reuses an
+item with an existing projection reuses its cards.
+
+**Edits.** "Message is not modified" is success. An unreachable chat is
+finished. When Telegram can no longer edit a live review card, the card is sent
+again with its buttons and bound (superseding the old message); a plain edit is
+never replaced by an unbound, buttonless duplicate.
+
+**Callback acknowledgement.** The API webhook answers the callback query in its
+own HTTP response (`answerCallbackQuery` as the webhook reply) right after the
+tap is durably captured, so the spinner never waits for the interactive lane.
+The worker no longer answers callbacks.
+
+**Races between a tap and a typed reply.** Both lanes stay as they are. Both
+resolve through the guarded transition of the same `review_item` and
+`review_request` rows (`status IN ('PENDING_SEND','OPEN')`), so exactly one wins.
+The loser, on either lane, is answered deterministically from canonical state:
+"Tinjauan ini sudah dijawab: <hasil>." A reply to a superseded message of a
+review that is still open is told to continue in the newest message.

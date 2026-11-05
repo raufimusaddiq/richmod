@@ -481,6 +481,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				// The deterministic reply was queued inside the mutation.
 				return nil
 			}
+			// A reply that lost the race to a tap, the web, or another member is
+			// answered deterministically with the outcome, never by the model.
+			if result.Status == "STALE_REVIEW_BINDING" {
+				if answered := staleReviewReply(ctx, p.pool, state.HouseholdID, state.Update, ""); answered != "" {
+					return p.finishAgentText(ctx, state, answered)
+				}
+			}
 			// A result Go fully knows is answered deterministically; only a result
 			// without its own copy is worded by the model.
 			if reply, ok := agentMutationReply(result); ok || !synthesize {

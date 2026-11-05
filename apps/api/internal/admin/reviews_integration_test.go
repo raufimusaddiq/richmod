@@ -536,6 +536,9 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 	must(pool.QueryRow(ctx, `INSERT INTO review_request(review_item_id,household_id,review_type,status) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN') RETURNING id`, itemID, householdID).Scan(&requestID))
 	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,7)`, requestID, chatID))
 	mustExec(pool.Exec(ctx, `INSERT INTO job(type,payload_json,status,last_error) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('review_request_id',$1::text),'FAILED','TELEGRAM_SEND_FAILED')`, requestID))
+	// A second member's card failed for good and a third is waiting for a slot.
+	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,delivery_status,delivery_error,delivery_failed_at) VALUES($1,$2,'FAILED','Telegram sendMessage API returned HTTP 403: Forbidden: bot was blocked by the user',now())`, requestID, chatID+1))
+	mustExec(pool.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id,delivery_status) VALUES($1,$2,'QUEUED')`, requestID, chatID+2))
 
 	handler := NewHandler(pool, false, "responses")
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/households/"+householdID+"/overview", nil)
@@ -558,6 +561,8 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 			ActionableProjections int `json:"actionableProjections"`
 			LatestFailureAt       *time.Time `json:"latestDeliveryFailureAt"`
 			LatestFailureError    *string `json:"latestDeliveryFailureErrorClass"`
+			UndeliveredCards      int     `json:"undeliveredReviewCards"`
+			QueuedCards           int     `json:"queuedReviewCards"`
 		} `json:"reviewDiagnostics"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &parsed); err != nil {
@@ -568,6 +573,9 @@ func TestHouseholdOverviewReviewDiagnostics(t *testing.T) {
 	}
 	if parsed.ReviewDiagnostics.LatestFailureAt == nil || parsed.ReviewDiagnostics.LatestFailureError == nil || *parsed.ReviewDiagnostics.LatestFailureError != "TELEGRAM_SEND_FAILED" {
 		t.Fatalf("household failure diagnosis = %+v", parsed.ReviewDiagnostics)
+	}
+	if parsed.ReviewDiagnostics.UndeliveredCards != 1 || parsed.ReviewDiagnostics.QueuedCards != 1 {
+		t.Fatalf("card delivery diagnosis = %+v", parsed.ReviewDiagnostics)
 	}
 }
 

@@ -631,7 +631,7 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT s.household_id,'TELEGRAM',ti.user_id,'STALE_REVIEW_ACTION','source_event',s.id,jsonb_build_object('telegram_message_id',$2::bigint) FROM source_event s JOIN telegram_identity ti ON ti.household_id=s.household_id AND ti.telegram_user_id=$3 AND ti.active WHERE s.id=$1`, sourceEventID, messageID, actor); err != nil {
 		return err
 	}
-	if err := enqueueReply(ctx, tx, update, "Tinjauan ini sudah ditutup atau berubah. Tidak ada perubahan baru dari pilihan ini."); err != nil {
+	if err := enqueueReply(ctx, tx, update, staleReviewReplyForSource(ctx, tx, sourceEventID, update, "Tinjauan ini sudah ditutup atau berubah. Tidak ada perubahan baru dari pilihan ini.")); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

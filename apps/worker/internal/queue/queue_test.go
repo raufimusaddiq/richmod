@@ -3,7 +3,9 @@ package queue
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 )
 
 type redactedTimeout struct{}
@@ -47,5 +49,26 @@ func TestFinalIsTheLastAttemptOrAPermanentError(t *testing.T) {
 	}
 	if !Final(Job{Attempts: 5, MaxAttempts: 5}, transient) {
 		t.Fatal("the last allowed attempt is final")
+	}
+}
+
+type rateLimited struct{ wait time.Duration }
+
+func (e rateLimited) Error() string             { return "rate limited" }
+func (e rateLimited) RetryAfter() time.Duration { return e.wait }
+
+func TestRetryDelayHonoursRetryAfterHint(t *testing.T) {
+	job := Job{Attempts: 1}
+	if got := retryDelaySeconds(job, errors.New("temporary")); got != 2 {
+		t.Fatalf("backoff after attempt 1 = %ds, want 2", got)
+	}
+	if got := retryDelaySeconds(job, fmt.Errorf("send: %w", rateLimited{wait: 37 * time.Second})); got != 37 {
+		t.Fatalf("Telegram retry_after was not honoured: %ds", got)
+	}
+	if got := retryDelaySeconds(job, rateLimited{wait: 3 * time.Hour}); got != 3600 {
+		t.Fatalf("retry_after was not capped at one hour: %ds", got)
+	}
+	if got := retryDelaySeconds(Job{Attempts: 3}, rateLimited{}); got != 8 {
+		t.Fatalf("a zero hint must fall back to backoff: %ds", got)
 	}
 }
