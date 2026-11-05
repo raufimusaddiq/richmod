@@ -119,19 +119,16 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if update.CallbackQuery != nil {
 		if update.CallbackQuery.From.ID == 0 || update.CallbackQuery.Message == nil || update.CallbackQuery.Message.Chat.Type != "private" || !validCallbackAction(update.CallbackQuery.Data) {
-			w.WriteHeader(http.StatusNoContent)
+			answerCallbackInResponse(w, update.CallbackQuery.ID)
 			return
 		}
 		_, err = h.store.CaptureCallback(r.Context(), CaptureInput{UpdateID: update.UpdateID, TelegramUserID: update.CallbackQuery.From.ID, RawPayload: raw}, update.CallbackQuery.ID, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID)
-		if errors.Is(err, ErrUnauthorized) {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrUnauthorized) {
+			// Not answered: Telegram redelivers the update, and the retry answers.
 			http.Error(w, "webhook processing failed", http.StatusInternalServerError)
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		answerCallbackInResponse(w, update.CallbackQuery.ID)
 		return
 	}
 	if update.Message == nil || update.Message.From.ID == 0 || update.Message.Chat.Type != "private" {
@@ -183,6 +180,21 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// answerCallbackInResponse acknowledges a callback query in the webhook's own
+// HTTP response: Telegram runs a Bot API method returned as the webhook reply,
+// so the tap spinner clears as soon as the tap is durably captured, without the
+// bot token in the API and without waiting for the worker's queue. The answer
+// carries no text; the worker sends the outcome as a message.
+func answerCallbackInResponse(w http.ResponseWriter, callbackQueryID string) {
+	if callbackQueryID == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"method": "answerCallbackQuery", "callback_query_id": callbackQueryID})
 }
 
 // validCallbackAction admits only the callback grammar the system issues; the

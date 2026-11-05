@@ -369,6 +369,8 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 		ResolvedSystem        int
 		LatestFailureAt       *time.Time
 		LatestFailureError    *string
+		UndeliveredCards      int
+		QueuedCards           int
 	}
 	if err := h.pool.QueryRow(r.Context(), `SELECT
 		(SELECT count(*) FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1::uuid AND ti.active),
@@ -377,7 +379,9 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 		(SELECT count(*) FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.household_id=$1::uuid AND s.surface='USER'),
 		(SELECT count(*) FROM review_item ri `+resolutionSurfaceSQL+` WHERE ri.household_id=$1::uuid AND s.surface='SYSTEM'),
 		(SELECT max(j.updated_at) FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid),
-		(SELECT j.last_error FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid ORDER BY j.updated_at DESC LIMIT 1)`, id).Scan(&reviewDiag.EligibleTelegram, &reviewDiag.ActionableProjections, &reviewDiag.ResolvedTelegram, &reviewDiag.ResolvedWeb, &reviewDiag.ResolvedSystem, &reviewDiag.LatestFailureAt, &reviewDiag.LatestFailureError); err == nil {
+		(SELECT j.last_error FROM job j JOIN review_request rr ON rr.id::text=j.payload_json->>'review_request_id' WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED' AND rr.household_id=$1::uuid ORDER BY j.updated_at DESC LIMIT 1),
+		(SELECT count(*) FROM review_request_recipient rc JOIN review_request rr ON rr.id=rc.review_request_id JOIN review_item ri ON ri.id=rr.review_item_id WHERE rr.household_id=$1::uuid AND rc.delivery_status='FAILED' AND ri.status IN ('OPEN','PENDING_SEND')),
+		(SELECT count(*) FROM review_request_recipient rc JOIN review_request rr ON rr.id=rc.review_request_id WHERE rr.household_id=$1::uuid AND rc.delivery_status='QUEUED' AND rr.status IN ('OPEN','PENDING_SEND'))`, id).Scan(&reviewDiag.EligibleTelegram, &reviewDiag.ActionableProjections, &reviewDiag.ResolvedTelegram, &reviewDiag.ResolvedWeb, &reviewDiag.ResolvedSystem, &reviewDiag.LatestFailureAt, &reviewDiag.LatestFailureError, &reviewDiag.UndeliveredCards, &reviewDiag.QueuedCards); err == nil {
 		reviewDiagOut := map[string]any{
 			"eligibleTelegram":                reviewDiag.EligibleTelegram,
 			"actionableProjections":           reviewDiag.ActionableProjections,
@@ -386,6 +390,10 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 			"resolvedSystem":                  reviewDiag.ResolvedSystem,
 			"latestDeliveryFailureAt":         reviewDiag.LatestFailureAt,
 			"latestDeliveryFailureErrorClass": reviewDiag.LatestFailureError,
+			// Open reviews whose Telegram card could not be delivered (still
+			// actionable on the web) and cards waiting for a pacing slot.
+			"undeliveredReviewCards": reviewDiag.UndeliveredCards,
+			"queuedReviewCards":      reviewDiag.QueuedCards,
 		}
 		writeJSON(w, 200, householdOverviewPayload(id, name, timezone, created, members, transactions, reviews, last, listeners, telegram, primary, memberItems, jobs, llmCalls, failedSources, audits, reviewDiagOut))
 		return

@@ -367,6 +367,13 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 					return fmt.Errorf("finalize stale evidence source: %w", err)
 				}
 			}
+			// A reply that lost the race to a tap, the web, or another member is
+			// answered deterministically with the outcome, never by the model.
+			if result.Status == "STALE_REVIEW_BINDING" {
+				if answered := staleReviewReply(ctx, p.pool, state.HouseholdID, state.Update, ""); answered != "" {
+					return p.finishAgentText(ctx, state, answered)
+				}
+			}
 			if !synthesize {
 				return p.finishAgentText(ctx, state, agentMutationFallback(result))
 			}
