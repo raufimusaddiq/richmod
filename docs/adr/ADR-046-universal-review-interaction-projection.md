@@ -557,6 +557,11 @@ only while it is the newest revision, holding the conversation row lock across
 the check and the Telegram call (settles take the same lock), so a delayed,
 retried or out-of-order earlier edit is dropped and cannot restore answered
 buttons.
+A card asking the remember question counts as live for stale taps even though its
+request is resolved, so a duplicate tap never retires it. Generic button
+retirement never touches a card that has an outcome, and a retirement queued
+before the first outcome carries revision 0 and is dropped once an outcome
+exists.
 The question is not asked when the same rule already exists, nor when the
 merchant was already confirmed with a different category: a single
 auto-applied default would miscategorize that merchant's other purchases, and

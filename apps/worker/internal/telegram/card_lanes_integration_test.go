@@ -489,3 +489,55 @@ func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
 		t.Fatalf("telegram calls=%+v; only the newest outcome may be applied", calls)
 	}
 }
+
+// A repeated tap on a card that is asking the remember question does not
+// retire it: the question is live after its request resolved. A button
+// retirement queued before the card's first outcome is dropped once the
+// outcome exists, so out-of-order delivery cannot erase the question.
+func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
+	f := newCardFixture(t)
+	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
+	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
+	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',23000,now(),$2) RETURNING id`, f.household, merchant)
+	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
+	request := f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 95, "card")
+
+	// A retirement queued while the card was still a plain question.
+	update := callbackUpdate(f.chat, 95, "review:edit")
+	if err := enqueueRetireButtons(withCallbackQuestion(f.ctx, `{"callback_query":{"message":{"text":"card"}}}`), f.pool, update, "Tidak lagi berlaku."); err != nil {
+		t.Fatal(err)
+	}
+	var early string
+	f.row(`SELECT payload_json::text FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=95 ORDER BY created_at,id LIMIT 1`, []any{&early}, f.chat)
+	earlyPayload, err := DecodeEditPayload(json.RawMessage(early))
+	if err != nil || earlyPayload.OutcomeRequestID != request || earlyPayload.OutcomeRevision != 0 {
+		t.Fatalf("early retirement payload=%s err=%v", early, err)
+	}
+
+	f.tap(95, "review:cat:"+category, "card")
+	question, _ := f.lastEdit(95)
+	edits := f.count(`SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=95`, f.chat)
+	// A duplicate category tap and a stale detail tap on the question card.
+	f.tap(95, "review:cat:"+category, question)
+	f.tap(95, "review:edit", question)
+	if again := f.count(`SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=95`, f.chat); again != edits {
+		t.Fatalf("a duplicate tap queued %d edits that would erase the remember question", again-edits)
+	}
+	var state string
+	f.row(`SELECT state FROM review_conversation WHERE review_request_id=$1`, []any{&state}, request)
+	if state != "AWAITING_MERCHANT_DECISION" {
+		t.Fatalf("conversation=%s", state)
+	}
+	// The early retirement delivered late is dropped.
+	bot, fake := newFakeTelegram(t, nil)
+	if err := NewProcessor(f.pool, nil).ApplyCardOutcomeEdit(f.ctx, bot, earlyPayload); err != nil {
+		t.Fatal(err)
+	}
+	if calls := fake.recorded(); len(calls) != 0 {
+		t.Fatalf("a late retirement erased the question: %+v", calls)
+	}
+	f.tap(95, "review:remember", question)
+	if text, markup := f.lastEdit(95); !strings.Contains(text, "Diingat untuk Tins Mart") || strings.Contains(markup, "review:") {
+		t.Fatalf("remember after duplicate taps: %q %s", text, markup)
+	}
+}

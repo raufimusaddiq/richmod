@@ -668,10 +668,11 @@ func finishStaleReviewCallback(ctx context.Context, tx pgx.Tx, sourceEventID str
 	// A stale tap on a card that no longer belongs to a live review loses its
 	// buttons, like every other stale callback. A card whose review is still open
 	// (only this choice was invalid) keeps its keyboard so the review stays
-	// answerable.
+	// answerable, and so does a card still asking the merchant-learning question:
+	// that question is pending after the request already resolved.
 	if update.CallbackQuery != nil {
 		var live bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id JOIN review_item ri ON ri.id=r.review_item_id JOIN review_conversation c ON c.review_request_id=r.id WHERE rr.telegram_chat_id=$1 AND (rr.telegram_message_id=$2 OR rr.merchant_learning_message_id=$2) AND r.status IN ('PENDING_SEND','OPEN') AND r.expires_at>now() AND (ri.status IN ('PENDING_SEND','OPEN') OR c.state='AWAITING_MERCHANT_DECISION'))`, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID).Scan(&live); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id JOIN review_item ri ON ri.id=r.review_item_id JOIN review_conversation c ON c.review_request_id=r.id WHERE rr.telegram_chat_id=$1 AND (rr.telegram_message_id=$2 OR rr.merchant_learning_message_id=$2) AND (c.state='AWAITING_MERCHANT_DECISION' OR r.status IN ('PENDING_SEND','OPEN') AND r.expires_at>now() AND ri.status IN ('PENDING_SEND','OPEN')))`, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID).Scan(&live); err != nil {
 			return err
 		}
 		if !live {

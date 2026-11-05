@@ -155,6 +155,15 @@ func enqueueRetireButtons(ctx context.Context, db jobExecer, update telegramUpda
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, text, string(encoded))
+	// A review card settled in place (ADR-046 2026-11-05) belongs to its outcome
+	// edits: a stale tap never retires it, and a retirement queued before the
+	// card's first outcome carries revision 0, so a later outcome makes the
+	// worker drop it instead of erasing the newer buttons.
+	_, err = db.Exec(ctx, `INSERT INTO job(type,lane,payload_json)
+		SELECT 'EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_strip_nulls(jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'outcome_request_id',card.request_id,'outcome_revision',CASE WHEN card.request_id IS NULL THEN NULL ELSE 0 END))
+		FROM (SELECT (SELECT c.review_request_id::text FROM review_request_recipient rr JOIN review_conversation c ON c.review_request_id=rr.review_request_id
+			WHERE rr.telegram_chat_id=$1 AND (rr.telegram_message_id=$2 OR rr.merchant_learning_message_id=$2) ORDER BY c.updated_at DESC LIMIT 1) AS request_id) card
+		WHERE NOT EXISTS(SELECT 1 FROM review_request_recipient rr JOIN review_conversation c ON c.review_request_id=rr.review_request_id
+			WHERE rr.telegram_chat_id=$1 AND (rr.telegram_message_id=$2 OR rr.merchant_learning_message_id=$2) AND COALESCE(c.context_json->'card_outcomes','{}'::jsonb) ? ($1::text||':'||$2::text))`, update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, text, string(encoded))
 	return err
 }
