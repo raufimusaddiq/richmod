@@ -671,3 +671,46 @@ func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
 		t.Fatalf("copy = %s", f.deliveryStatus(t, requestID, f.chatA))
 	}
 }
+
+// Projections in one household whose preferred users differ present their
+// recipients in opposite orders; they still take the chat locks in one order,
+// so concurrent projections never deadlock.
+func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	for round := 0; round < 10; round++ {
+		var transactions [2]string
+		for i, user := range []string{f.userA, f.userB} {
+			transactions[i] = f.transaction(t, "BANK_EMAIL")
+			_, err := f.pool.Exec(f.ctx, `UPDATE transaction SET created_by_user_id=$2 WHERE id=$1`, transactions[i], user)
+			mustAgentTest(t, err)
+		}
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+		for _, transactionID := range transactions {
+			go func(transactionID string) {
+				ctx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+				defer cancel()
+				tx, err := f.pool.Begin(ctx)
+				if err != nil {
+					errs <- err
+					return
+				}
+				defer tx.Rollback(ctx)
+				<-start
+				if err := EnqueueReviewRequest(ctx, tx, transactionID, "UNKNOWN_PURPOSE", f.chatA, 0, "🟡 Perlu ditinjau"); err != nil {
+					errs <- err
+					return
+				}
+				// Hold the locks a little, as a producer transaction would.
+				time.Sleep(20 * time.Millisecond)
+				errs <- tx.Commit(ctx)
+			}(transactionID)
+		}
+		close(start)
+		for i := 0; i < 2; i++ {
+			if err := <-errs; err != nil {
+				t.Fatalf("round %d: concurrent projection failed: %v", round, err)
+			}
+		}
+	}
+}

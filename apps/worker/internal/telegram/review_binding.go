@@ -352,6 +352,13 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	if err != nil {
 		return err
 	}
+	// Recipients are ordered for presentation (preferred user first), but the
+	// transaction keeps every chat lock until commit, so take them all now in
+	// chat order: two projections in one household then never lock the same
+	// chats in opposite orders.
+	if err := lockReviewCardChats(ctx, tx, recipients); err != nil {
+		return err
+	}
 	for _, recipient := range recipients {
 		text, threadTo := reviewMessage, int64(0)
 		if origin.chatID != 0 {
@@ -362,6 +369,18 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 			}
 		}
 		if err := admitReviewCard(ctx, tx, reviewID, recipient, threadTo, text, markup); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lockReviewCardChats takes the pacing locks of chats in ascending chat order.
+func lockReviewCardChats(ctx context.Context, tx pgx.Tx, chats []int64) error {
+	sorted := slices.Clone(chats)
+	slices.Sort(sorted)
+	for _, chat := range slices.Compact(sorted) {
+		if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, chat); err != nil {
 			return err
 		}
 	}
