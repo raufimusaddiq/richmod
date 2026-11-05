@@ -27,7 +27,7 @@ CREATE FUNCTION job_household(p_payload JSONB) RETURNS UUID LANGUAGE sql STABLE 
         (SELECT i.household_id FROM insight i WHERE i.id = job_payload_uuid(p_payload, 'insight_id')),
         -- Telegram sends go to private chats only, whose ID is the user's ID.
         (SELECT ti.household_id FROM telegram_identity ti
-          WHERE p_payload->>'chat_id' ~ '^[0-9]{1,19}$' AND ti.telegram_user_id = (p_payload->>'chat_id')::bigint)
+          WHERE p_payload->>'chat_id' ~ '^[0-9]{1,18}$' AND ti.telegram_user_id = (p_payload->>'chat_id')::bigint)
     )
 $$;
 -- +goose StatementEnd

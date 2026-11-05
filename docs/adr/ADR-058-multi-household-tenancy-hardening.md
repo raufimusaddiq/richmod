@@ -47,9 +47,10 @@ one deployment:
    `review_id`, `preview_id`, `insight_id`, or the private Telegram `chat_id`).
    Enqueue sites are unchanged; platform jobs keep `NULL`. The payload stays the
    dispatch contract.
-3. **Lanes are shared fairly.** A claim takes the due job of the household
-   whose latest job in that lane started longest ago, so one household's
-   backlog cannot starve another's. Within one household the order stays
+3. **Lanes are shared fairly.** Only each household's oldest due job competes,
+   and a claim takes the one whose household's latest job in that lane started
+   longest ago, so one household's backlog cannot starve another's. Platform
+   jobs (no household) rotate as one more group. Within one household the order stays
    `run_after, created_at`, which keeps one person's Telegram messages in order.
 4. **Model calls are attributed.** The worker attributes every job's model
    calls to `job.household_id`, so `llm_call` and phase telemetry carry the
@@ -72,11 +73,13 @@ one deployment:
    an already linked Telegram ID, so no user ever moves household implicitly
    (ADR-035). The first-run bootstrap is unchanged.
 8. **Only the receiving MTA's authentication results count.** Ingress reads
-   only the topmost `Authentication-Results` (and topmost
-   `ARC-Authentication-Results`) header, requires a trusted authserv-id,
-   parses `dkim=pass` and `dmarc=pass` as method results (comments ignored), and
-   requires a DMARC `header.from`, when present, to equal the routed From
-   domain.
+   only the topmost `Authentication-Results` header, requires a trusted
+   authserv-id, parses `dkim=pass` and `dmarc=pass` as method results (comments
+   ignored), and requires a DMARC `header.from`, when present, to equal the
+   routed From domain. `ARC-Authentication-Results` is never trusted: without
+   validating the ARC-Seal chain (RFC 8617) it is sender-writable. This relies
+   on the trusted receiver (Cloudflare, `mx.cloudflare.net`) prepending its own
+   `Authentication-Results` to every message.
 
 ## Consequences
 

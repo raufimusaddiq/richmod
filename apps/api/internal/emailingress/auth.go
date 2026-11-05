@@ -85,29 +85,22 @@ func parseAddress(value string) (string, error) {
 }
 
 // authTrusted decides whether a forwarded message's sender authentication can
-// be relied on. Only the topmost Authentication-Results header (and the topmost
-// ARC-Authentication-Results header) counts: the receiving MTA prepends its
-// own, so every header below it may be sender-written (RFC 8601 section 5).
-// That header must come from a trusted authserv-id and report dkim=pass and
-// dmarc=pass as method results, and a DMARC header.from, when present, must be
-// the From domain Richmod routes on.
+// be relied on. Only the topmost Authentication-Results header counts: the
+// receiving MTA prepends its own, so every header below it may be
+// sender-written (RFC 8601 section 5). That header must come from a trusted
+// authserv-id and report dkim=pass and dmarc=pass as method results, and a
+// DMARC header.from, when present, must be the From domain Richmod routes on.
+// ARC-Authentication-Results is never trusted: without validating the ARC-Seal
+// chain (RFC 8617) it is just another sender-writable header.
 func authTrusted(email ParsedEmail, trusted []string) bool {
-	return authHeaderTrusted(topmost(email.AuthenticationResultsHeaders), false, email.Sender, trusted) ||
-		authHeaderTrusted(topmost(email.ARCAuthenticationResultsHeaders), true, email.Sender, trusted)
-}
-
-func topmost(values []string) string {
-	if len(values) == 0 {
-		return ""
+	if len(email.AuthenticationResultsHeaders) == 0 {
+		return false
 	}
-	return values[0]
+	return authHeaderTrusted(email.AuthenticationResultsHeaders[0], email.Sender, trusted)
 }
 
-func authHeaderTrusted(value string, arc bool, sender string, trusted []string) bool {
+func authHeaderTrusted(value string, sender string, trusted []string) bool {
 	parts := strings.Split(stripHeaderComments(strings.ToLower(value)), ";")
-	if arc && len(parts) > 0 && strings.HasPrefix(strings.TrimSpace(parts[0]), "i=") {
-		parts = parts[1:]
-	}
 	if len(parts) < 2 {
 		return false
 	}

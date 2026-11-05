@@ -98,7 +98,8 @@ func TestAuthTrusted(t *testing.T) {
 		// below it must not be believed.
 		{"forged header below the receiver's", email("alerts@bank.test", "mx.example; dkim=none; dmarc=fail", "mx.example; dkim=pass; dmarc=pass"), false},
 		{"forged header below an untrusted receiver", email("alerts@bank.test", "relay.test; dkim=none", "mx.example; dkim=pass; dmarc=pass"), false},
-		{"trusted ARC instance", ParsedEmail{Sender: "alerts@bank.test", ARCAuthenticationResultsHeaders: []string{"i=2; mx.example; dkim=pass; dmarc=pass header.from=bank.test", "i=1; mx.example; dkim=fail"}}, true},
+		// ARC results are sender-writable without a validated ARC-Seal chain.
+		{"ARC results alone", ParsedEmail{Sender: "alerts@bank.test", ARCAuthenticationResults: "i=1; mx.example; dkim=pass; dmarc=pass header.from=bank.test"}, false},
 		{"no headers", ParsedEmail{Sender: "alerts@bank.test"}, false},
 	}
 	for _, tc := range cases {

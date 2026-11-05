@@ -24,7 +24,14 @@ func main() {
 	flag.BoolVar(&newHousehold, "new-household", false, "create an additional household with a new owner (after the first bootstrap)")
 	flag.Parse()
 
-	if promote { if err:=promoteSuperAdmin(context.Background(),email); err!=nil { fmt.Fprintln(os.Stderr,"promotion failed:",err); os.Exit(1) }; fmt.Println("super-admin promotion completed"); return }
+	if promote {
+		if err := promoteSuperAdmin(context.Background(), email); err != nil {
+			fmt.Fprintln(os.Stderr, "promotion failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("super-admin promotion completed")
+		return
+	}
 	mode := modeFirstOwner
 	if newHousehold {
 		mode = modeAdditionalHousehold
@@ -67,5 +74,22 @@ func run(ctx context.Context, mode bootstrapMode, email, name, householdName str
 }
 
 func promoteSuperAdmin(ctx context.Context, email string) error {
-	email=strings.ToLower(strings.TrimSpace(email)); if !strings.Contains(email,"@"){return fmt.Errorf("--email must be an email address")}; databaseURL:=os.Getenv("DATABASE_URL");if databaseURL==""{return fmt.Errorf("DATABASE_URL is required")};pool,err:=database.Open(ctx,databaseURL);if err!=nil{return err};defer pool.Close();var id string;if err=pool.QueryRow(ctx,`UPDATE "user" SET is_super_admin=TRUE,updated_at=now() WHERE email=$1 RETURNING id`,email).Scan(&id);err!=nil{return fmt.Errorf("user not found: %w",err)};return nil
+	email = strings.ToLower(strings.TrimSpace(email))
+	if !strings.Contains(email, "@") {
+		return fmt.Errorf("--email must be an email address")
+	}
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	pool, err := database.Open(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	var id string
+	if err = pool.QueryRow(ctx, `UPDATE "user" SET is_super_admin=TRUE,updated_at=now() WHERE email=$1 RETURNING id`, email).Scan(&id); err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+	return nil
 }

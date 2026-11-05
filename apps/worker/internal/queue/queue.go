@@ -60,18 +60,31 @@ func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, 
 }
 
 // claimSQL takes the next due job of a lane. Households share each lane fairly:
+// only each household's oldest due job (its head) competes, and the head of
 // the household whose latest job in this lane started longest ago (or never)
-// goes first, so one household's backlog cannot starve another's. Within one
-// household, jobs keep their run_after/created_at order, which keeps a
-// person's Telegram messages in sequence.
+// goes first, so one household's backlog cannot starve another's. Platform
+// jobs (no household) rotate as one more group rather than jumping the queue.
+// Within one household, jobs keep their run_after/created_at order, which
+// keeps a person's Telegram messages in sequence. The last-start lookup runs
+// once per household head, not once per due job.
 const claimSQL = `
+	WITH heads AS (
+		SELECT DISTINCT ON (household_id) id,household_id,run_after,created_at
+		FROM job
+		WHERE lane=$1 AND ((status='PENDING' AND run_after<=now())
+		   OR (status='RUNNING' AND locked_at<now()-interval '5 minutes'))
+		ORDER BY household_id,run_after,created_at
+	), ranked AS (
+		SELECT h.id,h.run_after,h.created_at,
+		       CASE WHEN h.household_id IS NULL
+		            THEN (SELECT max(p.started_at) FROM job p WHERE p.lane=$1 AND p.household_id IS NULL AND p.started_at IS NOT NULL)
+		            ELSE (SELECT max(p.started_at) FROM job p WHERE p.lane=$1 AND p.household_id=h.household_id AND p.started_at IS NOT NULL)
+		       END AS last_started
+		FROM heads h
+	)
 	SELECT j.id,j.type,j.payload_json,j.attempts+1,j.max_attempts,COALESCE(j.household_id::text,'')
-	FROM job j
-	WHERE j.lane=$1 AND ((j.status='PENDING' AND j.run_after<=now())
-	   OR (j.status='RUNNING' AND j.locked_at<now()-interval '5 minutes'))
-	ORDER BY (SELECT max(p.started_at) FROM job p
-	          WHERE p.lane=j.lane AND p.household_id=j.household_id AND p.started_at IS NOT NULL) NULLS FIRST,
-	         j.run_after,j.created_at
+	FROM ranked r JOIN job j ON j.id=r.id
+	ORDER BY r.last_started NULLS FIRST,r.run_after,r.created_at
 	FOR UPDATE OF j SKIP LOCKED
 	LIMIT 1`
 

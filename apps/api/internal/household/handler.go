@@ -225,7 +225,9 @@ func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := tx.Exec(r.Context(), `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, memberID); err != nil {
+	// Sessions belong to the user, not the household: revoke them only when
+	// no other active membership remains (always true under ADR-035).
+	if _, err := tx.Exec(r.Context(), `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM household_member WHERE user_id=$1 AND active)`, memberID); err != nil {
 		out(w, 500, map[string]string{"error": "unable to deactivate member"})
 		return
 	}
