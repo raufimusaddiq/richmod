@@ -31,6 +31,7 @@ export default function CanonicalCard({ item, categories, accounts, wealthAccoun
 const noticeCopy = {
   FINANCIAL_EMAIL_FACTS: "Email ini tidak cukup mendukung sebuah transaksi, jadi Richmod tidak mencatat apa pun. Buktinya tetap tersimpan.",
   RECEIPT_MISMATCH: "Rincian baris struk tidak sama dengan total tercetak. Total tercetak yang dipakai; tidak ada yang perlu kamu putuskan.",
+  TRANSFER_CLASSIFICATION: "Transfer ini tidak lagi punya pilihan yang bisa dijalankan dari sini (tidak ada kasus rekonsiliasi terbuka). Buktinya tetap tersimpan.",
 };
 
 export function NoticeCard({ item, disabled, resolve }) {

@@ -29,17 +29,17 @@ func (h *Handler) Resolved(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.pool.Query(r.Context(), `SELECT ri.id::text,ri.review_type,COALESCE(ri.resolution_action,''),ri.resolved_at,
 		COALESCE(t.amount::text,wo.observed_value_idr::text,crc.basis_residual_idr::text,p.amount::text,feo.facts_json->>'amount_idr',''),
 		COALESCE(t.description,p.description,p.counterparty_raw,wo.institution,'Tinjauan selesai'),
-		NOT EXISTS (SELECT 1 FROM review_item n WHERE n.household_id=ri.household_id AND n.created_at>ri.created_at AND n.id<>ri.id AND (
+		(NOT EXISTS (SELECT 1 FROM review_item n WHERE n.household_id=ri.household_id AND n.created_at>ri.created_at AND n.id<>ri.id AND (
 			n.transaction_id=ri.transaction_id OR n.cycle_residual_case_id=ri.cycle_residual_case_id OR n.wealth_observation_id=ri.wealth_observation_id
 			OR n.financial_email_observation_id=ri.financial_email_observation_id OR n.proposal_id=ri.proposal_id OR n.source_event_id=ri.source_event_id OR n.document_id=ri.document_id))
-		AND CASE
+		AND (CASE
 			WHEN ri.transaction_id IS NOT NULL THEN t.status='NEEDS_REVIEW'
 			WHEN ri.cycle_residual_case_id IS NOT NULL THEN ri.resolution_action IN ('LEAVE_UNALLOCATED','TRANSACTION_MISSING','NO_LONGER_APPLICABLE')
 			WHEN ri.wealth_observation_id IS NOT NULL THEN wo.status IN ('ACCEPTED','DISMISSED')
 			WHEN ri.financial_email_observation_id IS NOT NULL THEN feo.status IN ('IGNORED','REVIEW') AND feo.transaction_id IS NULL
 			WHEN ri.proposal_id IS NOT NULL THEN p.proposal_status='REJECTED'
 			ELSE COALESCE(s.processing_status,ds.processing_status)='IGNORED' AND NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.source_event_id=COALESCE(s.id,ds.id) AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE')
-		END
+		END)) AS reopenable
 		FROM review_item ri
 		LEFT JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id
 		LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id AND crc.household_id=ri.household_id

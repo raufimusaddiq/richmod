@@ -227,6 +227,14 @@ func TestWealthAccountChoiceResolvesInOneStepAndReopens(t *testing.T) {
 	if transactions != 0 {
 		t.Fatal("a wealth observation never becomes a transaction")
 	}
+	rr := f.principal(httptest.NewRequest(http.MethodGet, "/api/v1/reviews/resolved", nil))
+	rw := httptest.NewRecorder()
+	NewHandler(f.pool).Resolved(rw, rr)
+	var resolved []resolvedReview
+	f.must(json.Unmarshal(rw.Body.Bytes(), &resolved))
+	if !slices.ContainsFunc(resolved, func(v resolvedReview) bool { return v.ID == item && v.Reopenable }) {
+		t.Fatalf("resolved list must offer the wealth decision for reopen: %s", rw.Body.String())
+	}
 	if w := f.reopen(item); w.Code != http.StatusOK {
 		t.Fatalf("reopen=%d %s", w.Code, w.Body.String())
 	}
