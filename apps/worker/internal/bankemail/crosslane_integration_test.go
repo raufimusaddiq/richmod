@@ -1,0 +1,109 @@
+package bankemail
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Bank email checks transactions other lanes already wrote (receipt,
+// screenshot, manual) before writing its own. The SPENDING_ONLY extraction is
+// untouched; dedup only links evidence. Two bank emails stay two events.
+func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
+	if os.Getenv("TEST_DATABASE_URL") == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	at := time.Date(2026, 10, 19, 6, 30, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		name, status, evidence, merchant string
+		offset                           time.Duration
+		want                             string // LINK, ASK, NEW
+	}{
+		{"receipt first, still in review", "NEEDS_REVIEW", "RECEIPT_IMAGE", "Alfamart", 15 * time.Minute, "LINK"},
+		{"receipt first, confirmed", "CONFIRMED", "RECEIPT_IMAGE", "Alfamart", 2 * time.Hour, "LINK"},
+		{"screenshot first, still in review", "NEEDS_REVIEW", "TRANSACTION_SCREENSHOT", "alfamart", 5 * time.Minute, "LINK"},
+		{"unnamed nearby transaction asks", "CONFIRMED", "RECEIPT_IMAGE", "", 20 * time.Minute, "ASK"},
+		{"another bank email is another event", "CONFIRMED", "BANK_EMAIL", "QRIS ALFAMART", 5 * time.Minute, "NEW"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			must := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			stamp := time.Now().UnixNano()
+			var household, owner, account, category, source, otherSource, existing string
+			must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Cross-lane bank %d", stamp)).Scan(&household))
+			must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("crosslane-%d@test.invalid", stamp)).Scan(&owner))
+			must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
+			must(pool.QueryRow(ctx, `INSERT INTO category(household_id,name,slug) VALUES($1,'Food','food') RETURNING id`, household).Scan(&category))
+			listener := Listener{HouseholdID: household, AccountID: account, TrackingPolicy: "SPENDING_ONLY", Active: true}
+			must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listener.ID))
+			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'RECEIVED') RETURNING id`, household, fmt.Sprint(stamp), []byte(fmt.Sprint(stamp))).Scan(&source))
+			_, err := pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{}','VALID')`, source, listener.ID)
+			must(err)
+			// The transaction the earlier lane wrote.
+			var merchantID *string
+			if tt.merchant != "" {
+				var id string
+				must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,$2) RETURNING id`, household, tt.merchant).Scan(&id))
+				merchantID = &id
+			}
+			must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED') RETURNING id`, household, fmt.Sprint(stamp+1), []byte(fmt.Sprint(stamp+1))).Scan(&otherSource))
+			must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,category_id,confirmed_at) VALUES($1,'EXPENSE',$2,54000,'IDR',$3,$4,$5,CASE WHEN $2='CONFIRMED' THEN now() END) RETURNING id`, household, tt.status, at.Add(-tt.offset), merchantID, category).Scan(&existing))
+			_, err = pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,$3,.9)`, existing, otherSource, tt.evidence)
+			must(err)
+
+			amount, merchant, description := "54000", "QRIS ALFAMART SUDIRMAN", "Belanja"
+			extraction := Extraction{Kind: "TRANSACTION", AmountIDR: &amount, Merchant: &merchant, Description: &description, TransactionAt: &at, Confidence: .95}
+			result := PolicyResult{Type: "EXPENSE", Status: "CONFIRMED", AutoConfirm: true, CategoryID: category}
+			must((&Processor{pool: pool}).persist(ctx, listener, source, extraction, result, ""))
+
+			var transactions int
+			var linked bool
+			var sourceStatus string
+			must(pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1),EXISTS(SELECT 1 FROM transaction_evidence WHERE transaction_id=$2 AND source_event_id=$3 AND evidence_type='BANK_EMAIL'),(SELECT processing_status FROM source_event WHERE id=$3)`, household, existing, source).Scan(&transactions, &linked, &sourceStatus))
+			switch tt.want {
+			case "LINK":
+				var accountID *string
+				var proposalStatus string
+				must(pool.QueryRow(ctx, `SELECT t.account_id::text,(SELECT proposal_status FROM transaction_proposal WHERE source_event_id=$2) FROM transaction t WHERE t.id=$1`, existing, source).Scan(&accountID, &proposalStatus))
+				if transactions != 1 || !linked || proposalStatus != "MERGED" {
+					t.Fatalf("bank email must link to the existing event: transactions=%d linked=%v proposal=%s", transactions, linked, proposalStatus)
+				}
+				if accountID == nil || *accountID != account {
+					t.Fatalf("linked bank evidence must enrich the missing account: %v", accountID)
+				}
+				want := "PROCESSED"
+				if tt.status == "NEEDS_REVIEW" {
+					want = "NEEDS_REVIEW"
+				}
+				if sourceStatus != want {
+					t.Fatalf("bank source=%s want %s", sourceStatus, want)
+				}
+			case "ASK":
+				var reviewType string
+				var named bool
+				must(pool.QueryRow(ctx, `SELECT ri.review_type,ri.decision->'knownFacts'->'prior_match_transaction_ids' ? $2 FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id WHERE ri.household_id=$1 AND t.id<>$2::uuid AND ri.status IN ('OPEN','PENDING_SEND')`, household, existing).Scan(&reviewType, &named))
+				if transactions != 2 || linked || reviewType != "POSSIBLE_DUPLICATE" || !named || sourceStatus != "NEEDS_REVIEW" {
+					t.Fatalf("ambiguity must ask, never guess: transactions=%d linked=%v review=%s named=%v source=%s", transactions, linked, reviewType, named, sourceStatus)
+				}
+			case "NEW":
+				if transactions != 2 || linked || sourceStatus != "PROCESSED" {
+					t.Fatalf("a second bank email is a second event: transactions=%d linked=%v source=%s", transactions, linked, sourceStatus)
+				}
+			}
+		})
+	}
+}

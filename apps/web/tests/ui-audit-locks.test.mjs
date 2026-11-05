@@ -153,7 +153,10 @@ test("the shell shares one inbox count instead of fetching both lists per naviga
   assert.match(provider, /Date\.now\(\) - lastLoad\.current > 60000/);
   assert.match(provider, /INBOX_COUNT_EVENT/);
   assert.match(text("app/layout.js"), /<InboxCountProvider>\{children\}<\/InboxCountProvider>/);
-  assert.match(text("app/inbox/page.js"), /if \(!loading && !error\) publishInboxCount\(reviews\.length \+ actions\.length\)/);
+  // Notices are not decisions: the count is the server's needs-your-decision
+  // count across every page (X-Decision-Count) plus pending actions.
+  assert.match(text("app/inbox/page.js"), /if \(!loading && !error\) publishInboxCount\(decisions \+ actions\.length\)/);
+  assert.match(provider, /X-Decision-Count/);
 });
 
 test("decorative glyphs are hidden from assistive technology", () => {

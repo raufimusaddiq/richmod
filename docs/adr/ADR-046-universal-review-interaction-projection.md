@@ -479,3 +479,33 @@ dropped with no reply; the household had to finish the review on the web.
 - A choice that does not apply to the transaction (an old card, a stale tap) is
   answered with "Pilihan ini tidak berlaku…" and the review stays open, instead of
   failing the callback job.
+
+## 2026-11-05 — one source lifecycle, generic dismissal in the domain
+
+Source-event status after a review transition was derived in four places with
+different SQL (`RefreshSourceLifecycle`, the Inbox IGNORE branch, the
+financial-email ignore, and the wealth snapshot apply). They disagreed about
+which evidence counts, which is how events were left `NEEDS_REVIEW` with nothing
+to answer (migrations `00083`/`00084`, `docs/runbooks/stuck-source-events.md`).
+
+- `reviewdomain.RefreshSourceLifecycle` is the only derivation. It now counts
+  every lane's state: transactions and proposals, financial-email observations
+  (`PENDING`/`REVIEW` pending, `APPLIED` accepted, `IGNORED` rejected), open
+  transfer reconciliation cases, wealth observations (`ACCEPTED`/`APPLIED`
+  accepted, `DISMISSED` rejected) and open review items. A dismissal marks the
+  source with `MarkSourceIgnored`, which then runs the same refresh, so an
+  accepted sibling still wins and an open sibling keeps the source in review.
+  A source-level contract test refuses any new inline `processing_status=CASE`.
+- The generic IGNORE (and the acknowledgement of an orphaned transaction review)
+  moved from the Web handler into `reviewdomain.IgnoreReviewItem`, callable by any
+  surface. It dismisses evidence without deleting it (observation `IGNORED`/
+  `DISMISSED`, proposal `REJECTED`), resolves the item and its projection, audits,
+  and settles the source. The Web IGNORE no longer sets `document.status` to
+  `NEEDS_REVIEW` unconditionally; the lifecycle settles the document.
+- Bank-fact ignore, financial-email ignore, transfer reconciliation and the wealth
+  snapshot apply call the shared lifecycle after the review is resolved.
+- Wealth account resolution (`ResolveWealthObservation`) now completes its review
+  itself (ADR-036 amendment), so Web and Telegram cannot leave it half-done.
+- The Web dispatcher accepts an action only when the list would offer it
+  (`reviewdomain.ExecutableActions`, ADR-054 amendment): offered and accepted are
+  one rule.

@@ -69,7 +69,10 @@ func MergeDuplicateReview(ctx context.Context, tx pgx.Tx, cmd DuplicateCommand) 
 	}
 	var targetType, targetAmount, targetCurrency string
 	var targetTime time.Time
-	err = tx.QueryRow(ctx, "SELECT type,amount::text,currency,transaction_at FROM transaction WHERE id=$1 AND household_id=$2 AND status='CONFIRMED' FOR UPDATE", cmd.TargetTransactionID, cmd.HouseholdID).Scan(&targetType, &targetAmount, &targetCurrency, &targetTime)
+	// A target still awaiting its own review is accepted only when Go named it as
+	// this review's cross-lane candidate at creation (prior_match_transaction_ids):
+	// one purchase seen by two lanes merges into one event whose own review stays.
+	err = tx.QueryRow(ctx, `SELECT type,amount::text,currency,transaction_at FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND (t.status='CONFIRMED' OR (t.status='NEEDS_REVIEW' AND EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=$2 AND ri.transaction_id=$3 AND ri.status IN ('OPEN','PENDING_SEND') AND jsonb_typeof(ri.decision->'knownFacts'->'prior_match_transaction_ids')='array' AND ri.decision->'knownFacts'->'prior_match_transaction_ids' ? t.id::text))) FOR UPDATE`, cmd.TargetTransactionID, cmd.HouseholdID, cmd.TransactionID).Scan(&targetType, &targetAmount, &targetCurrency, &targetTime)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result, ErrDuplicateTargetInvalid
 	}

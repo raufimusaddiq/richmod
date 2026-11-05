@@ -256,6 +256,20 @@
     "missingFacts": [
       "transaction_at"
     ],
+    "boundedChoices": [
+      {
+        "key": "TODAY",
+        "label": "Hari ini"
+      },
+      {
+        "key": "YESTERDAY",
+        "label": "Kemarin"
+      },
+      {
+        "key": "MESSAGE_DATE",
+        "label": "Tanggal pesan"
+      }
+    ],
     "evidenceRefs": [
       {
         "kind": "test",
@@ -266,7 +280,7 @@
     "decisionPolicyVersion": "",
     "whyNotAutoConfirm": "the source did not print or state the transaction date",
     "allowedActions": [
-      "SET_PAY_DATE",
+      "SET_TRANSACTION_DATE",
       "IGNORE"
     ],
     "interactionMode": "SINGLE_FIELD"
@@ -369,6 +383,20 @@
       "category",
       "transaction_at"
     ],
+    "boundedChoices": [
+      {
+        "key": "TODAY",
+        "label": "Hari ini"
+      },
+      {
+        "key": "YESTERDAY",
+        "label": "Kemarin"
+      },
+      {
+        "key": "MESSAGE_DATE",
+        "label": "Tanggal pesan"
+      }
+    ],
     "evidenceRefs": [
       {
         "kind": "test",
@@ -380,7 +408,7 @@
     "whyNotAutoConfirm": "the source did not support a category or a transaction date",
     "allowedActions": [
       "CONFIRM_REVIEW",
-      "SET_PAY_DATE",
+      "SET_TRANSACTION_DATE",
       "IGNORE"
     ],
     "interactionMode": "SINGLE_FIELD"

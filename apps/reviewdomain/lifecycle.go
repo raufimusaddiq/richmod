@@ -8,6 +8,13 @@ import (
 
 // RefreshSourceLifecycle settles the whole document, including album members and
 // proposal-only reviews. One completed row never settles its unresolved siblings.
+//
+// It is the only place a source event's processing_status is derived after a
+// review transition (ADR-046 amendment, 2026-11). Every lane's evidence state
+// counts: transactions and proposals, financial email observations, transfer
+// reconciliation cases, wealth observations and open review items. A source a
+// resolver dismissed is first marked with MarkSourceIgnored; the refresh keeps
+// IGNORED only while nothing on the source was accepted.
 func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceID string) error {
 	// Serialize sibling completion before taking the aggregate's fresh snapshot.
 	if _, err := tx.Exec(ctx, `SELECT s.id FROM source_event s WHERE s.household_id=$2 AND s.id IN (
@@ -31,6 +38,8 @@ func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceI
 	), state AS (
 		SELECT EXISTS(SELECT 1 FROM transaction_proposal p WHERE p.household_id=$2 AND p.source_event_id IN (SELECT id FROM sources) AND p.proposal_status='NEEDS_REVIEW')
 		OR EXISTS(SELECT 1 FROM transaction t JOIN evidence e ON e.transaction_id=t.id WHERE t.status='NEEDS_REVIEW')
+		OR EXISTS(SELECT 1 FROM financial_email_observation feo WHERE feo.household_id=$2 AND feo.source_event_id IN (SELECT id FROM sources) AND feo.status IN ('PENDING','REVIEW'))
+		OR EXISTS(SELECT 1 FROM transfer_reconciliation_case trc WHERE trc.household_id=$2 AND trc.source_event_id IN (SELECT id FROM sources) AND trc.status='OPEN')
 		OR EXISTS(SELECT 1 FROM review_item ri WHERE ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND') AND (
 			ri.source_event_id IN (SELECT id FROM sources) OR ri.document_id IN (SELECT id FROM documents)
 			OR ri.transaction_id IN (SELECT transaction_id FROM evidence)
@@ -39,9 +48,14 @@ func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceI
 			OR ri.financial_email_observation_id IN (SELECT id FROM financial_email_observation WHERE source_event_id IN (SELECT id FROM sources))
 		)) AS pending,
 		EXISTS(SELECT 1 FROM transaction t JOIN evidence e ON e.transaction_id=t.id WHERE t.status='CONFIRMED')
-		OR EXISTS(SELECT 1 FROM transaction_proposal WHERE household_id=$2 AND source_event_id IN (SELECT id FROM sources) AND proposal_status IN ('ACCEPTED','MERGED')) AS accepted,
+		OR EXISTS(SELECT 1 FROM transaction_proposal WHERE household_id=$2 AND source_event_id IN (SELECT id FROM sources) AND proposal_status IN ('ACCEPTED','MERGED'))
+		OR EXISTS(SELECT 1 FROM financial_email_observation feo WHERE feo.household_id=$2 AND feo.source_event_id IN (SELECT id FROM sources) AND feo.status='APPLIED')
+		OR EXISTS(SELECT 1 FROM wealth_observation wo WHERE wo.household_id=$2 AND wo.status IN ('ACCEPTED','APPLIED') AND (wo.document_id IN (SELECT id FROM documents)
+			OR wo.financial_email_observation_id IN (SELECT id FROM financial_email_observation WHERE household_id=$2 AND source_event_id IN (SELECT id FROM sources)))) AS accepted,
 		EXISTS(SELECT 1 FROM transaction_proposal WHERE household_id=$2 AND source_event_id IN (SELECT id FROM sources) AND proposal_status='REJECTED')
-		OR EXISTS(SELECT 1 FROM transaction t JOIN evidence e ON e.transaction_id=t.id WHERE t.status='VOIDED') AS rejected
+		OR EXISTS(SELECT 1 FROM transaction t JOIN evidence e ON e.transaction_id=t.id WHERE t.status='VOIDED')
+		OR EXISTS(SELECT 1 FROM financial_email_observation feo WHERE feo.household_id=$2 AND feo.source_event_id IN (SELECT id FROM sources) AND feo.status='IGNORED')
+		OR EXISTS(SELECT 1 FROM wealth_observation wo WHERE wo.household_id=$2 AND wo.status='DISMISSED' AND wo.document_id IN (SELECT id FROM documents)) AS rejected
 	), settled_documents AS (
 		UPDATE document SET status=CASE WHEN state.pending THEN 'NEEDS_REVIEW' ELSE 'EXTRACTED' END,updated_at=now()
 		FROM state WHERE household_id=$2 AND id IN (SELECT id FROM documents) AND status IN ('NEEDS_REVIEW','EXTRACTED')
@@ -68,4 +82,15 @@ func RefreshTransactionLifecycle(ctx context.Context, tx pgx.Tx, householdID, tr
 		}
 	}
 	return nil
+}
+
+// MarkSourceIgnored records that a household dismissed the evidence of one
+// source and then derives the settled status through RefreshSourceLifecycle, so
+// an accepted sibling (another observation, a linked transaction) still wins and
+// an open sibling review keeps the source in NEEDS_REVIEW.
+func MarkSourceIgnored(ctx context.Context, tx pgx.Tx, householdID, sourceID string) error {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='IGNORED' WHERE id=$1 AND household_id=$2`, sourceID, householdID); err != nil {
+		return err
+	}
+	return RefreshSourceLifecycle(ctx, tx, householdID, sourceID)
 }

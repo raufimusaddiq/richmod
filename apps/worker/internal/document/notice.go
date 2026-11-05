@@ -62,6 +62,13 @@ func receiptRecordedNotice(merchant, total string) string {
 	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat." + noticeFooter
 }
 
+// receiptRecordedMismatchNotice tells the household what Richmod saw when the
+// printed lines do not add up to the printed total: the printed total was
+// recorded and nothing needs deciding (RECEIPT_MISMATCH is a quality signal).
+func receiptRecordedMismatchNotice(merchant, total string) string {
+	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " sudah tercatat memakai total yang tercetak. Rincian barisnya tidak pas dengan total, tetapi tidak ada yang perlu kamu putuskan." + noticeFooter
+}
+
 func receiptLinkedNotice(merchant, total string) string {
 	return "Struk" + noticeSubject(merchant) + noticeAmount(total) + " dilampirkan ke transaksi yang sudah ada." + noticeFooter
 }

@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
@@ -65,6 +64,22 @@ type matchCandidate struct {
 	Score    float64
 	Merchant string
 	Hours    float64
+	// Status is the candidate's canonical status; a NEEDS_REVIEW candidate is
+	// named in the review decision so the household can merge into it.
+	Status string
+}
+
+// pendingCandidateIDs lists candidates that are still awaiting review in
+// another lane. The review decision names them (prior_match_transaction_ids) so
+// merge accepts exactly these server-computed targets and no others.
+func pendingCandidateIDs(candidates []matchCandidate) []string {
+	var ids []string
+	for _, candidate := range candidates {
+		if candidate.Status == "NEEDS_REVIEW" {
+			ids = append(ids, candidate.ID)
+		}
+	}
+	return ids
 }
 
 func (p *Processor) ProcessReceipt(ctx context.Context, documentID string) error {
@@ -236,7 +251,7 @@ func validateReceipt(value receiptExtraction, receivedAt time.Time) (receiptVali
 }
 
 func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {
-	candidates, err := p.findMatches(ctx, householdID, "EXPENSE", value.Total, validation.TransactionAt, value.Merchant, validation.DateKnown)
+	candidates, err := p.findMatches(ctx, householdID, sourceID, "EXPENSE", value.Total, validation.TransactionAt, value.Merchant, validation.DateKnown)
 	if err != nil {
 		return err
 	}
@@ -284,7 +299,7 @@ func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID,
 	if !p.receiptAutoConfirmOff && len(candidates) == 0 && categoryID != nil && validation.DateKnown {
 		return p.confirmReceipt(ctx, documentID, householdID, sourceID, value, model, validation, *categoryID, categoryDecision)
 	}
-	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0, categoryDecision)
+	return p.createReceiptReview(ctx, documentID, householdID, sourceID, value, model, validation, categoryID, len(candidates) > 0, categoryDecision, pendingCandidateIDs(candidates)...)
 }
 
 // confirmReceipt writes a CONFIRMED expense for a clear new receipt. It mirrors
@@ -332,7 +347,11 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','AUTO_CONFIRM_RECEIPT','transaction',$2,jsonb_build_object('document_id',$3::uuid,'arithmetic_ok',$4::boolean))`, householdID, transactionID, documentID, validation.ArithmeticOK); err != nil {
 		return err
 	}
-	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, receiptRecordedNotice(value.Merchant, value.Total)); err != nil {
+	notice := receiptRecordedNotice(value.Merchant, value.Total)
+	if validation.ArithmeticAvailable && !validation.ArithmeticOK {
+		notice = receiptRecordedMismatchNotice(value.Merchant, value.Total)
+	}
+	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, notice); err != nil {
 		return err
 	}
 	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceID); err != nil {
@@ -341,65 +360,36 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	return tx.Commit(ctx)
 }
 
-func (p *Processor) findMatches(ctx context.Context, householdID, transactionType, amount string, transactionAt time.Time, merchant string, dateKnown bool) ([]matchCandidate, error) {
+// findMatches asks the shared cross-lane matcher (reviewdomain.FindLedgerMatches)
+// for existing household transactions this receipt may describe: CONFIRMED or
+// still NEEDS_REVIEW, from any lane (bank email, screenshot, manual, another
+// receipt), never this source's own. A receipt with no printed date has no
+// reliable time to match on.
+func (p *Processor) findMatches(ctx context.Context, householdID, sourceID, transactionType, amount string, transactionAt time.Time, merchant string, dateKnown bool) ([]matchCandidate, error) {
 	if !dateKnown {
 		return nil, nil
 	}
-	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type=$2 AND t.currency='IDR' AND t.amount=$3::numeric AND t.transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours' ORDER BY abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))`, householdID, transactionType, amount, transactionAt)
+	matches, err := reviewdomain.FindLedgerMatches(ctx, p.pool, reviewdomain.LedgerMatchQuery{HouseholdID: householdID, Type: transactionType, AmountIDR: amount, At: transactionAt, Merchant: merchant, ExcludeSourceID: sourceID})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := make([]matchCandidate, 0)
-	for rows.Next() {
-		var candidate matchCandidate
-		var hours float64
-		if err := rows.Scan(&candidate.ID, &candidate.Merchant, &hours); err != nil {
-			return nil, err
-		}
-		candidate.Hours = hours
-		merchantMatch := sameMerchant(candidate.Merchant, merchant)
-		// The amount/window query finds candidates, not proven ambiguity. A
-		// different merchant far from the printed time alone cannot justify
-		// human review; same-merchant or near-simultaneous events stay visible.
-		if merchantMatch || hours <= 1 {
-			candidate.Score = documentMatchScore(hours, merchantMatch)
-			result = append(result, candidate)
-			if len(result) == 10 {
-				break
-			}
-		}
+	result := make([]matchCandidate, 0, len(matches))
+	for _, match := range matches {
+		result = append(result, matchCandidate{ID: match.ID, Score: match.Score, Merchant: match.Merchant, Hours: match.Hours, Status: match.Status})
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 func documentMatchScore(hours float64, merchantMatch bool) float64 {
-	score := 0.45
-	switch {
-	case hours <= 1:
-		score += 0.25
-	case hours <= 24:
-		score += 0.20
-	default:
-		score += 0.10
-	}
-	if merchantMatch {
-		score += 0.25
-	}
-	return math.Round(score*100) / 100
+	return reviewdomain.LedgerMatchScore(hours, merchantMatch)
 }
 
 func sameMerchant(left, right string) bool {
-	return normalizeMerchant(left) != "" && normalizeMerchant(left) == normalizeMerchant(right)
+	return reviewdomain.CompatibleMerchant(left, right)
 }
 
 func normalizeMerchant(value string) string {
-	return strings.Join(strings.Fields(strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return unicode.ToLower(r)
-		}
-		return ' '
-	}, value)), " ")
+	return reviewdomain.NormalizeMerchant(value)
 }
 
 func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, sourceID string, candidate matchCandidate, value receiptExtraction, model string, validation receiptValidation) error {
@@ -419,13 +409,22 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'RECEIPT_IMAGE',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'match_score',$6::numeric)) ON CONFLICT DO NOTHING`, candidate.ID, sourceID, value.Confidence, proposalID, documentID, candidate.Score); err != nil {
 		return err
 	}
+	// The receipt enriches the matched event instead of duplicating it: it adds
+	// the merchant when the transaction had none (items stay in the extraction).
+	filled, err := reviewdomain.EnrichLinkedTransaction(ctx, tx, householdID, candidate.ID, reviewdomain.EvidenceEnrichment{MerchantName: value.Merchant})
+	if err != nil {
+		return err
+	}
+	if filled == nil {
+		filled = []string{}
+	}
 	if _, err := tx.Exec(ctx, `UPDATE document SET status='EXTRACTED',updated_at=now() WHERE id=$1`, documentID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_RECEIPT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'match_score',$4::numeric))`, householdID, candidate.ID, documentID, candidate.Score); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_RECEIPT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'match_score',$4::numeric,'enriched',$5::text[],'item_count',$6::integer))`, householdID, candidate.ID, documentID, candidate.Score, filled, len(value.Items)); err != nil {
 		return err
 	}
 	if err := enqueueEvidenceNotice(ctx, tx, sourceID, documentID, receiptLinkedNotice(value.Merchant, value.Total)); err != nil {
@@ -472,7 +471,7 @@ func receiptKnownFacts(value receiptExtraction, validation receiptValidation) ma
 	return known
 }
 
-func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID *string, possibleDuplicate bool, categoryDecision receiptCategoryProvenance) error {
+func (p *Processor) createReceiptReview(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categoryID *string, possibleDuplicate bool, categoryDecision receiptCategoryProvenance, pendingCandidates ...string) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -529,6 +528,9 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 	decision.KnownFacts = receiptKnownFacts(value, validation)
 	if categoryID != nil {
 		decision.KnownFacts["category"] = *categoryID
+	}
+	if possibleDuplicate && len(pendingCandidates) > 0 {
+		decision.KnownFacts["prior_match_transaction_ids"] = pendingCandidates
 	}
 	if arithmeticSignal {
 		decision.Provenance["arithmetic_quality_signal"] = true

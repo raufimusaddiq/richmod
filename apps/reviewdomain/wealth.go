@@ -5,6 +5,7 @@ package reviewdomain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -24,6 +25,11 @@ type WealthObservationCommand struct {
 	// IgnoreFinancialEmail also marks the linked financial email observation
 	// ignored, which only the Review Inbox IGNORE action does.
 	IgnoreFinancialEmail bool
+	// ActorUserID is the authenticated household member completing the review,
+	// or empty when the surface resolves through a bound projection only.
+	ActorUserID string
+	// ActorType is the audit surface ('USER' for Web, 'TELEGRAM' for chat).
+	ActorType string
 }
 
 var (
@@ -51,9 +57,14 @@ func ValidateWealthAccount(ctx context.Context, tx pgx.Tx, householdID, wealthAc
 }
 
 // ResolveWealthObservation records the chosen wealth account on a pending
-// observation and learns the observed hint as a household-scoped alias. It
-// returns ErrWealthObservationNotFound when a concurrent decision already
-// dismissed or resolved the observation, which surfaces report as stale.
+// observation, accepts it, and completes its review in the same transaction
+// (ADR-036 amendment, 2026-11): choosing the account is the one household
+// decision the review asks for. The accepted observation stays an observation:
+// it is listed on /wealth as a value waiting for the next complete snapshot and
+// never becomes a transaction or a partial snapshot. The observed hint is
+// learned as a household-scoped alias. It returns ErrWealthObservationNotFound
+// when a concurrent decision already dismissed or resolved the observation,
+// which surfaces report as stale.
 func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservationCommand) error {
 	if err := ValidateWealthAccount(ctx, tx, cmd.HouseholdID, cmd.WealthAccountID); err != nil {
 		return err
@@ -65,7 +76,12 @@ func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 		}
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ObservationID, cmd.WealthAccountID, cmd.HouseholdID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE wealth_observation SET resolved_wealth_account_id=$2,status='ACCEPTED',updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ObservationID, cmd.WealthAccountID, cmd.HouseholdID); err != nil {
+		return err
+	}
+	// The provider email behind the value is applied exactly as an observation
+	// that resolved its account deterministically would be.
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='APPLIED',updated_at=now() WHERE household_id=$2 AND id=(SELECT financial_email_observation_id FROM wealth_observation WHERE id=$1 AND household_id=$2) AND status IN ('PENDING','REVIEW')`, cmd.ObservationID, cmd.HouseholdID); err != nil {
 		return err
 	}
 	if cmd.Alias != "" {
@@ -74,7 +90,56 @@ func ResolveWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 			return err
 		}
 	}
-	return nil
+	return completeWealthReview(ctx, tx, cmd, "SET_WEALTH_ACCOUNT", map[string]any{"wealthAccountId": cmd.WealthAccountID, "pending_snapshot": true})
+}
+
+// completeWealthReview resolves every open review bound to the observation and
+// its Telegram projection, audits the decision, and settles the evidence source
+// through the shared lifecycle.
+func completeWealthReview(ctx context.Context, tx pgx.Tx, cmd WealthObservationCommand, action string, values map[string]any) error {
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now()
+		WHERE wealth_observation_id=$1 AND household_id=$5 AND status IN ('OPEN','PENDING_SEND') RETURNING id::text`, cmd.ObservationID, cmd.ActorUserID, action, string(encoded), cmd.HouseholdID)
+	if err != nil {
+		return err
+	}
+	items, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, resolveRequestByItemSQL, items, cmd.HouseholdID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=ANY($1::uuid[]))`, items); err != nil {
+		return err
+	}
+	actorType := cmd.ActorType
+	if actorType == "" {
+		actorType = "USER"
+	}
+	for _, item := range items {
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,NULLIF($3,'')::uuid,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action',$5::text,'wealth_observation_id',$6::uuid))`, cmd.HouseholdID, actorType, cmd.ActorUserID, item, action, cmd.ObservationID); err != nil {
+			return err
+		}
+	}
+	return RefreshWealthObservationSource(ctx, tx, cmd.HouseholdID, cmd.ObservationID)
+}
+
+// RefreshWealthObservationSource settles the evidence source behind one wealth
+// observation (the document's source or the financial email's source).
+func RefreshWealthObservationSource(ctx context.Context, tx pgx.Tx, householdID, observationID string) error {
+	var source string
+	err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT d.source_event_id::text FROM document d WHERE d.id=wo.document_id AND d.household_id=wo.household_id),(SELECT f.source_event_id::text FROM financial_email_observation f WHERE f.id=wo.financial_email_observation_id AND f.household_id=wo.household_id),'') FROM wealth_observation wo WHERE wo.id=$1 AND wo.household_id=$2`, observationID, householdID).Scan(&source)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && source == "") {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return RefreshSourceLifecycle(ctx, tx, householdID, source)
 }
 
 // DismissWealthObservation closes a pending observation, returning

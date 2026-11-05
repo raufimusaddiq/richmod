@@ -73,3 +73,55 @@ test("incoming screenshot review offers income and internal transfers, never out
   assert.match(html, /Catat sebagai penghasilan/);
   assert.doesNotMatch(html, /Investasi \/ RDN|Beli aset|Catat sebagai pengeluaran/);
 });
+
+const CanonicalCard = component("app/components/review/CanonicalCard.js").default;
+test("an acknowledge-only review renders as a notice, not a decision", () => {
+  const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
+    item: { id: "synthetic", reviewType: "FINANCIAL_EMAIL_FACTS", subjectType: "financial_email_observation", presentation: "NOTICE", amount: "100", allowedActions: ["IGNORE"] },
+    categories: [], accounts: [], wealthAccounts: [], action() {},
+  }));
+  assert.match(html, />Mengerti</);
+  assert.match(html, /Tidak ada yang perlu diputuskan/);
+  assert.doesNotMatch(html, /FINANCIAL_EMAIL_FACTS|FINANCIAL EMAIL FACTS|Abaikan/);
+});
+
+test("a bank email review offers bank fact completion, never document reprocessing", () => {
+  const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
+    item: { id: "synthetic", reviewType: "DOCUMENT_EXTRACTION_LOW_CONFIDENCE", subjectType: "source_event", presentation: "DECISION", amount: "100", allowedActions: ["COMPLETE_BANK_FACTS", "IGNORE"] },
+    categories: [], accounts: [], wealthAccounts: [], action() {},
+  }));
+  assert.match(html, /Lengkapi detail/);
+  assert.doesNotMatch(html, /Proses ulang|DOCUMENT_EXTRACTION/);
+});
+
+test("a transfer case with no candidates offers a new transfer with bounded purposes", () => {
+  const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
+    item: { id: "synthetic", reviewType: "TRANSFER_CLASSIFICATION", subjectType: "source_event", presentation: "DECISION", amount: "100", transferCandidates: [], purposeChoices: ["INTERNAL_TRANSFER", "SAVINGS_TRANSFER"], allowedActions: ["CONFIRM_NEW_TRANSFER", "IGNORE"] },
+    categories: [], accounts: [], wealthAccounts: [], action() {},
+  }));
+  assert.match(html, /select name="purpose" required=""/);
+  assert.match(html, /Rekening sendiri/);
+  assert.match(html, /Ini transfer baru/);
+});
+
+test("choosing the wealth account is the single resolving action", () => {
+  const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
+    item: { id: "synthetic", reviewType: "WEALTH_OBSERVATION_CONFIRMATION", subjectType: "wealth_observation", presentation: "DECISION", amount: "100", institution: "Bank", accountHint: "1234", allowedActions: ["SET_WEALTH_ACCOUNT", "IGNORE"] },
+    categories: [], accounts: [], wealthAccounts: [{ id: "w", name: "Tabungan", active: true }], action() {},
+  }));
+  assert.match(html, /Memilih akun menyelesaikan tinjauan ini/);
+  assert.match(html, /Gunakan akun ini/);
+  assert.doesNotMatch(html, /opsional/);
+});
+
+const ReviewCard = component("app/components/review/ReviewCard.js").default;
+test("a review without a printed date offers one-tap date choices", () => {
+  const html = renderToStaticMarkup(React.createElement(ReviewCard, {
+    item: { id: "synthetic", type: "EXPENSE", reason: "MISSING_TRANSACTION_DATE", amount: "100", transactionAt: "2026-10-03T00:00:00Z", categoryId: "c", missingFacts: ["transaction_at"], dateChoices: [{ key: "TODAY", label: "Hari ini", date: "2026-10-05" }, { key: "YESTERDAY", label: "Kemarin", date: "2026-10-04" }, { key: "MESSAGE_DATE", label: "Tanggal pesan", date: "2026-10-03" }] },
+    categories: [], wealthAccounts: [], action() {},
+  }));
+  assert.match(html, /Hari ini · 2026-10-05/);
+  assert.match(html, /Kemarin · 2026-10-04/);
+  assert.match(html, /Tanggal pesan · 2026-10-03/);
+  assert.match(html, /Tanggal belum diketahui/);
+});

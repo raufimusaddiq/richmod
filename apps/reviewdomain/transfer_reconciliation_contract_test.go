@@ -24,10 +24,11 @@ func TestReconcileTransferOwnsCaseMutation(t *testing.T) {
 
 // TestTransferIgnoreBypassesTheCandidateCap pins the regression where a
 // financial-email case with more than ten candidates rejected every action,
-// including the IGNORE the Inbox offers as the only choice for that state.
+// including IGNORE. The overflow now narrows to the ranked bounded set; only a
+// new transfer beside an overflowing set fails closed (ADR-036).
 func TestTransferIgnoreBypassesTheCandidateCap(t *testing.T) {
 	source := sourceFile(t, "transfer_reconciliation.go")
-	capAt := strings.Index(source, "len(candidates) > 10")
+	capAt := strings.Index(source, "len(candidates) > TransferCandidateLimit")
 	commit := strings.Index(source, `if cmd.Action != "IGNORE" {`)
 	merge := strings.Index(source, `if cmd.Action == "MERGE_EXISTING" {`)
 	if capAt < 0 || commit < 0 || merge < 0 {

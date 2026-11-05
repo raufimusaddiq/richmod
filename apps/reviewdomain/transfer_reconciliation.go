@@ -3,6 +3,7 @@ package reviewdomain
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,10 @@ var ErrTransferCaseUnavailable = errors.New("reviewdomain: transfer reconciliati
 
 type TransferReconciliationCommand struct {
 	HouseholdID, ActorUserID, ReviewItemID, CaseID, Action, CandidateID string
+	// Purpose and WealthAccountID carry the household's bounded purpose choice
+	// for a case that has no proposed purpose (CONFIRM_NEW_TRANSFER). They are
+	// ignored when the case already proposes one.
+	Purpose, WealthAccountID string
 	// ActorType is the canonical audit surface ('USER' for Web, 'TELEGRAM' for
 	// the chat lanes). Empty defaults to USER so a surface that forgets it is
 	// recorded as a human resolution rather than an unattributed one.
@@ -43,11 +48,28 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	}
 	var id string
 	if cmd.Action != "IGNORE" {
-		// IGNORE stays available even when the observation carries too many
-		// candidates to choose from: the bounded chooser is unavailable, so
-		// dismissing is the only action the surfaces may offer.
-		if observationID != "" && len(candidates) > 10 {
+		// A case with more candidates than a person can compare is narrowed to
+		// the best-ranked bounded set; only that set may be merged into, so a
+		// surface can never merge into a candidate it did not show. Creating a new
+		// transfer beside an overflowing candidate set still fails closed (ADR-036).
+		if cmd.Action == "CONFIRM_NEW_TRANSFER" && observationID != "" && len(candidates) > TransferCandidateLimit {
 			return "", ErrTransferCaseUnavailable
+		}
+		ranked, err := RankTransferCandidates(ctx, tx, cmd.HouseholdID, candidates, at)
+		if err != nil {
+			return "", err
+		}
+		candidates = ranked
+		if purpose == "" {
+			// A case without a proposed purpose takes the household's bounded
+			// choice; an unknown purpose is refused by the compatibility check.
+			purpose, wealthID = strings.TrimSpace(cmd.Purpose), strings.TrimSpace(cmd.WealthAccountID)
+			if !validTransferPurpose(purpose) {
+				return "", ErrTransferCaseUnavailable
+			}
+			if _, err := tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET proposed_purpose=$2,proposed_wealth_account_id=NULLIF($3,'')::uuid,updated_at=now() WHERE source_event_id=$1 AND household_id=$4 AND status='OPEN' AND ($5='' OR financial_email_observation_id::text=$5)`, sourceID, purpose, wealthID, cmd.HouseholdID, observationID); err != nil {
+				return "", err
+			}
 		}
 		var compatible bool
 		if err := tx.QueryRow(ctx, `SELECT transfer_wealth_compatible($1,NULLIF($2,'')::uuid,$3)`, purpose, wealthID, cmd.HouseholdID).Scan(&compatible); err != nil || !compatible {
@@ -93,7 +115,7 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			}
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN source_type='FINANCIAL_EMAIL' AND EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN source_type='FINANCIAL_EMAIL' AND EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE $3 END,parser_name=CASE WHEN source_type='FINANCIAL_EMAIL' THEN 'financial-email-reconciliation' ELSE 'telegram-transfer' END,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID, processing); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET parser_name=CASE WHEN source_type='FINANCIAL_EMAIL' THEN 'financial-email-reconciliation' ELSE 'telegram-transfer' END,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID); err != nil {
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status=$2,resolved_at=now(),resolved_by_user_id=$3,updated_at=now() WHERE source_event_id=$1 AND household_id=$4 AND ($5='' OR id::text=$5) AND ($6='' OR financial_email_observation_id::text=$6)`, sourceID, caseStatus, cmd.ActorUserID, cmd.HouseholdID, cmd.CaseID, observationID); err != nil {
@@ -115,6 +137,49 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 	if actorType == "" {
 		actorType = "USER"
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action',$5::text))`, cmd.HouseholdID, actorType, cmd.ActorUserID, cmd.ReviewItemID, cmd.Action)
-	return id, err
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action',$5::text))`, cmd.HouseholdID, actorType, cmd.ActorUserID, cmd.ReviewItemID, cmd.Action); err != nil {
+		return id, err
+	}
+	// ADR-046: one lifecycle rule settles the source after the case and the
+	// review are closed; a dismissal is recorded first so it can stay IGNORED.
+	if processing == "IGNORED" {
+		return id, MarkSourceIgnored(ctx, tx, cmd.HouseholdID, sourceID)
+	}
+	return id, RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, sourceID)
+}
+
+// TransferCandidateLimit bounds how many reconciliation candidates any surface
+// shows and accepts.
+const TransferCandidateLimit = 10
+
+// TransferPurposes is the bounded purpose vocabulary a household may choose for
+// a transfer whose case proposes none. It mirrors transfer_wealth_compatible.
+var TransferPurposes = []string{"INTERNAL_TRANSFER", "SAVINGS_TRANSFER", "INVESTMENT_CONTRIBUTION", "ASSET_PURCHASE", "DEBT_PRINCIPAL_PAYMENT"}
+
+func validTransferPurpose(purpose string) bool {
+	for _, value := range TransferPurposes {
+		if value == purpose {
+			return true
+		}
+	}
+	return false
+}
+
+type rowQueryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// RankTransferCandidates returns the best-ranked bounded candidate set: active
+// household transactions from the case's candidate list, closest in time first,
+// at most TransferCandidateLimit. Web, Telegram and the resolver use the same
+// ranking, so the set a person chooses from is the set the resolver accepts.
+func RankTransferCandidates(ctx context.Context, q rowQueryer, householdID string, candidates []string, at time.Time) ([]string, error) {
+	if len(candidates) == 0 {
+		return []string{}, nil
+	}
+	rows, err := q.Query(ctx, `SELECT id::text FROM transaction WHERE household_id=$1 AND id=ANY($2::uuid[]) AND status<>'VOIDED' ORDER BY abs(extract(epoch FROM (transaction_at-$3::timestamptz))),id LIMIT $4`, householdID, candidates, at, TransferCandidateLimit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }

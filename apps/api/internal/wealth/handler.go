@@ -811,8 +811,8 @@ func completeSnapshotSet(r *http.Request, tx pgx.Tx, snapshotID string, items []
 }
 
 func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observationID string, items []itemInput) bool {
-	var accountID, value, financialObservationID, documentSourceID string
-	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text,COALESCE(financial_email_observation_id::text,''),COALESCE((SELECT d.source_event_id::text FROM document d WHERE d.id=wealth_observation.document_id AND d.household_id=wealth_observation.household_id),'') FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status IN ('PENDING','ACCEPTED') FOR UPDATE`, observationID, householdID).Scan(&accountID, &value, &financialObservationID, &documentSourceID); err != nil {
+	var accountID, value, financialObservationID string
+	if err := tx.QueryRow(r.Context(), `SELECT resolved_wealth_account_id::text,observed_value_idr::text,COALESCE(financial_email_observation_id::text,'') FROM wealth_observation WHERE id=$1 AND household_id=$2 AND status IN ('PENDING','ACCEPTED') FOR UPDATE`, observationID, householdID).Scan(&accountID, &value, &financialObservationID); err != nil {
 		return false
 	}
 	matched := false
@@ -832,7 +832,7 @@ func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observati
 		if _, err := tx.Exec(r.Context(), `UPDATE financial_email_observation SET status='APPLIED',updated_at=now() WHERE id=$1 AND household_id=$2`, financialObservationID, householdID); err != nil {
 			return false
 		}
-		if _, err := tx.Exec(r.Context(), `UPDATE source_event SET processing_status=CASE WHEN EXISTS (SELECT 1 FROM financial_email_observation WHERE source_event_id=source_event.id AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS (SELECT 1 FROM financial_email_observation WHERE source_event_id=source_event.id AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END,parser_name='financial-email-wealth-review',parser_version='1' WHERE id=(SELECT source_event_id FROM financial_email_observation WHERE id=$1 AND household_id=$2)`, financialObservationID, householdID); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE source_event SET parser_name='financial-email-wealth-review',parser_version='1' WHERE id=(SELECT source_event_id FROM financial_email_observation WHERE id=$1 AND household_id=$2)`, financialObservationID, householdID); err != nil {
 			return false
 		}
 	}
@@ -842,12 +842,9 @@ func applyObservation(r *http.Request, tx pgx.Tx, householdID, userID, observati
 	if _, err := tx.Exec(r.Context(), `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id IN (SELECT id FROM review_item WHERE wealth_observation_id=$1) AND status IN ('OPEN','PENDING_SEND')`, observationID); err != nil {
 		return false
 	}
-	// Document-sourced observations settle through the shared lifecycle, after
-	// the review item above is resolved, so the source never stays NEEDS_REVIEW.
-	if financialObservationID == "" && documentSourceID != "" {
-		return reviewdomain.RefreshSourceLifecycle(r.Context(), tx, householdID, documentSourceID) == nil
-	}
-	return true
+	// Every observation source (document or provider email) settles through the
+	// one shared lifecycle, after the review item above is resolved (ADR-046).
+	return reviewdomain.RefreshWealthObservationSource(r.Context(), tx, householdID, observationID) == nil
 }
 
 func insertItems(r *http.Request, tx pgx.Tx, snapshotID string, items []itemInput) bool {

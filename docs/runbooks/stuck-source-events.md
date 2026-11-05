@@ -11,6 +11,13 @@ evidence (`link_status` other than `ACTIVE`) does not count as a link. Such a re
 Reject or by direct SQL, which is the failure mode of ticket #353. Ticket #356
 tracks the first batch found in production.
 
+Prevention (2026-11, ADR-046 amendment): every review resolver now settles its
+source through the single `reviewdomain.RefreshSourceLifecycle` rule (dismissals
+via `MarkSourceIgnored`), which counts transactions, proposals, provider-email
+observations, transfer cases, wealth observations and open reviews. A lane that
+recomputes `processing_status` inline fails a contract test. Events stuck before
+that change still need this detector.
+
 The query is read-only and household-scoped on demand. It does not repair
 anything: a repair changes canonical state and needs owner approval.
 

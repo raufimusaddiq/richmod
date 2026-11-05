@@ -101,6 +101,9 @@ func telegramReviewLanes() map[string]bool {
 	// MERGE_EXISTING and CONFIRM_NEW_TRANSFER are case-bound actions, not presets.
 	telegramLanes["MERGE_EXISTING"] = true
 	telegramLanes["CONFIRM_NEW_TRANSFER"] = true
+	// SET_TRANSACTION_DATE is the transaction-date answer; Telegram completes it
+	// through the date reply lane (AWAITING_DATE), which confirms with the date.
+	telegramLanes["SET_TRANSACTION_DATE"] = true
 	// Classification uses the shared classifier through Telegram intent values.
 	for _, action := range []string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE"} {
 		telegramLanes[action] = true
