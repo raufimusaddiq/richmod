@@ -247,6 +247,18 @@ EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS=<production-authserv-id-list>
 
 `EMAIL_INGRESS_TRUSTED_AUTHSERV_IDS` is a financial sender-authentication policy, not a Cloudflare transport secret. It must be derived from real forwarded message authentication evidence; do not guess or weaken it to make a sender pass.
 
+Only the **topmost** `Authentication-Results` header is evaluated, because the
+receiving MTA prepends its own and any header below it may have been written by
+the sender (ADR-058). That header must name a trusted authserv-id, report
+`dkim=pass` and `dmarc=pass` as method results (text inside comments is
+ignored), and a DMARC `header.from`, when present, must equal the From domain
+that routes the message. A sender-written "pass" header further down the
+message is never believed, and `ARC-Authentication-Results` is never trusted
+because Richmod does not validate the ARC-Seal chain. Trust in the topmost
+header depends on the trusted receiver prepending its own result to every
+message; re-check that with real raw messages whenever the trusted authserv-id
+list changes.
+
 A missing trusted-authserv configuration does not block `PROVISIONED` transport/control-message handling, but `ACTIVE` financial delivery fails closed and must not create financial state.
 
 ## Address lifecycle

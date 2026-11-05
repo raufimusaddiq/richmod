@@ -329,7 +329,7 @@ func (p *Processor) agentConfirmReviewTx(ctx context.Context, tx pgx.Tx, state *
 		return err
 	}
 	if value.PayDate != "" {
-		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, review.transactionID)
+		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, state.HouseholdID, review.transactionID)
 		if err != nil {
 			return err
 		}

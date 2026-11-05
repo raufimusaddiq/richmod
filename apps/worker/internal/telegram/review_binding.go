@@ -202,6 +202,7 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	rows, err := tx.Query(ctx, `SELECT ti.telegram_user_id
 		FROM telegram_identity ti
 		JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active
+		JOIN "user" u ON u.id=ti.user_id AND u.active
 		JOIN review_request r ON r.household_id=ti.household_id AND r.id=$1
 		LEFT JOIN review_item ri ON ri.id=r.review_item_id
 		WHERE ti.active
@@ -232,8 +233,21 @@ func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, revi
 	}
 	// A producer that had no eligible recipient at creation time (no linked
 	// Telegram identity, or a source-event review with no transaction) still
-	// projects to the chat that originated it when one is supplied.
+	// projects to the chat that originated it when one is supplied, but only
+	// while that chat is an authorized member of the review's own household:
+	// a member removed after uploading must not receive the card.
 	if len(recipients) == 0 && originatingChatID != 0 {
+		var reviewHousehold string
+		if err := tx.QueryRow(ctx, `SELECT household_id::text FROM review_request WHERE id=$1`, reviewID).Scan(&reviewHousehold); err != nil {
+			return err
+		}
+		authorized, err := telegramMemberAuthorized(ctx, tx, originatingChatID, reviewHousehold)
+		if err != nil {
+			return err
+		}
+		if !authorized {
+			return nil
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, reviewID, originatingChatID); err != nil {
 			return err
 		}

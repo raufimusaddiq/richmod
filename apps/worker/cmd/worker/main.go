@@ -279,12 +279,37 @@ func requireJudgmentModel(mode, model string) error {
 	return fmt.Errorf("JUDGMENT_MODEL is required for mutation semantics (set JUDGMENT_MODE=disabled-dev to opt out outside production)")
 }
 
+// catchUpResidualReviews re-enqueues residual review generation for confirmed
+// primary salary cycles that have neither a case nor a job. A job in any state
+// that the unique index covers (PENDING, RUNNING, SUCCEEDED) already owns the
+// cycle: a SUCCEEDED no-op (no residual, stale cycle) must not be re-enqueued,
+// and ON CONFLICT keeps one household's row from failing the whole batch. The
+// batch is shared fairly: every household's newest cycle is taken before any
+// household's second one.
 func catchUpResidualReviews(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, limit int) {
-	_, err := pool.Exec(ctx, `INSERT INTO job(type,payload_json,max_attempts) SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',jsonb_build_object('household_id',se.household_id,'end_salary_event_id',se.id),5 FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id WHERE se.status='CONFIRMED' AND ss.active AND ss.is_primary AND EXISTS(SELECT 1 FROM salary_event prior JOIN salary_source ps ON ps.id=prior.salary_source_id WHERE prior.household_id=se.household_id AND prior.status='CONFIRMED' AND ps.active AND ps.is_primary AND prior.pay_date<se.pay_date) AND NOT EXISTS(SELECT 1 FROM cycle_residual_case c WHERE c.household_id=se.household_id AND c.end_salary_event_id=se.id) AND NOT EXISTS(SELECT 1 FROM job j WHERE j.type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND j.status IN('PENDING','RUNNING') AND j.payload_json->>'end_salary_event_id'=se.id::text) ORDER BY se.pay_date DESC LIMIT $1`, limit)
+	_, err := pool.Exec(ctx, residualCatchUpSQL, limit)
 	if err != nil && ctx.Err() == nil {
 		logger.Warn("residual catch-up failed", "error", err)
 	}
 }
+
+const residualCatchUpSQL = `
+WITH eligible AS (
+	SELECT se.id,se.household_id,se.pay_date,
+	       row_number() OVER (PARTITION BY se.household_id ORDER BY se.pay_date DESC,se.id) AS household_rank
+	FROM salary_event se
+	JOIN salary_source ss ON ss.id=se.salary_source_id AND ss.household_id=se.household_id
+	WHERE se.status='CONFIRMED' AND ss.active AND ss.is_primary
+	  AND EXISTS(SELECT 1 FROM salary_event prior JOIN salary_source ps ON ps.id=prior.salary_source_id AND ps.household_id=prior.household_id WHERE prior.household_id=se.household_id AND prior.status='CONFIRMED' AND ps.active AND ps.is_primary AND prior.pay_date<se.pay_date)
+	  AND NOT EXISTS(SELECT 1 FROM cycle_residual_case c WHERE c.household_id=se.household_id AND c.end_salary_event_id=se.id)
+	  AND NOT EXISTS(SELECT 1 FROM job j WHERE j.type='GENERATE_CYCLE_RESIDUAL_REVIEW' AND j.status IN('PENDING','RUNNING','SUCCEEDED') AND j.payload_json->>'end_salary_event_id'=se.id::text)
+)
+INSERT INTO job(type,household_id,payload_json,max_attempts)
+SELECT 'GENERATE_CYCLE_RESIDUAL_REVIEW',e.household_id,jsonb_build_object('household_id',e.household_id,'end_salary_event_id',e.id),5
+FROM eligible e
+ORDER BY e.household_rank,e.pay_date DESC,e.id
+LIMIT $1
+ON CONFLICT DO NOTHING`
 
 // envEnabled reads a kill-switch. Any value other than an explicit negative
 // keeps the switch enabled, so an unset or mistyped variable never silently
@@ -445,6 +470,8 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		ctx, cancel = context.WithTimeout(ctx, budget)
 		defer cancel()
 	}
+	// Model calls made while processing a job are attributed to its household.
+	ctx = telegram.WithHousehold(ctx, job.HouseholdID)
 	switch job.Type {
 	case "PROCESS_TELEGRAM_CALLBACK":
 		payload, err := telegram.DecodeCallbackPayload(job.Payload)
@@ -480,6 +507,17 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		payload, err := telegram.DecodeSendPayload(job.Payload)
 		if err != nil {
 			return err
+		}
+		// The recipient may have been removed from the household (or the
+		// user disabled) after this message was queued; drop it unsent.
+		if authorized, err := processor.RecipientAuthorized(ctx, payload.ChatID, job.HouseholdID); err != nil {
+			return err
+		} else if !authorized {
+			slog.Default().Info("queued Telegram message dropped: recipient no longer authorized", "job_id", job.ID)
+			if payload.CallbackQueryID != "" {
+				return bot.AnswerCallback(ctx, payload.CallbackQueryID)
+			}
+			return nil
 		}
 		// A review card resolved (or cancelled/expired) between enqueue and
 		// send must not arrive as a fresh live card; skip the send but still answer a
@@ -523,6 +561,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 		payload, err := telegram.DecodeEditPayload(job.Payload)
 		if err != nil {
 			return err
+		}
+		if authorized, err := processor.RecipientAuthorized(ctx, payload.ChatID, job.HouseholdID); err != nil {
+			return err
+		} else if !authorized {
+			slog.Default().Info("queued Telegram edit dropped: recipient no longer authorized", "job_id", job.ID)
+			return nil
 		}
 		// An edit of a review card queued while it was open must not restore its
 		// buttons after the request closed; RETIRE_TELEGRAM_REVIEW_CARD owns it now.

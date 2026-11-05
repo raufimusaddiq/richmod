@@ -93,7 +93,7 @@ func DismissWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 		return ErrWealthObservationNotFound
 	}
 	if cmd.IgnoreFinancialEmail {
-		if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE id=(SELECT financial_email_observation_id FROM wealth_observation WHERE id=$1)`, cmd.ObservationID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET status='IGNORED',updated_at=now() WHERE household_id=$2 AND id=(SELECT financial_email_observation_id FROM wealth_observation WHERE id=$1 AND household_id=$2)`, cmd.ObservationID, cmd.HouseholdID); err != nil {
 			return err
 		}
 	}
@@ -103,7 +103,7 @@ func DismissWealthObservation(ctx context.Context, tx pgx.Tx, cmd WealthObservat
 // ReclassifyWealthEvidence marks the document behind a wealth observation as a
 // transaction-history screenshot once the observation became an asset purchase,
 // keeping the evidence provenance recorded.
-func ReclassifyWealthEvidence(ctx context.Context, tx pgx.Tx, observationID string) error {
-	_, err := tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE id=(SELECT document_id FROM wealth_observation WHERE id=$1)`, observationID)
+func ReclassifyWealthEvidence(ctx context.Context, tx pgx.Tx, householdID, observationID string) error {
+	_, err := tx.Exec(ctx, `UPDATE document SET document_type='TRANSACTION_HISTORY_SCREENSHOT',status='EXTRACTED',updated_at=now() WHERE household_id=$2 AND id=(SELECT document_id FROM wealth_observation WHERE id=$1 AND household_id=$2)`, observationID, householdID)
 	return err
 }

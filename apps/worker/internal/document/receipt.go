@@ -565,7 +565,7 @@ func (p *Processor) receiptCategory(ctx context.Context, householdID string, val
 }
 
 func (p *Processor) documentCategories(ctx context.Context, householdID string) ([]categoryOption, error) {
-	rows, err := p.pool.Query(ctx, `SELECT c.id,c.slug,c.name,COALESCE(p.name,'') FROM category c LEFT JOIN category p ON p.id=c.parent_id WHERE c.household_id=$1 AND c.active ORDER BY c.slug`, householdID)
+	rows, err := p.pool.Query(ctx, `SELECT c.id,c.slug,c.name,COALESCE(p.name,'') FROM category c LEFT JOIN category p ON p.id=c.parent_id AND p.household_id=c.household_id WHERE c.household_id=$1 AND c.active ORDER BY c.slug`, householdID)
 	if err != nil {
 		return nil, err
 	}

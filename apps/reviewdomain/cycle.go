@@ -105,7 +105,7 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 			return result, errors.New("reviewdomain: invalid recomputed residual")
 		}
 		if recomputed.Sign() <= 0 {
-			if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, residual); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND household_id=$4 AND cycle_residual_case_id=$5 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
 				return result, err
 			}
 			if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
@@ -114,10 +114,10 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 			result.Outcome = CycleStaleNotApplicable
 			return result, nil
 		}
-		if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1`, cmd.CaseID, income, expense, savings, residual); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1 AND household_id=$6`, cmd.CaseID, income, expense, savings, residual, cmd.HouseholdID); err != nil {
 			return result, err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{knownFacts,residual_idr}',to_jsonb($2::text),true),updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, residual); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{knownFacts,residual_idr}',to_jsonb($2::text),true),updated_at=now() WHERE id=$1 AND household_id=$3 AND cycle_residual_case_id=$4 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
 			return result, err
 		}
 		// Edit bound cards in the same commit. The sender falls back to a new
@@ -152,7 +152,7 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		// Defensive: a zero basis with no stale change should not allocate.
 		result.Allocated = "0"
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd))); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID); err != nil {
 		return result, err
 	}
 	if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
@@ -196,10 +196,10 @@ func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID strin
 // projection when no request is pinned, which is the Web behavior).
 func resolveCycleRequest(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand) error {
 	if cmd.RequestID != "" {
-		_, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.RequestID)
+		_, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND household_id=$2 AND review_item_id=$3 AND status IN ('PENDING_SEND','OPEN')`, cmd.RequestID, cmd.HouseholdID, cmd.ReviewItemID)
 		return err
 	}
-	_, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID)
+	_, err := tx.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE review_item_id=$1 AND household_id=$2 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.HouseholdID)
 	return err
 }
 

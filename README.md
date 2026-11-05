@@ -285,6 +285,10 @@ printf '%s\n' 'use-a-unique-12-plus-character-password' \
       --household 'My Household'
 ```
 
+Further households on the same deployment are created with
+`/bootstrap --new-household` and the same flags; each gets its own new owner
+(see the production runbook, *Adding another household*).
+
 ### Configuration files
 
 | File | What it is |

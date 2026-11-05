@@ -188,6 +188,13 @@ func (h *Handler) Categories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if in.ParentID != nil {
+		var parentOwned bool
+		if err := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM category WHERE id::text=$1 AND household_id=$2 AND active)`, *in.ParentID, household).Scan(&parentOwned); err != nil || !parentOwned {
+			jsonError(w, 400, "parent category not found")
+			return
+		}
+	}
 	if err := tx.QueryRow(r.Context(), `INSERT INTO category(household_id,parent_id,name,slug) VALUES($1,$2,$3,$4) RETURNING id`, household, in.ParentID, in.Name, in.Slug).Scan(&id); err != nil {
 		jsonError(w, 400, "unable to create category")
 		return

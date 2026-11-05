@@ -237,7 +237,7 @@ func loadReviewWealth(ctx context.Context, tx pgx.Tx, household string, now time
 	rows, err := tx.Query(ctx, `WITH selected AS (
 		(SELECT 'current' AS kind,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<$3 ORDER BY observed_at DESC,id LIMIT 1)
 		UNION ALL (SELECT 'previous' AS kind,id,observed_at FROM wealth_snapshot WHERE household_id=$1 AND observed_at<($2::date::timestamp AT TIME ZONE 'Asia/Jakarta') ORDER BY observed_at DESC,id LIMIT 1)
-	) SELECT s.kind,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr ELSE -i.value_idr END),0)::text,
+	) SELECT s.kind,s.id::text,s.observed_at,COALESCE(sum(CASE WHEN a.side='ASSET' THEN i.value_idr WHEN a.side IS NOT NULL THEN -i.value_idr END),0)::text,
 		COALESCE(array_agg(a.id::text ORDER BY a.id) FILTER(WHERE a.id IS NOT NULL),ARRAY[]::text[])
 	FROM selected s LEFT JOIN wealth_snapshot_item i ON i.snapshot_id=s.id LEFT JOIN wealth_account a ON a.id=i.wealth_account_id AND a.household_id=$1
 	GROUP BY s.kind,s.id,s.observed_at`, household, facts.Period.Start, end)

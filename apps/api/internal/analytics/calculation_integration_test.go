@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,7 +154,13 @@ func TestLegacyRankingsDoNotExposeForeignCategoryOrMember(t *testing.T) {
 	foreign := cycleReviewFixture(t)
 	f.anchor(t, "2026-09-01")
 	id := f.transaction(t, "2026-09-02", "EXPENSE", "CONFIRMED", "100", false)
-	if _, err := f.pool.Exec(context.Background(), `UPDATE transaction SET category_id=$2,created_by_user_id=$3 WHERE id=$1`, id, foreign.category, foreign.user); err != nil {
+	// A foreign category can no longer be bound at all: the household-composite
+	// foreign key (migration 00087) rejects it. A foreign member still can be,
+	// since users are not household-scoped, so the read side must hide it.
+	if _, err := f.pool.Exec(context.Background(), `UPDATE transaction SET category_id=$2 WHERE id=$1`, id, foreign.category); err == nil || !strings.Contains(err.Error(), "transaction_category_id_hh_fkey") {
+		t.Fatalf("foreign category binding was not rejected by the database: %v", err)
+	}
+	if _, err := f.pool.Exec(context.Background(), `UPDATE transaction SET created_by_user_id=$2 WHERE id=$1`, id, foreign.user); err != nil {
 		t.Fatal(err)
 	}
 	h := NewCycleHandler(f.pool, func() time.Time { return time.Date(2026, 9, 10, 12, 0, 0, 0, clock.HouseholdLocation()) })

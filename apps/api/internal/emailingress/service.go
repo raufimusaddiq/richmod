@@ -203,7 +203,7 @@ func (s *Service) Deliver(ctx context.Context, in deliveryInput) error {
 		if !trustedAuthConfigured(s.trustedAuthservs) {
 			status, reason = "IGNORED_AUTH", "TRUSTED_AUTHSERV_UNCONFIGURED"
 			slog.ErrorContext(ctx, "active email ingress rejected because trusted authserv configuration is unavailable", "household_id", address.HouseholdID, "address_id", address.ID)
-		} else if !authTrusted(in.Email.AuthenticationResults+"\n"+in.Email.ARCAuthenticationResults, s.trustedAuthservs) {
+		} else if !authTrusted(in.Email, s.trustedAuthservs) {
 			status, reason = "IGNORED_AUTH", "UNTRUSTED_AUTHENTICATION"
 		} else {
 			var listenerID string

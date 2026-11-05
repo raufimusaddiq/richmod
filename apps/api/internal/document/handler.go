@@ -348,7 +348,7 @@ func (h *Handler) PageContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ref, media string
-	if err := h.pool.QueryRow(r.Context(), `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN document d ON d.id=dp.document_id JOIN attachment a ON a.id=dp.attachment_id WHERE d.id=$1 AND d.household_id=$2 AND dp.page_index=$3`, r.PathValue("id"), household, index).Scan(&ref, &media); errors.Is(err, pgx.ErrNoRows) {
+	if err := h.pool.QueryRow(r.Context(), `SELECT a.storage_ref,a.media_type FROM document_page dp JOIN document d ON d.id=dp.document_id JOIN attachment a ON a.id=dp.attachment_id AND a.household_id=d.household_id WHERE d.id=$1 AND d.household_id=$2 AND dp.page_index=$3`, r.PathValue("id"), household, index).Scan(&ref, &media); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "document not found"})
 		return
 	} else if err != nil {

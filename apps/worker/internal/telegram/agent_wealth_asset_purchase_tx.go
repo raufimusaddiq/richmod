@@ -203,7 +203,7 @@ func (p *Processor) agentResolveBoundWealthAssetPurchaseAtomic(
 	if err != nil {
 		return result, true, err
 	}
-	if err = reviewdomain.ReclassifyWealthEvidence(ctx, tx, binding.TargetID); err != nil {
+	if err = reviewdomain.ReclassifyWealthEvidence(ctx, tx, state.HouseholdID, binding.TargetID); err != nil {
 		return result, true, err
 	}
 	if err = resolveAgentBoundReviewRequestTx(ctx, tx, binding, userID, "RECLASSIFIED_ASSET_PURCHASE"); err != nil {

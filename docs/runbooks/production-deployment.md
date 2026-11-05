@@ -206,7 +206,9 @@ After `/healthz` and `/readyz` pass, use an owner session in one test household 
 
 Monitor the worker after deployment and after the smoke checks. The owner-only
 `GET /api/v1/operations/status` must show a current heartbeat, no failed jobs,
-and no unexpected queue backlog. Investigate residual-generation or wealth-related
+and no unexpected queue backlog for that owner's household. Its job counts are
+household-scoped (ADR-058); check the platform-wide queue as Super Admin on
+`GET /api/v1/admin/overview`. Investigate residual-generation or wealth-related
 job failures before considering the release complete.
 
 ### Telegram webhook verification
@@ -243,6 +245,46 @@ Telegram user ID with `--telegram-user-id`. Then register the webhook with
 `scripts/set-telegram-webhook.sh`, which derives the URL from `WEB_ORIGIN` and
 uses the same webhook secret. The bootstrap refuses to run after an owner exists.
 
+### Migration 00087 pre-check (same-household foreign keys)
+
+Migration `00087` (ADR-058) adds 61 same-household foreign keys and validates
+every existing row in one transaction. It briefly holds write locks on the
+ledger, review, email and Telegram tables until it commits, so deploy it in a
+quiet window; on household-scale data it takes well under a second. If any
+existing row references another household's data, the migration fails and the
+deploy stops: it never repairs data. Before the deploy that first includes
+`00087`, run the read-only pre-check against production:
+
+```bash
+docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml \
+  exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' \
+  < scripts/check-cross-household-references.sql
+```
+
+Every line must end in `|0`. A non-zero count names the constraint and the
+number of cross-household rows; stop and investigate those rows with the owner
+before deploying. Do not delete or rewrite them to make the migration pass.
+
+### Adding another household
+
+One deployment hosts any number of households; `household_id` isolates them and
+the database rejects cross-household references (ADR-058). Create each further
+household with its own new owner, supplying the password on standard input:
+
+```bash
+printf '%s\n' '<owner-password>' \
+  | docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f compose.production.yaml \
+      exec -T api /bootstrap --new-household \
+      --email second-owner@example.com --name 'Second Owner' \
+      --household 'Second Household' --telegram-user-id <numeric-id>
+```
+
+It creates the household, the `OWNER`, the optional Telegram identity and the
+default categories in one audited transaction. It refuses an email that already
+has a user and a Telegram ID that is already linked: a user is never moved
+between households (ADR-035). The new owner then provisions the household's own
+email ingress address and invites members from the dashboard.
+
 Verify `https://finance.musaddiqr.com` after deployment. Do not expose the
 database, worker, API, or web ports directly in production.
 
@@ -258,7 +300,8 @@ The production override applies memory and process limits and enables
 - same-origin checks on browser mutations;
 - per-client login and webhook rate limits;
 - authenticated owner-only `GET /api/v1/operations/status` for worker heartbeat,
-  queue failures/backlog, Review Inbox backlog, and Gmail freshness.
+  the household's own queue failures/backlog, and Review Inbox backlog
+  (platform-wide queue health is the Super Admin overview).
 
 An operational status of `degraded`, a worker heartbeat older than one minute,
 or any failed jobs requires investigation. Inspect service logs using:

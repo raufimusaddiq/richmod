@@ -142,6 +142,11 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 		}{MessageID: update.CallbackQuery.Message.MessageID}
 		update.Message.Text = callbackText(update.CallbackQuery.Data)
 	}
+	if authorized, err := telegramMemberAuthorized(ctx, p.pool, update.Message.From.ID, householdID); err != nil {
+		return fmt.Errorf("re-check Telegram sender: %w", err)
+	} else if !authorized {
+		return ignoreUnauthorizedSender(ctx, p.pool, sourceEventID)
+	}
 	if update.Message.ReplyToMessage != nil && update.Message.ReplyToMessage.MessageID != 0 {
 		if err := p.renewExpiredReviewProjection(ctx, householdID, update); err != nil {
 			return err

@@ -209,7 +209,7 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 		// A user-supplied pay date completes only a payslip-backed income review.
 		// Evidence and period come from the shared payslip reader; no expected
 		// payday is ever inferred.
-		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, transactionID)
+		facts, ok, err := reviewdomain.LoadPayslipFacts(ctx, tx, householdID, transactionID)
 		if err != nil {
 			return err
 		}

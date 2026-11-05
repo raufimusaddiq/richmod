@@ -25,3 +25,14 @@ func TurnSourceEventID(ctx context.Context) string {
 	identity, _ := ctx.Value(turnIdentityKey{}).(turnIdentity)
 	return identity.sourceEventID
 }
+
+// WithHousehold attributes work that is not a Telegram turn (a document, email,
+// insight or residual job) to its household, so model calls made while
+// processing it are recorded against that household. A later Telegram turn
+// context replaces it.
+func WithHousehold(ctx context.Context, householdID string) context.Context {
+	if householdID == "" || TurnHouseholdID(ctx) != "" {
+		return ctx
+	}
+	return withTurnIdentity(ctx, householdID, "")
+}

@@ -213,8 +213,24 @@ func (h *Handler) PatchMember(w http.ResponseWriter, r *http.Request) {
 		out(w, 404, map[string]string{"error": "active member not found"})
 		return
 	}
-	_, _ = tx.Exec(r.Context(), `UPDATE telegram_identity SET active=false,updated_at=now() WHERE household_id=$1 AND user_id=$2`, householdID, memberID)
-	_, _ = tx.Exec(r.Context(), `UPDATE telegram_link_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`, householdID, memberID)
+	// Removing a member revokes every way back in: Telegram identity and
+	// invites, dashboard invites, and live dashboard sessions.
+	for _, statement := range []string{
+		`UPDATE telegram_identity SET active=false,updated_at=now() WHERE household_id=$1 AND user_id=$2`,
+		`UPDATE telegram_link_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`,
+		`UPDATE dashboard_account_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`,
+	} {
+		if _, err := tx.Exec(r.Context(), statement, householdID, memberID); err != nil {
+			out(w, 500, map[string]string{"error": "unable to deactivate member"})
+			return
+		}
+	}
+	// Sessions belong to the user, not the household: revoke them only when
+	// no other active membership remains (always true under ADR-035).
+	if _, err := tx.Exec(r.Context(), `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM household_member WHERE user_id=$1 AND active)`, memberID); err != nil {
+		out(w, 500, map[string]string{"error": "unable to deactivate member"})
+		return
+	}
 	if audit(r, tx, householdID, p.UserID, "DEACTIVATE", "household_member", memberID, map[string]any{"active": true}, map[string]any{"active": false}) != nil || tx.Commit(r.Context()) != nil {
 		out(w, 500, map[string]string{"error": "unable to deactivate member"})
 		return

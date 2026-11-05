@@ -84,7 +84,7 @@ func RecordSalaryEvent(ctx context.Context, tx pgx.Tx, cmd SalaryCommand) (Salar
 		if _, err := tx.Exec(ctx, `UPDATE salary_source SET is_primary=false,updated_at=now() WHERE household_id=$1 AND active AND id<>$2`, cmd.HouseholdID, existing); err != nil {
 			return result, err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE salary_source SET is_primary=true,employer=$2,updated_at=now() WHERE id=$1`, existing, employer); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE salary_source SET is_primary=true,employer=$2,updated_at=now() WHERE id=$1 AND household_id=$3`, existing, employer, cmd.HouseholdID); err != nil {
 			return result, err
 		}
 		result.SalarySourceID = existing
@@ -120,13 +120,14 @@ type PayslipFacts struct {
 
 // LoadPayslipFacts returns the payslip facts for a transaction, or ok=false when
 // the transaction has no payslip evidence to complete.
-func LoadPayslipFacts(ctx context.Context, tx pgx.Tx, transactionID string) (PayslipFacts, bool, error) {
+func LoadPayslipFacts(ctx context.Context, tx pgx.Tx, householdID, transactionID string) (PayslipFacts, bool, error) {
 	var facts PayslipFacts
 	err := tx.QueryRow(ctx, `SELECT COALESCE(t.counterparty_name,''),COALESCE(de.output_json->>'period',''),t.amount::text
 		FROM transaction t
 		JOIN transaction_evidence te ON te.transaction_id=t.id
-		JOIN document_extraction de ON de.document_id=NULLIF(te.metadata_json->>'document_id','')::uuid AND de.stage='PAYSLIP'
-		WHERE t.id=$1 AND t.type='INCOME' AND te.evidence_type='PAYSLIP_IMAGE' LIMIT 1`, transactionID).Scan(&facts.Employer, &facts.Period, &facts.NetPay)
+		JOIN document d ON d.id=NULLIF(te.metadata_json->>'document_id','')::uuid AND d.household_id=t.household_id
+		JOIN document_extraction de ON de.document_id=d.id AND de.stage='PAYSLIP'
+		WHERE t.id=$1 AND t.household_id=$2 AND t.type='INCOME' AND te.evidence_type='PAYSLIP_IMAGE' LIMIT 1`, transactionID, householdID).Scan(&facts.Employer, &facts.Period, &facts.NetPay)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return facts, false, nil
 	}

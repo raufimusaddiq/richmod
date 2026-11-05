@@ -61,6 +61,11 @@ func (p *ImageProcessor) Process(ctx context.Context, input ImagePayload) error 
 	if status == "PROCESSING" || status == "PROCESSED" || status == "NEEDS_REVIEW" || status == "IGNORED" {
 		return nil
 	}
+	if authorized, err := telegramMemberAuthorized(ctx, p.pool, input.TelegramUserID, householdID); err != nil {
+		return fmt.Errorf("re-check Telegram sender: %w", err)
+	} else if !authorized {
+		return ignoreUnauthorizedSender(ctx, p.pool, input.SourceEventID)
+	}
 	raw, pathName, err := p.bot.Download(ctx, input.FileID, maxTelegramImageBytes)
 	if err != nil {
 		return err

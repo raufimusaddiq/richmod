@@ -47,6 +47,11 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if err := json.Unmarshal([]byte(payloadText), &update); err != nil {
 		return fmt.Errorf("decode Telegram source evidence: %w", err)
 	}
+	if authorized, err := telegramMemberAuthorized(ctx, p.pool, update.Message.From.ID, householdID); err != nil {
+		return fmt.Errorf("re-check Telegram sender: %w", err)
+	} else if !authorized {
+		return ignoreUnauthorizedSender(ctx, p.pool, sourceEventID)
+	}
 	text := strings.TrimSpace(update.Message.Text)
 	if text == "" {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, "Pesan kosong diabaikan.")

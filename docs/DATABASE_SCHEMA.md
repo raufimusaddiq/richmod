@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00086_push_notifications.sql`.
+forward migration set through `db/migrations/00087_multi_household_tenancy.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -38,6 +38,19 @@ goose -dir db/migrations postgres "$DATABASE_URL" status
   purpose, Wealth side, usage role, active state, and household ownership.
 - Canonical financial and evidence records are household-scoped. Source evidence
   is linked, deduplicated, and retained rather than hard-deleted.
+- **Same-household references are enforced by the database** (migration
+  `00087`, ADR-058). Every foreign key between two household-scoped tables is
+  backed by a composite foreign key `(household_id, <ref>) → parent(household_id,
+  id)` named `<table>_<column>_hh_fkey` (references to `document` use its
+  `(id, household_id)` key from `00077`). A row of household A can never point
+  at a category, account, merchant, Wealth account, source event, document,
+  transaction, proposal, review, salary record, email source or Telegram turn of
+  household B. The three telemetry tables (`product_telemetry_event`,
+  `judgment_turn_telemetry`, `intelligence_phase_telemetry`) are deliberately
+  excluded so a trigger-written telemetry row cannot abort a financial write.
+  Child tables without `household_id` (for example `transaction_evidence`,
+  `document_page`, `wealth_snapshot_item`) inherit scope from their parent and
+  must be read through it.
 - `TIMESTAMPTZ` records time. Household timezone is constrained to
   `Asia/Jakarta`.
 - Status/type columns use SQL `CHECK` constraints. Read the named migration for
@@ -199,7 +212,7 @@ erDiagram
 
 | Table | Purpose | Principal relationships / constraints |
 | --- | --- | --- |
-| `job` | PostgreSQL-backed durable work queue. | Household/source event payload; the `enforce_job_lane` trigger assigns the lane (latest body in migration `00081`, mirrored by Go `classifyLane`): Telegram callbacks/sends/edits/review text, card retirement and `COMPLETE_BANK_REVIEW` → INTERACTIVE; media, documents, email processing, insights and cycle residual reviews → BACKGROUND; everything else, including free-text Telegram, → DEFAULT. `CHAT` remains allowed by the check constraint but is unused (ADR-032 retired). The partial unique index `job_retire_review_card_active_unique` on (recipient_id, message_id) for PENDING/RUNNING retire jobs keeps card retirement idempotent (migration `00079`). |
+| `job` | PostgreSQL-backed durable work queue. | Nullable `household_id → household` (migration `00087`): the BEFORE INSERT trigger `job_assign_household` derives it once from the payload anchor via `job_household(payload)` (`household_id`, `source_event_id`, `document_id`/`bind_document_id`, `review_request_id`/`bind_merchant_learning_request_id`, `review_id`, `preview_id`, `insight_id`, or the private Telegram `chat_id`); platform jobs keep `NULL`. It scopes the owner's operational status, attributes model calls, and drives the fair claim: within a lane the household whose latest job started longest ago goes first, and one household keeps `run_after, created_at` order (`job_lane_household_started_idx`, `job_household_status_idx`); platform jobs rotate as one more group. Payload carries the dispatch IDs; the `enforce_job_lane` trigger assigns the lane (latest body in migration `00081`, mirrored by Go `classifyLane`): Telegram callbacks/sends/edits/review text, card retirement and `COMPLETE_BANK_REVIEW` → INTERACTIVE; media, documents, email processing, insights and cycle residual reviews → BACKGROUND; everything else, including free-text Telegram, → DEFAULT. `CHAT` remains allowed by the check constraint but is unused (ADR-032 retired). The partial unique index `job_retire_review_card_active_unique` on (recipient_id, message_id) for PENDING/RUNNING retire jobs keeps card retirement idempotent (migration `00079`). |
 | `job_retry_log` | Retry attempt operational history. | `job_id` logical reference; unique attempt per job. |
 | `worker_heartbeat` | Worker liveness/operational status. | Worker instance identity and observed timestamp. |
 | `llm_call` | LLM-call telemetry. | Optional household; task/protocol/model/status/cost metadata only; `call_kind` allows `NATIVE_TOOL`, `AGENT_TEXT`, `AGENT_TOOLS`, `JUDGMENT` (bounded transport call), or `DECISION` (consumed decision with its product outcome); `protocol` allows `responses`, `chat_completions`, or `systemone`. |
