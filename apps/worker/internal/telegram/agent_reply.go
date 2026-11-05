@@ -239,7 +239,7 @@ func (p *Processor) recoverUnansweredTurn(ctx context.Context, sourceEventID, ho
 
 func agentMutationReply(result agentToolResult) (string, bool) {
 	if result.Status == "RESIDUAL_FACTS_REQUIRED" {
-		if missing, ok := result.Review["missing_fields"].([]string); ok {
+		if missing, ok := missingFields(result.Review); ok {
 			return reviewNeedsFactsMessage(missing), true
 		}
 		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid.", true
@@ -324,7 +324,7 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 			return "Tinjauan sudah selesai tanpa mencatatnya sebagai transaksi aktif.", true
 		case "REVIEW_DETAIL_SAVED":
 			if result.Status == "NEEDS_REVIEW" {
-				if missing, ok := result.Review["missing_fields"].([]string); ok {
+				if missing, ok := missingFields(result.Review); ok {
 					return reviewNeedsFactsMessage(missing), true
 				}
 			}
@@ -403,4 +403,22 @@ func agentMutationReply(result agentToolResult) (string, bool) {
 		return "Tinjauan ini sudah berubah atau selesai. Buka atau balas pesan tinjauan terbaru untuk melanjutkan.", true
 	}
 	return genericMutationReply, false
+}
+
+// missingFields reads a review's missing_fields whether the result is live
+// ([]string) or rebuilt from stored JSON ([]any).
+func missingFields(review map[string]any) ([]string, bool) {
+	switch value := review["missing_fields"].(type) {
+	case []string:
+		return value, true
+	case []any:
+		out := make([]string, 0, len(value))
+		for _, item := range value {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out, len(out) > 0
+	}
+	return nil, false
 }

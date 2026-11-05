@@ -74,7 +74,8 @@ func expectedCardAnswer(card agentReviewBinding) cardAnswerKind {
 // loadLiveReviewCards lists the live review cards of this chat, newest first.
 func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string, chatID int64) ([]agentReviewBinding, error) {
 	rows, err := p.pool.Query(ctx, `
-		SELECT kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label
+		SELECT kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label FROM (
+		SELECT DISTINCT ON (review_request_id) kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at
 		FROM (
 			SELECT 'TRANSACTION'::text,r.id::text,r.id::text,t.id::text,r.review_type,
 			       COALESCE(c.state,''),COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0)::bigint,
@@ -126,6 +127,10 @@ func (p *Processor) loadLiveReviewCards(ctx context.Context, householdID string,
 			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
 		) candidates(kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at,expires_at)
 		WHERE expires_at>now()
+		-- One card per review request: a transfer case can match its review item
+		-- through both the source event and the email observation.
+		ORDER BY review_request_id,sort_at DESC
+		) unique_cards
 		ORDER BY sort_at DESC
 		LIMIT $3::int`, householdID, chatID, maxLiveCards)
 	if err != nil {
@@ -472,7 +477,9 @@ func (p *Processor) askWhichCard(ctx context.Context, householdID, sourceEventID
 	if err := enqueueReplyMarkup(ctx, tx, update, message, &InlineKeyboardMarkup{InlineKeyboard: keyboard}); err != nil {
 		return err
 	}
-	_ = insertTurnTx(ctx, tx, householdID, sourceEventID, update, "USER", update.Message.Text, "", map[string]any{"current_jakarta_datetime": p.turnTime(update).Format(time.RFC3339)})
+	if err := insertTurnTx(ctx, tx, householdID, sourceEventID, update, "USER", update.Message.Text, "", map[string]any{"current_jakarta_datetime": p.turnTime(update).Format(time.RFC3339)}); err != nil {
+		return err
+	}
 	if err := insertTurnTx(ctx, tx, householdID, sourceEventID, update, "ASSISTANT", message, "", map[string]any{"card_choice": len(cards)}); err != nil {
 		return err
 	}
