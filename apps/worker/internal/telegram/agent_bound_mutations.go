@@ -135,8 +135,10 @@ func (p *Processor) agentResolveBoundTransactionReview(ctx context.Context, stat
 			return result, true, nil
 		}
 		return p.agentResolveTransferClassification(ctx, state, call, *review, "EXPENSE", "", categoryID)
-	case "SET_PAY_DATE":
-		// The prompt steers any supplied date into transaction_at, so accept it here.
+	case "SET_PAY_DATE", "SET_TRANSACTION_DATE":
+		// SET_TRANSACTION_DATE is the transaction-date answer (migration 00096);
+		// SET_PAY_DATE stays accepted for decisions stored before it. The prompt
+		// steers any supplied date into transaction_at, so accept it here.
 		if strings.TrimSpace(payDate) == "" {
 			payDate = transactionAt
 		}

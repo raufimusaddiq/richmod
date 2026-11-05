@@ -35,6 +35,9 @@ func Preset(reason, subjectType, subjectID string) (Decision, bool) {
 	if kind.Missing != nil {
 		decision.MissingFacts = cloneStrings(kind.Missing)
 	}
+	if len(kind.Choices) > 0 {
+		decision.Choices = append([]Choice(nil), kind.Choices...)
+	}
 	for _, key := range kind.KnownNil {
 		decision.KnownFacts[key] = nil
 	}

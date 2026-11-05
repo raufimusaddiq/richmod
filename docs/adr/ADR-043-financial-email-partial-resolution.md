@@ -42,3 +42,13 @@ Two safety rules were added where partial resolution exposed them:
   and keep asking for both entities, so they stay resolvable.
 - No new table, migration, or dependency.
 
+
+## Amendment — 2026-11-05: unsupported facts are a notice
+
+`FINANCIAL_EMAIL_FACTS` keeps `IGNORE` as its only action by design: no canonical
+transaction was written and nothing is left to decide. The Inbox therefore presents
+it as a notice ("Mengerti") explaining what the email showed and that nothing was
+recorded, and keeps it out of the needs-your-decision count (ADR-054 amendment).
+Acknowledging it marks the observation `IGNORED`; the source settles through the
+shared lifecycle (ADR-046 amendment), so an applied sibling observation in the same
+email keeps the source `PROCESSED`.

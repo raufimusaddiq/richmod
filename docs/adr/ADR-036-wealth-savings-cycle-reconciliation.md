@@ -79,3 +79,38 @@ The migration is additive, preserves existing tables and rows, keeps legacy `rev
 ## Consequences
 
 Cross-household ownership and link validation remain service-layer responsibilities; PostgreSQL foreign keys provide row identity only. Residual generation must run after salary commit through an idempotent job/catch-up path. Snapshot completeness, residual freshness, and allocation sums require transactional service validation.
+
+## Amendment — 2026-11-05
+
+- **Wealth account choice is one step.** Choosing the account on a
+  `WEALTH_OBSERVATION_CONFIRMATION` review accepts the observation (`ACCEPTED`) and
+  resolves the review in the same transaction, exactly as a deterministic account
+  match does at intake. The value stays an observation: `/wealth` lists it as
+  waiting for the next complete snapshot, which still applies it (`APPLIED`). No
+  partial snapshot or transaction is written. Auto-creating a snapshot was rejected
+  because a snapshot must cover the complete active account set.
+- **Residual "transaksi belum tercatat".** `TRANSACTION_MISSING` resolves the
+  residual review with that answer and returns the cycle dates so the surface opens
+  manual entry. When a transaction is then recorded inside that cycle,
+  `RefreshOpenCycleResiduals` reopens the residual review with the recomputed basis
+  (and asks nothing if no residual remains). Residuals stay review metadata.
+- **Transfer candidate overflow.** A case with more than ten candidates is no longer
+  IGNORE-only: every surface shows, and the resolver accepts merges into, the ten
+  candidates closest in time (`RankTransferCandidates`). Creating a new transfer
+  beside an overflowing set still fails closed. A case with neither candidates nor a
+  proposed purpose offers `CONFIRM_NEW_TRANSFER` with the bounded purpose choices;
+  `transfer_wealth_compatible` still validates the purpose and Wealth target.
+- **Cross-lane dedup.** One real event stays one canonical transaction: receipt,
+  screenshot row and bank email check CONFIRMED and NEEDS_REVIEW household
+  transactions from every lane first (same type and IDR amount, close time,
+  compatible merchant). A unique strong match is linked as evidence and only fills
+  missing facts; anything weaker but plausible is a `POSSIBLE_DUPLICATE` review
+  naming the candidates. The frozen `SPENDING_ONLY` bank extraction is unchanged:
+  dedup is linking, not parsing. Two bank emails are never merged automatically.
+  Screenshot rows keep ADR-042's rule that only a shared identifier links without
+  asking. Every lane takes a transaction-scoped advisory lock per household and
+  IDR amount (`LockLedgerEvent`) before it writes, and re-checks the candidates
+  under the lock; a candidate written concurrently by another lane makes the lane
+  decide again, so two lanes cannot both see "no match". A strong match is judged
+  against every plausible candidate, and more than ten plausible candidates never
+  auto-link.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/financialentity"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
@@ -166,7 +167,12 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 			return err
 		}
 	}
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS (SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='REVIEW') THEN 'NEEDS_REVIEW' ELSE 'PROCESSED' END,parser_name='financial-email-native',parser_version='1' WHERE id=$1`, payload.SourceEventID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE source_event SET parser_name='financial-email-native',parser_version='1' WHERE id=$1`, payload.SourceEventID); err != nil {
+		return err
+	}
+	// ADR-046: the shared lifecycle derives the status from every observation,
+	// case and review this email produced.
+	if err = reviewdomain.RefreshSourceLifecycle(ctx, tx, household, payload.SourceEventID); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE financial_email_source SET last_received_at=now(),updated_at=now() WHERE id=(SELECT financial_source_id FROM financial_email_event WHERE source_event_id=$1)`, payload.SourceEventID); err != nil {
@@ -670,6 +676,10 @@ func (p *Processor) cash(ctx context.Context, tx pgx.Tx, household, source, fina
 	}
 	if plan.existing == "" {
 		if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,currency,transaction_at,description,purpose,related_wealth_account_id,confirmed_at,auto_confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',$3,'IDR',$4,'Financial provider email',$5,NULLIF($6,'')::uuid,now(),now()) RETURNING id`, household, plan.account, plan.amount, plan.at, plan.purpose, plan.wealth).Scan(&plan.existing); err != nil {
+			return err
+		}
+		// A cycle waiting on a missing transaction reopens with the new basis.
+		if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, household, plan.at, ""); err != nil {
 			return err
 		}
 	}

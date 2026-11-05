@@ -219,3 +219,58 @@ completable in Telegram.
   implementations to maintain, and the golden tests give the same safety.
 - **Replace `review_item` with per-subject tables first.** Rejected as a first step:
   it is a large migration, and the registry removes most of the cost that motivates it.
+
+## Amendment — 2026-11-05: the stored decision is what the Inbox offers
+
+The Review Inbox listed non-transaction items with the registry fallback
+(`InboxActions`) instead of the stored decision, so kinds without an Inbox list
+(`TRANSFER_CLASSIFICATION`, `UNKNOWN_MERCHANT`, `POSSIBLE_DUPLICATE`,
+`RECEIPT_MISMATCH`, ...) became IGNORE-only, and a bank-email
+`DOCUMENT_EXTRACTION_LOW_CONFIDENCE` (stored `COMPLETE_BANK_FACTS`) was offered
+`REPROCESS_DOCUMENT`, which needs a document and always failed.
+
+- `reviewdomain.ExecutableActions(kind, stored, binding)` is the offer: the stored
+  decision's actions (the preset, then the Inbox list, only for rows without one),
+  filtered by `Executable`, which knows which resolver exists for which subject
+  binding (document, bank source, observation, proposal, residual, open or final
+  transaction). A transfer review with an open reconciliation case adds the bounded
+  chooser. Tests assert no offered action is unexecutable, and the Web dispatcher
+  refuses any action the list would not offer.
+- **Notices.** An item whose only executable answer is `IGNORE` asks nothing the
+  household can decide (`FINANCIAL_EMAIL_FACTS`, a transaction review whose
+  transaction is already final). The list marks it `presentation: NOTICE`; the
+  Inbox renders an explanation and "Mengerti", and it is excluded from the
+  needs-your-decision count (`X-Decision-Count`). `RECEIPT_MISMATCH` is produced
+  only while the receipt auto-confirm kill-switch is off (with it on, the printed
+  total is recorded and the household gets an informational notice that the lines
+  did not add up); while it exists on an open transaction it is a one-tap confirm.
+- **Labels.** Every `review_type` in the CHECK set has an Indonesian label and a
+  one-line explanation (`app/components/review/shared.js`), pinned by a web test
+  that reads the latest migration; no card prints a raw code.
+- **SET_TRANSACTION_DATE.** `MISSING_TRANSACTION_DATE` and
+  `TRANSACTION_FACTS_MISSING` stored the payslip verb `SET_PAY_DATE`. They now store
+  `SET_TRANSACTION_DATE` with bounded choices `TODAY`, `YESTERDAY`, `MESSAGE_DATE`
+  (the message's received date, read by Go). Active rows were migrated by `00096`
+  with an audit row each; `SET_PAY_DATE` on a transaction-bound item stays
+  executable for the rolling window. The agent enum is unchanged (`CONFIRM` with a
+  date); Telegram completes the action through its date reply lane.
+- **Reopen.** One reopen path. `ReopenTransactionReview` (Unmerge) and the
+  transaction branch of `ReopenReview` build a fresh `POSSIBLE_DUPLICATE` decision
+  from the transaction as it is now (residual category, received-time date and
+  transfer relationship recomputed; the previous kind kept as provenance), never
+  the old snapshot. Every reopened item, of any kind, is projected to Telegram
+  through the shared `PROJECT_TELEGRAM_REVIEW` job.
+  `reviewdomain.ReopenReview` (Web `POST /api/v1/reviews/{id}/reopen`, listed from
+  `GET /api/v1/reviews/resolved`) reopens, with an audit row, where the resolution
+  only changed review or observation state: wealth observations `ACCEPTED`/
+  `DISMISSED`, financial-email observations `IGNORED` without a transaction,
+  `REJECTED` proposals (missing amount, ignored payslip), `IGNORED` source and
+  document reviews without active evidence, and residual reviews left unallocated,
+  marked transaction-missing or closed as no longer applicable. Not reversible
+  from review, by design: an `APPLIED` wealth value (it is inside a snapshot; use
+  snapshot correction), an applied financial-email observation or any resolution
+  that wrote or confirmed a transaction (use void or unmerge, which already returns
+  the transaction to review), an accepted payslip (it wrote income and a salary
+  event), and a residual allocation (allocation rows are canonical records and are
+  never deleted). A reopened item is written `OPEN` and projected like any new
+  review.

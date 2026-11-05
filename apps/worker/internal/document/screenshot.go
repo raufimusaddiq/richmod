@@ -342,6 +342,45 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Cross-lane serialization: lock every row amount (sorted, so concurrent
+	// writers take locks in one order) and re-check the candidates under the
+	// lock; another lane that wrote a candidate meanwhile makes the job retry.
+	amounts := []string{}
+	for _, row := range rows {
+		if row.Value.Amount != nil && !slices.Contains(amounts, *row.Value.Amount) {
+			amounts = append(amounts, *row.Value.Amount)
+		}
+	}
+	slices.Sort(amounts)
+	for _, amount := range amounts {
+		if err := reviewdomain.LockLedgerEvent(ctx, tx, householdID, amount); err != nil {
+			return err
+		}
+	}
+	for _, row := range rows {
+		if row.Value.Amount == nil {
+			continue
+		}
+		now, err := findScreenshotMatchesWith(ctx, tx, householdID, row)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(now, func(candidate matchCandidate) bool {
+			// A new candidate, or one whose score changed, invalidates the decision.
+			if row.Matched != nil && row.Matched.ID == candidate.ID {
+				return row.Matched.Score != candidate.Score
+			}
+			return !slices.ContainsFunc(row.Candidates, func(decided matchCandidate) bool {
+				return decided.ID == candidate.ID && decided.Score == candidate.Score
+			})
+		}) {
+			return reviewdomain.ErrLedgerRaced
+		}
+		if row.Matched != nil && !slices.ContainsFunc(now, func(candidate matchCandidate) bool { return candidate.ID == row.Matched.ID }) {
+			// The chosen target vanished (voided or merged) since the decision.
+			return reviewdomain.ErrLedgerRaced
+		}
+	}
 	var chatID int64
 	hasChat := true
 	var sourceChat *int64
@@ -411,6 +450,10 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 			if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'TRANSACTION_SCREENSHOT',$3,jsonb_build_object('proposal_id',$4::uuid,'document_id',$5::uuid,'row_index',$6::integer,'match_score',$7::numeric)) ON CONFLICT DO NOTHING`, row.Matched.ID, sourceID, row.Value.Confidence, proposalID, documentID, index, row.Matched.Score); err != nil {
 				return err
 			}
+			// The linked row enriches the existing event with a merchant it lacked.
+			if _, err := reviewdomain.EnrichLinkedTransaction(ctx, tx, householdID, row.Matched.ID, reviewdomain.EvidenceEnrichment{MerchantName: row.Value.Merchant}); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_SCREENSHOT_EVIDENCE','transaction',$2,jsonb_build_object('document_id',$3::uuid,'row_index',$4::integer,'match_score',$5::numeric))`, householdID, row.Matched.ID, documentID, index, row.Matched.Score); err != nil {
 				return err
 			}
@@ -454,6 +497,13 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		// The decision contract lets the Inbox ask only about the dimension that
 		// is genuinely unresolved. The canonical review_item carries it whether
 		// or not a Telegram chat exists; Telegram only projects the same item.
+		// A cross-lane candidate still awaiting review is named so the household
+		// can merge into it (MergeDuplicateReview accepts only named targets).
+		for _, id := range pendingCandidateIDs(row.Candidates) {
+			if !slices.Contains(row.PriorMatchIDs, id) {
+				row.PriorMatchIDs = append(row.PriorMatchIDs, id)
+			}
+		}
 		reviewType := screenshotReviewReason(row, len(row.Candidates) > 0)
 		if row.Type == "INCOME" {
 			reviewType = "TRANSFER_CLASSIFICATION"

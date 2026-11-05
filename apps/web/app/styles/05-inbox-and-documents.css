@@ -71,3 +71,12 @@ input[type="file"]::file-selector-button:hover { background: var(--accent-soft);
 .review-proposal > div { min-width: 0; }
 .review-proposal dt { color: var(--muted); font-size: var(--text-xs); }
 .review-proposal dd { margin: 2px 0 0; font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+/* Acknowledge-only notices read as information, not as a decision. */
+.review-notice { border-style: dashed; }
+.review-notice .review-reason { color: var(--muted); }
+.review-card .review-explain { margin: 6px 0 0; color: var(--muted); font-size: var(--text-xs); }
+.date-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.review-history { margin-top: 24px; color: var(--muted); font-size: var(--text-xs); }
+.review-history summary { cursor: pointer; font-weight: 700; }
+.review-history ul { margin: 10px 0 0; padding: 0; list-style: none; }
+.review-history li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }

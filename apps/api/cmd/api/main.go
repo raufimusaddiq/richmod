@@ -141,6 +141,8 @@ func run(logger *slog.Logger) error {
 	mux.Handle("POST /api/v1/push/subscriptions/heartbeat", authHandler.RequireSession(http.HandlerFunc(pushHandler.Heartbeat)))
 	mux.Handle("GET /api/v1/reviews", authHandler.RequireSession(http.HandlerFunc(reviewHandler.List)))
 	mux.Handle("POST /api/v1/reviews/{id}/resolve", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Resolve)))
+	mux.Handle("GET /api/v1/reviews/resolved", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Resolved)))
+	mux.Handle("POST /api/v1/reviews/{id}/reopen", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Reopen)))
 	mux.Handle("POST /api/v1/reviews/{id}/confirm", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Confirm)))
 	mux.Handle("POST /api/v1/reviews/{id}/reject", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Reject)))
 	mux.Handle("POST /api/v1/reviews/{id}/merge", authHandler.RequireSession(http.HandlerFunc(reviewHandler.Merge)))

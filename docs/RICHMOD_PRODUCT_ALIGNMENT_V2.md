@@ -640,6 +640,21 @@ Open evidence
 
 Web Review and Telegram Review must resolve the same underlying review object.
 
+Current behaviour (2026-11, ADR-054/ADR-046 amendments):
+
+- Each card shows an Indonesian label and a one-line explanation for its review
+  type; raw codes are never shown.
+- Buttons come from the stored decision filtered to what can execute for that
+  item, so no button can only fail.
+- Acknowledge-only items are notices ("Mengerti") and are not counted in
+  "N item menunggu" or the navigation badge.
+- Transaction reviews load in pages of 100 with "Muat lagi"; the header count
+  covers every page.
+- A review without a printed date offers one-tap "Hari ini / Kemarin / Tanggal
+  pesan".
+- "Baru diselesaikan" lists the last 30 days of decisions; reversible ones can be
+  reopened ("Buka lagi") and come back with a fresh decision.
+
 ## 16. Documents page
 
 Show more than image dimensions.

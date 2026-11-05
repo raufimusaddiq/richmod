@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const screenshotIdentifierPattern = `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`
@@ -106,6 +108,16 @@ func reconcileScreenshotCandidate(candidate matchCandidate, row validatedScreens
 }
 
 func (p *Processor) findScreenshotMatches(ctx context.Context, householdID string, row validatedScreenshotRow) ([]matchCandidate, error) {
+	return findScreenshotMatchesWith(ctx, p.pool, householdID, row)
+}
+
+type screenshotQueryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// findScreenshotMatchesWith runs the matcher on q, so the locked write can
+// re-check inside its own transaction without a second pool connection.
+func findScreenshotMatchesWith(ctx context.Context, q screenshotQueryer, householdID string, row validatedScreenshotRow) ([]matchCandidate, error) {
 	if row.Value.Amount == nil || (!row.DateKnown && len(row.Value.TransactionIdentifiers) == 0) {
 		return nil, nil
 	}
@@ -113,10 +125,13 @@ func (p *Processor) findScreenshotMatches(ctx context.Context, householdID strin
 	if err != nil {
 		return nil, err
 	}
+	// Candidates include transactions still awaiting review from any lane (bank
+	// email, receipt, another screenshot): one purchase seen twice must not become
+	// two transactions while the first is still in review (cross-lane dedup).
 	// Both fuzzy and identity candidates retain the canonical household/type/amount
 	// boundary. Only proposals actually bound to this transaction's screenshot
 	// evidence may contribute identity; stray proposals cannot authorise a link.
-	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600,COALESCE(e.facts,'[]'::jsonb)
+	rows, err := q.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600,COALESCE(e.facts,'[]'::jsonb),t.status
 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id
 LEFT JOIN LATERAL (
  SELECT jsonb_agg(jsonb_build_object('transaction_at',p.transaction_at,'metadata',p.metadata_json)) AS facts,
@@ -126,7 +141,7 @@ LEFT JOIN LATERAL (
  JOIN source_event s ON s.id=te.source_event_id AND s.household_id=t.household_id
  WHERE te.transaction_id=t.id AND te.evidence_type='TRANSACTION_SCREENSHOT' AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'
 ) e ON true
-WHERE t.household_id=$1 AND t.status='CONFIRMED' AND t.type=$2 AND t.currency='IDR' AND t.amount=$3::numeric
+WHERE t.household_id=$1 AND t.status IN ('CONFIRMED','NEEDS_REVIEW') AND t.type=$2 AND t.currency='IDR' AND t.amount=$3::numeric
 AND (($6::boolean AND t.transaction_at BETWEEN $4::timestamptz-interval '72 hours' AND $4::timestamptz+interval '72 hours') OR e.identity_hit)
 ORDER BY e.identity_hit DESC NULLS LAST,abs(extract(epoch FROM (t.transaction_at-$4::timestamptz))),t.id`, householdID, row.Type, *row.Value.Amount, row.TransactionAt, string(ids), row.DateKnown)
 	if err != nil {
@@ -137,7 +152,7 @@ ORDER BY e.identity_hit DESC NULLS LAST,abs(extract(epoch FROM (t.transaction_at
 	for rows.Next() {
 		var candidate matchCandidate
 		var raw []byte
-		if err := rows.Scan(&candidate.ID, &candidate.Merchant, &candidate.Hours, &raw); err != nil {
+		if err := rows.Scan(&candidate.ID, &candidate.Merchant, &candidate.Hours, &raw, &candidate.Status); err != nil {
 			return nil, err
 		}
 		var evidence []screenshotCandidateEvidence

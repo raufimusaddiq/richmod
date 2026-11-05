@@ -24,6 +24,8 @@ type Kind struct {
 	Affected    []string
 	// KnownNil names known facts that are present but unknown (stored as null).
 	KnownNil []string
+	// Choices are server-owned bounded answers stored as boundedChoices.
+	Choices []Choice
 
 	// Inbox is what the Review Inbox offers when an item carries no stored
 	// actions. Empty means IGNORE only.
@@ -41,6 +43,10 @@ type Kind struct {
 	// review was not confirmed automatically. It renders Why for a household.
 	WhyID string
 }
+
+// transactionDateChoices are the one-tap SET_TRANSACTION_DATE answers; Go maps
+// each key to a Jakarta date at resolution time (reviewdomain.DateChoice).
+var transactionDateChoices = []Choice{{Key: "TODAY", Label: "Hari ini"}, {Key: "YESTERDAY", Label: "Kemarin"}, {Key: "MESSAGE_DATE", Label: "Tanggal pesan"}}
 
 var kinds = []Kind{
 	{
@@ -127,11 +133,16 @@ var kinds = []Kind{
 	{
 		// A source fact that is genuinely absent. The internal received-at fallback
 		// is provenance, not a known transaction time.
+		// SET_TRANSACTION_DATE is the transaction-date answer; SET_PAY_DATE stays
+		// the payslip pay-date answer only (stored rows migrated by 00096). When
+		// the source never printed a date the household picks a bounded one-tap
+		// date instead of typing an unknowable one.
 		Reason: "MISSING_TRANSACTION_DATE", Class: ClassEvidenceGap,
 		Missing:  []string{"transaction_at"},
-		Actions:  []string{"SET_PAY_DATE", "IGNORE"},
+		Actions:  []string{"SET_TRANSACTION_DATE", "IGNORE"},
 		Mode:     ModeSingleField,
 		Why:      "the source did not print or state the transaction date",
+		Choices:  transactionDateChoices,
 		WhyID:    "Tanggal transaksi tidak tertulis di bukti.",
 		Telegram: true,
 	},
@@ -140,9 +151,10 @@ var kinds = []Kind{
 		// either dimension, so the contract names both explicitly.
 		Reason: "TRANSACTION_FACTS_MISSING", Class: ClassEvidenceGap,
 		Missing:  []string{"category", "transaction_at"},
-		Actions:  []string{"CONFIRM_REVIEW", "SET_PAY_DATE", "IGNORE"},
+		Actions:  []string{"CONFIRM_REVIEW", "SET_TRANSACTION_DATE", "IGNORE"},
 		Mode:     ModeSingleField,
 		Why:      "the source did not support a category or a transaction date",
+		Choices:  transactionDateChoices,
 		WhyID:    "Bukti tidak menunjukkan kategori dan tanggal transaksi.",
 		Telegram: true,
 	},

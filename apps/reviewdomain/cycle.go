@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // CycleAllocation is one requested retained-balance allocation.
@@ -57,7 +58,15 @@ type CycleResult struct {
 	Outcome   CycleOutcome
 	Residual  string
 	Allocated string
+	// CycleStart and CycleEnd are the Jakarta dates of the residual cycle, set by
+	// MarkCycleTransactionMissing so a surface can open manual entry there.
+	CycleStart, CycleEnd string
 }
+
+// cycleRefreshOnly is the internal command RefreshOpenCycleResiduals uses to
+// re-evaluate an open review's basis without completing it. It is not a
+// household action.
+const cycleRefreshOnly = "REFRESH_BASIS"
 
 var (
 	// ErrCycleCaseNotFound reports a cycle case outside the household.
@@ -105,7 +114,7 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 			return result, errors.New("reviewdomain: invalid recomputed residual")
 		}
 		if recomputed.Sign() <= 0 {
-			if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND household_id=$4 AND cycle_residual_case_id=$5 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND household_id=$4 AND cycle_residual_case_id=$5 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
 				return result, err
 			}
 			if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
@@ -134,7 +143,7 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		result.Outcome = CycleStaleRefreshed
 		return result, nil
 	}
-	if cmd.Action == "TRANSACTION_MISSING" {
+	if cmd.Action == cycleRefreshOnly || cmd.Action == "TRANSACTION_MISSING" {
 		result.Outcome = CycleStaleRefreshed
 		return result, nil
 	}
@@ -158,7 +167,7 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		// Defensive: a zero basis with no stale change should not allocate.
 		result.Allocated = "0"
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID); err != nil {
 		return result, err
 	}
 	if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
@@ -168,6 +177,10 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	return result, nil
 }
 
+// Every path that writes a CONFIRMED transaction (manual, review confirmation
+// and the bank/receipt/screenshot auto-confirm lanes) calls it, with an empty
+// actor for worker writes, so a cycle waiting on "transaksi belum tercatat"
+// reopens whichever lane recorded the transaction.
 // RefreshOpenCycleResiduals re-evaluates only open cycle reviews affected by a
 // newly confirmed transaction. Run inside the transaction's commit boundary.
 func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {
@@ -191,11 +204,102 @@ func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID strin
 		return err
 	}
 	for _, v := range targets {
-		if _, err := ApplyCycleResidual(ctx, tx, CycleResidualCommand{HouseholdID: householdID, CaseID: v.caseID, ReviewItemID: v.itemID, ActorUserID: actorID, Action: "TRANSACTION_MISSING"}); err != nil {
+		if _, err := ApplyCycleResidual(ctx, tx, CycleResidualCommand{HouseholdID: householdID, CaseID: v.caseID, ReviewItemID: v.itemID, ActorUserID: actorID, Action: cycleRefreshOnly}); err != nil {
+			return err
+		}
+	}
+	// A cycle the household marked "transaksi belum tercatat" is asked again once
+	// a transaction lands in it, with the recomputed residual.
+	waiting, err := tx.Query(ctx, `SELECT c.id::text FROM cycle_residual_case c WHERE c.household_id=$1
+		AND $2::timestamptz >= (c.cycle_start::timestamp AT TIME ZONE 'Asia/Jakarta') AND $2::timestamptz < (c.cycle_end::timestamp AT TIME ZONE 'Asia/Jakarta')
+		AND NOT EXISTS (SELECT 1 FROM review_item o WHERE o.cycle_residual_case_id=c.id AND o.status IN ('PENDING_SEND','OPEN'))
+		AND (SELECT ri.resolution_action FROM review_item ri WHERE ri.cycle_residual_case_id=c.id ORDER BY ri.resolved_at DESC NULLS LAST,ri.created_at DESC LIMIT 1)='TRANSACTION_MISSING'
+		ORDER BY c.id`, householdID, at)
+	if err != nil {
+		return err
+	}
+	cases, err := pgx.CollectRows(waiting, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, caseID := range cases {
+		if _, err := reopenCycleResidual(ctx, tx, householdID, caseID, actorID, "TRANSACTION_RECORDED"); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// MarkCycleTransactionMissing completes a residual review with the household's
+// answer "a transaction is not recorded yet". It writes no transaction and no
+// allocation (ADR-036: residuals stay review metadata). The next step is manual
+// entry; once a transaction lands in the cycle, RefreshOpenCycleResiduals reopens
+// the residual review with the recomputed basis.
+func MarkCycleTransactionMissing(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand) (CycleResult, error) {
+	var result CycleResult
+	if err := tx.QueryRow(ctx, `SELECT c.basis_residual_idr::text,c.cycle_start::text,c.cycle_end::text FROM cycle_residual_case c JOIN review_item ri ON ri.cycle_residual_case_id=c.id AND ri.household_id=c.household_id
+		WHERE c.id=$1 AND c.household_id=$2 AND ri.id=$3 AND ri.status IN ('PENDING_SEND','OPEN') FOR UPDATE OF c,ri`, cmd.CaseID, cmd.HouseholdID, cmd.ReviewItemID).Scan(&result.Residual, &result.CycleStart, &result.CycleEnd); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return result, ErrCycleCaseNotFound
+		}
+		return result, err
+	}
+	values, err := json.Marshal(map[string]string{"action": "TRANSACTION_MISSING", "residual_idr": result.Residual, "next_step": "RECORD_MISSING_TRANSACTION"})
+	if err != nil {
+		return result, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action='TRANSACTION_MISSING',resolution_values=$3::jsonb,updated_at=now() WHERE id=$1 AND household_id=$4 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, string(values), cmd.HouseholdID); err != nil {
+		return result, err
+	}
+	if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
+		return result, err
+	}
+	result.Outcome = CycleResolved
+	return result, nil
+}
+
+// reopenCycleResidual recomputes one case's basis and, when money is still
+// unexplained, opens a fresh residual review with a newly built decision. It
+// returns the new review item id, or "" when nothing remains to allocate.
+func reopenCycleResidual(ctx context.Context, tx pgx.Tx, householdID, caseID, actorID, reason string) (string, error) {
+	var oldIncome, oldExpense, oldSavings, oldResidual, income, expense, savings, residual string
+	if err := tx.QueryRow(ctx, cycleBasisSQL, caseID, householdID).Scan(&oldIncome, &oldExpense, &oldSavings, &oldResidual, &income, &expense, &savings, &residual); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrCycleCaseNotFound
+		}
+		return "", err
+	}
+	// An exhausted residual asks nothing; basis_residual_idr is positive-only, so
+	// the case keeps its last positive basis as history and no review reopens.
+	if amount, ok := new(big.Int).SetString(residual, 10); !ok || amount.Sign() <= 0 {
+		return "", nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1 AND household_id=$6`, caseID, income, expense, savings, residual, householdID); err != nil {
+		return "", err
+	}
+	decision, ok := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", caseID)
+	if !ok {
+		return "", errors.New("reviewdomain: no CYCLE_RESIDUAL_ALLOCATION contract")
+	}
+	decision.KnownFacts["residual_idr"] = residual
+	decision.Provenance["reopened"] = reason
+	encoded, err := decision.JSON()
+	if err != nil {
+		return "", err
+	}
+	var itemID string
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,review_type,status,cycle_residual_case_id,decision) SELECT $1,'CYCLE_RESIDUAL_ALLOCATION','OPEN',$2,$3::jsonb
+		WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE household_id=$1 AND cycle_residual_case_id=$2 AND status IN ('OPEN','PENDING_SEND'))
+		ON CONFLICT (cycle_residual_case_id) WHERE cycle_residual_case_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN') DO NOTHING RETURNING id::text`, householdID, caseID, string(encoded)).Scan(&itemID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	if err := auditReopen(ctx, tx, householdID, actorID, itemID, map[string]any{"cycle_residual_case_id": caseID, "residual_idr": residual, "reason": reason}); err != nil {
+		return "", err
+	}
+	return itemID, EnqueueReviewProjection(ctx, tx, householdID, itemID)
 }
 
 // resolveCycleRequest completes the exact Telegram projection (or every open

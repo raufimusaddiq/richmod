@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,11 +74,53 @@ type item struct {
 	MissingFacts            []string                  `json:"missingFacts,omitempty"`
 	WhyNotAutoConfirm       string                    `json:"whyNotAutoConfirm,omitempty"`
 	HasPrimarySalary        bool                      `json:"hasPrimarySalary,omitempty"`
+	PurposeChoices          []string                  `json:"purposeChoices,omitempty"`
+	// Presentation is DECISION for a review that asks the household something
+	// and NOTICE for an acknowledge-only item (reviewdomain.PresentationFor).
+	Presentation string `json:"presentation"`
+	// DateChoices are the one-tap dates offered when the source never printed a
+	// transaction date (SET_TRANSACTION_DATE).
+	DateChoices []reviewdomain.DateChoice `json:"dateChoices,omitempty"`
 }
+
+// reviewPageSize bounds one page of transaction-bound reviews.
+const reviewPageSize = 100
+
+// reviewCursor is the opaque keyset position (transaction_at, id) of the last
+// transaction-bound review on a page.
+func encodeReviewCursor(at time.Time, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(at.UTC().Format(time.RFC3339Nano) + "|" + id))
+}
+
+func decodeReviewCursor(raw string) (*time.Time, string, error) {
+	if raw == "" {
+		return nil, "", nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, "", err
+	}
+	at, id, ok := strings.Cut(string(decoded), "|")
+	if !ok || !uuidPattern.MatchString(id) {
+		return nil, "", errors.New("invalid cursor")
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return nil, "", err
+	}
+	return &parsed, id, nil
+}
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	_, household, ok := principalHousehold(w, r)
 	if !ok {
+		return
+	}
+	cursorAt, cursorID, err := decodeReviewCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid review cursor"})
 		return
 	}
 	// The Inbox reads the canonical review_item only. Every NEEDS_REVIEW
@@ -99,7 +143,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN source_event s ON s.id=evidence.source_event_id
 		LEFT JOIN transaction_proposal p ON p.id=NULLIF(evidence.metadata_json->>'proposal_id','')::uuid
 		WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW'
-		ORDER BY t.transaction_at DESC,t.id DESC LIMIT 100`, household)
+		  AND ($2::timestamptz IS NULL OR (t.transaction_at,t.id) < ($2::timestamptz,$3::uuid))
+		ORDER BY t.transaction_at DESC,t.id DESC LIMIT $4`, household, cursorAt, nullableCursorID(cursorID), reviewPageSize+1)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 		return
@@ -122,14 +167,42 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		stored := proposalFacts(value.Decision)
 		value.Reason = stored.ReasonCode
 		value.ReviewType = stored.ReasonCode
+		// ADR-054: both Inbox list paths offer only what the dispatcher executes
+		// for the binding (here an open transaction). A legacy row with no stored
+		// actions keeps the card's own transaction lane.
 		value.AllowedActions = stored.AllowedActions
+		if len(stored.AllowedActions) > 0 {
+			value.AllowedActions = reviewdomain.ExecutableActions(stored.ReasonCode, stored.AllowedActions, reviewdomain.Binding{Subject: reviewdomain.SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"})
+		}
 		value.KnownFacts = stored.KnownFacts
 		value.ProposedFacts = stored.ProposedFacts
 		value.MissingFacts = stored.MissingFacts
 		value.WhyNotAutoConfirm = stored.WhyNotAuto
+		value.Presentation = reviewdomain.PresentationFor(value.AllowedActions)
+		if containsString(value.MissingFacts, "transaction_at") {
+			value.DateChoices = reviewdomain.TransactionDateChoices(value.TransactionAt, stored.KnownFacts["transaction_time_source"] == "RECEIVED_AT_FALLBACK", time.Now())
+		}
 		items = append(items, value)
 	}
 	if err := rows.Err(); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
+		return
+	}
+	rows.Close()
+	// Keyset pagination: the extra row only proves another page exists.
+	if len(items) > reviewPageSize {
+		items = items[:reviewPageSize]
+		last := items[len(items)-1]
+		w.Header().Set("X-Next-Cursor", encodeReviewCursor(last.TransactionAt, last.ID))
+	}
+	if cursorAt != nil {
+		// Later pages carry only transaction reviews; the canonical items and
+		// the decision count arrive with the first page.
+		writeJSON(w, 200, items)
+		return
+	}
+	var transactionDecisions int
+	if err := h.pool.QueryRow(r.Context(), `SELECT count(*) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' AND CASE WHEN jsonb_typeof(ri.decision->'allowedActions')='array' AND jsonb_array_length(ri.decision->'allowedActions')>0 THEN NOT (ri.decision->'allowedActions' <@ '["IGNORE"]'::jsonb) ELSE true END`, household).Scan(&transactionDecisions); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 		return
 	}
@@ -138,6 +211,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "unable to list canonical reviews"})
 		return
 	}
+	canonicalDecisions := 0
+	for _, value := range canonical {
+		if value.Presentation == reviewdomain.PresentationDecision {
+			canonicalDecisions++
+		}
+	}
+	// The needs-your-decision count spans every page and excludes notices.
+	w.Header().Set("X-Decision-Count", strconv.Itoa(transactionDecisions+canonicalDecisions))
 	for _, value := range canonical {
 		sourceType := value.Channel
 		stored := proposalFacts(value.Decision)
@@ -176,7 +257,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: missingFacts, WhyNotAutoConfirm: whyNotAuto, HasPrimarySalary: hasPrimarySalary})
+		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: missingFacts, WhyNotAutoConfirm: whyNotAuto, HasPrimarySalary: hasPrimarySalary, PurposeChoices: value.PurposeChoices, Presentation: value.Presentation})
 	}
 	writeJSON(w, 200, items)
 }
@@ -190,7 +271,7 @@ func (h *Handler) candidates(ctx context.Context, household string, source item)
 		SELECT t.id,t.amount::text,t.transaction_at,t.description,t.account_id,t.category_id,
 		       COALESCE(m.normalized_name,t.counterparty_name,''), t.id::text IN (SELECT id FROM prior)
 		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id
-		WHERE t.household_id=$1 AND t.id<>$2 AND t.status='CONFIRMED'
+		WHERE t.household_id=$1 AND t.id<>$2 AND (t.status='CONFIRMED' OR (t.status='NEEDS_REVIEW' AND t.id::text IN (SELECT id FROM prior)))
 		  AND ((t.type=$3 AND t.currency=$4 AND t.amount=$5::numeric
 		  AND t.transaction_at BETWEEN $6::timestamptz-interval '72 hours' AND $6::timestamptz+interval '72 hours')
 		  OR (t.type=$3 AND t.currency=$4 AND t.id::text IN (SELECT id FROM prior)))
@@ -248,6 +329,9 @@ type confirmInput struct {
 	MerchantName     *string `json:"merchantName"`
 	RememberMerchant bool    `json:"rememberMerchant"`
 	TransactionAt    *string `json:"transactionAt"`
+	// DateChoice is a bounded SET_TRANSACTION_DATE answer (TODAY, YESTERDAY,
+	// MESSAGE_DATE) that Go resolves to a Jakarta date.
+	DateChoice *string `json:"dateChoice"`
 }
 
 func parseReviewDate(value *string) (*time.Time, error) {
@@ -300,6 +384,17 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	} else if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
 		return
+	}
+	if suppliedAt == nil && input.DateChoice != nil && strings.TrimSpace(*input.DateChoice) != "" {
+		chosen, err := reviewdomain.ResolveTransactionDateChoice(r.Context(), tx, household, id, strings.ToUpper(strings.TrimSpace(*input.DateChoice)), time.Now())
+		if errors.Is(err, reviewdomain.ErrDateChoiceInvalid) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid transaction date choice"})
+			return
+		} else if err != nil {
+			writeJSON(w, 500, map[string]string{"error": "unable to confirm review"})
+			return
+		}
+		suppliedAt = &chosen
 	}
 	if err := tx.QueryRow(r.Context(), `SELECT t.type,t.category_id,t.merchant_id FROM transaction t WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW' FOR UPDATE`, id, household).Scan(&kind, &currentCategory, &merchantID); errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, 404, map[string]string{"error": "review not found"})
@@ -688,4 +783,11 @@ func writeJSON(w http.ResponseWriter, status int, output any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(output)
+}
+
+func nullableCursorID(id string) *string {
+	if id == "" {
+		return nil
+	}
+	return &id
 }

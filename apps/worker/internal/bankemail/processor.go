@@ -164,6 +164,11 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		if err = auditBankCompletion(ctx, tx, household, payload); err != nil {
 			return err
 		}
+		// A retry after a committed persist (for example a cross-lane link that
+		// committed while this review was still open) settles the source here.
+		if err = reviewdomain.RefreshSourceLifecycle(ctx, tx, household, payload.SourceEventID); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	known, err := p.loadKnownAccounts(ctx, household)
@@ -177,6 +182,14 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	result := EvaluateBankEmail(listener, extraction, known, memory)
 	if err := p.persist(ctx, listener, payload.SourceEventID, extraction, result, payload.ReviewID); err != nil {
 		return err
+	}
+	// A cross-lane link books nothing new: record and announce what happened.
+	var linked bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='MERGED' AND metadata_json ? 'matched_transaction_id')`, payload.SourceEventID).Scan(&linked); err != nil {
+		return err
+	}
+	if linked {
+		result.Status = "LINKED"
 	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -194,6 +207,8 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	if payload.TelegramChatID != 0 {
 		message := "Email bank diproses tanpa mencatat transaksi."
 		switch result.Status {
+		case "LINKED":
+			message = "Email bank ditautkan ke transaksi yang sudah tercatat."
 		case "CONFIRMED":
 			message = "Transaksi bank dicatat."
 		case "NEEDS_REVIEW":
@@ -212,6 +227,11 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		return err
 	}
 	if err = auditBankCompletion(ctx, tx, household, payload); err != nil {
+		return err
+	}
+	// The completed review was still open while persist ran (a cross-lane link
+	// settles through the lifecycle); settle the source now that it is resolved.
+	if err = reviewdomain.RefreshSourceLifecycle(ctx, tx, household, payload.SourceEventID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -724,6 +744,35 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	merchant := value(extraction.Merchant)
 	counterparty := value(extraction.Counterparty)
 	reference := value(extraction.Reference)
+	// Cross-lane dedup (AGENTS.md: one real event, one canonical transaction).
+	// The SPENDING_ONLY extraction above is unchanged; this only asks whether a
+	// receipt, screenshot or manual entry already recorded the same event. Other
+	// bank emails are never matched: two notifications are two bank events.
+	var duplicateCandidates []string
+	if transactionType == "EXPENSE" || transactionType == "INCOME" || transactionType == "REFUND" {
+		observedMerchant := merchant
+		if observedMerchant == "" {
+			observedMerchant = counterparty
+		}
+		if lockErr := reviewdomain.LockLedgerEvent(ctx, tx, listener.HouseholdID, amount); lockErr != nil {
+			return lockErr
+		}
+		matches, matchErr := reviewdomain.FindLedgerMatches(ctx, tx, reviewdomain.LedgerMatchQuery{HouseholdID: listener.HouseholdID, Type: transactionType, AmountIDR: amount, At: *at, Merchant: observedMerchant, ExcludeSourceID: sourceID, ExcludeEvidenceType: "BANK_EMAIL"})
+		if matchErr != nil {
+			return matchErr
+		}
+		if strong := reviewdomain.StrongLedgerMatch(matches); strong != nil {
+			return p.linkBankEvidence(ctx, tx, listener, sourceID, extraction, *strong, bankLink{autoNotice: autoNotice, household: noticeHousehold, amount: amount, at: *at, description: description, merchant: merchant, counterparty: counterparty, reference: reference, completingReviewID: completingReviewID})
+		}
+		for _, match := range matches {
+			duplicateCandidates = append(duplicateCandidates, match.ID)
+		}
+		if len(duplicateCandidates) > 0 {
+			// Plausible but not provably the same event: ask, never guess.
+			transactionStatus, proposalStatus, autoNotice = "NEEDS_REVIEW", "NEEDS_REVIEW", false
+			result.AutoConfirm, result.ReviewType, result.Status = false, "POSSIBLE_DUPLICATE", "NEEDS_REVIEW"
+		}
+	}
 	var proposalID string
 	metadata, _ := json.Marshal(map[string]any{"bank_email_policy": "v4", "transaction_at_source": extraction.TransactionAtSource, "llm_review": extraction.Review})
 	err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,merchant_raw,counterparty_raw,category_candidate_id,description,confidence,proposal_status,metadata_json) VALUES($1,$2,$3,$4,'IDR',$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::uuid,$9,$10,$11,$12::jsonb) RETURNING id`, listener.HouseholdID, sourceID, transactionType, amount, *at, merchant, counterparty, categoryID, description, extraction.Confidence, proposalStatus, string(metadata)).Scan(&proposalID)
@@ -755,6 +804,12 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'BANK_EMAIL',$3,jsonb_build_object('proposal_id',$4::uuid,'listener_id',$5::uuid,'transaction_at_source',$6::text))`, transactionID, sourceID, extraction.Confidence, proposalID, listener.ID, extraction.TransactionAtSource); err != nil {
 		return err
+	}
+	if transactionStatus == "CONFIRMED" {
+		// A cycle waiting on a missing transaction reopens with the new basis.
+		if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, listener.HouseholdID, *at, ""); err != nil {
+			return err
+		}
 	}
 	// A transaction now exists for this source, so its source-bound reviews are
 	// settled, together with their Telegram projections (whose delivered cards
@@ -793,6 +848,9 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		// The canonical review_item exists whether or not the household has
 		// Telegram; Telegram is only a delivery projection of the same decision.
 		decision := transactionReviewDecision(listener.HouseholdID, sourceID, extraction, result, transactionID)
+		if len(duplicateCandidates) > 0 {
+			decision = duplicateReviewDecision(decision, transactionID, duplicateCandidates)
+		}
 		var chatID int64
 		if e := tx.QueryRow(ctx, `SELECT ti.telegram_user_id FROM telegram_identity ti JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.household_id=$1 AND ti.active ORDER BY ti.created_at LIMIT 1`, listener.HouseholdID).Scan(&chatID); e == nil {
 			message := bankReviewMessage(result.ReviewType, amount, *at, description)
@@ -874,4 +932,94 @@ func resolveMerchantID(ctx context.Context, tx pgx.Tx, household, raw string) (s
 	}
 	err = tx.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,regexp_replace(trim($2), '[[:space:]]+', ' ', 'g')) ON CONFLICT(household_id,(lower(regexp_replace(btrim(normalized_name), '[[:space:]]+', ' ', 'g')))) DO UPDATE SET updated_at=merchant.updated_at RETURNING id`, household, normalized).Scan(&id)
 	return id, err
+}
+
+type bankLink struct {
+	autoNotice                                                        bool
+	household, amount, description, merchant, counterparty, reference string
+	completingReviewID                                                string
+	at                                                                time.Time
+}
+
+// linkBankEvidence attaches this bank email to the existing transaction another
+// lane already recorded for the same event, enriching facts the transaction
+// lacks (account, reference, merchant, counterparty), instead of writing a
+// second transaction. The source settles through the shared lifecycle: if the
+// matched transaction still awaits review, so does this source.
+func (p *Processor) linkBankEvidence(ctx context.Context, tx pgx.Tx, listener Listener, sourceID string, extraction Extraction, match reviewdomain.LedgerMatch, link bankLink) error {
+	metadata, _ := json.Marshal(map[string]any{"bank_email_policy": "v4", "transaction_at_source": extraction.TransactionAtSource, "matched_transaction_id": match.ID, "match_score": match.Score})
+	var proposalID string
+	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,merchant_raw,counterparty_raw,description,confidence,proposal_status,metadata_json) SELECT $1,$2,t.type,$3,'IDR',$4,NULLIF($5,''),NULLIF($6,''),$7,$8,'MERGED',$9::jsonb FROM transaction t WHERE t.id=$10 AND t.household_id=$1 RETURNING id`, listener.HouseholdID, sourceID, link.amount, link.at, link.merchant, link.counterparty, link.description, extraction.Confidence, string(metadata), match.ID).Scan(&proposalID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'BANK_EMAIL',$3,jsonb_build_object('proposal_id',$4::uuid,'listener_id',$5::uuid,'transaction_at_source',$6::text,'match_score',$7::numeric)) ON CONFLICT DO NOTHING`, match.ID, sourceID, extraction.Confidence, proposalID, listener.ID, extraction.TransactionAtSource, match.Score); err != nil {
+		return err
+	}
+	filled, err := reviewdomain.EnrichLinkedTransaction(ctx, tx, listener.HouseholdID, match.ID, reviewdomain.EvidenceEnrichment{MerchantName: link.merchant, AccountID: listener.AccountID, Reference: link.reference, Counterparty: link.counterparty})
+	if err != nil {
+		return err
+	}
+	if filled == nil {
+		filled = []string{}
+	}
+	settled, err := tx.Query(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolution_action='LINKED_TO_EXISTING_TRANSACTION',resolution_values=jsonb_build_object('transaction_id',$2::uuid),updated_at=now() WHERE source_event_id=$1 AND transaction_id IS NULL AND status IN ('PENDING_SEND','OPEN') AND ($3='' OR id<>$3::uuid) RETURNING id::text`, sourceID, match.ID, link.completingReviewID)
+	if err != nil {
+		return err
+	}
+	settledIDs, err := pgx.CollectRows(settled, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, id := range settledIDs {
+		if err := resolveBankReviewProjection(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	if link.autoNotice {
+		var claimed string
+		err := tx.QueryRow(ctx, `UPDATE bank_email_extraction SET notice_at=now() WHERE source_event_id=$1 AND notice_at IS NULL RETURNING source_event_id::text`, sourceID).Scan(&claimed)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			message := "Email bank ditautkan ke transaksi yang sudah tercatat.\n\n" + bankTransactionContext(link.amount, link.at, link.description)
+			if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json)
+			SELECT 'SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',ti.telegram_user_id,'text',$2::text)
+			FROM telegram_identity ti
+			JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active
+			WHERE ti.household_id=$1 AND ti.active`, link.household, message); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET parser_name='bank-email-generic',parser_version=$2 WHERE id=$1`, sourceID, ToolSchemaVersion); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_BANK_EMAIL_EVIDENCE','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'match_score',$6::numeric,'enriched',$7::text[]))`, listener.HouseholdID, match.ID, sourceID, listener.ID, proposalID, match.Score, filled); err != nil {
+		return err
+	}
+	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, listener.HouseholdID, sourceID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// duplicateReviewDecision turns the policy decision into the shared
+// POSSIBLE_DUPLICATE contract, keeping the validated bank facts and naming the
+// server-computed candidates (opaque to models; the card resolves them).
+func duplicateReviewDecision(base reviewdec.Decision, transactionID string, candidates []string) reviewdec.Decision {
+	decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", transactionID)
+	if !ok {
+		return base
+	}
+	for key, value := range base.KnownFacts {
+		decision.KnownFacts[key] = value
+	}
+	decision.KnownFacts["prior_match_transaction_ids"] = candidates
+	decision.SourceEventID = base.SourceEventID
+	decision.EvidenceRefs = base.EvidenceRefs
+	decision.Provenance = map[string]any{"pipeline": "bank-email-generic", "cross_lane_duplicate": true}
+	decision.PolicyVersion = base.PolicyVersion
+	decision.WhyNotAuto = "another source already recorded a transaction that may be this same bank event"
+	return decision
 }
