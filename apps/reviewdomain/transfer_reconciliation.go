@@ -26,13 +26,13 @@ type TransferReconciliationCommand struct {
 // ReconcileTransfer owns the financial mutation and canonical review lifecycle.
 // Callers authenticate the actor and bind the interaction before entering this transaction.
 func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliationCommand) (string, error) {
-	var sourceID, observationID, accountID, amount, description, purpose, wealthID string
+	var caseID, sourceID, observationID, accountID, amount, description, purpose, wealthID string
 	var at time.Time
 	var candidates []string
-	err := tx.QueryRow(ctx, `SELECT trc.source_event_id::text,COALESCE(trc.financial_email_observation_id::text,''),trc.account_id::text,trc.amount_idr::text,COALESCE(trc.description,''),trc.proposed_purpose,COALESCE(trc.proposed_wealth_account_id::text,''),trc.transaction_at,trc.candidate_transaction_ids
+	err := tx.QueryRow(ctx, `SELECT trc.id::text,trc.source_event_id::text,COALESCE(trc.financial_email_observation_id::text,''),trc.account_id::text,trc.amount_idr::text,COALESCE(trc.description,''),trc.proposed_purpose,COALESCE(trc.proposed_wealth_account_id::text,''),trc.transaction_at,trc.candidate_transaction_ids
 		FROM review_item ri JOIN transfer_reconciliation_case trc ON trc.household_id=ri.household_id AND ((ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id))
 		WHERE ri.id=$1 AND ri.household_id=$2 AND ri.status IN ('OPEN','PENDING_SEND') AND ri.review_type='TRANSFER_CLASSIFICATION' AND ($3='' OR trc.id::text=$3) AND trc.status='OPEN'
-		FOR UPDATE OF ri,trc`, cmd.ReviewItemID, cmd.HouseholdID, cmd.CaseID).Scan(&sourceID, &observationID, &accountID, &amount, &description, &purpose, &wealthID, &at, &candidates)
+		FOR UPDATE OF ri,trc`, cmd.ReviewItemID, cmd.HouseholdID, cmd.CaseID).Scan(&caseID, &sourceID, &observationID, &accountID, &amount, &description, &purpose, &wealthID, &at, &candidates)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrTransferCaseUnavailable
 	}
@@ -55,20 +55,38 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 		if cmd.Action == "CONFIRM_NEW_TRANSFER" && observationID != "" && len(candidates) > TransferCandidateLimit {
 			return "", ErrTransferCaseUnavailable
 		}
-		ranked, err := RankTransferCandidates(ctx, tx, cmd.HouseholdID, candidates, at)
-		if err != nil {
-			return "", err
-		}
-		candidates = ranked
-		if purpose == "" && cmd.Action == "MERGE_EXISTING" {
-			// Merging into an already-classified transfer keeps that transfer's
-			// own purpose and Wealth target; nothing new is asked. A candidate that
-			// is not yet a classified transfer cannot be merged without a purpose.
-			var targetPurpose, targetWealth string
-			if err := tx.QueryRow(ctx, `SELECT COALESCE(purpose,''),COALESCE(related_wealth_account_id::text,'') FROM transaction WHERE id=$1 AND household_id=$2 AND type='TRANSFER' AND id=ANY($3::uuid[])`, cmd.CandidateID, cmd.HouseholdID, candidates).Scan(&targetPurpose, &targetWealth); err != nil || !validTransferPurpose(targetPurpose) {
+		var target TransferMergeCandidate
+		if cmd.Action == "MERGE_EXISTING" {
+			if cmd.CandidateID == "" {
 				return "", ErrTransferCaseUnavailable
 			}
-			purpose, wealthID = targetPurpose, targetWealth
+			// Lock the chosen transaction before reading the verdict, so the
+			// shared merge rule judges its committed state, not a stale one.
+			var locked string
+			if err := tx.QueryRow(ctx, `SELECT id::text FROM transaction WHERE id=$1 AND household_id=$2 FOR UPDATE`, cmd.CandidateID, cmd.HouseholdID).Scan(&locked); err != nil {
+				return "", ErrTransferCaseUnavailable
+			}
+			// The same rule the surfaces use to offer a merge button
+			// (LoadTransferMergeSet / TransferMergeable): only the ranked bounded
+			// set, and only a candidate the merge can actually write.
+			set, err := LoadTransferMergeSet(ctx, tx, cmd.HouseholdID, caseID)
+			if err != nil {
+				return "", err
+			}
+			found := false
+			for _, candidate := range set.Candidates {
+				if candidate.ID == cmd.CandidateID {
+					target, found = candidate, true
+				}
+			}
+			if !found || !target.Mergeable {
+				return "", ErrTransferCaseUnavailable
+			}
+			if purpose == "" {
+				// Merging into an already-classified transfer keeps that
+				// transfer's own purpose and Wealth target; nothing new is asked.
+				purpose, wealthID = target.Purpose, target.WealthAccountID
+			}
 		}
 		if purpose == "" {
 			// A new transfer for a case without a proposed purpose takes the
@@ -87,13 +105,7 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			return "", ErrTransferCaseUnavailable
 		}
 		if cmd.Action == "MERGE_EXISTING" {
-			var targetAccount, kind, status, targetAmount string
-			if cmd.CandidateID == "" {
-				return "", ErrTransferCaseUnavailable
-			}
-			if err := tx.QueryRow(ctx, `SELECT account_id::text,type,status,amount::text FROM transaction WHERE id=$1 AND household_id=$2 AND id=ANY($3::uuid[]) FOR UPDATE`, cmd.CandidateID, cmd.HouseholdID, candidates).Scan(&targetAccount, &kind, &status, &targetAmount); err != nil || targetAccount != accountID || targetAmount != amount || (kind != "TRANSFER" && kind != "UNCLASSIFIED") || status == "VOIDED" {
-				return "", ErrTransferCaseUnavailable
-			}
+			kind, status := target.Type, target.Status
 			if _, err := tx.Exec(ctx, `UPDATE transaction SET type='TRANSFER',status='CONFIRMED',category_id=NULL,purpose=$2,related_wealth_account_id=NULLIF($3,'')::uuid,description=COALESCE(NULLIF(description,''),NULLIF($4,'')),confirmed_at=COALESCE(confirmed_at,now()),updated_at=now() WHERE id=$1`, cmd.CandidateID, purpose, wealthID, description); err != nil {
 				return "", err
 			}
@@ -183,17 +195,88 @@ type rowQueryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// RankTransferCandidates returns the best-ranked bounded candidate set: active
-// household transactions from the case's candidate list, closest in time first,
-// at most TransferCandidateLimit. Web, Telegram and the resolver use the same
-// ranking, so the set a person chooses from is the set the resolver accepts.
-func RankTransferCandidates(ctx context.Context, q rowQueryer, householdID string, candidates []string, at time.Time) ([]string, error) {
-	if len(candidates) == 0 {
-		return []string{}, nil
+// TransferMergeCandidate is one candidate of an open transfer case's ranked
+// bounded set, with the facts the merge rule reads. It never reaches a model.
+type TransferMergeCandidate struct {
+	ID, Type, Status, Amount, Purpose, WealthAccountID string
+	TransactionAt                                      time.Time
+	Description                                        *string
+	// SameAccount and SameAmount compare the candidate with the case.
+	SameAccount, SameAmount bool
+	// Compatible is transfer_wealth_compatible for the purpose and Wealth target
+	// a merge would write: the case's own when it proposes one, otherwise the
+	// candidate's.
+	Compatible bool
+	// Mergeable is TransferMergeable's verdict for this candidate.
+	Mergeable bool
+}
+
+// TransferMergeSet is what an open case offers for MERGE_EXISTING.
+type TransferMergeSet struct {
+	// Purpose is the case's proposed purpose ('' when the household must choose).
+	Purpose string
+	// Total is the case's full candidate count before ranking (overflow checks).
+	Total int
+	// Candidates is the ranked bounded set (active candidates closest in time to the case,
+	// then by id, at most TransferCandidateLimit), each with its merge verdict.
+	Candidates []TransferMergeCandidate
+}
+
+// Mergeable counts the candidates a merge would accept.
+func (s TransferMergeSet) Mergeable() int {
+	count := 0
+	for _, candidate := range s.Candidates {
+		if candidate.Mergeable {
+			count++
+		}
 	}
-	rows, err := q.Query(ctx, `SELECT id::text FROM transaction WHERE household_id=$1 AND id=ANY($2::uuid[]) AND status<>'VOIDED' ORDER BY abs(extract(epoch FROM (transaction_at-$3::timestamptz))),id LIMIT $4`, householdID, candidates, at, TransferCandidateLimit)
+	return count
+}
+
+// TransferMergeable is the one merge rule ReconcileTransfer enforces and every
+// surface uses to offer a merge button: the candidate is the case's account and
+// amount, not voided, and the transfer it would become is valid. When the case
+// proposes no purpose, only an already-classified transfer with a valid purpose
+// can be merged into (its purpose is kept); otherwise an unclassified row or a
+// transfer takes the case's purpose. Either way the resulting purpose/Wealth
+// pair must be compatible.
+func TransferMergeable(casePurpose string, c TransferMergeCandidate) bool {
+	if c.Status == "VOIDED" || !c.SameAccount || !c.SameAmount || !c.Compatible {
+		return false
+	}
+	if casePurpose == "" {
+		return c.Type == "TRANSFER" && validTransferPurpose(c.Purpose)
+	}
+	return c.Type == "TRANSFER" || c.Type == "UNCLASSIFIED"
+}
+
+// LoadTransferMergeSet reads an open case's ranked candidates with their merge
+// verdicts. The Web list, the Web dispatcher binding, the Telegram chooser and
+// the resolver all read it, so what is offered is what is accepted.
+func LoadTransferMergeSet(ctx context.Context, q rowQueryer, householdID, caseID string) (TransferMergeSet, error) {
+	var set TransferMergeSet
+	rows, err := q.Query(ctx, `SELECT trc.proposed_purpose,cardinality(trc.candidate_transaction_ids),COALESCE(t.id::text,''),COALESCE(t.type,''),COALESCE(t.status,''),COALESCE(t.amount::text,''),COALESCE(t.purpose,''),COALESCE(t.related_wealth_account_id::text,''),COALESCE(t.transaction_at,trc.transaction_at),t.description,
+		COALESCE(t.account_id=trc.account_id,false),COALESCE(t.amount=trc.amount_idr,false),
+		COALESCE(CASE WHEN trc.proposed_purpose='' THEN transfer_wealth_compatible(t.purpose,t.related_wealth_account_id,trc.household_id) ELSE transfer_wealth_compatible(trc.proposed_purpose,trc.proposed_wealth_account_id,trc.household_id) END,false)
+		FROM transfer_reconciliation_case trc
+		LEFT JOIN LATERAL (SELECT c.* FROM transaction c WHERE c.id=ANY(trc.candidate_transaction_ids) AND c.household_id=trc.household_id AND c.status<>'VOIDED'
+			ORDER BY abs(extract(epoch FROM (c.transaction_at-trc.transaction_at))),c.id LIMIT $3) t ON true
+		WHERE trc.id=$1 AND trc.household_id=$2 AND trc.status='OPEN'
+		ORDER BY abs(extract(epoch FROM (t.transaction_at-trc.transaction_at))),t.id`, caseID, householdID, TransferCandidateLimit)
 	if err != nil {
-		return nil, err
+		return set, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	defer rows.Close()
+	for rows.Next() {
+		var c TransferMergeCandidate
+		if err := rows.Scan(&set.Purpose, &set.Total, &c.ID, &c.Type, &c.Status, &c.Amount, &c.Purpose, &c.WealthAccountID, &c.TransactionAt, &c.Description, &c.SameAccount, &c.SameAmount, &c.Compatible); err != nil {
+			return set, err
+		}
+		if c.ID == "" {
+			continue // the case has no live candidate
+		}
+		c.Mergeable = TransferMergeable(set.Purpose, c)
+		set.Candidates = append(set.Candidates, c)
+	}
+	return set, rows.Err()
 }

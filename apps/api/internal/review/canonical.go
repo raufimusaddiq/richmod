@@ -42,6 +42,7 @@ type canonicalReview struct {
 	Decision                json.RawMessage           `json:"decision,omitempty"`
 	CreatedAt               time.Time                 `json:"createdAt"`
 	binding                 reviewdomain.Binding
+	transferCaseID          string
 }
 
 type transferReviewCandidate struct {
@@ -53,6 +54,9 @@ type transferReviewCandidate struct {
 	Description   *string   `json:"description"`
 	Purpose       string    `json:"purpose,omitempty"`
 	WealthAccount string    `json:"wealthAccountId,omitempty"`
+	// Mergeable is reviewdomain.TransferMergeable's verdict: the Web card
+	// enables a merge button only for it, so a tap never returns 400.
+	Mergeable bool `json:"mergeable"`
 }
 
 func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]canonicalReview, error) {
@@ -60,7 +64,7 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 	// web Inbox excludes them to avoid double work. Include the orphaned ones — a
 	// transaction-bound item whose transaction is already CONFIRMED (no live work)
 	// — so a stranded review still surfaces where it can be resolved.
-	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.transaction_id IS NOT NULL THEN 'transaction' WHEN ri.financial_email_observation_id IS NOT NULL THEN 'financial_email_observation' WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.transaction_id,ri.financial_email_observation_id,ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',tx.description,CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' WHEN tx.id IS NOT NULL THEN 'Transaksi perlu ditinjau' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,tx.amount::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'type',r.type,'status',r.status,'amount',r.amount::text,'transactionAt',r.transaction_at,'description',r.description,'purpose',COALESCE(r.purpose,''),'wealthAccountId',COALESCE(r.related_wealth_account_id::text,'')) ORDER BY r.rank) FROM (SELECT t.*,row_number() OVER (ORDER BY abs(extract(epoch FROM (t.transaction_at-trc.transaction_at))),t.id) AS rank FROM transaction t WHERE t.id=ANY(trc.candidate_transaction_ids) AND t.household_id=ri.household_id AND t.status<>'VOIDED' ORDER BY rank LIMIT $2) r),'[]'::jsonb),ri.decision,ri.created_at,COALESCE(tx.status,''),COALESCE(se.source_type,fse.source_type,''),ri.document_id IS NOT NULL,COALESCE(trc.status='OPEN',false),COALESCE(cardinality(trc.candidate_transaction_ids),0),COALESCE(trc.financial_email_observation_id IS NOT NULL,false),ri.wealth_observation_id IS NOT NULL FROM review_item ri LEFT JOIN source_event se ON se.id=ri.source_event_id AND se.household_id=ri.household_id LEFT JOIN financial_email_observation feo ON feo.id=ri.financial_email_observation_id AND feo.household_id=ri.household_id LEFT JOIN source_event fse ON fse.id=feo.source_event_id AND fse.household_id=ri.household_id LEFT JOIN transaction tx ON tx.id=ri.transaction_id LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON trc.household_id=ri.household_id AND ((ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id)) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND (ri.transaction_id IS NULL OR (tx.status <> 'NEEDS_REVIEW' AND NOT EXISTS (SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN')))) ORDER BY ri.created_at DESC`, household, reviewdomain.TransferCandidateLimit)
+	rows, err := h.pool.Query(ctx, `SELECT ri.id,ri.review_type,ri.status,CASE WHEN ri.transaction_id IS NOT NULL THEN 'transaction' WHEN ri.financial_email_observation_id IS NOT NULL THEN 'financial_email_observation' WHEN ri.proposal_id IS NOT NULL THEN 'proposal' WHEN ri.source_event_id IS NOT NULL THEN 'source_event' WHEN ri.document_id IS NOT NULL THEN 'document' WHEN ri.wealth_observation_id IS NOT NULL THEN 'wealth_observation' ELSE 'cycle_residual_case' END,COALESCE(ri.transaction_id,ri.financial_email_observation_id,ri.proposal_id,ri.source_event_id,ri.document_id,ri.wealth_observation_id,ri.cycle_residual_case_id)::text,COALESCE(p.description,p.counterparty_raw,be.output_json->>'description',be.output_json->>'merchant',be.output_json->>'counterparty',tx.description,CASE WHEN wo.id IS NOT NULL THEN 'Konfirmasi nilai Wealth dari dokumen' WHEN ri.review_type='FINANCIAL_EMAIL_RESOLUTION' THEN 'Pilih rekening untuk bukti email finansial' WHEN ri.cycle_residual_case_id IS NOT NULL THEN 'Sisa salary cycle perlu direkonsiliasi' WHEN tx.id IS NOT NULL THEN 'Transaksi perlu ditinjau' END,'Bukti keuangan perlu ditinjau'),COALESCE(be.output_json->>'amount_idr',wo.observed_value_idr::text,crc.basis_residual_idr::text,trc.amount_idr::text,tx.amount::text,(SELECT facts_json->>'amount_idr' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(be.output_json->>'channel',''),COALESCE(crc.cycle_start::text,''),COALESCE(crc.cycle_end::text,''),COALESCE(wo.id::text,''),COALESCE(wo.resolved_wealth_account_id::text,''),COALESCE(wo.institution,''),COALESCE(wo.account_hint,''),COALESCE((SELECT id::text FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT COALESCE(resolved_account_id::text,'') FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'funding_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE((SELECT facts_json->>'provider_account_hint' FROM financial_email_observation WHERE id=ri.financial_email_observation_id),''),COALESCE(trc.proposed_purpose,''),COALESCE(trc.proposed_wealth_account_id::text,''),COALESCE(trc.id::text,''),ri.decision,ri.created_at,COALESCE(tx.status,''),COALESCE(se.source_type,fse.source_type,''),ri.document_id IS NOT NULL,COALESCE(trc.status='OPEN',false),COALESCE(cardinality(trc.candidate_transaction_ids),0),COALESCE(trc.financial_email_observation_id IS NOT NULL,false),ri.wealth_observation_id IS NOT NULL FROM review_item ri LEFT JOIN source_event se ON se.id=ri.source_event_id AND se.household_id=ri.household_id LEFT JOIN financial_email_observation feo ON feo.id=ri.financial_email_observation_id AND feo.household_id=ri.household_id LEFT JOIN source_event fse ON fse.id=feo.source_event_id AND fse.household_id=ri.household_id LEFT JOIN transaction tx ON tx.id=ri.transaction_id LEFT JOIN transaction_proposal p ON p.id=ri.proposal_id LEFT JOIN bank_email_extraction be ON be.source_event_id=ri.source_event_id LEFT JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id LEFT JOIN wealth_observation wo ON wo.id=ri.wealth_observation_id LEFT JOIN transfer_reconciliation_case trc ON trc.household_id=ri.household_id AND ((ri.financial_email_observation_id IS NOT NULL AND trc.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND trc.source_event_id=ri.source_event_id)) WHERE ri.household_id=$1 AND ri.status IN ('PENDING_SEND','OPEN') AND (ri.transaction_id IS NULL OR (tx.status <> 'NEEDS_REVIEW' AND NOT EXISTS (SELECT 1 FROM review_request rr WHERE rr.review_item_id=ri.id AND rr.status IN ('PENDING_SEND','OPEN')))) ORDER BY ri.created_at DESC`, household)
 	if err != nil {
 		return nil, err
 	}
@@ -68,14 +72,31 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 	out := make([]canonicalReview, 0)
 	for rows.Next() {
 		var v canonicalReview
-		var candidatesJSON []byte
 		b := &v.binding
-		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.AmountIDR, &v.Channel, &v.CycleStart, &v.CycleEnd, &v.WealthObservationID, &v.ResolvedWealthAccountID, &v.Institution, &v.AccountHint, &v.FinancialObservationID, &v.ResolvedAccountID, &v.FundingAccountHint, &v.ProviderAccountHint, &v.ProposedPurpose, &v.ProposedWealthAccountID, &candidatesJSON, &v.Decision, &v.CreatedAt, &b.TransactionStatus, &b.SourceType, &b.HasDocument, &b.HasTransferCase, &b.TransferCandidates, &b.FinancialTransferCase, &b.HasWealthObservation); err != nil {
+		if err := rows.Scan(&v.ID, &v.ReviewType, &v.Status, &v.SubjectType, &v.SubjectID, &v.Summary, &v.AmountIDR, &v.Channel, &v.CycleStart, &v.CycleEnd, &v.WealthObservationID, &v.ResolvedWealthAccountID, &v.Institution, &v.AccountHint, &v.FinancialObservationID, &v.ResolvedAccountID, &v.FundingAccountHint, &v.ProviderAccountHint, &v.ProposedPurpose, &v.ProposedWealthAccountID, &v.transferCaseID, &v.Decision, &v.CreatedAt, &b.TransactionStatus, &b.SourceType, &b.HasDocument, &b.HasTransferCase, &b.TransferCandidates, &b.FinancialTransferCase, &b.HasWealthObservation); err != nil {
 			return nil, err
 		}
 		b.Subject = v.SubjectType
-		if len(candidatesJSON) > 0 && string(candidatesJSON) != "null" && json.Unmarshal(candidatesJSON, &v.TransferCandidates) != nil {
-			return nil, errors.New("invalid transfer reconciliation candidates")
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for index := range out {
+		v := &out[index]
+		v.TransferCandidates = []transferReviewCandidate{}
+		if v.binding.HasTransferCase {
+			// The resolver's own merge rule marks which candidates a merge
+			// accepts; MERGE_EXISTING is offered only when one exists.
+			set, err := reviewdomain.LoadTransferMergeSet(ctx, h.pool, household, v.transferCaseID)
+			if err != nil {
+				return nil, err
+			}
+			v.binding.MergeableTransferCandidates = set.Mergeable()
+			for _, candidate := range set.Candidates {
+				v.TransferCandidates = append(v.TransferCandidates, transferReviewCandidate{ID: candidate.ID, Type: candidate.Type, Status: candidate.Status, Amount: candidate.Amount, TransactionAt: candidate.TransactionAt, Description: candidate.Description, Purpose: candidate.Purpose, WealthAccount: candidate.WealthAccountID, Mergeable: candidate.Mergeable})
+			}
 		}
 		// ADR-054: the stored decision is what the household sees; the binding
 		// removes only what no resolver can execute for this item.
@@ -84,9 +105,8 @@ func (h *Handler) canonicalOpenItems(ctx context.Context, household string) ([]c
 		if v.ProposedPurpose == "" && containsString(v.AllowedActions, "CONFIRM_NEW_TRANSFER") {
 			v.PurposeChoices = append([]string(nil), reviewdomain.TransferPurposes...)
 		}
-		out = append(out, v)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 type resolveInput struct {

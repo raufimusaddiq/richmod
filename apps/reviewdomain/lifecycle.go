@@ -15,6 +15,12 @@ import (
 // reconciliation cases, wealth observations and open review items. A source a
 // resolver dismissed is first marked with MarkSourceIgnored; the refresh keeps
 // IGNORED only while nothing on the source was accepted.
+//
+// A wealth observation counts the same way whatever its origin: an ACCEPTED or
+// APPLIED one is accepted evidence and a DISMISSED one is rejected evidence,
+// whether it came from a document or a provider email. For a provider email the
+// financial email observation's own status usually says the same thing too
+// (IGNORED on an Inbox dismissal); the wealth clause no longer depends on that.
 func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceID string) error {
 	// Serialize sibling completion before taking the aggregate's fresh snapshot.
 	if _, err := tx.Exec(ctx, `SELECT s.id FROM source_event s WHERE s.household_id=$2 AND s.id IN (
@@ -55,7 +61,8 @@ func RefreshSourceLifecycle(ctx context.Context, tx pgx.Tx, householdID, sourceI
 		EXISTS(SELECT 1 FROM transaction_proposal WHERE household_id=$2 AND source_event_id IN (SELECT id FROM sources) AND proposal_status='REJECTED')
 		OR EXISTS(SELECT 1 FROM transaction t JOIN evidence e ON e.transaction_id=t.id WHERE t.status='VOIDED')
 		OR EXISTS(SELECT 1 FROM financial_email_observation feo WHERE feo.household_id=$2 AND feo.source_event_id IN (SELECT id FROM sources) AND feo.status='IGNORED')
-		OR EXISTS(SELECT 1 FROM wealth_observation wo WHERE wo.household_id=$2 AND wo.status='DISMISSED' AND wo.document_id IN (SELECT id FROM documents)) AS rejected
+		OR EXISTS(SELECT 1 FROM wealth_observation wo WHERE wo.household_id=$2 AND wo.status='DISMISSED' AND (wo.document_id IN (SELECT id FROM documents)
+			OR wo.financial_email_observation_id IN (SELECT id FROM financial_email_observation WHERE household_id=$2 AND source_event_id IN (SELECT id FROM sources)))) AS rejected
 	), settled_documents AS (
 		UPDATE document SET status=CASE WHEN state.pending THEN 'NEEDS_REVIEW' ELSE 'EXTRACTED' END,updated_at=now()
 		FROM state WHERE household_id=$2 AND id IN (SELECT id FROM documents) AND status IN ('NEEDS_REVIEW','EXTRACTED')

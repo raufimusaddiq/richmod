@@ -514,6 +514,32 @@ to answer (migrations `00083`/`00084`, `docs/runbooks/stuck-source-events.md`).
   (`reviewdomain.ExecutableActions`, ADR-054 amendment): offered and accepted are
   one rule.
 
+### 2026-11-06 follow-up — the lifecycle owns every derivation
+
+- **Agent finalization.** The conversational agent no longer re-expresses the
+  rule with its own `CASE` (it kept `NEEDS_REVIEW`/`IGNORED` and settled the
+  rest), nor does the card-choice lane (`RECEIVED`/`PROCESSING` → `PROCESSED`),
+  nor does the side-effect path force a consumed document's `NEEDS_REVIEW` source
+  to `PROCESSED`. All three call `finalizeAgentSource`, which records the parser
+  and runs `RefreshSourceLifecycle`: open work keeps the source in review, a lone
+  dismissal stays `IGNORED`, anything else settles. The contract test now refuses
+  any `processing_status=CASE` outside `lifecycle.go` and any hand-settling of a
+  `NEEDS_REVIEW` source.
+- **Reopen.** `ReopenReview` no longer sets `processing_status='NEEDS_REVIEW'`
+  before the refresh; the reopened open item is pending work, so the refresh
+  derives it. The contract test refuses any `processing_status` write in
+  `reopen.go`.
+- **Wealth symmetry.** A `DISMISSED` wealth observation is rejected evidence
+  whether it came from a document or a provider email, the same way an accepted
+  one is accepted evidence from either origin.
+- **Transaction ownership.** Bank email's cross-lane link (`linkBankEvidence`)
+  writes inside the transaction `persist` opened and no longer commits it; the
+  caller owns commit and rollback.
+- **Screenshot race guard.** Under the ledger lock the screenshot write
+  re-validates the whole decided candidate set through
+  `reviewdomain.SameLedgerCandidates`: a new, changed or vanished candidate forces
+  a retry whether or not it was the chosen match.
+
 ## 2026-11-05 — card delivery, binding and hygiene
 
 From the Telegram delivery audit. Canonical review semantics are unchanged; this

@@ -275,9 +275,8 @@ func ReopenReview(ctx context.Context, tx pgx.Tx, cmd ReopenCommand) (string, er
 		if err != nil {
 			return "", err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='NEEDS_REVIEW' WHERE id=$1 AND household_id=$2`, sourceID, cmd.HouseholdID); err != nil {
-			return "", err
-		}
+		// The new open item is pending work on the source, so the shared refresh
+		// derives NEEDS_REVIEW itself; reopen never sets the status directly.
 		return id, RefreshSourceLifecycle(ctx, tx, cmd.HouseholdID, sourceID)
 	}
 	return "", ErrReopenNotReversible

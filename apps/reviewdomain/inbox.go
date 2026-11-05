@@ -46,6 +46,10 @@ type Binding struct {
 	HasTransferCase bool
 	// TransferCandidates is the case's full candidate count before ranking.
 	TransferCandidates int
+	// MergeableTransferCandidates counts the ranked candidates TransferMergeable
+	// accepts (LoadTransferMergeSet). MERGE_EXISTING is offered only when one
+	// exists, so a merge button never leads to a refused merge.
+	MergeableTransferCandidates int
 	// HasWealthObservation reports a bound wealth observation. A provider-email
 	// wealth review binds both the observation and the email observation
 	// (migration 00052), so the subject discriminator alone is not enough.
@@ -82,7 +86,7 @@ func Executable(kind, action string, b Binding) bool {
 				return false
 			}
 			if action == "MERGE_EXISTING" {
-				return b.TransferCandidates > 0
+				return b.MergeableTransferCandidates > 0
 			}
 			// Same predicate as ReconcileTransfer: the case's observation binding.
 			return !(b.FinancialTransferCase && b.TransferCandidates > TransferCandidateLimit)
@@ -156,7 +160,7 @@ func PresentationFor(actions []string) string {
 // transaction. It is used by the dispatcher so "offered" and "accepted" are the
 // same rule.
 func LoadBinding(ctx context.Context, tx pgx.Tx, householdID, reviewItemID string) (string, []string, Binding, error) {
-	var kind string
+	var kind, caseID string
 	var decision []byte
 	var b Binding
 	err := tx.QueryRow(ctx, `SELECT ri.review_type,COALESCE(ri.decision,'{}'::jsonb),
@@ -164,7 +168,7 @@ func LoadBinding(ctx context.Context, tx pgx.Tx, householdID, reviewItemID strin
 		COALESCE(t.status,''),
 		COALESCE(s.source_type,fs.source_type,''),
 		ri.document_id IS NOT NULL,
-		trc.id IS NOT NULL,
+		trc.id IS NOT NULL,COALESCE(trc.id::text,''),
 		COALESCE(cardinality(trc.candidate_transaction_ids),0),
 		COALESCE(trc.financial_email_observation_id IS NOT NULL,false),
 		ri.wealth_observation_id IS NOT NULL
@@ -175,12 +179,19 @@ func LoadBinding(ctx context.Context, tx pgx.Tx, householdID, reviewItemID strin
 		LEFT JOIN source_event fs ON fs.id=fo.source_event_id AND fs.household_id=ri.household_id
 		LEFT JOIN LATERAL (SELECT c.id,c.candidate_transaction_ids,c.financial_email_observation_id FROM transfer_reconciliation_case c WHERE c.household_id=ri.household_id AND c.status='OPEN'
 			AND ((ri.financial_email_observation_id IS NOT NULL AND c.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND ri.source_event_id IS NOT NULL AND c.source_event_id=ri.source_event_id)) LIMIT 1) trc ON true
-		WHERE ri.id=$1 AND ri.household_id=$2`, reviewItemID, householdID).Scan(&kind, &decision, &b.Subject, &b.TransactionStatus, &b.SourceType, &b.HasDocument, &b.HasTransferCase, &b.TransferCandidates, &b.FinancialTransferCase, &b.HasWealthObservation)
+		WHERE ri.id=$1 AND ri.household_id=$2`, reviewItemID, householdID).Scan(&kind, &decision, &b.Subject, &b.TransactionStatus, &b.SourceType, &b.HasDocument, &b.HasTransferCase, &caseID, &b.TransferCandidates, &b.FinancialTransferCase, &b.HasWealthObservation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, b, ErrAlreadyResolved
 	}
 	if err != nil {
 		return "", nil, b, err
+	}
+	if b.HasTransferCase {
+		set, err := LoadTransferMergeSet(ctx, tx, householdID, caseID)
+		if err != nil {
+			return "", nil, b, err
+		}
+		b.MergeableTransferCandidates = set.Mergeable()
 	}
 	var contract struct {
 		AllowedActions []string `json:"allowedActions"`

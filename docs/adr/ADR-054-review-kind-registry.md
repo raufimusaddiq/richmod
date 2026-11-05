@@ -222,6 +222,16 @@ completable in Telegram.
 
 ## Amendment — 2026-11-05: the stored decision is what the Inbox offers
 
+> 2026-11-06 follow-up: the needs-your-decision count of transaction-bound
+> reviews is computed in Go with the card's own rule (`transactionReviewOffer`:
+> `ExecutableActions` on an open-transaction binding, then `PresentationFor`), so
+> `X-Decision-Count` equals the number of decision cards listed. A transfer
+> review offers `MERGE_EXISTING` only when the shared merge rule
+> (`reviewdomain.TransferMergeable`, read through `LoadTransferMergeSet`) accepts
+> at least one ranked candidate; each listed candidate carries that verdict as
+> `mergeable`, and the Web card and the Telegram chooser enable a merge only for
+> it. The resolver enforces the same rule, so no merge button leads to a 400.
+
 The Review Inbox listed non-transaction items with the registry fallback
 (`InboxActions`) instead of the stored decision, so kinds without an Inbox list
 (`TRANSFER_CLASSIFICATION`, `UNKNOWN_MERCHANT`, `POSSIBLE_DUPLICATE`,

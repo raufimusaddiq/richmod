@@ -542,7 +542,7 @@ func (p *Processor) processCardChoiceCallback(ctx context.Context, sourceEventID
 	if _, err := tx.Exec(ctx, `UPDATE telegram_pending_card_choice SET status='RESOLVED',resolved_at=now() WHERE id=$1 AND status='PENDING'`, choiceID); err != nil {
 		return true, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN processing_status IN ('RECEIVED','PROCESSING') THEN 'PROCESSED' ELSE processing_status END,parser_name='telegram-agent-card-choice',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {
+	if err := finalizeAgentSource(ctx, tx, householdID, sourceEventID, "telegram-agent-card-choice"); err != nil {
 		return true, err
 	}
 	if err := enqueueReply(ctx, tx, update, agentMutationFallback(result)); err != nil {

@@ -94,10 +94,19 @@ Cross-household ownership and link validation remain service-layer responsibilit
   manual entry. When a transaction is then recorded inside that cycle,
   `RefreshOpenCycleResiduals` reopens the residual review with the recomputed basis
   (and asks nothing if no residual remains). Residuals stay review metadata.
+  (2026-11-06) The Inbox uses the returned cycle: it opens
+  `/transactions?record=missing&from=<start>&to=<inclusive end>`, which filters the
+  list to the cycle and opens manual entry with the time required, limited to the
+  cycle (`min`/`max`, plus a submit-time check) and prefilled inside it.
 - **Transfer candidate overflow.** A case with more than ten candidates is no longer
   IGNORE-only: every surface shows, and the resolver accepts merges into, the ten
-  candidates closest in time (`RankTransferCandidates`). Creating a new transfer
-  beside an overflowing set still fails closed. A case with neither candidates nor a
+  candidates closest in time (`RankTransferCandidates`, since 2026-11-06 `LoadTransferMergeSet`). Creating a new transfer
+  beside an overflowing set still fails closed. (2026-11-06) Within that set
+  a merge is offered and accepted only by `reviewdomain.TransferMergeable`: same
+  account and amount, not voided, a compatible purpose/Wealth pair, and, when the
+  case proposes no purpose, a classified transfer whose purpose is kept. The
+  Telegram chooser shows "Catat transfer baru" only when the case already proposes
+  a purpose, because the card cannot ask for one. A case with neither candidates nor a
   proposed purpose offers `CONFIRM_NEW_TRANSFER` with the bounded purpose choices;
   `transfer_wealth_compatible` still validates the purpose and Wealth target.
 - **Cross-lane dedup.** One real event stays one canonical transaction: receipt,

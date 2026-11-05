@@ -154,7 +154,7 @@ func TestScreenshotIdentityRepeatAndCanonicalBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row.Matched = &matches[0]
+	row.Candidates, row.Matched = matches, &matches[0]
 	f.persist(t, rowChoiceProvenance{}, []validatedScreenshotRow{row})
 	var transactions, linked int
 	if err := f.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1),(SELECT count(*) FROM transaction_proposal WHERE household_id=$1 AND proposal_status='MERGED' AND metadata_json->'transaction_identifiers' IS NOT NULL)`, f.householdID).Scan(&transactions, &linked); err != nil {
