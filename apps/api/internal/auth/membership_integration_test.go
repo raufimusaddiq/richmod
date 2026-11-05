@@ -98,9 +98,9 @@ func TestDatabaseBindsTelegramIDAndUserOneToOne(t *testing.T) {
 			t.Fatalf("%s: err=%v, want violation of %s", label, err, constraints)
 		}
 	}
-	// With one household per user, (household_id, user_id) unique is the same
-	// rule as one Telegram ID per user.
-	expect("second Telegram ID for one user", "telegram_identity_one_per_user telegram_identity_household_id_user_id_key",
+	// telegram_identity_one_per_user alone enforces this; the implied
+	// (household_id, user_id) unique key was dropped in migration 00089.
+	expect("second Telegram ID for one user", "telegram_identity_one_per_user",
 		`INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, secondID, householdA, userA)
 	expect("one Telegram ID for a second user", "telegram_identity_pkey",
 		`INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, firstID, householdB, userB)
