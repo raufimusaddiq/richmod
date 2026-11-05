@@ -3,7 +3,7 @@
 ## Purpose and source of truth
 
 This is the human-readable map of Richmod's PostgreSQL schema. It reflects the
-forward migration set through `db/migrations/00087_multi_household_tenancy.sql`.
+forward migration set through `db/migrations/00088_one_to_one_identity_bindings.sql`.
 The executable migration files remain the canonical definition; use this document
 to understand relationships, ownership, and product boundaries before changing
 them.
@@ -152,10 +152,10 @@ erDiagram
 | --- | --- | --- |
 | `household` | Financial tenant and Jakarta-timezone boundary. | Parent of household-scoped product data. |
 | `user` | Dashboard identity and password state. | Unique normalized email; optional super-admin flag. |
-| `household_member` | Membership and role. | Composite PK `(household_id, user_id)`; active membership is limited to one household per user. |
+| `household_member` | Membership and role. | Composite PK `(household_id, user_id)`; a user belongs to exactly one household for good: `household_member_one_household_per_user` makes `user_id` unique across active and inactive rows (migration `00088`, ADR-059). The older `household_member_one_active_household_per_user` index remains. Removal sets `active=false`; a membership is never moved or reactivated elsewhere. |
 | `session` | Revocable dashboard session. | `user_id → user`; unique token hash. |
 | `dashboard_account_invite` | Dashboard account invitation. | References household, invited user, and creating user; invite token is stored as a hash. |
-| `telegram_identity` | Authorized Telegram identity for a household member. | Numeric Telegram user ID; links `household` and `user`. |
+| `telegram_identity` | Authorized Telegram identity for a household member. | Numeric Telegram user ID is the primary key; bound 1:1 to a user (`telegram_identity_one_per_user` on `user_id`, migration `00088`) and, through `telegram_identity_membership_fkey (household_id, user_id) → household_member`, to that user's own membership. Removal only deactivates it; an ID is never rebound to another user (ADR-059). |
 | `telegram_link_invite` | One-time Telegram household-link invitation. | `household_id`, `created_by_user_id`; hashed token. |
 
 ### Canonical ledger and configuration

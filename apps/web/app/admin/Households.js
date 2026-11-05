@@ -6,7 +6,7 @@ import { time, Badge, Empty, useDrawerA11y, useLoad, Table } from "./shared";
 // Server error codes from POST /api/v1/admin/households and owner-invite.
 const provisionErrors = {
   USER_ALREADY_EXISTS: "Email ini sudah dipakai pengguna lain. Rumah tangga baru butuh email pemilik baru.",
-  TELEGRAM_ID_ALREADY_LINKED: "Telegram user ID ini sudah terhubung ke rumah tangga lain.",
+  TELEGRAM_ID_ALREADY_LINKED: "Telegram user ID ini sudah terikat ke pengguna lain (termasuk anggota yang sudah dihapus) dan tidak bisa dipakai ulang.",
   INVALID_HOUSEHOLD_REQUEST: "Periksa nama rumah tangga, nama pemilik, email, dan Telegram user ID.",
   OWNER_ALREADY_ENROLLED: "Pemilik sudah mengaktifkan akunnya; undangan baru tidak diperlukan.",
   HOUSEHOLD_OWNER_NOT_FOUND: "Pemilik aktif rumah tangga ini tidak ditemukan.",
@@ -173,14 +173,21 @@ export default function Households({ setError }) {
 function HouseholdDetail({ id, close, setError }) {
   const [data, reload] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
   const [ownerInvite, setOwnerInvite] = useState(null);
+  const [reissuing, setReissuing] = useState(false);
   const drawer = useDrawerA11y(close);
   const pendingOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && !x.enrolled);
+  // Each reissue revokes the previous link, so a double click must not
+  // silently invalidate the link just shown.
   async function reissue() {
+    if (reissuing) return;
+    setReissuing(true);
     try {
       setOwnerInvite(await postProvision(`/api/v1/admin/households/${id}/owner-invite`));
       reload();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setReissuing(false);
     }
   }
   return (
@@ -252,7 +259,7 @@ function HouseholdDetail({ id, close, setError }) {
           {data.memberItems?.length ? <Table headers={["Nama", "Email", "Role", "Status", "Akun"]}>{data.memberItems.map((x) => <tr key={x.id}><td>{x.displayName}</td><td>{x.email}</td><td>{x.role}</td><td><Badge value={x.active ? "ACTIVE" : "INACTIVE"} /></td><td>{x.enrolled ? "Aktif" : "Belum diaktifkan"}</td></tr>)}</Table> : <Empty>Tidak ada anggota.</Empty>}
           {pendingOwner && (
             <div className="admin-actions">
-              <button className="secondary" onClick={reissue}>Buat ulang undangan pemilik</button>
+              <button className="secondary" onClick={reissue} disabled={reissuing}>{reissuing ? "Membuat undangan…" : "Buat ulang undangan pemilik"}</button>
             </div>
           )}
           {ownerInvite && <InviteLink invite={ownerInvite} title={`Undangan baru untuk ${pendingOwner?.email || "pemilik"}`} />}

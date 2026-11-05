@@ -65,10 +65,10 @@ func TestCaptureRejectsDisabledUserAndRemovedMember(t *testing.T) {
 	}
 }
 
-// TestLinkRebindsRetiredIdentityButNeverMovesAnActiveOne: a Telegram account
-// whose earlier membership was removed can be linked again through an invite;
-// an account still linked to an active member is refused.
-func TestLinkRebindsRetiredIdentityButNeverMovesAnActiveOne(t *testing.T) {
+// TestLinkNeverRebindsABoundTelegramID: Telegram ID and user are bound 1:1.
+// An ID still bound to a removed member (inactive) or to an active member is
+// refused through any invite, and the binding is left untouched.
+func TestLinkNeverRebindsABoundTelegramID(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -80,73 +80,50 @@ func TestLinkRebindsRetiredIdentityButNeverMovesAnActiveOne(t *testing.T) {
 	}
 	defer pool.Close()
 	stamp := time.Now().UnixNano()
-	var oldHousehold, newHousehold, formerUser, newMember, owner string
-	for _, target := range []*string{&oldHousehold, &newHousehold} {
-		if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Relink %d", stamp)).Scan(target); err != nil {
-			t.Fatal(err)
-		}
+	var household, formerUser, newMember, owner string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Relink %d", stamp)).Scan(&household); err != nil {
+		t.Fatal(err)
 	}
 	for i, target := range []*string{&formerUser, &newMember, &owner} {
 		if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Relink','x') RETURNING id`, fmt.Sprintf("relink-%d-%d@example.test", stamp, i)).Scan(target); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role,active,deactivated_at) VALUES($1,$2,'MEMBER',false,now())`, oldHousehold, formerUser); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role,active,deactivated_at) VALUES($1,$2,'MEMBER',false,now())`, household, formerUser); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER'),($1,$3,'MEMBER')`, newHousehold, owner, newMember); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER'),($1,$3,'MEMBER')`, household, owner, newMember); err != nil {
 		t.Fatal(err)
 	}
-	telegramID := stamp%9_000_000_000 + 29
-	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id,active) VALUES($1,$2,$3,false)`, telegramID, oldHousehold, formerUser); err != nil {
+	retiredID, ownerID := stamp%9_000_000_000+29, stamp%9_000_000_000+31
+	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id,active) VALUES($1,$2,$3,false),($4,$2,$5,true)`, retiredID, household, formerUser, ownerID, owner); err != nil {
 		t.Fatal(err)
-	}
-	invite := func(token string) {
-		t.Helper()
-		digest := sha256.Sum256([]byte(token))
-		if _, err := pool.Exec(ctx, `UPDATE telegram_link_invite SET status='REVOKED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`, newHousehold, newMember); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := pool.Exec(ctx, `INSERT INTO telegram_link_invite(household_id,user_id,token_hash,expires_at,created_by_user_id) VALUES($1,$2,$3,now()+interval '15 minutes',$4)`, newHousehold, newMember, digest[:], owner); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// The removed member left an open prompt in the old household.
-	var oldSource string
-	if err := pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),'\x01','PROCESSED') RETURNING id`, oldHousehold, fmt.Sprintf("relink-%d", stamp)).Scan(&oldSource); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO telegram_pending_batch(household_id,telegram_user_id,telegram_chat_id,source_event_id,items_json,status,expires_at) VALUES($1,$2,$2,$3,'[]','PENDING',now()+interval '1 hour')`, oldHousehold, telegramID, oldSource); err != nil {
-		t.Fatalf("seed pending batch: %v", err)
 	}
 	store := NewPostgreSQLStore(pool)
-	token := fmt.Sprintf("relink-token-%d", stamp)
-	invite(token)
-	if _, err := store.Link(ctx, CaptureInput{UpdateID: stamp, TelegramUserID: telegramID, RawPayload: []byte(`{}`)}, token); err != nil {
-		t.Fatalf("relink a retired identity: %v", err)
+	link := func(offset int64, telegramID int64) error {
+		t.Helper()
+		token := fmt.Sprintf("relink-token-%d-%d", stamp, offset)
+		digest := sha256.Sum256([]byte(token))
+		if _, err := pool.Exec(ctx, `UPDATE telegram_link_invite SET status='REVOKED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`, household, newMember); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO telegram_link_invite(household_id,user_id,token_hash,expires_at,created_by_user_id) VALUES($1,$2,$3,now()+interval '15 minutes',$4)`, household, newMember, digest[:], owner); err != nil {
+			t.Fatal(err)
+		}
+		_, err := store.Link(ctx, CaptureInput{UpdateID: stamp + offset, TelegramUserID: telegramID, RawPayload: []byte(`{}`)}, token)
+		return err
 	}
-	var household, user string
-	var active bool
-	if err := pool.QueryRow(ctx, `SELECT household_id::text,user_id::text,active FROM telegram_identity WHERE telegram_user_id=$1`, telegramID).Scan(&household, &user, &active); err != nil {
-		t.Fatal(err)
+	for name, telegramID := range map[string]int64{"removed member's ID": retiredID, "active member's ID": ownerID} {
+		if err := link(telegramID, telegramID); !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("%s was rebound: %v", name, err)
+		}
 	}
-	if household != newHousehold || user != newMember || !active {
-		t.Fatalf("identity = household %s user %s active %v", household, user, active)
+	var bound int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM telegram_identity WHERE (telegram_user_id=$1 AND user_id=$2 AND NOT active) OR (telegram_user_id=$3 AND user_id=$4 AND active)`, retiredID, formerUser, ownerID, owner).Scan(&bound); err != nil || bound != 2 {
+		t.Fatalf("bindings changed: %d intact (%v)", bound, err)
 	}
-	var openPrompts int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM telegram_pending_batch WHERE telegram_user_id=$1 AND status='PENDING'`, telegramID).Scan(&openPrompts); err != nil || openPrompts != 0 {
-		t.Fatalf("old household prompts still open: %d (%v)", openPrompts, err)
-	}
-	// Now active: another invite (for the owner) cannot take it over.
-	ownerToken := fmt.Sprintf("relink-owner-token-%d", stamp)
-	digest := sha256.Sum256([]byte(ownerToken))
-	if _, err := pool.Exec(ctx, `INSERT INTO telegram_link_invite(household_id,user_id,token_hash,expires_at,created_by_user_id) VALUES($1,$2,$3,now()+interval '15 minutes',$2)`, newHousehold, owner, digest[:]); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Link(ctx, CaptureInput{UpdateID: stamp + 1, TelegramUserID: telegramID, RawPayload: []byte(`{}`)}, ownerToken); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("active identity moved: %v", err)
-	}
-	if err := pool.QueryRow(ctx, `SELECT user_id::text FROM telegram_identity WHERE telegram_user_id=$1`, telegramID).Scan(&user); err != nil || user != newMember {
-		t.Fatalf("active identity owner changed to %s (%v)", user, err)
+	// A fresh Telegram ID still links normally.
+	if err := link(1, stamp%9_000_000_000+37); err != nil {
+		t.Fatalf("fresh Telegram ID: %v", err)
 	}
 }

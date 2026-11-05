@@ -81,6 +81,8 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return
 	}
+	// The body carries a bearer invite token; it must never be cached.
+	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"household": map[string]any{"id": created.ID, "name": in.HouseholdName},
 		"owner":     map[string]any{"id": created.OwnerUserID, "email": in.OwnerEmail, "displayName": in.OwnerName, "telegramLinked": in.TelegramUserID > 0},
@@ -122,6 +124,7 @@ func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "OWNER_INVITE_FAILED")
 		return
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"link": "/invite#" + invite.Token, "expiresAt": invite.ExpiresAt})
 }
 

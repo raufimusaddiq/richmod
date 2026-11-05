@@ -359,8 +359,8 @@ func (s *PostgreSQLStore) Link(ctx context.Context, input CaptureInput, token st
 	if err = tx.QueryRow(ctx, `SELECT hm.active AND u.active FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 AND hm.user_id=$2`, householdID, userID).Scan(&active); err != nil || !active {
 		return false, ErrUnauthorized
 	}
-	// An inactive identity left by a removed member is rebound; an active
-	// one (or a member who already has another linked account) is refused.
+	// Telegram ID and user are bound 1:1: an ID already bound to anyone, or a
+	// member who already has a Telegram ID, is refused (ADR-059).
 	if err = provision.BindTelegramIdentity(ctx, tx, input.TelegramUserID, householdID, userID); err != nil {
 		return false, ErrUnauthorized
 	}

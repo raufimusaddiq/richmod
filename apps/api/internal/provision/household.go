@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/category"
 )
 
@@ -27,7 +28,7 @@ const OwnerInviteTTL = 24 * time.Hour
 var (
 	ErrInvalidInput       = errors.New("household name, owner name and a valid owner email are required")
 	ErrUserExists         = errors.New("a user with this email already exists; a new household needs a new owner email")
-	ErrTelegramIDLinked   = errors.New("this Telegram user ID is already linked to an active household member")
+	ErrTelegramIDLinked   = errors.New("this Telegram user ID is already bound to a user")
 	ErrOwnerAlreadyActive = errors.New("the household owner has already enrolled")
 	ErrOwnerNotFound      = errors.New("household owner not found")
 )
@@ -106,7 +107,8 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 	}
 	if in.TelegramUserID > 0 {
 		var linked bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM telegram_identity WHERE telegram_user_id = $1 AND active)`, in.TelegramUserID).Scan(&linked); err != nil {
+		// A Telegram ID stays bound to its user even after removal (1:1).
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM telegram_identity WHERE telegram_user_id = $1)`, in.TelegramUserID).Scan(&linked); err != nil {
 			return Household{}, fmt.Errorf("check Telegram identity: %w", err)
 		}
 		if linked {
@@ -145,42 +147,22 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 	return created, nil
 }
 
-// BindTelegramIdentity links a Telegram account to a household member. The
-// Telegram user ID is the identity's primary key and removing a member only
-// deactivates it, so an inactive identity (a removed member's, or one whose
-// user left) is rebound to the new member rather than blocking that Telegram
-// account forever. An active identity is never moved: it returns
-// ErrTelegramIDLinked. Rebinding is safe because every Telegram read and
-// delivery is scoped to the identity's current household.
+// BindTelegramIdentity binds a Telegram account to a household member.
+// Bindings are 1:1 and permanent (ADR-059, migration 00088): a Telegram user ID
+// belongs to exactly one user, and that user to exactly one household. A
+// Telegram ID that is already bound to any user, active or not, is refused with
+// ErrTelegramIDLinked; it is never rebound to someone else. The only change
+// allowed is reactivating the same user's own inactive identity.
 func BindTelegramIdentity(ctx context.Context, tx pgx.Tx, telegramUserID int64, householdID, userID string) error {
-	var previousHousehold string
-	var previousActive bool
-	err := tx.QueryRow(ctx, `SELECT household_id::text,active FROM telegram_identity WHERE telegram_user_id=$1 FOR UPDATE`, telegramUserID).Scan(&previousHousehold, &previousActive)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-	case err != nil:
-		return fmt.Errorf("load Telegram identity: %w", err)
-	case previousActive:
-		return ErrTelegramIDLinked
-	default:
-		// The old household's open Telegram prompts for this account are
-		// unique per Telegram user and chat while PENDING; settle them so they
-		// can neither block nor be answered from the new household.
-		for _, statement := range []string{
-			`UPDATE telegram_pending_action SET status='EXPIRED',resolved_at=now() WHERE telegram_user_id=$1 AND household_id::text=$2 AND status='PENDING'`,
-			`UPDATE telegram_pending_batch SET status='EXPIRED',resolved_at=now() WHERE telegram_user_id=$1 AND household_id::text=$2 AND status='PENDING'`,
-			`UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE telegram_user_id=$1 AND household_id::text=$2 AND status='PENDING'`,
-		} {
-			if _, err := tx.Exec(ctx, statement, telegramUserID, previousHousehold); err != nil {
-				return fmt.Errorf("settle retired Telegram prompts: %w", err)
-			}
-		}
-	}
 	tag, err := tx.Exec(ctx, `INSERT INTO telegram_identity (telegram_user_id,household_id,user_id) VALUES ($1,$2,$3)
-		ON CONFLICT (telegram_user_id) DO UPDATE
-		SET household_id=EXCLUDED.household_id,user_id=EXCLUDED.user_id,active=true,updated_at=now()
-		WHERE NOT telegram_identity.active`, telegramUserID, householdID, userID)
+		ON CONFLICT (telegram_user_id) DO UPDATE SET active=true,updated_at=now()
+		WHERE NOT telegram_identity.active AND telegram_identity.user_id=EXCLUDED.user_id AND telegram_identity.household_id=EXCLUDED.household_id`, telegramUserID, householdID, userID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// The user already has a different Telegram ID (one per user).
+			return ErrTelegramIDLinked
+		}
 		return fmt.Errorf("bind Telegram identity: %w", err)
 	}
 	if tag.RowsAffected() == 0 {

@@ -87,6 +87,9 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
+	if cache := response.Header().Get("Cache-Control"); !strings.Contains(cache, "no-store") {
+		t.Fatalf("invite response Cache-Control = %q, want no-store", cache)
+	}
 	var created createdHousehold
 	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
@@ -117,8 +120,8 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	}
 	// Reissue while not enrolled replaces the first invite.
 	reissue := call(superAdmin, "/api/v1/admin/households/x/owner-invite", "", h.ReissueOwnerInvite, created.Household.ID)
-	if reissue.Code != http.StatusOK {
-		t.Fatalf("reissue: %d %s", reissue.Code, reissue.Body.String())
+	if reissue.Code != http.StatusOK || !strings.Contains(reissue.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("reissue: %d %s (Cache-Control %q)", reissue.Code, reissue.Body.String(), reissue.Header().Get("Cache-Control"))
 	}
 	var reissued struct{ Link string }
 	if err := json.Unmarshal(reissue.Body.Bytes(), &reissued); err != nil {
@@ -164,8 +167,8 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 		t.Fatalf("reissue for unknown household: %d %s", response.Code, response.Body.String())
 	}
 
-	// A removed member's Telegram ID is an inactive identity, not a link: it is
-	// rebound to the new owner instead of being refused forever.
+	// Telegram ID and user are bound 1:1 for good: a removed member's
+	// (inactive) Telegram ID is still bound and is never given to a new owner.
 	var formerMember string
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Former','x') RETURNING id`, fmt.Sprintf("former-%d@example.test", stamp)).Scan(&formerMember); err != nil {
 		t.Fatal(err)
@@ -177,21 +180,16 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id,active) VALUES($1,$2,$3,false)`, retiredTelegram, adminHousehold, formerMember); err != nil {
 		t.Fatal(err)
 	}
-	rebindEmail := fmt.Sprintf("rebind-owner-%d@example.test", stamp)
-	response = call(superAdmin, "/api/v1/admin/households", fmt.Sprintf(`{"householdName":"Rebind %d","ownerName":"Rebind","ownerEmail":%q,"telegramUserId":%d}`, stamp, rebindEmail, retiredTelegram), h.CreateHousehold, "")
-	if response.Code != http.StatusCreated {
-		t.Fatalf("create with a retired Telegram ID: %d %s", response.Code, response.Body.String())
+	response = call(superAdmin, "/api/v1/admin/households", fmt.Sprintf(`{"householdName":"Retired %d","ownerName":"Retired","ownerEmail":"retired-owner-%d@example.test","telegramUserId":%d}`, stamp, stamp, retiredTelegram), h.CreateHousehold, "")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "TELEGRAM_ID_ALREADY_LINKED") {
+		t.Fatalf("create with a removed member's Telegram ID: %d %s", response.Code, response.Body.String())
 	}
-	var rebound createdHousehold
-	if err := json.Unmarshal(response.Body.Bytes(), &rebound); err != nil {
-		t.Fatal(err)
-	}
-	var identityHousehold, identityUser string
+	var identityUser string
 	var identityActive bool
-	if err := pool.QueryRow(ctx, `SELECT household_id::text,user_id::text,active FROM telegram_identity WHERE telegram_user_id=$1`, retiredTelegram).Scan(&identityHousehold, &identityUser, &identityActive); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT user_id::text,active FROM telegram_identity WHERE telegram_user_id=$1`, retiredTelegram).Scan(&identityUser, &identityActive); err != nil {
 		t.Fatal(err)
 	}
-	if identityHousehold != rebound.Household.ID || identityUser != rebound.Owner.ID || !identityActive {
-		t.Fatalf("retired identity not rebound: household=%s user=%s active=%v", identityHousehold, identityUser, identityActive)
+	if identityUser != formerMember || identityActive {
+		t.Fatalf("bound Telegram ID changed: user=%s active=%v", identityUser, identityActive)
 	}
 }

@@ -266,8 +266,13 @@ docker compose --env-file /opt/family-finance/finance.env -f compose.yaml -f com
   < scripts/check-cross-household-references.sql
 ```
 
+The same script also checks the 1:1 identity bindings migration `00088`
+(ADR-059) enforces: one household per user, one Telegram ID per user, and every
+Telegram identity inside its user's own membership. Run it before the deploy
+that first includes `00088` too.
+
 Every line must end in `|0`. A non-zero count names the constraint and the
-number of cross-household rows; stop and investigate those rows with the owner
+number of violating rows; stop and investigate those rows with the owner
 before deploying. Do not delete or rewrite them to make the migration pass.
 
 ### Adding another household

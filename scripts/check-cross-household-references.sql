@@ -1,11 +1,19 @@
--- Read-only pre-check for migration 00087 (ADR-058).
--- Lists every same-household foreign key the migration will validate and how
+-- Read-only pre-check for migrations 00087 (ADR-058) and 00088 (ADR-059).
+-- Lists every same-household foreign key and 1:1 identity binding the
+-- migrations will enforce, and how
 -- many existing rows would fail it. Run before deploying; every row must show
 -- 0 violations. Any non-zero count is real cross-household data that must be
 -- investigated and corrected deliberately: the migration never repairs it.
 --
 --   psql "$DATABASE_URL" -f scripts/check-cross-household-references.sql
 SELECT constraint_name, violations FROM (
+-- Migration 00088 (ADR-059): identity bindings are 1:1.
+SELECT 'household_member_one_household_per_user' AS constraint_name, count(*) AS violations FROM (SELECT user_id FROM household_member GROUP BY user_id HAVING count(*) > 1) m
+UNION ALL
+SELECT 'telegram_identity_one_per_user', count(*) FROM (SELECT user_id FROM telegram_identity GROUP BY user_id HAVING count(*) > 1) t
+UNION ALL
+SELECT 'telegram_identity_membership_fkey', count(*) FROM telegram_identity ti WHERE NOT EXISTS (SELECT 1 FROM household_member hm WHERE hm.household_id = ti.household_id AND hm.user_id = ti.user_id)
+UNION ALL
 SELECT 'category_parent_id_hh_fkey' AS constraint_name, count(*) AS violations FROM category c JOIN category p ON p.id = c.parent_id WHERE c.household_id IS DISTINCT FROM p.household_id
 UNION ALL
 SELECT 'merchant_alias_default_category_id_hh_fkey' AS constraint_name, count(*) AS violations FROM merchant_alias c JOIN category p ON p.id = c.default_category_id WHERE c.household_id IS DISTINCT FROM p.household_id
