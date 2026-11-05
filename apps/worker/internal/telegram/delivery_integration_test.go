@@ -744,3 +744,32 @@ func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
 		t.Fatalf("late follow-up retirement = %+v", calls)
 	}
 }
+
+// An edit queued before a copy expired (or before its message was replaced)
+// must not put buttons back on it.
+func TestQueuedEditSkipsExpiredOrSupersededCopy(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1500, "🟡 Perlu ditinjau"))
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 1501, "🟡 Perlu ditinjau"))
+	markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+	bot, fake := newFakeTelegram(t, nil)
+
+	// Budi's message is superseded by a newer one: the old one stays stripped.
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 1502, "Pilih kategori pengeluaran:"))
+	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, "", f.householdID, EditPayload{ChatID: f.chatB, MessageID: 1501, Text: "x", ReplyMarkup: markup, ReviewRequestID: requestID}))
+	// Rina's copy expires while Budi's keeps the request open.
+	var recipientA string
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`, requestID, f.chatA).Scan(&recipientA))
+	var done bool
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientA).Scan(&done))
+	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, "", f.householdID, EditPayload{ChatID: f.chatA, MessageID: 1500, Text: "x", ReplyMarkup: markup, ReviewRequestID: requestID}))
+	if calls := fake.recorded(); len(calls) != 0 {
+		t.Fatalf("a queued edit reached an expired or superseded copy: %+v", calls)
+	}
+	// Budi's current card is still editable.
+	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, "", f.householdID, EditPayload{ChatID: f.chatB, MessageID: 1502, Text: "Pilih kategori pengeluaran (halaman 2):", ReplyMarkup: markup, ReviewRequestID: requestID}))
+	if calls := fake.recorded(); len(calls) != 1 || calls[0].Body["message_id"] != float64(1502) {
+		t.Fatalf("the live card was not edited: %+v", calls)
+	}
+}

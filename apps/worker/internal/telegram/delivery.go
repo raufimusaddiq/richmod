@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -100,14 +101,48 @@ func (p *Processor) recordedDelivery(ctx context.Context, jobID string) (int64, 
 	return messageID, nil
 }
 
+// recordDelivery remembers the message Telegram accepted. It is retried a few
+// times in place because a lost record is the one gap left between Telegram
+// and the database: without it a job retry would send the card again.
 func (p *Processor) recordDelivery(ctx context.Context, jobID, householdID string, chatID, messageID int64) error {
 	if jobID == "" {
 		return nil
 	}
-	if _, err := p.pool.Exec(ctx, `INSERT INTO telegram_outbound_delivery(job_id,household_id,telegram_chat_id,telegram_message_id) VALUES($1,NULLIF($2,'')::uuid,$3,$4) ON CONFLICT (job_id) DO NOTHING`, jobID, householdID, chatID, messageID); err != nil {
-		return fmt.Errorf("record Telegram delivery: %w", err)
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("record Telegram delivery: %w", ctx.Err())
+			case <-time.After(time.Duration(attempt) * 200 * time.Millisecond):
+			}
+		}
+		if _, err = p.pool.Exec(ctx, `INSERT INTO telegram_outbound_delivery(job_id,household_id,telegram_chat_id,telegram_message_id) VALUES($1,NULLIF($2,'')::uuid,$3,$4) ON CONFLICT (job_id) DO NOTHING`, jobID, householdID, chatID, messageID); err == nil {
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("record Telegram delivery: %w", err)
+}
+
+// reviewCopyEditable reports whether a queued edit of a review message may
+// still be applied: the request must be active, and the message's copy must
+// not be EXPIRED nor the message superseded by a newer one. Otherwise the
+// message belongs to retirement, and an edit carrying its old keyboard must
+// not bring the buttons back. A message that is not a recorded review message
+// follows the request alone.
+func (p *Processor) reviewCopyEditable(ctx context.Context, reviewRequestID string, chatID, messageID int64) (bool, error) {
+	var editable bool
+	err := p.pool.QueryRow(ctx, `SELECT r.status IN ('PENDING_SEND','OPEN')
+		  AND NOT EXISTS(SELECT 1 FROM review_request_recipient rr WHERE rr.review_request_id=r.id AND rr.telegram_chat_id=$2 AND rr.delivery_status='EXPIRED')
+		  AND NOT EXISTS(SELECT 1 FROM review_request_message m WHERE m.review_request_id=r.id AND m.telegram_chat_id=$2 AND m.telegram_message_id=$3 AND m.superseded_at IS NOT NULL)
+		FROM review_request r WHERE r.id=$1`, reviewRequestID, chatID, messageID).Scan(&editable)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("load edited Telegram review card: %w", err)
+	}
+	return editable, nil
 }
 
 // skipReviewDelivery marks an undelivered card recipient SKIPPED and releases
@@ -181,7 +216,7 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 	// An edit of a review card queued while it was open must not restore its
 	// buttons after the request closed; RETIRE_TELEGRAM_REVIEW_CARD owns it now.
 	if payload.ReviewRequestID != "" {
-		live, err := p.ReviewCardLive(ctx, payload.ReviewRequestID)
+		live, err := p.reviewCopyEditable(ctx, payload.ReviewRequestID, payload.ChatID, payload.MessageID)
 		if err != nil {
 			return err
 		}
