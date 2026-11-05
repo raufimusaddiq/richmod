@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 )
 
 // cardActionCallback reports a callback this file owns.
@@ -118,13 +119,14 @@ func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEven
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var reviewID, transactionID string
-	err = tx.QueryRow(ctx, `SELECT r.id::text,t.id::text FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
+	var reviewID, transactionID, reviewType string
+	var decisionJSON []byte
+	err = tx.QueryRow(ctx, `SELECT r.id::text,t.id::text,ri.review_type,COALESCE(ri.decision,'{}'::jsonb) FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
 		JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active
 		JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
 		WHERE r.household_id=$1 AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND r.status='OPEN' AND r.expires_at>now()
-		AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' AND t.type='INCOME'`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.Message.From.ID).Scan(&reviewID, &transactionID)
+		AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' AND t.type='INCOME'`, householdID, update.Message.Chat.ID, update.Message.MessageID, update.Message.From.ID).Scan(&reviewID, &transactionID, &reviewType, &decisionJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return finishStaleReviewCallback(ctx, tx, sourceEventID, update)
 	}
@@ -150,7 +152,10 @@ func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEven
 		return err
 	}
 	text := reviewdomain.TelegramCardText("🟡 Pemasukan atau transfer?", facts, "", "Pilih Penghasilan jika ini pemasukan, atau Rekening sendiri/Household jika ini dana milik sendiri.")
-	if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, text, incomeClassificationMarkup()); err != nil {
+	var decision reviewdec.Decision
+	_ = json.Unmarshal(decisionJSON, &decision)
+	markup := keepExecutableButtons(incomeClassificationMarkup(), cardActions(decision, reviewType))
+	if err := enqueueReviewUpdateWithMarkup(ctx, tx, reviewID, update, text, markup); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

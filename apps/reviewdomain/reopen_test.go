@@ -39,3 +39,11 @@ func TestNotFoundAsResolvedKeepsTransientErrors(t *testing.T) {
 		t.Fatalf("transient error mapped to %v", got)
 	}
 }
+
+func TestFormatRupiahRoundsHalfUp(t *testing.T) {
+	for in, want := range map[string]string{"5000000.90": "5.000.001", "999.5": "1.000", "1250000.49": "1.250.000", "42000": "42.000"} {
+		if got := FormatRupiah(in); got != want {
+			t.Errorf("FormatRupiah(%s)=%s want %s", in, got, want)
+		}
+	}
+}

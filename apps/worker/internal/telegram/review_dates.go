@@ -30,6 +30,7 @@ var indonesianMonthNames = map[string]time.Month{
 var (
 	isoDatePattern     = regexp.MustCompile(`^(\d{4})-(\d{1,2})-(\d{1,2})$`)
 	numericDatePattern = regexp.MustCompile(`^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2}|\d{4}))?$`)
+	dateReplyPrefix    = regexp.MustCompile(`^(?:tanggal|tgl\.?)\s*`)
 	namedDatePattern   = regexp.MustCompile(`^(\d{1,2})\s+([a-z]+)\.?(?:\s+(\d{4}))?$`)
 )
 
@@ -42,9 +43,8 @@ func parseReplyDate(text string, now time.Time) (time.Time, bool) {
 	now = now.In(location)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 	value := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	value = dateReplyPrefix.ReplaceAllString(value, "")
 	value = strings.Trim(value, " .,!?")
-	value = strings.TrimPrefix(value, "tanggal ")
-	value = strings.TrimPrefix(value, "tgl ")
 	switch value {
 	case "hari ini", "today":
 		return today, true

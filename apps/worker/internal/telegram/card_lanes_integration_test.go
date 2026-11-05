@@ -573,3 +573,28 @@ func TestIncomingTransferCardButtonsMatchItsInstruction(t *testing.T) {
 		t.Fatalf("incoming transfer card: %q %s", text, markup)
 	}
 }
+
+// A retirement claimed before the settle superseded it does not strip the
+// settled card's inline remember choice.
+func TestClaimedRetirementSkipsASettledCard(t *testing.T) {
+	f := newCardFixture(t)
+	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
+	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
+	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',23000,now(),$2) RETURNING id`, f.household, merchant)
+	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
+	request := f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 97, "card")
+	f.tap(97, "review:cat:"+category, "card")
+	var raw string
+	f.row(`SELECT payload_json::text FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND payload_json->>'review_request_id'=$1`, []any{&raw}, request)
+	payload, err := DecodeRetireCardPayload(json.RawMessage(strings.Replace(raw, `, "superseded_by": "card_outcome"`, "", 1)))
+	if err != nil {
+		t.Fatalf("%v: %s", err, raw)
+	}
+	bot, fake := newFakeTelegram(t, nil)
+	if err := NewProcessor(f.pool, nil).RetireReviewCard(f.ctx, bot, payload); err != nil {
+		t.Fatal(err)
+	}
+	if calls := fake.recorded(); len(calls) != 0 {
+		t.Fatalf("a claimed retirement stripped the settled card: %+v", calls)
+	}
+}

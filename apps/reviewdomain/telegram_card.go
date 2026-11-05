@@ -67,8 +67,12 @@ func FormatRupiah(value string) string {
 	if strings.HasPrefix(value, "-") {
 		sign, value = "-", strings.TrimPrefix(value, "-")
 	}
-	if whole, _, found := strings.Cut(value, "."); found {
+	if whole, fraction, found := strings.Cut(value, "."); found {
+		// Round half up to whole rupiah for display.
 		value = whole
+		if fraction != "" && fraction[0] >= '5' {
+			value = incrementDecimal(whole)
+		}
 	}
 	if len(value) <= 3 {
 		return sign + value
@@ -82,4 +86,17 @@ func FormatRupiah(value string) string {
 		parts = append(parts, value[index:index+3])
 	}
 	return sign + strings.Join(parts, ".")
+}
+
+// incrementDecimal adds one to a non-negative decimal digit string.
+func incrementDecimal(value string) string {
+	digits := []byte(value)
+	for i := len(digits) - 1; i >= 0; i-- {
+		if digits[i] < '9' {
+			digits[i]++
+			return string(digits)
+		}
+		digits[i] = '0'
+	}
+	return "1" + string(digits)
 }

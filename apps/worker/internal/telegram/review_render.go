@@ -544,15 +544,22 @@ func replyInstruction(decision reviewdec.Decision) string {
 // categoryPageText keeps the card's facts on screen while the household pages
 // through categories, so a chooser edit never replaces what the card is about.
 func categoryPageText(ctx context.Context, tx pgx.Tx, householdID, reviewID string, page int) string {
-	var transactionID string
-	_ = tx.QueryRow(ctx, `SELECT COALESCE(transaction_id::text,'') FROM review_request WHERE id=$1 AND household_id=$2`, reviewID, householdID).Scan(&transactionID)
-	facts := ""
-	if transactionID != "" {
-		facts, _ = transactionReviewSummary(ctx, tx, householdID, transactionID)
-	}
 	instruction := "Pilih kategori pengeluaran di bawah."
 	if page > 0 {
 		instruction = fmt.Sprintf("Pilih kategori pengeluaran di bawah (halaman %d).", page+1)
 	}
-	return reviewdomain.TelegramCardText("🟡 Kategori belum pasti", facts, "", instruction)
+	return reviewFollowUpText(ctx, tx, reviewID, "🟡 Kategori belum pasti", instruction)
+}
+
+// reviewFollowUpText is the card text of a follow-up chooser on a review card:
+// its own title and instruction around the subject facts read from canonical
+// state, so every follow-up keeps the one card shape.
+func reviewFollowUpText(ctx context.Context, tx pgx.Tx, reviewID, title, instruction string) string {
+	var householdID, transactionID string
+	_ = tx.QueryRow(ctx, `SELECT household_id::text,COALESCE(transaction_id::text,'') FROM review_request WHERE id=$1`, reviewID).Scan(&householdID, &transactionID)
+	facts := ""
+	if transactionID != "" {
+		facts, _ = transactionReviewSummary(ctx, tx, householdID, transactionID)
+	}
+	return reviewdomain.TelegramCardText(title, facts, "", instruction)
 }

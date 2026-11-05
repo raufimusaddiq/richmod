@@ -72,6 +72,16 @@ func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload Reti
 	if note == "" {
 		return nil
 	}
+	// A card settled in place belongs to its outcome edits (ADR-046
+	// 2026-11-05); a retirement already claimed before the settle superseded it
+	// must not strip the outcome's inline choice.
+	var settled bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_conversation WHERE review_request_id=$1 AND COALESCE(context_json->'card_outcomes','{}'::jsonb) ? $2)`, payload.ReviewRequestID, cardOutcomeKey(payload.ChatID, payload.MessageID)).Scan(&settled); err != nil {
+		return fmt.Errorf("load settled Telegram review card: %w", err)
+	}
+	if settled {
+		return nil
+	}
 	// The stored text belongs to the message currently bound to the recipient.
 	// A card that was superseded by a later message is stripped without it.
 	if boundMessageID != payload.MessageID {
