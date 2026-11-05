@@ -11,11 +11,12 @@ import (
 // (agentResolveBoundTransactionReview, agentResolveBoundBankFacts). CONFIRM is
 // left out: what it reads depends on what the card asks for.
 var reviewActionArguments = map[string][]string{
-	"EXPENSE":             {"category_slug"},
-	"ASSET_PURCHASE":      {"wealth_account_hint"},
-	"MERGE_EXISTING":      {"candidate_ref"},
-	"SET_PAY_DATE":        {"pay_date", "transaction_at"},
-	"COMPLETE_BANK_FACTS": {"amount_idr", "transaction_at"},
+	"EXPENSE":              {"category_slug"},
+	"ASSET_PURCHASE":       {"wealth_account_hint"},
+	"MERGE_EXISTING":       {"candidate_ref"},
+	"SET_PAY_DATE":         {"pay_date", "transaction_at"},
+	"SET_TRANSACTION_DATE": {"pay_date", "transaction_at"},
+	"COMPLETE_BANK_FACTS":  {"amount_idr", "transaction_at"},
 }
 
 // confirmArguments is what CONFIRM reads for a card waiting in a given state: the
