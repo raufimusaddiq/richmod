@@ -61,19 +61,20 @@ func reviewClosureNote(status, outcome string) string {
 const supersededCardNote = "↪️ Dilanjutkan di pesan berikutnya."
 
 // RetireReviewCard removes the buttons from one delivered review message. The
-// request is re-read first: an EXPIRED request that a reply renewed to OPEN keeps
-// its card, and a later close queues a fresh retirement. A superseded message
+// request and the copy are re-read first: a copy that a reply renewed keeps its
+// card, and a later close queues a fresh retirement; a copy whose own window
+// passed is retired even while the review stays open for another copy. A superseded message
 // of an open review is stripped as soon as its replacement is bound. When the
 // message's text is known the note is appended; otherwise only the keyboard is
 // removed. It never sends a new message. A card that is gone, already retired,
 // or in a chat the bot cannot reach is finished; transient Telegram failures are
 // returned so the queue retries.
 func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload RetireCardPayload) error {
-	var status, recipientText string
+	var status, recipientStatus, recipientText string
 	var boundMessageID int64
-	err := p.pool.QueryRow(ctx, `SELECT r.status,COALESCE(rr.telegram_message_id,0),COALESCE(rr.delivered_text,'')
+	err := p.pool.QueryRow(ctx, `SELECT r.status,rr.delivery_status,COALESCE(rr.telegram_message_id,0),COALESCE(rr.delivered_text,'')
 		FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id
-		WHERE r.id=$1 AND rr.id=$2 AND rr.telegram_chat_id=$3`, payload.ReviewRequestID, payload.RecipientID, payload.ChatID).Scan(&status, &boundMessageID, &recipientText)
+		WHERE r.id=$1 AND rr.id=$2 AND rr.telegram_chat_id=$3`, payload.ReviewRequestID, payload.RecipientID, payload.ChatID).Scan(&status, &recipientStatus, &boundMessageID, &recipientText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -87,13 +88,18 @@ func (p *Processor) RetireReviewCard(ctx context.Context, bot *Bot, payload Reti
 		}
 	}
 	note := reviewClosureNote(status, outcome)
-	if note == "" {
-		// The review is still open: only a message that is no longer the
-		// recipient's current card is stripped.
-		if !payload.Superseded || boundMessageID == payload.MessageID {
-			return nil
-		}
+	switch {
+	case note != "":
+	case recipientStatus == "EXPIRED":
+		// This copy's own window passed while the review is open elsewhere (or
+		// was reopened for a copy that waited in the pacing queue).
+		note = reviewClosureNote("EXPIRED", "")
+	case payload.Superseded && boundMessageID != payload.MessageID:
+		// A newer message of the open review replaced this one.
 		note = supersededCardNote
+	default:
+		// The card is live: the request was renewed or this is its current card.
+		return nil
 	}
 	// Each message keeps its own last text; the recipient row has the current
 	// card's text for cards bound before review_request_message existed.

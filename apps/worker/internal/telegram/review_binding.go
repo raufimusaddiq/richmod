@@ -27,7 +27,20 @@ func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID st
 // A request TTL only bounds the Telegram projection, never the canonical item.
 // A member replying to its exact old card renews that same projection; no new
 // review_item is created and all existing callback binding remains server-owned.
+//
+// The replying member's own copy is renewed with it (its seven-day window
+// restarts), whether the whole projection expired or only that copy did.
 func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdID string, update telegramUpdate) error {
+	if _, err := p.pool.Exec(ctx, `UPDATE review_request_recipient rr SET delivery_status='SENT',card_expires_at=now()+interval '7 days'
+		FROM review_request r,review_item ri,telegram_identity ti,household_member hm
+		WHERE rr.review_request_id=r.id AND r.review_item_id=ri.id AND r.household_id=$1 AND ri.household_id=$1
+		  AND ri.status IN ('OPEN','PENDING_SEND') AND r.status IN ('OPEN','EXPIRED')
+		  AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND rr.delivery_status IN ('EXPIRED','SENT')
+		  AND (rr.delivery_status='EXPIRED' OR r.status='EXPIRED' OR COALESCE(rr.card_expires_at,r.expires_at)<=now())
+		  AND ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active AND hm.household_id=$1 AND hm.user_id=ti.user_id AND hm.active`,
+		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID); err != nil {
+		return err
+	}
 	_, err := p.pool.Exec(ctx, `UPDATE review_request r SET status='OPEN',expires_at=now()+interval '7 days' FROM review_item ri,review_request_recipient rr,telegram_identity ti,household_member hm WHERE r.review_item_id=ri.id AND rr.review_request_id=r.id AND ri.household_id=$1 AND r.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND r.status IN ('OPEN','EXPIRED') AND (r.expires_at<=now() OR r.status='EXPIRED') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active AND hm.household_id=$1 AND hm.user_id=ti.user_id AND hm.active`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID)
 	return err
 }
@@ -68,7 +81,7 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 	if err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status='SENT',queued_payload=NULL,delivery_error=NULL,delivery_failed_at=NULL WHERE id=$1`,
+	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status='SENT',queued_payload=NULL,delivery_error=NULL,delivery_failed_at=NULL,card_expires_at=COALESCE(card_expires_at,now()+interval '7 days') WHERE id=$1`,
 		recipientID, messageID, clean(text, 4000)); err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
@@ -380,6 +393,10 @@ func reviewOrigin(ctx context.Context, tx pgx.Tx, reviewID string, originatingCh
 // send to admit_review_card, which sends it now or holds it QUEUED while the
 // chat already shows three live review cards (migration 00090).
 func admitReviewCard(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string, markup *InlineKeyboardMarkup) error {
+	// The chat's pacing lock comes before any recipient row (migration 00090).
+	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, chatID); err != nil {
+		return err
+	}
 	var recipientID string
 	if err := tx.QueryRow(ctx, `INSERT INTO review_request_recipient(review_request_id,telegram_chat_id) VALUES($1,$2)
 		ON CONFLICT (review_request_id,telegram_chat_id) DO UPDATE SET telegram_chat_id=EXCLUDED.telegram_chat_id RETURNING id`, reviewID, chatID).Scan(&recipientID); err != nil {

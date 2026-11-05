@@ -191,28 +191,61 @@ func TestReviewCardPacingAndExpirySweep(t *testing.T) {
 		t.Fatal("closing a card must release the oldest queued card")
 	}
 
-	// Expire the second card's projection: the sweep closes it, queues its
-	// retirement, and the canonical item stays open.
-	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET telegram_message_id=501,delivery_status='SENT' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requests[1], f.chatA)
+	// Expiry is per copy. Rina's copy of the second card passes its window
+	// first: it is retired and uncounted while Budi's copy stays live.
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requests[1], f.chatA, 501, "🟡 Perlu ditinjau"))
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requests[1], f.chatB, 502, "🟡 Perlu ditinjau"))
+	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requests[1], f.chatA)
 	mustAgentTest(t, err)
-	_, err = f.pool.Exec(f.ctx, `UPDATE review_request SET expires_at=now()-interval '1 minute' WHERE id=$1`, requests[1])
-	mustAgentTest(t, err)
-	expired, _, err := f.processor.SweepReviewProjections(f.ctx, 100)
-	if err != nil || expired < 1 {
-		t.Fatalf("sweep expired %d: %v", expired, err)
-	}
-	var requestStatus, itemStatus string
-	var retirements int
-	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT r.status,ri.status,(SELECT count(*) FROM job j WHERE j.type='RETIRE_TELEGRAM_REVIEW_CARD' AND j.payload_json->>'review_request_id'=r.id::text AND j.payload_json->>'message_id'='501') FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1`, requests[1]).Scan(&requestStatus, &itemStatus, &retirements))
-	if requestStatus != "EXPIRED" || (itemStatus != "OPEN" && itemStatus != "PENDING_SEND") || retirements != 1 {
-		t.Fatalf("expired projection: request=%s item=%s retirements=%d", requestStatus, itemStatus, retirements)
-	}
-	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 100); err != nil {
+	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
 		t.Fatal(err)
 	}
-	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND payload_json->>'review_request_id'=$1`, requests[1]).Scan(&retirements))
-	if retirements != 1 {
-		t.Fatalf("a second sweep retired the card again: %d jobs", retirements)
+	var requestStatus, itemStatus string
+	retirements := func(message int64) int {
+		var n int
+		mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND payload_json->>'review_request_id'=$1 AND payload_json->>'message_id'=$2::bigint::text`, requests[1], message).Scan(&n))
+		return n
+	}
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT r.status,ri.status FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1`, requests[1]).Scan(&requestStatus, &itemStatus))
+	if requestStatus != "OPEN" || f.deliveryStatus(t, requests[1], f.chatA) != "EXPIRED" || f.deliveryStatus(t, requests[1], f.chatB) != "SENT" || retirements(501) != 1 || retirements(502) != 0 {
+		t.Fatalf("per-copy expiry: request=%s A=%s B=%s", requestStatus, f.deliveryStatus(t, requests[1], f.chatA), f.deliveryStatus(t, requests[1], f.chatB))
+	}
+	var recipientA string
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT id FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2`, requests[1], f.chatA).Scan(&recipientA))
+	bot, fake := newFakeTelegram(t, nil)
+	mustAgentTest(t, f.processor.RetireReviewCard(f.ctx, bot, RetireCardPayload{ReviewRequestID: requests[1], RecipientID: recipientA, ChatID: f.chatA, MessageID: 501, Status: "EXPIRED"}))
+	if calls := fake.recorded(); len(calls) != 1 || !strings.Contains(fmt.Sprint(calls[0].Body["text"]), "Kotak Tinjauan") {
+		t.Fatalf("expired copy retirement = %+v", calls)
+	}
+
+	// Budi's copy passes its window too: the last copy closes the projection,
+	// and the canonical item stays open.
+	_, err = f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requests[1], f.chatB)
+	mustAgentTest(t, err)
+	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
+		t.Fatal(err)
+	}
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT r.status,ri.status FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1`, requests[1]).Scan(&requestStatus, &itemStatus))
+	if requestStatus != "EXPIRED" || (itemStatus != "OPEN" && itemStatus != "PENDING_SEND") || retirements(502) != 1 || retirements(501) != 1 {
+		t.Fatalf("expired projection: request=%s item=%s retirements=%d/%d", requestStatus, itemStatus, retirements(501), retirements(502))
+	}
+	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if retirements(501) != 1 || retirements(502) != 1 {
+		t.Fatal("a second sweep retired the cards again")
+	}
+	// A typed reply to Rina's expired card renews the projection and her copy
+	// only; a tap never does (TestLateTapIsAnsweredWithTheOutcomeAndNeverRenews).
+	reply := telegramUpdate{}
+	reply.Message.Chat.ID, reply.Message.From.ID, reply.Message.MessageID = f.chatA, f.chatA, 9001
+	reply.Message.ReplyToMessage = &struct {
+		MessageID int64 `json:"message_id"`
+	}{MessageID: 501}
+	mustAgentTest(t, f.processor.renewExpiredReviewProjection(f.ctx, f.householdID, reply))
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT status FROM review_request WHERE id=$1`, requests[1]).Scan(&requestStatus))
+	if requestStatus != "OPEN" || f.deliveryStatus(t, requests[1], f.chatA) != "SENT" || f.deliveryStatus(t, requests[1], f.chatB) != "EXPIRED" {
+		t.Fatalf("typed renewal: request=%s A=%s B=%s", requestStatus, f.deliveryStatus(t, requests[1], f.chatA), f.deliveryStatus(t, requests[1], f.chatB))
 	}
 }
 
@@ -477,7 +510,7 @@ func TestReplyToSupersededMessagePointsToTheNewestCard(t *testing.T) {
 }
 
 // A member whose copy is still waiting for a pacing slot keeps it when the
-// other members' copies expire: releasing it renews the projection.
+// other members' copies expire, and releasing it never revives an expired copy.
 func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 	f := seedDeliveryFixture(t)
 	var fillers []string
@@ -491,20 +524,42 @@ func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
 	if f.deliveryStatus(t, requestID, f.chatA) != "PENDING" || f.deliveryStatus(t, requestID, f.chatB) != "QUEUED" {
 		t.Fatalf("setup: A=%s B=%s", f.deliveryStatus(t, requestID, f.chatA), f.deliveryStatus(t, requestID, f.chatB))
 	}
-	_, err = f.pool.Exec(f.ctx, `UPDATE review_request SET expires_at=now()-interval '1 minute' WHERE id=$1`, requestID)
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 650, "🟡 Perlu ditinjau"))
+	_, err = f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requestID, f.chatA)
 	mustAgentTest(t, err)
 	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
 		t.Fatal(err)
 	}
 	var status string
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT status FROM review_request WHERE id=$1`, requestID).Scan(&status))
-	if status != "EXPIRED" || f.deliveryStatus(t, requestID, f.chatB) != "QUEUED" {
-		t.Fatalf("expiry dropped the waiting copy: request=%s B=%s", status, f.deliveryStatus(t, requestID, f.chatB))
+	if status != "OPEN" || f.deliveryStatus(t, requestID, f.chatA) != "EXPIRED" || f.deliveryStatus(t, requestID, f.chatB) != "QUEUED" {
+		t.Fatalf("expiry dropped the waiting copy: request=%s A=%s B=%s", status, f.deliveryStatus(t, requestID, f.chatA), f.deliveryStatus(t, requestID, f.chatB))
+	}
+
+	// The whole projection can also expire through the lazy tap path; the
+	// waiting copy still survives and its release reopens the request without
+	// making Rina's expired copy live again.
+	_, err = f.pool.Exec(f.ctx, `UPDATE review_request SET status='EXPIRED' WHERE id=$1`, requestID)
+	mustAgentTest(t, err)
+	if f.deliveryStatus(t, requestID, f.chatB) != "QUEUED" {
+		t.Fatal("projection expiry dropped the waiting copy")
 	}
 	f.resolve(t, fillers[0])
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT status FROM review_request WHERE id=$1`, requestID).Scan(&status))
 	if status != "OPEN" || f.deliveryStatus(t, requestID, f.chatB) != "PENDING" || len(f.sends(t, requestID, f.chatB)) != 1 {
 		t.Fatalf("released copy: request=%s B=%s", status, f.deliveryStatus(t, requestID, f.chatB))
+	}
+	var live int
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT review_card_live_count($1::bigint)`, f.chatA).Scan(&live))
+	if f.deliveryStatus(t, requestID, f.chatA) != "EXPIRED" || live != 0 {
+		t.Fatalf("reopening revived the expired copy: A=%s live=%d", f.deliveryStatus(t, requestID, f.chatA), live)
+	}
+	var recipientA string
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT id FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2`, requestID, f.chatA).Scan(&recipientA))
+	bot, fake := newFakeTelegram(t, nil)
+	mustAgentTest(t, f.processor.RetireReviewCard(f.ctx, bot, RetireCardPayload{ReviewRequestID: requestID, RecipientID: recipientA, ChatID: f.chatA, MessageID: 650, Status: "EXPIRED"}))
+	if calls := fake.recorded(); len(calls) != 1 || !strings.Contains(fmt.Sprint(calls[0].Body["text"]), "kedaluwarsa") {
+		t.Fatalf("the expired copy must still be retired after the reopen: %+v", calls)
 	}
 }
 

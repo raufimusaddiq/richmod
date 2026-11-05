@@ -499,24 +499,28 @@ email, system) has no originating member: no thread and no line.
 **Pacing.** A chat shows at most three live review cards (recipients `PENDING`
 or `SENT` on an active request). A further card is rendered and stored `QUEUED`
 and released oldest-first when a live card in that chat closes, expires, fails,
-or is skipped. Admission and release are SQL functions under one advisory lock
-per chat (migration `00090`), so the release happens in the same transaction as
-the close, whichever surface closed it. A card's projection window starts when
-it is released. A release never waits for a row lock while it holds the chat
-lock (rows are claimed with `SKIP LOCKED`, and a close takes its chats' locks in
-chat order before touching recipients), so a close and a release cannot
-deadlock; a request skipped because it is being closed is released by that
-close's own trigger. A queued copy outlives the expiry of the request's other
-copies: when it is released, the projection is renewed (`EXPIRED` → `OPEN`,
-seven days from release), as a typed reply to an expired card does. Queued
-copies of a resolved or cancelled review are never sent.
+or is skipped. Admission, release and per-copy expiry are SQL functions under
+one advisory lock per chat (migration `00090`), so the release happens in the
+same transaction as the close, whichever surface closed it. Lock order: every
+path takes the chat lock before it waits for a recipient row, and a release
+claims every row with `SKIP LOCKED`, so it never waits while holding the lock;
+a request skipped because another transaction is closing it is released by
+that close's own trigger. A member's typed reply that renews their own expired
+copy is never refused for pacing.
 
-**Expiry.** The worker's maintenance tick expires active requests past
-`expires_at` (seven days) in batches. Expiry closes only the projection: every
-card loses its buttons and gains "Tombol tinjauan ini sudah kedaluwarsa.
-Tinjauannya masih ada di Kotak Tinjauan.", the chat's next queued card is
-released, and the `review_item` stays open on the web. A tap never renews an
-expired projection; a typed reply to the exact card still does.
+**Expiry is per copy.** Each copy has its own seven-day window
+(`review_request_recipient.card_expires_at`), starting when that copy is sent,
+so a copy that waited in the pacing queue gets its full window. The worker's
+maintenance tick expires due copies: the copy becomes `EXPIRED`, every message
+of it loses its buttons and gains "Tombol tinjauan ini sudah kedaluwarsa.
+Tinjauannya masih ada di Kotak Tinjauan.", and its slot is released, while the
+other members' copies keep their own windows. The request closes as `EXPIRED`
+only when no copy is live or waiting. A copy still queued when the projection
+expires (by the sweep or the lazy tap path) stays queued; releasing it reopens
+the request without reviving the expired copies, which stay retired and
+uncounted. The `review_item` stays open on the web throughout. A tap never
+renews; a typed reply to the exact card renews the projection and that
+member's copy.
 
 **One live message per recipient.** `review_request_recipient.telegram_message_id`
 is the recipient's current card. When a follow-up message (chooser, typed-value

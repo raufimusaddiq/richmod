@@ -121,6 +121,10 @@ func (p *Processor) skipReviewDelivery(ctx context.Context, payload SendPayload)
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// The chat's pacing lock comes before any recipient row (migration 00090).
+	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, payload.ChatID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET delivery_status='SKIPPED' WHERE review_request_id=$1 AND telegram_chat_id=$2 AND delivery_status='PENDING' AND telegram_message_id IS NULL`, payload.ReviewRequestID, payload.ChatID); err != nil {
 		return fmt.Errorf("skip Telegram review card: %w", err)
 	}
@@ -143,6 +147,9 @@ func ReviewDeliveryFailedTx(ctx context.Context, tx pgx.Tx, payload SendPayload,
 	reason := "send failed"
 	if cause != nil {
 		reason = clean(cause.Error(), 500)
+	}
+	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, payload.ChatID); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET delivery_status='FAILED',delivery_error=$3,delivery_failed_at=now()
 		WHERE review_request_id=$1 AND telegram_chat_id=$2 AND delivery_status='PENDING' AND telegram_message_id IS NULL`, payload.ReviewRequestID, payload.ChatID, reason); err != nil {
@@ -214,55 +221,75 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 	return p.DeliverSend(ctx, bot, jobID, householdID, SendPayload{ChatID: payload.ChatID, Text: payload.Text, ReplyMarkup: payload.ReplyMarkup, ReviewRequestID: payload.ReviewRequestID})
 }
 
-// SweepReviewProjections expires Telegram projections past their window and
-// keeps paced cards moving. It is idempotent and safe to run on every
-// maintenance tick. Expiring a request only closes the Telegram projection: the
-// review_request trigger queues retirement of every card (buttons removed, a
-// note that the review is still in the Review Inbox) and releases the chat's
-// next queued card; the canonical review_item stays open on the web. A request
-// whose only cards are still waiting in the pacing queue is not expired: its
-// window starts when a card is shown. A copy still queued when the others
-// expire stays queued, and its release renews the projection. Finally every chat with a queued card and
-// a free slot is released, which repairs a release a crash or renewal missed.
+// SweepReviewProjections expires review card copies past their own seven-day
+// window and keeps paced cards moving. It is idempotent and safe to run on
+// every maintenance tick. Expiry is per copy: an expired copy loses its buttons
+// (a note says the review is still in the Review Inbox) and frees its slot,
+// while other members' copies keep their own windows and a copy still waiting
+// in the pacing queue keeps waiting. The request closes as EXPIRED only when no
+// copy is live or waiting; a request that never had a Telegram copy expires at
+// its own expires_at. The canonical review_item stays open on the web either
+// way. Finally every chat with a releasable queued card is released, which
+// repairs a release that a crash, a skipped lock, or a renewal missed.
 func (p *Processor) SweepReviewProjections(ctx context.Context, limit int) (expired, released int, err error) {
+	due, err := p.collectIDs(ctx, `SELECT rr.id::text FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id
+		WHERE rr.delivery_status='SENT' AND r.status IN ('PENDING_SEND','OPEN') AND COALESCE(rr.card_expires_at,r.expires_at)<=now()
+		ORDER BY COALESCE(rr.card_expires_at,r.expires_at),rr.id LIMIT $1`, limit)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list expired Telegram review cards: %w", err)
+	}
+	for _, recipientID := range due {
+		var done bool
+		if err := p.pool.QueryRow(ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientID).Scan(&done); err != nil {
+			return expired, 0, fmt.Errorf("expire Telegram review card: %w", err)
+		}
+		if done {
+			expired++
+		}
+	}
 	tag, err := p.pool.Exec(ctx, `UPDATE review_request r SET status='EXPIRED'
 		WHERE r.id IN (
 			SELECT x.id FROM review_request x
 			WHERE x.status IN ('PENDING_SEND','OPEN') AND x.expires_at<=now()
-			  AND NOT (EXISTS(SELECT 1 FROM review_request_recipient q WHERE q.review_request_id=x.id AND q.delivery_status='QUEUED')
-			           AND NOT EXISTS(SELECT 1 FROM review_request_recipient s WHERE s.review_request_id=x.id AND s.delivery_status IN ('PENDING','SENT')))
+			  AND NOT EXISTS(SELECT 1 FROM review_request_recipient q WHERE q.review_request_id=x.id AND q.delivery_status IN ('QUEUED','PENDING','SENT'))
 			ORDER BY x.expires_at
 			LIMIT $1
 			FOR UPDATE SKIP LOCKED)
 		AND r.status IN ('PENDING_SEND','OPEN')`, limit)
 	if err != nil {
-		return 0, 0, fmt.Errorf("expire Telegram review projections: %w", err)
+		return expired, 0, fmt.Errorf("expire Telegram review projections: %w", err)
 	}
-	expired = int(tag.RowsAffected())
-	rows, err := p.pool.Query(ctx, `SELECT DISTINCT rr.telegram_chat_id FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id
-		WHERE rr.delivery_status='QUEUED' AND r.status IN ('PENDING_SEND','OPEN') LIMIT $1`, limit)
+	expired += int(tag.RowsAffected())
+	chats, err := p.collectIDs(ctx, `SELECT DISTINCT rr.telegram_chat_id::text FROM review_request_recipient rr
+		JOIN review_request r ON r.id=rr.review_request_id JOIN review_item ri ON ri.id=r.review_item_id
+		WHERE rr.delivery_status='QUEUED' AND rr.queued_payload IS NOT NULL
+		  AND r.status IN ('PENDING_SEND','OPEN','EXPIRED') AND ri.status IN ('PENDING_SEND','OPEN') LIMIT $1`, limit)
 	if err != nil {
 		return expired, 0, fmt.Errorf("list paced Telegram review chats: %w", err)
 	}
-	var chats []int64
-	for rows.Next() {
-		var chat int64
-		if err := rows.Scan(&chat); err != nil {
-			rows.Close()
-			return expired, 0, err
-		}
-		chats = append(chats, chat)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return expired, 0, err
-	}
 	for _, chat := range chats {
 		var count int
-		if err := p.pool.QueryRow(ctx, `SELECT release_review_cards($1)`, chat).Scan(&count); err != nil {
+		if err := p.pool.QueryRow(ctx, `SELECT release_review_cards($1::bigint)`, chat).Scan(&count); err != nil {
 			return expired, released, fmt.Errorf("release paced Telegram review cards: %w", err)
 		}
 		released += count
 	}
 	return expired, released, nil
+}
+
+func (p *Processor) collectIDs(ctx context.Context, query string, args ...any) ([]string, error) {
+	rows, err := p.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
