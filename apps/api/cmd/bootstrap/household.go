@@ -40,8 +40,9 @@ type householdInput struct {
 func normalizeInput(email, name, householdName string, telegramUserID int64) (householdInput, error) {
 	in := provision.HouseholdInput{HouseholdName: householdName, OwnerName: name, OwnerEmail: email, TelegramUserID: telegramUserID}
 	if err := in.Normalize(); err != nil {
-		// Normalize names the rejected field: --household, --name, --email or
-		// --telegram-user-id.
+		// Normalize names the rejected field (household name, owner name,
+		// owner email or Telegram user ID), matching --household, --name,
+		// --email and --telegram-user-id.
 		return householdInput{}, err
 	}
 	return householdInput{Email: in.OwnerEmail, Name: in.OwnerName, HouseholdName: in.HouseholdName, TelegramUserID: in.TelegramUserID}, nil
