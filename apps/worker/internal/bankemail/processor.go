@@ -841,12 +841,11 @@ func bankTransactionContext(amount string, transactionAt time.Time, description 
 		"\nKeterangan: " + description
 }
 
-func bankReviewMessage(reviewType, amount string, transactionAt time.Time, description string) string {
-	context := bankTransactionContext(amount, transactionAt, description)
-	if reviewType == "UNKNOWN_MERCHANT" || reviewType == "UNKNOWN_PURPOSE" {
-		return context
-	}
-	return "🏦 Transaksi bank perlu ditinjau\n\n" + context + "\n\nPilih kategori atau lengkapi detail transaksi."
+// bankReviewMessage is the subject facts a bank-email review card shows. The
+// card adds its one title, reason and instruction (ADR-046 2026-11-05), so the
+// producer never adds a prompt of its own for any review kind.
+func bankReviewMessage(_ string, amount string, transactionAt time.Time, description string) string {
+	return bankTransactionContext(amount, transactionAt, description)
 }
 
 func loadMerchantMemory(ctx context.Context, q merchantmemory.Querier, household, raw string) (MerchantMemory, error) {

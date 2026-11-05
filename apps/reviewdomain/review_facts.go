@@ -103,7 +103,9 @@ func ApplyTransactionReviewFacts(ctx context.Context, tx pgx.Tx, facts ReviewFac
 	for _, value := range items {
 		missing := []string{}
 		for _, fact := range value.decision.MissingFacts {
-			if fact == "category" && (facts.CategoryID != "" || kind == "TRANSFER" && categoryValid) || fact == "wealth_account" && wealthValid || fact == "transaction_at" && facts.TransactionAt != nil || fact == "duplicate_relationship" && (facts.Relationship == "DISTINCT" || facts.Relationship == "INCOME") || fact == "transfer_relationship" && facts.Relationship != "" && facts.Relationship != "DISTINCT" {
+			// An incoming transaction confirmed as income has no expense category to
+			// supply, so the income answer settles a stored category question.
+			if fact == "category" && (facts.CategoryID != "" || kind == "TRANSFER" && categoryValid || kind == "INCOME" && facts.Relationship == "INCOME") || fact == "wealth_account" && wealthValid || fact == "transaction_at" && facts.TransactionAt != nil || fact == "duplicate_relationship" && (facts.Relationship == "DISTINCT" || facts.Relationship == "INCOME") || fact == "transfer_relationship" && facts.Relationship != "" && facts.Relationship != "DISTINCT" {
 				continue
 			}
 			missing = append(missing, fact)

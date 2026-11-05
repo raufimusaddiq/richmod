@@ -566,3 +566,113 @@ resolve through the guarded transition of the same `review_item` and
 The loser, on either lane, is answered deterministically from canonical state:
 "Tinjauan ini sudah dijawab: <hasil>." A reply to a superseded message of a
 review that is still open is told to continue in the newest message.
+
+---
+
+## 2026-11-05 amendment — one coherent, executable card
+
+A read of the live cards found a review could take three messages (card, a new
+"remember this category?" question, then a confirmation), stack two titles and two
+contradictory instructions, print a placeholder merchant ("transaksi ini"), lose
+its keyboard after a partial answer, and offer buttons (Abaikan on several kinds,
+Benar/Ubah on income cards, any button on a source-bound transfer) that no handler
+executed. The rules below replace that behaviour; they change presentation and
+Telegram lanes only, never canonical mutation policy.
+
+**Card shape.** Every card is built by one function (`buildReviewCard`) with one
+title naming the missing fact, the subject facts, one line `Alasan: …` (the
+decision's `whyNotAutoConfirm`, rendered in Indonesian through the ADR-054
+registry), and one instruction that names only the buttons the card carries.
+Producers pass facts only (`ReviewQuestion` returns `Nominal`/`Merchant` lines);
+a missing merchant is omitted, never replaced by a placeholder. A projection with
+no producer summary describes its subject from canonical rows
+(`reviewItemSummary`: transaction, cycle residual, wealth observation,
+source-bound transfer case, or screenshot row).
+
+**Buttons follow the contract.** The keyboard is built by one function
+(`reviewCardMarkup`) for the first send and for every re-render after a partial
+answer, so a re-rendered card keeps its remaining actions. Actions come from the
+stored `allowedActions`, falling back to the registry; Abaikan is dropped when the
+contract has no `IGNORE` (a cycle residual offers `Biarkan saja` =
+`LEAVE_UNALLOCATED` instead). Which kinds project at all is the registry's
+`Telegram` flag.
+
+**Every rendered button executes through the canonical resolver.**
+
+- `review:ignore` on any review not bound to a transaction (missing-amount
+  screenshot row, wealth observation, source-bound transfer, financial-email
+  observation, other source/proposal/document item) calls
+  `reviewdomain.IgnoreReview`, which routes to the kind's own resolver
+  (`IgnoreMissingAmountProposal`, `ResolveFinancialEmailReview`,
+  `ReconcileTransfer`, `DismissWealthObservation`) and otherwise parks the
+  evidence like the Review Inbox. It refuses a kind whose contract has no IGNORE.
+- `review:confirm` (Benar) on an income card confirms it as income through the
+  canonical confirm; `review:change` (Ubah) re-renders the same card with
+  Penghasilan / Rekening sendiri / Household, which the transfer classifier
+  executes for an incoming transaction whatever its review kind. An income
+  answer settles a stored `category` question, since income has no expense
+  category.
+- `review:leave` calls `ApplyCycleResidual(LEAVE_UNALLOCATED)`.
+- A `TRANSFER_CLASSIFICATION` bound to a source event with an open reconciliation
+  case gets `Gabung …` buttons per candidate (`review:xfer:merge:N`, the list is
+  stored in `review_conversation.context_json.transfer_candidates`),
+  `Catat transfer baru` (`review:xfer:new`) and Abaikan, all through
+  `ReconcileTransfer`.
+- A transfer card's Pengeluaran choice now shows the category chooser itself
+  (it previously re-rendered the transfer keyboard).
+
+**Category chooser.** Its first row is the merchant's own past categories
+(household-scoped confirmed transactions of the same merchant; most used, then
+most recent; at most three). When at least two earlier confirmed transactions of
+that merchant at exactly this amount all used one category, it is marked ⭐ and
+placed first. Deterministic SQL; no model.
+
+**The tap settles the card.** A category tap edits the tapped card to
+`✅ Dicatat: <kategori>` with its facts and, when the merchant is known, asks
+`Pakai <kategori> juga untuk transaksi berikutnya dari <merchant>?` inline
+(Ingat kategori / Hanya kali ini). The choice edits the card again to its final
+text with no buttons. No further message is sent. Because the confirm resolves
+the request in the same transaction, the 00079 trigger has already queued a
+retirement for that card; it is marked superseded and the outcome edit retires
+the card instead, so an unordered retire job cannot strip the inline choice.
+Other recipients' cards retire normally. A *typed* confirmation still asks the
+question as its own bound message.
+Each settle of a card bumps a per-card outcome revision in
+`review_conversation.context_json.card_outcomes`, and the edit job carries it
+(`outcome_request_id`, `outcome_revision`). The worker applies an outcome edit
+only while it is the newest revision, holding the conversation row lock across
+the check and the Telegram call (settles take the same lock), so a delayed,
+retried or out-of-order earlier edit is dropped and cannot restore answered
+buttons.
+Outcome edits enter through the delivery path's `DeliverEdit` (authorization,
+then the revision guard); an expired or superseded copy (delivery rules above)
+receives the outcome text without buttons.
+A card asking the remember question counts as live for stale taps even though its
+request is resolved, so a duplicate tap never retires it. Generic button
+retirement never touches a card that has an outcome, and a retirement queued
+before the first outcome carries revision 0 and is dropped once an outcome
+exists.
+The question is not asked when the same rule already exists, nor when the
+merchant was already confirmed with a different category: a single
+auto-applied default would miscategorize that merchant's other purchases, and
+the chooser's history row already answers it in one tap.
+
+**Stale taps.** A stale tap on a card whose review is no longer live loses its
+buttons (as the generic stale path already did); a rejected choice on a card
+whose review is still open keeps them. A cycle residual refreshed by new
+transactions is re-rendered as the same card with the new residual, not a
+generic sentence.
+
+**Reopened reviews.** `ReopenTransactionReview` (only caller: Unmerge) stores a
+fresh `POSSIBLE_DUPLICATE` decision from the registry, since reversing a merge is
+what reopens the duplicate question. It never copies the previous snapshot: the
+other residuals are recomputed from canonical state (an expense with no category,
+a received-time date fallback, an unclassified row), so an answered fact is not
+asked again; the previous kind is kept as provenance. It enqueues
+`PROJECT_TELEGRAM_REVIEW`, and the worker projects it through `ProjectReviewItem`,
+which is idempotent per item.
+
+**Typed payslip dates.** An explicit date reply ("25 Okt", "25/10", "25/10/2026",
+"2026-10-25", "kemarin", "hari ini") is parsed in Go; only a reply the parser
+cannot read goes to the model.
+

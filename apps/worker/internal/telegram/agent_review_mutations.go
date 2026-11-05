@@ -212,7 +212,7 @@ func (p *Processor) agentSaveReviewField(ctx context.Context, state *agentState,
 	if field == "merchant" && review.messageID != 0 {
 		original := state.Update
 		original.Message.MessageID = review.messageID
-		if err = enqueueReviewUpdateWithMarkup(ctx, tx, review.reviewID, original, "Merchant disimpan. Pilih kategori pengeluaran (halaman 1):", reviewActionMarkupPage(ctx, tx, review.reviewID, review.reviewType, 0)); err != nil {
+		if err = enqueueReviewUpdateWithMarkup(ctx, tx, review.reviewID, original, reviewFollowUpText(ctx, tx, review.reviewID, "✅ Merchant disimpan", "Pilih kategori pengeluaran di bawah."), reviewActionMarkupPage(ctx, tx, review.reviewID, review.reviewType, 0)); err != nil {
 			return result, true, err
 		}
 	}

@@ -178,6 +178,28 @@ Open: nothing is required. Remaining differences between the stored actions, the
 Inbox fallback and the agent enum (see Context) are product decisions, not
 duplication.
 
+Phase 3 — 2026-11-05, Telegram capability from the registry: the Telegram
+capability was still two hand-written lists (`TelegramCompletableReviewType` in
+the worker and `reviewdomain.TelegramCompleteActions` for Admin metrics), and
+`ActiveReasons()` had no production caller. Each `Kind` row now also declares:
+
+- `Telegram` — a Telegram card can complete this kind, so the shared projection
+  may send it (`reviewdec.TelegramProjectable`, `TelegramReasons`). The worker's
+  `TelegramCompletableReviewType` is now that lookup.
+- `TelegramActions` — the actions a card may offer when they differ from the
+  stored `Actions` (the surface-only `MISSING_AMOUNT` has `SET_AMOUNT`/`IGNORE`;
+  a wealth observation can also become an asset purchase). Cards use the stored
+  `allowedActions` first and fall back to this list for a legacy item.
+- `WhyID` — the short Indonesian reason line every card shows for why the review
+  was not confirmed automatically. `reviewdec.WhyLine` translates the known
+  bespoke `whyNotAutoConfirm` strings producers store and otherwise uses the
+  kind's line; the stored contract itself stays in English.
+
+`reviewdomain.TelegramCompleteActions` is derived from these rows. The derived list
+keeps every action the hand-kept list had and adds `SET_AMOUNT` (the bound
+missing-amount reply lane), so Admin coverage now counts a missing-amount card as
+completable in Telegram.
+
 ## Consequences
 
 - Adding a review kind becomes one registry entry plus its resolver.

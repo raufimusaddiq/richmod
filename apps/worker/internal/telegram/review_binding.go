@@ -271,43 +271,19 @@ func EnqueueReviewRequest(ctx context.Context, tx pgx.Tx, transactionID, reviewT
 // transaction-only bound path while sharing all delivery, recipient, and
 // markup logic.
 func projectReviewRequest(ctx context.Context, tx pgx.Tx, reviewID, itemID, reviewType string, decision reviewdec.Decision, replyTo int64, message string, originatingChatID int64) error {
-	state, reviewMessage, markupMode := renderReviewPresentation(decision, reviewType, message)
+	subject, err := loadReviewSubject(ctx, tx, reviewID)
+	if err != nil {
+		return err
+	}
+	card := buildReviewCard(decision, reviewType, message, subject)
+	state, reviewMessage := card.State, card.Text()
 	if _, err := tx.Exec(ctx, `INSERT INTO review_conversation (review_request_id,state) VALUES ($1,$2)`, reviewID, state); err != nil {
 		return err
 	}
-	var markup *InlineKeyboardMarkup
-	var err error
-	switch markupMode {
-	case "category", "transfer":
-		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
-	case "reply":
-		markup = requiredFieldReplyMarkup()
-		if state == "AWAITING_MERCHANT" && reviewType == "UNKNOWN_MERCHANT" && decision.Subject.Type == "transaction" {
-			markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Beli aset", CallbackData: "review:asset"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
-		}
-	case "duplicate":
-		if decision.Provenance != nil && decision.Provenance["evidence_link_dispute"] == true {
-			markup = evidenceDisputeMarkup()
-			break
-		}
-		if markup, err = projectDuplicateChoices(ctx, tx, reviewID); err != nil {
-			return err
-		}
-	case "salary":
-		markup = salaryPolicyMarkup(decision.AllowedActions)
-	case "document":
-		markup = documentReviewMarkup()
-	case "financial_email":
-		markup, err = financialEmailEntityMarkup(ctx, tx, reviewID, decision, 0)
-		if err != nil {
-			return err
-		}
-	case "receipt_quality":
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Terima total", CallbackData: "review:quality:confirm"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
-	case "financial_email_facts":
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
-	default:
-		markup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Ubah detail", CallbackData: "review:edit"}, {Text: "Abaikan", CallbackData: "review:ignore"}}}}
+	// The keyboard comes from the same builder a re-render uses (review_render.go).
+	markup, err := reviewCardMarkup(ctx, tx, reviewID, reviewType, decision, card, subject)
+	if err != nil {
+		return err
 	}
 	// Every active, authorized member receives the card so the whole household
 	// knows about it. The member whose own message or upload raised the review
@@ -535,11 +511,11 @@ func ProjectReviewItem(ctx context.Context, tx pgx.Tx, householdID, itemID strin
 	if err := json.Unmarshal(decisionJSON, &decision); err != nil {
 		return err
 	}
-	// Document and email producers send no summary. Describe the transaction from
-	// canonical state so the card says what it is about. The category chooser
-	// sends its summary verbatim, so it keeps the decision prompt instead.
-	if strings.TrimSpace(message) == "" && transactionID != "" && !isCategoryOnly(decision) {
-		if message, err = transactionReviewSummary(ctx, tx, householdID, transactionID); err != nil {
+	// Document, email, cycle and wealth producers send no summary. Describe the
+	// subject from canonical state so the card says what it is about; the card
+	// adds its own title and instruction around it.
+	if strings.TrimSpace(message) == "" {
+		if message, err = reviewItemSummary(ctx, tx, householdID, itemID); err != nil {
 			return err
 		}
 	}

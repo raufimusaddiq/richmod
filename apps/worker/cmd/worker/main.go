@@ -549,6 +549,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			return err
 		}
 		return processor.DeliverEdit(ctx, bot, job.ID, job.HouseholdID, payload)
+	case "PROJECT_TELEGRAM_REVIEW":
+		payload, err := telegram.DecodeProjectReviewPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return processor.ProjectReviewJob(ctx, payload)
 	case "RETIRE_TELEGRAM_REVIEW_CARD":
 		payload, err := telegram.DecodeRetireCardPayload(job.Payload)
 		if err != nil {
