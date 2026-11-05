@@ -86,8 +86,12 @@ func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	if err := resolveItem(ctx, tx, cmd, "NO_LONGER_APPLICABLE", []byte(`{"reason":"transaction_already_final"}`)); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,NULLIF($3,'')::uuid,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE','reason','transaction_already_final'))`, cmd.HouseholdID, actorTypeOf(cmd), cmd.ActorUserID, cmd.ReviewItemID)
-	return err
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,NULLIF($3,'')::uuid,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE','reason','transaction_already_final'))`, cmd.HouseholdID, actorTypeOf(cmd), cmd.ActorUserID, cmd.ReviewItemID); err != nil {
+		return err
+	}
+	// The acknowledged item may have been the last thing holding the
+	// transaction's sources in review.
+	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, *transaction)
 }
 
 // IgnoreReview is the canonical IGNORE for every review kind that is not bound

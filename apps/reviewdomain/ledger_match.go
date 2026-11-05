@@ -51,6 +51,10 @@ const (
 	strongMatchScore       = 0.90
 	runnerUpCeiling        = 0.80
 	ledgerMatchLimit       = 10
+	// ledgerMatchScanLimit bounds the rows one write reads for a recurring round
+	// amount; reaching it already means far more than ledgerMatchLimit plausible
+	// events, so the strong match fails closed either way.
+	ledgerMatchScanLimit = 200
 )
 
 // FindLedgerMatches returns plausible existing transactions, CONFIRMED or still
@@ -64,7 +68,7 @@ func FindLedgerMatches(ctx context.Context, q rowQueryer, query LedgerMatchQuery
 		  AND t.transaction_at BETWEEN $4::timestamptz-make_interval(hours=>$7) AND $4::timestamptz+make_interval(hours=>$7)
 		  AND ($5='' OR NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.transaction_id=t.id AND te.source_event_id::text=$5))
 		  AND ($6='' OR NOT EXISTS (SELECT 1 FROM transaction_evidence te WHERE te.transaction_id=t.id AND te.evidence_type=$6 AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE'))
-		ORDER BY abs(extract(epoch FROM (t.transaction_at-$4::timestamptz))),t.id`, query.HouseholdID, query.Type, query.AmountIDR, query.At, query.ExcludeSourceID, query.ExcludeEvidenceType, ledgerMatchWindowHours)
+		ORDER BY abs(extract(epoch FROM (t.transaction_at-$4::timestamptz))),t.id LIMIT $8`, query.HouseholdID, query.Type, query.AmountIDR, query.At, query.ExcludeSourceID, query.ExcludeEvidenceType, ledgerMatchWindowHours, ledgerMatchScanLimit)
 	if err != nil {
 		return nil, err
 	}
