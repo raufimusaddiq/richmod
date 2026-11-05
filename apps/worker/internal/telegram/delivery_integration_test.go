@@ -294,7 +294,7 @@ func TestTerminalCardSendFailureIsRecordedAndReleasesTheSlot(t *testing.T) {
 	cause := &APIError{Method: "sendMessage", StatusCode: 403, Description: "Forbidden: bot was blocked by the user"}
 	tx, err := f.pool.Begin(f.ctx)
 	mustAgentTest(t, err)
-	mustAgentTest(t, ReviewDeliveryFailedTx(f.ctx, tx, send.Payload, cause))
+	mustAgentTest(t, ReviewDeliveryFailedTx(f.ctx, tx, send.JobID, send.Payload, cause))
 	mustAgentTest(t, tx.Commit(f.ctx))
 	var deliveryError, itemStatus string
 	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT COALESCE(rr.delivery_error,''),ri.status FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id JOIN review_item ri ON ri.id=r.review_item_id WHERE r.id=$1 AND rr.telegram_chat_id=$2`, requests[0], f.chatA).Scan(&deliveryError, &itemStatus))
@@ -771,5 +771,70 @@ func TestQueuedEditSkipsExpiredOrSupersededCopy(t *testing.T) {
 	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, "", f.householdID, EditPayload{ChatID: f.chatB, MessageID: 1502, Text: "Pilih kategori pengeluaran (halaman 2):", ReplyMarkup: markup, ReviewRequestID: requestID}))
 	if calls := fake.recorded(); len(calls) != 1 || calls[0].Body["message_id"] != float64(1502) {
 		t.Fatalf("the live card was not edited: %+v", calls)
+	}
+}
+
+// A card Telegram delivered but that could not be bound is not an undelivered
+// card: the job's final step binds it from the recorded message and it keeps
+// its pacing slot.
+func TestFinalFailureAfterDeliveryBindsTheRecordedMessage(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	send := f.sends(t, requestID, f.chatA)[0]
+	_, err := f.pool.Exec(f.ctx, `INSERT INTO telegram_outbound_delivery(job_id,household_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,$3,1600)`, send.JobID, f.householdID, f.chatA)
+	mustAgentTest(t, err)
+	tx, err := f.pool.Begin(f.ctx)
+	mustAgentTest(t, err)
+	mustAgentTest(t, ReviewDeliveryFailedTx(f.ctx, tx, send.JobID, send.Payload, errors.New("Telegram review request could not be bound")))
+	mustAgentTest(t, tx.Commit(f.ctx))
+	var bound int64
+	var live int
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT COALESCE(telegram_message_id,0) FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2`, requestID, f.chatA).Scan(&bound))
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT review_card_live_count($1::bigint)`, f.chatA).Scan(&live))
+	if f.deliveryStatus(t, requestID, f.chatA) != "SENT" || bound != 1600 || live != 1 {
+		t.Fatalf("delivered card: status=%s bound=%d live=%d", f.deliveryStatus(t, requestID, f.chatA), bound, live)
+	}
+}
+
+// A PENDING copy whose send job is gone would hold a slot forever; the sweep
+// fails it and releases the chat.
+func TestSweepRepairsPendingCopyWithoutASendJob(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	var requests []string
+	for i := 0; i < 4; i++ {
+		requests = append(requests, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
+	}
+	send := f.sends(t, requests[0], f.chatA)[0]
+	_, err := f.pool.Exec(f.ctx, `DELETE FROM job WHERE id=$1`, send.JobID)
+	mustAgentTest(t, err)
+	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if f.deliveryStatus(t, requests[0], f.chatA) != "FAILED" || f.deliveryStatus(t, requests[3], f.chatA) != "PENDING" {
+		t.Fatalf("orphan repair: first=%s fourth=%s", f.deliveryStatus(t, requests[0], f.chatA), f.deliveryStatus(t, requests[3], f.chatA))
+	}
+}
+
+// When the accepted message cannot be recorded, the job stops instead of
+// sending a second card on retry, and the unrecorded card loses its buttons.
+func TestUnrecordedSendStopsAndStripsTheCard(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	send := f.sends(t, requestID, f.chatA)[0]
+	bot, fake := newFakeTelegram(t, func(method string) (int, string) {
+		if method == "sendMessage" {
+			return 200, `{"ok":true,"result":{"message_id":1700}}`
+		}
+		return 200, `{"ok":true,"result":true}`
+	})
+	// A job id with no job row makes the delivery record fail.
+	err := f.processor.DeliverSend(f.ctx, bot, "00000000-0000-0000-0000-000000000001", f.householdID, send.Payload)
+	var permanent interface{ Permanent() bool }
+	if !errors.As(err, &permanent) || !permanent.Permanent() {
+		t.Fatalf("an unrecorded send must stop the job: %v", err)
+	}
+	calls := fake.recorded()
+	if len(calls) != 2 || calls[1].Method != "editMessageReplyMarkup" || calls[1].Body["message_id"] != float64(1700) {
+		t.Fatalf("unrecorded card was not stripped: %+v", calls)
 	}
 }

@@ -426,7 +426,7 @@ func terminalStep(job queue.Job, cause error, processor *telegram.Processor, ban
 			return nil
 		}
 		return func(ctx context.Context, tx pgx.Tx) error {
-			return telegram.ReviewDeliveryFailedTx(ctx, tx, payload, cause)
+			return telegram.ReviewDeliveryFailedTx(ctx, tx, job.ID, payload, cause)
 		}
 	case "PROCESS_BANK_EMAIL":
 		id := ""

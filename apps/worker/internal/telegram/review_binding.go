@@ -30,7 +30,7 @@ func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID st
 //
 // The replying member's own copy is renewed with it (its seven-day window
 // restarts), whether the whole projection expired or only that copy did. Locks
-// follow the pacing order of migration 00090: the request row, then the chat
+// follow the pacing order of migration 00094: the request row, then the chat
 // lock, then the recipient row, exactly as a close does.
 func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdID string, update telegramUpdate) error {
 	tx, err := p.pool.Begin(ctx)
@@ -455,9 +455,9 @@ func reviewOrigin(ctx context.Context, tx pgx.Tx, reviewID string, originatingCh
 
 // admitReviewCard records one recipient of a review card and hands its rendered
 // send to admit_review_card, which sends it now or holds it QUEUED while the
-// chat already shows three live review cards (migration 00090).
+// chat already shows three live review cards (migration 00094).
 func admitReviewCard(ctx context.Context, tx pgx.Tx, reviewID string, chatID, replyTo int64, message string, markup *InlineKeyboardMarkup) error {
-	// The chat's pacing lock comes before any recipient row (migration 00090).
+	// The chat's pacing lock comes before any recipient row (migration 00094).
 	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, chatID); err != nil {
 		return err
 	}

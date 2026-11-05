@@ -24,7 +24,7 @@ FROM review_request r WHERE r.id=rr.review_request_id AND rr.telegram_message_id
 -- An undelivered card whose send jobs all failed is a failed delivery, not a
 -- pending one.
 UPDATE review_request_recipient rr
-SET delivery_status='FAILED',delivery_failed_at=now(),delivery_error='send job failed before migration 00090'
+SET delivery_status='FAILED',delivery_failed_at=now(),delivery_error='send job failed before migration 00094'
 WHERE rr.telegram_message_id IS NULL
   AND EXISTS (SELECT 1 FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status='FAILED'
               AND j.payload_json->>'review_request_id'=rr.review_request_id::text

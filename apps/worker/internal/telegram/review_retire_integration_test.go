@@ -187,7 +187,7 @@ func TestRetirementSkipsRenewedRequestAndRetiresItsNextClose(t *testing.T) {
 		t.Fatalf("expire/renew/expire queued %+v, want one EXPIRED retirement per card", jobs)
 	}
 	// Replies renew the projection and the replying members' copies before the
-	// jobs run: those cards are live again (expiry is per copy since 00090).
+	// jobs run: those cards are live again (expiry is per copy since 00094).
 	_, err = f.pool.Exec(ctx, `UPDATE review_request SET status='OPEN',expires_at=now()+interval '7 days' WHERE id=$1`, f.requestID)
 	mustAgentTest(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE review_request_recipient SET delivery_status='SENT',card_expires_at=now()+interval '7 days' WHERE review_request_id=$1 AND telegram_message_id IS NOT NULL`, f.requestID)

@@ -500,7 +500,7 @@ email, system) has no originating member: no thread and no line.
 or `SENT` on an active request). A further card is rendered and stored `QUEUED`
 and released oldest-first when a live card in that chat closes, expires, fails,
 or is skipped. Admission, release and per-copy expiry are SQL functions under
-one advisory lock per chat (migration `00090`), so the release happens in the
+one advisory lock per chat (migration `00094`), so the release happens in the
 same transaction as the close, whichever surface closed it. Lock order: every
 path takes the chat lock before it waits for a recipient row (copy expiry takes
 the locks of all of its request's chats, in chat order, first; a close and a
@@ -519,7 +519,7 @@ delivers that copy (its first bind; follow-up messages do not extend it), so a
 copy that waited in the pacing queue or behind send retries gets its full
 window, and the request's `expires_at` is extended to cover it. The worker's
 maintenance tick expires due copies: the copy becomes `EXPIRED`, every message
-of it loses its buttons and gains "Tombol tinjauan ini sudah kedaluwarsa.
+of it loses its buttons and gains "⏳ Tombol tinjauan ini sudah kedaluwarsa.
 Tinjauannya masih ada di Kotak Tinjauan.", and its slot is released, while the
 other members' copies keep their own windows. The request closes as `EXPIRED`
 only when no copy is live or waiting. A copy still queued when the projection

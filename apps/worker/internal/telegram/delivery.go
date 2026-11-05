@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // DeliverSend runs one SEND_TELEGRAM_MESSAGE job. Telegram has no idempotency
@@ -53,7 +54,14 @@ func (p *Processor) DeliverSend(ctx context.Context, bot *Bot, jobID, householdI
 			return err
 		}
 		if err := p.recordDelivery(ctx, jobID, householdID, payload.ChatID, messageID); err != nil {
-			return err
+			// The message is out but could not be remembered: a retry would send
+			// a second card. Strip this one's buttons (best effort) and stop.
+			if payload.ReplyMarkup != nil {
+				if stripErr := bot.EditReplyMarkup(ctx, payload.ChatID, messageID); stripErr != nil {
+					slog.Default().Warn("strip unrecorded Telegram message failed", "job_id", jobID, "error", stripErr)
+				}
+			}
+			return TerminalError(err)
 		}
 	}
 	if payload.ReviewRequestID != "" {
@@ -156,7 +164,7 @@ func (p *Processor) skipReviewDelivery(ctx context.Context, payload SendPayload)
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// The chat's pacing lock comes before any recipient row (migration 00090).
+	// The chat's pacing lock comes before any recipient row (migration 00094).
 	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, payload.ChatID); err != nil {
 		return err
 	}
@@ -172,10 +180,13 @@ func (p *Processor) skipReviewDelivery(ctx context.Context, payload SendPayload)
 // ReviewDeliveryFailedTx runs in the transaction that marks a send job FAILED
 // for good. A review card that never reached its recipient becomes FAILED with
 // the redacted Telegram error, so the household diagnostics show it, and its
-// pacing slot is released. The canonical review_item is untouched: it stays
-// actionable in the web Review Inbox. A failed follow-up of a delivered card
-// changes nothing, because that recipient already has its card.
-func ReviewDeliveryFailedTx(ctx context.Context, tx pgx.Tx, payload SendPayload, cause error) error {
+// pacing slot is released. A card Telegram did deliver (its message id is
+// recorded for the job) but that could not be bound is not a failed delivery:
+// it is bound here from the recorded message, keeps its slot, and is retired
+// with the rest of the review. The canonical review_item is untouched either
+// way: it stays actionable in the web Review Inbox. A failed follow-up of a
+// delivered card changes nothing, because that recipient already has its card.
+func ReviewDeliveryFailedTx(ctx context.Context, tx pgx.Tx, jobID string, payload SendPayload, cause error) error {
 	if payload.ReviewRequestID == "" || payload.ChatID == 0 {
 		return nil
 	}
@@ -186,6 +197,33 @@ func ReviewDeliveryFailedTx(ctx context.Context, tx pgx.Tx, payload SendPayload,
 	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, payload.ChatID); err != nil {
 		return err
 	}
+	var recipientID, householdID string
+	var messageID int64
+	err := tx.QueryRow(ctx, `SELECT rr.id::text,r.household_id::text,d.telegram_message_id
+		FROM telegram_outbound_delivery d
+		JOIN review_request_recipient rr ON rr.review_request_id=$2 AND rr.telegram_chat_id=d.telegram_chat_id
+		JOIN review_request r ON r.id=rr.review_request_id
+		WHERE d.job_id=NULLIF($1,'')::uuid AND d.telegram_chat_id=$3 AND rr.delivery_status='PENDING' AND rr.telegram_message_id IS NULL`,
+		jobID, payload.ReviewRequestID, payload.ChatID).Scan(&recipientID, &householdID, &messageID)
+	switch {
+	case err == nil:
+		if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status='SENT',
+			card_expires_at=COALESCE(card_expires_at,now()+interval '7 days'),delivery_error=$4 WHERE id=$1`, recipientID, messageID, clean(payload.Text, 4000), "bind failed: "+reason); err != nil {
+			return fmt.Errorf("bind delivered Telegram review card: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO review_request_message(household_id,review_request_id,recipient_id,telegram_chat_id,telegram_message_id,delivered_text)
+			VALUES($1,$2,$3,$4,$5,NULLIF($6,'')) ON CONFLICT (telegram_chat_id,telegram_message_id) DO NOTHING`,
+			householdID, payload.ReviewRequestID, recipientID, payload.ChatID, messageID, clean(payload.Text, 4000)); err != nil {
+			return fmt.Errorf("record delivered Telegram review card: %w", err)
+		}
+		// A card that arrived after its request closed must still lose its buttons.
+		if _, err := tx.Exec(ctx, `SELECT enqueue_review_card_retirement($1::uuid,$2::uuid)`, payload.ReviewRequestID, recipientID); err != nil {
+			return fmt.Errorf("retire delivered Telegram review card: %w", err)
+		}
+		return nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("load delivered Telegram review card: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET delivery_status='FAILED',delivery_error=$3,delivery_failed_at=now()
 		WHERE review_request_id=$1 AND telegram_chat_id=$2 AND delivery_status='PENDING' AND telegram_message_id IS NULL`, payload.ReviewRequestID, payload.ChatID, reason); err != nil {
 		return fmt.Errorf("record failed Telegram review card: %w", err)
@@ -194,6 +232,67 @@ func ReviewDeliveryFailedTx(ctx context.Context, tx pgx.Tx, payload SendPayload,
 		return fmt.Errorf("release paced Telegram review cards: %w", err)
 	}
 	return nil
+}
+
+// repairOrphanedReviewCards closes PENDING copies whose send job no longer
+// exists (pruned, or a final failure step that could not run): such a copy
+// would hold a pacing slot forever. It becomes FAILED and the chat is released.
+// Admission and release insert the job in the same transaction that marks the
+// copy PENDING, so a PENDING copy without a live or finished-unbound job is
+// never mid-admission.
+func (p *Processor) repairOrphanedReviewCards(ctx context.Context, limit int) (int, error) {
+	rows, err := p.pool.Query(ctx, `SELECT rr.id::text,rr.telegram_chat_id FROM review_request_recipient rr
+		WHERE rr.delivery_status='PENDING' AND rr.telegram_message_id IS NULL
+		  AND NOT EXISTS(SELECT 1 FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status IN ('PENDING','RUNNING')
+		                 AND j.payload_json->>'review_request_id'=rr.review_request_id::text AND j.payload_json->>'chat_id'=rr.telegram_chat_id::text)
+		LIMIT $1`, limit)
+	if err != nil {
+		return 0, err
+	}
+	type orphan struct {
+		id   string
+		chat int64
+	}
+	var orphans []orphan
+	for rows.Next() {
+		var o orphan
+		if err := rows.Scan(&o.id, &o.chat); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		orphans = append(orphans, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	repaired := 0
+	for _, o := range orphans {
+		tx, err := p.pool.Begin(ctx)
+		if err != nil {
+			return repaired, err
+		}
+		_, err = tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, o.chat)
+		var tag pgconn.CommandTag
+		if err == nil {
+			tag, err = tx.Exec(ctx, `UPDATE review_request_recipient rr SET delivery_status='FAILED',delivery_error='send job missing',delivery_failed_at=now()
+				WHERE rr.id=$1 AND rr.delivery_status='PENDING' AND rr.telegram_message_id IS NULL
+				  AND NOT EXISTS(SELECT 1 FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.status IN ('PENDING','RUNNING')
+				                 AND j.payload_json->>'review_request_id'=rr.review_request_id::text AND j.payload_json->>'chat_id'=rr.telegram_chat_id::text)`, o.id)
+		}
+		if err == nil && tag.RowsAffected() == 1 {
+			_, err = tx.Exec(ctx, `SELECT release_review_cards($1)`, o.chat)
+		}
+		if err == nil {
+			err = tx.Commit(ctx)
+		}
+		tx.Rollback(ctx)
+		if err != nil {
+			return repaired, fmt.Errorf("repair orphaned Telegram review card: %w", err)
+		}
+		repaired += int(tag.RowsAffected())
+	}
+	return repaired, nil
 }
 
 // DeliverEdit runs one EDIT_TELEGRAM_MESSAGE job. "Message is not modified" (a
@@ -295,6 +394,9 @@ func (p *Processor) SweepReviewProjections(ctx context.Context, limit int) (expi
 		return expired, 0, fmt.Errorf("expire Telegram review projections: %w", err)
 	}
 	expired += int(tag.RowsAffected())
+	if _, err := p.repairOrphanedReviewCards(ctx, limit); err != nil {
+		return expired, 0, err
+	}
 	chats, err := p.collectIDs(ctx, `SELECT DISTINCT rr.telegram_chat_id::text FROM review_request_recipient rr
 		JOIN review_request r ON r.id=rr.review_request_id JOIN review_item ri ON ri.id=r.review_item_id
 		WHERE rr.delivery_status='QUEUED' AND rr.queued_payload IS NOT NULL
