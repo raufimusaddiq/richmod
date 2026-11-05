@@ -114,7 +114,7 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 			return result, errors.New("reviewdomain: invalid recomputed residual")
 		}
 		if recomputed.Sign() <= 0 {
-			if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND household_id=$4 AND cycle_residual_case_id=$5 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action='NO_LONGER_APPLICABLE',resolution_values=jsonb_build_object('recomputed_residual_idr',$3::text),updated_at=now() WHERE id=$1 AND household_id=$4 AND cycle_residual_case_id=$5 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
 				return result, err
 			}
 			if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
@@ -161,7 +161,7 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		// Defensive: a zero basis with no stale change should not allocate.
 		result.Allocated = "0"
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=NULLIF($2,'')::uuid,resolution_action=$3,resolution_values=$4::jsonb,updated_at=now() WHERE id=$1 AND household_id=$5 AND cycle_residual_case_id=$6 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, cmd.ActorUserID, cmd.Action, string(mustCycleValues(cmd)), cmd.HouseholdID, cmd.CaseID); err != nil {
 		return result, err
 	}
 	if err := resolveCycleRequest(ctx, tx, cmd); err != nil {
@@ -171,6 +171,10 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 	return result, nil
 }
 
+// Every path that writes a CONFIRMED transaction (manual, review confirmation
+// and the bank/receipt/screenshot auto-confirm lanes) calls it, with an empty
+// actor for worker writes, so a cycle waiting on "transaksi belum tercatat"
+// reopens whichever lane recorded the transaction.
 // RefreshOpenCycleResiduals re-evaluates only open cycle reviews affected by a
 // newly confirmed transaction. Run inside the transaction's commit boundary.
 func RefreshOpenCycleResiduals(ctx context.Context, tx pgx.Tx, householdID string, at time.Time, actorID string) error {

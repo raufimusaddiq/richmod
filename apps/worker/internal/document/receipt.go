@@ -384,6 +384,9 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 	if _, err := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED' WHERE id=$1`, sourceID); err != nil {
 		return err
 	}
+	if err := reviewdomain.RefreshOpenCycleResiduals(ctx, tx, householdID, validation.TransactionAt, ""); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','AUTO_CONFIRM_RECEIPT','transaction',$2,jsonb_build_object('document_id',$3::uuid,'arithmetic_ok',$4::boolean))`, householdID, transactionID, documentID, validation.ArithmeticOK); err != nil {
 		return err
 	}

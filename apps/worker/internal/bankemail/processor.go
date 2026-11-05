@@ -795,6 +795,12 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 	if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,$2,'BANK_EMAIL',$3,jsonb_build_object('proposal_id',$4::uuid,'listener_id',$5::uuid,'transaction_at_source',$6::text))`, transactionID, sourceID, extraction.Confidence, proposalID, listener.ID, extraction.TransactionAtSource); err != nil {
 		return err
 	}
+	if transactionStatus == "CONFIRMED" {
+		// A cycle waiting on a missing transaction reopens with the new basis.
+		if err = reviewdomain.RefreshOpenCycleResiduals(ctx, tx, listener.HouseholdID, *at, ""); err != nil {
+			return err
+		}
+	}
 	// A transaction now exists for this source, so its source-bound reviews are
 	// settled, together with their Telegram projections (whose delivered cards
 	// are then retired, migration 00079).

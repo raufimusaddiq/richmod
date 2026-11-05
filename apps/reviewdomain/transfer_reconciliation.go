@@ -98,6 +98,9 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 		if _, err := tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING`, id, sourceID, sourceType); err != nil {
 			return "", err
 		}
+		if err := RefreshOpenCycleResiduals(ctx, tx, cmd.HouseholdID, at, cmd.ActorUserID); err != nil {
+			return "", err
+		}
 		if observationID != "" {
 			if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET transaction_id=$2,status='APPLIED',updated_at=now() WHERE id=$1 AND household_id=$3`, observationID, id, cmd.HouseholdID); err != nil {
 				return "", err
