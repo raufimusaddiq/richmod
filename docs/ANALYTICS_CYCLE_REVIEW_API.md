@@ -199,7 +199,8 @@ Merchant shares use all confirmed net expense, including undisplayed merchants
 and refund-only groups, not the displayed top-ten subtotal.
 
 Legacy current-cycle analytics and Telegram CURRENT/PREVIOUS_CYCLE READs use
-Jakarta midnight instants. Legacy `get_category_breakdown` retains signed nonzero
+Jakarta midnight instants. The category breakdown of Telegram `query_spending`
+(formerly the separate `get_category_breakdown` tool) retains signed nonzero
 categories, orders by absolute amount, and reports `total_categories`, full
 `net_expense_idr`, and `truncated` for its twenty-row limit. No financial records
 are rewritten by these fixes.

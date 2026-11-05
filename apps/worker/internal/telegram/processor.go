@@ -16,7 +16,25 @@ import (
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-var localTimePattern = regexp.MustCompile(`^(?:[01][0-9]|2[0-3]):[0-5][0-9]$`)
+// localTimePattern accepts the clock forms people type: 15:00, 9:30 and the
+// Indonesian 15.00.
+var localTimePattern = regexp.MustCompile(`^([01]?[0-9]|2[0-3])[:.]([0-5][0-9])$`)
+
+// parseLocalTime reads an exact HH:MM (or H:MM, HH.MM) clock time, or one of the
+// named times of day. Approximate names return their representative hour.
+func parseLocalTime(value string) (hour, minute int, ok bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if approximate, found := approximateLocalTimes[value]; found {
+		return approximate.hour, approximate.minute, true
+	}
+	match := localTimePattern.FindStringSubmatch(value)
+	if match == nil {
+		return 0, 0, false
+	}
+	_, _ = fmt.Sscanf(match[1], "%d", &hour)
+	_, _ = fmt.Sscanf(match[2], "%d", &minute)
+	return hour, minute, true
+}
 
 var approximateLocalTimes = map[string]struct {
 	hour, minute int
@@ -158,6 +176,9 @@ func (p *Processor) Process(ctx context.Context, sourceEventID string) (err erro
 				return err
 			}
 			return p.finishWithoutTransaction(ctx, sourceEventID, "IGNORED", update, staleActionMessage)
+		}
+		if handled, err := p.processCardChoiceCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
+			return err
 		}
 		if handled, err := p.processPendingConfirmCallback(ctx, sourceEventID, householdID, update, update.CallbackQuery.Data); handled {
 			return err
@@ -331,7 +352,7 @@ func (p *Processor) offerExistingEdit(ctx context.Context, householdID string, u
 	}
 	defer tx.Rollback(ctx)
 	var token string
-	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=NULL,proposed_description=NULL,confirmation_token=gen_random_uuid(),expires_at=now()+interval '5 minutes',created_at=now() RETURNING confirmation_token::text`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, value.TransactionAt).Scan(&token); err != nil {
+	if err = tx.QueryRow(ctx, `INSERT INTO telegram_pending_action(household_id,telegram_user_id,telegram_chat_id,transaction_id,proposed_transaction_at,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(telegram_user_id,telegram_chat_id) WHERE status='PENDING' DO UPDATE SET transaction_id=excluded.transaction_id,proposed_transaction_at=excluded.proposed_transaction_at,proposed_category_id=NULL,proposed_description=NULL,proposed_amount=NULL,proposed_merchant=NULL,confirmation_token=gen_random_uuid(),expires_at=now()+interval '30 minutes',created_at=now() RETURNING confirmation_token::text`, householdID, update.Message.From.ID, update.Message.Chat.ID, transactionID, value.TransactionAt).Scan(&token); err != nil {
 		return "", err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-proposal',parser_version='1' WHERE id=$1`, sourceID); err != nil {
@@ -353,35 +374,28 @@ func (p *Processor) processPendingEdit(ctx context.Context, householdID string, 
 		return true, err
 	}
 	defer tx.Rollback(ctx)
-	var actionID, transactionID string
-	var proposedAt *time.Time
-	var proposedCategoryID *string
-	var proposedDescription *string
-	err = tx.QueryRow(ctx, `SELECT id,transaction_id,proposed_transaction_at,proposed_category_id,proposed_description FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND confirmation_token::text=$4 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID, token).Scan(&actionID, &transactionID, &proposedAt, &proposedCategoryID, &proposedDescription)
+	var actionID string
+	err = tx.QueryRow(ctx, `SELECT id FROM telegram_pending_action WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND confirmation_token::text=$4 AND status='PENDING' AND expires_at>now() FOR UPDATE`, householdID, update.Message.From.ID, update.Message.Chat.ID, token).Scan(&actionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return true, err
 	}
-	status := "CANCELLED"
 	message := "Perubahan dibatalkan."
 	if confirm {
-		status = "CONFIRMED"
+		outcome, err := applyPendingCorrectionTx(ctx, tx, householdID, actionID, update.Message.From.ID)
+		if err != nil {
+			return true, err
+		}
 		message = "✅ Perubahan transaksi sudah disimpan."
-		if proposedAt != nil {
-			message = "✅ Tanggal transaksi sudah diubah ke " + formatIDDateTime(*proposedAt) + "."
+		if outcome.ProposedAt != nil {
+			message = "✅ Tanggal transaksi sudah diubah ke " + formatIDDateTime(*outcome.ProposedAt) + "."
 		}
-		if _, err = tx.Exec(ctx, `UPDATE transaction SET transaction_at=COALESCE($2,transaction_at),category_id=COALESCE($3,category_id),description=COALESCE(NULLIF($4,''),description),updated_at=now() WHERE id=$1 AND household_id=$5`, transactionID, proposedAt, proposedCategoryID, proposedDescription, householdID); err != nil {
-			return true, err
+		if outcome.Refused {
+			message = sourceEvidenceFixesAmountMessage
 		}
-	}
-	if confirm {
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) SELECT $1,'TELEGRAM',ti.user_id,'EDIT_TRANSACTION','transaction',$2,jsonb_build_object('transaction_at',$3::timestamptz,'category_id',$4::uuid,'description',$5::text) FROM telegram_identity ti WHERE ti.telegram_user_id=$6 AND ti.household_id=$1 AND ti.active`, householdID, transactionID, proposedAt, proposedCategoryID, proposedDescription, update.Message.From.ID); err != nil {
-			return true, err
-		}
-	}
-	if _, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status=$2,resolved_at=now() WHERE id=$1`, actionID, status); err != nil {
+	} else if _, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID); err != nil {
 		return true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-edit-confirmation',parser_version='1' WHERE id=$1`, sourceID); err != nil {
@@ -407,7 +421,6 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 	if err != nil {
 		return true, err
 	}
-	status := "CANCELLED"
 	msg := "Pencatatan daftar transaksi dibatalkan."
 	if confirm {
 		var items []agentPendingBatchItem
@@ -418,62 +431,12 @@ func (p *Processor) processPendingBatch(ctx context.Context, householdID string,
 		if err = tx.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, update.Message.From.ID, householdID).Scan(&userID); err != nil {
 			return true, err
 		}
-		// Explicit human CONFIRM is the authority for the facts already shown to
-		// the user. Structural checks and deterministic
-		// merchant-category policy still run, and every check happens before any
-		// canonical write.
-		allowedCategories, err := p.categorySlugs(ctx, householdID)
+		outcome, err := p.confirmPendingBatchTx(ctx, tx, householdID, batchID, items, userID, update)
 		if err != nil {
 			return true, err
 		}
-		for _, v := range items {
-			if v.Type != "INCOME" && v.Type != "EXPENSE" {
-				return true, fmt.Errorf("invalid batch type")
-			}
-			amount, ok := new(big.Int).SetString(v.Amount, 10)
-			if !ok || amount.Sign() <= 0 || amount.String() != v.Amount || v.TransactionAt.IsZero() {
-				return true, fmt.Errorf("invalid batch amount or time")
-			}
-			if (v.Type == "EXPENSE" && !contains(allowedCategories, v.CategorySlug)) || (v.CategorySlug != "" && !contains(allowedCategories, v.CategorySlug)) {
-				if _, e := tx.Exec(ctx, `UPDATE telegram_pending_batch SET status='CANCELLED',resolved_at=now() WHERE id=$1`, batchID); e != nil {
-					return true, e
-				}
-				if _, e := tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); e != nil {
-					return true, e
-				}
-				if e := enqueueReply(ctx, tx, update, "Daftar ini belum bisa dicatat karena ada kategori yang tidak tersedia. Kirim ulang dengan kategori pengeluaran yang tersedia, ya."); e != nil {
-					return true, e
-				}
-				return true, tx.Commit(ctx)
-			}
-		}
-		for i, v := range items {
-			var cat *string
-			var cid string
-			if v.CategorySlug != "" {
-				if e := tx.QueryRow(ctx, `SELECT id FROM category WHERE household_id=$1 AND slug=$2 AND active`, householdID, v.CategorySlug).Scan(&cid); e == nil {
-					cat = &cid
-				}
-			}
-			prop := fmt.Sprintf("batch-%d", i)
-			var pid, tid string
-			if err = tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,category_candidate_id,description,note,confidence,proposal_status) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),$3,$4,$5,'IDR',$6,NULLIF($7,''),$8,NULLIF($9,''),NULLIF($10,''),1,'ACCEPTED') RETURNING id`, householdID, batchID, prop, v.Type, v.Amount, v.TransactionAt, v.Merchant, cat, v.Description, v.Note).Scan(&pid); err != nil {
-				return true, err
-			}
-			if err = tx.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,category_id,description,note,counterparty_name,source_confidence,classification_confidence,created_by_user_id,confirmed_at) VALUES($1,$2,'CONFIRMED',$3,'IDR',$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),1,1,$9,now()) RETURNING id`, householdID, v.Type, v.Amount, v.TransactionAt, cat, v.Description, v.Note, v.Merchant, userID).Scan(&tid); err != nil {
-				return true, err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'CONFIRM_PENDING_BATCH','transaction',$3,jsonb_build_object('batch_id',$4::uuid,'item_index',$5::integer))`, householdID, userID, tid, batchID, i); err != nil {
-				return true, err
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence,metadata_json) VALUES($1,(SELECT source_event_id FROM telegram_pending_batch WHERE id=$2),'TELEGRAM_TEXT',1,jsonb_build_object('proposal_id',$3::uuid))`, tid, batchID, pid); err != nil {
-				return true, err
-			}
-		}
-		status = "CONFIRMED"
-		msg = fmt.Sprintf("✅ %d transaksi sudah tercatat.", len(items))
-	}
-	if _, err = tx.Exec(ctx, `UPDATE telegram_pending_batch SET status=$2,resolved_at=now() WHERE id=$1`, batchID, status); err != nil {
+		msg = batchOutcomeMessage(outcome.Confirmed, outcome.NeedsReview, outcome.Skipped)
+	} else if _, err = tx.Exec(ctx, `UPDATE telegram_pending_batch SET status='CANCELLED',resolved_at=now() WHERE id=$1`, batchID); err != nil {
 		return true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-batch-confirmation',parser_version='1' WHERE id=$1`, sourceID); err != nil {
@@ -583,10 +546,11 @@ func resolveTransactionTime(now time.Time, dateReference, explicitDate, localTim
 			hour, minute = approximate.hour, approximate.minute
 			precision, period = "APPROXIMATE", approximate.period
 		} else {
-			if !localTimePattern.MatchString(value) {
+			h, m, ok := parseLocalTime(value)
+			if !ok {
 				return resolvedTransactionTime{}, fmt.Errorf("invalid local time")
 			}
-			_, _ = fmt.Sscanf(value, "%d:%d", &hour, &minute)
+			hour, minute = h, m
 			precision = "EXACT"
 		}
 	}

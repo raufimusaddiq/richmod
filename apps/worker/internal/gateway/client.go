@@ -145,7 +145,7 @@ func DecodeToolArguments[T any](call ToolCall, expectedName string) (T, error) {
 
 func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt string, content any, tools []ToolDefinition, optionValues ...NativeToolOptions) (ToolCall, Metadata, error) {
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
-		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway is not configured")
+		return ToolCall{}, Metadata{}, ErrNotConfigured
 	}
 	userContent, err := normalizeContent(content)
 	if err != nil {
@@ -186,7 +186,7 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 	req.Header.Set("X-Request-ID", requestID)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return ToolCall{}, Metadata{}, fmt.Errorf("call LLM tool gateway: %w", err)
+		return ToolCall{}, Metadata{}, transportError(ctx, "call LLM tool gateway", err)
 	}
 	defer resp.Body.Close()
 	raw, err := readBounded(resp.Body)
@@ -194,7 +194,7 @@ func (c *Client) nativeToolCall(ctx context.Context, requestID, systemPrompt str
 		return ToolCall{}, Metadata{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ToolCall{}, Metadata{}, fmt.Errorf("LLM gateway returned HTTP %d", resp.StatusCode)
+		return ToolCall{}, Metadata{}, &StatusError{StatusCode: resp.StatusCode, Endpoint: "responses"}
 	}
 	result, err := decodeResponses(raw)
 	if err != nil {
@@ -335,7 +335,7 @@ func (c *Client) doChatCompletion(ctx context.Context, requestID string, payload
 	req.Header.Set("X-Request-ID", requestID)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return result, fmt.Errorf("call chat completion gateway: %w", err)
+		return result, transportError(ctx, "call chat completion gateway", err)
 	}
 	defer resp.Body.Close()
 	raw, err := readBounded(resp.Body)
@@ -343,7 +343,7 @@ func (c *Client) doChatCompletion(ctx context.Context, requestID string, payload
 		return result, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return result, fmt.Errorf("LLM chat completion returned HTTP %d", resp.StatusCode)
+		return result, &StatusError{StatusCode: resp.StatusCode, Endpoint: "chat completion"}
 	}
 	var env struct {
 		ID, Model, Cost string
@@ -530,6 +530,8 @@ func metricErrorClass(err error) string {
 		return "INVALID_RESPONSE"
 	case strings.Contains(message, "not configured"):
 		return "NOT_CONFIGURED"
+	case strings.Contains(message, "unavailable"):
+		return "UNAVAILABLE"
 	default:
 		return "GATEWAY_ERROR"
 	}

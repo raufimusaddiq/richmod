@@ -60,19 +60,11 @@ func applyAgentWorkflowToolPolicy(
 	return filtered, scope
 }
 
-func pendingBatchTool(name string) bool {
-	switch name {
-	case "pending_batch_decision", "confirm_pending_batch", "cancel_pending_batch", "update_pending_batch":
-		return true
-	default:
-		return false
-	}
-}
+func pendingBatchTool(name string) bool { return name == "pending_batch_decision" }
 
 func workflowBoundTool(name string) bool {
 	switch name {
 	case "confirm_pending_action", "cancel_pending_action", "pending_batch_decision", "resolve_review",
-		"confirm_pending_batch", "cancel_pending_batch", "update_pending_batch",
 		"resolve_salary_choice", "resolve_merchant_learning":
 		return true
 	default:
