@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -105,17 +106,52 @@ func TestWebhookCapturesOnlyAllowlistedPrivateCallback(t *testing.T) {
 	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
 	response := httptest.NewRecorder()
 	handler.Webhook(response, request)
-	if response.Code != http.StatusNoContent || store.calls != 1 || store.input.TelegramUserID != 123 {
+	if response.Code != http.StatusOK || store.calls != 1 || store.input.TelegramUserID != 123 {
 		t.Fatalf("status=%d calls=%d input=%#v", response.Code, store.calls, store.input)
 	}
+	assertCallbackAnswered(t, response, "callback-1")
 
 	request = httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":47,"callback_query":{"id":"callback-2","from":{"id":123},"data":"admin:delete","message":{"message_id":99,"chat":{"id":123,"type":"private"}}}}`))
 	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
 	response = httptest.NewRecorder()
 	handler.Webhook(response, request)
-	if response.Code != http.StatusNoContent || store.calls != 1 {
+	if response.Code != http.StatusOK || store.calls != 1 {
 		t.Fatalf("invalid callback was captured: status=%d calls=%d", response.Code, store.calls)
 	}
+	// An unknown action is never processed, but its spinner is still cleared.
+	assertCallbackAnswered(t, response, "callback-2")
+}
+
+// assertCallbackAnswered checks the webhook acknowledged the callback query in
+// its own response, so the tap spinner clears before the worker runs.
+func assertCallbackAnswered(t *testing.T, response *httptest.ResponseRecorder, callbackID string) {
+	t.Helper()
+	var body map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("callback response is not JSON: %q", response.Body.String())
+	}
+	if response.Header().Get("Content-Type") != "application/json" || body["method"] != "answerCallbackQuery" || body["callback_query_id"] != callbackID || len(body) != 2 {
+		t.Fatalf("callback answer=%v content-type=%q", body, response.Header().Get("Content-Type"))
+	}
+}
+
+func TestWebhookAnswersCallbackOnlyAfterDurableCapture(t *testing.T) {
+	store := &fakeStore{err: errors.New("database unavailable")}
+	handler := NewHandler(store, "webhook-secret")
+	request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":48,"callback_query":{"id":"callback-3","from":{"id":123},"data":"review:own","message":{"message_id":99,"chat":{"id":123,"type":"private"}}}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+	handler.Webhook(response, request)
+	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), "answerCallbackQuery") {
+		t.Fatalf("a capture failure must not answer the callback: status=%d body=%q", response.Code, response.Body.String())
+	}
+
+	store.err = ErrUnauthorized
+	response = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(`{"update_id":49,"callback_query":{"id":"callback-4","from":{"id":999},"data":"review:own","message":{"message_id":99,"chat":{"id":999,"type":"private"}}}}`))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	handler.Webhook(response, request)
+	assertCallbackAnswered(t, response, "callback-4")
 }
 
 func TestEveryWorkerReviewCallbackPassesIngressValidation(t *testing.T) {

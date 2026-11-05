@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -159,6 +160,12 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	// The date check uses the parsed pay date only; a fallback timestamp never
 	// satisfies it.
 	var storedDecision []byte
+	// Lock the review_request row first, as the typed-reply (agent) lane does,
+	// so a tap and a typed answer on the same card serialize on one row in one
+	// order and the loser sees the closed review (ADR-046, 2026-11-05).
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM review_request WHERE id=$1 AND household_id=$2 FOR UPDATE`, reviewID, householdID); err != nil {
+		return err
+	}
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb) FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id WHERE rr.id=$1 AND ri.household_id=$2 AND ri.status IN ('PENDING_SEND','OPEN') FOR UPDATE OF ri`, reviewID, householdID).Scan(&storedDecision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
@@ -397,16 +404,37 @@ func (p *Processor) ApplyCardOutcomeEdit(ctx context.Context, bot *Bot, payload 
 	if current != payload.OutcomeRevision {
 		return nil
 	}
-	if err := bot.Edit(ctx, payload); err != nil && !editFinished(err) {
-		if editRejected(err) {
-			return TerminalError(err)
-		}
+	// An expired or superseded copy keeps its outcome text but never regains
+	// buttons (the delivery rules of migration 00094 still hold).
+	var dead bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM review_request_recipient rr WHERE rr.review_request_id=$1 AND rr.telegram_chat_id=$2 AND rr.delivery_status='EXPIRED')
+		OR EXISTS(SELECT 1 FROM review_request_message m WHERE m.review_request_id=$1 AND m.telegram_chat_id=$2 AND m.telegram_message_id=$3 AND m.superseded_at IS NOT NULL)`, payload.OutcomeRequestID, payload.ChatID, payload.MessageID).Scan(&dead); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET delivered_text=NULLIF($3,'') WHERE telegram_chat_id=$1 AND telegram_message_id=$2`, payload.ChatID, payload.MessageID, clean(payload.Text, 4000)); err != nil {
+	if dead {
+		payload.ReplyMarkup = &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{}}
+	}
+	switch err := bot.Edit(ctx, payload); {
+	case err == nil:
+	case editNotModified(err), editFinished(err):
+		return tx.Commit(ctx)
+	case editUnreachable(err):
+		slog.Default().Info("Telegram outcome edit dropped: chat unreachable", "review_request_id", payload.OutcomeRequestID, "error", err)
+		return tx.Commit(ctx)
+	case editRejected(err):
+		return TerminalError(err)
+	default:
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	// The edit is delivered; failing to remember its text only costs a later
+	// retirement its closure note.
+	if err := p.RecordReviewCardText(ctx, payload.ChatID, payload.MessageID, payload.Text); err != nil {
+		slog.Default().Warn("record settled Telegram review card text failed", "review_request_id", payload.OutcomeRequestID, "error", err)
+	}
+	return nil
 }
 
 func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, remember bool) error {

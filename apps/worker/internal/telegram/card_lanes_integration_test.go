@@ -598,3 +598,30 @@ func TestClaimedRetirementSkipsASettledCard(t *testing.T) {
 		t.Fatalf("a claimed retirement stripped the settled card: %+v", calls)
 	}
 }
+
+// An outcome edit on an expired copy keeps its text but never regains buttons.
+func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
+	f := newCardFixture(t)
+	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
+	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
+	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',23000,now(),$2) RETURNING id`, f.household, merchant)
+	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
+	request := f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 99, "card")
+	f.tap(99, "review:cat:"+category, "card")
+	var raw string
+	f.row(`SELECT payload_json::text FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'outcome_request_id'=$1 ORDER BY created_at DESC LIMIT 1`, []any{&raw}, request)
+	payload, err := DecodeEditPayload(json.RawMessage(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`UPDATE review_request_recipient SET delivery_status='EXPIRED' WHERE review_request_id=$1`, request)
+	bot, fake := newFakeTelegram(t, nil)
+	if err := NewProcessor(f.pool, nil).DeliverEdit(f.ctx, bot, "", f.household, payload); err != nil {
+		t.Fatal(err)
+	}
+	calls := fake.recorded()
+	encoded, _ := json.Marshal(calls)
+	if len(calls) != 1 || strings.Contains(string(encoded), "review:remember") || !strings.Contains(fmt.Sprint(calls[0].Body["text"]), "Dicatat") {
+		t.Fatalf("expired copy outcome: %s", encoded)
+	}
+}
