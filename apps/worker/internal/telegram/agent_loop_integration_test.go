@@ -122,9 +122,9 @@ func TestGatewayDownRecordsASimpleExpenseForReview(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-fallback")
 	model := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("dial tcp: connection refused")}}
-	// Without a purchase verb the words must be something the household already
-	// spent on: neither "harga kopi" nor a first-ever "kopi" is guessed.
-	for _, text := range []string{"harga kopi 25rb", "saldo 50rb", "kopi 25rb"} {
+	// The words must be, exactly, something the household already spent on:
+	// a price, a balance, a request or a first-ever "kopi" is never guessed.
+	for _, text := range []string{"harga kopi 25rb", "saldo 50rb", "kopi 25rb", "beli kopi 25rb", "beli kopi 25rb dong"} {
 		if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), text, 0); !IsGatewayUnavailable(err) {
 			t.Fatalf("%q must not be recorded by the fallback, got %v", text, err)
 		}
@@ -150,9 +150,11 @@ func TestGatewayDownRecordsASimpleExpenseForReview(t *testing.T) {
 		t.Fatalf("fallback reply = %q", reply)
 	}
 
-	// A stated purchase needs no history.
-	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "beli bensin 50.000", 0); err != nil {
-		t.Fatalf("a stated purchase must be recorded for review: %v", err)
+	// Even with "kopi" known, extra words make the phrase unknown.
+	for _, text := range []string{"beli kopi 25rb", "kopi dong 25rb", "kopi ya 25rb"} {
+		if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), text, 0); !IsGatewayUnavailable(err) {
+			t.Fatalf("%q must not be recorded by the fallback, got %v", text, err)
+		}
 	}
 	// Anything that is not a plain expense fails honestly and records nothing.
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
@@ -175,7 +177,10 @@ func TestGatewayFallbackLeavesWorkflowRepliesAlone(t *testing.T) {
 	mustAgentTest(t, err)
 	model := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("connection refused")}}
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
-	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "beli kopi 25rb", 611); !IsGatewayUnavailable(err) {
+	_, err = f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',22000,'IDR',now()-interval '3 days','kopi',$2,now())`, f.householdID, f.userID)
+	mustAgentTest(t, err)
+	before = countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
+	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "kopi 25rb", 611); !IsGatewayUnavailable(err) {
 		t.Fatalf("a Reply to a review card must wait for the model, got %v", err)
 	}
 	// The guard itself covers every server-bound state, not only replies.
@@ -206,9 +211,9 @@ func TestParseSimpleExpense(t *testing.T) {
 	}{
 		{"kopi 25rb", "25000", "kopi"}, {"bensin 50.000", "50000", "bensin"}, {"parkir 5k", "5000", "parkir"},
 		{"Rp 75.000 makan siang", "", ""}, // "siang" is a time of day: not a plain expense
-		{"beli nasi goreng 18 ribu", "18000", "nasi goreng"}, {"pulsa 1,5jt", "1500000", "pulsa"}, {"rp25.000 sabun", "25000", "sabun"},
+		{"nasi goreng 18 ribu", "18000", "nasi goreng"}, {"beli kopi 25rb dong", "25000", "beli kopi dong"}, {"pulsa 1,5jt", "1500000", "pulsa"}, {"rp25.000 sabun", "25000", "sabun"},
 		{"kopi 25", "", ""}, {"gaji 5jt", "", ""}, {"kopi 25rb kemarin", "", ""}, {"berapa kopi 25rb?", "", ""},
-		{"kopi 25rb dan roti 10rb", "", ""}, {"harga kopi 25rb", "", ""}, {"saldo 50rb", "", ""}, {"kopi beli 25rb", "", ""},
+		{"kopi 25rb dan roti 10rb", "", ""}, {"harga kopi 25rb", "", ""}, {"saldo 50rb", "", ""},
 		// Not a completed expense: negation, intent, plans, conditions, bills.
 		{"belum bayar kopi 25rb", "", ""}, {"rencana beli kopi 25rb", "", ""}, {"mau beli kopi 25rb", "", ""},
 		{"nanti bayar parkir 5k", "", ""}, {"kalau beli bensin 50.000", "", ""}, {"gak jadi beli kopi 25rb", "", ""},
