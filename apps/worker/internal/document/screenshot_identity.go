@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const screenshotIdentifierPattern = `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`
@@ -106,6 +108,16 @@ func reconcileScreenshotCandidate(candidate matchCandidate, row validatedScreens
 }
 
 func (p *Processor) findScreenshotMatches(ctx context.Context, householdID string, row validatedScreenshotRow) ([]matchCandidate, error) {
+	return findScreenshotMatchesWith(ctx, p.pool, householdID, row)
+}
+
+type screenshotQueryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// findScreenshotMatchesWith runs the matcher on q, so the locked write can
+// re-check inside its own transaction without a second pool connection.
+func findScreenshotMatchesWith(ctx context.Context, q screenshotQueryer, householdID string, row validatedScreenshotRow) ([]matchCandidate, error) {
 	if row.Value.Amount == nil || (!row.DateKnown && len(row.Value.TransactionIdentifiers) == 0) {
 		return nil, nil
 	}
@@ -119,7 +131,7 @@ func (p *Processor) findScreenshotMatches(ctx context.Context, householdID strin
 	// Both fuzzy and identity candidates retain the canonical household/type/amount
 	// boundary. Only proposals actually bound to this transaction's screenshot
 	// evidence may contribute identity; stray proposals cannot authorise a link.
-	rows, err := p.pool.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600,COALESCE(e.facts,'[]'::jsonb),t.status
+	rows, err := q.Query(ctx, `SELECT t.id,COALESCE(m.normalized_name,t.counterparty_name,''),abs(extract(epoch FROM (t.transaction_at-$4::timestamptz)))/3600,COALESCE(e.facts,'[]'::jsonb),t.status
 FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id
 LEFT JOIN LATERAL (
  SELECT jsonb_agg(jsonb_build_object('transaction_at',p.transaction_at,'metadata',p.metadata_json)) AS facts,

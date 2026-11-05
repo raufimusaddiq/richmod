@@ -361,7 +361,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if row.Value.Amount == nil {
 			continue
 		}
-		now, err := p.findScreenshotMatches(ctx, householdID, row)
+		now, err := findScreenshotMatchesWith(ctx, tx, householdID, row)
 		if err != nil {
 			return err
 		}

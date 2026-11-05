@@ -259,11 +259,13 @@ func reopenCycleResidual(ctx context.Context, tx pgx.Tx, householdID, caseID, ac
 		}
 		return "", err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1 AND household_id=$6`, caseID, income, expense, savings, residual, householdID); err != nil {
-		return "", err
-	}
+	// An exhausted residual asks nothing; basis_residual_idr is positive-only, so
+	// the case keeps its last positive basis as history and no review reopens.
 	if amount, ok := new(big.Int).SetString(residual, 10); !ok || amount.Sign() <= 0 {
 		return "", nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE cycle_residual_case SET basis_income_idr=$2,basis_expense_idr=$3,basis_savings_idr=$4,basis_residual_idr=$5,updated_at=now() WHERE id=$1 AND household_id=$6`, caseID, income, expense, savings, residual, householdID); err != nil {
+		return "", err
 	}
 	decision, ok := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", caseID)
 	if !ok {

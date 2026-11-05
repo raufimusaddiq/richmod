@@ -280,6 +280,24 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 	if reopened != "700000" || residual != "700000" {
 		t.Fatalf("reopened residual=%s basis=%s", reopened, residual)
 	}
+	// An expense that exhausts the residual records cleanly and asks nothing.
+	reopenedItem := ""
+	f.must(f.pool.QueryRow(ctx, `SELECT id FROM review_item WHERE cycle_residual_case_id=$1 AND status='OPEN'`, caseID).Scan(&reopenedItem))
+	if w := f.resolve(reopenedItem, `{"action":"TRANSACTION_MISSING"}`); w.Code != http.StatusOK {
+		t.Fatalf("second transaction missing=%d %s", w.Code, w.Body.String())
+	}
+	tx, err = f.pool.Begin(ctx)
+	f.must(err)
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at,purpose,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',700000,$2,'GENERAL',now())`, f.household, at)
+	f.must(err)
+	f.must(reviewdomain.RefreshOpenCycleResiduals(ctx, tx, f.household, at, f.user))
+	f.must(tx.Commit(ctx))
+	var open int
+	f.must(f.pool.QueryRow(ctx, `SELECT count(*) FROM review_item WHERE cycle_residual_case_id=$1 AND status='OPEN'`, caseID).Scan(&open))
+	if open != 0 {
+		t.Fatalf("an exhausted residual must not reopen: open=%d", open)
+	}
 }
 
 // The transaction review list is paged with a keyset cursor instead of being

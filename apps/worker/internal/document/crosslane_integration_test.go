@@ -2,10 +2,12 @@ package document
 
 import (
 	"context"
+	"os"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
@@ -165,5 +167,28 @@ func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
 	}
 	if transactions != 1 || evidence != 2 {
 		t.Fatalf("concurrent lanes duplicated the event: transactions=%d evidence=%d", transactions, evidence)
+	}
+}
+
+// The locked re-check runs inside the writing transaction: a screenshot write
+// must complete on a single-connection pool instead of waiting forever for a
+// second connection.
+func TestScreenshotLedgerRecheckNeedsNoSecondConnection(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Cross-lane single connection")
+	config, err := pgxpool.ParseConfig(os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	row := validatedScreenshotRow{Value: screenshotRow{Amount: ptr("12500"), Merchant: "Warung", Confidence: .4}, Type: "EXPENSE", TransactionAt: receiptTime(), DateKnown: true}
+	if err := (&Processor{pool: pool, rowAutoConfirmOff: true}).persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", rowChoiceProvenance{}, []validatedScreenshotRow{row}); err != nil {
+		t.Fatalf("single-connection screenshot write: %v", err)
 	}
 }
