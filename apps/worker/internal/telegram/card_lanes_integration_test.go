@@ -419,3 +419,26 @@ func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 		t.Fatalf("reopened review projected %d times, want once", sends)
 	}
 }
+
+// A merchant already confirmed with another category is not offered a single
+// remembered default: it would miscategorize its other purchases.
+func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
+	f := newCardFixture(t)
+	galon := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
+	kopi := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Kopi & Camilan','kopi') RETURNING id`, f.household)
+	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
+	f.exec(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id,category_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',15000,now(),$2,$3,now())`, f.household, merchant, kopi)
+	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',23000,now(),$2) RETURNING id`, f.household, merchant)
+	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
+	request := f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 81, "card")
+	f.tap(81, "review:cat:"+galon, "card")
+	text, markup := f.lastEdit(81)
+	if !strings.HasPrefix(text, "✅ Dicatat: Galon Isi Ulang") || strings.Contains(markup, "review:remember") || strings.Contains(text, "?") {
+		t.Fatalf("multi-category merchant card: %q %s", text, markup)
+	}
+	var state string
+	f.row(`SELECT state FROM review_conversation WHERE review_request_id=$1`, []any{&state}, request)
+	if state != "RESOLVED" {
+		t.Fatalf("conversation=%s", state)
+	}
+}

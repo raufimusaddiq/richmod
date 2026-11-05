@@ -233,6 +233,16 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	}
 	askRemember := offerMerchantLearning && merchantID != nil && categoryID != ""
 	if askRemember {
+		// Do not ask to learn a rule that already exists (the agent lane's rule),
+		// nor one that would be wrong: a merchant already confirmed with another
+		// category sells several kinds of things, so one auto-applied default would
+		// miscategorize; its history row on the chooser answers it in one tap.
+		if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM merchant_alias ma WHERE ma.household_id=$1 AND ma.normalized_merchant_id=$2 AND ma.default_category_id=$3 AND ma.auto_apply AND ma.created_from_user_confirmation)
+			AND NOT EXISTS(SELECT 1 FROM transaction h WHERE h.household_id=$1 AND h.merchant_id=$2 AND h.id<>$4 AND h.status='CONFIRMED' AND h.category_id IS NOT NULL AND h.category_id<>$3)`, householdID, *merchantID, categoryID, transactionID).Scan(&askRemember); err != nil {
+			return err
+		}
+	}
+	if askRemember {
 		// Complete the review item now so a merchant-learning question the user
 		// never answers cannot leave the review open. The pending question
 		// is tracked by conversation state, not by review_request.status.

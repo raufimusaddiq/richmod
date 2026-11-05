@@ -550,6 +550,10 @@ retirement for that card; it is marked superseded and the outcome edit retires
 the card instead, so an unordered retire job cannot strip the inline choice.
 Other recipients' cards retire normally. A *typed* confirmation still asks the
 question as its own bound message.
+The question is not asked when the same rule already exists, nor when the
+merchant was already confirmed with a different category: a single
+auto-applied default would miscategorize that merchant's other purchases, and
+the chooser's history row already answers it in one tap.
 
 **Stale taps.** A stale tap on a card whose review is no longer live loses its
 buttons (as the generic stale path already did); a rejected choice on a card
