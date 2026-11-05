@@ -273,8 +273,18 @@ before deploying. Do not delete or rewrite them to make the migration pass.
 ### Adding another household
 
 One deployment hosts any number of households; `household_id` isolates them and
-the database rejects cross-household references (ADR-058). Create each further
-household with its own new owner, supplying the password on standard input:
+the database rejects cross-household references (ADR-058).
+
+**From the Super Admin console (preferred, ADR-059).** In *Admin → Rumah
+tangga*, choose *Buat rumah tangga* and enter the household name, the owner's
+name and a new email, plus the owner's numeric Telegram user ID if known. The
+console shows a single-use owner invite link, valid for 24 hours and shown only
+once; send it to the owner, who sets their own password. If it expires before
+the owner enrolls, open the household and choose *Buat ulang undangan pemilik*.
+Creating a household does not give the Super Admin access to its data.
+
+**From the host shell (fallback).** Create the household with its own new owner,
+supplying the password on standard input:
 
 ```bash
 printf '%s\n' '<owner-password>' \

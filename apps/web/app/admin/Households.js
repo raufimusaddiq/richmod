@@ -3,9 +3,93 @@
 import { useState } from "react";
 import { time, Badge, Empty, useDrawerA11y, useLoad, Table } from "./shared";
 
+// Server error codes from POST /api/v1/admin/households and owner-invite.
+const provisionErrors = {
+  USER_ALREADY_EXISTS: "Email ini sudah dipakai pengguna lain. Rumah tangga baru butuh email pemilik baru.",
+  TELEGRAM_ID_ALREADY_LINKED: "Telegram user ID ini sudah terhubung ke rumah tangga lain.",
+  INVALID_HOUSEHOLD_REQUEST: "Periksa nama rumah tangga, nama pemilik, email, dan Telegram user ID.",
+  OWNER_ALREADY_ENROLLED: "Pemilik sudah mengaktifkan akunnya; undangan baru tidak diperlukan.",
+  HOUSEHOLD_OWNER_NOT_FOUND: "Pemilik aktif rumah tangga ini tidak ditemukan.",
+};
+
+export async function postProvision(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(provisionErrors[body.error] || "Permintaan ditolak server.");
+  return body;
+}
+
+// The owner invite is shown once: only its hash is stored, so a lost link is
+// replaced with "Buat ulang undangan pemilik", never recovered.
+function InviteLink({ invite, title }) {
+  const link = typeof window === "undefined" ? invite.link : window.location.origin + invite.link;
+  return (
+    <section className="panel" aria-live="polite">
+      <div>
+        <span className="eyebrow">UNDANGAN PEMILIK</span>
+        <h2>{title}</h2>
+        <p>Kirim tautan ini langsung kepada pemilik. Sekali pakai, berlaku sampai {time(invite.expiresAt)}, dan hanya ditampilkan sekarang.</p>
+      </div>
+      <div className="invite-actions">
+        <input aria-label="Tautan undangan pemilik" readOnly value={link} onFocus={(event) => event.target.select()} />
+        <button className="secondary" onClick={() => navigator.clipboard?.writeText(link)}>Salin tautan</button>
+      </div>
+    </section>
+  );
+}
+
+function CreateHousehold({ onCreated, setError }) {
+  const [busy, setBusy] = useState(false);
+  async function submit(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const telegram = String(form.get("telegramUserId") || "").trim();
+    if (telegram && !/^[1-9][0-9]{0,17}$/.test(telegram)) {
+      setError("Telegram user ID harus berupa angka positif.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const created = await postProvision("/api/v1/admin/households", {
+        householdName: form.get("householdName"),
+        ownerName: form.get("ownerName"),
+        ownerEmail: form.get("ownerEmail"),
+        ...(telegram ? { telegramUserId: Number(telegram) } : {}),
+      });
+      event.target.reset();
+      onCreated(created);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel">
+      <div className="panel-title">
+        <h2>Buat rumah tangga</h2>
+        <span>Pemilik baru diundang lewat tautan</span>
+      </div>
+      <form className="member-form" onSubmit={submit}>
+        <input aria-label="Nama rumah tangga" name="householdName" placeholder="Nama rumah tangga" maxLength="120" required />
+        <input aria-label="Nama pemilik" name="ownerName" placeholder="Nama pemilik" maxLength="120" required />
+        <input aria-label="Email pemilik" name="ownerEmail" type="email" placeholder="Email pemilik" maxLength="254" required />
+        <input aria-label="Telegram user ID pemilik (opsional)" name="telegramUserId" inputMode="numeric" placeholder="Telegram user ID (opsional)" />
+        <button disabled={busy}>{busy ? "Membuat…" : "Buat rumah tangga"}</button>
+      </form>
+    </section>
+  );
+}
+
 export default function Households({ setError }) {
   const [data, refresh] = useLoad("/api/v1/admin/households", setError),
-    [selected, setSelected] = useState(null);
+    [selected, setSelected] = useState(null),
+    [creating, setCreating] = useState(false),
+    [created, setCreated] = useState(null);
   if (!data) return <Empty>Memuat household…</Empty>;
   return (
     <section className="admin-stack">
@@ -14,10 +98,26 @@ export default function Households({ setError }) {
           <span className="eyebrow">RUMAH TANGGA</span>
           <h2>Rumah tangga</h2>
         </div>
-        <button className="secondary" onClick={refresh}>
-          Perbarui
-        </button>
+        <div className="admin-actions">
+          <button onClick={() => setCreating((open) => !open)} aria-expanded={creating}>
+            {creating ? "Tutup formulir" : "Buat rumah tangga"}
+          </button>
+          <button className="secondary" onClick={refresh}>
+            Perbarui
+          </button>
+        </div>
       </div>
+      {creating && (
+        <CreateHousehold
+          setError={setError}
+          onCreated={(result) => {
+            setCreated(result);
+            setCreating(false);
+            refresh();
+          }}
+        />
+      )}
+      {created && <InviteLink invite={created.invite} title={`${created.household.name} dibuat untuk ${created.owner.email}`} />}
       <Table
         headers={[
           "Keluarga",
@@ -54,8 +154,18 @@ export default function Households({ setError }) {
 }
 
 function HouseholdDetail({ id, close, setError }) {
-  const [data] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
+  const [data, reload] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
+  const [ownerInvite, setOwnerInvite] = useState(null);
   const drawer = useDrawerA11y(close);
+  const pendingOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && !x.enrolled);
+  async function reissue() {
+    try {
+      setOwnerInvite(await postProvision(`/api/v1/admin/households/${id}/owner-invite`));
+      reload();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
   return (
     <aside
       ref={drawer}
@@ -122,7 +232,13 @@ function HouseholdDetail({ id, close, setError }) {
             </>
           )}
           <h3>Anggota</h3>
-          {data.memberItems?.length ? <Table headers={["Nama", "Email", "Role", "Status"]}>{data.memberItems.map((x) => <tr key={x.id}><td>{x.displayName}</td><td>{x.email}</td><td>{x.role}</td><td><Badge value={x.active ? "ACTIVE" : "INACTIVE"} /></td></tr>)}</Table> : <Empty>Tidak ada anggota.</Empty>}
+          {data.memberItems?.length ? <Table headers={["Nama", "Email", "Role", "Status", "Akun"]}>{data.memberItems.map((x) => <tr key={x.id}><td>{x.displayName}</td><td>{x.email}</td><td>{x.role}</td><td><Badge value={x.active ? "ACTIVE" : "INACTIVE"} /></td><td>{x.enrolled ? "Aktif" : "Belum diaktifkan"}</td></tr>)}</Table> : <Empty>Tidak ada anggota.</Empty>}
+          {pendingOwner && (
+            <div className="admin-actions">
+              <button className="secondary" onClick={reissue}>Buat ulang undangan pemilik</button>
+            </div>
+          )}
+          {ownerInvite && <InviteLink invite={ownerInvite} title={`Undangan baru untuk ${pendingOwner?.email || "pemilik"}`} />}
           <h3>LLM terbaru</h3>
           {data.recentLLMCalls?.length ? <Table headers={["Waktu", "Task", "Status", "Latency"]}>{data.recentLLMCalls.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.task}</td><td><Badge value={x.status} /></td><td>{x.durationMs} ms</td></tr>)}</Table> : <Empty>Tidak ada panggilan LLM.</Empty>}
           <h3>Source gagal</h3>

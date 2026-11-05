@@ -2,7 +2,7 @@
 
 An ADR records a decision that changes architecture, infrastructure, or a security boundary. `AGENTS.md` requires one before any material architecture change or new infrastructure. Product decisions live in [`../bdr/`](../bdr/) as Business Decision Records.
 
-- **Adding one:** use the next number, **ADR-059**, and the file name `ADR-059-short-title.md` with Context, Decision and Status sections like the existing records.
+- **Adding one:** use the next number, **ADR-060**, and the file name `ADR-060-short-title.md` with Context, Decision and Status sections like the existing records.
 - **Current versus superseded:** the Status line of each record is authoritative. Where an ADR was amended, the Status names the amending ADR; read both.
 - **Duplicate number:** ADR-033 is used by two records on different topics. Both are current. References elsewhere in the docs use the full file name, so this index lists both rows rather than renaming either.
 
@@ -69,3 +69,4 @@ This table is generated from each file's title and Status by `scripts/generate-a
 | [ADR-056](ADR-056-static-frontend-in-go-binary.md) | Serve the static frontend from the Go API | Accepted — 2026-11-03. Amends the deployment model of ADR-002 and ADR-019; the frontend stack itself is unchanged. |
 | [ADR-057](ADR-057-installable-pwa-shell.md) | Installable PWA shell served by the Go binary | Accepted — 2026-11-03. Extends ADR-056; the frontend stack is unchanged. Amended the same day after review: the service worker is a pass-through and keeps no cache. The abandoned caching design is recorded below so it is not re-introduced by accident. Amended again the same day (issue #408): the installed app starts at `/login`, and iOS launch images are shipped, because a cold start from the home screen drew a blank white frame before the first request. |
 | [ADR-058](ADR-058-multi-household-tenancy-hardening.md) | Multi-household tenancy hardening | Accepted — 5 November 2026. Extends ADR-035 (one active household per user) and ADR-003 (PostgreSQL job queue). |
+| [ADR-059](ADR-059-super-admin-household-provisioning.md) | Super Admin household provisioning | Accepted — 5 November 2026. Extends ADR-058 (multi-household tenancy) and ADR-021 (multi-user dashboard auth). |
