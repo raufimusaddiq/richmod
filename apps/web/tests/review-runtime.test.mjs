@@ -134,3 +134,12 @@ test("without a proposed purpose only classified transfers can be merged into", 
   assert.match(html, /<button type="button">.*?Transfer A/);
   assert.match(html, /<button type="button" disabled="">.*?Transfer B/);
 });
+
+test("a notice wins over the typed card, so no refused button renders", () => {
+  const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
+    item: { id: "synthetic", reviewType: "WEALTH_OBSERVATION_CONFIRMATION", subjectType: "wealth_observation", presentation: "NOTICE", amount: "100", allowedActions: ["IGNORE"] },
+    categories: [], accounts: [], wealthAccounts: [{ id: "w", name: "Tabungan", active: true }], action() {},
+  }));
+  assert.match(html, />Mengerti</);
+  assert.doesNotMatch(html, /Gunakan akun ini/);
+});

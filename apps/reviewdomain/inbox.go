@@ -46,6 +46,10 @@ type Binding struct {
 	HasTransferCase bool
 	// TransferCandidates is the case's full candidate count before ranking.
 	TransferCandidates int
+	// HasWealthObservation reports a bound wealth observation. A provider-email
+	// wealth review binds both the observation and the email observation
+	// (migration 00052), so the subject discriminator alone is not enough.
+	HasWealthObservation bool
 	// FinancialTransferCase reports that the open case is bound to a provider
 	// email observation, which is the resolver's overflow predicate.
 	FinancialTransferCase bool
@@ -69,7 +73,7 @@ func Executable(kind, action string, b Binding) bool {
 	case "COMPLETE_BANK_FACTS":
 		return bankFactKinds[kind] && b.Subject == SubjectSourceEvent && b.SourceType == "BANK_EMAIL"
 	case "SET_WEALTH_ACCOUNT":
-		return kind == "WEALTH_OBSERVATION_CONFIRMATION" && b.Subject == SubjectWealthObservation
+		return kind == "WEALTH_OBSERVATION_CONFIRMATION" && (b.Subject == SubjectWealthObservation || b.HasWealthObservation)
 	case "SET_FINANCIAL_EMAIL_ENTITIES":
 		return kind == "FINANCIAL_EMAIL_RESOLUTION" && b.Subject == SubjectFinancialEmail
 	case "MERGE_EXISTING", "CONFIRM_NEW_TRANSFER":
@@ -162,7 +166,8 @@ func LoadBinding(ctx context.Context, tx pgx.Tx, householdID, reviewItemID strin
 		ri.document_id IS NOT NULL,
 		trc.id IS NOT NULL,
 		COALESCE(cardinality(trc.candidate_transaction_ids),0),
-		COALESCE(trc.financial_email_observation_id IS NOT NULL,false)
+		COALESCE(trc.financial_email_observation_id IS NOT NULL,false),
+		ri.wealth_observation_id IS NOT NULL
 		FROM review_item ri
 		LEFT JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id
 		LEFT JOIN source_event s ON s.id=ri.source_event_id AND s.household_id=ri.household_id
@@ -170,7 +175,7 @@ func LoadBinding(ctx context.Context, tx pgx.Tx, householdID, reviewItemID strin
 		LEFT JOIN source_event fs ON fs.id=fo.source_event_id AND fs.household_id=ri.household_id
 		LEFT JOIN LATERAL (SELECT c.id,c.candidate_transaction_ids,c.financial_email_observation_id FROM transfer_reconciliation_case c WHERE c.household_id=ri.household_id AND c.status='OPEN'
 			AND ((ri.financial_email_observation_id IS NOT NULL AND c.financial_email_observation_id=ri.financial_email_observation_id) OR (ri.financial_email_observation_id IS NULL AND ri.source_event_id IS NOT NULL AND c.source_event_id=ri.source_event_id)) LIMIT 1) trc ON true
-		WHERE ri.id=$1 AND ri.household_id=$2`, reviewItemID, householdID).Scan(&kind, &decision, &b.Subject, &b.TransactionStatus, &b.SourceType, &b.HasDocument, &b.HasTransferCase, &b.TransferCandidates, &b.FinancialTransferCase)
+		WHERE ri.id=$1 AND ri.household_id=$2`, reviewItemID, householdID).Scan(&kind, &decision, &b.Subject, &b.TransactionStatus, &b.SourceType, &b.HasDocument, &b.HasTransferCase, &b.TransferCandidates, &b.FinancialTransferCase, &b.HasWealthObservation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil, b, ErrAlreadyResolved
 	}

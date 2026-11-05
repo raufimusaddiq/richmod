@@ -12,12 +12,13 @@ export default function CanonicalCard({ item, categories, accounts, wealthAccoun
   function resolve(actionName, values = {}) { action(item.id, "resolve", { action: actionName, values }); }
   function submitDate(event) { event.preventDefault(); const form = new FormData(event.currentTarget); resolve("SET_PAY_DATE", { payDate: form.get("payDate"), ...(salaryChoice ? { choice: form.get("choice") } : {}) }); }
   function submitBank(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const raw = form.get("transactionAt"); resolve("COMPLETE_BANK_FACTS", { amountIdr: form.get("amountIdr") || null, transactionAt: raw ? new Date(raw).toISOString() : null }); }
+  // A notice asks nothing the household can decide: it explains what Richmod saw
+  // and is acknowledged once ("Mengerti"). It is not counted as a decision, and it wins over every typed card so no
+  // button the dispatcher would refuse is rendered.
+  if (item.presentation === "NOTICE") return <NoticeCard item={item} disabled={disabled} resolve={resolve}/>;
   if (residual) return <ResidualCard item={item} wealthAccounts={wealthAccounts} disabled={disabled} resolve={resolve}/>;
   if (wealthObservation) return <WealthObservationCard item={item} wealthAccounts={wealthAccounts} disabled={disabled} resolve={resolve}/>;
   if (item.reviewType === "FINANCIAL_EMAIL_RESOLUTION") return <FinancialEmailResolutionCard item={item} accounts={accounts} wealthAccounts={wealthAccounts} disabled={disabled} resolve={resolve}/>;
-  // A notice asks nothing the household can decide: it explains what Richmod saw
-  // and is acknowledged once ("Mengerti"). It is not counted as a decision.
-  if (item.presentation === "NOTICE") return <NoticeCard item={item} disabled={disabled} resolve={resolve}/>;
   if (item.reviewType === "TRANSFER_CLASSIFICATION" && (item.transferCandidates?.length || item.allowedActions?.includes("CONFIRM_NEW_TRANSFER"))) return <TransferReconciliationCard item={item} wealthAccounts={wealthAccounts} disabled={disabled} resolve={resolve}/>;
   // Proposal-first: the card states what happened, what Richmod proposes, and
   // the single unresolved dimension, then offers one primary accept action.

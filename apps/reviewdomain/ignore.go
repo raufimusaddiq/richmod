@@ -24,6 +24,10 @@ type IgnoreCommand struct {
 }
 
 var (
+	// ErrUseTransactionAction reports a transaction review whose transaction is
+	// neither awaiting review nor final (for example PENDING): neither a
+	// rejection nor an acknowledgement is correct, so nothing is changed.
+	ErrUseTransactionAction = errors.New("reviewdomain: use the transaction review action")
 	// ErrIgnoreNotAllowed reports a review whose stored contract does not offer
 	// IGNORE (for example a cycle residual, whose only dismissal is
 	// LEAVE_UNALLOCATED). Surfaces must not render a dismiss button for it.
@@ -82,6 +86,9 @@ func IgnoreReviewItem(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 		// Dismissing an open transaction review is the canonical rejection
 		// (Web "Abaikan", Telegram ignore): offered and accepted are one rule.
 		return RejectTransactionReview(ctx, tx, RejectCommand{HouseholdID: cmd.HouseholdID, ActorUserID: cmd.ActorUserID, TransactionID: *transaction, ReviewItemID: cmd.ReviewItemID, Action: "IGNORE"})
+	}
+	if txStatus != "CONFIRMED" && txStatus != "VOIDED" {
+		return ErrUseTransactionAction
 	}
 	if err := resolveItem(ctx, tx, cmd, "NO_LONGER_APPLICABLE", []byte(`{"reason":"transaction_already_final"}`)); err != nil {
 		return err

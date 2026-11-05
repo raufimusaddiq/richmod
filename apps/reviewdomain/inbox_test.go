@@ -29,6 +29,7 @@ func TestExecutableActionsFollowTheStoredDecisionAndTheBinding(t *testing.T) {
 		{"source-bound review over an overflowing provider case cannot create new", "TRANSFER_CLASSIFICATION", []string{"IGNORE"}, []string{"MERGE_EXISTING", "IGNORE"}, Binding{Subject: SubjectSourceEvent, HasTransferCase: true, TransferCandidates: 14, FinancialTransferCase: true}, false},
 		{"transfer without a case can only be dismissed", "TRANSFER_CLASSIFICATION", []string{"CLASSIFY_TRANSFER", "IGNORE"}, []string{"IGNORE"}, Binding{Subject: SubjectSourceEvent}, true},
 		{"legacy transaction date action still answers", "MISSING_TRANSACTION_DATE", []string{"SET_PAY_DATE", "IGNORE"}, []string{"SET_PAY_DATE", "IGNORE"}, Binding{Subject: SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"}, false},
+		{"provider-email wealth review keeps its account choice", "WEALTH_OBSERVATION_CONFIRMATION", []string{"SET_WEALTH_ACCOUNT", "IGNORE"}, []string{"SET_WEALTH_ACCOUNT", "IGNORE"}, Binding{Subject: SubjectFinancialEmail, HasWealthObservation: true}, false},
 		{"residual is never silently ignored", "CYCLE_RESIDUAL_ALLOCATION", nil, []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING", "LEAVE_UNALLOCATED"}, Binding{Subject: SubjectCycleResidual}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

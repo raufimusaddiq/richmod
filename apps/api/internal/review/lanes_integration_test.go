@@ -489,3 +489,45 @@ func TestTransferMergeWithoutProposedPurposeKeepsTheTargetPurpose(t *testing.T) 
 		t.Fatalf("target purpose=%s", purpose)
 	}
 }
+
+// A provider-email wealth review binds both the wealth and the email
+// observation (migration 00052); it is still a decision whose account choice
+// executes, not a notice.
+func TestProviderEmailWealthReviewKeepsItsAccountChoice(t *testing.T) {
+	f := newLaneFixture(t)
+	ctx := context.Background()
+	source := f.source("FINANCIAL_EMAIL", "NEEDS_REVIEW")
+	var wealth, emailObservation, observation, item string
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO wealth_account(household_id,name,institution,side,wealth_type,usage_role) VALUES($1,'Reksadana','Bibit','ASSET','MUTUAL_FUND','INVESTMENT') RETURNING id`, f.household).Scan(&wealth))
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO financial_email_observation(household_id,source_event_id,ordinal,kind,facts_json,status) VALUES($1,$2,0,'WEALTH_VALUE','{}'::jsonb,'REVIEW') RETURNING id`, f.household, source).Scan(&emailObservation))
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO wealth_observation(household_id,institution,account_hint,observed_value_idr,financial_email_observation_id) VALUES($1,'Bibit','Reksadana',42700000,$2) RETURNING id`, f.household, emailObservation).Scan(&observation))
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,wealth_observation_id,financial_email_observation_id,review_type,status,decision) VALUES($1,$2,$3,'WEALTH_OBSERVATION_CONFIRMATION','OPEN','{"version":1,"reasonCode":"WEALTH_OBSERVATION_CONFIRMATION","knownFacts":{},"missingFacts":["wealth_snapshot_confirmation"],"allowedActions":["SET_WEALTH_ACCOUNT","IGNORE"]}'::jsonb) RETURNING id`, f.household, observation, emailObservation).Scan(&item))
+	listed := f.item(item)
+	if listed.Presentation != reviewdomain.PresentationDecision || !slices.Contains(listed.AllowedActions, "SET_WEALTH_ACCOUNT") {
+		t.Fatalf("presentation=%s actions=%v", listed.Presentation, listed.AllowedActions)
+	}
+	if w := f.resolve(item, `{"action":"SET_WEALTH_ACCOUNT","values":{"wealthAccountId":"`+wealth+`"}}`); w.Code != http.StatusOK {
+		t.Fatalf("set account=%d %s", w.Code, w.Body.String())
+	}
+	if f.status(source) != "PROCESSED" {
+		t.Fatalf("provider source=%s", f.status(source))
+	}
+}
+
+// A transaction that is neither awaiting review nor final is not acknowledged
+// as stale.
+func TestIgnoreRefusesAnUnfinishedNonReviewTransaction(t *testing.T) {
+	f := newLaneFixture(t)
+	ctx := context.Background()
+	var transaction, item string
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','PENDING',1000,now()) RETURNING id`, f.household).Scan(&transaction))
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","knownFacts":{},"missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction).Scan(&item))
+	if w := f.resolve(item, `{"action":"IGNORE"}`); w.Code != http.StatusConflict {
+		t.Fatalf("pending transaction ignore=%d %s", w.Code, w.Body.String())
+	}
+	var status string
+	f.must(f.pool.QueryRow(ctx, `SELECT status FROM review_item WHERE id=$1`, item).Scan(&status))
+	if status != "OPEN" {
+		t.Fatalf("item=%s", status)
+	}
+}
