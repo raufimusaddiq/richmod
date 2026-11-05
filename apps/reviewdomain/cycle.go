@@ -288,7 +288,9 @@ func reopenCycleResidual(ctx context.Context, tx pgx.Tx, householdID, caseID, ac
 		return "", err
 	}
 	var itemID string
-	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,review_type,status,cycle_residual_case_id,decision) VALUES($1,'CYCLE_RESIDUAL_ALLOCATION','OPEN',$2,$3::jsonb) ON CONFLICT DO NOTHING RETURNING id::text`, householdID, caseID, string(encoded)).Scan(&itemID); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO review_item(household_id,review_type,status,cycle_residual_case_id,decision) SELECT $1,'CYCLE_RESIDUAL_ALLOCATION','OPEN',$2,$3::jsonb
+		WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE household_id=$1 AND cycle_residual_case_id=$2 AND status IN ('OPEN','PENDING_SEND'))
+		ON CONFLICT (cycle_residual_case_id) WHERE cycle_residual_case_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN') DO NOTHING RETURNING id::text`, householdID, caseID, string(encoded)).Scan(&itemID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil
 		}

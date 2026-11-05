@@ -167,7 +167,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		stored := proposalFacts(value.Decision)
 		value.Reason = stored.ReasonCode
 		value.ReviewType = stored.ReasonCode
+		// ADR-054: both Inbox list paths offer only what the dispatcher executes
+		// for the binding (here an open transaction). A legacy row with no stored
+		// actions keeps the card's own transaction lane.
 		value.AllowedActions = stored.AllowedActions
+		if len(stored.AllowedActions) > 0 {
+			value.AllowedActions = reviewdomain.ExecutableActions(stored.ReasonCode, stored.AllowedActions, reviewdomain.Binding{Subject: reviewdomain.SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"})
+		}
 		value.KnownFacts = stored.KnownFacts
 		value.ProposedFacts = stored.ProposedFacts
 		value.MissingFacts = stored.MissingFacts

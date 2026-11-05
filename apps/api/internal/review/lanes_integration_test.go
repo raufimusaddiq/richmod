@@ -303,6 +303,10 @@ func TestResidualTransactionMissingResolvesAndReturnsWithTheNewResidual(t *testi
 	if reopened != "700000" || residual != "700000" {
 		t.Fatalf("reopened residual=%s basis=%s", reopened, residual)
 	}
+	// A residual that already has an open review is never given a second one.
+	if w := f.reopen(item); w.Code != http.StatusConflict {
+		t.Fatalf("reopen beside an open residual review=%d %s", w.Code, w.Body.String())
+	}
 	// An expense that exhausts the residual records cleanly and asks nothing.
 	reopenedItem := ""
 	f.must(f.pool.QueryRow(ctx, `SELECT id FROM review_item WHERE cycle_residual_case_id=$1 AND status='OPEN'`, caseID).Scan(&reopenedItem))
@@ -530,4 +534,26 @@ func TestIgnoreRefusesAnUnfinishedNonReviewTransaction(t *testing.T) {
 	if status != "OPEN" {
 		t.Fatalf("item=%s", status)
 	}
+}
+
+// The transaction-bound list path filters the stored decision through the same
+// executable rule as the canonical path: an action no resolver runs on an open
+// transaction is never offered.
+func TestTransactionReviewListOffersOnlyExecutableActions(t *testing.T) {
+	f := newLaneFixture(t)
+	ctx := context.Background()
+	var transaction string
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'EXPENSE','NEEDS_REVIEW',1000,now()) RETURNING id`, f.household).Scan(&transaction))
+	_, err := f.pool.Exec(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","knownFacts":{},"missingFacts":["category"],"allowedActions":["COMPLETE_BANK_FACTS","SET_WEALTH_ACCOUNT","CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, f.household, transaction)
+	f.must(err)
+	items, _ := f.list("")
+	for _, value := range items {
+		if value.ID == transaction {
+			if !slices.Equal(value.AllowedActions, []string{"CONFIRM_REVIEW", "IGNORE"}) || value.Presentation != reviewdomain.PresentationDecision {
+				t.Fatalf("offered=%v presentation=%s", value.AllowedActions, value.Presentation)
+			}
+			return
+		}
+	}
+	t.Fatal("transaction review not listed")
 }
