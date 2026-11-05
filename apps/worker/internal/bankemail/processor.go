@@ -164,6 +164,11 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 		if err = auditBankCompletion(ctx, tx, household, payload); err != nil {
 			return err
 		}
+		// A retry after a committed persist (for example a cross-lane link that
+		// committed while this review was still open) settles the source here.
+		if err = reviewdomain.RefreshSourceLifecycle(ctx, tx, household, payload.SourceEventID); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	known, err := p.loadKnownAccounts(ctx, household)

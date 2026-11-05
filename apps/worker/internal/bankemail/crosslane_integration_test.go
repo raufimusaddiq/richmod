@@ -107,3 +107,49 @@ func TestBankEmailAfterAnotherLaneLinksOrAsks(t *testing.T) {
 		})
 	}
 }
+
+// A bank-fact completion whose persist (here: a cross-lane link) committed
+// before the completion transaction failed is retried; the retry resolves the
+// review and must also settle the source instead of leaving it NEEDS_REVIEW.
+func TestCompleteRetryAfterCommittedLinkSettlesTheSource(t *testing.T) {
+	if os.Getenv("TEST_DATABASE_URL") == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, os.Getenv("TEST_DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp := time.Now().UnixNano()
+	var household, owner, account, listenerID, source, otherSource, existing, merchantID, item string
+	must(pool.QueryRow(ctx, `INSERT INTO household(name) VALUES($1) RETURNING id`, fmt.Sprintf("Complete retry %d", stamp)).Scan(&household))
+	must(pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Owner','unused') RETURNING id`, fmt.Sprintf("retry-%d@test.invalid", stamp)).Scan(&owner))
+	must(pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Bank','BANK','SPENDING_ONLY') RETURNING id`, household).Scan(&account))
+	must(pool.QueryRow(ctx, `INSERT INTO bank_email_listener(household_id,bank_name,sender_address,created_by_user_id,account_id) VALUES($1,'Bank','bank@test.invalid',$2,$3) RETURNING id`, household, owner, account).Scan(&listenerID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, household, fmt.Sprint(stamp), []byte(fmt.Sprint(stamp))).Scan(&source))
+	_, err = pool.Exec(ctx, `INSERT INTO bank_email_extraction(source_event_id,listener_id,protocol,tool_schema_version,output_json,validation_status) VALUES($1,$2,'native_tool','1','{"kind":"TRANSACTION","amount_idr":"54000","transaction_at":"2026-10-19T06:30:00Z","merchant":"QRIS ALFAMART","confidence":0.9}','VALID')`, source, listenerID)
+	must(err)
+	must(pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'UNKNOWN_BANK_TEMPLATE','OPEN','{"version":1,"reasonCode":"UNKNOWN_BANK_TEMPLATE","allowedActions":["COMPLETE_BANK_FACTS","IGNORE"]}'::jsonb) RETURNING id`, household, source).Scan(&item))
+	// The earlier attempt's persist committed: a link to the receipt transaction.
+	must(pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Alfamart') RETURNING id`, household).Scan(&merchantID))
+	must(pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'PROCESSED') RETURNING id`, household, fmt.Sprint(stamp+1), []byte(fmt.Sprint(stamp+1))).Scan(&otherSource))
+	must(pool.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR','2026-10-19T06:20:00Z',$2,now()) RETURNING id`, household, merchantID).Scan(&existing))
+	_, err = pool.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'RECEIPT_IMAGE',.9),($1,$3,'BANK_EMAIL',.9)`, existing, otherSource, source)
+	must(err)
+	_, err = pool.Exec(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposed_type,amount,currency,transaction_at,confidence,proposal_status) VALUES($1,$2,'EXPENSE',54000,'IDR','2026-10-19T06:30:00Z',.9,'MERGED')`, household, source)
+	must(err)
+	amount, at := "54000", "2026-10-19T13:30:00+07:00"
+	must((&Processor{pool: pool}).Complete(ctx, Payload{SourceEventID: source, ReviewID: item, AmountIDR: &amount, TransactionAt: &at, UserID: owner}))
+	var itemStatus, sourceStatus string
+	must(pool.QueryRow(ctx, `SELECT (SELECT status FROM review_item WHERE id=$1),(SELECT processing_status FROM source_event WHERE id=$2)`, item, source).Scan(&itemStatus, &sourceStatus))
+	if itemStatus != "RESOLVED" || sourceStatus != "PROCESSED" {
+		t.Fatalf("retry left review=%s source=%s", itemStatus, sourceStatus)
+	}
+}
