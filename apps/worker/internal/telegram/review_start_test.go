@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -102,8 +103,13 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 }
 
 func TestRequiredFieldReplyMarkupOnlyOffersIgnore(t *testing.T) {
-	markup := requiredFieldReplyMarkup()
-	if len(markup.InlineKeyboard) != 1 || len(markup.InlineKeyboard[0]) != 1 || markup.InlineKeyboard[0][0].CallbackData != "review:ignore" {
+	decision, _ := reviewdec.Preset("MISSING_TRANSACTION_DATE", "transaction", "t")
+	card := buildReviewCard(decision, "MISSING_TRANSACTION_DATE", "", reviewSubject{})
+	markup, err := reviewCardMarkup(context.Background(), nil, "", "MISSING_TRANSACTION_DATE", decision, card, reviewSubject{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if markup == nil || len(markup.InlineKeyboard) != 1 || len(markup.InlineKeyboard[0]) != 1 || markup.InlineKeyboard[0][0].CallbackData != "review:ignore" {
 		t.Fatalf("markup=%#v", markup)
 	}
 }

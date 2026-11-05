@@ -24,6 +24,7 @@ var telegramCallbackExact = map[string]struct{}{
 	"review:category": {}, "review:ignore": {}, "review:reprocess": {},
 	"review:quality:confirm": {}, "review:salary:primary": {}, "review:salary:ordinary": {},
 	"review:dup:new": {}, "review:dispute:confirm": {}, "review:dispute:reject": {},
+	"review:leave": {}, "review:xfer:new": {},
 	"pending:action:yes": {}, "pending:action:no": {}, "pending:batch:yes": {}, "pending:batch:no": {},
 }
 
@@ -37,7 +38,7 @@ var telegramCallbackTokenPrefixes = []string{
 
 // Numeric callbacks: a page number or a list position resolved server-side.
 var telegramCallbackNumberPrefixes = []string{
-	"review:catpage:", "review:fepage:", "review:dup:merge:",
+	"review:catpage:", "review:fepage:", "review:dup:merge:", "review:xfer:merge:",
 }
 
 // ValidTelegramCallback reports whether data is a callback the system issues.

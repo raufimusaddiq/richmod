@@ -594,6 +594,12 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			slog.Default().Warn("record edited Telegram review card text failed", "job_id", job.ID, "error", err)
 		}
 		return nil
+	case "PROJECT_TELEGRAM_REVIEW":
+		payload, err := telegram.DecodeProjectReviewPayload(job.Payload)
+		if err != nil {
+			return err
+		}
+		return processor.ProjectReviewJob(ctx, payload)
 	case "RETIRE_TELEGRAM_REVIEW_CARD":
 		payload, err := telegram.DecodeRetireCardPayload(job.Payload)
 		if err != nil {

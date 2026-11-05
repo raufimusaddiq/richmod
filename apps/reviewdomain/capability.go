@@ -1,13 +1,11 @@
 package reviewdomain
 
+import "github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
+
 // TelegramCompleteActions lists ReviewDecision ordinary actions with a Telegram
 // terminal or continuation. Admin metrics and the worker contract gate share it.
+// It is derived from the review kind registry (ADR-054), so a kind that gains a
+// Telegram lane there is counted here without a second hand-kept list.
 func TelegramCompleteActions() []string {
-	return []string{
-		"CONFIRM_REVIEW", "CLASSIFY_TRANSFER", "ALLOCATE_RETAINED_BALANCE", "LEAVE_UNALLOCATED",
-		"TRANSACTION_MISSING", "PRIMARY_SALARY", "ORDINARY_INCOME", "SET_PAY_DATE",
-		"COMPLETE_BANK_FACTS", "REPROCESS_DOCUMENT", "SET_FINANCIAL_EMAIL_ENTITIES",
-		"MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "SET_WEALTH_ACCOUNT", "RECORD_ASSET_PURCHASE",
-		"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE",
-	}
+	return reviewdec.TelegramCompleteActions()
 }
