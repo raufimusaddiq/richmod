@@ -183,6 +183,14 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	if err := p.persist(ctx, listener, payload.SourceEventID, extraction, result, payload.ReviewID); err != nil {
 		return err
 	}
+	// A cross-lane link books nothing new: record and announce what happened.
+	var linked bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction_proposal WHERE source_event_id=$1 AND proposal_status='MERGED' AND metadata_json ? 'matched_transaction_id')`, payload.SourceEventID).Scan(&linked); err != nil {
+		return err
+	}
+	if linked {
+		result.Status = "LINKED"
+	}
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -199,6 +207,8 @@ func (p *Processor) Complete(ctx context.Context, payload Payload) error {
 	if payload.TelegramChatID != 0 {
 		message := "Email bank diproses tanpa mencatat transaksi."
 		switch result.Status {
+		case "LINKED":
+			message = "Email bank ditautkan ke transaksi yang sudah tercatat."
 		case "CONFIRMED":
 			message = "Transaksi bank dicatat."
 		case "NEEDS_REVIEW":

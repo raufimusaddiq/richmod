@@ -48,7 +48,8 @@ export function ProposalFacts({ item, known, missing }) {
 
 const fieldLabels = { amount_idr: "Jumlah", amount: "Jumlah", transaction_at: "Waktu", direction: "Arah", merchant: "Merchant", category: "Kategori", categorySlug: "Kategori", funding_account: "Rekening sumber", wealth_account: "Akun kekayaan", wealthAccountId: "Akun kekayaan", transfer_relationship: "Jenis transfer", duplicate_relationship: "Hubungan duplikat", transaction_semantics: "Jenis transaksi", evidence_support: "Dukungan bukti", observation_type: "Jenis observasi", cash_movement: "Pergerakan dana", transaction_ambiguity: "Ambiguitas transaksi", resolvedAccountId: "Rekening sumber", resolvedWealthAccountId: "Akun kekayaan", residual_allocation: "Alokasi sisa", wealth_snapshot_confirmation: "Konfirmasi akun", document_extraction: "Isi dokumen", document_type: "Jenis dokumen", salary_classification: "Jenis gaji", correction_details: "Koreksi", receipt_arithmetic: "Rincian struk", transaction_observed: "Bukti transaksi", type: "Jenis", channel: "Saluran", kind: "Jenis", residual_idr: "Sisa" };
 
-function label(key) { return fieldLabels[key] || reviewTypes[key] || "Detail lain"; }
+// An unknown fact key degrades to readable lower-case words rather than a code.
+function label(key) { if (fieldLabels[key] || reviewTypes[key]) return fieldLabels[key] || reviewTypes[key]; const words = String(key).split("_").join(" ").toLowerCase(); return words.charAt(0).toUpperCase() + words.slice(1); }
 
 export function MissingInputs(item) {
   // The decision contract uses missingFacts; a legacy transaction-backed review

@@ -193,14 +193,15 @@ func (p *Processor) ignoreFinancialEmailFacts(ctx context.Context, sourceEventID
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,'IGNORE_FINANCIAL_EMAIL_FACTS','financial_email_observation',$3,jsonb_build_object('review_item_id',$4::uuid))`, householdID, userID, observationID, itemID); err != nil {
 		return true, err
 	}
-	// Three-branch CASE shared with reviewdomain.ResolveFinancialEmailReview and
-	// financialemail's own projection: an email with one APPLIED observation is
-	// PROCESSED even after another observation is ignored, so this lane must not
-	// stamp IGNORED over canonical state already written.
-	// It settles the provider email's own event, not `sourceEventID` (the
-	// Telegram callback event); the callback event is settled below like every
-	// sibling lane, or EnsureSourceEventFinal fails on a still-RECEIVED callback.
-	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status=CASE WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status IN ('PENDING','REVIEW')) THEN 'NEEDS_REVIEW' WHEN EXISTS(SELECT 1 FROM financial_email_observation WHERE source_event_id=$1 AND status='APPLIED') THEN 'PROCESSED' ELSE 'IGNORED' END WHERE id=$1`, observationSource); err != nil {
+	// The observation's reconciliation case closes with it, as in
+	// reviewdomain.ResolveFinancialEmailReview, and the provider email's own
+	// event settles through the shared lifecycle (ADR-046): an applied sibling
+	// keeps it PROCESSED and an open sibling keeps it in review. The Telegram
+	// callback event is settled below like every sibling lane.
+	if _, err = tx.Exec(ctx, `UPDATE transfer_reconciliation_case SET status='RESOLVED',updated_at=now() WHERE financial_email_observation_id=$1 AND household_id=$2 AND status IN ('OPEN','PENDING_SEND')`, observationID, householdID); err != nil {
+		return true, err
+	}
+	if err = reviewdomain.MarkSourceIgnored(ctx, tx, householdID, observationSource); err != nil {
 		return true, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-review',parser_version='1' WHERE id=$1`, sourceEventID); err != nil {

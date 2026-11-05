@@ -11,9 +11,9 @@ import (
 // (with MarkSourceIgnored for a dismissal). Lanes that recomputed it inline with
 // their own CASE drifted and left events stuck (migrations 00083/00084).
 func TestSourceLifecycleIsDerivedOnlyByTheSharedRule(t *testing.T) {
-	inline := regexp.MustCompile(`processing_status=CASE`)
+	inline := regexp.MustCompile(`processing_status\s*=\s*CASE\s+WHEN\s+(NOT\s+)?EXISTS`)
 	files := []string{}
-	for _, pattern := range []string{"*.go", "../api/internal/review/*.go", "../api/internal/wealth/*.go"} {
+	for _, pattern := range []string{"*.go", "../api/internal/*/*.go", "../worker/internal/*/*.go"} {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
 			t.Fatal(err)

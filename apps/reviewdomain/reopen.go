@@ -283,7 +283,7 @@ func insertReopened(ctx context.Context, tx pgx.Tx, cmd ReopenCommand, kind, col
 	// A subject that already has active work is never given a second open
 	// review (a repeated or racing reopen); the partial unique indexes back this.
 	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,`+column+`,review_type,status,decision) SELECT $1,$2,$3,'OPEN',$4::jsonb
-		WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE household_id=$1 AND `+column+`=$2 AND status IN ('OPEN','PENDING_SEND')) RETURNING id::text`, cmd.HouseholdID, subjectID, kind, string(encoded)).Scan(&itemID)
+		WHERE NOT EXISTS (SELECT 1 FROM review_item WHERE household_id=$1 AND `+column+`=$2 AND status IN ('OPEN','PENDING_SEND')) ON CONFLICT DO NOTHING RETURNING id::text`, cmd.HouseholdID, subjectID, kind, string(encoded)).Scan(&itemID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrReopenNotReversible
 	}
