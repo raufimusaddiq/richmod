@@ -112,6 +112,8 @@ func run(logger *slog.Logger) error {
 	mux.Handle("GET /api/v1/admin/users", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Users))))
 	mux.Handle("PATCH /api/v1/admin/users/{id}", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.PatchUser))))
 	mux.Handle("GET /api/v1/admin/households", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Households))))
+	mux.Handle("POST /api/v1/admin/households", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.CreateHousehold))))
+	mux.Handle("POST /api/v1/admin/households/{householdId}/owner-invite", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.ReissueOwnerInvite))))
 	mux.Handle("GET /api/v1/admin/households/{householdId}/overview", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.HouseholdOverview))))
 	mux.Handle("GET /api/v1/admin/overview", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Overview))))
 	mux.Handle("GET /api/v1/admin/jobs", authHandler.RequireSession(adminHandler.Require(http.HandlerFunc(adminHandler.Jobs))))

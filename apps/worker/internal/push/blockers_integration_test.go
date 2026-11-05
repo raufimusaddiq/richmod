@@ -5,6 +5,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/pushsupport"
 )
@@ -226,74 +228,6 @@ func TestBlockerCrossHouseholdSubscriptionNotDelivered(t *testing.T) {
 	_, paths := fake.snapshot()
 	if len(paths) != 1 || paths[0] != "/right-household" {
 		t.Fatalf("cross-household delivery paths=%v", paths)
-	}
-}
-
-func TestBlockerReSubscribeMovesHouseholdAndRetiresPending(t *testing.T) {
-	pool := blkPool(t)
-	blkClean(t, pool)
-	household, user := blkMember(t, pool)
-	ctx := context.Background()
-	var otherHousehold string
-	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('moved-'||substr(gen_random_uuid()::text,1,8)) RETURNING id`).Scan(&otherHousehold); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role,active) VALUES($1,$2,'MEMBER',false)`, otherHousehold, user); err != nil {
-		t.Fatal(err)
-	}
-	endpoint := "https://1.1.1.1/moved?" + user
-	p256dh, auth := blkDeviceKeys(t)
-	var subscriptionID string
-	if err := pool.QueryRow(ctx, `INSERT INTO push_subscriptions(user_id,household_id,endpoint,p256dh,auth) VALUES($1,$2,$3,$4,$5) RETURNING id`, user, household, endpoint, p256dh, auth).Scan(&subscriptionID); err != nil {
-		t.Fatal(err)
-	}
-	var oldOutboxID int64
-	if err := pool.QueryRow(ctx, `INSERT INTO push_outbox(household_id,user_id,kind,payload) VALUES($1,$2,'REVIEW','{}') RETURNING id`, household, user).Scan(&oldOutboxID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO push_outbox_delivery(outbox_id,subscription_id,status,attempts) VALUES($1,$2,'PENDING',1)`, oldOutboxID, subscriptionID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `UPDATE household_member SET active=false WHERE household_id=$1 AND user_id=$2`, household, user); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `UPDATE household_member SET active=true WHERE household_id=$1 AND user_id=$2`, otherHousehold, user); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pushsupport.UpsertSubscription(ctx, pool, user, otherHousehold, endpoint, p256dh, auth, "move"); err != nil {
-		t.Fatal(err)
-	}
-	var storedHousehold string
-	var pending int
-	if err := pool.QueryRow(ctx, `SELECT household_id::text,(SELECT count(*) FROM push_outbox_delivery WHERE subscription_id=$1 AND status='PENDING') FROM push_subscriptions WHERE id=$1`, subscriptionID).Scan(&storedHousehold, &pending); err != nil {
-		t.Fatal(err)
-	}
-	if storedHousehold != otherHousehold {
-		t.Fatalf("subscription household=%s, want %s", storedHousehold, otherHousehold)
-	}
-	if pending != 0 {
-		t.Fatalf("old pending deliveries=%d, want 0", pending)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO integration_action(household_id,integration_type,action_type,status,title,dedupe_key) VALUES($1,'EMAIL_FORWARDING','VERIFY_FORWARDING','OPEN','Verify',$2)`, otherHousehold, "move-"+otherHousehold); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `UPDATE push_outbox SET available_at=now() WHERE household_id=$1`, otherHousehold); err != nil {
-		t.Fatal(err)
-	}
-	fake := &blkFake{}
-	sender := blkSender(t, pool, fake)
-	if _, err := sender.RunOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if count, paths := fake.snapshot(); count != 1 || paths[0] != "/moved" {
-		t.Fatalf("new-household delivery count=%d paths=%v", count, paths)
-	}
-	var newSent bool
-	if err := pool.QueryRow(ctx, `SELECT count(*) > 0 FROM push_outbox WHERE household_id=$1 AND user_id=$2 AND sent_at IS NOT NULL`, otherHousehold, user).Scan(&newSent); err != nil {
-		t.Fatal(err)
-	}
-	if !newSent {
-		t.Fatal("new-household event was not delivered")
 	}
 }
 
@@ -722,4 +656,48 @@ func blkSender(t *testing.T, pool *pgxpool.Pool, fake *blkFake) *Sender {
 	sender.backoff = func(int) time.Duration { return time.Second }
 	sender.batch = 1000
 	return sender
+}
+
+// TestBlockerSubscriptionNeverChangesHousehold: a user belongs to one household
+// for good (migration 00088), so a refresh claiming another household is
+// refused and the stored subscription keeps its household and deliveries.
+func TestBlockerSubscriptionNeverChangesHousehold(t *testing.T) {
+	pool := blkPool(t)
+	blkClean(t, pool)
+	household, user := blkMember(t, pool)
+	ctx := context.Background()
+	var otherHousehold string
+	if err := pool.QueryRow(ctx, `INSERT INTO household(name) VALUES('other-'||substr(gen_random_uuid()::text,1,8)) RETURNING id`).Scan(&otherHousehold); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'MEMBER')`, otherHousehold, user); err == nil {
+		t.Fatal("a user joined a second household")
+	}
+	endpoint := "https://1.1.1.1/fixed?" + user
+	p256dh, auth := blkDeviceKeys(t)
+	subscriptionID, err := pushsupport.UpsertSubscription(ctx, pool, user, household, endpoint, p256dh, auth, "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outboxID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO push_outbox(household_id,user_id,kind,payload) VALUES($1,$2,'REVIEW','{}') RETURNING id`, household, user).Scan(&outboxID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO push_outbox_delivery(outbox_id,subscription_id,status,attempts) VALUES($1,$2,'PENDING',1)`, outboxID, subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pushsupport.UpsertSubscription(ctx, pool, user, otherHousehold, endpoint, p256dh, auth, "other"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("refresh into another household: %v, want refusal", err)
+	}
+	if _, err := pushsupport.UpsertSubscription(ctx, pool, user, household, endpoint, p256dh, auth, "refresh"); err != nil {
+		t.Fatalf("same-household refresh: %v", err)
+	}
+	var storedHousehold string
+	var pending int
+	if err := pool.QueryRow(ctx, `SELECT household_id::text,(SELECT count(*) FROM push_outbox_delivery WHERE subscription_id=$1 AND status='PENDING') FROM push_subscriptions WHERE id=$1`, subscriptionID).Scan(&storedHousehold, &pending); err != nil {
+		t.Fatal(err)
+	}
+	if storedHousehold != household || pending != 1 {
+		t.Fatalf("subscription household=%s pending=%d, want %s and 1", storedHousehold, pending, household)
+	}
 }

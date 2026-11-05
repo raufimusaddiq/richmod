@@ -219,6 +219,12 @@ func seedReceiptFixture(t *testing.T, label string) receiptFixture {
 	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Recipient','test-only-hash') RETURNING id`, fmt.Sprintf("receipt-%d@example.test", stamp)).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
+	// A Telegram identity must belong to its user's membership (migration
+	// 00088). The membership is inactive, as the identity had none before, so
+	// it stays out of the active recipients these tests expect to be empty.
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role,active,deactivated_at) VALUES($1,$2,'MEMBER',false,now())`, fixture.householdID, userID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, stamp%1000000000, fixture.householdID, userID); err != nil {
 		t.Fatal(err)
 	}

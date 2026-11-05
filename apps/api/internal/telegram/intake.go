@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/provision"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
@@ -355,10 +356,12 @@ func (s *PostgreSQLStore) Link(ctx context.Context, input CaptureInput, token st
 		return false, fmt.Errorf("validate Telegram invite: %w", err)
 	}
 	var active bool
-	if err = tx.QueryRow(ctx, `SELECT active FROM household_member WHERE household_id=$1 AND user_id=$2`, householdID, userID).Scan(&active); err != nil || !active {
+	if err = tx.QueryRow(ctx, `SELECT hm.active AND u.active FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 AND hm.user_id=$2`, householdID, userID).Scan(&active); err != nil || !active {
 		return false, ErrUnauthorized
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, input.TelegramUserID, householdID, userID); err != nil {
+	// Telegram ID and user are bound 1:1: an ID already bound to anyone, or a
+	// member who already has a Telegram ID, is refused (ADR-059).
+	if err = provision.BindTelegramIdentity(ctx, tx, input.TelegramUserID, householdID, userID); err != nil {
 		return false, ErrUnauthorized
 	}
 	if _, err = tx.Exec(ctx, `UPDATE telegram_link_invite SET status='CONSUMED',consumed_at=now() WHERE id=$1`, inviteID); err != nil {

@@ -70,8 +70,10 @@ one deployment:
    `/bootstrap --new-household` creates a household with a **new** owner user,
    the optional Telegram identity and the default categories in one
    transaction, audited as `CREATE_HOUSEHOLD`. It refuses an existing email or
-   an already linked Telegram ID, so no user ever moves household implicitly
-   (ADR-035). The first-run bootstrap is unchanged.
+   a Telegram ID that is already bound to a user (ADR-059 makes these bindings
+   1:1 and permanent), so no user ever moves household implicitly
+   (ADR-035). The first-run bootstrap is unchanged. ADR-059 adds the same
+   provisioning to the Super Admin console.
 8. **Only the receiving MTA's authentication results count.** Ingress reads
    only the topmost `Authentication-Results` header, requires a trusted
    authserv-id, parses `dkim=pass` and `dmarc=pass` as method results (comments

@@ -19,6 +19,11 @@ import (
 // subscription's PENDING delivery rows in the same transaction, so a retry from
 // the period the user opted out of cannot be sent.
 //
+// A subscription never changes household: a user belongs to exactly one
+// household for good (migration 00088, ADR-059), so a refresh must match both
+// the stored user and the stored household, and anything else is refused like
+// an endpoint owned by another user.
+//
 // There is no subscription-level last_error: transient text stays on the
 // event-scoped push_outbox_delivery row, so a stale error cannot read as current
 // device health.
@@ -29,9 +34,9 @@ func UpsertSubscription(ctx context.Context, pool *pgxpool.Pool, userID, househo
 	}
 	defer tx.Rollback(ctx)
 
-	var id, oldHouseholdID string
+	var id string
 	var wasDisabled bool
-	err = tx.QueryRow(ctx, `SELECT id,household_id::text,disabled_at IS NOT NULL FROM push_subscriptions WHERE endpoint=$1 FOR UPDATE`, endpoint).Scan(&id, &oldHouseholdID, &wasDisabled)
+	err = tx.QueryRow(ctx, `SELECT id,disabled_at IS NOT NULL FROM push_subscriptions WHERE endpoint=$1 FOR UPDATE`, endpoint).Scan(&id, &wasDisabled)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
@@ -43,17 +48,16 @@ func UpsertSubscription(ctx context.Context, pool *pgxpool.Pool, userID, househo
 		SELECT $1,$2,$3,$4,$5,NULLIF($6,''),now()
 		WHERE EXISTS (SELECT 1 FROM household_member hm WHERE hm.user_id=$1 AND hm.household_id=$2 AND hm.active)
 		ON CONFLICT (endpoint) DO UPDATE
-		SET household_id=EXCLUDED.household_id,
-		    p256dh=EXCLUDED.p256dh,auth=EXCLUDED.auth,user_agent=EXCLUDED.user_agent,
+		SET p256dh=EXCLUDED.p256dh,auth=EXCLUDED.auth,user_agent=EXCLUDED.user_agent,
 		    last_seen_at=now(),disabled_at=NULL,failure_count=0,
 		    active_since=CASE WHEN push_subscriptions.disabled_at IS NOT NULL THEN now() ELSE push_subscriptions.active_since END
-		WHERE push_subscriptions.user_id=EXCLUDED.user_id
+		WHERE push_subscriptions.user_id=EXCLUDED.user_id AND push_subscriptions.household_id=EXCLUDED.household_id
 		RETURNING id`,
 		userID, householdID, endpoint, p256dh, auth, userAgent).Scan(&id)
 	if err != nil {
 		return "", err
 	}
-	if wasDisabled || (oldHouseholdID != "" && oldHouseholdID != householdID) {
+	if wasDisabled {
 		if _, err := tx.Exec(ctx, `UPDATE push_outbox_delivery SET status='DEAD',updated_at=now() WHERE subscription_id=$1 AND status='PENDING'`, id); err != nil {
 			return "", err
 		}

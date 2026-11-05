@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted — 5 September 2026.
+Accepted — 5 September 2026. **Amended by ADR-059 on 5 November 2026:** a user
+belongs to exactly one household for good (`household_member(user_id)` is
+unique, migration `00088`), so a user with an inactive membership can no longer
+be added or reactivated in another household; the rule below that allowed it no
+longer applies.
 
 ## Decision
 
