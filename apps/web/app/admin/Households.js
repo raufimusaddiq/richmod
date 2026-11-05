@@ -10,6 +10,10 @@ const provisionErrors = {
   INVALID_HOUSEHOLD_REQUEST: "Periksa nama rumah tangga, nama pemilik, email, dan Telegram user ID.",
   OWNER_ALREADY_ENROLLED: "Pemilik sudah mengaktifkan akunnya; undangan baru tidak diperlukan.",
   HOUSEHOLD_OWNER_NOT_FOUND: "Pemilik aktif rumah tangga ini tidak ditemukan.",
+  HOUSEHOLD_CREATE_FAILED: "Rumah tangga belum dapat dibuat. Tidak ada yang tersimpan; coba lagi.",
+  OWNER_INVITE_FAILED: "Undangan pemilik belum dapat dibuat. Coba lagi.",
+  ADMIN_AUDIT_FAILED: "Audit platform gagal dicatat, jadi perubahan dibatalkan. Coba lagi.",
+  SUPER_ADMIN_REQUIRED: "Hanya Super Admin yang dapat membuat rumah tangga.",
 };
 
 export async function postProvision(url, payload) {

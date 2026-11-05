@@ -15,6 +15,7 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/category"
@@ -59,8 +60,9 @@ func (in *HouseholdInput) Normalize() error {
 	in.HouseholdName = strings.TrimSpace(in.HouseholdName)
 	in.OwnerName = strings.TrimSpace(in.OwnerName)
 	in.OwnerEmail = strings.ToLower(strings.TrimSpace(in.OwnerEmail))
-	if in.HouseholdName == "" || len(in.HouseholdName) > 120 || in.OwnerName == "" || len(in.OwnerName) > 120 ||
-		len(in.OwnerEmail) > 254 || !plainEmail(in.OwnerEmail) || in.TelegramUserID < 0 {
+	// Names are limited in characters, as the database checks them.
+	if in.HouseholdName == "" || utf8.RuneCountInString(in.HouseholdName) > 120 || in.OwnerName == "" || utf8.RuneCountInString(in.OwnerName) > 120 ||
+		len(in.OwnerEmail) > 254 || !plainEmail(in.OwnerEmail) || in.TelegramUserID < 0 || (in.PasswordSet && in.PasswordHash == "") {
 		return ErrInvalidInput
 	}
 	return nil

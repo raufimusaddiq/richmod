@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -179,12 +180,17 @@ func (p *pipe) text(body string, replyTo int64, from int64) (string, error) {
 	return source, p.tg.Process(p.ctx, source)
 }
 
+// pressSequence keeps callback IDs unique when presses run concurrently: two
+// goroutines can read the same time.Now().UnixNano() and collide on
+// source_event_external_id_unique.
+var pressSequence atomic.Int64
+
 func (p *pipe) press(data string, message int64, from int64) (string, error) {
 	p.t.Helper()
-	raw, _ := json.Marshal(map[string]any{"callback_query": map[string]any{"id": fmt.Sprintf("cb-%d", time.Now().UnixNano()), "data": data, "from": map[string]any{"id": from}, "message": map[string]any{"message_id": message, "chat": map[string]any{"id": p.chat}}}})
-	stamp := time.Now().UnixNano()
+	key := fmt.Sprintf("cb-%d-%d", time.Now().UnixNano(), pressSequence.Add(1))
+	raw, _ := json.Marshal(map[string]any{"callback_query": map[string]any{"id": key, "data": data, "from": map[string]any{"id": from}, "message": map[string]any{"message_id": message, "chat": map[string]any{"id": p.chat}}}})
 	var source string
-	p.must(p.pool.QueryRow(p.ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id::text`, p.household, fmt.Sprintf("cb-%d", stamp), []byte(fmt.Sprintf("cb-%d", stamp))).Scan(&source))
+	p.must(p.pool.QueryRow(p.ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_CALLBACK',$2,now(),$3,'RECEIVED') RETURNING id::text`, p.household, key, []byte(key)).Scan(&source))
 	p.exec(`INSERT INTO source_event_payload(source_event_id,payload_json) VALUES($1,$2::jsonb)`, source, string(raw))
 	return source, p.tg.Process(p.ctx, source)
 }
