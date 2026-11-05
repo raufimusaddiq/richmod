@@ -221,7 +221,8 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 // note that the review is still in the Review Inbox) and releases the chat's
 // next queued card; the canonical review_item stays open on the web. A request
 // whose only cards are still waiting in the pacing queue is not expired: its
-// window starts when a card is shown. Finally every chat with a queued card and
+// window starts when a card is shown. A copy still queued when the others
+// expire stays queued, and its release renews the projection. Finally every chat with a queued card and
 // a free slot is released, which repairs a release a crash or renewal missed.
 func (p *Processor) SweepReviewProjections(ctx context.Context, limit int) (expired, released int, err error) {
 	tag, err := p.pool.Exec(ctx, `UPDATE review_request r SET status='EXPIRED'

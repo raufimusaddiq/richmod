@@ -502,7 +502,14 @@ and released oldest-first when a live card in that chat closes, expires, fails,
 or is skipped. Admission and release are SQL functions under one advisory lock
 per chat (migration `00090`), so the release happens in the same transaction as
 the close, whichever surface closed it. A card's projection window starts when
-it is released.
+it is released. A release never waits for a row lock while it holds the chat
+lock (rows are claimed with `SKIP LOCKED`, and a close takes its chats' locks in
+chat order before touching recipients), so a close and a release cannot
+deadlock; a request skipped because it is being closed is released by that
+close's own trigger. A queued copy outlives the expiry of the request's other
+copies: when it is released, the projection is renewed (`EXPIRED` → `OPEN`,
+seven days from release), as a typed reply to an expired card does. Queued
+copies of a resolved or cancelled review are never sent.
 
 **Expiry.** The worker's maintenance tick expires active requests past
 `expires_at` (seven days) in batches. Expiry closes only the projection: every

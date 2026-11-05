@@ -117,6 +117,15 @@ CREATE FUNCTION review_card_live_count(p_chat BIGINT, p_except UUID DEFAULT NULL
 $$;
 -- +goose StatementEnd
 
+-- Lock order (no deadlock between a release and a close): a release holds the
+-- chat's advisory lock and never waits for a row lock while holding it; every
+-- row it touches is claimed with SKIP LOCKED. A request being closed right now
+-- is skipped here, and that close's own trigger releases the chat after it.
+--
+-- A queued copy outlives the expiry of the request's other copies: the item is
+-- still open, so releasing it renews the projection (EXPIRED -> OPEN, seven
+-- days from release), exactly as a typed reply to an expired card does. A
+-- queued copy of a resolved or cancelled review is never sent.
 -- +goose StatementBegin
 CREATE FUNCTION release_review_cards(p_chat BIGINT) RETURNS INTEGER LANGUAGE plpgsql AS $$
 DECLARE
@@ -124,26 +133,32 @@ DECLARE
     next_recipient RECORD;
 BEGIN
     PERFORM pg_advisory_xact_lock(hashtextextended('review_card_pacing:' || p_chat::text, 0));
-    -- A queued card whose request already closed, or that has nothing to send,
-    -- is never sent.
-    UPDATE review_request_recipient rr SET delivery_status='SKIPPED', queued_payload=NULL
-    FROM review_request r
-    WHERE r.id = rr.review_request_id AND rr.telegram_chat_id = p_chat
-      AND rr.delivery_status = 'QUEUED'
-      AND (r.status NOT IN ('PENDING_SEND','OPEN') OR rr.queued_payload IS NULL);
-    WHILE review_card_live_count(p_chat) < 3 LOOP
-        SELECT rr.id, rr.review_request_id, rr.queued_payload INTO next_recipient
-        FROM review_request_recipient rr JOIN review_request r ON r.id = rr.review_request_id
+    UPDATE review_request_recipient SET delivery_status='SKIPPED', queued_payload=NULL
+    WHERE id IN (
+        SELECT rr.id
+        FROM review_request_recipient rr
+        JOIN review_request r ON r.id = rr.review_request_id
+        JOIN review_item ri ON ri.id = r.review_item_id
         WHERE rr.telegram_chat_id = p_chat AND rr.delivery_status = 'QUEUED'
-          AND rr.queued_payload IS NOT NULL AND r.status IN ('PENDING_SEND','OPEN')
+          AND (r.status IN ('RESOLVED','CANCELLED') OR ri.status NOT IN ('PENDING_SEND','OPEN') OR rr.queued_payload IS NULL)
+        FOR UPDATE OF rr SKIP LOCKED);
+    WHILE review_card_live_count(p_chat) < 3 LOOP
+        SELECT rr.id, rr.review_request_id, rr.queued_payload, r.status AS request_status INTO next_recipient
+        FROM review_request_recipient rr
+        JOIN review_request r ON r.id = rr.review_request_id
+        JOIN review_item ri ON ri.id = r.review_item_id
+        WHERE rr.telegram_chat_id = p_chat AND rr.delivery_status = 'QUEUED' AND rr.queued_payload IS NOT NULL
+          AND r.status IN ('PENDING_SEND','OPEN','EXPIRED') AND ri.status IN ('PENDING_SEND','OPEN')
         ORDER BY rr.created_at, rr.id
         LIMIT 1
-        FOR UPDATE OF rr;
+        FOR UPDATE OF rr, r SKIP LOCKED;
         EXIT WHEN NOT FOUND;
         INSERT INTO job(type, payload_json, max_attempts) VALUES ('SEND_TELEGRAM_MESSAGE', next_recipient.queued_payload, 8);
         UPDATE review_request_recipient SET delivery_status='PENDING', queued_payload=NULL WHERE id = next_recipient.id;
         -- The projection window starts when the card is actually shown.
-        UPDATE review_request SET expires_at = GREATEST(expires_at, now() + interval '7 days')
+        UPDATE review_request
+        SET status = CASE WHEN status = 'EXPIRED' THEN 'OPEN' ELSE status END,
+            expires_at = GREATEST(expires_at, now() + interval '7 days')
         WHERE id = next_recipient.review_request_id;
         released := released + 1;
     END LOOP;
@@ -172,8 +187,11 @@ BEGIN
         RETURN current_status;
     END IF;
     IF review_card_live_count(chat, p_recipient_id) < 3 AND NOT EXISTS (
-        SELECT 1 FROM review_request_recipient rr JOIN review_request r ON r.id = rr.review_request_id
-        WHERE rr.telegram_chat_id = chat AND rr.delivery_status = 'QUEUED' AND r.status IN ('PENDING_SEND','OPEN')) THEN
+        SELECT 1 FROM review_request_recipient rr
+        JOIN review_request r ON r.id = rr.review_request_id
+        JOIN review_item ri ON ri.id = r.review_item_id
+        WHERE rr.telegram_chat_id = chat AND rr.delivery_status = 'QUEUED' AND rr.queued_payload IS NOT NULL
+          AND r.status IN ('PENDING_SEND','OPEN','EXPIRED') AND ri.status IN ('PENDING_SEND','OPEN')) THEN
         INSERT INTO job(type, payload_json, max_attempts) VALUES ('SEND_TELEGRAM_MESSAGE', p_payload, 8);
         UPDATE review_request_recipient SET delivery_status='PENDING', queued_payload=NULL WHERE id = p_recipient_id;
         RETURN 'PENDING';
@@ -184,14 +202,23 @@ END;
 $$;
 -- +goose StatementEnd
 
--- A closed request frees its slots in every chat it was delivered to.
+-- A closed or expired request frees its slots in every chat it was delivered
+-- to. The chats' advisory locks are taken first, in chat order, before any
+-- recipient row is touched, so two closes never wait on each other in opposite
+-- orders. Queued copies of a resolved or cancelled review are dropped; a queued
+-- copy of an expired projection stays queued (release_review_cards renews it).
 -- +goose StatementBegin
 CREATE FUNCTION review_request_release_paced_cards() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     chat BIGINT;
 BEGIN
-    UPDATE review_request_recipient SET delivery_status='SKIPPED', queued_payload=NULL
-    WHERE review_request_id = NEW.id AND delivery_status = 'QUEUED';
+    FOR chat IN SELECT DISTINCT telegram_chat_id FROM review_request_recipient WHERE review_request_id = NEW.id ORDER BY 1 LOOP
+        PERFORM pg_advisory_xact_lock(hashtextextended('review_card_pacing:' || chat::text, 0));
+    END LOOP;
+    IF NEW.status IN ('RESOLVED','CANCELLED') THEN
+        UPDATE review_request_recipient SET delivery_status='SKIPPED', queued_payload=NULL
+        WHERE review_request_id = NEW.id AND delivery_status = 'QUEUED';
+    END IF;
     FOR chat IN SELECT DISTINCT telegram_chat_id FROM review_request_recipient WHERE review_request_id = NEW.id ORDER BY 1 LOOP
         PERFORM release_review_cards(chat);
     END LOOP;

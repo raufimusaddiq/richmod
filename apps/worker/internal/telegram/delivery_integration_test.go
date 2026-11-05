@@ -475,3 +475,75 @@ func TestReplyToSupersededMessagePointsToTheNewestCard(t *testing.T) {
 		t.Fatalf("cross-household lookup = %q %v", reply, err)
 	}
 }
+
+// A member whose copy is still waiting for a pacing slot keeps it when the
+// other members' copies expire: releasing it renews the projection.
+func TestQueuedCopySurvivesExpiryOfTheOtherCopies(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	var fillers []string
+	for i := 0; i < 3; i++ {
+		fillers = append(fillers, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
+	}
+	// Only Budi's chat is full: Rina's filler copies are gone.
+	_, err := f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET delivery_status='SKIPPED' WHERE telegram_chat_id=$1 AND review_request_id=ANY($2::uuid[])`, f.chatA, fillers)
+	mustAgentTest(t, err)
+	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	if f.deliveryStatus(t, requestID, f.chatA) != "PENDING" || f.deliveryStatus(t, requestID, f.chatB) != "QUEUED" {
+		t.Fatalf("setup: A=%s B=%s", f.deliveryStatus(t, requestID, f.chatA), f.deliveryStatus(t, requestID, f.chatB))
+	}
+	_, err = f.pool.Exec(f.ctx, `UPDATE review_request SET expires_at=now()-interval '1 minute' WHERE id=$1`, requestID)
+	mustAgentTest(t, err)
+	if _, _, err := f.processor.SweepReviewProjections(f.ctx, 1000); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT status FROM review_request WHERE id=$1`, requestID).Scan(&status))
+	if status != "EXPIRED" || f.deliveryStatus(t, requestID, f.chatB) != "QUEUED" {
+		t.Fatalf("expiry dropped the waiting copy: request=%s B=%s", status, f.deliveryStatus(t, requestID, f.chatB))
+	}
+	f.resolve(t, fillers[0])
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT status FROM review_request WHERE id=$1`, requestID).Scan(&status))
+	if status != "OPEN" || f.deliveryStatus(t, requestID, f.chatB) != "PENDING" || len(f.sends(t, requestID, f.chatB)) != 1 {
+		t.Fatalf("released copy: request=%s B=%s", status, f.deliveryStatus(t, requestID, f.chatB))
+	}
+}
+
+// A release never waits for a request that another transaction is closing, so
+// a close and a release in the same chat cannot deadlock.
+func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	var live []string
+	for i := 0; i < 3; i++ {
+		live = append(live, f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0))
+	}
+	waiting := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	if f.deliveryStatus(t, waiting, f.chatA) != "QUEUED" {
+		t.Fatal("setup: the fourth card must wait")
+	}
+	// Another transaction is closing the waiting request and holds its row.
+	closing, err := f.pool.Begin(f.ctx)
+	mustAgentTest(t, err)
+	defer closing.Rollback(f.ctx)
+	_, err = closing.Exec(f.ctx, `SELECT 1 FROM review_request WHERE id=$1 FOR UPDATE`, waiting)
+	mustAgentTest(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+		defer cancel()
+		_, err := f.pool.Exec(ctx, `UPDATE review_request SET status='RESOLVED',resolved_at=now() WHERE id=$1`, live[0])
+		done <- err
+	}()
+	if err := <-done; err != nil {
+		t.Fatalf("closing a live card waited on the request being closed: %v", err)
+	}
+	if f.deliveryStatus(t, waiting, f.chatA) != "QUEUED" {
+		t.Fatal("a request locked by its own close must not be released")
+	}
+	_, err = closing.Exec(f.ctx, `UPDATE review_request SET status='CANCELLED' WHERE id=$1`, waiting)
+	mustAgentTest(t, err)
+	mustAgentTest(t, closing.Commit(f.ctx))
+	if f.deliveryStatus(t, waiting, f.chatA) != "SKIPPED" {
+		t.Fatalf("cancelled queued copy = %s", f.deliveryStatus(t, waiting, f.chatA))
+	}
+}
