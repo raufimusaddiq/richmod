@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
@@ -857,6 +858,27 @@ type merchantCategoryChoice struct {
 // that category is the suggestion and comes first. It is deterministic Go over
 // household-scoped canonical rows; no model is asked.
 func merchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) []merchantCategoryChoice {
+	// The history row is an optional shortcut: it runs in a savepoint so a
+	// failure is logged and the plain chooser still renders in this transaction.
+	savepoint, err := tx.Begin(ctx)
+	if err != nil {
+		slog.Default().Warn("merchant category history unavailable", "review_request_id", reviewID, "error", err)
+		return nil
+	}
+	history, err := queryMerchantCategoryHistory(ctx, savepoint, reviewID)
+	if err != nil {
+		_ = savepoint.Rollback(ctx)
+		slog.Default().Warn("merchant category history unavailable", "review_request_id", reviewID, "error", err)
+		return nil
+	}
+	if err := savepoint.Commit(ctx); err != nil {
+		slog.Default().Warn("merchant category history unavailable", "review_request_id", reviewID, "error", err)
+		return nil
+	}
+	return history
+}
+
+func queryMerchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) ([]merchantCategoryChoice, error) {
 	rows, err := tx.Query(ctx, `WITH cur AS (
 			SELECT t.id,t.household_id,t.merchant_id,t.amount FROM review_request r JOIN transaction t ON t.id=r.transaction_id AND t.household_id=r.household_id
 			WHERE r.id=$1 AND t.merchant_id IS NOT NULL
@@ -870,7 +892,7 @@ func merchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) []
 		FROM hist JOIN cur ON true JOIN category c ON c.id=hist.category_id AND c.household_id=cur.household_id AND c.active
 		ORDER BY hist.uses DESC,hist.last_used DESC,c.id`, reviewID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var all []merchantCategoryChoice
@@ -878,8 +900,8 @@ func merchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) []
 	for rows.Next() {
 		var choice merchantCategoryChoice
 		var sameAmount, sameCategories int
-		if rows.Scan(&choice.ID, &choice.Name, &sameAmount, &sameCategories) != nil {
-			return nil
+		if err := rows.Scan(&choice.ID, &choice.Name, &sameAmount, &sameCategories); err != nil {
+			return nil, err
 		}
 		if sameCategories == 1 && sameAmount >= 2 {
 			choice.Suggested = true
@@ -887,8 +909,8 @@ func merchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) []
 		}
 		all = append(all, choice)
 	}
-	if rows.Err() != nil {
-		return nil
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if suggested > 0 {
 		pick := all[suggested]
@@ -897,7 +919,7 @@ func merchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) []
 	if len(all) > 3 {
 		all = all[:3]
 	}
-	return all
+	return all, nil
 }
 
 // categoryChooserMarkup is the paged category chooser. Its first row is the
@@ -905,6 +927,17 @@ func merchantCategoryHistory(ctx context.Context, tx pgx.Tx, reviewID string) []
 // things is answered in one tap; the generic list follows without repeating
 // them.
 func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page int) *InlineKeyboardMarkup {
+	markup, err := categoryChooserMarkupErr(ctx, tx, reviewID, page)
+	if err != nil {
+		slog.Default().Warn("category chooser unavailable", "review_request_id", reviewID, "error", err)
+		return nil
+	}
+	return markup
+}
+
+// categoryChooserMarkupErr reports a query failure separately from "no active
+// category", so a caller never tells a household with categories it has none.
+func categoryChooserMarkupErr(ctx context.Context, tx pgx.Tx, reviewID string, page int) (*InlineKeyboardMarkup, error) {
 	var transactionType string
 	_ = tx.QueryRow(ctx, `SELECT t.type FROM transaction t JOIN review_request r ON r.transaction_id=t.id WHERE r.id=$1`, reviewID).Scan(&transactionType)
 	if page < 0 {
@@ -923,15 +956,19 @@ func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page
 	}
 	rows, err := tx.Query(ctx, `SELECT c.id,c.name FROM category c JOIN review_request r ON r.household_id=c.household_id WHERE r.id=$1 AND c.active AND NOT (c.id=ANY($3::uuid[])) ORDER BY c.sort_order,c.name,c.id LIMIT 9 OFFSET $2`, reviewID, page*8, historyIDs)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var buttons []InlineKeyboardButton
 	for rows.Next() {
 		var id, name string
-		if rows.Scan(&id, &name) == nil {
-			buttons = append(buttons, InlineKeyboardButton{Text: clean(name, 30), CallbackData: "review:cat:" + id})
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
 		}
+		buttons = append(buttons, InlineKeyboardButton{Text: clean(name, 30), CallbackData: "review:cat:" + id})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	hasNext := len(buttons) > 8
 	if hasNext {
@@ -939,7 +976,7 @@ func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page
 	}
 	assetPurchase := transactionType == "EXPENSE"
 	if len(buttons) == 0 && len(historyRow) == 0 && !assetPurchase {
-		return nil
+		return nil, nil
 	}
 	var keyboard [][]InlineKeyboardButton
 	if page == 0 && len(historyRow) > 0 {
@@ -968,7 +1005,7 @@ func categoryChooserMarkup(ctx context.Context, tx pgx.Tx, reviewID string, page
 		detailText, detailCallback = "Beli aset", "review:asset"
 	}
 	keyboard = append(keyboard, []InlineKeyboardButton{{Text: detailText, CallbackData: detailCallback}, {Text: "Abaikan", CallbackData: "review:ignore"}})
-	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}
+	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}, nil
 }
 
 func resolveCanonicalReviewItem(ctx context.Context, tx pgx.Tx, reviewID, userID, action string) error {

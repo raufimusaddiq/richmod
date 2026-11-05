@@ -86,7 +86,7 @@ func IgnoreReview(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	if financialObservation != nil && source == nil {
 		var bound string
 		if err := tx.QueryRow(ctx, `SELECT source_event_id::text FROM financial_email_observation WHERE id=$1 AND household_id=$2`, *financialObservation, cmd.HouseholdID).Scan(&bound); err != nil {
-			return ErrAlreadyResolved
+			return notFoundAsResolved(err)
 		}
 		source = &bound
 	}
@@ -94,7 +94,7 @@ func IgnoreReview(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 	case kind == "MISSING_AMOUNT" && proposal != nil:
 		var proposalSource string
 		if err := tx.QueryRow(ctx, `SELECT source_event_id::text FROM transaction_proposal WHERE id=$1 AND household_id=$2`, *proposal, cmd.HouseholdID).Scan(&proposalSource); err != nil {
-			return ErrAlreadyResolved
+			return notFoundAsResolved(err)
 		}
 		err := IgnoreMissingAmountProposal(ctx, tx, MissingAmountCommand{HouseholdID: cmd.HouseholdID, UserID: cmd.ActorUserID, ReviewItemID: cmd.ReviewItemID, ProposalID: *proposal, SourceEventID: proposalSource, ActorType: actorType})
 		if errors.Is(err, ErrMissingAmountReviewInvalid) {
@@ -151,5 +151,15 @@ func IgnoreReview(ctx context.Context, tx pgx.Tx, cmd IgnoreCommand) error {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE','review_type',$5::text))`, cmd.HouseholdID, actorType, cmd.ActorUserID, cmd.ReviewItemID, kind)
+	return err
+}
+
+// notFoundAsResolved reports a vanished binding as an already-resolved review;
+// any other error is returned as is, so a transient failure retries instead of
+// telling the household the review was closed.
+func notFoundAsResolved(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAlreadyResolved
+	}
 	return err
 }

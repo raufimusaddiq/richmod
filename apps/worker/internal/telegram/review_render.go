@@ -185,7 +185,10 @@ func buildReviewCard(decision reviewdec.Decision, reviewType, facts string, subj
 		}
 	case decision.ReasonCode == "CYCLE_RESIDUAL_ALLOCATION":
 		card.Mode, card.Title = "cycle", reviewdomain.CycleResidualCardTitle
-		card.Instruction = reviewdomain.CycleResidualCardInstruction
+		card.Instruction = reviewdomain.CycleResidualCardReplyInstruction
+		if contains(cardActions(decision, reviewType), "LEAVE_UNALLOCATED") {
+			card.Instruction = reviewdomain.CycleResidualCardInstruction
+		}
 	case contains(decision.MissingFacts, "wealth_snapshot_confirmation"):
 		card.Mode, card.Title = "reply", "🟡 Akun kekayaan belum pasti"
 		card.Instruction = "Balas pesan ini (Reply) dengan nama akun kekayaan yang benar."
@@ -249,7 +252,10 @@ func reviewCardMarkup(ctx context.Context, tx pgx.Tx, reviewID, reviewType strin
 			markup, err = transferReconciliationMarkup(ctx, tx, reviewID)
 			break
 		}
-		markup = reviewActionMarkupPage(ctx, tx, reviewID, reviewType, 0)
+		// The transfer chooser follows the transaction type whatever the review
+		// kind, so the buttons are the ones the instruction names (an incoming
+		// duplicate asks Penghasilan / Rekening sendiri / Household, never Benar/Ubah).
+		markup = reviewActionMarkupPage(ctx, tx, reviewID, "TRANSFER_CLASSIFICATION", 0)
 	case "reply":
 		row := ignore
 		if card.State == "AWAITING_MERCHANT" && merchantAssetOption(decision, reviewType) {

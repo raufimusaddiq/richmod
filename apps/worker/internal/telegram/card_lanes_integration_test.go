@@ -549,3 +549,27 @@ func TestDuplicateTapKeepsTheRememberQuestion(t *testing.T) {
 		t.Fatalf("remember after duplicate taps: %q %s", text, markup)
 	}
 }
+
+// An incoming duplicate that also needs its transfer relationship shows the
+// income/transfer choices its instruction names, not Benar/Ubah.
+func TestIncomingTransferCardButtonsMatchItsInstruction(t *testing.T) {
+	f := newCardFixture(t)
+	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at) VALUES($1,'INCOME','NEEDS_REVIEW',300000,now()) RETURNING id`, f.household)
+	decision := `{"version":1,"reasonCode":"POSSIBLE_DUPLICATE","subject":{"type":"transaction","id":"x"},"decisionClass":"DUPLICATE_AMBIGUITY","missingFacts":["duplicate_relationship","transfer_relationship"],"allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"],"interactionMode":"BOUNDED_CHOICE"}`
+	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','OPEN',$3::jsonb) RETURNING id`, f.household, transaction, decision)
+	tx, err := f.pool.Begin(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ProjectReviewItem(f.ctx, tx, f.household, item, 0, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	var text, markup string
+	f.row(`SELECT payload_json->>'text',payload_json->'reply_markup'::text FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id' IN (SELECT id::text FROM review_request WHERE review_item_id=$1)`, []any{&text, &markup}, item)
+	if !strings.Contains(text, "Pilih Penghasilan") || !strings.Contains(markup, "review:income") || !strings.Contains(markup, "review:own") || strings.Contains(markup, "review:confirm") {
+		t.Fatalf("incoming transfer card: %q %s", text, markup)
+	}
+}

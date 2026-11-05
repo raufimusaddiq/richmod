@@ -88,7 +88,10 @@ func (p *Processor) offerCategoryChooser(ctx context.Context, sourceEventID, hou
 	// The category chooser itself, never the review's own kind keyboard: a
 	// transfer card's Pengeluaran choice must lead to categories, not back to the
 	// transfer choices.
-	markup := categoryChooserMarkup(ctx, tx, reviewID, 0)
+	markup, err := categoryChooserMarkupErr(ctx, tx, reviewID, 0)
+	if err != nil {
+		return err // retry the callback; never claim there are no categories
+	}
 	if markup == nil {
 		if err = enqueueReply(ctx, tx, update, "Belum ada kategori aktif yang bisa dipilih."); err != nil {
 			return err
@@ -372,6 +375,11 @@ func cardOutcomeKey(chatID, messageID int64) string {
 // the Telegram call, and a settle bumps the revision under the same row lock,
 // so an older edit that is delayed, retried, or racing a newer one is dropped
 // and can never bring back buttons the household already answered.
+//
+// Tradeoff: the row lock is held across one Telegram edit call (bounded by the
+// bot client's 15s timeout). Only settles of the same card wait on it; checking
+// before the call and re-checking after it cannot undo an edit already sent, so
+// the lock is what makes the guard hold.
 func (p *Processor) ApplyCardOutcomeEdit(ctx context.Context, bot *Bot, payload EditPayload) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {

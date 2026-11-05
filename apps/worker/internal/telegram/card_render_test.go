@@ -149,3 +149,16 @@ func TestParseReplyDate(t *testing.T) {
 		}
 	}
 }
+
+// A cycle card whose contract has no LEAVE_UNALLOCATED neither shows the button
+// nor names it.
+func TestCycleInstructionNamesOnlyItsButtons(t *testing.T) {
+	decision, _ := reviewdec.Preset("CYCLE_RESIDUAL_ALLOCATION", "cycle_residual_case", "c")
+	if card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{}); !strings.Contains(card.Instruction, "Biarkan saja") {
+		t.Fatalf("instruction=%q", card.Instruction)
+	}
+	decision.AllowedActions = []string{"ALLOCATE_RETAINED_BALANCE", "TRANSACTION_MISSING"}
+	if card := buildReviewCard(decision, "CYCLE_RESIDUAL_ALLOCATION", "", reviewSubject{}); strings.Contains(card.Instruction, "Biarkan") {
+		t.Fatalf("instruction names an absent button: %q", card.Instruction)
+	}
+}

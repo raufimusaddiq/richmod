@@ -36,7 +36,11 @@ const CycleResidualCardTitle = "🧾 Sisa salary cycle belum dialokasikan"
 
 // CycleResidualCardInstruction matches the cycle card's buttons: allocation and
 // a missing transaction are typed replies; leaving it unallocated is a button.
-const CycleResidualCardInstruction = "Balas pesan ini (Reply) untuk mengalokasikan sisa ke akun kekayaan, atau sebutkan transaksi yang belum tercatat. Pilih Biarkan saja jika sisa ini memang tidak dialokasikan."
+const CycleResidualCardInstruction = CycleResidualCardReplyInstruction + " Pilih Biarkan saja jika sisa ini memang tidak dialokasikan."
+
+// CycleResidualCardReplyInstruction is the instruction of a cycle card whose
+// contract does not offer LEAVE_UNALLOCATED, so it names no button.
+const CycleResidualCardReplyInstruction = "Balas pesan ini (Reply) untuk mengalokasikan sisa ke akun kekayaan, atau sebutkan transaksi yang belum tercatat."
 
 // CycleResidualCardFacts names the cycle window (end exclusive) and residual.
 func CycleResidualCardFacts(cycleStart, cycleEnd time.Time, residual string) string {

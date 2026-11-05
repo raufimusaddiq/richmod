@@ -124,6 +124,8 @@ func (p *Processor) processIncomeConfirmCallback(ctx context.Context, sourceEven
 		return err
 	}
 	if confirm {
+		// Benar is the income answer of the shared income confirm, which takes its
+		// own lock and revalidates the subject; this read only bound the card.
 		if err := tx.Rollback(ctx); err != nil {
 			return err
 		}
