@@ -304,6 +304,14 @@ func (p *Processor) repairOrphanedReviewCards(ctx context.Context, limit int) (i
 // is gone has nothing left to repair. Nothing is ever resent without its
 // buttons or binding.
 func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdID string, payload EditPayload) error {
+	// A retry after the card was already re-sent only redoes that binding, and
+	// does it before any guard can drop the job: the re-sent message must be
+	// bound (and retired by the binding if its copy or request closed since).
+	if sent, err := p.recordedDelivery(ctx, jobID); err != nil {
+		return err
+	} else if sent != 0 {
+		return p.DeliverSend(ctx, bot, jobID, householdID, SendPayload{ChatID: payload.ChatID, Text: payload.Text, ReplyMarkup: payload.ReplyMarkup, ReviewRequestID: payload.ReviewRequestID})
+	}
 	authorized, err := p.RecipientAuthorized(ctx, payload.ChatID, householdID)
 	if err != nil {
 		return err
@@ -322,12 +330,6 @@ func (p *Processor) DeliverEdit(ctx context.Context, bot *Bot, jobID, householdI
 		if !live {
 			return nil
 		}
-	}
-	// A retry after the card was already re-sent only redoes that binding.
-	if sent, err := p.recordedDelivery(ctx, jobID); err != nil {
-		return err
-	} else if sent != 0 {
-		return p.DeliverSend(ctx, bot, jobID, householdID, SendPayload{ChatID: payload.ChatID, Text: payload.Text, ReplyMarkup: payload.ReplyMarkup, ReviewRequestID: payload.ReviewRequestID})
 	}
 	err = bot.Edit(ctx, payload)
 	switch {

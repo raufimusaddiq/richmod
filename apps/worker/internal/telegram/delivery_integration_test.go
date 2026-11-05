@@ -838,3 +838,33 @@ func TestUnrecordedSendStopsAndStripsTheCard(t *testing.T) {
 		t.Fatalf("unrecorded card was not stripped: %+v", calls)
 	}
 }
+
+// An edit that re-sent a card and then failed to bind it binds that message on
+// retry even when the copy expired in between; the message is retired, never
+// left tappable and unbound.
+func TestEditResendRetryBindsAfterTheCopyExpired(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1800, "🟡 Perlu ditinjau"))
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 1801, "🟡 Perlu ditinjau"))
+	var jobID, recipientA string
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `INSERT INTO job(type,payload_json,status) VALUES('EDIT_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'message_id',1800,'text','x','review_request_id',$2::text),'RUNNING') RETURNING id`, f.chatA, requestID).Scan(&jobID))
+	// The re-send was accepted and recorded, then the bind failed.
+	_, err := f.pool.Exec(f.ctx, `INSERT INTO telegram_outbound_delivery(job_id,household_id,telegram_chat_id,telegram_message_id) VALUES($1,$2,$3,1802)`, jobID, f.householdID, f.chatA)
+	mustAgentTest(t, err)
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`, requestID, f.chatA).Scan(&recipientA))
+	var done bool
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientA).Scan(&done))
+	bot, fake := newFakeTelegram(t, nil)
+	markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "Abaikan", CallbackData: "review:ignore"}}}}
+	mustAgentTest(t, f.processor.DeliverEdit(f.ctx, bot, jobID, f.householdID, EditPayload{ChatID: f.chatA, MessageID: 1800, Text: "Pilih kategori pengeluaran:", ReplyMarkup: markup, ReviewRequestID: requestID}))
+	if calls := fake.recorded(); len(calls) != 0 {
+		t.Fatalf("the retry must bind, not send or edit: %+v", calls)
+	}
+	var recorded, retire int
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM review_request_message WHERE telegram_chat_id=$1 AND telegram_message_id=1802`, f.chatA).Scan(&recorded))
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND payload_json->>'message_id'='1802' AND payload_json->>'recipient_id'=$1`, recipientA).Scan(&retire))
+	if recorded != 1 || retire != 1 || f.deliveryStatus(t, requestID, f.chatA) != "EXPIRED" {
+		t.Fatalf("re-sent message: recorded=%d retire=%d status=%s", recorded, retire, f.deliveryStatus(t, requestID, f.chatA))
+	}
+}
