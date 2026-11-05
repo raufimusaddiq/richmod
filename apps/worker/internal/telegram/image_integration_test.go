@@ -32,6 +32,15 @@ func TestImageProcessorCreatesGenericDocumentIdempotently(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Image Worker','unused') RETURNING id`, fmt.Sprintf("worker-image-%d@example.test", stamp)).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
+	// The worker re-checks the sender at processing time, so the uploader is a
+	// linked, active member.
+	telegramUserID := stamp%7_000_000_000 + 13
+	if _, err = pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'OWNER')`, householdID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id) VALUES($1,$2,$3)`, telegramUserID, householdID, userID); err != nil {
+		t.Fatal(err)
+	}
 	if err = pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_IMAGE',$2,now(),$3,'RECEIVED') RETURNING id`, householdID, fmt.Sprintf("telegram:update:%d", stamp), []byte("unique-payload")).Scan(&sourceID); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +64,7 @@ func TestImageProcessorCreatesGenericDocumentIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	processor := NewImageProcessorWithStorage(pool, bot, storage)
-	payload := ImagePayload{SourceEventID: sourceID, FileID: "file-id", FileName: "image.png", MIMEType: "image/png", Caption: "receipt", TelegramUserID: 123456, UserID: userID}
+	payload := ImagePayload{SourceEventID: sourceID, FileID: "file-id", FileName: "image.png", MIMEType: "image/png", Caption: "receipt", TelegramUserID: telegramUserID, UserID: userID}
 	if err = processor.Process(ctx, payload); err != nil {
 		t.Fatal(err)
 	}

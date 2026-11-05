@@ -22,6 +22,11 @@ type ParsedEmail struct {
 	MessageID                string
 	AuthenticationResults    string
 	ARCAuthenticationResults string
+	// The same headers one per element, topmost (most recently added) first.
+	// Only the topmost one was added by the receiving MTA; anything below it
+	// may have been written by the sender.
+	AuthenticationResultsHeaders    []string
+	ARCAuthenticationResultsHeaders []string
 	HTMLBody                 string
 	TextBody                 string
 }
@@ -40,6 +45,8 @@ func parseMIME(raw []byte) (ParsedEmail, error) {
 		MessageID:                strings.TrimSpace(message.Header.Get("Message-ID")),
 		AuthenticationResults:    joinHeader(message.Header, "Authentication-Results"),
 		ARCAuthenticationResults: joinHeader(message.Header, "ARC-Authentication-Results"),
+		AuthenticationResultsHeaders:    message.Header[textproto.CanonicalMIMEHeaderKey("Authentication-Results")],
+		ARCAuthenticationResultsHeaders: message.Header[textproto.CanonicalMIMEHeaderKey("ARC-Authentication-Results")],
 	}
 	contentType := message.Header.Get("Content-Type")
 	if contentType == "" {

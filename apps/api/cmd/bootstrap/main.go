@@ -7,52 +7,49 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
-	"github.com/raufimusaddiq/richmod/apps/api/internal/category"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/platform/database"
 )
 
 func main() {
 	var email, name, householdName string
-	var promote bool
+	var promote, newHousehold bool
 	var telegramUserID int64
 	flag.StringVar(&email, "email", "", "owner email address")
 	flag.StringVar(&name, "name", "", "owner display name")
 	flag.StringVar(&householdName, "household", "", "household name")
 	flag.Int64Var(&telegramUserID, "telegram-user-id", 0, "authorized numeric Telegram user ID (optional)")
 	flag.BoolVar(&promote, "promote-super-admin", false, "grant global super-admin to an existing user")
+	flag.BoolVar(&newHousehold, "new-household", false, "create an additional household with a new owner (after the first bootstrap)")
 	flag.Parse()
 
 	if promote { if err:=promoteSuperAdmin(context.Background(),email); err!=nil { fmt.Fprintln(os.Stderr,"promotion failed:",err); os.Exit(1) }; fmt.Println("super-admin promotion completed"); return }
-	if err := run(context.Background(), email, name, householdName, telegramUserID, os.Stdin); err != nil {
+	mode := modeFirstOwner
+	if newHousehold {
+		mode = modeAdditionalHousehold
+	}
+	if err := run(context.Background(), mode, email, name, householdName, telegramUserID, os.Stdin); err != nil {
 		fmt.Fprintln(os.Stderr, "bootstrap failed:", err)
 		os.Exit(1)
+	}
+	if newHousehold {
+		fmt.Println("household created")
+		return
 	}
 	fmt.Println("owner bootstrap completed")
 }
 
-func run(ctx context.Context, email, name, householdName string, telegramUserID int64, passwordInput *os.File) error {
-	email = strings.ToLower(strings.TrimSpace(email))
-	name = strings.TrimSpace(name)
-	householdName = strings.TrimSpace(householdName)
-	if email == "" || name == "" || householdName == "" {
-		return fmt.Errorf("--email, --name, and --household are required")
-	}
-	if !strings.Contains(email, "@") {
-		return fmt.Errorf("--email must be an email address")
-	}
-	if telegramUserID < 0 {
-		return fmt.Errorf("--telegram-user-id must be a positive numeric ID")
+func run(ctx context.Context, mode bootstrapMode, email, name, householdName string, telegramUserID int64, passwordInput *os.File) error {
+	in, err := normalizeInput(email, name, householdName, telegramUserID)
+	if err != nil {
+		return err
 	}
 	password, err := bufio.NewReader(passwordInput).ReadString('\n')
 	if err != nil && len(password) == 0 {
 		return fmt.Errorf("read password from stdin: %w", err)
 	}
-	password = strings.TrimRight(password, "\r\n")
-	passwordHash, err := auth.HashPassword(password)
+	in.PasswordHash, err = auth.HashPassword(strings.TrimRight(password, "\r\n"))
 	if err != nil {
 		return err
 	}
@@ -65,48 +62,8 @@ func run(ctx context.Context, email, name, householdName string, telegramUserID 
 		return err
 	}
 	defer pool.Close()
-
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin bootstrap transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	var ownerExists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM household_member WHERE role = 'OWNER')`).Scan(&ownerExists); err != nil {
-		return fmt.Errorf("check existing owner: %w", err)
-	}
-	if ownerExists {
-		return fmt.Errorf("an owner already exists; bootstrap can run only once")
-	}
-	var householdID, userID string
-	if err := tx.QueryRow(ctx, `INSERT INTO household (name) VALUES ($1) RETURNING id`, householdName).Scan(&householdID); err != nil {
-		return fmt.Errorf("create household: %w", err)
-	}
-	if err := tx.QueryRow(ctx, `INSERT INTO "user" (email, display_name, password_hash, password_initialized_at) VALUES ($1, $2, $3, now()) RETURNING id`, email, name, passwordHash).Scan(&userID); err != nil {
-		return fmt.Errorf("create owner user: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO household_member (household_id, user_id, role) VALUES ($1, $2, 'OWNER')`, householdID, userID); err != nil {
-		return fmt.Errorf("create owner membership: %w", err)
-	}
-	if telegramUserID > 0 {
-		if _, err := tx.Exec(ctx, `INSERT INTO telegram_identity (telegram_user_id,household_id,user_id) VALUES ($1,$2,$3)`, telegramUserID, householdID, userID); err != nil {
-			return fmt.Errorf("authorize owner Telegram ID: %w", err)
-		}
-	}
-	if err := category.SeedIndonesianDefaults(ctx, tx, householdID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-        INSERT INTO audit_log (household_id, actor_type, actor_id, action, entity_type, entity_id, after_json)
-        VALUES ($1::uuid, 'SYSTEM', $2::uuid, 'BOOTSTRAP_OWNER', 'household', $1::uuid,
-                jsonb_build_object('owner_user_id', $2::uuid, 'created_at', $3::timestamptz))`,
-		householdID, userID, time.Now().UTC()); err != nil {
-		return fmt.Errorf("audit bootstrap: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit bootstrap: %w", err)
-	}
-	return nil
+	_, err = createHousehold(ctx, pool, mode, in)
+	return err
 }
 
 func promoteSuperAdmin(ctx context.Context, email string) error {

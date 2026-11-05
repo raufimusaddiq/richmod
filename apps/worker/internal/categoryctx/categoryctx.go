@@ -43,8 +43,8 @@ func History(ctx context.Context, q Querier, householdID, merchant string, offer
 	rows, err := q.Query(ctx, `SELECT c.slug, COALESCE(p.slug,''), count(*)
 FROM transaction t
 JOIN merchant m ON m.id=t.merchant_id AND m.household_id=t.household_id
-JOIN category c ON c.id=t.category_id
-LEFT JOIN category p ON p.id=c.parent_id
+JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id
+LEFT JOIN category p ON p.id=c.parent_id AND p.household_id=c.household_id
 WHERE t.household_id=$1 AND t.type='EXPENSE' AND t.status='CONFIRMED'
   AND lower(regexp_replace(btrim(m.normalized_name), '[[:space:]]+', ' ', 'g'))=lower(regexp_replace(btrim($2), '[[:space:]]+', ' ', 'g'))
 GROUP BY c.slug, p.slug`, householdID, merchant)

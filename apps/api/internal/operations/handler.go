@@ -39,14 +39,17 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner role required"})
 		return
 	}
+	// Queue figures cover this household's own jobs only; the platform-wide
+	// queue is a Super Admin concern (GET /api/v1/admin/overview). The worker
+	// heartbeat is shared infrastructure and carries no household data.
 	householdID := principal.HouseholdID
 	var pendingJobs, runningJobs, failedJobs, openReviews int
 	var lastHeartbeat *time.Time
 	err := h.pool.QueryRow(r.Context(), `
 		SELECT
-		  (SELECT count(*) FROM job WHERE status='PENDING'),
-		  (SELECT count(*) FROM job WHERE status='RUNNING'),
-		  (SELECT count(*) FROM job WHERE status='FAILED' AND updated_at>=now()-interval '24 hours'),
+		  (SELECT count(*) FROM job WHERE household_id=$1 AND status='PENDING'),
+		  (SELECT count(*) FROM job WHERE household_id=$1 AND status='RUNNING'),
+		  (SELECT count(*) FROM job WHERE household_id=$1 AND status='FAILED' AND updated_at>=now()-interval '24 hours'),
 		  (SELECT count(*) FROM review_request WHERE household_id=$1 AND status IN ('PENDING_SEND','OPEN')),
 		  (SELECT max(last_seen_at) FROM worker_heartbeat)`, householdID).
 		Scan(&pendingJobs, &runningJobs, &failedJobs, &openReviews, &lastHeartbeat)
@@ -67,7 +70,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		 min(run_after) FILTER (WHERE status='PENDING' AND run_after<=now()),
 		 coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0),
 		 coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM (finished_at-started_at))*1000) FILTER (WHERE finished_at>=now()-interval '24 hours' AND started_at IS NOT NULL),0)
-		FROM job GROUP BY lane ORDER BY lane`)
+		FROM job WHERE household_id=$1 GROUP BY lane ORDER BY lane`, householdID)
 	if laneErr != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unable to load job lanes"})
 		return

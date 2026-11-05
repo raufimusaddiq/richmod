@@ -235,7 +235,7 @@ func (s *PostgreSQLStore) Capture(ctx context.Context, input CaptureInput) (bool
 	defer tx.Rollback(ctx)
 
 	var householdID string
-	if err := tx.QueryRow(ctx, `SELECT household_id FROM telegram_identity WHERE telegram_user_id=$1 AND active`, input.TelegramUserID).Scan(&householdID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT ti.household_id FROM telegram_identity ti JOIN "user" u ON u.id=ti.user_id AND u.active JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.telegram_user_id=$1 AND ti.active`, input.TelegramUserID).Scan(&householdID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, ErrUnauthorized
 		}
@@ -276,7 +276,7 @@ func (s *PostgreSQLStore) CaptureCallback(ctx context.Context, input CaptureInpu
 	}
 	defer tx.Rollback(ctx)
 	var householdID string
-	if err := tx.QueryRow(ctx, `SELECT household_id FROM telegram_identity WHERE telegram_user_id=$1 AND active`, input.TelegramUserID).Scan(&householdID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT ti.household_id FROM telegram_identity ti JOIN "user" u ON u.id=ti.user_id AND u.active JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.telegram_user_id=$1 AND ti.active`, input.TelegramUserID).Scan(&householdID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, ErrUnauthorized
 		}
@@ -310,7 +310,7 @@ func (s *PostgreSQLStore) CaptureImage(ctx context.Context, input ImageInput) (b
 	}
 	defer tx.Rollback(ctx)
 	var householdID, userID string
-	if err = tx.QueryRow(ctx, `SELECT household_id,user_id FROM telegram_identity WHERE telegram_user_id=$1 AND active`, input.TelegramUserID).Scan(&householdID, &userID); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT ti.household_id,ti.user_id FROM telegram_identity ti JOIN "user" u ON u.id=ti.user_id AND u.active JOIN household_member hm ON hm.household_id=ti.household_id AND hm.user_id=ti.user_id AND hm.active WHERE ti.telegram_user_id=$1 AND ti.active`, input.TelegramUserID).Scan(&householdID, &userID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, ErrUnauthorized
 		}

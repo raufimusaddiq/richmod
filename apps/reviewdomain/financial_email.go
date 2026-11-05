@@ -122,7 +122,7 @@ func ResolveFinancialEmailEntities(ctx context.Context, tx pgx.Tx, cmd Financial
 		result.HumanSupplied = append(result.HumanSupplied, "wealth_account")
 	}
 	result.Complete = accountID != "" && wealthAccountID != ""
-	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status=CASE WHEN $4::boolean THEN 'PENDING' ELSE 'REVIEW' END,updated_at=now() WHERE id=$1`, observationID, accountID, wealthAccountID, result.Complete); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE financial_email_observation SET resolved_account_id=NULLIF($2,'')::uuid,resolved_wealth_account_id=NULLIF($3,'')::uuid,status=CASE WHEN $4::boolean THEN 'PENDING' ELSE 'REVIEW' END,updated_at=now() WHERE id=$1 AND household_id=$5`, observationID, accountID, wealthAccountID, result.Complete, cmd.HouseholdID); err != nil {
 		return result, err
 	}
 	// An entity that was already known keeps its existing alias: re-learning here

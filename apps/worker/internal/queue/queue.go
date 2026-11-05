@@ -19,6 +19,9 @@ type Job struct {
 	Payload     json.RawMessage
 	Attempts    int
 	MaxAttempts int
+	// HouseholdID is the household the job belongs to, derived when it was
+	// enqueued (migration 00087); "" for platform jobs.
+	HouseholdID string
 }
 
 type Queue struct{ pool *pgxpool.Pool }
@@ -31,16 +34,19 @@ func (q *Queue) Claim(ctx context.Context, workerID, lane string) (Job, bool, er
 		return Job{}, false, fmt.Errorf("begin job claim: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	job, found, err := claimIn(ctx, tx, workerID, lane)
+	if err != nil || !found {
+		return Job{}, found, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Job{}, false, fmt.Errorf("commit job claim: %w", err)
+	}
+	return job, true, nil
+}
 
+func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, error) {
 	var job Job
-	err = tx.QueryRow(ctx, `
-		SELECT id,type,payload_json,attempts+1,max_attempts
-		FROM job
-		WHERE lane=$1 AND ((status='PENDING' AND run_after<=now())
-		   OR (status='RUNNING' AND locked_at<now()-interval '5 minutes'))
-		ORDER BY run_after,created_at
-		FOR UPDATE SKIP LOCKED
-		LIMIT 1`, lane).Scan(&job.ID, &job.Type, &job.Payload, &job.Attempts, &job.MaxAttempts)
+	err := tx.QueryRow(ctx, claimSQL, lane).Scan(&job.ID, &job.Type, &job.Payload, &job.Attempts, &job.MaxAttempts, &job.HouseholdID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, false, nil
 	}
@@ -50,11 +56,24 @@ func (q *Queue) Claim(ctx context.Context, workerID, lane string) (Job, bool, er
 	if _, err := tx.Exec(ctx, `UPDATE job SET status='RUNNING',attempts=$2,locked_at=now(),locked_by=$3,started_at=now(),finished_at=NULL,updated_at=now() WHERE id=$1`, job.ID, job.Attempts, workerID); err != nil {
 		return Job{}, false, fmt.Errorf("lock job: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return Job{}, false, fmt.Errorf("commit job claim: %w", err)
-	}
 	return job, true, nil
 }
+
+// claimSQL takes the next due job of a lane. Households share each lane fairly:
+// the household whose latest job in this lane started longest ago (or never)
+// goes first, so one household's backlog cannot starve another's. Within one
+// household, jobs keep their run_after/created_at order, which keeps a
+// person's Telegram messages in sequence.
+const claimSQL = `
+	SELECT j.id,j.type,j.payload_json,j.attempts+1,j.max_attempts,COALESCE(j.household_id::text,'')
+	FROM job j
+	WHERE j.lane=$1 AND ((j.status='PENDING' AND j.run_after<=now())
+	   OR (j.status='RUNNING' AND j.locked_at<now()-interval '5 minutes'))
+	ORDER BY (SELECT max(p.started_at) FROM job p
+	          WHERE p.lane=j.lane AND p.household_id=j.household_id AND p.started_at IS NOT NULL) NULLS FIRST,
+	         j.run_after,j.created_at
+	FOR UPDATE OF j SKIP LOCKED
+	LIMIT 1`
 
 func (q *Queue) Succeed(ctx context.Context, jobID string) error {
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING'`, jobID)

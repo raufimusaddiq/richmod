@@ -17,13 +17,13 @@ import (
 var ErrAlreadyResolved = errors.New("reviewdomain: review already resolved")
 
 const resolveRequestSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
-		WHERE (review_item_id=ANY($1::uuid[]) OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
+		WHERE household_id=$3 AND (review_item_id=ANY($1::uuid[]) OR transaction_id=$2) AND status IN ('PENDING_SEND','OPEN')`
 
 // resolveRequestByItemSQL resolves only the request(s) bound to the exact
 // review item. The Telegram exact-binding path must never close sibling reviews
 // that merely share the same transaction.
 const resolveRequestByItemSQL = `UPDATE review_request SET status='RESOLVED',resolved_at=now()
-		WHERE review_item_id=ANY($1::uuid[]) AND status IN ('PENDING_SEND','OPEN')`
+		WHERE household_id=$2 AND review_item_id=ANY($1::uuid[]) AND status IN ('PENDING_SEND','OPEN')`
 
 // resolveTransactionSQL resolves every open canonical item for one transaction
 // in a single statement, preserving the prior all-item API behavior.
@@ -89,7 +89,7 @@ func ResolveByTransaction(ctx context.Context, tx pgx.Tx, cmd Command) error {
 		return err
 	}
 	rows.Close()
-	if _, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID); err != nil {
+	if _, err = tx.Exec(ctx, resolveRequestSQL, reviewItemIDs, cmd.SubjectID, cmd.HouseholdID); err != nil {
 		return err
 	}
 	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, cmd.SubjectID)
@@ -141,7 +141,7 @@ func ResolveByID(ctx context.Context, tx pgx.Tx, cmd Command) error {
 	if result.RowsAffected() != 1 {
 		return ErrAlreadyResolved
 	}
-	if _, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{itemID}); err != nil {
+	if _, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{itemID}, cmd.HouseholdID); err != nil {
 		return err
 	}
 	return RefreshTransactionLifecycle(ctx, tx, cmd.HouseholdID, subjectID)

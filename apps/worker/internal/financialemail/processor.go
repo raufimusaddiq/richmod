@@ -111,7 +111,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	var household, financialSource, provider, sender, body, subject, defaultWealth, sourceStatus, extractionStatus, extractionModel string
 	var defaultWealthConfigured bool
 	var capabilities []string
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.id::text,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.default_wealth_account_id IS NOT NULL,fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &financialSource, &provider, &sender, &body, &subject, &defaultWealth, &defaultWealthConfigured, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,fs.id::text,fs.provider_name,fs.sender_address,fe.body,fe.subject,COALESCE(fs.default_wealth_account_id::text,''),fs.default_wealth_account_id IS NOT NULL,fs.capabilities,fs.status,fe.extraction_status,COALESCE(fe.extraction_model,'') FROM source_event s JOIN financial_email_event fe ON fe.source_event_id=s.id JOIN financial_email_source fs ON fs.id=fe.financial_source_id AND fs.household_id=s.household_id WHERE s.id=$1`, payload.SourceEventID).Scan(&household, &financialSource, &provider, &sender, &body, &subject, &defaultWealth, &defaultWealthConfigured, &capabilities, &sourceStatus, &extractionStatus, &extractionModel)
 	if err != nil {
 		return err
 	}

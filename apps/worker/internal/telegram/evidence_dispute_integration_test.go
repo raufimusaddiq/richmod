@@ -121,8 +121,10 @@ func TestDisputeRefusesUnlinkedTelegramUserAndOtherHousehold(t *testing.T) {
 	stranger.update.Message.From.ID = f.update.Message.From.ID + 7777777
 	sourceID, err := runEvidenceTurn(t, ctx, stranger, evidenceTurnProcessor(stranger, disputeModel()), "tapi ini transaksi baru", 101)
 	mustAgentTest(t, err)
-	if got := disputeToolStatus(t, ctx, f, sourceID); got != "EVIDENCE_DISPUTE_UNAUTHORIZED" {
-		t.Fatalf("stranger status = %q, want EVIDENCE_DISPUTE_UNAUTHORIZED", got)
+	// The worker re-checks the sender before any tool runs: the turn is
+	// settled IGNORED and never reaches the dispute tool.
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM source_event WHERE id=$1 AND processing_status='IGNORED'`, sourceID); n != 1 {
+		t.Fatalf("stranger turn was not ignored (source %s)", sourceID)
 	}
 
 	// Another household replying to the same message id cannot reach this evidence.

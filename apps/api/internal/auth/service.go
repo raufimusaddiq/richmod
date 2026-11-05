@@ -173,7 +173,11 @@ func (s *Service) AcceptDashboardInvite(ctx context.Context, token, password str
 	}
 	defer tx.Rollback(ctx)
 	var inviteID, userID string
-	err = tx.QueryRow(ctx, `SELECT id,user_id FROM dashboard_account_invite WHERE token_hash=$1 AND status='PENDING' AND expires_at>now() FOR UPDATE`, h).Scan(&inviteID, &userID)
+	// The invite only enrolls a member who is still active in the household
+	// that issued it; a member removed after the invite was sent cannot use it.
+	err = tx.QueryRow(ctx, `SELECT i.id,i.user_id FROM dashboard_account_invite i
+		JOIN household_member hm ON hm.household_id=i.household_id AND hm.user_id=i.user_id AND hm.active
+		WHERE i.token_hash=$1 AND i.status='PENDING' AND i.expires_at>now() FOR UPDATE OF i`, h).Scan(&inviteID, &userID)
 	if err != nil {
 		return Principal{}, "", time.Time{}, ErrInvalidCredentials
 	}

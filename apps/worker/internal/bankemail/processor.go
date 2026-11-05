@@ -285,7 +285,7 @@ func DecodePayload(raw json.RawMessage) (Payload, error) {
 func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	var household, listenerID, bank, sender, subject, date, auth, body, messageID string
 	var receivedAt time.Time
-	err := p.pool.QueryRow(ctx, `SELECT s.household_id,s.received_at,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.message_id FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id WHERE s.id=$1 AND l.active`, payload.SourceEventID).Scan(&household, &receivedAt, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID)
+	err := p.pool.QueryRow(ctx, `SELECT s.household_id,s.received_at,l.id,l.bank_name,l.sender_address,m.subject,m.email_date,m.authentication_results,m.body,m.message_id FROM source_event s JOIN bank_email_event m ON m.source_event_id=s.id JOIN bank_email_listener l ON l.id=m.listener_id AND l.household_id=s.household_id WHERE s.id=$1 AND l.active`, payload.SourceEventID).Scan(&household, &receivedAt, &listenerID, &bank, &sender, &subject, &date, &auth, &body, &messageID)
 	if err != nil {
 		return fmt.Errorf("load bank email event: %w", err)
 	}
@@ -293,7 +293,7 @@ func (p *Processor) Process(ctx context.Context, payload Payload) error {
 	ctx = judgment.WithSourceEvent(ctx, payload.SourceEventID)
 	ctx = gateway.WithPhaseMetadata(ctx, "EXTRACTION", "")
 	var accountID string
-	_ = p.pool.QueryRow(ctx, `SELECT COALESCE(account_id::text,'') FROM bank_email_listener WHERE id=$1`, listenerID).Scan(&accountID)
+	_ = p.pool.QueryRow(ctx, `SELECT COALESCE(account_id::text,'') FROM bank_email_listener WHERE id=$1 AND household_id=$2`, listenerID, household).Scan(&accountID)
 	listener := Listener{ID: listenerID, HouseholdID: household, BankName: bank, SenderAddress: sender, AccountID: accountID, TrackingPolicy: "SPENDING_ONLY", Active: true}
 	extraction, meta, err := p.extractor.Extract(ctx, payload.SourceEventID, listener, TrustedEmail{MessageID: messageID, Subject: subject, Date: date, AuthenticationResults: auth, Body: body})
 	if err != nil {

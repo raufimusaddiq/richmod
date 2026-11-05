@@ -125,6 +125,15 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "ADMIN_UPDATE_FAILED")
 		return
 	}
+	// A disabled user loses dashboard sessions now. Telegram access ends too:
+	// intake and the worker require an active user, so the identity stays
+	// intact and comes back if the user is re-enabled.
+	if currentActive && !nextActive {
+		if _, err := tx.Exec(r.Context(), `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, id); err != nil {
+			writeError(w, 500, "ADMIN_UPDATE_FAILED")
+			return
+		}
+	}
 	if currentActive != nextActive {
 		action := "ADMIN_USER_DEACTIVATE"
 		if nextActive {

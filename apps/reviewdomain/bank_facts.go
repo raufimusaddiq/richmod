@@ -78,10 +78,10 @@ func IgnoreBankReview(ctx context.Context, tx pgx.Tx, cmd BankFactCommand, actor
 	if _, err = tx.Exec(ctx, `UPDATE review_item SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=$2,resolution_action='IGNORE',resolution_values='{}'::jsonb,updated_at=now() WHERE id=$1 AND household_id=$3`, cmd.ReviewItemID, cmd.UserID, cmd.HouseholdID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{cmd.ReviewItemID}); err != nil {
+	if _, err = tx.Exec(ctx, resolveRequestByItemSQL, []string{cmd.ReviewItemID}, cmd.HouseholdID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1)`, cmd.ReviewItemID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE review_conversation SET state='RESOLVED',updated_at=now() WHERE review_request_id IN (SELECT id FROM review_request WHERE review_item_id=$1 AND household_id=$2)`, cmd.ReviewItemID, cmd.HouseholdID); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,$2,$3,'RESOLVE_REVIEW','review_item',$4,jsonb_build_object('action','IGNORE'))`, cmd.HouseholdID, actorType, cmd.UserID, cmd.ReviewItemID)
