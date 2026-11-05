@@ -185,7 +185,7 @@ func (q *Queue) failTx(ctx context.Context, job Job, processErr error, onFinal f
 	if Final(job, processErr) {
 		status = "FAILED"
 	}
-	delaySeconds := int(time.Duration(1<<min(job.Attempts, 8)) * time.Second / time.Second)
+	delaySeconds := retryDelaySeconds(job, processErr)
 	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -209,6 +209,19 @@ func (q *Queue) logRetry(ctx context.Context, job Job, processErr error) error {
 		return fmt.Errorf("write job retry log: %w", logErr)
 	}
 	return nil
+}
+
+// retryDelaySeconds is the exponential backoff, unless the error names its own
+// wait (a Telegram 429 retry_after), which is honoured up to one hour.
+func retryDelaySeconds(job Job, processErr error) int {
+	delay := time.Duration(1<<min(job.Attempts, 8)) * time.Second
+	var hinted interface{ RetryAfter() time.Duration }
+	if errors.As(processErr, &hinted) {
+		if wait := hinted.RetryAfter(); wait > 0 {
+			delay = min(wait, time.Hour)
+		}
+	}
+	return int((delay + time.Second - 1) / time.Second)
 }
 
 func isPermanent(err error) bool {

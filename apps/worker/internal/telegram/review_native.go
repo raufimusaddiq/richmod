@@ -151,6 +151,12 @@ func (p *Processor) resolveReviewTx(ctx context.Context, tx pgx.Tx, sourceEventI
 	// The date check uses the parsed pay date only; a fallback timestamp never
 	// satisfies it.
 	var storedDecision []byte
+	// Lock the review_request row first, as the typed-reply (agent) lane does,
+	// so a tap and a typed answer on the same card serialize on one row in one
+	// order and the loser sees the closed review (ADR-046, 2026-11-05).
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM review_request WHERE id=$1 AND household_id=$2 FOR UPDATE`, reviewID, householdID); err != nil {
+		return err
+	}
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(ri.decision,'{}'::jsonb) FROM review_request rr JOIN review_item ri ON ri.id=rr.review_item_id WHERE rr.id=$1 AND ri.household_id=$2 AND ri.status IN ('PENDING_SEND','OPEN') FOR UPDATE OF ri`, reviewID, householdID).Scan(&storedDecision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}

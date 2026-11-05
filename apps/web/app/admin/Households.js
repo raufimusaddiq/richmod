@@ -252,6 +252,10 @@ function HouseholdDetail({ id, close, setError }) {
                   {data.reviewDiagnostics.latestDeliveryFailureErrorClass ||
                     "—"}
                 </dd>
+                <dt>Kartu gagal terkirim</dt>
+                <dd>{data.reviewDiagnostics.undeliveredReviewCards ?? 0}</dd>
+                <dt>Kartu menunggu antrean</dt>
+                <dd>{data.reviewDiagnostics.queuedReviewCards ?? 0}</dd>
               </dl>
             </>
           )}
