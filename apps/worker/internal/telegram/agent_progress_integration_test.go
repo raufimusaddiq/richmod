@@ -41,10 +41,10 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 	}
 
 	// First call queues the notice; a retry of the same turn does not repeat it.
-	if err := processor.enqueueProgressNotice(f.ctx, update(11)); err != nil {
+	if err := processor.enqueueProgressNotice(f.ctx, update(11), progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
-	if err := processor.enqueueProgressNotice(f.ctx, update(11)); err != nil {
+	if err := processor.enqueueProgressNotice(f.ctx, update(11), progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
 	if got := notices(11); got != 1 {
@@ -52,7 +52,7 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 	}
 
 	// A different message gets its own notice.
-	if err := processor.enqueueProgressNotice(f.ctx, update(12)); err != nil {
+	if err := processor.enqueueProgressNotice(f.ctx, update(12), progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
 	if got := notices(12); got != 1 {
@@ -63,7 +63,7 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 	if _, err := f.pool.Exec(f.ctx, `INSERT INTO job(type,payload_json) VALUES('SEND_TELEGRAM_MESSAGE',jsonb_build_object('chat_id',$1::bigint,'reply_to_message_id',13::bigint,'text','jawaban'))`, f.chatID); err != nil {
 		t.Fatal(err)
 	}
-	if err := processor.enqueueProgressNotice(f.ctx, update(13)); err != nil {
+	if err := processor.enqueueProgressNotice(f.ctx, update(13), progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
 	if got := notices(13); got != 0 {
@@ -75,7 +75,7 @@ func TestProgressNoticeIsIdempotentAndNeverFollowsAnAnswer(t *testing.T) {
 
 	// Nothing to reply to: a no-op, not an error.
 	var empty telegramUpdate
-	if err := processor.enqueueProgressNotice(f.ctx, empty); err != nil {
+	if err := processor.enqueueProgressNotice(f.ctx, empty, progressNoticeMessage); err != nil {
 		t.Fatalf("a message without a chat must be a no-op, got %v", err)
 	}
 }
@@ -91,7 +91,7 @@ func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
 	event := f.event(21)
 	var update telegramUpdate
 	update.Message.MessageID, update.Message.Chat.ID, update.Message.From.ID = 21, f.chatID, f.chatID
-	if err := processor.enqueueProgressNotice(f.ctx, update); err != nil {
+	if err := processor.enqueueProgressNotice(f.ctx, update, progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
 	var notices int
@@ -102,7 +102,7 @@ func TestProgressNoticeDoesNotSuppressTheTerminalFailureNotice(t *testing.T) {
 
 	job := f.job(event, 2)
 	hook := func(ctx context.Context, tx pgx.Tx) error {
-		return processor.TerminalTextFailureTx(ctx, tx, event, true)
+		return processor.TerminalTextFailureTx(ctx, tx, event, testTimeoutCause)
 	}
 	if err := jobs.FailWithHook(f.ctx, job, timeoutError(), hook); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestProgressNoticeIgnoresRepliesOlderThanTheLookback(t *testing.T) {
 	}
 	var update telegramUpdate
 	update.Message.MessageID, update.Message.Chat.ID, update.Message.From.ID = 31, f.chatID, f.chatID
-	if err := processor.enqueueProgressNotice(f.ctx, update); err != nil {
+	if err := processor.enqueueProgressNotice(f.ctx, update, progressNoticeMessage); err != nil {
 		t.Fatal(err)
 	}
 	var notices int
@@ -223,7 +223,7 @@ func TestDeadTypedMessageLeavesADismissableItem(t *testing.T) {
 	event := f.event(51)
 	job := f.job(event, 2)
 	hook := func(ctx context.Context, tx pgx.Tx) error {
-		return processor.TerminalTextFailureTx(ctx, tx, event, true)
+		return processor.TerminalTextFailureTx(ctx, tx, event, testTimeoutCause)
 	}
 	if err := jobs.FailWithHook(f.ctx, job, timeoutError(), hook); err != nil {
 		t.Fatal(err)

@@ -19,24 +19,52 @@ func turnsOf(n int) []PublicTurn {
 	return turns
 }
 
-func TestCompactionKeepsTheNewestTurnsWholeAndShrinksTheRest(t *testing.T) {
-	input := turnsOf(6) // 18 rows
-	got := compactConversation(input)
-
-	// The newest verbatimTurns rows are untouched, including their tool results.
-	tail := got[len(got)-verbatimTurns:]
-	for i, turn := range tail {
-		want := input[len(input)-verbatimTurns+i]
-		if turn.Role != want.Role || turn.Text != want.Text || turn.Compacted {
-			t.Fatalf("verbatim row %d was changed: %+v", i, turn)
-		}
-		if want.Role == "TOOL" && turn.Context == nil {
-			t.Fatal("a verbatim tool row must keep its result for follow-ups")
+// verbatimStart is where the newest verbatimExchanges user exchanges begin.
+func verbatimStart(turns []PublicTurn) int {
+	seen := 0
+	for index := len(turns) - 1; index >= 0; index-- {
+		if turns[index].Role == "USER" {
+			seen++
+			if seen == verbatimExchanges {
+				return index
+			}
 		}
 	}
+	return 0
+}
+
+func TestCompactionKeepsTheNewestExchangesWholeAndShrinksTheRest(t *testing.T) {
+	input := turnsOf(6) // 6 exchanges, 18 rows, tool rows of 5,000 characters each
+	got := compactConversation(input)
+
+	// The newest exchange is untouched, tool result included.
+	tail := got[len(got)-3:]
+	for i, turn := range tail {
+		want := input[len(input)-3+i]
+		if turn.Role != want.Role || turn.Text != want.Text || turn.Compacted {
+			t.Fatalf("newest exchange row %d was changed: %+v", i, turn)
+		}
+		if want.Role == "TOOL" && turn.Context == nil {
+			t.Fatal("the newest exchange must keep its tool result for follow-ups")
+		}
+	}
+	// The verbatim window counts exchanges, not rows: all three newest user
+	// messages are present whole.
+	whole := 0
+	for _, turn := range got {
+		if turn.Role == "USER" && !turn.Compacted {
+			whole++
+		}
+	}
+	if whole != verbatimExchanges {
+		t.Fatalf("want the %d newest user messages whole, got %d", verbatimExchanges, whole)
+	}
 	// Older rows are clipped, marked, stripped of tool data, and never TOOL rows.
-	for _, turn := range got[:len(got)-verbatimTurns] {
-		if !turn.Compacted || turn.Context != nil || turn.Role == "TOOL" {
+	for _, turn := range got {
+		if !turn.Compacted {
+			continue
+		}
+		if turn.Context != nil || turn.Role == "TOOL" {
 			t.Fatalf("older turn was not compacted: %+v", turn)
 		}
 		limit := olderUserChars
@@ -46,6 +74,29 @@ func TestCompactionKeepsTheNewestTurnsWholeAndShrinksTheRest(t *testing.T) {
 		if len([]rune(turn.Text)) > limit {
 			t.Fatalf("older %s text exceeds %d: %d", turn.Role, limit, len([]rune(turn.Text)))
 		}
+	}
+}
+
+// A1: tool JSON counts against the budget. The tool results of older verbatim
+// exchanges are dropped before the newest exchange is touched.
+func TestCompactionCountsToolJSONAgainstTheBudget(t *testing.T) {
+	got := compactConversation(turnsOf(4))
+	total := 0
+	tools := 0
+	for _, turn := range got {
+		total += turnMemorySize(turn)
+		if turn.Role == "TOOL" {
+			tools++
+		}
+	}
+	if tools != 1 {
+		t.Fatalf("only the newest exchange's 5,000-character tool result fits the budget, kept %d tool rows", tools)
+	}
+	if got[len(got)-2].Role != "TOOL" {
+		t.Fatalf("the kept tool result must be the newest one: %+v", got[len(got)-2])
+	}
+	if total > conversationCharBudget+6000 {
+		t.Fatalf("memory %d is far over the budget %d", total, conversationCharBudget)
 	}
 }
 
@@ -67,25 +118,22 @@ func TestCompactionKeepsChronologicalOrder(t *testing.T) {
 func TestCompactionBudgetDropsTheOldestCompactedTurnsFirstAndNeverTheNewest(t *testing.T) {
 	input := turnsOf(40) // many exchanges: older text alone exceeds the budget
 	got := compactConversation(input)
-	total := 0
-	for _, turn := range got {
-		total += len([]rune(turn.Text))
-	}
-	tailText := 0
-	for _, turn := range input[len(input)-verbatimTurns:] {
-		tailText += len([]rune(turn.Text))
-	}
-	if total > conversationCharBudget && total > tailText {
-		t.Fatalf("text %d exceeds the budget %d even though older turns could still be dropped", total, conversationCharBudget)
-	}
 	last := got[len(got)-1]
 	if last.Role != "ASSISTANT" || !strings.HasPrefix(last.Text, "jawaban 39") {
 		t.Fatalf("the newest turn must survive the budget, got %+v", last)
 	}
 	// Whatever older turns remain are the most recent of the older ones.
-	older := got[:len(got)-verbatimTurns]
-	if len(older) > 0 && !strings.HasPrefix(older[len(older)-1].Text, "jawaban 3") {
+	var older []PublicTurn
+	for _, turn := range got {
+		if turn.Compacted {
+			older = append(older, turn)
+		}
+	}
+	if len(older) > 0 && !strings.HasPrefix(older[len(older)-1].Text, "jawaban 36") {
 		t.Fatalf("budget must drop the oldest first, kept %q last", older[len(older)-1].Text)
+	}
+	if len(older) > 0 && strings.HasPrefix(older[0].Text, "pertanyaan 0 ") {
+		t.Fatal("the oldest turn should have been dropped first")
 	}
 }
 
@@ -130,7 +178,7 @@ func TestMemoryWindowIsLongerThanAnHourButBounded(t *testing.T) {
 	if conversationWindow <= time.Hour {
 		t.Fatalf("window %s is not longer than the old one hour", conversationWindow)
 	}
-	if conversationScanRows < 20 || verbatimTurns < 2 || conversationCharBudget < 2000 {
+	if conversationScanRows < 20 || verbatimExchanges < 2 || conversationCharBudget < 2000 {
 		t.Fatal("memory limits are too small to carry a follow-up")
 	}
 }
@@ -144,7 +192,7 @@ func TestCompactionBudgetCountsCharactersNotBytes(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		turns = append(turns, PublicTurn{Role: "USER", Text: strings.Repeat("é", 150)})
 	}
-	turns = append(turns, make([]PublicTurn, verbatimTurns)...)
+	turns = append(turns, PublicTurn{Role: "USER"}, PublicTurn{Role: "USER"}, PublicTurn{Role: "USER"})
 	kept := 0
 	for _, turn := range compactConversation(turns) {
 		if turn.Compacted {

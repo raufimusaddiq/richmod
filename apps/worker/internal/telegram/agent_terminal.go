@@ -9,20 +9,34 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
+	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
 
-// terminalTextFailureMessage is what the household sees when a typed message
-// could not be answered because the model was too slow; terminalTextErrorMessage
-// when it failed for another reason. Each says what happened and what to do, so a
-// failure is never silence, and a failure that is not slowness is not blamed on it.
+// Typed-message failure classes. Each has its own terminal copy, because the
+// household acts differently on each: a slow assistant is worth a retry soon, an
+// unreachable one is waited for (the message is deferred, then given up after a
+// day), and a system fault is never the household's wording. Every copy says nothing was
+// recorded: the terminal step only runs for an event no mutation finalized.
+type textFailureClass string
+
 const (
-	terminalTextFailureMessage = "Richmod lagi lambat menjawab, jadi pertanyaanmu belum terjawab. Coba kirim ulang sebentar lagi, ya."
-	terminalTextErrorMessage   = "Aku belum bisa menjawab pertanyaan ini. Coba tulis dengan kata lain, ya."
+	textFailureTimeout     textFailureClass = "TIMEOUT"
+	textFailureUnavailable textFailureClass = "UNAVAILABLE"
+	textFailureError       textFailureClass = "ERROR"
 )
 
-func terminalTextFailureCopy(timedOut bool) (message, reason string) {
-	if timedOut {
+const (
+	terminalTextFailureMessage     = "Richmod lagi lambat menjawab, jadi pesanmu belum terjawab dan belum ada yang dicatat. Coba kirim ulang sebentar lagi, ya."
+	terminalTextUnavailableMessage = "AI Richmod belum juga bisa dihubungi, jadi pesanmu belum bisa diproses dan belum ada yang dicatat. Silakan kirim ulang, ya."
+	terminalTextErrorMessage       = "Ada kendala di sistem Richmod, jadi pesanmu belum kuproses dan belum ada yang dicatat. Coba kirim ulang sebentar lagi, ya."
+)
+
+func terminalTextFailureCopy(class textFailureClass) (message, reason string) {
+	switch class {
+	case textFailureTimeout:
 		return terminalTextFailureMessage, "TIMEOUT"
+	case textFailureUnavailable:
+		return terminalTextUnavailableMessage, "UNAVAILABLE"
 	}
 	return terminalTextErrorMessage, "ERROR"
 }
@@ -31,6 +45,10 @@ func terminalTextFailureCopy(timedOut bool) (message, reason string) {
 // wraps it, so the retry rule keys on this value and not on message text.
 var errModelPhase = errors.New("conversational model phase")
 
+// errConversationalGatewayMissing is a processor wired without a conversational
+// gateway; it is unavailability, not a bug in the household's message.
+var errConversationalGatewayMissing = &gateway.UnavailableError{Err: errors.New("conversational gateway unavailable")}
+
 // IsModelTimeout reports whether a typed-message failure was the conversational
 // model call running out of time.
 func IsModelTimeout(err error) bool {
@@ -38,6 +56,56 @@ func IsModelTimeout(err error) bool {
 		return false
 	}
 	return errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded")
+}
+
+// IsGatewayUnavailable reports whether a typed-message failure was the AI
+// gateway being unreachable, unconfigured, or refusing work (HTTP 408/429/5xx).
+func IsGatewayUnavailable(err error) bool {
+	return err != nil && gateway.IsUnavailable(err)
+}
+
+func classifyTextFailure(err error) textFailureClass {
+	switch {
+	case IsModelTimeout(err):
+		return textFailureTimeout
+	case IsGatewayUnavailable(err):
+		return textFailureUnavailable
+	}
+	return textFailureError
+}
+
+// MaxGatewayUnavailableAttempts bounds retries of an unavailability that was
+// not deferred (it happened after the turn wrote something, or the deferral
+// window ended): one quick retry, then the terminal notice.
+const MaxGatewayUnavailableAttempts = 2
+
+// TextFailurePolicy is the retry taxonomy for one failed PROCESS_TELEGRAM_TEXT
+// attempt. It returns err unchanged when the queue may retry it, or wrapped as
+// terminal when it must not:
+//
+//   - a model timeout is retried once (MaxModelTimeoutAttempts);
+//   - an unreachable gateway before anything was written is not a failure at
+//     all: ProcessAgent returns a GatewayDeferral and the worker defers the job
+//     (queue.Defer) without spending attempts, for up to a day;
+//   - any other unavailability is retried once (MaxGatewayUnavailableAttempts);
+//   - a gateway rejection (HTTP 4xx) and a permanent validation failure are
+//     never retried: the same request fails the same way;
+//   - anything else (database, network to Postgres) is transient and keeps the
+//     job's normal attempt budget.
+//
+// Model-recoverable failures never reach here: they are returned to the model
+// as tool results inside the turn (agentRecoverable).
+func TextFailurePolicy(err error, attempts int) error {
+	if err == nil || IsGatewayDeferral(err) {
+		return err
+	}
+	switch {
+	case IsModelTimeout(err) && attempts >= MaxModelTimeoutAttempts,
+		IsGatewayUnavailable(err) && attempts >= MaxGatewayUnavailableAttempts,
+		gateway.IsRejected(err):
+		return TerminalError(err)
+	}
+	return err
 }
 
 // terminalError marks a failure the queue must not retry. The queue treats any
@@ -64,7 +132,7 @@ func TerminalError(err error) error {
 //
 // It only issues statements that cannot abort the transaction: a malformed ID or
 // a missing event is a no-op, never an SQL error.
-func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string, timedOut bool) error {
+func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, sourceEventID string, cause error) error {
 	if !reviewdomain.IsSourceEventID(sourceEventID) {
 		return nil
 	}
@@ -96,8 +164,15 @@ func (p *Processor) TerminalTextFailureTx(ctx context.Context, tx pgx.Tx, source
 	// Unconditional on purpose: an earlier progress notice must never suppress the
 	// failure notice (the household would be left with "still working" and then
 	// nothing). Only the progress notice checks for existing replies.
-	message, reason := terminalTextFailureCopy(timedOut)
+	message, reason := terminalTextFailureCopy(classifyTextFailure(cause))
 	if err := enqueueReply(ctx, tx, update, message); err != nil {
+		return err
+	}
+	// The failure is part of the conversation: without it the next turn would see
+	// an unanswered question and might answer or act on it again.
+	if err := insertTurnTx(ctx, tx, householdID, sourceEventID, update, "ASSISTANT", message, "", map[string]any{
+		"failure": reason, "nothing_recorded": true,
+	}); err != nil {
 		return err
 	}
 	// Leave a dismissable record in the Inbox, so the failure is visible after

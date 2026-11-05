@@ -67,18 +67,21 @@ func (p *Processor) loadAgentContextState(ctx context.Context, householdID, sour
 	return state, nil
 }
 
-// recentAgentTransactions lists the household's most recent ledger rows as
+// recentAgentTransactions lists the household's most recent ledger rows, the
+// sending member's own entries first, as
 // opaque turn refs, mirroring the ref scheme used for freshly recorded
 // transactions. Only model-safe fields are exposed (no canonical UUIDs), so the
 // model can reference an existing row but never address the database directly.
 func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, sourceEventID string, update telegramUpdate) ([]map[string]any, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT t.id,t.type,t.status,t.amount::text,COALESCE(t.counterparty_name,''),
-		       COALESCE(c.slug,''),COALESCE(t.description,''),t.transaction_at
+		       COALESCE(c.slug,''),COALESCE(t.description,''),t.transaction_at,
+		       t.created_by_user_id IS NOT DISTINCT FROM ti.user_id
 		FROM transaction t
 		LEFT JOIN category c ON c.id=t.category_id
+		LEFT JOIN telegram_identity ti ON ti.household_id=t.household_id AND ti.telegram_user_id=$2 AND ti.active
 		WHERE t.household_id=$1 AND t.status<>'VOIDED' AND t.created_at >= now()-interval '60 minutes'
-		ORDER BY t.created_at DESC LIMIT 5`, householdID)
+		ORDER BY (t.created_by_user_id IS NOT DISTINCT FROM ti.user_id) DESC,t.created_at DESC LIMIT 5`, householdID, update.Message.From.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load recent agent transactions: %w", err)
 	}
@@ -86,11 +89,12 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 	type recent struct {
 		ID, Type, Status, Amount, Merchant, CategorySlug, Description string
 		At                                                            time.Time
+		Mine                                                          bool
 	}
 	var loaded []recent
 	for rows.Next() {
 		var r recent
-		if err := rows.Scan(&r.ID, &r.Type, &r.Status, &r.Amount, &r.Merchant, &r.CategorySlug, &r.Description, &r.At); err != nil {
+		if err := rows.Scan(&r.ID, &r.Type, &r.Status, &r.Amount, &r.Merchant, &r.CategorySlug, &r.Description, &r.At, &r.Mine); err != nil {
 			return nil, err
 		}
 		loaded = append(loaded, r)
@@ -125,6 +129,9 @@ func (p *Processor) recentAgentTransactions(ctx context.Context, householdID, so
 			"category_slug":  r.CategorySlug,
 			"description":    untrustedField(r.Description),
 			"transaction_at": r.At.In(jakartaLocation()).Format(time.RFC3339),
+			// Entries this member made come first; another member's entry is
+			// marked so "yang tadi" is not bound to it by mistake.
+			"entered_by_you": r.Mine,
 		})
 	}
 	return out, nil

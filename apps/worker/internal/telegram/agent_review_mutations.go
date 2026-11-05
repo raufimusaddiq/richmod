@@ -512,6 +512,12 @@ func (p *Processor) agentResolveTransferCaseTx(ctx context.Context, state *agent
 	return id, tx.Commit(ctx)
 }
 
+// cycleResidualAuditSQL records a residual resolution. Every parameter carries
+// an explicit type: jsonb_build_object takes "any", so an untyped $5 could not be
+// inferred by PostgreSQL and the prepared statement failed (SQLSTATE 42P18,
+// production 2026-10-23, "conversational side effect resolve_review").
+const cycleResidualAuditSQL = `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1::uuid,'TELEGRAM',$2::uuid,$3::text,'cycle_residual_case',$4::uuid,jsonb_build_object('residualIdr',$5::text,'agent_sprint',1))`
+
 func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState, call gateway.ToolCall, action string, args map[string]any) (bool, agentToolResult, error) {
 	result := agentToolResult{CallID: call.CallID, Tool: call.Name, Class: agentToolSideEffect}
 	query := `SELECT r.id,ri.id,crc.id FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id JOIN review_request_recipient rr ON rr.review_request_id=r.id WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN' AND ri.status IN('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2 ORDER BY r.created_at DESC LIMIT 2`
@@ -600,7 +606,7 @@ func (p *Processor) agentResolveResidual(ctx context.Context, state *agentState,
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-conversational-agent',parser_version='1' WHERE id=$1`, state.SourceEventID); err != nil {
 		return true, result, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,'TELEGRAM',$2,$3,'cycle_residual_case',$4,jsonb_build_object('residualIdr',$5,'agent_sprint',1))`, state.HouseholdID, userID, "CYCLE_RESIDUAL_"+action, t.caseID, outcome.Residual); err != nil {
+	if _, err = tx.Exec(ctx, cycleResidualAuditSQL, state.HouseholdID, userID, "CYCLE_RESIDUAL_"+action, t.caseID, outcome.Residual); err != nil {
 		return true, result, err
 	}
 	if err = tx.Commit(ctx); err != nil {
