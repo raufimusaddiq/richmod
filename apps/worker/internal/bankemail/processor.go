@@ -739,6 +739,9 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 		if observedMerchant == "" {
 			observedMerchant = counterparty
 		}
+		if lockErr := reviewdomain.LockLedgerEvent(ctx, tx, listener.HouseholdID, amount); lockErr != nil {
+			return lockErr
+		}
 		matches, matchErr := reviewdomain.FindLedgerMatches(ctx, tx, reviewdomain.LedgerMatchQuery{HouseholdID: listener.HouseholdID, Type: transactionType, AmountIDR: amount, At: *at, Merchant: observedMerchant, ExcludeSourceID: sourceID, ExcludeEvidenceType: "BANK_EMAIL"})
 		if matchErr != nil {
 			return matchErr

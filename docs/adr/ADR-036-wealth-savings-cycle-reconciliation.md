@@ -108,4 +108,9 @@ Cross-household ownership and link validation remain service-layer responsibilit
   naming the candidates. The frozen `SPENDING_ONLY` bank extraction is unchanged:
   dedup is linking, not parsing. Two bank emails are never merged automatically.
   Screenshot rows keep ADR-042's rule that only a shared identifier links without
-  asking.
+  asking. Every lane takes a transaction-scoped advisory lock per household and
+  IDR amount (`LockLedgerEvent`) before it writes, and re-checks the candidates
+  under the lock; a candidate written concurrently by another lane makes the lane
+  decide again, so two lanes cannot both see "no match". A strong match is judged
+  against every plausible candidate, and more than ten plausible candidates never
+  auto-link.

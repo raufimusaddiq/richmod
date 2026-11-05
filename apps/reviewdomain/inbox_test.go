@@ -1,6 +1,7 @@
 package reviewdomain
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -114,6 +115,13 @@ func TestLedgerMatchingIsDeterministic(t *testing.T) {
 	far := LedgerMatch{ID: "c", Score: LedgerMatchScore(30, true)}
 	if got := StrongLedgerMatch([]LedgerMatch{strong, far}); got == nil || got.ID != "a" {
 		t.Fatalf("unique strong match must link: %v", got)
+	}
+	crowd := []LedgerMatch{strong}
+	for i := 0; i < ledgerMatchLimit; i++ {
+		crowd = append(crowd, LedgerMatch{ID: fmt.Sprint("w", i), Score: LedgerMatchScore(0.5, false)})
+	}
+	if got := StrongLedgerMatch(crowd); got != nil {
+		t.Fatal("more plausible events than the bound fails closed")
 	}
 	if got := StrongLedgerMatch([]LedgerMatch{weak}); got != nil {
 		t.Fatal("a merchant-less match never links")

@@ -11,6 +11,7 @@ package reviewdomain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"time"
@@ -79,13 +80,41 @@ func FindLedgerMatches(ctx context.Context, q rowQueryer, query LedgerMatchQuery
 			continue
 		}
 		match.Score = LedgerMatchScore(match.Hours, match.MerchantMatch)
+		// Every plausible candidate is returned: a strong match must be judged
+		// against all of them, never against a time-ordered prefix.
 		out = append(out, match)
-		if len(out) == ledgerMatchLimit {
-			break
-		}
 	}
 	return out, rows.Err()
 }
+
+// LockLedgerEvent serializes every lane that may write or link a transaction of
+// this household and IDR amount, for the rest of the caller's transaction. A
+// lane takes it before it matches and inserts, so two lanes ingesting the same
+// purchase concurrently cannot both see "no match" and write two transactions.
+func LockLedgerEvent(ctx context.Context, tx pgx.Tx, householdID, amountIDR string) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('ledger-event:'||$1::text||':'||$2::numeric::text,0))`, householdID, amountIDR)
+	return err
+}
+
+// SameLedgerCandidates reports whether a match result taken under the lock adds
+// no candidate the lane did not decide on. A new candidate means another lane
+// wrote a transaction meanwhile; the caller must re-run its decision.
+func SameLedgerCandidates(decided []string, now []LedgerMatch) bool {
+	seen := map[string]bool{}
+	for _, id := range decided {
+		seen[id] = true
+	}
+	for _, match := range now {
+		if !seen[match.ID] {
+			return false
+		}
+	}
+	return true
+}
+
+// ErrLedgerRaced reports that another lane changed the candidate set between a
+// lane's decision and its write; the job retries and decides again.
+var ErrLedgerRaced = errors.New("reviewdomain: ledger candidates changed concurrently; retry")
 
 // LedgerMatchScore is the shared deterministic score (amount and type already
 // equal): closeness in time plus merchant compatibility.
@@ -110,6 +139,10 @@ func LedgerMatchScore(hours float64, merchantMatch bool) float64 {
 // Otherwise it returns nil and the caller asks (POSSIBLE_DUPLICATE) when any
 // candidate exists.
 func StrongLedgerMatch(matches []LedgerMatch) *LedgerMatch {
+	if len(matches) > ledgerMatchLimit {
+		// Too many plausible events to call any one of them the same purchase.
+		return nil
+	}
 	var strong *LedgerMatch
 	for i := range matches {
 		if matches[i].Score >= strongMatchScore {

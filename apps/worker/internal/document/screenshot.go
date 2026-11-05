@@ -342,6 +342,35 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Cross-lane serialization: lock every row amount (sorted, so concurrent
+	// writers take locks in one order) and re-check the candidates under the
+	// lock; another lane that wrote a candidate meanwhile makes the job retry.
+	amounts := []string{}
+	for _, row := range rows {
+		if row.Value.Amount != nil && !slices.Contains(amounts, *row.Value.Amount) {
+			amounts = append(amounts, *row.Value.Amount)
+		}
+	}
+	slices.Sort(amounts)
+	for _, amount := range amounts {
+		if err := reviewdomain.LockLedgerEvent(ctx, tx, householdID, amount); err != nil {
+			return err
+		}
+	}
+	for _, row := range rows {
+		if row.Value.Amount == nil {
+			continue
+		}
+		now, err := p.findScreenshotMatches(ctx, householdID, row)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(now, func(candidate matchCandidate) bool {
+			return (row.Matched == nil || row.Matched.ID != candidate.ID) && !slices.ContainsFunc(row.Candidates, func(decided matchCandidate) bool { return decided.ID == candidate.ID })
+		}) {
+			return reviewdomain.ErrLedgerRaced
+		}
+	}
 	var chatID int64
 	hasChat := true
 	var sourceChat *int64

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 )
 
 // One purchase seen by several lanes stays one canonical transaction with many
@@ -112,5 +114,56 @@ func TestScreenshotMatcherSeesTransactionsStillInReview(t *testing.T) {
 	}
 	if ids := pendingCandidateIDs(matches); !slices.Contains(ids, existing) {
 		t.Fatalf("pending candidate must be named for merge: %v", ids)
+	}
+}
+
+// A bank email writing the same purchase while the receipt is being decided
+// must not produce two transactions: the receipt write re-checks under the
+// shared ledger lock and re-decides, linking to the bank transaction.
+func TestConcurrentBankAndReceiptStayOneTransaction(t *testing.T) {
+	fixture := seedReceiptFixture(t, "Cross-lane race")
+	ctx := context.Background()
+	var bankSource, merchantID string
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'BANK_EMAIL',gen_random_uuid()::text,now(),decode(md5(random()::text),'hex'),'PROCESSED') RETURNING id::text`, fixture.householdID).Scan(&bankSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.pool.QueryRow(ctx, `INSERT INTO merchant(household_id,normalized_name) VALUES($1,'QRIS ALFAMART') RETURNING id::text`, fixture.householdID).Scan(&merchantID); err != nil {
+		t.Fatal(err)
+	}
+	// The bank lane holds the ledger lock and has written, but not committed.
+	bank, err := fixture.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bank.Rollback(ctx)
+	if err := reviewdomain.LockLedgerEvent(ctx, bank, fixture.householdID, "57500"); err != nil {
+		t.Fatal(err)
+	}
+	var bankTransaction string
+	if err := bank.QueryRow(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,merchant_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',57500,'IDR',$2,$3,now()) RETURNING id::text`, fixture.householdID, receiptTime().Add(-5*time.Minute), merchantID).Scan(&bankTransaction); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bank.Exec(ctx, `INSERT INTO transaction_evidence(transaction_id,source_event_id,evidence_type,confidence) VALUES($1,$2,'BANK_EMAIL',.95)`, bankTransaction, bankSource); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		slug := fixture.categorySlug
+		value := receiptExtraction{Merchant: "Alfamart", Total: "57500", Currency: "IDR", CategorySlug: &slug, CategoryConfidence: .95, Confidence: .95}
+		done <- (&Processor{pool: fixture.pool}).persistReceipt(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, value, "test-model", receiptValidation{TransactionAt: receiptTime(), DateKnown: true}, []categoryOption{{ID: fixture.categoryID, Slug: fixture.categorySlug}})
+	}()
+	time.Sleep(300 * time.Millisecond) // the receipt has decided "new" and waits on the lock
+	if err := bank.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var transactions, evidence int
+	if err := fixture.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM transaction WHERE household_id=$1),(SELECT count(*) FROM transaction_evidence WHERE transaction_id=$2)`, fixture.householdID, bankTransaction).Scan(&transactions, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if transactions != 1 || evidence != 2 {
+		t.Fatalf("concurrent lanes duplicated the event: transactions=%d evidence=%d", transactions, evidence)
 	}
 }

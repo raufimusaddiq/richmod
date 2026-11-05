@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/reviewdec"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/categoryctx"
@@ -57,6 +59,9 @@ type receiptValidation struct {
 	DateKnown           bool
 	ArithmeticAvailable bool
 	ArithmeticOK        bool
+	// decidedMatches are the candidate ids the decision was taken on; the write
+	// re-checks them under the ledger lock (cross-lane serialization).
+	decidedMatches []string
 }
 
 type matchCandidate struct {
@@ -251,24 +256,56 @@ func validateReceipt(value receiptExtraction, receivedAt time.Time) (receiptVali
 }
 
 func (p *Processor) persistReceipt(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {
+	// Another lane may write a candidate between this decision and its write; the
+	// write re-checks under the ledger lock and the decision is simply re-taken.
+	for attempt := 0; ; attempt++ {
+		err := p.persistReceiptOnce(ctx, documentID, householdID, sourceID, value, model, validation, categories)
+		if !errors.Is(err, reviewdomain.ErrLedgerRaced) || attempt == 2 {
+			return err
+		}
+	}
+}
+
+// lockReceiptLedger takes the cross-lane ledger lock and re-runs the matcher in
+// the writing transaction, refusing the write when the candidate set changed.
+func lockReceiptLedger(ctx context.Context, tx pgx.Tx, householdID, sourceID string, value receiptExtraction, validation receiptValidation) error {
+	if err := reviewdomain.LockLedgerEvent(ctx, tx, householdID, value.Total); err != nil {
+		return err
+	}
+	if !validation.DateKnown {
+		return nil
+	}
+	now, err := reviewdomain.FindLedgerMatches(ctx, tx, reviewdomain.LedgerMatchQuery{HouseholdID: householdID, Type: "EXPENSE", AmountIDR: value.Total, At: validation.TransactionAt, Merchant: value.Merchant, ExcludeSourceID: sourceID})
+	if err != nil {
+		return err
+	}
+	if !reviewdomain.SameLedgerCandidates(validation.decidedMatches, now) {
+		return reviewdomain.ErrLedgerRaced
+	}
+	return nil
+}
+
+func (p *Processor) persistReceiptOnce(ctx context.Context, documentID, householdID, sourceID string, value receiptExtraction, model string, validation receiptValidation, categories []categoryOption) error {
 	candidates, err := p.findMatches(ctx, householdID, sourceID, "EXPENSE", value.Total, validation.TransactionAt, value.Merchant, validation.DateKnown)
 	if err != nil {
 		return err
 	}
-	var strong []matchCandidate
+	validation.decidedMatches = make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.Score >= 0.90 {
-			strong = append(strong, candidate)
-		}
+		validation.decidedMatches = append(validation.decidedMatches, candidate.ID)
 	}
-	secondBest := 0.0
+	// The shared rule judges the strong match against every candidate and fails
+	// closed when too many plausible events exist.
+	matches := make([]reviewdomain.LedgerMatch, 0, len(candidates))
 	for _, candidate := range candidates {
-		if len(strong) == 1 && candidate.ID != strong[0].ID && candidate.Score > secondBest {
-			secondBest = candidate.Score
-		}
+		matches = append(matches, reviewdomain.LedgerMatch{ID: candidate.ID, Score: candidate.Score})
 	}
-	if len(strong) == 1 && secondBest <= 0.80 {
-		return p.linkReceipt(ctx, documentID, householdID, sourceID, strong[0], value, model, validation)
+	if strong := reviewdomain.StrongLedgerMatch(matches); strong != nil {
+		for _, candidate := range candidates {
+			if candidate.ID == strong.ID {
+				return p.linkReceipt(ctx, documentID, householdID, sourceID, candidate, value, model, validation)
+			}
+		}
 	}
 	categoryID := p.receiptCategory(ctx, householdID, value, categories)
 	categoryDecision := receiptCategoryProvenance{}
@@ -313,6 +350,9 @@ func (p *Processor) confirmReceipt(ctx context.Context, documentID, householdID,
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
+		return err
+	}
 	var merchantID *string
 	if normalized := strings.TrimSpace(value.Merchant); normalized != "" {
 		var id string
@@ -399,6 +439,9 @@ func (p *Processor) linkReceipt(ctx context.Context, documentID, householdID, so
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
+		return err
+	}
 	var proposalID string
 	if err := tx.QueryRow(ctx, `INSERT INTO transaction_proposal(household_id,source_event_id,proposal_key,proposed_type,amount,currency,transaction_at,merchant_raw,description,confidence,proposal_status,metadata_json) VALUES($1,$2,'receipt','EXPENSE',$3,'IDR',$4,NULLIF($5,''),'Bukti struk',$6,'MERGED',jsonb_build_object('document_id',$7::uuid,'matched_transaction_id',$8::uuid,'match_score',$9::numeric,'arithmetic_ok',$10::boolean)) RETURNING id`, householdID, sourceID, value.Total, validation.TransactionAt, value.Merchant, value.Confidence, documentID, candidate.ID, candidate.Score, validation.ArithmeticOK).Scan(&proposalID); err != nil {
 		return err
@@ -478,6 +521,9 @@ func (p *Processor) createReceiptReview(ctx context.Context, documentID, househo
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReceiptLedger(ctx, tx, householdID, sourceID, value, validation); err != nil {
+		return err
+	}
 	var merchantID *string
 	if normalized := strings.TrimSpace(value.Merchant); normalized != "" {
 		var id string
