@@ -17,7 +17,9 @@ import (
 // amendment, 2026-11). Deterministic flows must keep working without the
 // gateway; recording a plain expense is one. When the conversational model
 // cannot be reached, a message that is exactly "<what> <amount>" ("kopi 25rb",
-// "bensin 50.000", "parkir 5k") is parsed in Go and recorded as NEEDS_REVIEW
+// "bensin 50.000", "parkir 5k") is parsed in Go — and recorded only when it
+// states the purchase ("beli kopi 25rb") or names something the household
+// already spent on, and only when no open workflow could own the message — and recorded as NEEDS_REVIEW
 // with the normal review card and no category. It is never confirmed from the
 // fallback: the household picks the category on the card. Anything else (a
 // question, a date, income, several items, negation or intent such as "belum
@@ -28,6 +30,10 @@ import (
 type simpleExpense struct {
 	Amount      string
 	Description string
+	// PurchaseVerb is true when the message says the purchase happened
+	// ("beli", "bayar", "jajan", "isi"). Without it, the words alone must be a
+	// phrase the household already used for a confirmed expense.
+	PurchaseVerb bool
 }
 
 const fallbackMaxAmount = 100_000_000
@@ -56,9 +62,11 @@ var (
 		"rencana": true, "rencananya": true, "mau": true, "akan": true, "nanti": true, "ingin": true, "pengen": true, "pingin": true, "pengin": true, "bakal": true, "hendak": true,
 		"kalau": true, "kalo": true, "jika": true, "seandainya": true, "misal": true, "misalnya": true, "andai": true,
 		"harus": true, "perlu": true, "wajib": true, "budget": true, "anggaran": true, "target": true, "estimasi": true, "kira": true, "kira-kira": true, "perkiraan": true, "sekitar": true,
+		"harga": true, "saldo": true, "sisa": true, "limit": true, "nilai": true, "tarif": true, "promo": true, "diskon": true, "uang": true, "duit": true, "dompet": true,
 		"tagihan": true, "invoice": true, "tunggakan": true, "jatuh": true, "tempo": true, "will": true, "plan": true, "want": true,
 	}
-	fallbackLeadingVerbs = map[string]bool{"beli": true, "bayar": true, "buat": true, "untuk": true}
+	// fallbackPurchaseVerbs state that money was spent.
+	fallbackPurchaseVerbs = map[string]bool{"beli": true, "bayar": true, "jajan": true, "isi": true, "beliin": true, "dibeli": true, "dibayar": true, "membeli": true, "membayar": true}
 )
 
 // parseSimpleExpense reads "<what> <amount>" or "<amount> <what>": one amount
@@ -103,13 +111,20 @@ func parseSimpleExpense(text string) (simpleExpense, bool) {
 	if amount == "" || len(words) == 0 {
 		return simpleExpense{}, false
 	}
-	for len(words) > 1 && fallbackLeadingVerbs[words[0]] {
-		words = words[1:]
+	verb := false
+	for len(words) > 1 && fallbackPurchaseVerbs[words[0]] {
+		words, verb = words[1:], true
+	}
+	for _, word := range words {
+		if fallbackPurchaseVerbs[word] {
+			// A purchase verb anywhere but first is not the plain shape.
+			return simpleExpense{}, false
+		}
 	}
 	if len(words) > 4 {
 		return simpleExpense{}, false
 	}
-	return simpleExpense{Amount: amount, Description: strings.Join(words, " ")}, true
+	return simpleExpense{Amount: amount, Description: strings.Join(words, " "), PurchaseVerb: verb}, true
 }
 
 // parseFallbackAmount turns one amount token into whole rupiah. Dots and commas
@@ -166,12 +181,18 @@ func parseFallbackAmount(token, unit string) (string, bool) {
 // is unavailable. It returns handled=false when the message is not a plain
 // expense, so the caller fails the turn honestly instead.
 func (p *Processor) recordGatewayFallback(ctx context.Context, state *agentState) (bool, error) {
-	if state.SideEffects > 0 || state.ReplyQueued {
+	if state.SideEffects > 0 || state.ReplyQueued || fallbackBlockedByWorkflow(state) {
 		return false, nil
 	}
 	expense, ok := parseSimpleExpense(state.Update.Message.Text)
 	if !ok {
 		return false, nil
+	}
+	if !expense.PurchaseVerb {
+		known, err := p.householdSpendingPhrase(ctx, state.HouseholdID, expense.Description)
+		if err != nil || !known {
+			return false, err
+		}
 	}
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -241,6 +262,35 @@ func (p *Processor) recordGatewayFallback(ctx context.Context, state *agentState
 	state.SideEffects++
 	state.ReplyQueued = true
 	return true, nil
+}
+
+// fallbackBlockedByWorkflow keeps the fallback away from any message that may
+// belong to an open workflow: an exact Reply, a bound review or merchant
+// question, a pending correction, batch or salary choice, or evidence the turn
+// is about. Those wait for the model (or the card's own buttons); a new
+// transaction is never created in their place.
+func fallbackBlockedByWorkflow(state *agentState) bool {
+	if state.Update.Message.ReplyToMessage != nil && state.Update.Message.ReplyToMessage.MessageID != 0 {
+		return true
+	}
+	if state.ReviewBinding != nil || state.MerchantLearningBinding != nil || state.HasPendingAction || state.HasPendingBatch || state.HasSalaryChoice {
+		return true
+	}
+	return state.TurnContext["bound_evidence"] != nil || state.TurnContext["recent_evidence"] != nil
+}
+
+// householdSpendingPhrase reports whether the words name something this
+// household already spent on: a confirmed expense with that description or
+// counterparty, a merchant of the household, or a category name. Without a
+// purchase verb, that history is what makes "kopi 25rb" an expense and
+// "saldo 50rb" not.
+func (p *Processor) householdSpendingPhrase(ctx context.Context, householdID, phrase string) (bool, error) {
+	var known bool
+	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM transaction WHERE household_id=$1 AND type='EXPENSE' AND status='CONFIRMED'
+			AND (lower(btrim(description))=$2::text OR lower(btrim(counterparty_name))=$2::text))
+		OR EXISTS(SELECT 1 FROM merchant WHERE household_id=$1 AND lower(regexp_replace(btrim(normalized_name),'[[:space:]]+',' ','g'))=$2::text)
+		OR EXISTS(SELECT 1 FROM category WHERE household_id=$1 AND active AND lower(btrim(name))=$2::text)`, householdID, strings.ToLower(strings.TrimSpace(phrase))).Scan(&known)
+	return known, err
 }
 
 // gatewayFallbackMessage says the AI is unreachable, what was recorded, that it

@@ -85,6 +85,13 @@ Decision:
   items, punctuation such as `?`/`:`/`+`. A category-only review cannot establish
   that an expense happened, so only a plain statement of one is recorded. It
   never guesses.
+- A parsed message is recorded only when it states the purchase (a leading
+  `beli`/`bayar`/`jajan`/`isi`) or its words name something the household already
+  spent on (a confirmed expense's description or counterparty, a household
+  merchant, a category name): "kopi 25rb" after earlier coffee records, "harga
+  kopi 25rb" or "saldo 50rb" never does. It never runs for a message an open
+  workflow could own: an exact Reply, a bound review card or merchant question, a
+  pending correction, batch or salary choice, or bound/recent evidence.
 - A parsed message is recorded as an EXPENSE in NEEDS_REVIEW at the message time,
   with no category and no merchant (the words become the description), with
   `decision_source=DETERMINISTIC_FALLBACK` in the proposal metadata, evidence and

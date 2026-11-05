@@ -122,6 +122,18 @@ func TestGatewayDownRecordsASimpleExpenseForReview(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "loop-fallback")
 	model := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("dial tcp: connection refused")}}
+	// Without a purchase verb the words must be something the household already
+	// spent on: neither "harga kopi" nor a first-ever "kopi" is guessed.
+	for _, text := range []string{"harga kopi 25rb", "saldo 50rb", "kopi 25rb"} {
+		if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), text, 0); !IsGatewayUnavailable(err) {
+			t.Fatalf("%q must not be recorded by the fallback, got %v", text, err)
+		}
+	}
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); n != 0 {
+		t.Fatalf("the fallback guessed %d expenses", n)
+	}
+	_, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',22000,'IDR',now()-interval '3 days','Kopi',$2,now())`, f.householdID, f.userID)
+	mustAgentTest(t, err)
 	sourceID, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "kopi 25rb", 0)
 	mustAgentTest(t, err)
 	var status, description, amount, sourceStatus string
@@ -138,6 +150,10 @@ func TestGatewayDownRecordsASimpleExpenseForReview(t *testing.T) {
 		t.Fatalf("fallback reply = %q", reply)
 	}
 
+	// A stated purchase needs no history.
+	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "beli bensin 50.000", 0); err != nil {
+		t.Fatalf("a stated purchase must be recorded for review: %v", err)
+	}
 	// Anything that is not a plain expense fails honestly and records nothing.
 	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
 	_, err = runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "berapa pengeluaran bulan ini?", 0)
@@ -149,6 +165,41 @@ func TestGatewayDownRecordsASimpleExpenseForReview(t *testing.T) {
 	}
 }
 
+// A message an open workflow could own is never turned into a new expense by
+// the fallback: an exact Reply, or a typed answer bound to an open card.
+func TestGatewayFallbackLeavesWorkflowRepliesAlone(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "loop-fallback-bound")
+	reviewID, _ := createAgentTransactionReview(t, ctx, f, "36500", 611)
+	_, err := f.pool.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_DETAIL' WHERE review_request_id=$1`, reviewID)
+	mustAgentTest(t, err)
+	model := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("connection refused")}}
+	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
+	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "beli kopi 25rb", 611); !IsGatewayUnavailable(err) {
+		t.Fatalf("a Reply to a review card must wait for the model, got %v", err)
+	}
+	// The guard itself covers every server-bound state, not only replies.
+	for name, state := range map[string]*agentState{
+		"bound review":   {ReviewBinding: &agentReviewBinding{}, TurnContext: map[string]any{}},
+		"pending batch":  {HasPendingBatch: true, TurnContext: map[string]any{}},
+		"pending action": {HasPendingAction: true, TurnContext: map[string]any{}},
+		"evidence":       {TurnContext: map[string]any{"bound_evidence": map[string]any{}}},
+	} {
+		if !fallbackBlockedByWorkflow(state) {
+			t.Fatalf("%s must block the fallback", name)
+		}
+	}
+	_, err = f.pool.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY' WHERE review_request_id=$1`, reviewID)
+	mustAgentTest(t, err)
+	seedCategory(t, ctx, f, "makan", "Makan")
+	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "makan", 0); !IsGatewayUnavailable(err) {
+		t.Fatalf("a typed answer bound to a card must wait for the model, got %v", err)
+	}
+	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
+		t.Fatal("the fallback created a transaction in place of a workflow answer")
+	}
+}
+
 func TestParseSimpleExpense(t *testing.T) {
 	for _, tc := range []struct {
 		text, amount, description string
@@ -157,7 +208,7 @@ func TestParseSimpleExpense(t *testing.T) {
 		{"Rp 75.000 makan siang", "", ""}, // "siang" is a time of day: not a plain expense
 		{"beli nasi goreng 18 ribu", "18000", "nasi goreng"}, {"pulsa 1,5jt", "1500000", "pulsa"}, {"rp25.000 sabun", "25000", "sabun"},
 		{"kopi 25", "", ""}, {"gaji 5jt", "", ""}, {"kopi 25rb kemarin", "", ""}, {"berapa kopi 25rb?", "", ""},
-		{"kopi 25rb dan roti 10rb", "", ""},
+		{"kopi 25rb dan roti 10rb", "", ""}, {"harga kopi 25rb", "", ""}, {"saldo 50rb", "", ""}, {"kopi beli 25rb", "", ""},
 		// Not a completed expense: negation, intent, plans, conditions, bills.
 		{"belum bayar kopi 25rb", "", ""}, {"rencana beli kopi 25rb", "", ""}, {"mau beli kopi 25rb", "", ""},
 		{"nanti bayar parkir 5k", "", ""}, {"kalau beli bensin 50.000", "", ""}, {"gak jadi beli kopi 25rb", "", ""},
