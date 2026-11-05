@@ -14,8 +14,8 @@ import (
 
 // Typed-message failure classes. Each has its own terminal copy, because the
 // household acts differently on each: a slow assistant is worth a retry soon, an
-// unreachable one is not (and simple expenses still record deterministically), and
-// a system fault is never the household's wording. Every copy says nothing was
+// unreachable one is waited for (the message is deferred, then given up after a
+// day), and a system fault is never the household's wording. Every copy says nothing was
 // recorded: the terminal step only runs for an event no mutation finalized.
 type textFailureClass string
 
@@ -27,7 +27,7 @@ const (
 
 const (
 	terminalTextFailureMessage     = "Richmod lagi lambat menjawab, jadi pesanmu belum terjawab dan belum ada yang dicatat. Coba kirim ulang sebentar lagi, ya."
-	terminalTextUnavailableMessage = "Asisten AI Richmod sedang tidak bisa dihubungi, jadi pesanmu belum kuproses dan belum ada yang dicatat. Coba kirim ulang beberapa menit lagi, ya. Pengeluaran sederhana seperti “kopi 25rb” tetap bisa kucatat dulu untuk ditinjau."
+	terminalTextUnavailableMessage = "AI Richmod belum juga bisa dihubungi, jadi pesanmu belum bisa diproses dan belum ada yang dicatat. Silakan kirim ulang, ya."
 	terminalTextErrorMessage       = "Ada kendala di sistem Richmod, jadi pesanmu belum kuproses dan belum ada yang dicatat. Coba kirim ulang sebentar lagi, ya."
 )
 
@@ -74,9 +74,9 @@ func classifyTextFailure(err error) textFailureClass {
 	return textFailureError
 }
 
-// MaxGatewayUnavailableAttempts bounds retries while the gateway is
-// unreachable: one quick retry covers a blip, a second would only make the
-// household wait for the same failure.
+// MaxGatewayUnavailableAttempts bounds retries of an unavailability that was
+// not deferred (it happened after the turn wrote something, or the deferral
+// window ended): one quick retry, then the terminal notice.
 const MaxGatewayUnavailableAttempts = 2
 
 // TextFailurePolicy is the retry taxonomy for one failed PROCESS_TELEGRAM_TEXT
@@ -84,7 +84,10 @@ const MaxGatewayUnavailableAttempts = 2
 // terminal when it must not:
 //
 //   - a model timeout is retried once (MaxModelTimeoutAttempts);
-//   - an unreachable gateway is retried once (MaxGatewayUnavailableAttempts);
+//   - an unreachable gateway before anything was written is not a failure at
+//     all: ProcessAgent returns a GatewayDeferral and the worker defers the job
+//     (queue.Defer) without spending attempts, for up to a day;
+//   - any other unavailability is retried once (MaxGatewayUnavailableAttempts);
 //   - a gateway rejection (HTTP 4xx) and a permanent validation failure are
 //     never retried: the same request fails the same way;
 //   - anything else (database, network to Postgres) is transient and keeps the
@@ -93,8 +96,8 @@ const MaxGatewayUnavailableAttempts = 2
 // Model-recoverable failures never reach here: they are returned to the model
 // as tool results inside the turn (agentRecoverable).
 func TextFailurePolicy(err error, attempts int) error {
-	if err == nil {
-		return nil
+	if err == nil || IsGatewayDeferral(err) {
+		return err
 	}
 	switch {
 	case IsModelTimeout(err) && attempts >= MaxModelTimeoutAttempts,

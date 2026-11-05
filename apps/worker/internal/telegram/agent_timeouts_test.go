@@ -167,6 +167,7 @@ func TestTextFailurePolicyBoundsRetriesByClass(t *testing.T) {
 	}{
 		{timeout, 1, false}, {timeout, 2, true},
 		{down, 1, false}, {down, 2, true},
+		{&GatewayDeferral{Err: down}, 9, false},
 		{rejected, 1, true},
 		{transient, 1, false}, {transient, 4, false},
 	}

@@ -16,9 +16,10 @@ const (
 	progressNoticeThinking  = "Masih kuproses ya, jawabannya menyusul di sini."
 )
 
-// progressNoticeTexts are every progress notice; a recovery check must not
-// mistake one for the turn's answer.
-var progressNoticeTexts = []string{progressNoticeMessage, progressNoticeRecording, progressNoticeThinking}
+// progressNoticeTexts are every interim notice (progress, and the saved notice
+// of a message deferred for the gateway); a recovery check must not mistake one
+// for the turn's answer.
+var progressNoticeTexts = []string{progressNoticeMessage, progressNoticeRecording, progressNoticeThinking, gatewayDeferredMessage}
 
 // agentActivity is what a turn is doing, set by the loop as it moves on.
 type agentActivity int32

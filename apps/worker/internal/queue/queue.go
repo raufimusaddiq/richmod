@@ -22,6 +22,9 @@ type Job struct {
 	// HouseholdID is the household the job belongs to, derived when it was
 	// enqueued (migration 00087); "" for platform jobs.
 	HouseholdID string
+	// Deferrals counts how many times the job was set aside to wait for an
+	// unavailable dependency (Defer); deferrals spend no attempts.
+	Deferrals int
 }
 
 type Queue struct{ pool *pgxpool.Pool }
@@ -46,7 +49,7 @@ func (q *Queue) Claim(ctx context.Context, workerID, lane string) (Job, bool, er
 
 func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, error) {
 	var job Job
-	err := tx.QueryRow(ctx, claimSQL, lane).Scan(&job.ID, &job.Type, &job.Payload, &job.Attempts, &job.MaxAttempts, &job.HouseholdID)
+	err := tx.QueryRow(ctx, claimSQL, lane).Scan(&job.ID, &job.Type, &job.Payload, &job.Attempts, &job.MaxAttempts, &job.HouseholdID, &job.Deferrals)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, false, nil
 	}
@@ -73,7 +76,12 @@ func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, 
 // the stale-lock window), or while an older one is still pending — even one
 // whose retry is not due yet. So a retried message is never overtaken by the
 // household's next message, and two messages of one household never run side
-// by side, while other households keep being served.
+// by side, while other households keep being served. One exception keeps
+// deterministic replies flowing during an AI outage: an older job that is
+// deferred (waiting for the gateway, not yet due) does not block a newer
+// message that was never deferred, so "/help" or a button-free reply is still
+// answered; once that newer message is deferred too, it queues behind the older
+// one again, so order is restored when the gateway returns.
 const claimSQL = `
 	WITH heads AS (
 		SELECT DISTINCT ON (household_id) id,household_id,run_after,created_at
@@ -85,7 +93,8 @@ const claimSQL = `
 			WHERE o.lane=$1 AND o.household_id=j.household_id AND o.id<>j.id
 			  AND o.type IN (` + serializedChatTypesSQL + `)
 			  AND ((o.status='RUNNING' AND o.locked_at>=now()-interval '5 minutes')
-			    OR (o.status IN ('PENDING','RUNNING') AND (o.created_at,o.id)<(j.created_at,j.id)))))
+			    OR (o.status IN ('PENDING','RUNNING') AND (o.created_at,o.id)<(j.created_at,j.id)
+			        AND (o.status='RUNNING' OR o.deferrals=0 OR o.run_after<=now() OR j.deferrals>0)))))
 		ORDER BY household_id,run_after,created_at
 	), ranked AS (
 		SELECT h.id,h.run_after,h.created_at,
@@ -95,7 +104,7 @@ const claimSQL = `
 		       END AS last_started
 		FROM heads h
 	)
-	SELECT j.id,j.type,j.payload_json,j.attempts+1,j.max_attempts,COALESCE(j.household_id::text,'')
+	SELECT j.id,j.type,j.payload_json,j.attempts+1,j.max_attempts,COALESCE(j.household_id::text,''),j.deferrals
 	FROM ranked r JOIN job j ON j.id=r.id
 	ORDER BY r.last_started NULLS FIRST,r.run_after,r.created_at
 	FOR UPDATE OF j SKIP LOCKED
@@ -104,6 +113,37 @@ const claimSQL = `
 // serializedChatTypesSQL lists the job types one household may run only one at
 // a time, in creation order (see claimSQL).
 const serializedChatTypesSQL = `'PROCESS_TELEGRAM_TEXT'`
+
+// Deferral backoff: 5 minutes, doubling per deferral, capped at an hour.
+const (
+	deferralBase = 5 * time.Minute
+	deferralCap  = time.Hour
+)
+
+// DeferralDelay is how long the n-th deferral (0-based) waits.
+func DeferralDelay(deferrals int) time.Duration {
+	delay := deferralBase
+	for i := 0; i < deferrals && delay < deferralCap; i++ {
+		delay *= 2
+	}
+	if delay > deferralCap {
+		delay = deferralCap
+	}
+	return delay
+}
+
+// Defer sets a running job aside until its dependency is likely back. The
+// attempt it just used is given back, so a long outage cannot exhaust the
+// retry budget; the caller decides when waiting must end (the job then fails
+// normally).
+func (q *Queue) Defer(ctx context.Context, job Job, reason error) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	_, err := q.pool.Exec(ctx, `UPDATE job SET status='PENDING',attempts=GREATEST(attempts-1,0),deferrals=deferrals+1,
+		run_after=now()+$2*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$3,updated_at=now()
+		WHERE id=$1 AND status='RUNNING'`, job.ID, DeferralDelay(job.Deferrals).Seconds(), truncate("DEFERRED: "+reason.Error(), 1000))
+	return err
+}
 
 func (q *Queue) Succeed(ctx context.Context, jobID string) error {
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING'`, jobID)

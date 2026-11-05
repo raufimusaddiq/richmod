@@ -369,15 +369,15 @@ func parseBankFactsAnswer(text string) (string, bool) {
 		switch {
 		case clockToken.MatchString(token), bankFactsTimeWords[token], monthNames[token] != 0, answerFillerWords[token]:
 			continue
-		case fallbackAmountToken.MatchString(token):
+		case amountToken.MatchString(token):
 			unit := ""
 			if index+1 < len(fields) {
-				if next, ok := fallbackUnits[fields[index+1]]; ok {
+				if next, ok := amountUnits[fields[index+1]]; ok {
 					unit = next
 					index++
 				}
 			}
-			value, ok := parseFallbackAmount(token, unit)
+			value, ok := parseAmountToken(token, unit)
 			if !ok {
 				// A small bare number next to a month is a day ("23 sep").
 				if index+1 < len(fields) && monthNames[fields[index+1]] != 0 {

@@ -438,10 +438,18 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
 			}
+		} else if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsGatewayDeferral(err) {
+			// The AI gateway is unreachable: the message waits durably and runs
+			// the full agent path once the gateway is back (ADR-052 amendment).
+			// A deferral does not spend the job's attempts.
+			logger.Warn("typed message deferred: AI gateway unavailable", "job_id", job.ID, "deferrals", job.Deferrals)
+			if deferErr := jobs.Defer(ctx, job, err); deferErr != nil {
+				return fmt.Errorf("defer job: %w", deferErr)
+			}
 		} else {
 			logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
 			// A typed message follows the text failure taxonomy: a model timeout
-			// or an unreachable gateway is retried once, a gateway rejection never.
+			// is retried once, a gateway rejection never.
 			if job.Type == "PROCESS_TELEGRAM_TEXT" {
 				err = telegram.TextFailurePolicy(err, job.Attempts)
 			}

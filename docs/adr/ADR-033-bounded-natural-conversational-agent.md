@@ -284,10 +284,11 @@ model proposes. What changed:
    model as a tool result with `status` and `next_step` (`agentRecoverable`, at
    most two per turn); date/time shape rules moved into `validateCreate` so the
    ADR-055 repair round covers them. Gateway failures are classified by type:
-   unreachable/unconfigured/HTTP 408/429/5xx is *unavailable* (one retry, then a
-   terminal notice saying the AI cannot be reached and nothing was recorded;
-   ADR-052 amendment adds the deterministic expense fallback), HTTP 4xx is a
-   *rejection* (never retried), a model timeout keeps its one retry, anything else
+   unreachable/unconfigured/HTTP 408/429/5xx is *unavailable* (before anything
+   was written the message is deferred durably — one "saved, nothing recorded"
+   notice, backoff 5 min doubling to 1 h without spending attempts, full agent
+   path when the gateway is back, give-up after 24 h; ADR-052 amendment), HTTP
+   4xx is a *rejection* (never retried), a model timeout keeps its one retry, anything else
    is transient and keeps the job's attempts. No terminal copy blames the user's
    wording.
 4. **Deterministic replies.** A mutation whose result Go fully knows is answered

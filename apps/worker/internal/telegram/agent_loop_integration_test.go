@@ -116,119 +116,101 @@ func TestMemoryKeepsFailuresAndSkipsBookkeepingRows(t *testing.T) {
 	}
 }
 
-// A3: with the gateway unreachable, a simple expense is still recorded for
-// review deterministically, with the review card, never auto-confirmed.
-func TestGatewayDownRecordsASimpleExpenseForReview(t *testing.T) {
+// A3: with the gateway unreachable nothing is recorded from free text. The
+// message is kept, the household is told once that it was saved, the job is
+// deferred, and when the gateway is back the same message runs the normal
+// agent path.
+func TestGatewayOutageDefersTheMessageAndRecoversNormally(t *testing.T) {
 	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "loop-fallback")
-	model := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("dial tcp: connection refused")}}
-	// The words must be, exactly, something the household already spent on:
-	// a price, a balance, a request or a first-ever "kopi" is never guessed.
-	for _, text := range []string{"harga kopi 25rb", "saldo 50rb", "kopi 25rb", "beli kopi 25rb", "beli kopi 25rb dong"} {
-		if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), text, 0); !IsGatewayUnavailable(err) {
-			t.Fatalf("%q must not be recorded by the fallback, got %v", text, err)
-		}
+	f := newAgentIntegrationFixture(t, "loop-defer")
+	seedCategory(t, ctx, f, "makan", "Makan & Minum")
+	down := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("dial tcp: connection refused")}}
+	sourceID, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, down), "kopi kenangan 26.500", 0)
+	if !IsGatewayDeferral(err) || !IsGatewayUnavailable(err) {
+		t.Fatalf("an outage must defer the message, got %v", err)
 	}
+	if permanent := TextFailurePolicy(err, 5); IsGatewayDeferral(permanent) == false {
+		t.Fatalf("a deferral must never become terminal by attempts: %v", permanent)
+	}
+	mustAgentTest(t, func() error {
+		// The worker retries the same event later; the outage continues.
+		err := NewProcessor(f.pool, down).ProcessAgent(ctx, sourceID)
+		if !IsGatewayDeferral(err) {
+			return fmt.Errorf("second attempt: %v", err)
+		}
+		return nil
+	}())
 	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); n != 0 {
-		t.Fatalf("the fallback guessed %d expenses", n)
+		t.Fatalf("an outage recorded %d transactions", n)
 	}
-	_, err := f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',22000,'IDR',now()-interval '3 days','Kopi',$2,now())`, f.householdID, f.userID)
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text'=$2`, f.chatID, gatewayDeferredMessage); n != 1 {
+		t.Fatalf("the saved notice must be sent exactly once, got %d", n)
+	}
+	var status string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceID).Scan(&status))
+	if status != "RECEIVED" {
+		t.Fatalf("a deferred message stays unprocessed, got %s", status)
+	}
+	// The gateway is back: the deferred message is processed normally.
+	up := &capturingGateway{script: []gateway.AgentResponse{{ToolCalls: []gateway.ToolCall{recordCall("r1", kopiRecordArgs)}}}}
+	mustAgentTest(t, NewProcessor(f.pool, up).ProcessAgent(ctx, sourceID))
+	if n := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1 AND counterparty_name='Kopi Kenangan' AND status='CONFIRMED'`, f.householdID); n != 1 {
+		t.Fatal("the recovered message was not recorded through the agent")
+	}
+	if reply := lastReply(t, ctx, f); !strings.Contains(reply, "Tercatat: Kopi Kenangan") {
+		t.Fatalf("recovered reply = %q", reply)
+	}
+	turns, err := NewProcessor(f.pool, nil).recentConversation(ctx, f.householdID, f.chatID, "00000000-0000-4000-8000-000000000002")
 	mustAgentTest(t, err)
-	sourceID, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "kopi 25rb", 0)
-	mustAgentTest(t, err)
-	var status, description, amount, sourceStatus string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT t.status,COALESCE(t.description,''),t.amount::text,s.processing_status FROM transaction t JOIN transaction_evidence te ON te.transaction_id=t.id JOIN source_event s ON s.id=te.source_event_id WHERE s.id=$1`, sourceID).Scan(&status, &description, &amount, &sourceStatus))
-	if status != "NEEDS_REVIEW" || description != "kopi" || amount != "25000" || sourceStatus != "NEEDS_REVIEW" {
-		t.Fatalf("fallback recorded status=%s description=%q amount=%s source=%s", status, description, amount, sourceStatus)
-	}
-	if n := countRows(t, ctx, f, `SELECT count(*) FROM review_request r JOIN transaction_evidence te ON te.transaction_id=r.transaction_id WHERE te.source_event_id=$1 AND r.telegram_chat_id=$2`, sourceID, f.chatID); n != 1 {
-		t.Fatalf("the fallback must send the normal review card, got %d", n)
-	}
-	var reply string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT COALESCE(max(payload_json->>'text'),'') FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND payload_json->>'text' LIKE '%tidak bisa dihubungi%'`, f.chatID).Scan(&reply))
-	if !strings.Contains(reply, "Rp25.000") || !strings.Contains(reply, "kopi") || strings.Contains(reply, "✅") {
-		t.Fatalf("fallback reply = %q", reply)
-	}
-
-	// Even with "kopi" known, extra words make the phrase unknown.
-	for _, text := range []string{"beli kopi 25rb", "kopi dong 25rb", "kopi ya 25rb"} {
-		if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), text, 0); !IsGatewayUnavailable(err) {
-			t.Fatalf("%q must not be recorded by the fallback, got %v", text, err)
+	for _, turn := range turns {
+		if turn.Tool == gatewayDeferredTool {
+			t.Fatal("the deferral bookkeeping row reached model memory")
 		}
-	}
-	// Anything that is not a plain expense fails honestly and records nothing.
-	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
-	_, err = runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "berapa pengeluaran bulan ini?", 0)
-	if !IsGatewayUnavailable(err) {
-		t.Fatalf("a question with the gateway down must fail as unavailable, got %v", err)
-	}
-	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
-		t.Fatal("the fallback recorded a non-expense message")
 	}
 }
 
-// A message an open workflow could own is never turned into a new expense by
-// the fallback: an exact Reply, or a typed answer bound to an open card.
-func TestGatewayFallbackLeavesWorkflowRepliesAlone(t *testing.T) {
+// A3: a message waits at most a day; then it fails with an honest notice.
+func TestGatewayOutageGivesUpAfterADay(t *testing.T) {
 	ctx := context.Background()
-	f := newAgentIntegrationFixture(t, "loop-fallback-bound")
-	reviewID, _ := createAgentTransactionReview(t, ctx, f, "36500", 611)
-	_, err := f.pool.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_DETAIL' WHERE review_request_id=$1`, reviewID)
-	mustAgentTest(t, err)
-	model := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("connection refused")}}
-	before := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
-	_, err = f.pool.Exec(ctx, `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,description,created_by_user_id,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',22000,'IDR',now()-interval '3 days','kopi',$2,now())`, f.householdID, f.userID)
-	mustAgentTest(t, err)
-	before = countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID)
-	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "kopi 25rb", 611); !IsGatewayUnavailable(err) {
-		t.Fatalf("a Reply to a review card must wait for the model, got %v", err)
+	f := newAgentIntegrationFixture(t, "loop-defer-giveup")
+	down := &capturingGateway{err: &gateway.StatusError{StatusCode: 503}}
+	p := NewProcessor(f.pool, down)
+	sourceID, err := runEvidenceTurn(t, ctx, f, p, "kopi 25rb", 0)
+	if !IsGatewayDeferral(err) {
+		t.Fatalf("first attempt must defer, got %v", err)
 	}
-	// The guard itself covers every server-bound state, not only replies.
-	for name, state := range map[string]*agentState{
-		"bound review":   {ReviewBinding: &agentReviewBinding{}, TurnContext: map[string]any{}},
-		"pending batch":  {HasPendingBatch: true, TurnContext: map[string]any{}},
-		"pending action": {HasPendingAction: true, TurnContext: map[string]any{}},
-		"evidence":       {TurnContext: map[string]any{"bound_evidence": map[string]any{}}},
-	} {
-		if !fallbackBlockedByWorkflow(state) {
-			t.Fatalf("%s must block the fallback", name)
-		}
-	}
-	_, err = f.pool.Exec(ctx, `UPDATE review_conversation SET state='AWAITING_CATEGORY' WHERE review_request_id=$1`, reviewID)
+	_, err = f.pool.Exec(ctx, `UPDATE source_event SET received_at=now()-interval '25 hours' WHERE id=$1`, sourceID)
 	mustAgentTest(t, err)
-	seedCategory(t, ctx, f, "makan", "Makan")
-	if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, model), "makan", 0); !IsGatewayUnavailable(err) {
-		t.Fatalf("a typed answer bound to a card must wait for the model, got %v", err)
+	err = p.ProcessAgent(ctx, sourceID)
+	var permanent interface{ Permanent() bool }
+	if IsGatewayDeferral(err) || !errors.As(TextFailurePolicy(err, 1), &permanent) || !permanent.Permanent() {
+		t.Fatalf("after a day the message must fail terminally, got %v", err)
 	}
-	if after := countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID); after != before {
-		t.Fatal("the fallback created a transaction in place of a workflow answer")
+	mustAgentTest(t, p.HandleTerminalTextFailure(ctx, sourceID, err))
+	var status string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, sourceID).Scan(&status))
+	if reply := lastReply(t, ctx, f); status != "FAILED" || reply != terminalTextUnavailableMessage || !strings.Contains(reply, "kirim ulang") {
+		t.Fatalf("give-up: status=%s reply=%q", status, reply)
 	}
 }
 
-func TestParseSimpleExpense(t *testing.T) {
-	for _, tc := range []struct {
-		text, amount, description string
-	}{
-		{"kopi 25rb", "25000", "kopi"}, {"bensin 50.000", "50000", "bensin"}, {"parkir 5k", "5000", "parkir"},
-		{"Rp 75.000 makan siang", "", ""}, // "siang" is a time of day: not a plain expense
-		{"nasi goreng 18 ribu", "18000", "nasi goreng"}, {"beli kopi 25rb dong", "25000", "beli kopi dong"}, {"pulsa 1,5jt", "1500000", "pulsa"}, {"rp25.000 sabun", "25000", "sabun"},
-		{"kopi 25", "", ""}, {"gaji 5jt", "", ""}, {"kopi 25rb kemarin", "", ""}, {"berapa kopi 25rb?", "", ""},
-		{"kopi 25rb dan roti 10rb", "", ""}, {"harga kopi 25rb", "", ""}, {"saldo 50rb", "", ""},
-		// Not a completed expense: negation, intent, plans, conditions, bills.
-		{"belum bayar kopi 25rb", "", ""}, {"rencana beli kopi 25rb", "", ""}, {"mau beli kopi 25rb", "", ""},
-		{"nanti bayar parkir 5k", "", ""}, {"kalau beli bensin 50.000", "", ""}, {"gak jadi beli kopi 25rb", "", ""},
-		{"budget makan 500rb", "", ""}, {"tagihan listrik 300rb", "", ""}, {"kopi 25rb belum", "", ""}, {"25rb", "", ""}, {"tf 50rb ke ibu", "", ""}, {"bensin 50.00", "", ""},
-	} {
-		got, ok := parseSimpleExpense(tc.text)
-		if tc.amount == "" {
-			if ok {
-				t.Fatalf("%q must not parse, got %+v", tc.text, got)
-			}
-			continue
+// A3: an outage while a typed answer is bound to a review card creates nothing
+// and leaves the card open; the answer is applied when the gateway is back.
+func TestGatewayOutageWithABoundCardCreatesNothing(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentIntegrationFixture(t, "loop-defer-card")
+	seedCategory(t, ctx, f, "makan", "Makan")
+	reviewID, transactionID := createAgentTransactionReview(t, ctx, f, "36500", 611)
+	down := &capturingGateway{err: &gateway.UnavailableError{Err: errors.New("connection refused")}}
+	for _, replyTo := range []int64{0, 611} {
+		if _, err := runEvidenceTurn(t, ctx, f, NewProcessor(f.pool, down), "makan", replyTo); !IsGatewayDeferral(err) {
+			t.Fatalf("replyTo=%d: a bound answer must wait for the gateway, got %v", replyTo, err)
 		}
-		if !ok || got.Amount != tc.amount || got.Description != tc.description {
-			t.Fatalf("%q = %+v ok=%v, want %s/%s", tc.text, got, ok, tc.amount, tc.description)
-		}
+	}
+	var reviewStatus, transactionStatus string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT r.status,t.status FROM review_request r JOIN transaction t ON t.id=r.transaction_id WHERE r.id=$1 AND t.id=$2`, reviewID, transactionID).Scan(&reviewStatus, &transactionStatus))
+	if reviewStatus != "OPEN" || transactionStatus != "NEEDS_REVIEW" || countRows(t, ctx, f, `SELECT count(*) FROM transaction WHERE household_id=$1`, f.householdID) != 1 {
+		t.Fatalf("an outage touched the bound review: review=%s transaction=%s", reviewStatus, transactionStatus)
 	}
 }
 
@@ -564,7 +546,7 @@ func TestProgressNoticeNamesWhatTheTurnIsDoing(t *testing.T) {
 	if progressNoticeFor(activityRecording) == progressNoticeFor(activityAnalyzing) || strings.Contains(progressNoticeFor(activityRecording), "analisis") || strings.Contains(progressNoticeFor(activityThinking), "analisis") {
 		t.Fatal("a recording or thinking turn must not be described as an analysis")
 	}
-	for _, text := range progressNoticeTexts {
+	for _, text := range []string{progressNoticeMessage, progressNoticeRecording, progressNoticeThinking} {
 		if !strings.Contains(text, "menyusul") {
 			t.Fatalf("every notice says the answer is coming: %q", text)
 		}

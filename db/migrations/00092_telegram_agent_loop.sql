@@ -41,7 +41,14 @@ CREATE TABLE telegram_pending_card_choice_option (
     PRIMARY KEY (choice_id, position)
 );
 
+-- A job set aside while a dependency (the AI gateway) is unavailable waits with
+-- a growing run_after and gives its attempt back; deferrals counts the waits
+-- (backoff 5 minutes doubling to an hour) and lets the claim tell a deferred
+-- job from a retry.
+ALTER TABLE job ADD COLUMN deferrals INTEGER NOT NULL DEFAULT 0 CHECK (deferrals >= 0);
+
 -- +goose Down
+ALTER TABLE job DROP COLUMN deferrals;
 DROP TABLE telegram_pending_card_choice_option;
 DROP TABLE telegram_pending_card_choice;
 ALTER TABLE telegram_pending_batch ALTER COLUMN expires_at SET DEFAULT now()+interval '5 minutes';

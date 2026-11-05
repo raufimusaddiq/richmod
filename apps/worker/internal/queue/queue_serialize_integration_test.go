@@ -142,3 +142,50 @@ func TestClaimReclaimsStaleTelegramTextBeforeNewerMessage(t *testing.T) {
 		t.Fatalf("newer message %s ran beside the reclaimed one", job.ID)
 	}
 }
+
+// A deferral (AI gateway down) gives the attempt back, backs off from five
+// minutes, and does not block a household's newer, never-deferred message
+// (so deterministic replies still flow); once that one is deferred too, it
+// queues behind the older one again.
+func TestDeferGivesAttemptsBackAndKeepsDeterministicRepliesFlowing(t *testing.T) {
+	q, pool := isolatedQueue(t)
+	ctx := context.Background()
+	insertTextJob(t, pool, "40000000-0000-4000-8000-000000000001", serialHouseholdA, 30*time.Second)
+	job, found, err := q.Claim(ctx, "w1", "DEFAULT")
+	if err != nil || !found {
+		t.Fatalf("claim: %v %v", found, err)
+	}
+	if err := q.Defer(ctx, job, errors.New("gateway unavailable")); err != nil {
+		t.Fatal(err)
+	}
+	var attempts, deferrals int
+	var wait float64
+	if err := pool.QueryRow(ctx, `SELECT attempts,deferrals,extract(epoch FROM run_after-now()) FROM job WHERE id=$1`, job.ID).Scan(&attempts, &deferrals, &wait); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 || deferrals != 1 || wait < 290 || wait > 310 {
+		t.Fatalf("deferred job attempts=%d deferrals=%d wait=%.0fs", attempts, deferrals, wait)
+	}
+	if DeferralDelay(1) != 10*time.Minute || DeferralDelay(10) != time.Hour {
+		t.Fatalf("backoff %s / %s", DeferralDelay(1), DeferralDelay(10))
+	}
+	insertTextJob(t, pool, "40000000-0000-4000-8000-000000000002", serialHouseholdA, time.Second)
+	next, found, err := q.Claim(ctx, "w1", "DEFAULT")
+	if err != nil || !found || next.ID != "40000000-0000-4000-8000-000000000002" {
+		t.Fatalf("a fresh message must not wait behind a deferred one: %v %v %v", next.ID, found, err)
+	}
+	if err := q.Defer(ctx, next, errors.New("gateway unavailable")); err != nil {
+		t.Fatal(err)
+	}
+	// Both are due again: the older one goes first and the newer waits for it.
+	if _, err := pool.Exec(ctx, `UPDATE job SET run_after=now()-interval '1 second'`); err != nil {
+		t.Fatal(err)
+	}
+	first, found, err := q.Claim(ctx, "w1", "DEFAULT")
+	if err != nil || !found || first.ID != job.ID {
+		t.Fatalf("after the outage the older message must run first: %v %v %v", first.ID, found, err)
+	}
+	if extra, found, _ := q.Claim(ctx, "w2", "DEFAULT"); found {
+		t.Fatalf("the newer message %s ran beside the older one", extra.ID)
+	}
+}

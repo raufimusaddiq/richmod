@@ -30,11 +30,12 @@ type agentCallPlan struct {
 // Telegram messages. Callbacks keep their deterministic Process path.
 func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) error {
 	var householdID, payloadText, processingStatus, sourceType, parserName string
+	var receivedAt time.Time
 	if err := p.pool.QueryRow(ctx, `
-		SELECT s.household_id,p.payload_json::text,s.processing_status,s.source_type,COALESCE(s.parser_name,'')
+		SELECT s.household_id,p.payload_json::text,s.processing_status,s.source_type,COALESCE(s.parser_name,''),s.received_at
 		FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id
 		WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_TEXT','TELEGRAM_CALLBACK')`, sourceEventID).
-		Scan(&householdID, &payloadText, &processingStatus, &sourceType, &parserName); err != nil {
+		Scan(&householdID, &payloadText, &processingStatus, &sourceType, &parserName, &receivedAt); err != nil {
 		return fmt.Errorf("load Telegram source event: %w", err)
 	}
 	if processingStatus == "PROCESSED" || processingStatus == "IGNORED" || processingStatus == "NEEDS_REVIEW" {
@@ -275,6 +276,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		// Server-only: documents the user sent in the immediate window, for the
 		// record_transaction duplicate guard. Never model-visible.
 		FreshEvidenceDocuments: freshDocuments,
+		ReceivedAt:             receivedAt,
 		activity:               new(atomic.Int32),
 	}
 	// An exact reply attaches its bound workflow. Otherwise a deterministic card
@@ -291,12 +293,8 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 
 	agentGateway, ok := p.gateway.(conversationalGateway)
 	if !ok {
-		// No conversational model is wired: the deterministic fallback still
-		// records a simple expense for review.
-		if handled, err := p.recordGatewayFallback(ctx, state); handled || err != nil {
-			return err
-		}
-		return fmt.Errorf("%w: %w", errModelPhase, errConversationalGatewayMissing)
+		// No conversational model is wired: the message waits like any outage.
+		return p.deferForGateway(ctx, state, errConversationalGatewayMissing)
 	}
 
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
@@ -375,11 +373,9 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 		cancel()
 		if err != nil {
 			if state.SideEffects == 0 && IsGatewayUnavailable(err) {
-				// The AI is unreachable: a simple expense is still recorded for
-				// review deterministically, instead of waiting for retries.
-				if handled, fallbackErr := p.recordGatewayFallback(ctx, state); handled || fallbackErr != nil {
-					return fallbackErr
-				}
+				// The AI is unreachable and nothing was written: the message waits
+				// durably and runs the full agent path when the gateway is back.
+				return p.deferForGateway(ctx, state, err)
 			}
 			if finalPhase && !IsGatewayUnavailable(err) && !errors.Is(err, context.DeadlineExceeded) {
 				return p.finishAgentFailure(ctx, state, partialAnswerMessage, "PHASE_LIMIT")

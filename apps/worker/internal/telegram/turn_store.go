@@ -56,7 +56,7 @@ const (
 )
 
 // agentBookkeepingTools name TOOL rows that only anchor server-side refs.
-var agentBookkeepingTools = []string{"agent_transaction_refs"}
+var agentBookkeepingTools = []string{"agent_transaction_refs", gatewayDeferredTool}
 
 // persistTurn stores one conversation turn. A retried message runs the turn
 // again, so the USER and ASSISTANT rows are saved once per source event; TOOL

@@ -140,6 +140,10 @@ type agentState struct {
 	// immediate window. Server-only; the record_transaction guard reads them so the
 	// ledger, not the model, refuses a second row for the same real event.
 	FreshEvidenceDocuments []string
+
+	// ReceivedAt is when the message reached Richmod; a message deferred for an
+	// unavailable gateway gives up after gatewayDeferralWindow from it.
+	ReceivedAt time.Time
 }
 
 func (s *agentState) setActivity(activity agentActivity) {
