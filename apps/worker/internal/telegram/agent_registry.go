@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"regexp"
 	"strings"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
@@ -19,11 +20,15 @@ const (
 	agentToolSideEffect agentToolClass = "SIDE_EFFECT"
 )
 
+// agentReadTools is the Telegram-native READ catalog. Overlapping reads were
+// merged: query_spending carries the category breakdown (was
+// get_category_breakdown), query_cashflow the insight extras (was
+// get_finance_insight), and search_transactions orders by LARGEST (was
+// get_largest_transactions).
 var agentReadTools = map[string]struct{}{
 	"query_spending": {}, "query_cashflow": {}, "query_savings": {},
 	"query_wealth": {}, "list_wealth_accounts": {}, "search_transactions": {},
-	"list_review_items": {}, "get_finance_insight": {}, "get_evidence_context": {},
-	"get_category_breakdown": {}, "get_largest_transactions": {}, "get_transaction_details": {},
+	"list_review_items": {}, "get_evidence_context": {}, "get_transaction_details": {},
 }
 
 // The shared analytical READ catalog is a channel-neutral capability. Telegram
@@ -38,7 +43,6 @@ var agentSideEffectTools = map[string]struct{}{
 	"record_transaction": {}, "record_transaction_batch": {}, "record_transfer": {},
 	"propose_transaction_correction": {}, "resolve_review": {}, "resolve_salary_choice": {},
 	"resolve_merchant_learning": {}, "confirm_pending_action": {}, "cancel_pending_action": {},
-	"confirm_pending_batch": {}, "cancel_pending_batch": {}, "update_pending_batch": {},
 	"pending_batch_decision": {}, "dispute_evidence_link": {},
 }
 
@@ -86,11 +90,7 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	}
 
 	nullString := map[string]any{"type": []string{"string", "null"}}
-	period := map[string]any{"type": "string", "enum": []string{"TODAY", "THIS_WEEK", "LAST_WEEK", "THIS_MONTH", "LAST_MONTH", "CURRENT_CYCLE", "PREVIOUS_CYCLE", "CUSTOM"}}
-	periodProps := map[string]any{"period": period, "from_date": nullString, "to_date": nullString}
 	tools = append(tools,
-		gateway.ToolDefinition{Name: "get_category_breakdown", Description: "Return deterministic confirmed expense/refund totals grouped by household category for a bounded period. Use this to explain what changed; never infer totals yourself.", Parameters: objectSchema(periodProps, []string{"period", "from_date", "to_date"})},
-		gateway.ToolDefinition{Name: "get_largest_transactions", Description: "Return the largest confirmed expense/refund transactions for a bounded period using opaque transaction references.", Parameters: objectSchema(map[string]any{"period": period, "from_date": nullString, "to_date": nullString, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10}}, []string{"period", "from_date", "to_date", "limit"})},
 		gateway.ToolDefinition{Name: "get_transaction_details", Description: "Return model-safe authoritative details for one opaque transaction reference from recent results. Never use or request a database UUID.", Parameters: objectSchema(map[string]any{"target_ref": map[string]any{"type": "string"}}, []string{"target_ref"})},
 	)
 
@@ -123,38 +123,18 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 	}
 
 	if hasPendingBatch {
-		category := map[string]any{"type": []string{"string", "null"}}
-		if len(categories) > 0 {
-			values := make([]any, 0, len(categories)+1)
-			values = append(values, nil)
-			for _, slug := range categories {
-				values = append(values, slug)
-			}
-			category["enum"] = values
-		}
 		tools = append(tools, gateway.ToolDefinition{
 			Name:        "pending_batch_decision",
-			Description: "Required decision for the one active pending transaction batch. Call this for every user reply while the batch is pending. Map natural confirmations such as iya, iya bener, betul, benar, setuju, oke to CONFIRM; refusals to CANCEL; requested changes to UPDATE; unrelated questions to DEFER. Never answer plain text before calling this tool.",
+			Description: "Act on the one pending transaction batch shown in turn_context.pending_batch. Call it only when the user's message is about that batch: CONFIRM records every item, CANCEL drops the batch, UPDATE changes one item by its item_ref (set confirm_after_update when the user also confirmed). Do not call it for unrelated messages: answer or record those normally and the batch stays pending.",
 			Parameters: objectSchema(map[string]any{
-				"action":        map[string]any{"type": "string", "enum": []string{"CONFIRM", "CANCEL", "UPDATE", "DEFER"}},
-				"item_ref":      map[string]any{"type": []string{"string", "null"}},
-				"amount_idr":    map[string]any{"type": []string{"string", "null"}},
-				"merchant":      map[string]any{"type": []string{"string", "null"}},
-				"category_slug": category,
-				"description":   map[string]any{"type": []string{"string", "null"}},
-			}, []string{"action", "item_ref", "amount_idr", "merchant", "category_slug", "description"}),
-		})
-		tools = append(tools, gateway.ToolDefinition{
-			Name:        "update_pending_batch",
-			Description: "Update exactly one item in the server-bound pending transaction batch using its item_ref. Optionally confirm the entire batch after the deterministic update. This is one logical side effect.",
-			Parameters: objectSchema(map[string]any{
-				"item_ref":             map[string]any{"type": "string"},
+				"action":               map[string]any{"type": "string", "enum": []string{"CONFIRM", "CANCEL", "UPDATE"}},
+				"item_ref":             nullString,
 				"amount_idr":           nullString,
 				"merchant":             nullString,
-				"category_slug":        category,
+				"category_slug":        categorySchema(),
 				"description":          nullString,
 				"confirm_after_update": map[string]any{"type": "boolean"},
-			}, []string{"item_ref", "amount_idr", "merchant", "category_slug", "description", "confirm_after_update"}),
+			}, []string{"action", "item_ref", "amount_idr", "merchant", "category_slug", "description", "confirm_after_update"}),
 		})
 	}
 	return tools
@@ -162,20 +142,6 @@ func agentFinanceTools(categories []string, hasPendingAction, hasPendingBatch, h
 
 func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 	switch call.Name {
-	case "get_category_breakdown":
-		return decodeAgentArgs[periodArgs](call, validatePeriodArgs)
-	case "get_largest_transactions":
-		args, err := decodeAgentArgsRaw[largestTransactionsArgs](call)
-		if err != nil {
-			return nil, err
-		}
-		if err := validatePeriodArgs(args.periodArgs); err != nil {
-			return nil, err
-		}
-		if args.Limit < 1 || args.Limit > 10 {
-			return nil, fmt.Errorf("limit outside range")
-		}
-		return remarshal(args), nil
 	case "get_transaction_details":
 		args, err := decodeAgentArgsRaw[transactionDetailsArgs](call)
 		if err != nil {
@@ -183,24 +149,6 @@ func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 		}
 		if strings.TrimSpace(args.TargetRef) == "" || len(args.TargetRef) > 40 {
 			return nil, fmt.Errorf("invalid transaction reference")
-		}
-		return remarshal(args), nil
-	case "update_pending_batch":
-		args, err := decodeAgentArgsRaw[updatePendingBatchArgs](call)
-		if err != nil {
-			return nil, err
-		}
-		if !strings.HasPrefix(args.ItemRef, "batch_") {
-			return nil, fmt.Errorf("invalid batch item reference")
-		}
-		if args.Amount != nil {
-			value, ok := new(big.Int).SetString(*args.Amount, 10)
-			if !ok || value.Sign() <= 0 || value.String() != *args.Amount {
-				return nil, fmt.Errorf("invalid batch amount")
-			}
-		}
-		if args.Amount == nil && args.Merchant == nil && args.CategorySlug == nil && args.Description == nil && !args.ConfirmAfterUpdate {
-			return nil, fmt.Errorf("pending batch update is empty")
 		}
 		return remarshal(args), nil
 	case "dispute_evidence_link":
@@ -214,25 +162,25 @@ func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 			return nil, err
 		}
 		switch args.Action {
-		case "CONFIRM", "CANCEL", "DEFER":
-			if args.ItemRef != nil || args.Amount != nil || args.Merchant != nil || args.CategorySlug != nil || args.Description != nil {
-				return nil, fmt.Errorf("unexpected update fields for %s", args.Action)
+		case "CONFIRM", "CANCEL":
+			if args.ItemRef != nil || args.Amount != nil || args.Merchant != nil || args.CategorySlug != nil || args.Description != nil || args.ConfirmAfterUpdate {
+				return nil, fmt.Errorf("%s takes no item fields; use UPDATE to change an item", args.Action)
 			}
 		case "UPDATE":
-			if args.ItemRef == nil || !strings.HasPrefix(*args.ItemRef, "batch_") {
-				return nil, fmt.Errorf("update requires batch item_ref")
+			if args.ItemRef == nil || !batchItemRefPattern.MatchString(*args.ItemRef) {
+				return nil, fmt.Errorf("UPDATE needs item_ref from pending_batch, like batch_1")
 			}
 			if args.Amount == nil && args.Merchant == nil && args.CategorySlug == nil && args.Description == nil {
-				return nil, fmt.Errorf("update is empty")
+				return nil, fmt.Errorf("UPDATE needs at least one changed field")
 			}
 			if args.Amount != nil {
 				value, ok := new(big.Int).SetString(*args.Amount, 10)
 				if !ok || value.Sign() <= 0 || value.String() != *args.Amount {
-					return nil, fmt.Errorf("invalid batch amount")
+					return nil, fmt.Errorf("amount_idr must be a positive whole rupiah number without separators")
 				}
 			}
 		default:
-			return nil, fmt.Errorf("invalid pending batch action")
+			return nil, fmt.Errorf("action must be CONFIRM, CANCEL or UPDATE")
 		}
 		return remarshal(args), nil
 	case "resolve_review":
@@ -258,17 +206,13 @@ func validateAgentToolCall(call gateway.ToolCall) (map[string]any, error) {
 	}
 }
 
-type largestTransactionsArgs struct {
-	periodArgs
-	Limit int `json:"limit"`
-}
-
 type transactionDetailsArgs struct {
 	TargetRef string `json:"target_ref"`
 }
 
-type updatePendingBatchArgs struct {
-	ItemRef            string  `json:"item_ref"`
+type pendingBatchDecisionArgs struct {
+	Action             string  `json:"action"`
+	ItemRef            *string `json:"item_ref"`
 	Amount             *string `json:"amount_idr"`
 	Merchant           *string `json:"merchant"`
 	CategorySlug       *string `json:"category_slug"`
@@ -276,14 +220,8 @@ type updatePendingBatchArgs struct {
 	ConfirmAfterUpdate bool    `json:"confirm_after_update"`
 }
 
-type pendingBatchDecisionArgs struct {
-	Action       string  `json:"action"`
-	ItemRef      *string `json:"item_ref"`
-	Amount       *string `json:"amount_idr"`
-	Merchant     *string `json:"merchant"`
-	CategorySlug *string `json:"category_slug"`
-	Description  *string `json:"description"`
-}
+// batchItemRefPattern is the item_ref shape pending_batch lists (batch_1..batch_10).
+var batchItemRefPattern = regexp.MustCompile(`^batch_(10|[1-9])$`)
 
 type agentResidualAllocationInput struct {
 	WealthAccountHint string  `json:"wealth_account_hint"`

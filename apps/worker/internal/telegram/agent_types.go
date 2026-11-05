@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
@@ -86,9 +87,22 @@ type agentState struct {
 	ModelPhases   int
 	// ArgumentRepairs counts the times Go returned a rejected tool call to the
 	// model for correction in this turn (maxArgumentRepairs).
-	ArgumentRepairs  int
-	ReadCalls        int
-	SideEffects      int
+	ArgumentRepairs int
+	ReadCalls       int
+	SideEffects     int
+	// Recoveries counts executor refusals handed back to the model this turn
+	// (maxRecoverableResults).
+	Recoveries int
+	// ReplyQueued is set when the turn's reply was queued inside the mutation's
+	// own transaction, so the loop must not answer again.
+	ReplyQueued bool
+	// ReadCache holds this turn's READ results by tool and arguments, so an
+	// identical repeated read is answered without running it again.
+	ReadCache map[string]agentToolResult
+	// activity is what the turn is doing now; the progress notice reads it from
+	// its own goroutine. A pointer, so copying the state (bound executors do)
+	// shares it instead of copying an atomic.
+	activity         *atomic.Int32
 	HasPendingAction bool
 	HasPendingBatch  bool
 	HasSalaryChoice  bool
@@ -126,4 +140,22 @@ type agentState struct {
 	// immediate window. Server-only; the record_transaction guard reads them so the
 	// ledger, not the model, refuses a second row for the same real event.
 	FreshEvidenceDocuments []string
+
+	// ReceivedAt is when the message reached Richmod; a message deferred for an
+	// unavailable gateway gives up after gatewayDeferralWindow from it.
+	ReceivedAt time.Time
+}
+
+func (s *agentState) setActivity(activity agentActivity) {
+	if s.activity == nil {
+		s.activity = new(atomic.Int32)
+	}
+	s.activity.Store(int32(activity))
+}
+
+func (s *agentState) activityNow() agentActivity {
+	if s.activity == nil {
+		return activityThinking
+	}
+	return agentActivity(s.activity.Load())
 }

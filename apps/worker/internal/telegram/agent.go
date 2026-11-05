@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
@@ -28,15 +29,21 @@ type agentCallPlan struct {
 // ProcessAgent is the Sprint 1 conversational entry point for free-text
 // Telegram messages. Callbacks keep their deterministic Process path.
 func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) error {
-	var householdID, payloadText, processingStatus, sourceType string
+	var householdID, payloadText, processingStatus, sourceType, parserName string
+	var receivedAt time.Time
 	if err := p.pool.QueryRow(ctx, `
-		SELECT s.household_id,p.payload_json::text,s.processing_status,s.source_type
+		SELECT s.household_id,p.payload_json::text,s.processing_status,s.source_type,COALESCE(s.parser_name,''),s.received_at
 		FROM source_event s JOIN source_event_payload p ON p.source_event_id=s.id
 		WHERE s.id=$1 AND s.source_type IN ('TELEGRAM_TEXT','TELEGRAM_CALLBACK')`, sourceEventID).
-		Scan(&householdID, &payloadText, &processingStatus, &sourceType); err != nil {
+		Scan(&householdID, &payloadText, &processingStatus, &sourceType, &parserName, &receivedAt); err != nil {
 		return fmt.Errorf("load Telegram source event: %w", err)
 	}
 	if processingStatus == "PROCESSED" || processingStatus == "IGNORED" || processingStatus == "NEEDS_REVIEW" {
+		// A retry of a turn whose mutation committed but whose answer was never
+		// queued re-sends the answer instead of leaving the household in silence.
+		if sourceType == "TELEGRAM_TEXT" && processingStatus != "IGNORED" {
+			return p.recoverUnansweredTurn(ctx, sourceEventID, householdID, payloadText, parserName)
+		}
 		return nil
 	}
 	if sourceType == "TELEGRAM_CALLBACK" {
@@ -59,6 +66,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if isHelpCommand(text) {
 		return p.finishWithoutTransaction(ctx, sourceEventID, "PROCESSED", update, helpMessage)
 	}
+	// The typing indicator covers the whole turn, the deterministic review lane
+	// included, and keeps renewing until the answer is queued.
+	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
+	defer stopTyping()
 	// An exact reply to a proposal-keyed review (payslip pay date, missing amount) is
 	// answered by the deterministic review lane, whether it replies to the card, to
 	// the document's upload, or to a bound evidence notice. The agent has no
@@ -84,13 +95,7 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 			}
 		}
 	}
-	stopTyping := p.startTyping(ctx, update.Message.Chat.ID)
-	defer stopTyping()
 	ctx = withTurnIdentity(ctx, householdID, sourceEventID)
-	agentGateway, ok := p.gateway.(conversationalGateway)
-	if !ok {
-		return fmt.Errorf("conversational gateway unavailable")
-	}
 	categories, err := p.categorySlugs(ctx, householdID)
 	if err != nil {
 		return err
@@ -108,9 +113,15 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	if err != nil {
 		return err
 	}
+	if !explicitReply && merchantBinding != nil && !isYesNoAnswer(text) {
+		// Without a reply, a pending merchant-learning question owns the turn only
+		// when the text is a plain yes/no; anything else is a new message.
+		merchantBinding, merchantCount = nil, 0
+	}
 	var reviewBinding *agentReviewBinding
 	var reviewPublic any
 	reviewCount := 0
+	var openCards []map[string]any
 	if explicitReply {
 		// Merchant learning is a distinct post-confirmation workflow and must be
 		// recognized before the generic transaction-review binder.
@@ -124,9 +135,29 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 			}
 		}
 	} else {
-		reviewBinding, reviewPublic, reviewCount, err = p.loadAgentReviewBinding(ctx, householdID, update)
+		// R5: a typed answer without Reply binds to an open card only by
+		// deterministic rules (cardanswer.go); the model never decides it.
+		cards, err := p.loadLiveReviewCards(ctx, householdID, update.Message.Chat.ID)
 		if err != nil {
 			return err
+		}
+		names, err := p.categoryNames(ctx, householdID)
+		if err != nil {
+			return err
+		}
+		matched, answer := matchTypedCardAnswer(text, cards, names, p.turnTime(update))
+		switch {
+		case len(matched) == 1:
+			reviewBinding = &matched[0]
+			reviewPublic, reviewCount = agentReviewBindingPublic(reviewBinding), 1
+		case len(matched) > 1:
+			return p.askWhichCard(ctx, householdID, sourceEventID, update, matched, answer)
+		}
+		for index := range cards {
+			openCards = append(openCards, agentReviewBindingPublic(&cards[index]))
+		}
+		if reviewBinding == nil {
+			reviewCount = len(cards)
 		}
 	}
 
@@ -175,18 +206,35 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		categories,
 		contextState.HasPendingAction,
 		contextState.HasPendingBatch,
-		contextState.ActiveReviewCount == 1,
+		reviewBinding != nil,
 		contextState.ReviewType,
 		contextState.HasSalaryChoice,
 		contextState.HasMerchantLearning,
 		contextState.ReviewMode,
 	)
+	// get_evidence_context reads a ref Richmod issued with this turn's evidence;
+	// without evidence context there is nothing for it to read.
+	if evidence == nil && len(recentEvidence) == 0 {
+		generalTools = withoutTool(generalTools, "get_evidence_context")
+	}
 	// Go validation is the only mutation authority (ADR-052): the agent serves
 	// every turn with the tools that apply to the household's current state.
-	// Exact replies narrow to their bound workflow.
+	// Exact replies narrow to their bound workflow. A reply to a bot message that
+	// is not a workflow (an earlier answer, a batch list) is an ordinary turn and
+	// keeps the general catalog; a reply to a closed review card stays narrowed.
 	tools, workflowScope := generalTools, agentWorkflowGeneral
+	staleWorkflowReply := false
 	if explicitReply {
 		tools, workflowScope = applyAgentWorkflowToolPolicy(generalTools, update, reviewBinding, merchantBinding)
+		if workflowScope == agentWorkflowExplicitUnbound && evidence == nil {
+			staleWorkflowReply, err = p.replyTargetsWorkflowMessage(ctx, householdID, update)
+			if err != nil {
+				return err
+			}
+			if !staleWorkflowReply {
+				tools, workflowScope = generalTools, agentWorkflowGeneral
+			}
+		}
 	}
 	tools, workflowScope = applyEvidenceToolPolicy(generalTools, tools, workflowScope, evidence)
 	focusReviewArguments(tools, reviewBinding)
@@ -194,7 +242,10 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 	turnContext := buildAgentTurnContext(text, now, categories, contextState)
 	turnContext["workflow_scope"] = string(workflowScope)
 	turnContext["merchant_learning_count"] = merchantCount
-	if explicitReply && reviewBinding == nil && merchantBinding == nil && evidence == nil {
+	if len(openCards) > 0 {
+		turnContext["open_review_cards"] = openCards
+	}
+	if staleWorkflowReply {
 		turnContext["explicit_reply_unbound"] = true
 	}
 	if evidence != nil {
@@ -225,10 +276,12 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		// Server-only: documents the user sent in the immediate window, for the
 		// record_transaction duplicate guard. Never model-visible.
 		FreshEvidenceDocuments: freshDocuments,
+		ReceivedAt:             receivedAt,
+		activity:               new(atomic.Int32),
 	}
-	// An exact reply attaches its bound workflow. Otherwise a unique server-found
-	// review or merchant-learning binding is attached while the catalog stays
-	// whole, so a plain chat answer still resolves the one open question.
+	// An exact reply attaches its bound workflow. Otherwise a deterministic card
+	// match or a yes/no merchant-learning answer is attached while the catalog
+	// stays whole, so a plain chat answer still resolves the one open question.
 	if workflowScope == agentWorkflowExactReview || (!explicitReply && reviewBinding != nil) {
 		state.ReviewBinding = reviewBinding
 		state.ReviewBindingCount = reviewCount
@@ -238,12 +291,19 @@ func (p *Processor) ProcessAgent(ctx context.Context, sourceEventID string) erro
 		state.MerchantLearningCount = merchantCount
 	}
 
+	agentGateway, ok := p.gateway.(conversationalGateway)
+	if !ok {
+		// No conversational model is wired: the message waits like any outage.
+		return p.deferForGateway(ctx, state, errConversationalGatewayMissing)
+	}
+
 	turnCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.TotalTurnTimeout)
 	defer cancel()
 	// A turn that needs several model phases can take a while; say so once
-	// instead of leaving the household to wonder.
+	// instead of leaving the household to wonder. The text names what the turn
+	// is doing when the notice fires.
 	stopProgress := startProgressNotice(ProgressNoticeDelay, func(noticeCtx context.Context) error {
-		return p.enqueueProgressNotice(noticeCtx, state.Update)
+		return p.enqueueProgressNotice(noticeCtx, state.Update, progressNoticeFor(state.activityNow()))
 	})
 	defer stopProgress()
 	return p.runAgentLoop(turnCtx, agentGateway, state)
@@ -261,6 +321,9 @@ func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
 	}
 	send()
 	go func() {
+		// Telegram shows "typing" for about 5 s; renewing every 4 s keeps it
+		// continuous for the whole turn, including after a progress notice
+		// (sending a message clears the indicator until the next renewal).
 		ticker := time.NewTicker(4 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -272,11 +335,25 @@ func (p *Processor) startTyping(ctx context.Context, chatID int64) func() {
 			}
 		}
 	}()
-	return func() { close(stop) }
+	var once sync.Once
+	return func() { once.Do(func() { close(stop) }) }
 }
+
+// finalPhaseInstruction is added on the last model phase of a turn that has
+// gathered facts: no more tools are offered, so the answer uses what was read
+// instead of the turn ending with nothing.
+const finalPhaseInstruction = `
+
+FINAL PHASE: no more tools are available in this turn. Answer the user now using only the tool results you already have. If something could not be checked, say briefly what is missing; do not promise another lookup.`
+
+// partialAnswerMessage is the last resort when even the final phase produced
+// no answer.
+const partialAnswerMessage = "Aku sudah mengumpulkan sebagian datanya, tapi belum sempat merangkum semuanya dalam satu jawaban. Coba tanyakan bagian yang paling penting dulu, ya."
 
 func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGateway, state *agentState) error {
 	for state.ModelPhases < defaultAgentLimits.MaxModelPhases {
+		// The last phase of a turn that already read facts answers from them.
+		finalPhase := state.ModelPhases == defaultAgentLimits.MaxModelPhases-1 && len(state.PendingToolOutputs) > 0
 		request := gateway.AgentRequest{
 			SystemPrompt:       conversationalAgentPrompt,
 			Content:            agentModelContent(state),
@@ -287,10 +364,22 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			ToolOutputs:        state.PendingToolOutputs,
 			RequiredTool:       state.RequiredTool,
 		}
+		if finalPhase {
+			request.Tools = nil
+			request.SystemPrompt += finalPhaseInstruction
+		}
 		phaseCtx, cancel := context.WithTimeout(ctx, defaultAgentLimits.ModelCallTimeout)
 		response, err := model.AgentTurn(phaseCtx, state.SourceEventID, request)
 		cancel()
 		if err != nil {
+			if state.SideEffects == 0 && IsGatewayUnavailable(err) {
+				// The AI is unreachable and nothing was written: the message waits
+				// durably and runs the full agent path when the gateway is back.
+				return p.deferForGateway(ctx, state, err)
+			}
+			if finalPhase && !IsGatewayUnavailable(err) && !errors.Is(err, context.DeadlineExceeded) {
+				return p.finishAgentFailure(ctx, state, partialAnswerMessage, "PHASE_LIMIT")
+			}
 			return fmt.Errorf("%w: %w", errModelPhase, err)
 		}
 		// Continuation data is single-use. If this response asks for another READ
@@ -305,6 +394,9 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				return fmt.Errorf("required native tool %q was not returned", state.RequiredTool)
 			}
 			return p.finishAgentText(ctx, state, response.Text)
+		}
+		if finalPhase {
+			return p.finishAgentFailure(ctx, state, partialAnswerMessage, "PHASE_LIMIT")
 		}
 		if state.RequiredTool != "" && (len(response.ToolCalls) != 1 || response.ToolCalls[0].Name != state.RequiredTool) {
 			return fmt.Errorf("required native tool %q was not selected", state.RequiredTool)
@@ -321,28 +413,32 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				state.PendingToolOutputs = argumentRepairOutputs(response.ToolCalls, rejected)
 				continue
 			}
-			return p.finishAgentFailure(ctx, state, "Aku belum bisa memproses instruksi ini dengan aman. Coba jelaskan dengan kata lain, ya.")
+			return p.finishAgentFailure(ctx, state, "Aku belum bisa memproses permintaan ini dengan aman, jadi belum ada yang dicatat atau diubah. Coba sampaikan lagi dengan lebih singkat, ya.", "UNSAFE_TOOL_CALL")
 		}
 
 		switch plan.Class {
 		case agentToolRead:
-			results, err := p.executeAgentReadBatch(ctx, state, plan.Calls)
+			state.setActivity(activityAnalyzing)
+			results, fresh, err := p.executeAgentReadBatch(ctx, state, plan.Calls)
 			if err != nil {
 				return fmt.Errorf("conversational read batch: %w", err)
 			}
 			state.ReadCalls += len(results)
 			state.History = append(state.History, results...)
 			outputs := make([]gateway.AgentToolOutput, 0, len(results))
-			for _, result := range results {
+			for index, result := range results {
 				public := agentToolResultPublic(result)
 				outputs = append(outputs, gateway.AgentToolOutput{CallID: result.CallID, Output: public})
-				_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, public)
+				if fresh[index] {
+					_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, public)
+				}
 			}
 			state.PreviousResponseID = response.ResponseID
 			state.PreviousToolCalls = append([]gateway.ToolCall(nil), response.ToolCalls...)
 			state.PendingToolOutputs = outputs
 
 		case agentToolSideEffect:
+			state.setActivity(activityRecording)
 			call := plan.Calls[0]
 			var result agentToolResult
 			var synthesize bool
@@ -353,6 +449,20 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 				result, synthesize, err = p.executeAgentSideEffect(ctx, state, call.Call, call.Args, response.Metadata)
 			default:
 				err = fmt.Errorf("registered side effect %q has no conversational executor", call.Call.Name)
+			}
+			var recoverable *agentRecoverable
+			if errors.As(err, &recoverable) {
+				// Go refused the call in a way the model can fix; nothing was written.
+				if state.Recoveries < maxRecoverableResults && state.ModelPhases < defaultAgentLimits.MaxModelPhases {
+					state.Recoveries++
+					slog.Default().Warn("agent side effect refused; returning the reason to the model", "tool", call.Call.Name, "status", recoverable.Status)
+					state.PreviousResponseID = response.ResponseID
+					state.PreviousToolCalls = append([]gateway.ToolCall(nil), response.ToolCalls...)
+					state.PendingToolOutputs = []gateway.AgentToolOutput{{CallID: call.Call.CallID, Output: recoverable.toolOutput(call.Call.Name)}}
+					state.setActivity(activityThinking)
+					continue
+				}
+				return p.finishAgentFailure(ctx, state, recoverable.UserCopy, recoverable.Status)
 			}
 			if err != nil {
 				return fmt.Errorf("conversational side effect %s: %w", call.Call.Name, err)
@@ -367,16 +477,22 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 					return fmt.Errorf("finalize stale evidence source: %w", err)
 				}
 			}
-			if !synthesize {
-				return p.finishAgentText(ctx, state, agentMutationFallback(result))
+			if state.ReplyQueued {
+				// The deterministic reply was queued inside the mutation.
+				return nil
+			}
+			// A result Go fully knows is answered deterministically; only a result
+			// without its own copy is worded by the model.
+			if reply, ok := agentMutationReply(result); ok || !synthesize {
+				return p.finishAgentText(ctx, state, reply)
 			}
 			return p.synthesizeMutationResult(ctx, model, state, result)
 
 		default:
-			return p.finishAgentFailure(ctx, state, "Richmod tidak bisa menentukan aksi yang aman untuk pesan ini.")
+			return p.finishAgentFailure(ctx, state, "Richmod tidak bisa menentukan aksi yang aman untuk pesan ini, jadi belum ada yang dicatat.", "NO_SAFE_ACTION")
 		}
 	}
-	return p.finishAgentFailure(ctx, state, "Aku belum bisa menyelesaikan semuanya sekaligus. Coba tanyakan satu bagian dulu, ya.")
+	return p.finishAgentFailure(ctx, state, partialAnswerMessage, "PHASE_LIMIT")
 }
 
 // agentArgumentsError marks a tool call whose arguments Go rejected. It is the
@@ -396,6 +512,10 @@ func (e *agentArgumentsError) Unwrap() error { return e.Err }
 // model. One correction fixes a malformed field; a second means the model cannot.
 const maxArgumentRepairs = 1
 
+// maxRepairReasonBytes bounds Go's rejection reason handed back to the model.
+// Validation messages name the expected format, so they need a little room.
+const maxRepairReasonBytes = 240
+
 // repairableArguments reports the rejection to hand back to the model, if any
 // repair is still allowed in this turn.
 func repairableArguments(state *agentState, err error) (*agentArgumentsError, bool) {
@@ -410,8 +530,8 @@ func repairableArguments(state *agentState, err error) (*agentArgumentsError, bo
 // provider requires an output per call. Only the offending call carries a reason.
 func argumentRepairOutputs(calls []gateway.ToolCall, rejected *agentArgumentsError) []gateway.AgentToolOutput {
 	reason := rejected.Err.Error()
-	if len(reason) > 160 {
-		reason = reason[:160]
+	if len(reason) > maxRepairReasonBytes {
+		reason = reason[:maxRepairReasonBytes]
 	}
 	outputs := make([]gateway.AgentToolOutput, 0, len(calls))
 	for _, call := range calls {
@@ -491,15 +611,34 @@ func agentToolAvailable(tools []gateway.ToolDefinition, name string) bool {
 	return false
 }
 
-func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState, calls []validatedAgentCall) ([]agentToolResult, error) {
+// executeAgentReadBatch runs a response's READ calls in parallel. An identical
+// call (same tool, same arguments) already answered in this turn is served from
+// the turn's cache instead of being run again; fresh[i] is false for those, so
+// the stored conversation does not repeat them either.
+func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState, calls []validatedAgentCall) ([]agentToolResult, []bool, error) {
 	if state.Analytics == nil {
 		state.Analytics = analyticscore.NewSession(p.pool, state.HouseholdID, state.Now, state.SourceEventID)
 	}
+	if state.ReadCache == nil {
+		state.ReadCache = map[string]agentToolResult{}
+	}
 	results := make([]agentToolResult, len(calls))
+	fresh := make([]bool, len(calls))
 	errs := make([]error, len(calls))
+	keys := make([]string, len(calls))
+	firstIndex := map[string]int{}
 	var wg sync.WaitGroup
-	wg.Add(len(calls))
 	for index := range calls {
+		keys[index] = readCacheKey(calls[index].Call.Name, calls[index].Args)
+		if _, cached := state.ReadCache[keys[index]]; cached {
+			continue
+		}
+		if _, seen := firstIndex[keys[index]]; seen {
+			continue
+		}
+		firstIndex[keys[index]] = index
+		fresh[index] = true
+		wg.Add(1)
 		index := index
 		go func() {
 			defer wg.Done()
@@ -510,10 +649,28 @@ func (p *Processor) executeAgentReadBatch(ctx context.Context, state *agentState
 	wg.Wait()
 	for _, err := range errs {
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return results, nil
+	for index := range calls {
+		if fresh[index] {
+			state.ReadCache[keys[index]] = results[index]
+			continue
+		}
+		source, cached := state.ReadCache[keys[index]]
+		if !cached {
+			source = results[firstIndex[keys[index]]]
+		}
+		source.CallID = calls[index].Call.CallID
+		results[index] = source
+	}
+	return results, fresh, nil
+}
+
+// readCacheKey identifies a READ call by tool and canonical arguments.
+func readCacheKey(name string, args map[string]any) string {
+	encoded, _ := json.Marshal(args) // map keys marshal sorted: canonical
+	return name + "|" + string(encoded)
 }
 
 func (p *Processor) synthesizeMutationResult(ctx context.Context, model conversationalGateway, state *agentState, result agentToolResult) error {
@@ -552,6 +709,20 @@ func agentToolResultPublic(result agentToolResult) map[string]any {
 }
 
 func (p *Processor) finishAgentText(ctx context.Context, state *agentState, message string) error {
+	return p.finishAgentReply(ctx, state, message, "")
+}
+
+// finishAgentFailure answers a turn that could not do what was asked. The reply
+// is stored as an ASSISTANT turn marked with the failure, so the next turn knows
+// the question was not answered and nothing was recorded from it.
+func (p *Processor) finishAgentFailure(ctx context.Context, state *agentState, message, failure string) error {
+	if failure == "" {
+		failure = "REFUSED"
+	}
+	return p.finishAgentReply(ctx, state, message, failure)
+}
+
+func (p *Processor) finishAgentReply(ctx context.Context, state *agentState, message, failure string) error {
 	message = clean(message, 4000)
 	if message == "" {
 		message = "Richmod sudah memproses pesanmu."
@@ -576,184 +747,30 @@ func (p *Processor) finishAgentText(ctx context.Context, state *agentState, mess
 	if err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "ASSISTANT", message, "", map[string]any{
+	public := map[string]any{
 		"agent_model_phases": state.ModelPhases,
 		"agent_read_calls":   state.ReadCalls,
 		"agent_side_effects": state.SideEffects,
-	})
-	return nil
+	}
+	if failure != "" {
+		public["failure"] = failure
+		public["nothing_recorded"] = state.SideEffects == 0
+	}
+	// The ASSISTANT turn commits with the reply, so memory never misses an answer
+	// that was sent or records one that was not.
+	if err := insertTurnTx(ctx, tx, state.HouseholdID, state.SourceEventID, state.Update, "ASSISTANT", message, "", public); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-func (p *Processor) finishAgentFailure(ctx context.Context, state *agentState, message string) error {
-	return p.finishAgentText(ctx, state, message)
-}
-
-func agentMutationFallback(result agentToolResult) string {
-	if result.Status == "RESIDUAL_FACTS_REQUIRED" {
-		if missing, ok := result.Review["missing_fields"].([]string); ok {
-			return reviewNeedsFactsMessage(missing)
-		}
-		return "Tinjauan ini masih memerlukan tanggal transaksi atau kategori yang valid."
-	}
-	if result.Status == "ALREADY_RECORDED_FROM_EVIDENCE" {
-		// A refusal, not a recording: the user must be able to tell the two apart even
-		// when the model call that would have worded it fails.
-		return "Dokumen yang kamu kirim sudah tercatat, jadi tidak dicatat lagi. Ubah transaksi itu, atau sebutkan apa yang berbeda."
-	}
-	if result.Status == "INVALID_CANDIDATE" {
-		// A refused merge, not a merge: said deterministically so a failed model call
-		// cannot read as success.
-		return "Itu bukan salah satu transaksi yang bisa digabung dengan struk ini, jadi belum ada yang diubah. Sebutkan transaksi yang dimaksud."
-	}
-	if result.Status == "DEFERRED" {
-		return "Daftar transaksi ini masih menunggu konfirmasi. Pilih tombol konfirmasi atau batal, atau sebutkan item yang ingin diubah."
-	}
-	if result.Mutation != nil {
-		action, _ := result.Mutation["action"].(string)
-		amount, _ := result.Mutation["amount_idr"].(string)
-		switch action {
-		case "TRANSACTION_RECORDED":
-			if result.Status == "NEEDS_REVIEW" {
-				if amount != "" {
-					return "Transaksi Rp" + FormatIDR(amount) + " sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
-				}
-				return "Transaksi sudah masuk ke Kotak Tinjauan karena masih perlu konfirmasi."
-			}
-			if amount != "" {
-				return "✅ Transaksi Rp" + FormatIDR(amount) + " sudah tercatat."
-			}
-			return "✅ Transaksi sudah tercatat."
-		case "BANK_FACTS_QUEUED":
-			return bankFactsQueuedMessage
-		case "BANK_REVIEW_IGNORED":
-			return "Bukti email bank diabaikan."
-		case "DUPLICATE_MERGED":
-			return "Struk digabung dengan transaksi yang sudah ada, tidak ada transaksi baru."
-		case "POSSIBLE_EXISTING_TRANSACTION":
-			return "Aku menemukan transaksi serupa. Mau mengubah transaksi yang sudah ada?"
-		case "TRANSFER_RECORDED":
-			if amount != "" {
-				return "✅ Transfer Rp" + FormatIDR(amount) + " sudah tercatat."
-			}
-			return "✅ Transfer sudah tercatat."
-		case "TRANSFER_ALREADY_RECORDED":
-			return "Transfer ini sudah tercatat sebelumnya, jadi tidak dicatat lagi."
-		case "TRANSFER_RECONCILIATION_STAGED":
-			return "Transfer ini perlu ditinjau karena ada transaksi yang mungkin sama."
-		case "TRANSFER_RECONCILIATION_RESOLVED":
-			return "Rekonsiliasi transfer sudah diselesaikan."
-		case "TRANSFER_RECONCILIATION_IGNORED":
-			return "Rekonsiliasi transfer sudah diabaikan tanpa mencatatnya sebagai transfer baru."
-		case "BATCH_STAGED":
-			return "Daftar transaksi sudah siap. Pilih tombol konfirmasi kalau semuanya benar, atau sebutkan item yang ingin diubah."
-		case "BATCH_UPDATED":
-			return "Daftar transaksi sudah diperbarui."
-		case "BATCH_RECORDED":
-			return "✅ Semua transaksi dalam daftar sudah tercatat."
-		case "CORRECTION_STAGED", "CORRECT_EXISTING_TRANSACTION":
-			return "Perubahannya sudah siap. Pilih tombol konfirmasi kalau sudah benar."
-		case "CORRECTION_RESOLVED":
-			if confirmed, _ := result.Mutation["confirmed"].(bool); confirmed {
-				return "✅ Perubahan transaksi sudah disimpan."
-			}
-			return "Perubahan transaksi dibatalkan."
-		case "SALARY_CHOICE_RESOLVED":
-			choice, _ := result.Mutation["choice"].(string)
-			switch choice {
-			case "PRIMARY":
-				return "Gaji utama sudah disimpan dan menjadi acuan siklus keuangan."
-			case "ORDINARY":
-				return "✅ Gaji sudah disimpan sebagai pemasukan biasa."
-			case "IGNORE":
-				return "Gaji tersebut sudah diabaikan."
-			}
-		case "MERCHANT_LEARNING_RESOLVED":
-			if remember, _ := result.Mutation["remember"].(bool); remember {
-				return "Kategori merchant sudah disimpan sebagai aturan."
-			}
-			return "Kategori merchant tidak disimpan sebagai aturan."
-		case "REVIEW_CONFIRMED", "REVIEW_TRANSFER_CLASSIFIED":
-			return "✅ Tinjauan sudah selesai dan data keuangan sudah diperbarui."
-		case "REVIEW_IGNORED":
-			return "Tinjauan sudah selesai tanpa mencatatnya sebagai transaksi aktif."
-		case "REVIEW_DETAIL_SAVED":
-			if result.Status == "NEEDS_REVIEW" {
-				if missing, ok := result.Review["missing_fields"].([]string); ok {
-					return reviewNeedsFactsMessage(missing)
-				}
-			}
-			return "Detail tinjauan sudah diperbarui."
-		case "REVIEW_DETAIL_SAVED_AND_CONFIRMED":
-			return "✅ Detail tinjauan sudah diperbarui."
-		case "WEALTH_ACCOUNT_SET":
-			return "Akun kekayaan untuk observasi tersebut sudah diperbarui."
-		case "WEALTH_OBSERVATION_RECORDED_AS_ASSET_PURCHASE":
-			return "Observasi kekayaan sudah direklasifikasi sebagai pembelian aset."
-		case "WEALTH_OBSERVATION_IGNORED":
-			return "Observasi kekayaan sudah diabaikan."
-		case "CYCLE_RESIDUAL_RESOLVED":
-			return "Rekonsiliasi sisa siklus gaji sudah diselesaikan."
-		case "CYCLE_RESIDUAL_REFRESHED":
-			return "Nilai sisa siklus gaji berubah. Tinjau nilai terbaru sebelum menyelesaikannya."
-		case "CYCLE_RESIDUAL_CLOSED":
-			return "Rekonsiliasi sisa siklus gaji ditutup karena tidak lagi berlaku."
-		case "ADD_MISSING_TRANSACTION_IN_TELEGRAM":
-			return "Kirim transaksi yang belum tercatat sebagai pesan baru di sini (jangan balas kartu tinjauan). Setelah tersimpan, sisa siklus gaji dihitung ulang; tinjauan tetap terbuka jika masih perlu tindakan."
+// withoutTool drops one tool from a catalog.
+func withoutTool(tools []gateway.ToolDefinition, name string) []gateway.ToolDefinition {
+	out := make([]gateway.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Name != name {
+			out = append(out, tool)
 		}
 	}
-
-	switch result.Status {
-	case "EVIDENCE_DISPUTE_STAGED":
-		return "Kartu koreksi sudah dikirim. Tekan “Konfirmasi transaksi berbeda” jika screenshot ini memang transaksi terpisah; belum ada yang dicatat."
-	case "EVIDENCE_DISPUTE_ALREADY_STAGED":
-		return "Koreksi untuk screenshot ini sudah menunggu konfirmasi di kartu sebelumnya. Belum ada yang dicatat."
-	case "EVIDENCE_DISPUTE_INVALID":
-		return "Screenshot ini belum bisa dipisahkan lewat chat: hanya satu baris pengeluaran yang tergabung ke catatan lama, dengan nominal dan tanggal terbaca, yang bisa dikoreksi. Tidak ada yang diubah."
-	case "EVIDENCE_DISPUTE_UNAUTHORIZED":
-		return "Aku tidak bisa memverifikasi akun Telegram-mu di keluarga ini, jadi koreksi tidak dibuat."
-	case "EVIDENCE_DISPUTE_USE_BUTTONS":
-		return "Koreksi screenshot hanya bisa diselesaikan dengan tombol di kartunya (Konfirmasi atau Batalkan). Belum ada yang diubah."
-	case "AMBIGUOUS_TARGET", "AMBIGUOUS_REVIEW":
-		return "Ada beberapa item yang mungkin kamu maksud. Balas pesan itemnya atau pilih item yang sesuai, ya."
-	case "TARGET_UNAVAILABLE":
-		return "Referensi transaksi itu sudah tidak tersedia. Cari transaksinya lagi dulu."
-	case "MISSING_TARGET":
-		return "Transaksi mana yang ingin kamu ubah?"
-	case "MISSING_CHANGE":
-		return "Bagian mana dari transaksi itu yang ingin kamu ubah?"
-	case "NO_PENDING_BATCH":
-		return "Tidak ada daftar transaksi yang sedang menunggu konfirmasi."
-	case "NO_PENDING_ACTION":
-		return "Tidak ada perubahan transaksi yang sedang menunggu konfirmasi."
-	case "NO_PENDING_SALARY_CHOICE":
-		return "Tidak ada pilihan gaji aktif yang perlu diselesaikan."
-	case "NO_MERCHANT_LEARNING_PENDING":
-		return "Tidak ada konfirmasi aturan merchant yang aktif."
-	case "ACCOUNT_AMBIGUOUS":
-		return "Aku belum bisa memastikan rekening sumbernya. Sebutkan nama rekening yang lebih spesifik, ya."
-	case "WEALTH_ACCOUNT_AMBIGUOUS", "MISSING_WEALTH_ACCOUNT":
-		return "Aku belum bisa memastikan akun kekayaannya. Sebutkan nama akun yang lebih spesifik, ya."
-	case "MISSING_REVIEW_DETAIL":
-		return "Masih ada detail tinjauan yang perlu kamu lengkapi."
-	case "MISSING_CATEGORY", "INVALID_CATEGORY":
-		return "Kategori itu tidak ada di daftar keluarga ini. Pilih salah satu kategori pengeluaran yang tersedia."
-	case "BANK_ACCOUNT_REQUIRED":
-		return "Pilih rekening untuk email bank ini dari tombol yang dikirim."
-	case "BANK_ACCOUNT_UNAVAILABLE":
-		return "Email bank ini belum terhubung ke rekening, dan belum ada rekening aktif. Tambahkan rekening lebih dulu."
-	case "MISSING_BANK_FACTS":
-		return "Nominal dan waktu transaksi masih perlu dilengkapi."
-	case "INVALID_PAY_DATE":
-		return "Tanggal pembayaran belum terbaca. Tulis tanggalnya, misalnya 25 Agu 2026."
-	case "INVALID_TRANSACTION_DATE":
-		return "Tanggal transaksi belum terbaca, jadi belum ada yang disimpan. Balas kartu tinjauan dengan tanggalnya, misalnya 2026-10-03."
-	case "TRANSFER_RECONCILIATION_REQUIRED":
-		return "Ada transaksi transfer yang mungkin sama. Detailnya perlu ditinjau sebelum observasi kekayaan bisa direklasifikasi."
-	case "STALE_REVIEW_BINDING", "STALE_MERCHANT_LEARNING_BINDING":
-		return "Tinjauan ini sudah berubah atau selesai. Buka atau balas pesan tinjauan terbaru untuk melanjutkan."
-	}
-	return "Permintaan keuanganmu sudah diproses."
+	return out
 }

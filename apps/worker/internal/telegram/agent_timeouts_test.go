@@ -141,9 +141,42 @@ func TestAnExpiredCategoryRefBecomesAToolResultTheModelCanActOn(t *testing.T) {
 
 // Terminal failures preserve the cause for the review reason.
 func TestTerminalTextFailurePreservesCause(t *testing.T) {
-	_, slowReason := terminalTextFailureCopy(true)
-	_, otherReason := terminalTextFailureCopy(false)
-	if slowReason != "TIMEOUT" || otherReason != "ERROR" {
-		t.Fatalf("reasons: %s / %s", slowReason, otherReason)
+	_, slowReason := terminalTextFailureCopy(classifyTextFailure(fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded)))
+	_, otherReason := terminalTextFailureCopy(classifyTextFailure(errors.New("boom")))
+	_, downReason := terminalTextFailureCopy(classifyTextFailure(fmt.Errorf("%w: %w", errModelPhase, &gateway.StatusError{StatusCode: 503})))
+	if slowReason != "TIMEOUT" || otherReason != "ERROR" || downReason != "UNAVAILABLE" {
+		t.Fatalf("reasons: %s / %s / %s", slowReason, otherReason, downReason)
+	}
+}
+
+// The text failure taxonomy (A3/A4): a timeout and an unreachable gateway get
+// one retry, a gateway rejection none, anything else the normal budget.
+func TestTextFailurePolicyBoundsRetriesByClass(t *testing.T) {
+	timeout := fmt.Errorf("%w: %w", errModelPhase, context.DeadlineExceeded)
+	down := fmt.Errorf("%w: %w", errModelPhase, &gateway.UnavailableError{Err: errors.New("connection refused")})
+	rejected := fmt.Errorf("%w: %w", errModelPhase, &gateway.StatusError{StatusCode: 400})
+	transient := errors.New("conn reset by peer")
+	permanent := func(err error) bool {
+		var p interface{ Permanent() bool }
+		return errors.As(err, &p) && p.Permanent()
+	}
+	cases := []struct {
+		err      error
+		attempts int
+		final    bool
+	}{
+		{timeout, 1, false}, {timeout, 2, true},
+		{down, 1, false}, {down, 2, true},
+		{&GatewayDeferral{Err: down}, 9, false},
+		{rejected, 1, true},
+		{transient, 1, false}, {transient, 4, false},
+	}
+	for _, c := range cases {
+		if got := permanent(TextFailurePolicy(c.err, c.attempts)); got != c.final {
+			t.Fatalf("%v at attempt %d: permanent=%v, want %v", c.err, c.attempts, got, c.final)
+		}
+	}
+	if TextFailurePolicy(nil, 1) != nil {
+		t.Fatal("nil stays nil")
 	}
 }

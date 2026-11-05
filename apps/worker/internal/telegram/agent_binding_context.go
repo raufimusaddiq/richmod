@@ -31,8 +31,7 @@ type agentMerchantLearningBinding struct {
 func isAgentCoreSideEffect(name string) bool {
 	switch name {
 	case "record_transaction", "record_transaction_batch", "propose_transaction_correction",
-		"confirm_pending_action", "cancel_pending_action", "confirm_pending_batch",
-		"cancel_pending_batch", "update_pending_batch", "pending_batch_decision", "dispute_evidence_link":
+		"confirm_pending_action", "cancel_pending_action", "pending_batch_decision", "dispute_evidence_link":
 		return true
 	default:
 		return false
@@ -54,75 +53,11 @@ func (p *Processor) loadAgentReviewBinding(ctx context.Context, householdID stri
 		}
 	}
 
-	rows, err := p.pool.Query(ctx, `
-		SELECT kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label
-		FROM (
-			SELECT 'TRANSACTION'::text,r.id::text,r.id::text,t.id::text,r.review_type,
-			       COALESCE(c.state,''),COALESCE(t.merchant_id::text,''),COALESCE(rr.telegram_message_id,0)::bigint,
-			       t.amount::text,COALESCE(t.counterparty_name,t.description,'Transaksi'),r.created_at
-			FROM review_request r
-			JOIN transaction t ON t.id=r.transaction_id
-			JOIN review_conversation c ON c.review_request_id=r.id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE r.household_id=$1 AND r.status='OPEN' AND t.status='NEEDS_REVIEW' AND rr.telegram_chat_id=$2
-			UNION ALL
-			SELECT 'TRANSFER_RECONCILIATION',trc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
-			       trc.amount_idr::text,COALESCE(trc.description,'Transfer'),r.created_at
-			FROM transfer_reconciliation_case trc
-			JOIN review_item ri ON (
-				(ri.source_event_id IS NOT NULL AND ri.source_event_id=trc.source_event_id)
-				OR (ri.financial_email_observation_id IS NOT NULL AND ri.financial_email_observation_id=trc.financial_email_observation_id)
-			)
-			JOIN review_request r ON r.review_item_id=ri.id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE trc.household_id=$1 AND trc.status='OPEN' AND ri.status IN ('PENDING_SEND','OPEN')
-			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
-			UNION ALL
-			SELECT 'WEALTH_OBSERVATION',wo.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
-			       wo.observed_value_idr::text,trim(wo.institution||' '||wo.account_hint),r.created_at
-			FROM wealth_observation wo
-			JOIN review_item ri ON ri.wealth_observation_id=wo.id
-			JOIN review_request r ON r.review_item_id=ri.id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE wo.household_id=$1 AND wo.status='PENDING' AND ri.status IN ('PENDING_SEND','OPEN')
-			  AND r.household_id=$1 AND r.status='OPEN' AND rr.telegram_chat_id=$2
-			UNION ALL
-			SELECT 'CYCLE_RESIDUAL',crc.id::text,r.id::text,'',r.review_type,'','',COALESCE(rr.telegram_message_id,0)::bigint,
-			       crc.basis_residual_idr::text,'Sisa siklus gaji',r.created_at
-			FROM review_request r
-			JOIN review_item ri ON ri.id=r.review_item_id
-			JOIN cycle_residual_case crc ON crc.id=ri.cycle_residual_case_id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE r.household_id=$1 AND r.review_type='CYCLE_RESIDUAL_ALLOCATION' AND r.status='OPEN'
-			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
-			UNION ALL
-			SELECT 'BANK_FACTS',ri.id::text,r.id::text,'',r.review_type,COALESCE(c.state,''),'',COALESCE(rr.telegram_message_id,0)::bigint,
-			       '','Email bank',r.created_at
-			FROM review_request r
-			JOIN review_item ri ON ri.id=r.review_item_id
-			LEFT JOIN review_conversation c ON c.review_request_id=r.id
-			JOIN review_request_recipient rr ON rr.review_request_id=r.id
-			WHERE r.household_id=$1 AND r.status='OPEN' AND ri.review_type='UNKNOWN_BANK_TEMPLATE'
-			  AND ri.transaction_id IS NULL AND ri.source_event_id IS NOT NULL
-			  AND ri.status IN ('PENDING_SEND','OPEN') AND rr.telegram_chat_id=$2
-		) candidates(kind,target_id,review_request_id,transaction_id,review_type,conversation_state,merchant_id,message_id,amount_idr,label,sort_at)
-		ORDER BY sort_at DESC
-		LIMIT 2`, householdID, update.Message.Chat.ID)
+	// Without an exact reply, only live cards count (loadLiveReviewCards). This
+	// reports the set; whether free text answers one of them is decided by
+	// matchTypedCardAnswer, never by the model.
+	bindings, err := p.loadLiveReviewCards(ctx, householdID, update.Message.Chat.ID)
 	if err != nil {
-		return nil, nil, 0, err
-	}
-	defer rows.Close()
-	bindings := make([]agentReviewBinding, 0, 2)
-	for rows.Next() {
-		var binding agentReviewBinding
-		if err := rows.Scan(&binding.Kind, &binding.TargetID, &binding.ReviewRequestID, &binding.TransactionID,
-			&binding.ReviewType, &binding.ConversationState, &binding.MerchantID, &binding.TelegramMessageID,
-			&binding.AmountIDR, &binding.Label); err != nil {
-			return nil, nil, 0, err
-		}
-		bindings = append(bindings, binding)
-	}
-	if err := rows.Err(); err != nil {
 		return nil, nil, 0, err
 	}
 	if len(bindings) == 1 {
@@ -210,6 +145,9 @@ func agentReviewBindingPublic(binding *agentReviewBinding) map[string]any {
 	// reply in that argument instead of guessing.
 	if field := awaitedReviewField(binding.ConversationState); field != "" {
 		out["awaiting_field"] = field
+	}
+	if binding.Label != "" {
+		out["description"] = untrustedField(binding.Label)
 	}
 	if binding.Kind == "BANK_FACTS" {
 		// The card asks for both values at once; COMPLETE_BANK_FACTS carries them.

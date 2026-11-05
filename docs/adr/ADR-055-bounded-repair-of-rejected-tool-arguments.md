@@ -3,7 +3,8 @@
 ## Status
 
 Accepted — 2026-10-13. Refines ADR-024 and ADR-033; Go remains the only validator
-and mutation authority.
+and mutation authority. Amended 2026-11-05 (date/time rules in validation,
+executor refusals).
 
 ## Context
 
@@ -48,3 +49,27 @@ log line is how its real rate will be known.
 - Reasons come from Go's own validation messages and may echo a value the model
   itself produced; they contain no canonical IDs.
 - Ambiguous reply bindings are not changed here.
+
+## Amendment — date/time rules and executor refusals (2026-11-05)
+
+Production showed model-fixable mistakes still failing the job: an Indonesian
+local time such as `15.00`, a missing `date_provenance`, an unparseable
+`explicit_date`, an invalid `item_ref`, a salary-cycle period with no salary
+cycle, a custom range over 366 days. They surfaced inside executors, after
+validation, as job errors that burned retries.
+
+- Every date/time rule `nativeValidatedExtraction` applies is now checked first in
+  `validateCreate` (and the shared `validateDateFields` for corrections and
+  transfers), so the one repair round above covers them. `15.00`, `9:30` and
+  `15:00` are all valid local times. The batch `item_ref` shape is validated
+  (`batch_1`..`batch_10`).
+- Validation messages name the expected format, so the reason returned to the
+  model is bounded at 240 bytes (was 160).
+- Refusals that can only be known while executing (an `item_ref` outside the
+  pending batch, an unknown category slug, an unservable period, an unparseable
+  correction date) are `agentRecoverable` results: returned as the call's tool
+  output with `status`, `reason` and `next_step`, at most two per turn, with
+  Indonesian fallback copy if the turn runs out of budget. Nothing runs on a
+  refused call. READ-side equivalents (`CYCLE_UNAVAILABLE`,
+  `RANGE_OUT_OF_BOUNDS`, `INVALID_RANGE`, `TARGET_UNAVAILABLE`) follow the
+  `recoverableAnalyticsRead` pattern.

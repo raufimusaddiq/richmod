@@ -3,6 +3,7 @@
 ## Status
 
 Accepted — 2026-10-12. Amends ADR-038 and ADR-045 for the Telegram conversational agent.
+Amended 2026-11-05 (durable deferral of free text while the AI gateway is unavailable).
 
 ## Context
 
@@ -58,3 +59,58 @@ entry onto another day. The observation is recorded as
 message minute. A date the model supplied on its own — a past date the user never
 wrote — is still never accepted and still becomes a review. The time precision stays
 in the proposal metadata for audit.
+
+## Amendment — durable deferral while the gateway is down (2026-11-05)
+
+Without the judgment plane, every free-text Telegram turn needs the generative
+gateway. When LiteRouter was unreachable a connection error was not recognized as
+an outage: the job used all five attempts (about 30 s of backoff plus up to 160 s
+per attempt) and then told the household to rephrase.
+
+A first version of this amendment recorded "kopi 25rb"-style messages with a
+deterministic parser. Review showed it cannot converge: "belum bayar kopi 25rb",
+"rencana beli kopi 25rb", "harga kopi 25rb", "saldo 50rb", "beli kopi 25rb dong"
+all have the shape of an expense, no word list separates a completed purchase
+from a plan, a price or a request, and a guessed record — even one sent to
+review — asserts that money was spent. It could also create a transaction in
+place of an answer to a bound review card. That parser was removed.
+
+Decision:
+
+- Gateway failures are typed in the gateway package: a transport failure, a
+  missing configuration or HTTP 408/429/5xx is *unavailable*; another 4xx is a
+  *rejection* (never retried). A caller's own deadline stays a timeout.
+- A free-text turn whose model call finds the gateway unavailable before
+  anything was written creates nothing. The message is already durable as its
+  source event (it stays `RECEIVED`). The household gets one reply per message:
+  "AI Richmod sedang tidak bisa dihubungi. Pesanmu sudah kusimpan dan akan
+  kuproses otomatis begitu tersambung lagi — belum ada yang dicatat." (a
+  bookkeeping turn row, never replayed to the model, keeps it to once).
+- The worker defers the job (`queue.Defer`): it goes back to PENDING with
+  `run_after` 5 minutes ahead, doubling per deferral up to an hour, the attempt
+  it used is given back, and `job.deferrals` counts the waits (migration 00092).
+  A deferred message still keeps the household's order: when the gateway is back
+  the older message runs first. A newer message that was never deferred is not
+  held behind a deferred one, so a deterministic reply (for example `/help`) is
+  still sent during the outage.
+- When the gateway is back, the deferred message runs the full agent path
+  exactly as if it had just arrived, so bound reviews, pending corrections and
+  batches, and evidence are handled with their normal binding.
+- A message still unanswered 24 hours after it arrived gives up: the job fails
+  (visible in operations), the source event is marked FAILED, and the household
+  gets "AI Richmod belum juga bisa dihubungi, jadi pesanmu belum bisa diproses dan
+  belum ada yang dicatat. Silakan kirim ulang, ya." with a Tindakan item
+  (`UNAVAILABLE`).
+
+How "deterministic flows keep working when the AI gateway is unavailable"
+(AGENTS.md) is met: every flow that needs no model keeps working during the
+outage — button taps and callbacks (review cards, category choosers, pending
+correction and batch confirmations, the card-choice buttons), proposal-keyed
+review replies handled by the bound review lane (payslip pay date, missing
+amount), `/help`, empty-message handling, and deterministic date parsing in those
+lanes. Free text that needs the model to understand it waits instead of being
+guessed.
+
+Consequences: an outage delays an answer instead of inventing a record; the
+household knows within seconds that the message is safe and nothing was
+recorded. No model, infrastructure or authority is added.

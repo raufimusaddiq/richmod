@@ -30,7 +30,7 @@ var telegramCallbackExact = map[string]struct{}{
 // Opaque-token callbacks: the token is a server-issued identifier of a choice
 // the worker re-validates against the household.
 var telegramCallbackTokenPrefixes = []string{
-	"pending:action:yes:", "pending:action:no:", "pending:batch:yes:", "pending:batch:no:",
+	"pending:action:yes:", "pending:action:no:", "pending:batch:yes:", "pending:batch:no:", "pending:card:",
 	"review:cat:", "review:category:", "review:fe:account:", "review:fe:wealth:",
 	"review:invest:", "review:bank:",
 }
