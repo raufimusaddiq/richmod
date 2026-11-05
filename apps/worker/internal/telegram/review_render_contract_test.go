@@ -45,6 +45,8 @@ var markupModesHandledAtCreation = map[string]bool{
 	"financial_email":       true,
 	"financial_email_facts": true,
 	"receipt_quality":       true,
+	"cycle":                 true,
+	"income":                true,
 }
 
 func TestRenderedMarkupModesAreHandledAtCreation(t *testing.T) {
@@ -104,6 +106,8 @@ func telegramReviewLanes() map[string]bool {
 	// SET_TRANSACTION_DATE is the transaction-date answer; Telegram completes it
 	// through the date reply lane (AWAITING_DATE), which confirms with the date.
 	telegramLanes["SET_TRANSACTION_DATE"] = true
+	// SET_AMOUNT is the bound missing-amount reply lane.
+	telegramLanes["SET_AMOUNT"] = true
 	// Classification uses the shared classifier through Telegram intent values.
 	for _, action := range []string{"OWN_ACCOUNT", "HOUSEHOLD_ACCOUNT", "INVESTMENT_ACCOUNT", "EXPENSE", "ASSET_PURCHASE"} {
 		telegramLanes[action] = true
@@ -220,6 +224,8 @@ func TestSuppliedContextKeepsItsMarkupMode(t *testing.T) {
 			wantMode = "receipt_quality"
 		case decision.ReasonCode == "FINANCIAL_EMAIL_FACTS":
 			wantMode = "financial_email_facts"
+		case decision.ReasonCode == "CYCLE_RESIDUAL_ALLOCATION":
+			wantMode = "cycle"
 		case isCategoryOnly(decision):
 			wantMode = "category"
 		case contains(decision.MissingFacts, "transfer_relationship"):

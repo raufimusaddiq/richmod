@@ -245,7 +245,7 @@ func (p *Processor) offerDisputeCategoryChooser(ctx context.Context, source, req
 	if _, err = tx.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-evidence-dispute',parser_version='1' WHERE id=$1::uuid`, source); err != nil {
 		return err
 	}
-	if err = enqueueReviewUpdateWithMarkup(ctx, tx, request, update, fmt.Sprintf("Kategori transaksi ini belum pasti. Pilih kategori (halaman %d) untuk mencatatnya sebagai transaksi berbeda:", page+1), markup); err != nil {
+	if err = enqueueReviewUpdateWithMarkup(ctx, tx, request, update, reviewFollowUpText(ctx, tx, request, "🟡 Kategori belum pasti", fmt.Sprintf("Pilih kategori (halaman %d) untuk mencatatnya sebagai transaksi berbeda.", page+1)), markup); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

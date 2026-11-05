@@ -31,5 +31,13 @@ func TestSourceLifecycleIsDerivedOnlyByTheSharedRule(t *testing.T) {
 		if inline.Match(raw) {
 			t.Fatalf("%s derives source_event.processing_status inline; call RefreshSourceLifecycle", file)
 		}
+		// A resolver must not park a document in review unconditionally (T13):
+		// the shared lifecycle settles documents. Only document intake in the
+		// worker sets NEEDS_REVIEW when it opens a review itself.
+		if !regexp.MustCompile(`worker`).MatchString(file) {
+			if regexp.MustCompile(`UPDATE document SET status='NEEDS_REVIEW'`).Match(raw) {
+				t.Fatalf("%s sets document.status=NEEDS_REVIEW directly; let RefreshSourceLifecycle settle it", file)
+			}
+		}
 	}
 }

@@ -418,10 +418,19 @@ func TestReopenedTransactionReviewCarriesAFreshDecision(t *testing.T) {
 	defer tx.Rollback(ctx)
 	f.must(reviewdomain.ReopenTransactionReview(ctx, tx, f.household, transaction))
 	f.must(tx.Commit(ctx))
-	var missing, amount string
-	f.must(f.pool.QueryRow(ctx, `SELECT decision->>'missingFacts',decision->'knownFacts'->>'amount_idr' FROM review_item WHERE transaction_id=$1 AND status='OPEN'`, transaction).Scan(&missing, &amount))
-	if missing != `["merchant"]` || amount != "25000" {
+	// Reversing a merge makes the duplicate relationship undecided again; the
+	// category is already known now, so it is not asked again, and the stale
+	// snapshot (amount 1, merchant/category missing) is not reused. The new item
+	// is projected to Telegram through the shared job.
+	var missing, amount, item string
+	f.must(f.pool.QueryRow(ctx, `SELECT id::text,decision->>'missingFacts',decision->'knownFacts'->>'amount_idr' FROM review_item WHERE transaction_id=$1 AND status='OPEN'`, transaction).Scan(&item, &missing, &amount))
+	if missing != `["duplicate_relationship"]` || amount != "25000" {
 		t.Fatalf("reopened decision missing=%s amount=%s", missing, amount)
+	}
+	var projected bool
+	f.must(f.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM job WHERE type='PROJECT_TELEGRAM_REVIEW' AND payload_json->>'review_item_id'=$1)`, item).Scan(&projected))
+	if !projected {
+		t.Fatal("reopened review must be projected to Telegram")
 	}
 }
 

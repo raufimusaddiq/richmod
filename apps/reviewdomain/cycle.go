@@ -129,9 +129,15 @@ func ApplyCycleResidual(ctx context.Context, tx pgx.Tx, cmd CycleResidualCommand
 		if _, err := tx.Exec(ctx, `UPDATE review_item SET decision=jsonb_set(COALESCE(decision,'{}'::jsonb),'{knownFacts,residual_idr}',to_jsonb($2::text),true),updated_at=now() WHERE id=$1 AND household_id=$3 AND cycle_residual_case_id=$4 AND status IN ('PENDING_SEND','OPEN')`, cmd.ReviewItemID, residual, cmd.HouseholdID, cmd.CaseID); err != nil {
 			return result, err
 		}
-		// Edit bound cards in the same commit. The sender falls back to a new
-		// message if Telegram can no longer edit the original card.
-		if _, err := tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) SELECT 'EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('review_request_id',r.id::text,'chat_id',rr.telegram_chat_id,'message_id',rr.telegram_message_id,'text','Sisa salary cycle diperbarui: Rp'||$2::text||'. Balas kartu ini untuk mengalokasikan sisa saldo atau mencatat transaksi yang belum masuk.','reply_markup',COALESCE((SELECT j.payload_json->'reply_markup' FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=r.id::text ORDER BY j.id DESC LIMIT 1),'{"inline_keyboard":[]}'::jsonb)) FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN telegram_identity ti ON ti.telegram_user_id=rr.telegram_chat_id AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.review_item_id=$1 AND r.household_id=$3 AND r.status='OPEN' AND rr.telegram_message_id IS NOT NULL`, cmd.ReviewItemID, residual, cmd.HouseholdID); err != nil {
+		// Edit bound cards in the same commit. The edit is the same card with the
+		// refreshed residual, so the period and instruction stay on screen. The
+		// sender falls back to a new message if Telegram can no longer edit it.
+		var cycleStart, cycleEnd time.Time
+		if err := tx.QueryRow(ctx, `SELECT cycle_start,cycle_end FROM cycle_residual_case WHERE id=$1 AND household_id=$2`, cmd.CaseID, cmd.HouseholdID).Scan(&cycleStart, &cycleEnd); err != nil {
+			return result, err
+		}
+		cardText := CycleResidualCardText(cycleStart, cycleEnd, residual)
+		if _, err := tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) SELECT 'EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('review_request_id',r.id::text,'chat_id',rr.telegram_chat_id,'message_id',rr.telegram_message_id,'text',$2::text,'reply_markup',COALESCE((SELECT j.payload_json->'reply_markup' FROM job j WHERE j.type='SEND_TELEGRAM_MESSAGE' AND j.payload_json->>'review_request_id'=r.id::text ORDER BY j.id DESC LIMIT 1),'{"inline_keyboard":[]}'::jsonb)) FROM review_request r JOIN review_request_recipient rr ON rr.review_request_id=r.id JOIN telegram_identity ti ON ti.telegram_user_id=rr.telegram_chat_id AND ti.household_id=r.household_id AND ti.active JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active WHERE r.review_item_id=$1 AND r.household_id=$3 AND r.status='OPEN' AND rr.telegram_message_id IS NOT NULL`, cmd.ReviewItemID, cardText, cmd.HouseholdID); err != nil {
 			return result, err
 		}
 		result.Outcome = CycleStaleRefreshed
@@ -291,7 +297,7 @@ func reopenCycleResidual(ctx context.Context, tx pgx.Tx, householdID, caseID, ac
 	if err := auditReopen(ctx, tx, householdID, actorID, itemID, map[string]any{"cycle_residual_case_id": caseID, "residual_idr": residual, "reason": reason}); err != nil {
 		return "", err
 	}
-	return itemID, nil
+	return itemID, EnqueueReviewProjection(ctx, tx, householdID, itemID)
 }
 
 // resolveCycleRequest completes the exact Telegram projection (or every open

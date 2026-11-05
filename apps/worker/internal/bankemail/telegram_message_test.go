@@ -23,10 +23,10 @@ func TestBankReviewMessageKeepsKnownFactsForMerchantReview(t *testing.T) {
 	}
 }
 
-func TestBankReviewMessageKeepsCategoryPrompt(t *testing.T) {
+func TestBankReviewMessageIsFactsOnlyForEveryKind(t *testing.T) {
 	at := time.Date(2026, time.September, 2, 2, 24, 0, 0, time.UTC)
 	got := bankReviewMessage("AMBIGUOUS_CATEGORY", "4000", at, "Pembayaran toko")
-	if got != "🏦 Transaksi bank perlu ditinjau\n\nNominal: Rp4.000\nWaktu: 02/09/2026 09:24 WIB\nKeterangan: Pembayaran toko\n\nPilih kategori atau lengkapi detail transaksi." {
+	if got != "Nominal: Rp4.000\nWaktu: 02/09/2026 09:24 WIB\nKeterangan: Pembayaran toko" {
 		t.Fatalf("message=%q", got)
 	}
 }

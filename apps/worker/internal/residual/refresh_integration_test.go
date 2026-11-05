@@ -98,8 +98,9 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 	if refreshed != "7000000" || status != "PENDING_SEND" && status != "OPEN" {
 		t.Fatalf("unrelated confirmed transaction changed the review: residual=%s status=%s", refreshed, status)
 	}
-	// A partial offset keeps the review open and tells the card recipient the
-	// exact new basis; repeating the refresh must not send duplicate updates.
+	// A partial offset keeps the review open and re-renders the same card with
+	// the exact new basis (period, residual, instruction); repeating the refresh
+	// must not send duplicate updates.
 	tx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +120,7 @@ func TestConfirmedIntakeRefreshesOpenCycleResidual(t *testing.T) {
 		t.Fatal(err)
 	}
 	var notices int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'message_id'='71' AND payload_json->>'text' LIKE '%5000000%'`, fmt.Sprint(stamp)).Scan(&notices); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND payload_json->>'chat_id'=$1 AND payload_json->>'message_id'='71' AND payload_json->>'text' LIKE '%Sisa: Rp5.000.000%' AND payload_json->>'text' LIKE '%Periode: %' AND payload_json->>'text' LIKE '%Balas pesan ini (Reply)%'`, fmt.Sprint(stamp)).Scan(&notices); err != nil {
 		t.Fatal(err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT basis_residual_idr::text FROM cycle_residual_case WHERE id=$1`, caseID).Scan(&refreshed); err != nil {

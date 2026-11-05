@@ -508,7 +508,12 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if hasChat {
 			message := workerTelegram.ReviewQuestion(*row.Value.Amount, row.Value.Merchant)
 			if row.Type == "INCOME" {
-				message = "🟡 Dana masuk perlu ditinjau\n\nRp" + workerTelegram.FormatIDR(*row.Value.Amount) + " dari " + row.Value.Merchant + "\n\nCatat sebagai penghasilan, atau tandai sebagai transfer masuk jika ini dana milik sendiri."
+				// Facts only: the card adds its one title and the instruction that
+				// matches its income/transfer buttons.
+				message = "Dana masuk: Rp" + workerTelegram.FormatIDR(*row.Value.Amount)
+				if strings.TrimSpace(row.Value.Merchant) != "" {
+					message += "\nDari: " + row.Value.Merchant
+				}
 			}
 			if err := workerTelegram.EnqueueReviewRequest(ctx, tx, transactionID, reviewType, chatID, 0, message, decision); err != nil {
 				return err

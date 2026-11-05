@@ -32,69 +32,82 @@ func possibleDuplicateDecision(transactionID string, known map[string]any) ([]by
 
 // ReopenTransactionReview gives a transaction that a reversal returned to
 // NEEDS_REVIEW its canonical active review_item again. Resolved items are
-// history and stay untouched. The new item carries a freshly built decision: the
-// preset contract of the kind the household last answered (POSSIBLE_DUPLICATE
-// when no earlier item carried one, since reversing a merge is what makes the
-// duplicate relationship undecided again), with known facts read from the
-// transaction as it is now and only the dimensions it still lacks marked
-// missing. A snapshot of the earlier decision is never reused: its facts and
-// policy may be stale. Idempotent and race-safe: an existing active item is kept.
+// history and stay untouched. Its only caller is Unmerge, and reversing a merge
+// is exactly what makes the duplicate relationship undecided again, so the new
+// OPEN item is a fresh POSSIBLE_DUPLICATE decision from the kind registry. It
+// never copies an old snapshot: every other residual is recomputed from the
+// transaction and its evidence as they are now (an expense with no category, a
+// date that only fell back to the received time, an unclassified transfer), so
+// a fact the household already supplied is not asked again. The previous kind
+// is kept as provenance only.
+//
+// A newly reopened item is projected to Telegram through the shared projection
+// path by a PROJECT_TELEGRAM_REVIEW job, so the household is asked again where
+// the review started. Idempotent and race-safe: an existing active item is kept
+// as is and is not projected twice.
 func ReopenTransactionReview(ctx context.Context, tx pgx.Tx, household, transactionID string) error {
 	_, err := reopenTransaction(ctx, tx, household, transactionID, "")
 	return err
 }
 
+// reopenTransaction is the one transaction reopen path (Unmerge and
+// ReopenReview). It returns the new item id, or "" when an active item exists.
 func reopenTransaction(ctx context.Context, tx pgx.Tx, household, transactionID, actorID string) (string, error) {
-	var amount, at, kind, prevKind string
-	var category, merchant *string
-	if err := tx.QueryRow(ctx, `SELECT t.amount::text,t.transaction_at::text,t.type,t.category_id::text,m.normalized_name,
-		COALESCE((SELECT ri.review_type FROM review_item ri WHERE ri.transaction_id=t.id AND COALESCE(ri.decision->>'reasonCode','')<>'' ORDER BY ri.created_at DESC LIMIT 1),'')
-		FROM transaction t LEFT JOIN merchant m ON m.id=t.merchant_id WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW'`, transactionID, household).Scan(&amount, &at, &kind, &category, &merchant, &prevKind); err != nil {
+	var amount, at, kind, previousType, previousItem, categorySlug string
+	var dateFallback bool
+	if err := tx.QueryRow(ctx, `SELECT t.amount::text,t.transaction_at::text,t.type,COALESCE(prev.review_type,''),COALESCE(prev.id::text,''),COALESCE(c.slug,''),
+		EXISTS(SELECT 1 FROM transaction_proposal p JOIN transaction_evidence te ON p.id=NULLIF(te.metadata_json->>'proposal_id','')::uuid WHERE te.transaction_id=t.id AND p.household_id=t.household_id AND p.metadata_json->>'date_known'='false' AND COALESCE(te.metadata_json->>'link_status','ACTIVE')='ACTIVE')
+		FROM transaction t
+		LEFT JOIN category c ON c.id=t.category_id AND c.household_id=t.household_id AND c.active
+		LEFT JOIN LATERAL (
+			SELECT ri.id,ri.review_type FROM review_item ri
+			WHERE ri.transaction_id=t.id ORDER BY ri.created_at DESC LIMIT 1
+		) prev ON true
+		WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW'`, transactionID, household).Scan(&amount, &at, &kind, &previousType, &previousItem, &categorySlug, &dateFallback); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrReopenNotReversible
 		}
 		return "", err
 	}
-	reason := prevKind
-	decision, ok := reviewdec.Preset(reason, "transaction", transactionID)
+	decision, ok := reviewdec.Preset("POSSIBLE_DUPLICATE", "transaction", transactionID)
 	if !ok {
-		reason = "POSSIBLE_DUPLICATE"
-		decision, _ = reviewdec.Preset(reason, "transaction", transactionID)
+		return "", errors.New("reviewdomain: no POSSIBLE_DUPLICATE review contract")
 	}
+	decision.MissingFacts = append(decision.MissingFacts, reopenedResiduals(kind, categorySlug != "", dateFallback)...)
 	decision.KnownFacts["amount_idr"] = amount
-	decision.KnownFacts["transaction_at"] = at
 	decision.KnownFacts["type"] = kind
-	missing := decision.MissingFacts[:0:0]
-	for _, fact := range decision.MissingFacts {
-		if (fact == "category" && category != nil) || (fact == "merchant" && merchant != nil) {
-			continue
-		}
-		missing = append(missing, fact)
+	if !dateFallback {
+		decision.KnownFacts["transaction_at"] = at
 	}
-	decision.MissingFacts = missing
-	if category != nil {
-		decision.KnownFacts["category"] = *category
+	if categorySlug != "" {
+		decision.KnownFacts["category"] = categorySlug
 	}
-	if merchant != nil {
-		decision.KnownFacts["merchant"] = *merchant
+	decision.Provenance["reopened"] = "MERGE_REVERSED"
+	if previousItem != "" {
+		decision.Provenance["previous_review_item_id"] = previousItem
+		decision.Provenance["previous_review_type"] = previousType
 	}
-	decision.Provenance["reopened"] = true
 	encoded, err := decision.JSON()
 	if err != nil {
 		return "", err
 	}
 	var itemID string
 	err = tx.QueryRow(ctx, `INSERT INTO review_item(household_id,transaction_id,review_type,status,decision,preferred_user_id)
-		SELECT t.household_id,t.id,$3,'OPEN',$4::jsonb,t.created_by_user_id FROM transaction t
+		SELECT t.household_id,t.id,'POSSIBLE_DUPLICATE','OPEN',$3::jsonb,t.created_by_user_id
+		FROM transaction t
 		WHERE t.id=$1 AND t.household_id=$2 AND t.status='NEEDS_REVIEW'
-		ON CONFLICT (transaction_id) WHERE transaction_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN') DO NOTHING RETURNING id::text`, transactionID, household, reason, string(encoded)).Scan(&itemID)
+		ON CONFLICT (transaction_id) WHERE transaction_id IS NOT NULL AND status IN ('PENDING_SEND','OPEN') DO NOTHING
+		RETURNING id`, transactionID, household, string(encoded)).Scan(&itemID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
-	return itemID, auditReopen(ctx, tx, household, actorID, itemID, map[string]any{"transaction_id": transactionID, "review_type": reason})
+	if err := auditReopen(ctx, tx, household, actorID, itemID, map[string]any{"transaction_id": transactionID, "review_type": "POSSIBLE_DUPLICATE"}); err != nil {
+		return "", err
+	}
+	return itemID, EnqueueReviewProjection(ctx, tx, household, itemID)
 }
 
 func auditReopen(ctx context.Context, tx pgx.Tx, household, actorID, itemID string, after map[string]any) error {
@@ -103,6 +116,32 @@ func auditReopen(ctx context.Context, tx pgx.Tx, household, actorID, itemID stri
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,actor_id,action,entity_type,entity_id,after_json) VALUES($1,CASE WHEN $2='' THEN 'SYSTEM' ELSE 'USER' END,NULLIF($2,'')::uuid,'REOPEN_REVIEW','review_item',$3,$4::jsonb)`, household, actorID, itemID, string(encoded))
+	return err
+}
+
+// reopenedResiduals lists the facts besides the duplicate relationship that the
+// transaction still lacks, read from canonical state only: an expense without a
+// category, a date that is only the received-time fallback, and an incoming or
+// outgoing row whose transfer relationship was never classified.
+func reopenedResiduals(transactionType string, hasCategory, dateFallback bool) []string {
+	var missing []string
+	if transactionType == "EXPENSE" && !hasCategory {
+		missing = append(missing, "category")
+	}
+	if dateFallback {
+		missing = append(missing, "transaction_at")
+	}
+	if transactionType == "UNCLASSIFIED" {
+		missing = append(missing, "transfer_relationship")
+	}
+	return missing
+}
+
+// EnqueueReviewProjection asks the worker to project one review item to
+// Telegram through the shared projection path. Surfaces that cannot render a
+// card themselves (the API) use it; the projection is idempotent per item.
+func EnqueueReviewProjection(ctx context.Context, tx pgx.Tx, household, itemID string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('PROJECT_TELEGRAM_REVIEW',jsonb_build_object('household_id',$1::uuid,'review_item_id',$2::uuid))`, household, itemID)
 	return err
 }
 
@@ -116,7 +155,8 @@ type ReopenCommand struct {
 // ReopenReview reverses a resolved review where that is possible without
 // hard-deleting or silently rewriting a canonical record, and opens a new review
 // item with a freshly built decision. The resolved item stays as history. It
-// returns the new review item id; callers project it like any new review.
+// returns the new review item id; every reopened item is projected to Telegram
+// through the shared PROJECT_TELEGRAM_REVIEW job.
 //
 // Reversible (the resolution only changed review or observation state):
 //   - transaction reviews whose transaction is NEEDS_REVIEW again;
@@ -290,5 +330,9 @@ func insertReopened(ctx context.Context, tx pgx.Tx, cmd ReopenCommand, kind, col
 	if err != nil {
 		return "", err
 	}
-	return itemID, auditReopen(ctx, tx, cmd.HouseholdID, cmd.ActorUserID, itemID, map[string]any{"reopened_from": cmd.ReviewItemID, "review_type": kind, "subject": subjectType})
+	if err := auditReopen(ctx, tx, cmd.HouseholdID, cmd.ActorUserID, itemID, map[string]any{"reopened_from": cmd.ReviewItemID, "review_type": kind, "subject": subjectType}); err != nil {
+		return "", err
+	}
+	// The reopened review is asked again where it started (Telegram projection).
+	return itemID, EnqueueReviewProjection(ctx, tx, cmd.HouseholdID, itemID)
 }
