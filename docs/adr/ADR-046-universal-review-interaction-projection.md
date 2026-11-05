@@ -527,7 +527,8 @@ expires (by the sweep or the lazy tap path) stays queued; releasing it reopens
 the request without reviving the expired copies, which stay retired and
 uncounted. The `review_item` stays open on the web throughout. A tap never
 renews; a typed reply to the exact card renews the projection and that
-member's copy.
+member's copy. A follow-up message delivered after its copy expired does not
+revive the copy or take a pacing slot; the late message is retired.
 
 **One live message per recipient.** `review_request_recipient.telegram_message_id`
 is the recipient's current card. When a follow-up message (chooser, typed-value

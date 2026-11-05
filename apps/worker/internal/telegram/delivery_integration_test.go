@@ -714,3 +714,33 @@ func TestConcurrentProjectionsWithDifferentPreferredUsers(t *testing.T) {
 		}
 	}
 }
+
+// A follow-up delivered after its copy expired (while another member keeps the
+// request open) neither revives the copy nor takes a pacing slot; the late
+// message is retired. Only a typed reply renews an expired copy.
+func TestLateFollowUpDoesNotReviveAnExpiredCopy(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	requestID := f.enqueue(t, f.transaction(t, "BANK_EMAIL"), f.chatA, 0)
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1400, "🟡 Perlu ditinjau"))
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 1401, "🟡 Perlu ditinjau"))
+	var recipientA string
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`, requestID, f.chatA).Scan(&recipientA))
+	var done bool
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientA).Scan(&done))
+	if !done || f.deliveryStatus(t, requestID, f.chatA) != "EXPIRED" {
+		t.Fatal("setup: Rina's copy must be expired")
+	}
+	// A follow-up queued before the expiry is delivered now.
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1402, "Pilih kategori pengeluaran:"))
+	var live, retire int
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT review_card_live_count($1::bigint)`, f.chatA).Scan(&live))
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE type='RETIRE_TELEGRAM_REVIEW_CARD' AND payload_json->>'recipient_id'=$1 AND payload_json->>'message_id'='1402'`, recipientA).Scan(&retire))
+	if f.deliveryStatus(t, requestID, f.chatA) != "EXPIRED" || live != 0 || retire != 1 {
+		t.Fatalf("late follow-up revived the copy: status=%s live=%d retire=%d", f.deliveryStatus(t, requestID, f.chatA), live, retire)
+	}
+	bot, fake := newFakeTelegram(t, nil)
+	mustAgentTest(t, f.processor.RetireReviewCard(f.ctx, bot, RetireCardPayload{ReviewRequestID: requestID, RecipientID: recipientA, ChatID: f.chatA, MessageID: 1402, Status: "EXPIRED"}))
+	if calls := fake.recorded(); len(calls) != 1 || !strings.Contains(fmt.Sprint(calls[0].Body["text"]), "kedaluwarsa") {
+		t.Fatalf("late follow-up retirement = %+v", calls)
+	}
+}

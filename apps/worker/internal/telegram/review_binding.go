@@ -106,9 +106,14 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
 	// The copy's seven-day window starts when Telegram first delivers it, not
-	// when it was queued; a follow-up message keeps the window it has.
+	// when it was queued; a follow-up message keeps the window it has. A
+	// follow-up that arrives after this copy expired does not revive it: only a
+	// typed reply renews an expired copy (renewExpiredReviewProjection, which
+	// runs before the reply's follow-up is sent). The copy stays EXPIRED and
+	// uncounted, and the late message is retired like the copy's others.
 	firstDelivery := deliveryStatus != "SENT" && deliveryStatus != "EXPIRED"
-	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status='SENT',queued_payload=NULL,delivery_error=NULL,delivery_failed_at=NULL,
+	expiredCopy := deliveryStatus == "EXPIRED"
+	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status=CASE WHEN delivery_status='EXPIRED' THEN 'EXPIRED' ELSE 'SENT' END,queued_payload=NULL,delivery_error=NULL,delivery_failed_at=NULL,
 		card_expires_at=CASE WHEN $4 OR card_expires_at IS NULL THEN now()+interval '7 days' ELSE card_expires_at END WHERE id=$1`,
 		recipientID, messageID, clean(text, 4000), firstDelivery); err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
@@ -133,6 +138,12 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 			if err := enqueueSupersededCardRetirement(ctx, tx, reviewRequestID, recipientID, chatID, previous, status); err != nil {
 				return err
 			}
+		}
+	}
+	if expiredCopy && !terminal {
+		if _, err := tx.Exec(ctx, `INSERT INTO job(type,payload_json) VALUES('RETIRE_TELEGRAM_REVIEW_CARD',jsonb_build_object('review_request_id',$1::text,'recipient_id',$2::text,'chat_id',$3::bigint,'message_id',$4::bigint,'status','EXPIRED')) ON CONFLICT DO NOTHING`,
+			reviewRequestID, recipientID, chatID, messageID); err != nil {
+			return fmt.Errorf("retire Telegram review message sent after its copy expired: %w", err)
 		}
 	}
 	switch {
