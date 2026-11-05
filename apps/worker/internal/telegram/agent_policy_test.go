@@ -11,7 +11,7 @@ import (
 func TestValidateAgentCallSetAllowsParallelReads(t *testing.T) {
 	calls := []gateway.ToolCall{
 		{Name: "query_spending", Arguments: json.RawMessage(`{"period":"THIS_MONTH","from_date":null,"to_date":null}`)},
-		{Name: "get_category_breakdown", Arguments: json.RawMessage(`{"period":"THIS_MONTH","from_date":null,"to_date":null}`)},
+		{Name: "query_cashflow", Arguments: json.RawMessage(`{"period":"THIS_MONTH","from_date":null,"to_date":null}`)},
 	}
 	plan, err := validateAgentCallSet(calls, &agentState{}, defaultAgentLimits)
 	if err != nil {
@@ -24,9 +24,9 @@ func TestValidateAgentCallSetAllowsParallelReads(t *testing.T) {
 
 func TestValidateAgentCallSetAllowsFiveParallelReads(t *testing.T) {
 	calls := make([]gateway.ToolCall, 0, 5)
-	for _, name := range []string{"query_wealth", "query_cashflow", "query_spending", "query_savings", "get_finance_insight"} {
+	for _, name := range []string{"query_wealth", "query_cashflow", "query_spending", "query_savings", "list_wealth_accounts"} {
 		args := `{"period":"THIS_MONTH","from_date":null,"to_date":null}`
-		if name == "query_wealth" {
+		if name == "query_wealth" || name == "list_wealth_accounts" {
 			args = `{}`
 		}
 		calls = append(calls, gateway.ToolCall{Name: name, Arguments: json.RawMessage(args)})
@@ -93,8 +93,19 @@ func TestAgentFinanceToolsUsesConversationTextInsteadOfArtificialResponseTools(t
 	if seen["ask_clarification"] || seen["finance_help"] || seen["finance_out_of_scope"] {
 		t.Fatalf("artificial conversation tools leaked into agent catalog: %#v", seen)
 	}
-	if !seen["query_spending"] || !seen["get_category_breakdown"] || !seen["record_transaction"] {
+	if !seen["query_spending"] || !seen["search_transactions"] || !seen["record_transaction"] {
 		t.Fatalf("required finance capabilities missing: %#v", seen)
+	}
+	// A9: the merged-away overlapping reads are gone, and no schema repeats the
+	// household category list (it is sent once, in allowed_category_slugs).
+	for _, gone := range []string{"get_category_breakdown", "get_finance_insight", "get_largest_transactions", "confirm_pending_batch", "cancel_pending_batch", "update_pending_batch"} {
+		if seen[gone] {
+			t.Fatalf("%s should have been merged away", gone)
+		}
+	}
+	encoded, _ := json.Marshal(AgentFinanceTools([]string{"dining", "groceries"}, true, true, true, "AMBIGUOUS_CATEGORY", true, true, "TRANSACTION"))
+	if strings.Contains(string(encoded), "groceries") {
+		t.Fatalf("a tool schema repeats the category list: %s", encoded)
 	}
 }
 
@@ -118,7 +129,7 @@ func TestSpecializedFreeTextSideEffectsUseStructuredAgentExecutors(t *testing.T)
 			t.Fatalf("%s class = %q, %v; want SIDE_EFFECT", name, class, ok)
 		}
 	}
-	for _, name := range []string{"query_spending", "record_transaction", "confirm_pending_batch"} {
+	for _, name := range []string{"query_spending", "record_transaction", "pending_batch_decision"} {
 		if isAgentSpecializedSideEffect(name) {
 			t.Fatalf("%s must not be routed through specialized executor", name)
 		}

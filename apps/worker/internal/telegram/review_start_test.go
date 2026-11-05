@@ -90,8 +90,8 @@ func TestRenderReviewPresentationFollowsDecision(t *testing.T) {
 			}
 		})
 	}
-	for _, timedOut := range []bool{true, false} {
-		message, reason := terminalTextFailureCopy(timedOut)
+	for _, class := range []textFailureClass{textFailureTimeout, textFailureUnavailable, textFailureError} {
+		message, reason := terminalTextFailureCopy(class)
 		t.Logf("terminal reason=%s: %s", reason, message)
 		if strings.TrimSpace(message) == "" || strings.Contains(message, "✅") {
 			t.Fatalf("terminal failure missing message or claimed success: %q", message)
