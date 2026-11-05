@@ -164,11 +164,19 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Households(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	like := "%" + strings.ToLower(q) + "%"
+	// Each figure is its own indexed subquery. Joining the four child tables
+	// and counting DISTINCT multiplied their rows (members × transactions ×
+	// reviews × source events per household), which took minutes on a single
+	// real household.
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT h.id,h.name,h.timezone,h.created_at,count(DISTINCT hm.user_id) FILTER (WHERE hm.active),count(DISTINCT t.id),count(DISTINCT ri.id) FILTER (WHERE ri.status IN ('OPEN','PENDING_SEND')),max(se.created_at)
-		FROM household h LEFT JOIN household_member hm ON hm.household_id=h.id LEFT JOIN transaction t ON t.household_id=h.id LEFT JOIN review_item ri ON ri.household_id=h.id LEFT JOIN source_event se ON se.household_id=h.id
+		SELECT h.id,h.name,h.timezone,h.created_at,
+			(SELECT count(*) FROM household_member hm WHERE hm.household_id=h.id AND hm.active),
+			(SELECT count(*) FROM transaction t WHERE t.household_id=h.id),
+			(SELECT count(*) FROM review_item ri WHERE ri.household_id=h.id AND ri.status IN ('OPEN','PENDING_SEND')),
+			(SELECT max(se.created_at) FROM source_event se WHERE se.household_id=h.id)
+		FROM household h
 		WHERE $1='' OR lower(h.name) LIKE $2 OR EXISTS(SELECT 1 FROM household_member m JOIN "user" u ON u.id=m.user_id WHERE m.household_id=h.id AND lower(u.email) LIKE $2)
-		GROUP BY h.id ORDER BY h.created_at DESC`, q, like)
+		ORDER BY h.created_at DESC`, q, like)
 	if err != nil {
 		writeError(w, 500, "ADMIN_QUERY_FAILED")
 		return
