@@ -502,15 +502,20 @@ and released oldest-first when a live card in that chat closes, expires, fails,
 or is skipped. Admission, release and per-copy expiry are SQL functions under
 one advisory lock per chat (migration `00090`), so the release happens in the
 same transaction as the close, whichever surface closed it. Lock order: every
-path takes the chat lock before it waits for a recipient row, and a release
+path takes the chat lock before it waits for a recipient row (copy expiry takes
+the locks of all of its request's chats, in chat order, first; a close and a
+typed-reply renewal hold the request row, then take the chat lock, then touch
+recipients; nothing waits for a request row while holding a chat lock), and a release
 claims every row with `SKIP LOCKED`, so it never waits while holding the lock;
 a request skipped because another transaction is closing it is released by
 that close's own trigger. A member's typed reply that renews their own expired
 copy is never refused for pacing.
 
 **Expiry is per copy.** Each copy has its own seven-day window
-(`review_request_recipient.card_expires_at`), starting when that copy is sent,
-so a copy that waited in the pacing queue gets its full window. The worker's
+(`review_request_recipient.card_expires_at`), starting when Telegram first
+delivers that copy (its first bind; follow-up messages do not extend it), so a
+copy that waited in the pacing queue or behind send retries gets its full
+window, and the request's `expires_at` is extended to cover it. The worker's
 maintenance tick expires due copies: the copy becomes `EXPIRED`, every message
 of it loses its buttons and gains "Tombol tinjauan ini sudah kedaluwarsa.
 Tinjauannya masih ada di Kotak Tinjauan.", and its slot is released, while the

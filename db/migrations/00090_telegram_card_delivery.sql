@@ -8,9 +8,9 @@
 --    message), EXPIRED (this copy's own seven-day window passed and its buttons
 --    were removed), FAILED (the send job gave up; delivery_error says why), or
 --    SKIPPED (the request closed or the recipient lost access before it was
---    sent). card_expires_at is the copy's own window, which starts when the
---    copy is sent, so a copy that waited in the pacing queue gets its full
---    window. The canonical review_item is never changed by any of these.
+--    sent). card_expires_at is the copy's own window, which starts when
+--    Telegram delivers the copy (its first bind), so a copy that waited in the
+--    pacing queue or behind send retries gets its full window. The canonical review_item is never changed by any of these.
 ALTER TABLE review_request_recipient
     ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'PENDING'
         CHECK (delivery_status IN ('QUEUED','PENDING','SENT','EXPIRED','FAILED','SKIPPED')),
@@ -168,7 +168,7 @@ BEGIN
         FOR UPDATE OF rr, r SKIP LOCKED;
         EXIT WHEN NOT FOUND;
         INSERT INTO job(type, payload_json, max_attempts) VALUES ('SEND_TELEGRAM_MESSAGE', next_recipient.queued_payload, 8);
-        UPDATE review_request_recipient SET delivery_status='PENDING', queued_payload=NULL, card_expires_at=now() + interval '7 days'
+        UPDATE review_request_recipient SET delivery_status='PENDING', queued_payload=NULL
         WHERE id = next_recipient.id;
         UPDATE review_request
         SET status = CASE WHEN status = 'EXPIRED' THEN 'OPEN' ELSE status END,
@@ -208,7 +208,7 @@ BEGIN
         WHERE rr.telegram_chat_id = chat AND rr.delivery_status = 'QUEUED' AND rr.queued_payload IS NOT NULL
           AND r.status IN ('PENDING_SEND','OPEN','EXPIRED') AND ri.status IN ('PENDING_SEND','OPEN')) THEN
         INSERT INTO job(type, payload_json, max_attempts) VALUES ('SEND_TELEGRAM_MESSAGE', p_payload, 8);
-        UPDATE review_request_recipient SET delivery_status='PENDING', queued_payload=NULL, card_expires_at=now() + interval '7 days'
+        UPDATE review_request_recipient SET delivery_status='PENDING', queued_payload=NULL
         WHERE id = p_recipient_id;
         RETURN 'PENDING';
     END IF;
@@ -227,7 +227,18 @@ $$;
 CREATE FUNCTION expire_review_card_recipient(p_recipient_id UUID) RETURNS BOOLEAN LANGUAGE plpgsql AS $$
 DECLARE
     due RECORD;
+    request UUID;
+    chat BIGINT;
 BEGIN
+    -- Chat locks first, in chat order, for every chat of the request (the same
+    -- set its close trigger takes), then the rows, without waiting.
+    SELECT review_request_id INTO request FROM review_request_recipient WHERE id = p_recipient_id;
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+    FOR chat IN SELECT DISTINCT telegram_chat_id FROM review_request_recipient WHERE review_request_id = request ORDER BY 1 LOOP
+        PERFORM lock_review_card_chat(chat);
+    END LOOP;
     SELECT rr.id, rr.review_request_id, rr.telegram_chat_id INTO due
     FROM review_request_recipient rr JOIN review_request r ON r.id = rr.review_request_id
     WHERE rr.id = p_recipient_id AND rr.delivery_status = 'SENT'
@@ -245,7 +256,6 @@ BEGIN
         UPDATE review_request SET status='EXPIRED' WHERE id = due.review_request_id;
         RETURN TRUE;
     END IF;
-    PERFORM lock_review_card_chat(due.telegram_chat_id);
     UPDATE review_request_recipient SET delivery_status='EXPIRED' WHERE id = due.id;
     INSERT INTO job(type, payload_json)
     SELECT 'RETIRE_TELEGRAM_REVIEW_CARD',

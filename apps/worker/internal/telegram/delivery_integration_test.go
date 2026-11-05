@@ -602,3 +602,72 @@ func TestPacedReleaseDoesNotWaitForARequestBeingClosed(t *testing.T) {
 		t.Fatalf("cancelled queued copy = %s", f.deliveryStatus(t, waiting, f.chatA))
 	}
 }
+
+// A copy's window starts when Telegram first delivers it, not when its send was
+// queued; a follow-up message does not extend it.
+func TestCardWindowStartsAtFirstDelivery(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
+	var unset bool
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT card_expires_at IS NULL FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2`, requestID, f.chatA).Scan(&unset))
+	if !unset {
+		t.Fatal("a queued send must not start the copy's window")
+	}
+	// The send was delayed: the request's own window is nearly over.
+	_, err := f.pool.Exec(f.ctx, `UPDATE review_request SET expires_at=now()+interval '1 hour' WHERE id=$1`, requestID)
+	mustAgentTest(t, err)
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1200, "🟡 Perlu ditinjau"))
+	var copyDays, requestDays float64
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT extract(epoch FROM rr.card_expires_at-now())/86400,extract(epoch FROM r.expires_at-now())/86400 FROM review_request_recipient rr JOIN review_request r ON r.id=rr.review_request_id WHERE r.id=$1 AND rr.telegram_chat_id=$2`, requestID, f.chatA).Scan(&copyDays, &requestDays))
+	if copyDays < 6.9 || requestDays < 6.9 {
+		t.Fatalf("first delivery window: copy=%.2fd request=%.2fd", copyDays, requestDays)
+	}
+	_, err = f.pool.Exec(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()+interval '1 day' WHERE review_request_id=$1 AND telegram_chat_id=$2`, requestID, f.chatA)
+	mustAgentTest(t, err)
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1201, "Pilih kategori pengeluaran:"))
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `SELECT extract(epoch FROM card_expires_at-now())/86400 FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2`, requestID, f.chatA).Scan(&copyDays))
+	if copyDays > 1.01 {
+		t.Fatalf("a follow-up extended the copy's window to %.2fd", copyDays)
+	}
+}
+
+// Expiry takes the chat lock before the copy's row, like a delivery failure or
+// skip does, so the two wait in one order instead of deadlocking.
+func TestCopyExpiryAndDeliveryFailureShareOneLockOrder(t *testing.T) {
+	f := seedDeliveryFixture(t)
+	requestID := f.enqueue(t, f.transaction(t, "TELEGRAM_TEXT"), f.chatA, 77)
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatA, 1300, "🟡 Perlu ditinjau"))
+	mustAgentTest(t, f.processor.BindReviewMessage(f.ctx, requestID, f.chatB, 1301, "🟡 Perlu ditinjau"))
+	var recipientA string
+	mustAgentTest(t, f.pool.QueryRow(f.ctx, `UPDATE review_request_recipient SET card_expires_at=now()-interval '1 minute' WHERE review_request_id=$1 AND telegram_chat_id=$2 RETURNING id`, requestID, f.chatA).Scan(&recipientA))
+
+	// A failure/skip transaction holds the chat lock first.
+	failing, err := f.pool.Begin(f.ctx)
+	mustAgentTest(t, err)
+	defer failing.Rollback(f.ctx)
+	_, err = failing.Exec(f.ctx, `SELECT lock_review_card_chat($1)`, f.chatA)
+	mustAgentTest(t, err)
+
+	expired := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+		defer cancel()
+		var done bool
+		expired <- f.pool.QueryRow(ctx, `SELECT expire_review_card_recipient($1::uuid)`, recipientA).Scan(&done)
+	}()
+	time.Sleep(300 * time.Millisecond)
+	// The failure transaction can still take the copy's row: expiry is waiting
+	// for the chat lock and has not locked any row.
+	ctx, cancel := context.WithTimeout(f.ctx, 3*time.Second)
+	defer cancel()
+	if _, err := failing.Exec(ctx, `UPDATE review_request_recipient SET delivery_error=delivery_error WHERE id=$1`, recipientA); err != nil {
+		t.Fatalf("delivery failure waited on the expiring copy: %v", err)
+	}
+	mustAgentTest(t, failing.Commit(f.ctx))
+	if err := <-expired; err != nil {
+		t.Fatalf("expiry failed: %v", err)
+	}
+	if f.deliveryStatus(t, requestID, f.chatA) != "EXPIRED" {
+		t.Fatalf("copy = %s", f.deliveryStatus(t, requestID, f.chatA))
+	}
+}

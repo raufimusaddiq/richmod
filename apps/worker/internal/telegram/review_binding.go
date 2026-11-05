@@ -29,20 +29,44 @@ func (p *Processor) ReviewProjectionOpen(ctx context.Context, reviewRequestID st
 // review_item is created and all existing callback binding remains server-owned.
 //
 // The replying member's own copy is renewed with it (its seven-day window
-// restarts), whether the whole projection expired or only that copy did.
+// restarts), whether the whole projection expired or only that copy did. Locks
+// follow the pacing order of migration 00090: the request row, then the chat
+// lock, then the recipient row, exactly as a close does.
 func (p *Processor) renewExpiredReviewProjection(ctx context.Context, householdID string, update telegramUpdate) error {
-	if _, err := p.pool.Exec(ctx, `UPDATE review_request_recipient rr SET delivery_status='SENT',card_expires_at=now()+interval '7 days'
-		FROM review_request r,review_item ri,telegram_identity ti,household_member hm
-		WHERE rr.review_request_id=r.id AND r.review_item_id=ri.id AND r.household_id=$1 AND ri.household_id=$1
-		  AND ri.status IN ('OPEN','PENDING_SEND') AND r.status IN ('OPEN','EXPIRED')
-		  AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND rr.delivery_status IN ('EXPIRED','SENT')
-		  AND (rr.delivery_status='EXPIRED' OR r.status='EXPIRED' OR COALESCE(rr.card_expires_at,r.expires_at)<=now())
-		  AND ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active AND hm.household_id=$1 AND hm.user_id=ti.user_id AND hm.active`,
-		householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID); err != nil {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	_, err := p.pool.Exec(ctx, `UPDATE review_request r SET status='OPEN',expires_at=now()+interval '7 days' FROM review_item ri,review_request_recipient rr,telegram_identity ti,household_member hm WHERE r.review_item_id=ri.id AND rr.review_request_id=r.id AND ri.household_id=$1 AND r.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND r.status IN ('OPEN','EXPIRED') AND (r.expires_at<=now() OR r.status='EXPIRED') AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3 AND ti.telegram_user_id=$4 AND ti.household_id=$1 AND ti.active AND hm.household_id=$1 AND hm.user_id=ti.user_id AND hm.active`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID)
-	return err
+	defer tx.Rollback(ctx)
+	var requestID, recipientID string
+	err = tx.QueryRow(ctx, `SELECT r.id::text,rr.id::text
+		FROM review_request r
+		JOIN review_item ri ON ri.id=r.review_item_id AND ri.household_id=r.household_id
+		JOIN review_request_recipient rr ON rr.review_request_id=r.id
+		JOIN telegram_identity ti ON ti.telegram_user_id=$4 AND ti.household_id=r.household_id AND ti.active
+		JOIN household_member hm ON hm.household_id=r.household_id AND hm.user_id=ti.user_id AND hm.active
+		WHERE r.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND r.status IN ('OPEN','EXPIRED')
+		  AND rr.telegram_chat_id=$2 AND rr.telegram_message_id=$3
+		FOR UPDATE OF r`, householdID, update.Message.Chat.ID, update.Message.ReplyToMessage.MessageID, update.Message.From.ID).Scan(&requestID, &recipientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `SELECT lock_review_card_chat($1)`, update.Message.Chat.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient rr SET delivery_status='SENT',card_expires_at=now()+interval '7 days'
+		FROM review_request r
+		WHERE rr.id=$1 AND r.id=rr.review_request_id AND rr.delivery_status IN ('EXPIRED','SENT')
+		  AND (rr.delivery_status='EXPIRED' OR r.status='EXPIRED' OR COALESCE(rr.card_expires_at,r.expires_at)<=now())`, recipientID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request SET status='OPEN',expires_at=GREATEST(expires_at,now()+interval '7 days') WHERE id=$1 AND (status='EXPIRED' OR expires_at<=now())`, requestID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // BindReviewMessage records the Telegram message a review card was delivered as,
@@ -69,9 +93,9 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 		return fmt.Errorf("load Telegram review request after send: %w", err)
 	}
 	terminal := status == "RESOLVED" || status == "CANCELLED" || status == "EXPIRED"
-	var recipientID string
+	var recipientID, deliveryStatus string
 	var previous int64
-	err = tx.QueryRow(ctx, `SELECT id::text,COALESCE(telegram_message_id,0) FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2 FOR UPDATE`, reviewRequestID, chatID).Scan(&recipientID, &previous)
+	err = tx.QueryRow(ctx, `SELECT id::text,COALESCE(telegram_message_id,0),delivery_status FROM review_request_recipient WHERE review_request_id=$1 AND telegram_chat_id=$2 FOR UPDATE`, reviewRequestID, chatID).Scan(&recipientID, &previous, &deliveryStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if terminal {
 			return nil
@@ -81,9 +105,19 @@ func (p *Processor) BindReviewMessage(ctx context.Context, reviewRequestID strin
 	if err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status='SENT',queued_payload=NULL,delivery_error=NULL,delivery_failed_at=NULL,card_expires_at=COALESCE(card_expires_at,now()+interval '7 days') WHERE id=$1`,
-		recipientID, messageID, clean(text, 4000)); err != nil {
+	// The copy's seven-day window starts when Telegram first delivers it, not
+	// when it was queued; a follow-up message keeps the window it has.
+	firstDelivery := deliveryStatus != "SENT" && deliveryStatus != "EXPIRED"
+	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET telegram_message_id=$2,delivered_text=NULLIF($3,''),delivery_status='SENT',queued_payload=NULL,delivery_error=NULL,delivery_failed_at=NULL,
+		card_expires_at=CASE WHEN $4 OR card_expires_at IS NULL THEN now()+interval '7 days' ELSE card_expires_at END WHERE id=$1`,
+		recipientID, messageID, clean(text, 4000), firstDelivery); err != nil {
 		return fmt.Errorf("bind Telegram review message: %w", err)
+	}
+	if firstDelivery && !terminal {
+		// The shared projection lasts at least as long as every delivered copy.
+		if _, err := tx.Exec(ctx, `UPDATE review_request SET expires_at=GREATEST(expires_at,now()+interval '7 days') WHERE id=$1`, reviewRequestID); err != nil {
+			return fmt.Errorf("extend Telegram review projection: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO review_request_message(household_id,review_request_id,recipient_id,telegram_chat_id,telegram_message_id,delivered_text)
 		VALUES($1,$2,$3,$4,$5,NULLIF($6,''))
