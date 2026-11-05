@@ -128,3 +128,19 @@ func TestLedgerMatchingIsDeterministic(t *testing.T) {
 		t.Fatal("a merchant-less match never links")
 	}
 }
+
+func TestLedgerRaceGuardSeesNewChangedAndVanishedCandidates(t *testing.T) {
+	decided := map[string]float64{"a": 0.95}
+	if !SameLedgerCandidates(decided, []LedgerMatch{{ID: "a", Score: 0.95}}) {
+		t.Fatal("an unchanged candidate set is the same decision")
+	}
+	for name, now := range map[string][]LedgerMatch{
+		"new":      {{ID: "a", Score: 0.95}, {ID: "b", Score: 0.7}},
+		"changed":  {{ID: "a", Score: 0.7}},
+		"vanished": {},
+	} {
+		if SameLedgerCandidates(decided, now) {
+			t.Fatalf("%s candidate set must force a re-decision", name)
+		}
+	}
+}

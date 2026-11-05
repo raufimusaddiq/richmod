@@ -97,10 +97,15 @@ func LockLedgerEvent(ctx context.Context, tx pgx.Tx, householdID, amountIDR stri
 }
 
 // SameLedgerCandidates reports whether a match result taken under the lock is
-// the one the lane decided on: no new candidate and no candidate whose score
+// the one the lane decided on: no new or vanished candidate and none whose score
 // changed (another lane may have enriched its merchant meanwhile). Any change
 // means the caller must re-run its decision.
 func SameLedgerCandidates(decided map[string]float64, now []LedgerMatch) bool {
+	// Both directions: a candidate that vanished (voided or merged by another
+	// lane) is a change too, so a stale strong match is never linked.
+	if len(decided) != len(now) {
+		return false
+	}
 	for _, match := range now {
 		score, ok := decided[match.ID]
 		if !ok || score != match.Score {

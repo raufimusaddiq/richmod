@@ -376,6 +376,10 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		}) {
 			return reviewdomain.ErrLedgerRaced
 		}
+		if row.Matched != nil && !slices.ContainsFunc(now, func(candidate matchCandidate) bool { return candidate.ID == row.Matched.ID }) {
+			// The chosen target vanished (voided or merged) since the decision.
+			return reviewdomain.ErrLedgerRaced
+		}
 	}
 	var chatID int64
 	hasChat := true

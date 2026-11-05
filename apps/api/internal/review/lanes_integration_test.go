@@ -451,3 +451,33 @@ func TestIgnoreOnOpenTransactionReviewRejectsThroughTheTransactionLane(t *testin
 		t.Fatalf("transaction=%s item=%s", status, itemStatus)
 	}
 }
+
+// Merging into a case without a proposed purpose keeps the matched transfer's
+// own purpose; an unclassified candidate cannot be merged without one.
+func TestTransferMergeWithoutProposedPurposeKeepsTheTargetPurpose(t *testing.T) {
+	f := newLaneFixture(t)
+	ctx := context.Background()
+	var account, classified, unclassified string
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'Rekening','BANK','FULL_LEDGER') RETURNING id`, f.household).Scan(&account))
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at,purpose,confirmed_at) VALUES($1,$2,'TRANSFER','CONFIRMED',250000,now(),'INTERNAL_TRANSFER',now()) RETURNING id`, f.household, account).Scan(&classified))
+	f.must(f.pool.QueryRow(ctx, `INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at) VALUES($1,$2,'UNCLASSIFIED','NEEDS_REVIEW',250000,now()) RETURNING id`, f.household, account).Scan(&unclassified))
+	newCase := func() string {
+		source := f.source("TELEGRAM_TEXT", "NEEDS_REVIEW")
+		_, err := f.pool.Exec(ctx, `INSERT INTO transfer_reconciliation_case(household_id,source_event_id,account_id,amount_idr,transaction_at,description,proposed_purpose,candidate_transaction_ids) VALUES($1,$2,$3,250000,now(),'pindah dana','',ARRAY[$4::uuid,$5::uuid])`, f.household, source, account, classified, unclassified)
+		f.must(err)
+		var item string
+		f.must(f.pool.QueryRow(ctx, `INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","knownFacts":{},"missingFacts":["transfer_relationship"],"allowedActions":["CLASSIFY_TRANSFER","IGNORE"]}'::jsonb) RETURNING id`, f.household, source).Scan(&item))
+		return item
+	}
+	if w := f.resolve(newCase(), `{"action":"MERGE_EXISTING","values":{"transactionId":"`+unclassified+`"}}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("unclassified target without a purpose=%d %s", w.Code, w.Body.String())
+	}
+	if w := f.resolve(newCase(), `{"action":"MERGE_EXISTING","values":{"transactionId":"`+classified+`"}}`); w.Code != http.StatusNoContent {
+		t.Fatalf("merge into classified transfer=%d %s", w.Code, w.Body.String())
+	}
+	var purpose string
+	f.must(f.pool.QueryRow(ctx, `SELECT purpose FROM transaction WHERE id=$1`, classified).Scan(&purpose))
+	if purpose != "INTERNAL_TRANSFER" {
+		t.Fatalf("target purpose=%s", purpose)
+	}
+}

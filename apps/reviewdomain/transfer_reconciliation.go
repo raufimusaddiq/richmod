@@ -60,9 +60,20 @@ func ReconcileTransfer(ctx context.Context, tx pgx.Tx, cmd TransferReconciliatio
 			return "", err
 		}
 		candidates = ranked
+		if purpose == "" && cmd.Action == "MERGE_EXISTING" {
+			// Merging into an already-classified transfer keeps that transfer's
+			// own purpose and Wealth target; nothing new is asked. A candidate that
+			// is not yet a classified transfer cannot be merged without a purpose.
+			var targetPurpose, targetWealth string
+			if err := tx.QueryRow(ctx, `SELECT COALESCE(purpose,''),COALESCE(related_wealth_account_id::text,'') FROM transaction WHERE id=$1 AND household_id=$2 AND type='TRANSFER' AND id=ANY($3::uuid[])`, cmd.CandidateID, cmd.HouseholdID, candidates).Scan(&targetPurpose, &targetWealth); err != nil || !validTransferPurpose(targetPurpose) {
+				return "", ErrTransferCaseUnavailable
+			}
+			purpose, wealthID = targetPurpose, targetWealth
+		}
 		if purpose == "" {
-			// A case without a proposed purpose takes the household's bounded
-			// choice; an unknown purpose is refused by the compatibility check.
+			// A new transfer for a case without a proposed purpose takes the
+			// household's bounded choice; an unknown purpose is refused, and the
+			// compatibility check validates the Wealth target.
 			purpose, wealthID = strings.TrimSpace(cmd.Purpose), strings.TrimSpace(cmd.WealthAccountID)
 			if !validTransferPurpose(purpose) {
 				return "", ErrTransferCaseUnavailable

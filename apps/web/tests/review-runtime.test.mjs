@@ -125,3 +125,12 @@ test("a review without a printed date offers one-tap date choices", () => {
   assert.match(html, /Tanggal pesan · 2026-10-03/);
   assert.match(html, /Tanggal belum diketahui/);
 });
+
+test("without a proposed purpose only classified transfers can be merged into", () => {
+  const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
+    item: { id: "synthetic", reviewType: "TRANSFER_CLASSIFICATION", subjectType: "source_event", presentation: "DECISION", amount: "100", purposeChoices: ["INTERNAL_TRANSFER"], allowedActions: ["MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"], transferCandidates: [{ id: "t", type: "TRANSFER", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Transfer A" }, { id: "u", type: "UNCLASSIFIED", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Transfer B" }] },
+    categories: [], accounts: [], wealthAccounts: [], action() {},
+  }));
+  assert.match(html, /<button type="button">.*?Transfer A/);
+  assert.match(html, /<button type="button" disabled="">.*?Transfer B/);
+});
