@@ -568,6 +568,11 @@ func processJob(ctx context.Context, processor *telegram.Processor, imageProcess
 			slog.Default().Info("queued Telegram edit dropped: recipient no longer authorized", "job_id", job.ID)
 			return nil
 		}
+		// An outcome edit of a settled card applies only while it is the card's
+		// newest outcome revision.
+		if payload.OutcomeRequestID != "" {
+			return processor.ApplyCardOutcomeEdit(ctx, bot, payload)
+		}
 		// An edit of a review card queued while it was open must not restore its
 		// buttons after the request closed; RETIRE_TELEGRAM_REVIEW_CARD owns it now.
 		if payload.ReviewRequestID != "" {

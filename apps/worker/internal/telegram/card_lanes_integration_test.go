@@ -442,3 +442,50 @@ func TestMultiCategoryMerchantIsNotOfferedARememberedDefault(t *testing.T) {
 		t.Fatalf("conversation=%s", state)
 	}
 }
+
+// Outcome edits of one card apply only at their newest revision: a delayed or
+// retried question edit that runs after the final answer is dropped, so the
+// answered remember buttons never come back.
+func TestOutOfOrderOutcomeEditsCannotRestoreButtons(t *testing.T) {
+	f := newCardFixture(t)
+	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Galon Isi Ulang','galon') RETURNING id`, f.household)
+	merchant := f.id(`INSERT INTO merchant(household_id,normalized_name) VALUES($1,'Tins Mart') RETURNING id`, f.household)
+	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,merchant_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',23000,now(),$2) RETURNING id`, f.household, merchant)
+	item := f.id(`INSERT INTO review_item(household_id,transaction_id,review_type,status,decision) VALUES($1,$2,'AMBIGUOUS_CATEGORY','OPEN','{"version":1,"reasonCode":"AMBIGUOUS_CATEGORY","decisionClass":"EVIDENCE_GAP","missingFacts":["category"],"allowedActions":["CONFIRM_REVIEW","IGNORE"]}'::jsonb) RETURNING id`, f.household, transaction)
+	f.bindCard(item, transaction, "AMBIGUOUS_CATEGORY", "AWAITING_CATEGORY", 91, "card")
+	f.tap(91, "review:cat:"+category, "card")
+	f.tap(91, "review:once", "question")
+	rows, err := f.pool.Query(f.ctx, `SELECT payload_json::text FROM job WHERE type='EDIT_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 AND (payload_json->>'message_id')::bigint=91 ORDER BY (payload_json->>'outcome_revision')::int`, f.chat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payloads []EditPayload
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		payload, err := DecodeEditPayload(json.RawMessage(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		payloads = append(payloads, payload)
+	}
+	rows.Close()
+	if len(payloads) != 2 || payloads[0].OutcomeRevision != 1 || payloads[1].OutcomeRevision != 2 {
+		t.Fatalf("outcome edits=%+v", payloads)
+	}
+	bot, fake := newFakeTelegram(t, func(string) (int, string) { return 200, `{"ok":true,"result":true}` })
+	processor := NewProcessor(f.pool, nil)
+	// The final answer is delivered first, then the delayed question edit and a
+	// retry of it run.
+	for _, payload := range []EditPayload{payloads[1], payloads[0], payloads[0]} {
+		if err := processor.ApplyCardOutcomeEdit(f.ctx, bot, payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := fake.recorded()
+	if len(calls) != 1 || !strings.Contains(fmt.Sprint(calls[0].Body["text"]), "hanya dipakai") {
+		t.Fatalf("telegram calls=%+v; only the newest outcome may be applied", calls)
+	}
+}

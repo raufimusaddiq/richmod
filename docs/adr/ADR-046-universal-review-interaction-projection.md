@@ -550,6 +550,13 @@ retirement for that card; it is marked superseded and the outcome edit retires
 the card instead, so an unordered retire job cannot strip the inline choice.
 Other recipients' cards retire normally. A *typed* confirmation still asks the
 question as its own bound message.
+Each settle of a card bumps a per-card outcome revision in
+`review_conversation.context_json.card_outcomes`, and the edit job carries it
+(`outcome_request_id`, `outcome_revision`). The worker applies an outcome edit
+only while it is the newest revision, holding the conversation row lock across
+the check and the Telegram call (settles take the same lock), so a delayed,
+retried or out-of-order earlier edit is dropped and cannot restore answered
+buttons.
 The question is not asked when the same rule already exists, nor when the
 merchant was already confirmed with a different category: a single
 auto-applied default would miscategorize that merchant's other purchases, and

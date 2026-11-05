@@ -44,6 +44,12 @@ type EditPayload struct {
 	// skips it once the request is terminal, so a queued edit cannot restore
 	// buttons on a card that retirement already stripped.
 	ReviewRequestID string `json:"review_request_id,omitempty"`
+	// OutcomeRequestID and OutcomeRevision mark an in-place outcome edit of a
+	// settled review card (ADR-046 2026-11-05). Each settle of one card bumps its
+	// revision; the worker applies only the current revision, under a lock, so a
+	// delayed or retried earlier outcome cannot restore answered buttons.
+	OutcomeRequestID string `json:"outcome_request_id,omitempty"`
+	OutcomeRevision  int    `json:"outcome_revision,omitempty"`
 }
 
 // APIError is a Telegram Bot API rejection: the HTTP status and Telegram's own

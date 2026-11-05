@@ -353,8 +353,52 @@ func settleReviewCardInPlace(ctx context.Context, tx pgx.Tx, reviewID string, ch
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb))`, chatID, messageID, clean(text, 4000), string(encoded))
+	// Bump this card's outcome revision; only the newest outcome edit may be
+	// applied (ApplyCardOutcomeEdit), whatever order the jobs run or retry in.
+	var revision int
+	if err := tx.QueryRow(ctx, `UPDATE review_conversation SET context_json=jsonb_set(context_json,'{card_outcomes}',COALESCE(context_json->'card_outcomes','{}'::jsonb)||jsonb_build_object($2::text,COALESCE((context_json->'card_outcomes'->>$2)::int,0)+1)),updated_at=now() WHERE review_request_id=$1 RETURNING (context_json->'card_outcomes'->>$2)::int`, reviewID, cardOutcomeKey(chatID, messageID)).Scan(&revision); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO job(type,lane,payload_json) VALUES('EDIT_TELEGRAM_MESSAGE','INTERACTIVE',jsonb_build_object('chat_id',$1::bigint,'message_id',$2::bigint,'text',$3::text,'reply_markup',$4::jsonb,'outcome_request_id',$5::text,'outcome_revision',$6::int))`, chatID, messageID, clean(text, 4000), string(encoded), reviewID, revision)
 	return err
+}
+
+func cardOutcomeKey(chatID, messageID int64) string {
+	return fmt.Sprintf("%d:%d", chatID, messageID)
+}
+
+// ApplyCardOutcomeEdit applies one queued outcome edit only while it is the
+// card's newest outcome. The conversation row is locked across the check and
+// the Telegram call, and a settle bumps the revision under the same row lock,
+// so an older edit that is delayed, retried, or racing a newer one is dropped
+// and can never bring back buttons the household already answered.
+func (p *Processor) ApplyCardOutcomeEdit(ctx context.Context, bot *Bot, payload EditPayload) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var current int
+	err = tx.QueryRow(ctx, `SELECT COALESCE((context_json->'card_outcomes'->>$2)::int,0) FROM review_conversation WHERE review_request_id=$1 FOR UPDATE`, payload.OutcomeRequestID, cardOutcomeKey(payload.ChatID, payload.MessageID)).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current != payload.OutcomeRevision {
+		return nil
+	}
+	if err := bot.Edit(ctx, payload); err != nil && !editFinished(err) {
+		if editRejected(err) {
+			return TerminalError(err)
+		}
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE review_request_recipient SET delivered_text=NULLIF($3,'') WHERE telegram_chat_id=$1 AND telegram_message_id=$2`, payload.ChatID, payload.MessageID, clean(payload.Text, 4000)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (p *Processor) applyMerchantLearningChoice(ctx context.Context, sourceEventID, householdID, reviewID, transactionID string, update telegramUpdate, remember bool) error {
