@@ -20,7 +20,8 @@ import (
 // "bensin 50.000", "parkir 5k") is parsed in Go and recorded as NEEDS_REVIEW
 // with the normal review card and no category. It is never confirmed from the
 // fallback: the household picks the category on the card. Anything else (a
-// question, a date, income, several items, any doubt) is not parsed; the
+// question, a date, income, several items, negation or intent such as "belum
+// bayar" or "rencana beli", a bill, any doubt) is not parsed; the
 // household gets the honest "AI unreachable, nothing recorded" notice.
 
 // simpleExpense is what the fallback parser read from one message.
@@ -49,6 +50,13 @@ var (
 		"kemarin": true, "kemaren": true, "besok": true, "lusa": true, "tadi": true, "tanggal": true, "tgl": true, "jam": true, "pukul": true,
 		"minggu": true, "bulan": true, "tahun": true, "pagi": true, "siang": true, "sore": true, "malam": true,
 		"dan": true, "sama": true, "plus": true, "terus": true, "lalu": true,
+		// Negation, intent, plans, conditions and estimates: the expense may not
+		// have happened, and a category-only review cannot establish that it did.
+		"belum": true, "tidak": true, "tak": true, "gak": true, "ga": true, "nggak": true, "ngga": true, "enggak": true, "engga": true, "jangan": true, "no": true, "not": true,
+		"rencana": true, "rencananya": true, "mau": true, "akan": true, "nanti": true, "ingin": true, "pengen": true, "pingin": true, "pengin": true, "bakal": true, "hendak": true,
+		"kalau": true, "kalo": true, "jika": true, "seandainya": true, "misal": true, "misalnya": true, "andai": true,
+		"harus": true, "perlu": true, "wajib": true, "budget": true, "anggaran": true, "target": true, "estimasi": true, "kira": true, "kira-kira": true, "perkiraan": true, "sekitar": true,
+		"tagihan": true, "invoice": true, "tunggakan": true, "jatuh": true, "tempo": true, "will": true, "plan": true, "want": true,
 	}
 	fallbackLeadingVerbs = map[string]bool{"beli": true, "bayar": true, "buat": true, "untuk": true}
 )

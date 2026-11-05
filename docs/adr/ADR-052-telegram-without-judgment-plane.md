@@ -80,8 +80,11 @@ Decision:
   `Rp 25.000`, `1,5jt`, a bare number of at least 500) and one to four plain
   words, after dropping a leading `beli`/`bayar`/`buat`/`untuk`. It refuses
   anything else: a question, a second amount, a date or time word, income,
-  transfer, savings, debt or correction words, several items, punctuation such as
-  `?`/`:`/`+`. It never guesses.
+  transfer, savings, debt or correction words, negation or intent ("belum bayar",
+  "rencana beli", "mau", "nanti", "kalau"), a bill, budget or estimate, several
+  items, punctuation such as `?`/`:`/`+`. A category-only review cannot establish
+  that an expense happened, so only a plain statement of one is recorded. It
+  never guesses.
 - A parsed message is recorded as an EXPENSE in NEEDS_REVIEW at the message time,
   with no category and no merchant (the words become the description), with
   `decision_source=DETERMINISTIC_FALLBACK` in the proposal metadata, evidence and

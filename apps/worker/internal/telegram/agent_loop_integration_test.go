@@ -157,7 +157,11 @@ func TestParseSimpleExpense(t *testing.T) {
 		{"Rp 75.000 makan siang", "", ""}, // "siang" is a time of day: not a plain expense
 		{"beli nasi goreng 18 ribu", "18000", "nasi goreng"}, {"pulsa 1,5jt", "1500000", "pulsa"}, {"rp25.000 sabun", "25000", "sabun"},
 		{"kopi 25", "", ""}, {"gaji 5jt", "", ""}, {"kopi 25rb kemarin", "", ""}, {"berapa kopi 25rb?", "", ""},
-		{"kopi 25rb dan roti 10rb", "", ""}, {"25rb", "", ""}, {"tf 50rb ke ibu", "", ""}, {"bensin 50.00", "", ""},
+		{"kopi 25rb dan roti 10rb", "", ""},
+		// Not a completed expense: negation, intent, plans, conditions, bills.
+		{"belum bayar kopi 25rb", "", ""}, {"rencana beli kopi 25rb", "", ""}, {"mau beli kopi 25rb", "", ""},
+		{"nanti bayar parkir 5k", "", ""}, {"kalau beli bensin 50.000", "", ""}, {"gak jadi beli kopi 25rb", "", ""},
+		{"budget makan 500rb", "", ""}, {"tagihan listrik 300rb", "", ""}, {"kopi 25rb belum", "", ""}, {"25rb", "", ""}, {"tf 50rb ke ibu", "", ""}, {"bensin 50.00", "", ""},
 	} {
 		got, ok := parseSimpleExpense(tc.text)
 		if tc.amount == "" {
