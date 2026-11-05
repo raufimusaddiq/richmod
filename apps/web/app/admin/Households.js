@@ -31,6 +31,18 @@ export async function postProvision(url, payload) {
 // replaced with "Buat ulang undangan pemilik", never recovered.
 function InviteLink({ invite, title }) {
   const link = typeof window === "undefined" ? invite.link : window.location.origin + invite.link;
+  const [copied, setCopied] = useState("");
+  // The link is shown once, so say plainly whether it reached the clipboard;
+  // without a secure context the browser has no clipboard API at all.
+  async function copy() {
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(link);
+      setCopied("Tautan tersalin.");
+    } catch {
+      setCopied("Tidak bisa menyalin otomatis. Pilih tautan di kolom lalu salin manual.");
+    }
+  }
   return (
     <section className="panel" aria-live="polite">
       <div>
@@ -40,8 +52,9 @@ function InviteLink({ invite, title }) {
       </div>
       <div className="invite-actions">
         <input aria-label="Tautan undangan pemilik" readOnly value={link} onFocus={(event) => event.target.select()} />
-        <button className="secondary" onClick={() => navigator.clipboard?.writeText(link)}>Salin tautan</button>
+        <button className="secondary" onClick={copy}>Salin tautan</button>
       </div>
+      {copied && <p className="notice" role="status">{copied}</p>}
     </section>
   );
 }

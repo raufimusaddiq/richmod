@@ -27,7 +27,7 @@ const OwnerInviteTTL = 24 * time.Hour
 var (
 	ErrInvalidInput       = errors.New("household name, owner name and a valid owner email are required")
 	ErrUserExists         = errors.New("a user with this email already exists; a new household needs a new owner email")
-	ErrTelegramIDLinked   = errors.New("this Telegram user ID is already linked to a household")
+	ErrTelegramIDLinked   = errors.New("this Telegram user ID is already linked to an active household member")
 	ErrOwnerAlreadyActive = errors.New("the household owner has already enrolled")
 	ErrOwnerNotFound      = errors.New("household owner not found")
 )
@@ -55,15 +55,24 @@ type Household struct {
 	OwnerUserID string
 }
 
-// Normalize trims and validates the input fields in place.
+// Normalize trims and validates the input fields in place. Every refusal wraps
+// ErrInvalidInput and names the field.
 func (in *HouseholdInput) Normalize() error {
 	in.HouseholdName = strings.TrimSpace(in.HouseholdName)
 	in.OwnerName = strings.TrimSpace(in.OwnerName)
 	in.OwnerEmail = strings.ToLower(strings.TrimSpace(in.OwnerEmail))
 	// Names are limited in characters, as the database checks them.
-	if in.HouseholdName == "" || utf8.RuneCountInString(in.HouseholdName) > 120 || in.OwnerName == "" || utf8.RuneCountInString(in.OwnerName) > 120 ||
-		len(in.OwnerEmail) > 254 || !plainEmail(in.OwnerEmail) || in.TelegramUserID < 0 || (in.PasswordSet && in.PasswordHash == "") {
-		return ErrInvalidInput
+	switch {
+	case in.HouseholdName == "" || utf8.RuneCountInString(in.HouseholdName) > 120:
+		return fmt.Errorf("%w: household name must be 1-120 characters", ErrInvalidInput)
+	case in.OwnerName == "" || utf8.RuneCountInString(in.OwnerName) > 120:
+		return fmt.Errorf("%w: owner name must be 1-120 characters", ErrInvalidInput)
+	case len(in.OwnerEmail) > 254 || !plainEmail(in.OwnerEmail):
+		return fmt.Errorf("%w: owner email must be a plain address such as owner@example.com", ErrInvalidInput)
+	case in.TelegramUserID < 0:
+		return fmt.Errorf("%w: Telegram user ID must be a positive number", ErrInvalidInput)
+	case in.PasswordSet && in.PasswordHash == "":
+		return fmt.Errorf("%w: password is required", ErrInvalidInput)
 	}
 	return nil
 }
@@ -97,7 +106,7 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 	}
 	if in.TelegramUserID > 0 {
 		var linked bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM telegram_identity WHERE telegram_user_id = $1)`, in.TelegramUserID).Scan(&linked); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM telegram_identity WHERE telegram_user_id = $1 AND active)`, in.TelegramUserID).Scan(&linked); err != nil {
 			return Household{}, fmt.Errorf("check Telegram identity: %w", err)
 		}
 		if linked {
@@ -115,8 +124,8 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 		return Household{}, fmt.Errorf("create owner membership: %w", err)
 	}
 	if in.TelegramUserID > 0 {
-		if _, err := tx.Exec(ctx, `INSERT INTO telegram_identity (telegram_user_id,household_id,user_id) VALUES ($1,$2,$3)`, in.TelegramUserID, created.ID, created.OwnerUserID); err != nil {
-			return Household{}, fmt.Errorf("authorize owner Telegram ID: %w", err)
+		if err := BindTelegramIdentity(ctx, tx, in.TelegramUserID, created.ID, created.OwnerUserID); err != nil {
+			return Household{}, err
 		}
 	}
 	if err := category.SeedIndonesianDefaults(ctx, tx, created.ID); err != nil {
@@ -134,6 +143,50 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 		return Household{}, fmt.Errorf("audit household creation: %w", err)
 	}
 	return created, nil
+}
+
+// BindTelegramIdentity links a Telegram account to a household member. The
+// Telegram user ID is the identity's primary key and removing a member only
+// deactivates it, so an inactive identity (a removed member's, or one whose
+// user left) is rebound to the new member rather than blocking that Telegram
+// account forever. An active identity is never moved: it returns
+// ErrTelegramIDLinked. Rebinding is safe because every Telegram read and
+// delivery is scoped to the identity's current household.
+func BindTelegramIdentity(ctx context.Context, tx pgx.Tx, telegramUserID int64, householdID, userID string) error {
+	var previousHousehold string
+	var previousActive bool
+	err := tx.QueryRow(ctx, `SELECT household_id::text,active FROM telegram_identity WHERE telegram_user_id=$1 FOR UPDATE`, telegramUserID).Scan(&previousHousehold, &previousActive)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return fmt.Errorf("load Telegram identity: %w", err)
+	case previousActive:
+		return ErrTelegramIDLinked
+	default:
+		// The old household's open Telegram prompts for this account are
+		// unique per Telegram user and chat while PENDING; settle them so they
+		// can neither block nor be answered from the new household.
+		for _, statement := range []string{
+			`UPDATE telegram_pending_action SET status='EXPIRED',resolved_at=now() WHERE telegram_user_id=$1 AND household_id::text=$2 AND status='PENDING'`,
+			`UPDATE telegram_pending_batch SET status='EXPIRED',resolved_at=now() WHERE telegram_user_id=$1 AND household_id::text=$2 AND status='PENDING'`,
+			`UPDATE salary_pending_choice SET status='IGNORED',resolved_at=now() WHERE telegram_user_id=$1 AND household_id::text=$2 AND status='PENDING'`,
+		} {
+			if _, err := tx.Exec(ctx, statement, telegramUserID, previousHousehold); err != nil {
+				return fmt.Errorf("settle retired Telegram prompts: %w", err)
+			}
+		}
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO telegram_identity (telegram_user_id,household_id,user_id) VALUES ($1,$2,$3)
+		ON CONFLICT (telegram_user_id) DO UPDATE
+		SET household_id=EXCLUDED.household_id,user_id=EXCLUDED.user_id,active=true,updated_at=now()
+		WHERE NOT telegram_identity.active`, telegramUserID, householdID, userID)
+	if err != nil {
+		return fmt.Errorf("bind Telegram identity: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrTelegramIDLinked
+	}
+	return nil
 }
 
 // OwnerInvite is a freshly issued owner enrollment link.

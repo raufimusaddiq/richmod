@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -34,7 +35,7 @@ func TestNormalizeValidatesOwnerAndNames(t *testing.T) {
 	} {
 		in := valid()
 		mutate(&in)
-		if err := in.Normalize(); err != ErrInvalidInput {
+		if err := in.Normalize(); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("%s: Normalize() = %v, want ErrInvalidInput", name, err)
 		}
 	}

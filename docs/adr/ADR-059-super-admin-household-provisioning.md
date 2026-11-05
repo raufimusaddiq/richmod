@@ -22,9 +22,18 @@ have to choose or transmit an owner's password.
    `internal/provision.CreateHousehold`: household, a **new** `OWNER` user, the
    optional Telegram identity and the default categories in one serialized
    transaction, audited as `CREATE_HOUSEHOLD` in the new household. An existing
-   email (including the Super Admin's own) returns `409 USER_ALREADY_EXISTS`
-   and a linked Telegram ID returns `409 TELEGRAM_ID_ALREADY_LINKED`; no user is
-   ever attached to or moved between households (ADR-035).
+   email (including the Super Admin's own) returns `409 USER_ALREADY_EXISTS`;
+   no user is ever attached to or moved between households (ADR-035).
+   A Telegram ID linked to an **active** identity returns
+   `409 TELEGRAM_ID_ALREADY_LINKED` and is never moved. An **inactive** identity
+   (left when a member is removed, since `telegram_user_id` is the primary key
+   and removal only deactivates it) is rebound to the new owner, and the old
+   household's pending Telegram prompts for that account are settled
+   (`EXPIRED`, or `IGNORED` for a salary choice). The Telegram link-invite flow
+   uses the same rule (`provision.BindTelegramIdentity`), so a removed
+   member's Telegram account is never blocked forever. Rebinding is safe
+   because every Telegram read and delivery is scoped to the identity's current
+   household (ADR-058).
 3. **Owners enroll by invite; no password passes through the API.** The console
    owner gets an unusable random password with `password_initialized_at` unset
    (login refuses such a user) and a single-use, 24-hour dashboard invite

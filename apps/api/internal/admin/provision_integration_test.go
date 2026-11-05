@@ -163,4 +163,35 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	if response := call(superAdmin, "/api/v1/admin/households/x/owner-invite", "", h.ReissueOwnerInvite, "00000000-0000-4000-8000-000000000000"); response.Code != http.StatusNotFound {
 		t.Fatalf("reissue for unknown household: %d %s", response.Code, response.Body.String())
 	}
+
+	// A removed member's Telegram ID is an inactive identity, not a link: it is
+	// rebound to the new owner instead of being refused forever.
+	var formerMember string
+	if err := pool.QueryRow(ctx, `INSERT INTO "user"(email,display_name,password_hash) VALUES($1,'Former','x') RETURNING id`, fmt.Sprintf("former-%d@example.test", stamp)).Scan(&formerMember); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO household_member(household_id,user_id,role,active,deactivated_at) VALUES($1,$2,'MEMBER',false,now())`, adminHousehold, formerMember); err != nil {
+		t.Fatal(err)
+	}
+	retiredTelegram := telegramID + 1
+	if _, err := pool.Exec(ctx, `INSERT INTO telegram_identity(telegram_user_id,household_id,user_id,active) VALUES($1,$2,$3,false)`, retiredTelegram, adminHousehold, formerMember); err != nil {
+		t.Fatal(err)
+	}
+	rebindEmail := fmt.Sprintf("rebind-owner-%d@example.test", stamp)
+	response = call(superAdmin, "/api/v1/admin/households", fmt.Sprintf(`{"householdName":"Rebind %d","ownerName":"Rebind","ownerEmail":%q,"telegramUserId":%d}`, stamp, rebindEmail, retiredTelegram), h.CreateHousehold, "")
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create with a retired Telegram ID: %d %s", response.Code, response.Body.String())
+	}
+	var rebound createdHousehold
+	if err := json.Unmarshal(response.Body.Bytes(), &rebound); err != nil {
+		t.Fatal(err)
+	}
+	var identityHousehold, identityUser string
+	var identityActive bool
+	if err := pool.QueryRow(ctx, `SELECT household_id::text,user_id::text,active FROM telegram_identity WHERE telegram_user_id=$1`, retiredTelegram).Scan(&identityHousehold, &identityUser, &identityActive); err != nil {
+		t.Fatal(err)
+	}
+	if identityHousehold != rebound.Household.ID || identityUser != rebound.Owner.ID || !identityActive {
+		t.Fatalf("retired identity not rebound: household=%s user=%s active=%v", identityHousehold, identityUser, identityActive)
+	}
 }
