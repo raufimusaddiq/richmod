@@ -38,7 +38,15 @@ have to choose or transmit an owner's password.
 5. **Creating is not access.** The Super Admin does not become a member of the
    household it creates and still cannot read its financial data (ADR-021).
    Both actions are recorded in `platform_audit_log` (`ADMIN_CREATE_HOUSEHOLD`,
-   `ADMIN_REISSUE_OWNER_INVITE`) with the request ID.
+   `ADMIN_REISSUE_OWNER_INVITE`) with the request ID; the new household's own
+   `audit_log` names the Super Admin as the creator.
+6. **The owner link is a bearer credential.** Until the owner enrolls, whoever
+   holds the current invite link can become that owner, and the Super Admin is
+   the one who receives it, at creation and on every reissue. This is inherent
+   to console provisioning without outbound email: Super Admin is trusted to
+   hand the link only to the owner. Every issuance is platform-audited, only the
+   newest link is valid, and once the owner enrolls no link can be issued
+   again. Owners who enroll promptly close the window.
 
 ## Consequences
 

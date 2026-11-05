@@ -68,7 +68,7 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return
 	}
-	token, expires, err := provision.IssueOwnerInvite(r.Context(), tx, created.ID, created.OwnerUserID, principal.UserID, time.Now())
+	invite, err := provision.IssueOwnerInvite(r.Context(), tx, created.ID, principal.UserID, time.Now())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return
@@ -84,13 +84,15 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"household": map[string]any{"id": created.ID, "name": in.HouseholdName},
 		"owner":     map[string]any{"id": created.OwnerUserID, "email": in.OwnerEmail, "displayName": in.OwnerName, "telegramLinked": in.TelegramUserID > 0},
-		"invite":    map[string]any{"link": "/invite#" + token, "expiresAt": expires},
+		"invite":    map[string]any{"link": "/invite#" + invite.Token, "expiresAt": invite.ExpiresAt},
 	})
 }
 
 // ReissueOwnerInvite replaces a household owner's invite while the owner has
 // not enrolled yet. Owners can invite members but nobody else can invite an
 // owner, so without this an expired owner invite would strand the household.
+// The link is a bearer credential: until the owner enrolls, whoever holds it
+// can become that owner, which is why every reissue is platform-audited.
 func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 	principal, _ := auth.PrincipalFromContext(r.Context())
 	householdID := r.PathValue("householdId")
@@ -100,18 +102,7 @@ func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var ownerUserID, ownerEmail string
-	err = tx.QueryRow(r.Context(), `SELECT hm.user_id::text,u.email FROM household_member hm JOIN "user" u ON u.id=hm.user_id
-		WHERE hm.household_id::text=$1 AND hm.role='OWNER' AND hm.active ORDER BY hm.created_at LIMIT 1`, householdID).Scan(&ownerUserID, &ownerEmail)
-	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "HOUSEHOLD_OWNER_NOT_FOUND")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "OWNER_INVITE_FAILED")
-		return
-	}
-	token, expires, err := provision.IssueOwnerInvite(r.Context(), tx, householdID, ownerUserID, principal.UserID, time.Now())
+	invite, err := provision.IssueOwnerInvite(r.Context(), tx, householdID, principal.UserID, time.Now())
 	switch {
 	case errors.Is(err, provision.ErrOwnerAlreadyActive):
 		writeError(w, http.StatusConflict, "OWNER_ALREADY_ENROLLED")
@@ -123,7 +114,7 @@ func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "OWNER_INVITE_FAILED")
 		return
 	}
-	if err := h.audit(r.Context(), tx, principal.UserID, "ADMIN_REISSUE_OWNER_INVITE", "HOUSEHOLD", householdID, map[string]any{"ownerUserId": ownerUserID, "ownerEmail": ownerEmail}, r.Header.Get("X-Request-ID")); err != nil {
+	if err := h.audit(r.Context(), tx, principal.UserID, "ADMIN_REISSUE_OWNER_INVITE", "HOUSEHOLD", householdID, map[string]any{"ownerUserId": invite.OwnerUserID, "ownerEmail": invite.OwnerEmail}, r.Header.Get("X-Request-ID")); err != nil {
 		writeError(w, http.StatusInternalServerError, "ADMIN_AUDIT_FAILED")
 		return
 	}
@@ -131,7 +122,7 @@ func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "OWNER_INVITE_FAILED")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"link": "/invite#" + token, "expiresAt": expires})
+	writeJSON(w, http.StatusOK, map[string]any{"link": "/invite#" + invite.Token, "expiresAt": invite.ExpiresAt})
 }
 
 // unusablePasswordHash hashes a random secret nobody knows. Login also refuses

@@ -316,7 +316,7 @@ func (h *Handler) HouseholdOverview(w http.ResponseWriter, r *http.Request) {
 		jobs = append(jobs, map[string]any{"id": jid, "type": typ, "lane": lane, "status": status, "updatedAt": at})
 	}
 	memberItems := []map[string]any{}
-	if rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.email,u.display_name,hm.role,hm.active,u.password_initialized_at IS NOT NULL FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 ORDER BY hm.active DESC,u.email LIMIT 20`, id); err == nil {
+	if rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.email,u.display_name,hm.role,hm.active,u.password_initialized_at IS NOT NULL FROM household_member hm JOIN "user" u ON u.id=hm.user_id WHERE hm.household_id=$1 ORDER BY hm.active DESC,(hm.role='OWNER') DESC,u.email LIMIT 20`, id); err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var uid, email, display, role string

@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -59,10 +60,21 @@ func (in *HouseholdInput) Normalize() error {
 	in.OwnerName = strings.TrimSpace(in.OwnerName)
 	in.OwnerEmail = strings.ToLower(strings.TrimSpace(in.OwnerEmail))
 	if in.HouseholdName == "" || len(in.HouseholdName) > 120 || in.OwnerName == "" || len(in.OwnerName) > 120 ||
-		len(in.OwnerEmail) < 3 || len(in.OwnerEmail) > 254 || !strings.Contains(in.OwnerEmail, "@") || in.TelegramUserID < 0 {
+		len(in.OwnerEmail) > 254 || !plainEmail(in.OwnerEmail) || in.TelegramUserID < 0 {
 		return ErrInvalidInput
 	}
 	return nil
+}
+
+// plainEmail accepts a bare addr-spec whose domain has a dot, so an
+// unreachable owner such as "a@b" or "Name <a@b.c>" is refused.
+func plainEmail(value string) bool {
+	address, err := mail.ParseAddress(value)
+	if err != nil || address.Name != "" || address.Address != value {
+		return false
+	}
+	at := strings.LastIndex(value, "@")
+	return at > 0 && strings.Contains(value[at+1:], ".") && !strings.HasSuffix(value, ".")
 }
 
 // CreateHousehold creates the tenant inside tx. Creation is serialized so two
@@ -122,36 +134,47 @@ func CreateHousehold(ctx context.Context, tx pgx.Tx, in HouseholdInput) (Househo
 	return created, nil
 }
 
-// IssueOwnerInvite creates a single-use dashboard invite for a household owner
-// who has not enrolled yet, revoking any earlier pending one. It returns the
-// plaintext token (only its SHA-256 is stored) and its expiry.
-func IssueOwnerInvite(ctx context.Context, tx pgx.Tx, householdID, ownerUserID, createdBy string, now time.Time) (string, time.Time, error) {
+// OwnerInvite is a freshly issued owner enrollment link.
+type OwnerInvite struct {
+	OwnerUserID string
+	OwnerEmail  string
+	Token       string
+	ExpiresAt   time.Time
+}
+
+// IssueOwnerInvite creates a single-use dashboard invite for the active owner
+// of a household who has not enrolled yet, revoking any earlier pending one.
+// The owner row is locked first, so concurrent calls serialize and only the
+// last returned link is valid. Only the token's SHA-256 is stored.
+func IssueOwnerInvite(ctx context.Context, tx pgx.Tx, householdID, createdBy string, now time.Time) (OwnerInvite, error) {
+	var invite OwnerInvite
 	var enrolled bool
-	err := tx.QueryRow(ctx, `SELECT u.password_initialized_at IS NOT NULL
+	err := tx.QueryRow(ctx, `SELECT hm.user_id::text,u.email,u.password_initialized_at IS NOT NULL
 		FROM household_member hm JOIN "user" u ON u.id=hm.user_id AND u.active
-		WHERE hm.household_id=$1 AND hm.user_id=$2 AND hm.role='OWNER' AND hm.active
-		FOR UPDATE OF hm`, householdID, ownerUserID).Scan(&enrolled)
+		WHERE hm.household_id::text=$1 AND hm.role='OWNER' AND hm.active
+		ORDER BY hm.created_at LIMIT 1
+		FOR UPDATE OF hm`, householdID).Scan(&invite.OwnerUserID, &invite.OwnerEmail, &enrolled)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", time.Time{}, ErrOwnerNotFound
+		return OwnerInvite{}, ErrOwnerNotFound
 	}
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("load household owner: %w", err)
+		return OwnerInvite{}, fmt.Errorf("load household owner: %w", err)
 	}
 	if enrolled {
-		return "", time.Time{}, ErrOwnerAlreadyActive
+		return OwnerInvite{}, ErrOwnerAlreadyActive
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		return "", time.Time{}, fmt.Errorf("generate invite token: %w", err)
+		return OwnerInvite{}, fmt.Errorf("generate invite token: %w", err)
 	}
-	token := base64.RawURLEncoding.EncodeToString(raw)
-	digest := sha256.Sum256([]byte(token))
-	expires := now.Add(OwnerInviteTTL)
-	if _, err := tx.Exec(ctx, `UPDATE dashboard_account_invite SET status='REVOKED',revoked_at=now() WHERE household_id=$1 AND user_id=$2 AND status='PENDING'`, householdID, ownerUserID); err != nil {
-		return "", time.Time{}, fmt.Errorf("revoke earlier owner invite: %w", err)
+	invite.Token = base64.RawURLEncoding.EncodeToString(raw)
+	digest := sha256.Sum256([]byte(invite.Token))
+	invite.ExpiresAt = now.Add(OwnerInviteTTL)
+	if _, err := tx.Exec(ctx, `UPDATE dashboard_account_invite SET status='REVOKED',revoked_at=now() WHERE household_id::text=$1 AND user_id::text=$2 AND status='PENDING'`, householdID, invite.OwnerUserID); err != nil {
+		return OwnerInvite{}, fmt.Errorf("revoke earlier owner invite: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO dashboard_account_invite(household_id,user_id,token_hash,status,expires_at,created_by_user_id) VALUES($1,$2,$3,'PENDING',$4,$5)`, householdID, ownerUserID, digest[:], expires, createdBy); err != nil {
-		return "", time.Time{}, fmt.Errorf("create owner invite: %w", err)
+	if _, err := tx.Exec(ctx, `INSERT INTO dashboard_account_invite(household_id,user_id,token_hash,status,expires_at,created_by_user_id) VALUES($1::uuid,$2::uuid,$3,'PENDING',$4,$5)`, householdID, invite.OwnerUserID, digest[:], invite.ExpiresAt, createdBy); err != nil {
+		return OwnerInvite{}, fmt.Errorf("create owner invite: %w", err)
 	}
-	return token, expires, nil
+	return invite, nil
 }

@@ -117,7 +117,7 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	}
 	// Reissue while not enrolled replaces the first invite.
 	reissue := call(superAdmin, "/api/v1/admin/households/x/owner-invite", "", h.ReissueOwnerInvite, created.Household.ID)
-	if reissue.Code != http.StatusCreated {
+	if reissue.Code != http.StatusOK {
 		t.Fatalf("reissue: %d %s", reissue.Code, reissue.Body.String())
 	}
 	var reissued struct{ Link string }
@@ -150,6 +150,8 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 		{"linked Telegram ID", fmt.Sprintf(`{"householdName":"Lain","ownerName":"Lain","ownerEmail":"other-%d@example.test","telegramUserId":%d}`, stamp, telegramID), http.StatusConflict, "TELEGRAM_ID_ALREADY_LINKED"},
 		{"missing name", fmt.Sprintf(`{"householdName":" ","ownerName":"Lain","ownerEmail":"x-%d@example.test"}`, stamp), http.StatusBadRequest, "INVALID_HOUSEHOLD_REQUEST"},
 		{"bad email", `{"householdName":"Lain","ownerName":"Lain","ownerEmail":"not-an-email"}`, http.StatusBadRequest, "INVALID_HOUSEHOLD_REQUEST"},
+		{"dotless domain", `{"householdName":"Lain","ownerName":"Lain","ownerEmail":"a@b"}`, http.StatusBadRequest, "INVALID_HOUSEHOLD_REQUEST"},
+		{"display-name email", `{"householdName":"Lain","ownerName":"Lain","ownerEmail":"Lain <lain@example.test>"}`, http.StatusBadRequest, "INVALID_HOUSEHOLD_REQUEST"},
 		{"negative Telegram ID", fmt.Sprintf(`{"householdName":"Lain","ownerName":"Lain","ownerEmail":"y-%d@example.test","telegramUserId":-1}`, stamp), http.StatusBadRequest, "INVALID_HOUSEHOLD_REQUEST"},
 		{"unknown field", fmt.Sprintf(`{"householdName":"Lain","ownerName":"Lain","ownerEmail":"z-%d@example.test","role":"SUPER"}`, stamp), http.StatusBadRequest, "INVALID_HOUSEHOLD_REQUEST"},
 	} {
