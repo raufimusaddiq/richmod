@@ -573,11 +573,14 @@ whose review is still open keeps them. A cycle residual refreshed by new
 transactions is re-rendered as the same card with the new residual, not a
 generic sentence.
 
-**Reopened reviews.** `ReopenTransactionReview` now stores a fresh decision from
-the registry and today's transaction (amount, date, type, category) rather than
-the previous snapshot, keeping the previous kind only while its question is still
-open, and enqueues `PROJECT_TELEGRAM_REVIEW`; the worker projects it through
-`ProjectReviewItem`, which is idempotent per item.
+**Reopened reviews.** `ReopenTransactionReview` (only caller: Unmerge) stores a
+fresh `POSSIBLE_DUPLICATE` decision from the registry, since reversing a merge is
+what reopens the duplicate question. It never copies the previous snapshot: the
+other residuals are recomputed from canonical state (an expense with no category,
+a received-time date fallback, an unclassified row), so an answered fact is not
+asked again; the previous kind is kept as provenance. It enqueues
+`PROJECT_TELEGRAM_REVIEW`, and the worker projects it through `ProjectReviewItem`,
+which is idempotent per item.
 
 **Typed payslip dates.** An explicit date reply ("25 Okt", "25/10", "25/10/2026",
 "2026-10-25", "kemarin", "hari ini") is parsed in Go; only a reply the parser

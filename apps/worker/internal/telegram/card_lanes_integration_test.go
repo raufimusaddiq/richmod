@@ -387,8 +387,11 @@ func TestStaleTapRetiresOnlyDeadCards(t *testing.T) {
 // the shared path by its job.
 func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 	f := newCardFixture(t)
-	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',42000,now(),$2) RETURNING id`, f.household, f.user)
-	f.exec(`INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,decision) VALUES($1,$2,'POSSIBLE_DUPLICATE','RESOLVED',now(),'{"version":1,"reasonCode":"POSSIBLE_DUPLICATE","knownFacts":{"amount_idr":"1"},"missingFacts":["duplicate_relationship"],"allowedActions":["MERGE_EXISTING","CONFIRM_REVIEW","IGNORE"]}'::jsonb)`, f.household, transaction)
+	category := f.id(`INSERT INTO category(household_id,name,slug) VALUES($1,'Makan','makan') RETURNING id`, f.household)
+	transaction := f.id(`INSERT INTO transaction(household_id,type,status,amount,transaction_at,created_by_user_id,category_id) VALUES($1,'EXPENSE','NEEDS_REVIEW',42000,now(),$2,$3) RETURNING id`, f.household, f.user, category)
+	// The earlier review asked for the date and category, which were answered
+	// before the merge; reversing it must not ask them again.
+	f.exec(`INSERT INTO review_item(household_id,transaction_id,review_type,status,resolved_at,decision) VALUES($1,$2,'TRANSACTION_FACTS_MISSING','RESOLVED',now(),'{"version":1,"reasonCode":"TRANSACTION_FACTS_MISSING","knownFacts":{"amount_idr":"1"},"missingFacts":["category","transaction_at"],"allowedActions":["CONFIRM_REVIEW","SET_PAY_DATE","IGNORE"]}'::jsonb)`, f.household, transaction)
 	tx, err := f.pool.Begin(f.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -403,6 +406,11 @@ func TestReopenedReviewIsProjectedWithAFreshDecision(t *testing.T) {
 	f.row(`SELECT id::text,decision->'knownFacts'->>'amount_idr' FROM review_item WHERE transaction_id=$1 AND status='OPEN'`, []any{&item, &amount}, transaction)
 	if amount != "42000" {
 		t.Fatalf("reopened decision reused the old snapshot: amount_idr=%s", amount)
+	}
+	var missing, reason string
+	f.row(`SELECT decision->'missingFacts'::text,review_type FROM review_item WHERE id=$1`, []any{&missing, &reason}, item)
+	if missing != `["duplicate_relationship"]` || reason != "POSSIBLE_DUPLICATE" {
+		t.Fatalf("reopened review asks answered facts again: type=%s missing=%s", reason, missing)
 	}
 	f.row(`SELECT payload_json::text FROM job WHERE type='PROJECT_TELEGRAM_REVIEW' AND payload_json->>'review_item_id'=$1`, []any{&raw}, item)
 	payload, err := DecodeProjectReviewPayload(json.RawMessage(raw))
