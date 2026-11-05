@@ -47,6 +47,12 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("parse database url: %w", err)
 	}
 	poolConfig.ConnConfig.RuntimeParams["timezone"] = "Asia/Jakarta"
+	// Several lane loops run at once, and a job can hold a transaction while it
+	// reads through the pool; size the pool so concurrent jobs cannot exhaust it
+	// waiting on each other. An explicit pool_max_conns in the URL wins.
+	if !strings.Contains(databaseURL, "pool_max_conns") && poolConfig.MaxConns < minWorkerPoolConns {
+		poolConfig.MaxConns = minWorkerPoolConns
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return fmt.Errorf("open database pool: %w", err)
@@ -187,13 +193,14 @@ func run(logger *slog.Logger) error {
 	go maintainHeartbeat(ctx, logger, pool, workerID)
 	// Keep callback and other interactive work on a reserved execution loop so
 	// long-running jobs cannot delay Telegram button handling. Free-text Telegram
-	// turns run on the single DEFAULT loop, which keeps one person's messages in
-	// order (the CHAT lane of ADR-032 is retired).
+	// turns run on the DEFAULT loops; several households are served at once, and
+	// the claim itself serializes one household's Telegram text (queue.claimSQL),
+	// which keeps a person's messages in order across retries (ADR-033).
 	for _, lane := range []struct {
 		name     string
 		interval time.Duration
 		workers  int
-	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"DEFAULT", time.Second, 1}, {"BACKGROUND", time.Second, 1}} {
+	}{{"INTERACTIVE", 200 * time.Millisecond, 1}, {"DEFAULT", time.Second, defaultLaneWorkers}, {"BACKGROUND", time.Second, 1}} {
 		for i := 0; i < lane.workers; i++ {
 			go runLaneLoop(ctx, logger, jobs, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, fmt.Sprintf("%s:%s:%d", workerID, strings.ToLower(lane.name), i+1), lane.name, lane.interval)
 		}
@@ -343,6 +350,15 @@ func pruneTerminalJobs(ctx context.Context, pool *pgxpool.Pool, batch int) (int6
 	return tag.RowsAffected(), nil
 }
 
+// defaultLaneWorkers is how many DEFAULT loops run. One household's Telegram
+// text never runs on two of them at once (the claim serializes it), so more
+// loops add throughput across households without reordering anyone's chat.
+const defaultLaneWorkers = 3
+
+// minWorkerPoolConns leaves every lane loop (3 DEFAULT, 1 INTERACTIVE, 1
+// BACKGROUND) room for a transaction plus nested reads and parallel READ tools.
+const minWorkerPoolConns = 16
+
 func runLaneLoop(ctx context.Context, logger *slog.Logger, jobs *queue.Queue, processor *telegram.Processor, imageProcessor *telegram.ImageProcessor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor, residualProcessor *residual.Processor, bot *telegram.Bot, workerID, lane string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -391,7 +407,7 @@ func terminalStep(job queue.Job, cause error, processor *telegram.Processor, ban
 			id = payload.SourceEventID
 		}
 		return func(ctx context.Context, tx pgx.Tx) error {
-			return processor.TerminalTextFailureTx(ctx, tx, id, telegram.IsModelTimeout(cause))
+			return processor.TerminalTextFailureTx(ctx, tx, id, cause)
 		}
 	case "PROCESS_TELEGRAM_CALLBACK":
 		id := ""
@@ -424,10 +440,10 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			}
 		} else {
 			logger.Warn("job attempt failed", "job_id", job.ID, "type", job.Type, "attempt", job.Attempts, "error", err)
-			// A model timeout repeats with the same prompt and cap, so a typed
-			// message is retried once and then stopped.
-			if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsModelTimeout(err) && job.Attempts >= telegram.MaxModelTimeoutAttempts {
-				err = telegram.TerminalError(err)
+			// A typed message follows the text failure taxonomy: a model timeout
+			// or an unreachable gateway is retried once, a gateway rejection never.
+			if job.Type == "PROCESS_TELEGRAM_TEXT" {
+				err = telegram.TextFailurePolicy(err, job.Attempts)
 			}
 			// A typed message that will not be retried again must not end in
 			// silence, so the notice is queued in the same transaction that marks

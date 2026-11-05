@@ -92,7 +92,7 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 		c.observe(ctx, started, response.Metadata, err)
 	}()
 	if c.baseURL == "" || c.apiKey == "" || c.model == "" {
-		return AgentResponse{}, fmt.Errorf("LLM gateway is not configured")
+		return AgentResponse{}, ErrNotConfigured
 	}
 	content, err := normalizeContent(request.Content)
 	if err != nil {
@@ -165,7 +165,7 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 	req.Header.Set("X-Request-ID", requestID)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return AgentResponse{}, fmt.Errorf("call LLM agent gateway: %w", err)
+		return AgentResponse{}, transportError(ctx, "call LLM agent gateway", err)
 	}
 	defer resp.Body.Close()
 	raw, err := readBounded(resp.Body)
@@ -173,7 +173,7 @@ func (c *Client) AgentTurn(ctx context.Context, requestID string, request AgentR
 		return AgentResponse{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return AgentResponse{}, fmt.Errorf("LLM gateway returned HTTP %d", resp.StatusCode)
+		return AgentResponse{}, &StatusError{StatusCode: resp.StatusCode, Endpoint: "responses"}
 	}
 	result, err := decodeResponses(raw)
 	if err != nil {

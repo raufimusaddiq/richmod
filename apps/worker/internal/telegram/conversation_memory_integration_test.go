@@ -104,8 +104,8 @@ func TestRecentConversationReachesBackADayAndCompactsOlderTurns(t *testing.T) {
 	if !strings.HasPrefix(got[0].Text, "tadi pagi") || got[len(got)-1].Text != "Pengeluaran Rp6.312.512." {
 		t.Fatalf("turns must be oldest first, got %v", texts)
 	}
-	// All but the newest verbatimTurns rows are compacted and clipped.
-	cut := len(got) - verbatimTurns
+	// All but the newest verbatimExchanges exchanges are compacted and clipped.
+	cut := verbatimStart(got)
 	for i, turn := range got {
 		if i < cut {
 			limit := olderUserChars

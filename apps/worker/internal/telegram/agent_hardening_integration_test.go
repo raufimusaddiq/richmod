@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,11 +48,13 @@ func TestAgentRecordTransactionNeverImplicitlyCorrectsSimilarExpense(t *testing.
 	}
 }
 
-func TestAgentStageBatchRejectsUnknownCategoryWithoutState(t *testing.T) {
+// Item 13: an unknown category no longer rejects the whole batch. The item is
+// staged without a category (it will go to review) and the household sees it.
+func TestAgentStageBatchStagesUnknownCategoryForReview(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentIntegrationFixture(t, "batch-invalid-category")
 	p := NewProcessor(f.pool, nil)
-	result, synthesize, err := p.agentStageBatch(ctx, f.state, gateway.ToolCall{CallID: "bad-batch", Name: "record_transaction_batch"}, map[string]any{
+	result, _, err := p.agentStageBatch(ctx, f.state, gateway.ToolCall{CallID: "bad-batch", Name: "record_transaction_batch"}, map[string]any{
 		"items": []any{map[string]any{
 			"type":                "EXPENSE",
 			"amount_idr":          "50000",
@@ -68,15 +71,21 @@ func TestAgentStageBatchRejectsUnknownCategoryWithoutState(t *testing.T) {
 		}},
 	})
 	mustAgentTest(t, err)
-	if !synthesize || result.Status != "INVALID_CATEGORY" {
-		t.Fatalf("unexpected invalid category result: synthesize=%v result=%#v", synthesize, result)
+	items, _ := result.Mutation["items"].([]map[string]any)
+	if result.Status != "PENDING_CONFIRMATION" || len(items) != 1 || items[0]["category_slug"] != "" {
+		t.Fatalf("unexpected staged result: %#v", result)
 	}
 	var batches int
 	var sourceStatus string
-	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM telegram_pending_batch WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3`, f.householdID, f.chatID, f.chatID).Scan(&batches))
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM telegram_pending_batch WHERE household_id=$1 AND telegram_user_id=$2 AND telegram_chat_id=$3 AND status='PENDING'`, f.householdID, f.chatID, f.chatID).Scan(&batches))
 	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT processing_status FROM source_event WHERE id=$1`, f.sourceID).Scan(&sourceStatus))
-	if batches != 0 || sourceStatus != "RECEIVED" {
-		t.Fatalf("invalid batch leaked state: batches=%d source=%s", batches, sourceStatus)
+	if batches != 1 || sourceStatus != "PROCESSED" {
+		t.Fatalf("batch staging: batches=%d source=%s", batches, sourceStatus)
+	}
+	var reply string
+	mustAgentTest(t, f.pool.QueryRow(ctx, `SELECT payload_json->>'text' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND (payload_json->>'chat_id')::bigint=$1 ORDER BY created_at DESC LIMIT 1`, f.chatID).Scan(&reply))
+	if !strings.Contains(reply, "Warung · Rp50.000") || !strings.Contains(reply, "kategori belum ada") {
+		t.Fatalf("staged list reply = %q", reply)
 	}
 }
 

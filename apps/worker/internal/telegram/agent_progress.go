@@ -6,10 +6,38 @@ import (
 	"time"
 )
 
-// progressNoticeMessage tells the household the answer is still coming, so a
-// long turn is never silent. It says what is happening and where the answer
-// will appear.
-const progressNoticeMessage = "Masih kuproses ya, analisis seperti ini butuh waktu lebih lama. Jawabannya menyusul di sini."
+// The progress notice tells the household the answer is still coming, so a
+// long turn is never silent. It names what the turn is doing at that moment
+// (agentActivity), so a simple record is not described as an analysis, and
+// says where the answer will appear.
+const (
+	progressNoticeMessage   = "Masih kuproses ya, analisis seperti ini butuh waktu lebih lama. Jawabannya menyusul di sini."
+	progressNoticeRecording = "Masih kucatat ya, sebentar lagi selesai. Hasilnya menyusul di sini."
+	progressNoticeThinking  = "Masih kuproses ya, jawabannya menyusul di sini."
+)
+
+// progressNoticeTexts are every progress notice; a recovery check must not
+// mistake one for the turn's answer.
+var progressNoticeTexts = []string{progressNoticeMessage, progressNoticeRecording, progressNoticeThinking}
+
+// agentActivity is what a turn is doing, set by the loop as it moves on.
+type agentActivity int32
+
+const (
+	activityThinking  agentActivity = iota // waiting for the model's first decision
+	activityAnalyzing                      // READ tools ran: the turn is gathering facts
+	activityRecording                      // a side effect is being applied
+)
+
+func progressNoticeFor(activity agentActivity) string {
+	switch activity {
+	case activityAnalyzing:
+		return progressNoticeMessage
+	case activityRecording:
+		return progressNoticeRecording
+	}
+	return progressNoticeThinking
+}
 
 // startProgressNotice calls send once if the turn is still running after delay.
 // The returned stop function ends the wait; after it returns, send is never
@@ -48,7 +76,7 @@ const progressNoticeLookback = 10 * time.Minute
 // Only the notice is guarded this way. The final answer and the terminal failure
 // notice are queued unconditionally, so an earlier progress notice can never
 // suppress either of them.
-func (p *Processor) enqueueProgressNotice(ctx context.Context, update telegramUpdate) error {
+func (p *Processor) enqueueProgressNotice(ctx context.Context, update telegramUpdate, text string) error {
 	if p.pool == nil || update.Message.Chat.ID == 0 {
 		return nil
 	}
@@ -62,6 +90,6 @@ func (p *Processor) enqueueProgressNotice(ctx context.Context, update telegramUp
 		    AND created_at > now() - make_interval(secs => $4::double precision)
 		    AND (payload_json->>'chat_id')::bigint=$1::bigint
 		    AND (payload_json->>'reply_to_message_id')::bigint=$2::bigint)`,
-		update.Message.Chat.ID, update.Message.MessageID, progressNoticeMessage, progressNoticeLookback.Seconds())
+		update.Message.Chat.ID, update.Message.MessageID, text, progressNoticeLookback.Seconds())
 	return err
 }

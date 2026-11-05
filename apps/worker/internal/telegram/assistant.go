@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -23,12 +24,15 @@ func (r assistantRange) label() string {
 func (p *Processor) resolveSalaryCycleRange(ctx context.Context, householdID string, now time.Time, previous bool) (assistantRange, error) {
 	var current, next, prior *time.Time
 	err := p.pool.QueryRow(ctx, `WITH anchors AS (SELECT se.pay_date FROM salary_event se JOIN salary_source ss ON ss.id=se.salary_source_id AND ss.household_id=se.household_id WHERE se.household_id=$1 AND ss.active AND ss.is_primary AND se.status='CONFIRMED') SELECT (SELECT max(pay_date)::timestamp AT TIME ZONE 'Asia/Jakarta' FROM anchors WHERE pay_date <= $2::date),(SELECT min(pay_date)::timestamp AT TIME ZONE 'Asia/Jakarta' FROM anchors WHERE pay_date > $2::date),(SELECT max(pay_date)::timestamp AT TIME ZONE 'Asia/Jakarta' FROM anchors WHERE pay_date < (SELECT max(pay_date) FROM anchors WHERE pay_date <= $2::date))`, householdID, now.In(jakartaLocation()).Format("2006-01-02")).Scan(&current, &next, &prior)
-	if err != nil || current == nil {
-		return assistantRange{}, errors.New("salary cycle unavailable")
+	if err != nil {
+		return assistantRange{}, fmt.Errorf("load salary cycle anchors: %w", err)
+	}
+	if current == nil {
+		return assistantRange{}, errSalaryCycleUnavailable
 	}
 	if previous {
 		if prior == nil {
-			return assistantRange{}, errors.New("previous salary cycle unavailable")
+			return assistantRange{}, errPreviousCycleUnavailable
 		}
 		return assistantRange{From: *prior, To: *current}, nil
 	}
@@ -68,23 +72,23 @@ func resolveAssistantRange(now time.Time, period, fromDate, toDate *string) (ass
 		from = to.AddDate(0, -1, 0)
 	case "CUSTOM":
 		if fromDate == nil || toDate == nil {
-			return assistantRange{}, errors.New("custom range missing")
+			return assistantRange{}, errInvalidRange
 		}
 		var err error
 		from, err = time.ParseInLocation("2006-01-02", *fromDate, local.Location())
 		if err != nil {
-			return assistantRange{}, err
+			return assistantRange{}, fmt.Errorf("%w: from_date: %v", errInvalidRange, err)
 		}
 		to, err = time.ParseInLocation("2006-01-02", *toDate, local.Location())
 		if err != nil {
-			return assistantRange{}, err
+			return assistantRange{}, fmt.Errorf("%w: to_date: %v", errInvalidRange, err)
 		}
 		to = to.AddDate(0, 0, 1)
 	default:
-		return assistantRange{}, errors.New("invalid period")
+		return assistantRange{}, fmt.Errorf("%w: unknown period", errInvalidRange)
 	}
 	if !to.After(from) || to.Sub(from) > 366*24*time.Hour || from.After(local.AddDate(0, 0, 1)) {
-		return assistantRange{}, errors.New("range outside bounds")
+		return assistantRange{}, errRangeOutOfBounds
 	}
 	return assistantRange{From: from, To: to}, nil
 }

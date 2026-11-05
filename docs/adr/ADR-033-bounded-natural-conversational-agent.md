@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — 2026-09-12; amended by ADR-038; evidence context extends it in ADR-050.
+Accepted — 2026-09-12; amended by ADR-038; evidence context extends it in ADR-050;
+amended 2026-11-05 (agent loop hardening, see the amendment at the end).
 
 ## Context
 
@@ -44,11 +45,12 @@ A conversational model response is valid in exactly one of these shapes:
    calls. Go strictly decodes and validates it and owns the resulting domain
    transition. At most one side effect may execute in one free-text user turn.
 
-Pending transaction batches are a stricter workflow lane: while one is active,
-the model must call the server-exposed `pending_batch_decision` tool for every
-reply. The gateway uses a named required tool choice. `CONFIRM`, `CANCEL`, and
-`UPDATE` mutate only the bound batch; `DEFER` preserves it for unrelated
-questions. Plain assistant text is invalid before this decision.
+Pending transaction batches expose one server-bound tool, `pending_batch_decision`
+(`CONFIRM`, `CANCEL`, `UPDATE` of one `item_ref`, optionally confirming after the
+update), which mutates only the bound batch. The model calls it only when the
+message is about that batch; any other message is an ordinary turn and the batch
+stays pending (2026-11 amendment; the earlier "call it for every reply, `DEFER`
+unrelated questions" rule made unrelated questions go unanswered).
 
 A response mixing READ and SIDE EFFECT calls, containing multiple side effects,
 using an unavailable/unknown tool, or containing malformed arguments is rejected
@@ -91,8 +93,9 @@ butuh waktu lebih lama. Jawabannya menyusul di sini.", and the answer follows as
 a normal message. The notice is queued only if no reply to that message exists
 yet, which makes it idempotent across retries and keeps it from landing after the
 answer; turns that finish within 10 seconds (single-phase turns measure p90 about
-6 s) never send one. Typed messages are handled by two chat workers by default,
-so a long turn holds one of them for its duration.
+6 s) never send one. Typed messages run on the DEFAULT lane's three loops; the
+claim serializes one household's Telegram text (2026-11 amendment), so a long
+turn holds one loop and never delays another household.
 
 The queue budget (160 s) and the five-minute job lease hold per attempt, not per
 turn: a message whose first attempt times out is tried once more, so the worst
@@ -111,11 +114,13 @@ first and compacted:
 ```text
 window:                  24 hours   (was 60 minutes)
 rows read per turn:      40         (was 20)
-kept whole:              the newest 6 rows, including tool results
+kept whole:              the newest 3 user exchanges, including tool results
+                         (was: the newest 6 rows; 2026-11 amendment)
 older rows:              user and assistant text only, clipped to 200 / 300
                          characters, tool results dropped, marked "compacted"
-text budget:             6,000 characters (not bytes); the oldest compacted rows go first,
-                         the newest rows are never dropped
+memory budget:           6,000 characters (not bytes) of text plus tool JSON; tool
+                         results of older verbatim exchanges go first, then the
+                         oldest compacted rows; the newest exchange is never trimmed
 ```
 
 A follow-up the next morning still works, and the prompt stays bounded however
@@ -146,11 +151,15 @@ work silently. Three rules keep follow-ups working without that risk:
   `get_supporting_transactions`.
 - **Recoverable error.** A ref the session never issued returns a tool result
   (`REFERENCE_NOT_ISSUED`, with the next step) instead of failing the turn, so the
-  model fixes it inside the phase budget. Other read errors still end the turn.
+  model fixes it inside the phase budget. Unservable periods (no salary cycle, a
+  range over a year) and expired transaction refs are handled the same way
+  (2026-11 amendment). Other read errors still end the turn.
 
 A turn that still fails tells the household the cause: a model timeout says the
-assistant was slow, any other failure asks them to rephrase, and the Tindakan item
-records `TIMEOUT` or `ERROR` accordingly (ADR-049).
+assistant was slow, an unreachable gateway says the AI cannot be reached, any other
+failure says the system had a problem (never the household's wording), every
+notice says nothing was recorded, and the Tindakan item records `TIMEOUT`,
+`UNAVAILABLE` or `ERROR` accordingly (ADR-049; 2026-11 amendment).
 
 A typed message is never left without an answer. When it will not be retried
 again (a model timeout on the second attempt, or any failure on the last
@@ -216,6 +225,8 @@ concurrent searches cannot redefine the same short reference.
 Post-mutation response synthesis receives only the model-safe authoritative
 mutation result and no side-effect tools. Failure to synthesize does not roll
 back or retry the mutation; Go sends a deterministic acknowledgement instead.
+Since the 2026-11 amendment synthesis runs only for a result without its own
+deterministic copy.
 
 The strict single-native-tool contract remains available for non-conversational
 lanes such as classification/extraction where a single typed result is the
@@ -248,6 +259,105 @@ or canonical-state rules in this ADR.
 
 The conversational agent remains the fallback/primary path for turns requiring
 arbitrary extraction, dependent READ reasoning, open-ended synthesis, or prose.
+
+## Amendment — agent loop hardening (2026-11-05)
+
+Production (PROCESS_TELEGRAM_TEXT p50 5.5 s, p90 11.3 s, max 37.5 s; 16 of 147
+agent calls timed out; 221 USER vs 160 ASSISTANT turns; turn rows dominated by
+126 internal `agent_transaction_refs` rows) showed the loop losing memory,
+answers and time. The boundary above is unchanged: Go validates and commits, the
+model proposes. What changed:
+
+1. **Memory counts exchanges.** The verbatim window is the newest three user
+   exchanges, not six rows. Bookkeeping rows (`agent_transaction_refs`, which only
+   anchor opaque refs) are never replayed. Tool JSON counts against the 6,000
+   character budget. USER/ASSISTANT bookkeeping context (send time, phase
+   counters) is not replayed; the send time is kept as `at`.
+2. **Failures are turns.** Every failure reply — the terminal notice queued when a
+   job gives up and an in-turn refusal — is stored as an ASSISTANT turn marked
+   `failure` (with `nothing_recorded`), in the same transaction as the reply, so the
+   next turn knows the question went unanswered. The ASSISTANT row of every reply
+   commits with the reply itself.
+3. **Error taxonomy.** Model-recoverable refusals (a period with no salary cycle,
+   a range over 366 days, a malformed custom range, an unknown `item_ref`, an
+   expired ref, an unparseable date, an unknown category slug) are returned to the
+   model as a tool result with `status` and `next_step` (`agentRecoverable`, at
+   most two per turn); date/time shape rules moved into `validateCreate` so the
+   ADR-055 repair round covers them. Gateway failures are classified by type:
+   unreachable/unconfigured/HTTP 408/429/5xx is *unavailable* (one retry, then a
+   terminal notice saying the AI cannot be reached and nothing was recorded;
+   ADR-052 amendment adds the deterministic expense fallback), HTTP 4xx is a
+   *rejection* (never retried), a model timeout keeps its one retry, anything else
+   is transient and keeps the job's attempts. No terminal copy blames the user's
+   wording.
+4. **Deterministic replies.** A mutation whose result Go fully knows is answered
+   from that result without a second model call; only a result without its own
+   copy is worded by the model. A recorded transaction shows label, amount,
+   category and date; one left for review says the card below needs one step (the
+   card goes to the same chat, so the Inbox is not mentioned). The progress notice
+   names what the turn is doing (recording, analysing, or thinking); the typing
+   indicator covers the whole turn.
+5. **Reply atomic with the mutation (T7).** The core executors (record, batch
+   stage/update/confirm/cancel, correction stage/resolve, existing-edit offer)
+   queue the reply and its ASSISTANT turn inside the mutation's own transaction.
+   For every other executor, a retry that finds the event final but unanswered
+   (no ASSISTANT turn, no non-progress reply) re-sends the answer from the stored
+   side-effect result, once, under the turn lock.
+6. **Typed answers bind deterministically (R5).** Without Reply, a message binds
+   to an open card only by Go rules: only live cards (OPEN, not expired) of this
+   chat count; a card expects a category (`AWAITING_CATEGORY`), a date
+   (`AWAITING_DATE`), amount and time (a bank email missing its facts), or a short
+   free-text detail (a merchant/purpose question); the text must *be* that answer
+   (a household category name/slug with only filler words, a date, an amount with
+   only time words, or — for the single free-text card — a short phrase with no
+   digit or question). One match binds; several typed matches get a "which card?"
+   message with one button per card (`pending:card:<token>`,
+   `telegram_pending_card_choice`), and the tap applies the stored value to the
+   chosen card through the same Go resolver, with no model call. Otherwise the
+   message is new and up to ten live cards are listed as `open_review_cards`
+   context only. A plain yes/no binds a pending merchant-learning question;
+   anything else is a new message.
+7. **Explicit replies.** A Reply to a bot message that is not a workflow message
+   (an earlier answer, a batch list) is an ordinary turn with the general catalog.
+   A Reply to a closed review card stays narrowed and the model gets
+   `explicit_reply_unbound` with instructions; the never-set
+   `mutation_authority_unavailable` flag was removed from the prompt.
+8. **Request weight.** The household category list is sent once
+   (`allowed_category_slugs`) instead of as an enum in every schema. Overlapping
+   Telegram-native reads were merged without losing capability: `query_spending`
+   carries the category breakdown (was `get_category_breakdown`), `query_cashflow`
+   the insight extras (was `get_finance_insight`), `search_transactions` orders by
+   `LARGEST` (was `get_largest_transactions`). The four batch tools became one.
+   `get_evidence_context` is offered only when the turn has evidence context.
+   Identical repeated READ calls in one turn are served from the turn's cache.
+   The shared analytics READ tools are unchanged.
+9. **Phase cap.** The last allowed model phase of a turn that already read facts
+   is offered no tools and told to answer from what was gathered, instead of the
+   turn ending with a fixed "ask one part at a time" reply.
+10. **Corrections.** `propose_transaction_correction` may also change the amount
+    and merchant of a transaction whose evidence is only the household's own
+    entries (TELEGRAM_TEXT/TELEGRAM_CALLBACK/WEB_MANUAL); for bank, provider or
+    document-backed transactions Go answers `SOURCE_EVIDENCE_FIXES_AMOUNT`. The
+    rule is checked again under lock when the button confirms; the change is
+    audited with before/after values and refreshes open cycle residuals. Pending
+    corrections and batches wait 30 minutes (was 5), and the expired copy says
+    what to do.
+11. **Batch lane.** A missing or unknown category no longer rejects a batch: the
+    item is staged without one and recorded as NEEDS_REVIEW with a review card.
+    Items get the single entry's duplicate checks (a similar recent expense is
+    shown before confirmation; an item a just-sent document already recorded is
+    not recorded again), each confirmed item refreshes open cycle residuals, and
+    merchants are resolved to the household merchant identity (merchant memory
+    applies, and the merchant-learning question can follow a review). Typed single
+    entries resolve merchants the same way.
+12. **Per-household serialization.** The DEFAULT lane runs three loops. The claim
+    never starts a household's Telegram text job while another of its Telegram
+    text jobs in the lane is running (lease younger than five minutes) or while an
+    older one is still pending, even one whose retry is not due yet — so a retried
+    message is never overtaken by the next one, and other households are served in
+    parallel. The migration-00087 fairness order is unchanged.
+13. Recent transactions in context list the sending member's own entries first
+    (`entered_by_you`).
 
 ## Consequences
 

@@ -3,6 +3,7 @@
 ## Status
 
 Accepted — 2026-10-12. Amends ADR-038 and ADR-045 for the Telegram conversational agent.
+Amended 2026-11-05 (deterministic expense fallback while the AI gateway is unavailable).
 
 ## Context
 
@@ -58,3 +59,44 @@ entry onto another day. The observation is recorded as
 message minute. A date the model supplied on its own — a past date the user never
 wrote — is still never accepted and still becomes a review. The time precision stays
 in the proposal metadata for audit.
+
+## Amendment — deterministic expense fallback while the gateway is down (2026-11-05)
+
+Without the judgment plane, every Telegram turn needs the generative gateway. When
+LiteRouter was unreachable a connection error was not recognized as an outage: the
+job used all five attempts (about 30 s of backoff plus up to 160 s per attempt)
+and then told the household to rephrase. AGENTS.md requires deterministic flows to
+keep working when the gateway is unavailable, and recording a plain expense is a
+deterministic flow.
+
+Decision:
+
+- Gateway failures are typed in the gateway package: a transport failure, a
+  missing configuration or HTTP 408/429/5xx is *unavailable*; another 4xx is a
+  *rejection*. A caller's own deadline stays a timeout.
+- On the first model call that fails as unavailable (or with no conversational
+  gateway wired), before any side effect, Go tries `parseSimpleExpense` on the
+  message. It accepts exactly one amount (`25rb`, `25 ribu`, `5k`, `50.000`,
+  `Rp 25.000`, `1,5jt`, a bare number of at least 500) and one to four plain
+  words, after dropping a leading `beli`/`bayar`/`buat`/`untuk`. It refuses
+  anything else: a question, a second amount, a date or time word, income,
+  transfer, savings, debt or correction words, several items, punctuation such as
+  `?`/`:`/`+`. It never guesses.
+- A parsed message is recorded as an EXPENSE in NEEDS_REVIEW at the message time,
+  with no category and no merchant (the words become the description), with
+  `decision_source=DETERMINISTIC_FALLBACK` in the proposal metadata, evidence and
+  audit row, and the normal review card (AMBIGUOUS_CATEGORY) in the chat. It is
+  never confirmed from the fallback: the household picks the category on the
+  card. The reply says the AI is unreachable, what was recorded, and that it is
+  not final. Claiming the source event in the same transaction keeps it
+  idempotent.
+- A message that does not parse fails as *unavailable*: one quick retry, then the
+  terminal notice "Asisten AI Richmod sedang tidak bisa dihubungi … belum ada yang
+  dicatat", which also says simple expenses can still be recorded. A gateway 4xx is
+  never retried.
+
+Consequences: an outage costs the household the category tap, not the record;
+questions and complex entries get an honest notice within seconds instead of
+minutes. The fallback adds no model, no infrastructure and no authority: Go
+writes exactly what a NEEDS_REVIEW record_transaction would, minus the model's
+category.

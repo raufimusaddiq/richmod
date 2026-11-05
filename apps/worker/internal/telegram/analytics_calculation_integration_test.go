@@ -42,7 +42,8 @@ func TestNativeLegacyCycleDatesRefundsAndCategoryCompleteness(t *testing.T) {
 			t.Fatalf("%s: %+v", tc.period, result.Facts)
 		}
 	}
-	result, err := p.executeAgentRead(ctx, f.state, gateway.ToolCall{Name: "get_category_breakdown"}, map[string]any{"period": "CURRENT_CYCLE"}, "fixture")
+	// query_spending carries the category breakdown (it absorbed get_category_breakdown).
+	result, err := p.executeAgentRead(ctx, f.state, gateway.ToolCall{Name: "query_spending"}, map[string]any{"period": "CURRENT_CYCLE"}, "fixture")
 	mustAgentTest(t, err)
 	items := result.Facts["categories"].([]map[string]any)
 	if len(items) != 20 || items[0]["amount_idr"] != "-200" || result.Facts["total_categories"] != 21 || result.Facts["net_expense_idr"] != "1800" || result.Facts["truncated"] != true {

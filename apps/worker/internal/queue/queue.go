@@ -64,15 +64,28 @@ func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, 
 // the household whose latest job in this lane started longest ago (or never)
 // goes first, so one household's backlog cannot starve another's. Platform
 // jobs (no household) rotate as one more group rather than jumping the queue.
-// Within one household, jobs keep their run_after/created_at order, which
-// keeps a person's Telegram messages in sequence. The last-start lookup runs
-// once per household head, not once per due job.
+// Within one household, jobs keep their run_after/created_at order. The
+// last-start lookup runs once per household head, not once per due job.
+//
+// Telegram chat work is serialized per household, because several DEFAULT
+// loops run at once: a household's Telegram text job is not eligible while
+// another of its Telegram text jobs in the lane is running (a lease younger than
+// the stale-lock window), or while an older one is still pending — even one
+// whose retry is not due yet. So a retried message is never overtaken by the
+// household's next message, and two messages of one household never run side
+// by side, while other households keep being served.
 const claimSQL = `
 	WITH heads AS (
 		SELECT DISTINCT ON (household_id) id,household_id,run_after,created_at
-		FROM job
-		WHERE lane=$1 AND ((status='PENDING' AND run_after<=now())
-		   OR (status='RUNNING' AND locked_at<now()-interval '5 minutes'))
+		FROM job j
+		WHERE j.lane=$1 AND ((j.status='PENDING' AND j.run_after<=now())
+		   OR (j.status='RUNNING' AND j.locked_at<now()-interval '5 minutes'))
+		  AND NOT (j.type IN (` + serializedChatTypesSQL + `) AND j.household_id IS NOT NULL AND EXISTS (
+			SELECT 1 FROM job o
+			WHERE o.lane=$1 AND o.household_id=j.household_id AND o.id<>j.id
+			  AND o.type IN (` + serializedChatTypesSQL + `)
+			  AND ((o.status='RUNNING' AND o.locked_at>=now()-interval '5 minutes')
+			    OR (o.status IN ('PENDING','RUNNING') AND (o.created_at,o.id)<(j.created_at,j.id)))))
 		ORDER BY household_id,run_after,created_at
 	), ranked AS (
 		SELECT h.id,h.run_after,h.created_at,
@@ -87,6 +100,10 @@ const claimSQL = `
 	ORDER BY r.last_started NULLS FIRST,r.run_after,r.created_at
 	FOR UPDATE OF j SKIP LOCKED
 	LIMIT 1`
+
+// serializedChatTypesSQL lists the job types one household may run only one at
+// a time, in creation order (see claimSQL).
+const serializedChatTypesSQL = `'PROCESS_TELEGRAM_TEXT'`
 
 func (q *Queue) Succeed(ctx context.Context, jobID string) error {
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING'`, jobID)
