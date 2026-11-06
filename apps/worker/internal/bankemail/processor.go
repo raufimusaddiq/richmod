@@ -762,7 +762,12 @@ func (p *Processor) persist(ctx context.Context, listener Listener, sourceID str
 			return matchErr
 		}
 		if strong := reviewdomain.StrongLedgerMatch(matches); strong != nil {
-			return p.linkBankEvidence(ctx, tx, listener, sourceID, extraction, *strong, bankLink{autoNotice: autoNotice, household: noticeHousehold, amount: amount, at: *at, description: description, merchant: merchant, counterparty: counterparty, reference: reference, completingReviewID: completingReviewID})
+			// persist opened this transaction, so persist commits it; the link
+			// only writes inside it.
+			if err := p.linkBankEvidence(ctx, tx, listener, sourceID, extraction, *strong, bankLink{autoNotice: autoNotice, household: noticeHousehold, amount: amount, at: *at, description: description, merchant: merchant, counterparty: counterparty, reference: reference, completingReviewID: completingReviewID}); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
 		}
 		for _, match := range matches {
 			duplicateCandidates = append(duplicateCandidates, match.ID)
@@ -945,7 +950,8 @@ type bankLink struct {
 // lane already recorded for the same event, enriching facts the transaction
 // lacks (account, reference, merchant, counterparty), instead of writing a
 // second transaction. The source settles through the shared lifecycle: if the
-// matched transaction still awaits review, so does this source.
+// matched transaction still awaits review, so does this source. It writes only
+// inside the caller's transaction and never commits or rolls it back.
 func (p *Processor) linkBankEvidence(ctx context.Context, tx pgx.Tx, listener Listener, sourceID string, extraction Extraction, match reviewdomain.LedgerMatch, link bankLink) error {
 	metadata, _ := json.Marshal(map[string]any{"bank_email_policy": "v4", "transaction_at_source": extraction.TransactionAtSource, "matched_transaction_id": match.ID, "match_score": match.Score})
 	var proposalID string
@@ -998,10 +1004,8 @@ func (p *Processor) linkBankEvidence(ctx context.Context, tx pgx.Tx, listener Li
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log(household_id,actor_type,action,entity_type,entity_id,after_json) VALUES($1,'WORKER','LINK_BANK_EMAIL_EVIDENCE','transaction',$2,jsonb_build_object('source_event_id',$3::uuid,'listener_id',$4::uuid,'proposal_id',$5::uuid,'match_score',$6::numeric,'enriched',$7::text[]))`, listener.HouseholdID, match.ID, sourceID, listener.ID, proposalID, match.Score, filled); err != nil {
 		return err
 	}
-	if err := reviewdomain.RefreshSourceLifecycle(ctx, tx, listener.HouseholdID, sourceID); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	// The caller owns tx: it began it and it commits or rolls it back.
+	return reviewdomain.RefreshSourceLifecycle(ctx, tx, listener.HouseholdID, sourceID)
 }
 
 // duplicateReviewDecision turns the policy decision into the shared

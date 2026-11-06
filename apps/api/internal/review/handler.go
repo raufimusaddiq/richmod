@@ -170,15 +170,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		// ADR-054: both Inbox list paths offer only what the dispatcher executes
 		// for the binding (here an open transaction). A legacy row with no stored
 		// actions keeps the card's own transaction lane.
-		value.AllowedActions = stored.AllowedActions
-		if len(stored.AllowedActions) > 0 {
-			value.AllowedActions = reviewdomain.ExecutableActions(stored.ReasonCode, stored.AllowedActions, reviewdomain.Binding{Subject: reviewdomain.SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"})
-		}
+		value.AllowedActions, value.Presentation = transactionReviewOffer(stored)
 		value.KnownFacts = stored.KnownFacts
 		value.ProposedFacts = stored.ProposedFacts
 		value.MissingFacts = stored.MissingFacts
 		value.WhyNotAutoConfirm = stored.WhyNotAuto
-		value.Presentation = reviewdomain.PresentationFor(value.AllowedActions)
 		if containsString(value.MissingFacts, "transaction_at") {
 			value.DateChoices = reviewdomain.TransactionDateChoices(value.TransactionAt, stored.KnownFacts["transaction_time_source"] == "RECEIVED_AT_FALLBACK", time.Now())
 		}
@@ -201,8 +197,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, items)
 		return
 	}
-	var transactionDecisions int
-	if err := h.pool.QueryRow(r.Context(), `SELECT count(*) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW' AND CASE WHEN jsonb_typeof(ri.decision->'allowedActions')='array' AND jsonb_array_length(ri.decision->'allowedActions')>0 THEN NOT (ri.decision->'allowedActions' <@ '["IGNORE"]'::jsonb) ELSE true END`, household).Scan(&transactionDecisions); err != nil {
+	transactionDecisions, err := h.transactionDecisionCount(r.Context(), household)
+	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "unable to list reviews"})
 		return
 	}
@@ -260,6 +256,42 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item{ID: value.ID, Type: "UNCLASSIFIED", Amount: value.AmountIDR, Currency: "IDR", Reason: value.ReviewType, ReviewType: value.ReviewType, SubjectType: value.SubjectType, SubjectID: value.SubjectID, Description: &value.Summary, SourceType: &sourceType, AllowedActions: value.AllowedActions, TransactionAt: value.CreatedAt, CycleStart: value.CycleStart, CycleEnd: value.CycleEnd, WealthObservationID: value.WealthObservationID, ResolvedWealthAccountID: resolvedWealth, ResolvedAccountID: resolvedAccount, Institution: value.Institution, AccountHint: value.AccountHint, TransferCandidates: value.TransferCandidates, ProposedPurpose: value.ProposedPurpose, ProposedWealthAccountID: value.ProposedWealthAccountID, Decision: value.Decision, KnownFacts: stored.KnownFacts, ProposedFacts: stored.ProposedFacts, MissingFacts: missingFacts, WhyNotAutoConfirm: whyNotAuto, HasPrimarySalary: hasPrimarySalary, PurposeChoices: value.PurposeChoices, Presentation: value.Presentation})
 	}
 	writeJSON(w, 200, items)
+}
+
+// transactionReviewOffer is the one rule for what a transaction-bound review
+// offers and how it is presented. ADR-054: both Inbox list paths offer only what
+// the dispatcher executes for the binding (here an open transaction); a legacy
+// row with no stored actions keeps the card's own transaction lane and is a
+// decision. The list and the decision count both call it, so what the Inbox
+// renders as a decision is exactly what X-Decision-Count counts.
+func transactionReviewOffer(stored storedDecision) ([]string, string) {
+	actions := stored.AllowedActions
+	if len(stored.AllowedActions) > 0 {
+		actions = reviewdomain.ExecutableActions(stored.ReasonCode, stored.AllowedActions, reviewdomain.Binding{Subject: reviewdomain.SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"})
+	}
+	return actions, reviewdomain.PresentationFor(actions)
+}
+
+// transactionDecisionCount counts every open transaction-bound review (across
+// all pages) that transactionReviewOffer presents as a decision. The count is
+// computed in Go from the stored decisions rather than re-expressed in SQL, so
+// it cannot drift from the executable-action rule the cards use.
+func (h *Handler) transactionDecisionCount(ctx context.Context, household string) (int, error) {
+	rows, err := h.pool.Query(ctx, `SELECT COALESCE(ri.decision,'null'::jsonb) FROM review_item ri JOIN transaction t ON t.id=ri.transaction_id AND t.household_id=ri.household_id WHERE ri.household_id=$1 AND ri.status IN ('OPEN','PENDING_SEND') AND t.status='NEEDS_REVIEW'`, household)
+	if err != nil {
+		return 0, err
+	}
+	decisions, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, decision := range decisions {
+		if _, presentation := transactionReviewOffer(proposalFacts(decision)); presentation == reviewdomain.PresentationDecision {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (h *Handler) candidates(ctx context.Context, household string, source item) ([]candidate, error) {

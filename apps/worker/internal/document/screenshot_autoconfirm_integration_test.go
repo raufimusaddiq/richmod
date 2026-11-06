@@ -3,6 +3,7 @@ package document
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -82,15 +83,67 @@ func TestScreenshotRowWithUnresolvedCandidatesStaysInReview(t *testing.T) {
 	categoryID := fixture.categoryID
 	row := screenshotDataRow("EXPENSE", "54000", "Indomaret")
 	row.CategoryID, row.CategoryDecided = &categoryID, true
-	row.Candidates = []matchCandidate{{ID: "a", Score: 0.95}, {ID: "b", Score: 0.90}}
+	// Two real candidates, so the locked re-check finds the set the row decided on.
+	seeded := seedScreenshotCandidates(t, fixture, 2)
+	matches, err := (&Processor{pool: fixture.pool}).findScreenshotMatches(ctx, fixture.householdID, row)
+	if err != nil || len(matches) != 2 {
+		t.Fatalf("candidates=%v err=%v", matches, err)
+	}
+	row.Candidates = matches
 	provenance := rowChoiceProvenance{Model: "stub-jev", PolicyVersion: ScreenshotRowCategoryPolicyVersion, Questions: 1, Decided: 1, QuestionKeys: []string{"row_001"}}
 	fixture.persist(t, provenance, []validatedScreenshotRow{row})
 	var confirmed, needsReview int
-	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1`, fixture.householdID).Scan(&confirmed, &needsReview); err != nil {
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE status='CONFIRMED'),count(*) FILTER (WHERE status='NEEDS_REVIEW') FROM transaction WHERE household_id=$1 AND NOT id=ANY($2::uuid[])`, fixture.householdID, seeded).Scan(&confirmed, &needsReview); err != nil {
 		t.Fatal(err)
 	}
 	if confirmed != 0 || needsReview != 1 {
 		t.Fatalf("an ambiguous row must not be recorded as a second transaction: confirmed=%d needs_review=%d", confirmed, needsReview)
+	}
+}
+
+// seedScreenshotCandidates writes n CONFIRMED 54000 expenses within the hour
+// before screenshotRowTime, which the matcher keeps as (non-decisive) candidates.
+func seedScreenshotCandidates(t *testing.T, f screenshotFixture, n int) []string {
+	t.Helper()
+	ids := make([]string, 0, n)
+	for i := range n {
+		var id string
+		if err := f.pool.QueryRow(context.Background(), `INSERT INTO transaction(household_id,type,status,amount,currency,transaction_at,confirmed_at) VALUES($1,'EXPENSE','CONFIRMED',54000,'IDR',$2,now()) RETURNING id`, f.householdID, screenshotRowTime().Add(-time.Duration(10*(i+1))*time.Minute)).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// The locked re-check validates the whole decided candidate set: a candidate
+// that was not the chosen match (here there is none) but vanished since the
+// decision still makes the write retry instead of acting on a stale list.
+func TestScreenshotWriteRetriesWhenANonChosenCandidateVanished(t *testing.T) {
+	fixture := seedScreenshotFixture(t, "Screenshot vanished candidate")
+	ctx := context.Background()
+	categoryID := fixture.categoryID
+	row := screenshotDataRow("EXPENSE", "54000", "Indomaret")
+	row.CategoryID, row.CategoryDecided = &categoryID, true
+	seeded := seedScreenshotCandidates(t, fixture, 2)
+	matches, err := (&Processor{pool: fixture.pool}).findScreenshotMatches(ctx, fixture.householdID, row)
+	if err != nil || len(matches) != 2 || row.Matched != nil {
+		t.Fatalf("candidates=%v err=%v", matches, err)
+	}
+	row.Candidates = matches
+	if _, err := fixture.pool.Exec(ctx, `UPDATE transaction SET status='VOIDED',voided_at=now(),confirmed_at=NULL WHERE id=$1`, seeded[0]); err != nil {
+		t.Fatal(err)
+	}
+	err = (&Processor{pool: fixture.pool}).persistScreenshot(ctx, fixture.documentID, fixture.householdID, fixture.sourceID, "TRANSACTION_HISTORY_SCREENSHOT", screenshotExtraction{Confidence: .95}, "test-model", rowChoiceProvenance{}, []validatedScreenshotRow{row})
+	if !errors.Is(err, reviewdomain.ErrLedgerRaced) {
+		t.Fatalf("a vanished non-chosen candidate must force a retry: %v", err)
+	}
+	var written int
+	if err := fixture.pool.QueryRow(ctx, `SELECT count(*) FROM transaction WHERE household_id=$1 AND NOT id=ANY($2::uuid[])`, fixture.householdID, seeded).Scan(&written); err != nil {
+		t.Fatal(err)
+	}
+	if written != 0 {
+		t.Fatalf("a raced write must not record anything: %d", written)
 	}
 }
 

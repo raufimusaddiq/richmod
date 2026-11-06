@@ -335,6 +335,27 @@ func validateScreenshot(value screenshotExtraction, receivedAt time.Time, catego
 	return result, nil
 }
 
+// sameScreenshotCandidates re-validates the whole candidate set a row decided
+// on against the set found under the ledger lock, through the shared ledger race
+// rule: a new candidate, one whose score changed, or one that vanished (voided
+// or merged by another lane) is a change, whether or not it was the chosen
+// match. The chosen match is always in the decided set, so a vanished target is
+// covered too. A stale candidate list therefore never decides a write.
+func sameScreenshotCandidates(decided, now []matchCandidate) bool {
+	scores := make(map[string]float64, len(decided))
+	for _, candidate := range decided {
+		scores[candidate.ID] = candidate.Score
+	}
+	if len(scores) != len(decided) {
+		return false
+	}
+	current := make([]reviewdomain.LedgerMatch, 0, len(now))
+	for _, candidate := range now {
+		current = append(current, reviewdomain.LedgerMatch{ID: candidate.ID, Score: candidate.Score})
+	}
+	return reviewdomain.SameLedgerCandidates(scores, current)
+}
+
 func (p *Processor) persistScreenshot(ctx context.Context, documentID, householdID, sourceID, documentType string, value screenshotExtraction, model string, provenance rowChoiceProvenance, rows []validatedScreenshotRow) error {
 	output, _ := json.Marshal(value)
 	tx, err := p.pool.Begin(ctx)
@@ -365,19 +386,7 @@ func (p *Processor) persistScreenshot(ctx context.Context, documentID, household
 		if err != nil {
 			return err
 		}
-		if slices.ContainsFunc(now, func(candidate matchCandidate) bool {
-			// A new candidate, or one whose score changed, invalidates the decision.
-			if row.Matched != nil && row.Matched.ID == candidate.ID {
-				return row.Matched.Score != candidate.Score
-			}
-			return !slices.ContainsFunc(row.Candidates, func(decided matchCandidate) bool {
-				return decided.ID == candidate.ID && decided.Score == candidate.Score
-			})
-		}) {
-			return reviewdomain.ErrLedgerRaced
-		}
-		if row.Matched != nil && !slices.ContainsFunc(now, func(candidate matchCandidate) bool { return candidate.ID == row.Matched.ID }) {
-			// The chosen target vanished (voided or merged) since the decision.
+		if !sameScreenshotCandidates(row.Candidates, now) {
 			return reviewdomain.ErrLedgerRaced
 		}
 	}

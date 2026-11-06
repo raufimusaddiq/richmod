@@ -25,8 +25,9 @@ func TestExecutableActionsFollowTheStoredDecisionAndTheBinding(t *testing.T) {
 		{"open duplicate keeps its stored answers", "POSSIBLE_DUPLICATE", []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}, []string{"MERGE_EXISTING", "CONFIRM_REVIEW", "IGNORE"}, Binding{Subject: SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"}, false},
 		{"unknown merchant open uses stored decision", "UNKNOWN_MERCHANT", []string{"CONFIRM_REVIEW", "IGNORE"}, []string{"CONFIRM_REVIEW", "IGNORE"}, Binding{Subject: SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"}, false},
 		{"transfer case without candidates offers a new transfer", "TRANSFER_CLASSIFICATION", []string{"CLASSIFY_TRANSFER", "IGNORE"}, []string{"CONFIRM_NEW_TRANSFER", "IGNORE"}, Binding{Subject: SubjectSourceEvent, HasTransferCase: true}, false},
-		{"overflowing financial transfer merges among the ranked set only", "TRANSFER_CLASSIFICATION", []string{"IGNORE"}, []string{"MERGE_EXISTING", "IGNORE"}, Binding{Subject: SubjectFinancialEmail, HasTransferCase: true, TransferCandidates: 14, FinancialTransferCase: true}, false},
-		{"source-bound review over an overflowing provider case cannot create new", "TRANSFER_CLASSIFICATION", []string{"IGNORE"}, []string{"MERGE_EXISTING", "IGNORE"}, Binding{Subject: SubjectSourceEvent, HasTransferCase: true, TransferCandidates: 14, FinancialTransferCase: true}, false},
+		{"overflowing financial transfer merges among the ranked set only", "TRANSFER_CLASSIFICATION", []string{"IGNORE"}, []string{"MERGE_EXISTING", "IGNORE"}, Binding{Subject: SubjectFinancialEmail, HasTransferCase: true, TransferCandidates: 14, MergeableTransferCandidates: 10, FinancialTransferCase: true}, false},
+		{"source-bound review over an overflowing provider case cannot create new", "TRANSFER_CLASSIFICATION", []string{"IGNORE"}, []string{"MERGE_EXISTING", "IGNORE"}, Binding{Subject: SubjectSourceEvent, HasTransferCase: true, TransferCandidates: 14, MergeableTransferCandidates: 10, FinancialTransferCase: true}, false},
+		{"candidates that no merge accepts offer no merge button", "TRANSFER_CLASSIFICATION", []string{"CLASSIFY_TRANSFER", "IGNORE"}, []string{"CONFIRM_NEW_TRANSFER", "IGNORE"}, Binding{Subject: SubjectSourceEvent, HasTransferCase: true, TransferCandidates: 2}, false},
 		{"transfer without a case can only be dismissed", "TRANSFER_CLASSIFICATION", []string{"CLASSIFY_TRANSFER", "IGNORE"}, []string{"IGNORE"}, Binding{Subject: SubjectSourceEvent}, true},
 		{"legacy transaction date action still answers", "MISSING_TRANSACTION_DATE", []string{"SET_PAY_DATE", "IGNORE"}, []string{"SET_PAY_DATE", "IGNORE"}, Binding{Subject: SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"}, false},
 		{"provider-email wealth review keeps its account choice", "WEALTH_OBSERVATION_CONFIRMATION", []string{"SET_WEALTH_ACCOUNT", "IGNORE"}, []string{"SET_WEALTH_ACCOUNT", "IGNORE"}, Binding{Subject: SubjectFinancialEmail, HasWealthObservation: true}, false},
@@ -52,6 +53,7 @@ func TestNoOfferedActionIsUnexecutable(t *testing.T) {
 		{Subject: SubjectTransaction, TransactionStatus: "NEEDS_REVIEW"},
 		{Subject: SubjectTransaction, TransactionStatus: "CONFIRMED"},
 		{Subject: SubjectFinancialEmail, HasTransferCase: true, TransferCandidates: 3},
+		{Subject: SubjectFinancialEmail, HasTransferCase: true, TransferCandidates: 3, MergeableTransferCandidates: 1},
 		{Subject: SubjectFinancialEmail},
 		{Subject: SubjectProposal},
 		{Subject: SubjectSourceEvent, SourceType: "BANK_EMAIL"},
@@ -142,6 +144,35 @@ func TestLedgerRaceGuardSeesNewChangedAndVanishedCandidates(t *testing.T) {
 	} {
 		if SameLedgerCandidates(decided, now) {
 			t.Fatalf("%s candidate set must force a re-decision", name)
+		}
+	}
+}
+
+// The merge rule the surfaces offer by is the one the resolver enforces: a case
+// with no proposed purpose merges only into a classified transfer with a valid
+// purpose, and any merge needs the case's account and amount and a compatible
+// purpose/Wealth pair.
+func TestTransferMergeableMatchesWhatTheResolverAccepts(t *testing.T) {
+	ok := TransferMergeCandidate{Type: "TRANSFER", Status: "CONFIRMED", Purpose: "INTERNAL_TRANSFER", SameAccount: true, SameAmount: true, Compatible: true}
+	for _, tt := range []struct {
+		name, casePurpose string
+		edit              func(*TransferMergeCandidate)
+		want              bool
+	}{
+		{"classified transfer, case without purpose", "", func(*TransferMergeCandidate) {}, true},
+		{"unclassified row, case without purpose", "", func(c *TransferMergeCandidate) { c.Type, c.Purpose = "UNCLASSIFIED", "GENERAL" }, false},
+		{"transfer whose purpose is not a transfer purpose", "", func(c *TransferMergeCandidate) { c.Purpose = "GENERAL" }, false},
+		{"unclassified row takes the case purpose", "SAVINGS_TRANSFER", func(c *TransferMergeCandidate) { c.Type, c.Purpose = "UNCLASSIFIED", "GENERAL" }, true},
+		{"expense is never merged", "INTERNAL_TRANSFER", func(c *TransferMergeCandidate) { c.Type = "EXPENSE" }, false},
+		{"other account", "INTERNAL_TRANSFER", func(c *TransferMergeCandidate) { c.SameAccount = false }, false},
+		{"other amount", "INTERNAL_TRANSFER", func(c *TransferMergeCandidate) { c.SameAmount = false }, false},
+		{"incompatible Wealth target", "", func(c *TransferMergeCandidate) { c.Compatible = false }, false},
+		{"voided", "INTERNAL_TRANSFER", func(c *TransferMergeCandidate) { c.Status = "VOIDED" }, false},
+	} {
+		candidate := ok
+		tt.edit(&candidate)
+		if got := TransferMergeable(tt.casePurpose, candidate); got != tt.want {
+			t.Errorf("%s: mergeable=%v want %v", tt.name, got, tt.want)
 		}
 	}
 }

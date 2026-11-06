@@ -128,11 +128,25 @@ test("a review without a printed date offers one-tap date choices", () => {
 
 test("without a proposed purpose only classified transfers can be merged into", () => {
   const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
-    item: { id: "synthetic", reviewType: "TRANSFER_CLASSIFICATION", subjectType: "source_event", presentation: "DECISION", amount: "100", purposeChoices: ["INTERNAL_TRANSFER"], allowedActions: ["MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"], transferCandidates: [{ id: "t", type: "TRANSFER", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Transfer A" }, { id: "u", type: "UNCLASSIFIED", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Transfer B" }] },
+    item: { id: "synthetic", reviewType: "TRANSFER_CLASSIFICATION", subjectType: "source_event", presentation: "DECISION", amount: "100", purposeChoices: ["INTERNAL_TRANSFER"], allowedActions: ["MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"], transferCandidates: [{ id: "t", type: "TRANSFER", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Transfer A", mergeable: true }, { id: "u", type: "UNCLASSIFIED", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Transfer B", mergeable: false }] },
     categories: [], accounts: [], wealthAccounts: [], action() {},
   }));
   assert.match(html, /<button type="button">.*?Transfer A/);
   assert.match(html, /<button type="button" disabled="">.*?Transfer B/);
+});
+
+test("a merge button is enabled only for a candidate the server marked mergeable", () => {
+  // A classified transfer the resolver would still refuse (other account,
+  // incompatible Wealth target) arrives with mergeable=false: no button that
+  // can only return 400. A case with a proposed purpose shows no purpose
+  // choices, and an unmarked (legacy) candidate stays disabled too.
+  const html = renderToStaticMarkup(React.createElement(CanonicalCard, {
+    item: { id: "synthetic", reviewType: "TRANSFER_CLASSIFICATION", subjectType: "source_event", presentation: "DECISION", amount: "100", proposedPurpose: "INTERNAL_TRANSFER", allowedActions: ["MERGE_EXISTING", "CONFIRM_NEW_TRANSFER", "IGNORE"], transferCandidates: [{ id: "a", type: "TRANSFER", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Refused transfer", mergeable: false }, { id: "b", type: "UNCLASSIFIED", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Accepted row", mergeable: true }, { id: "c", type: "TRANSFER", amount: "100", transactionAt: "2026-10-03T00:00:00Z", description: "Unmarked row" }] },
+    categories: [], accounts: [], wealthAccounts: [], action() {},
+  }));
+  assert.match(html, /<button type="button" disabled="">.*?Refused transfer/);
+  assert.match(html, /<button type="button">.*?Accepted row/);
+  assert.match(html, /<button type="button" disabled="">.*?Unmarked row/);
 });
 
 test("a notice wins over the typed card, so no refused button renders", () => {

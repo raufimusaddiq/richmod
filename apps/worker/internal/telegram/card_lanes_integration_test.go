@@ -625,3 +625,50 @@ func TestOutcomeEditOnExpiredCopyHasNoButtons(t *testing.T) {
 		t.Fatalf("expired copy outcome: %s", encoded)
 	}
 }
+
+// The Telegram transfer chooser offers a merge button only for a candidate
+// the shared merge rule accepts, so the position it stores always resolves to a
+// mergeable transaction; a case without a proposed purpose offers no
+// record-as-new button, because the card cannot ask for the purpose.
+func TestTransferCardOffersOnlyMergeableCandidates(t *testing.T) {
+	f := newCardFixture(t)
+	account := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BCA','BANK','FULL_LEDGER') RETURNING id`, f.household)
+	other := f.id(`INSERT INTO account(household_id,name,account_type,tracking_policy) VALUES($1,'BRI','BANK','FULL_LEDGER') RETURNING id`, f.household)
+	elsewhere := f.id(`INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at) VALUES($1,$2,'UNCLASSIFIED','NEEDS_REVIEW',500000,now()-interval '1 minute') RETURNING id`, f.household, other)
+	accepted := f.id(`INSERT INTO transaction(household_id,account_id,type,status,amount,transaction_at) VALUES($1,$2,'UNCLASSIFIED','NEEDS_REVIEW',500000,now()-interval '1 day') RETURNING id`, f.household, account)
+	project := func(purpose string, candidates ...string) (string, string, string, string) {
+		source := f.id(`INSERT INTO source_event(household_id,source_type,external_id,received_at,payload_hash,processing_status) VALUES($1,'TELEGRAM_TEXT',$2,now(),$3,'NEEDS_REVIEW') RETURNING id`, f.household, fmt.Sprintf("xfer-mergeable-%s-%d", purpose, f.chat), []byte("xfer-"+purpose))
+		f.exec(`INSERT INTO transfer_reconciliation_case(household_id,source_event_id,account_id,amount_idr,transaction_at,description,proposed_purpose,candidate_transaction_ids) VALUES($1,$2,$3,500000,now(),'ke tabungan',$4,$5::uuid[])`, f.household, source, account, purpose, candidates)
+		item := f.id(`INSERT INTO review_item(household_id,source_event_id,review_type,status,decision) VALUES($1,$2,'TRANSFER_CLASSIFICATION','OPEN','{"version":1,"reasonCode":"TRANSFER_CLASSIFICATION","decisionClass":"EVIDENCE_GAP","missingFacts":["transfer_relationship"],"allowedActions":["CLASSIFY_TRANSFER","IGNORE"]}'::jsonb) RETURNING id`, f.household, source)
+		tx, err := f.pool.Begin(f.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ProjectReviewItem(f.ctx, tx, f.household, item, 0, "", f.chat); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(f.ctx); err != nil {
+			t.Fatal(err)
+		}
+		var text, markup, request string
+		f.row(`SELECT payload_json->>'text',payload_json->'reply_markup'::text,payload_json->>'review_request_id' FROM job WHERE type='SEND_TELEGRAM_MESSAGE' AND payload_json->>'review_request_id' IN (SELECT id::text FROM review_request WHERE review_item_id=$1)`, []any{&text, &markup, &request}, item)
+		return item, text, markup, request
+	}
+	item, text, markup, request := project("INTERNAL_TRANSFER", elsewhere, accepted)
+	if !strings.Contains(markup, "review:xfer:merge:0") || strings.Contains(markup, "review:xfer:merge:1") || !strings.Contains(markup, "review:xfer:new") {
+		t.Fatalf("only the mergeable candidate gets a merge button: %s", markup)
+	}
+	f.exec(`UPDATE review_request_recipient SET telegram_message_id=61 WHERE review_request_id=$1`, request)
+	f.tap(61, "review:xfer:merge:0", text)
+	var status, acceptedStatus, elsewhereStatus string
+	f.row(`SELECT (SELECT status FROM review_item WHERE id=$1),(SELECT status FROM transaction WHERE id=$2),(SELECT status FROM transaction WHERE id=$3)`, []any{&status, &acceptedStatus, &elsewhereStatus}, item, accepted, elsewhere)
+	if status != "RESOLVED" || acceptedStatus != "CONFIRMED" || elsewhereStatus != "NEEDS_REVIEW" {
+		t.Fatalf("merge: item=%s accepted=%s elsewhere=%s", status, acceptedStatus, elsewhereStatus)
+	}
+	// Without a proposed purpose an unclassified candidate cannot be merged and
+	// the card cannot choose a purpose for a new transfer: only dismiss remains.
+	_, _, markup, _ = project("", elsewhere)
+	if strings.Contains(markup, "review:xfer:merge:") || strings.Contains(markup, "review:xfer:new") || !strings.Contains(markup, "review:ignore") {
+		t.Fatalf("a purpose-less case with no mergeable candidate offers only dismiss: %s", markup)
+	}
+}

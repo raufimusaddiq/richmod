@@ -334,17 +334,23 @@ func incomeClassificationMarkup() *InlineKeyboardMarkup {
 }
 
 // transferReconciliationMarkup builds the chooser of a source-bound transfer
-// review from its open reconciliation case: one merge button per candidate (by
-// list position, never a canonical id), record-as-new, and dismiss. More than
-// ten candidates cannot be chosen from, so only dismiss remains.
+// review from its open reconciliation case: one merge button per candidate the
+// shared merge rule accepts (reviewdomain.LoadTransferMergeSet, by list
+// position, never a canonical id), record-as-new when the case already proposes
+// a purpose (the card cannot ask for one), and dismiss. More than ten
+// candidates cannot be chosen from, so only dismiss remains.
 func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID string) (*InlineKeyboardMarkup, error) {
-	candidates, err := transferReconciliationCandidates(ctx, tx, reviewID)
+	set, err := transferReconciliationSet(ctx, tx, reviewID)
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		ids = append(ids, candidate.ID)
+	ids := make([]string, 0, len(set.Candidates))
+	var mergeable []reviewdomain.TransferMergeCandidate
+	for _, candidate := range set.Candidates {
+		if candidate.Mergeable {
+			ids = append(ids, candidate.ID)
+			mergeable = append(mergeable, candidate)
+		}
 	}
 	encoded, err := json.Marshal(ids)
 	if err != nil {
@@ -356,46 +362,36 @@ func transferReconciliationMarkup(ctx context.Context, tx pgx.Tx, reviewID strin
 		return nil, err
 	}
 	ignore := []InlineKeyboardButton{{Text: "Abaikan", CallbackData: "review:ignore"}}
-	if len(candidates) > 10 {
+	if set.Total > reviewdomain.TransferCandidateLimit {
 		return &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{ignore}}, nil
 	}
-	keyboard := make([][]InlineKeyboardButton, 0, len(candidates)+2)
-	for index, candidate := range candidates {
-		label := "Gabung Rp" + FormatIDR(candidate.Amount) + " · " + reviewdomain.FormatIndonesianDate(candidate.At.In(jakartaLocation()))
+	keyboard := make([][]InlineKeyboardButton, 0, len(mergeable)+2)
+	for index, candidate := range mergeable {
+		label := "Gabung Rp" + FormatIDR(candidate.Amount) + " · " + reviewdomain.FormatIndonesianDate(candidate.TransactionAt.In(jakartaLocation()))
 		keyboard = append(keyboard, []InlineKeyboardButton{{Text: clean(label, 40), CallbackData: fmt.Sprintf("review:xfer:merge:%d", index)}})
 	}
-	keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Catat transfer baru", CallbackData: "review:xfer:new"}}, ignore)
+	if set.Purpose != "" {
+		keyboard = append(keyboard, []InlineKeyboardButton{{Text: "Catat transfer baru", CallbackData: "review:xfer:new"}})
+	}
+	keyboard = append(keyboard, ignore)
 	return &InlineKeyboardMarkup{InlineKeyboard: keyboard}, nil
 }
 
-type transferCandidate struct {
-	ID     string
-	Amount string
-	At     time.Time
-}
-
-// transferReconciliationCandidates lists the open case's candidates in the
-// order the Review Inbox shows them (transaction time, then id).
-func transferReconciliationCandidates(ctx context.Context, tx pgx.Tx, reviewID string) ([]transferCandidate, error) {
-	rows, err := tx.Query(ctx, `SELECT t.id::text,round(t.amount)::text,t.transaction_at
+// transferReconciliationSet reads the open source-bound case behind a review
+// request through the shared merge rule, in the order every surface ranks it.
+func transferReconciliationSet(ctx context.Context, tx pgx.Tx, reviewID string) (reviewdomain.TransferMergeSet, error) {
+	var household, caseID string
+	err := tx.QueryRow(ctx, `SELECT ri.household_id::text,trc.id::text
 		FROM review_request r JOIN review_item ri ON ri.id=r.review_item_id
 		JOIN transfer_reconciliation_case trc ON trc.household_id=ri.household_id AND trc.source_event_id=ri.source_event_id AND trc.financial_email_observation_id IS NULL AND trc.status='OPEN'
-		JOIN transaction t ON t.id=ANY(trc.candidate_transaction_ids) AND t.household_id=ri.household_id
-		WHERE r.id=$1 AND ri.transaction_id IS NULL AND ri.financial_email_observation_id IS NULL
-		ORDER BY t.transaction_at,t.id`, reviewID)
+		WHERE r.id=$1 AND ri.transaction_id IS NULL AND ri.financial_email_observation_id IS NULL`, reviewID).Scan(&household, &caseID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return reviewdomain.TransferMergeSet{}, nil
+	}
 	if err != nil {
-		return nil, err
+		return reviewdomain.TransferMergeSet{}, err
 	}
-	defer rows.Close()
-	var candidates []transferCandidate
-	for rows.Next() {
-		var candidate transferCandidate
-		if err := rows.Scan(&candidate.ID, &candidate.Amount, &candidate.At); err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, candidate)
-	}
-	return candidates, rows.Err()
+	return reviewdomain.LoadTransferMergeSet(ctx, tx, household, caseID)
 }
 
 // reviewItemSummary names the subject of any review item from canonical state:

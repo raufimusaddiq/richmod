@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/raufimusaddiq/richmod/apps/reviewdomain"
 	"github.com/raufimusaddiq/richmod/apps/reviewdomain/analyticscore"
 	"github.com/raufimusaddiq/richmod/apps/worker/internal/gateway"
 )
@@ -471,9 +473,7 @@ func (p *Processor) runAgentLoop(ctx context.Context, model conversationalGatewa
 			state.History = append(state.History, result)
 			_ = p.persistTurn(ctx, state.HouseholdID, state.SourceEventID, state.Update, "TOOL", "", result.Tool, agentToolResultPublic(result))
 			if len(state.FreshEvidenceDocuments) > 0 {
-				if _, err = p.pool.Exec(ctx, `UPDATE source_event SET processing_status='PROCESSED',parser_name='telegram-agent',parser_version='1'
-					WHERE id=ANY(SELECT source_event_id FROM document WHERE id=ANY($1::uuid[]) UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($1::uuid[]))
-					AND processing_status = 'NEEDS_REVIEW'`, state.FreshEvidenceDocuments); err != nil {
+				if err = p.settleFreshEvidenceSources(ctx, state); err != nil {
 					return fmt.Errorf("finalize stale evidence source: %w", err)
 				}
 			}
@@ -739,11 +739,7 @@ func (p *Processor) finishAgentReply(ctx context.Context, state *agentState, mes
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `
-		UPDATE source_event
-		SET processing_status=CASE WHEN processing_status IN ('NEEDS_REVIEW','IGNORED') THEN processing_status ELSE 'PROCESSED' END,
-		    parser_name='telegram-conversational-agent',parser_version='1'
-		WHERE id=$1`, state.SourceEventID); err != nil {
+	if err := finalizeAgentSource(ctx, tx, state.HouseholdID, state.SourceEventID, "telegram-conversational-agent"); err != nil {
 		return err
 	}
 	if markup := agentPendingMarkup(state.History); markup != nil {
@@ -767,6 +763,46 @@ func (p *Processor) finishAgentReply(ctx context.Context, state *agentState, mes
 	// that was sent or records one that was not.
 	if err := insertTurnTx(ctx, tx, state.HouseholdID, state.SourceEventID, state.Update, "ASSISTANT", message, "", public); err != nil {
 		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// finalizeAgentSource records which agent lane finished a turn's source event
+// and derives its status through the shared lifecycle (ADR-046 amendment): an
+// open review or pending evidence keeps it NEEDS_REVIEW, a lone dismissal stays
+// IGNORED and anything else settles PROCESSED. No agent lane re-expresses that
+// rule with its own CASE.
+func finalizeAgentSource(ctx context.Context, tx pgx.Tx, householdID, sourceEventID, parser string) error {
+	if _, err := tx.Exec(ctx, `UPDATE source_event SET parser_name=$3,parser_version='1' WHERE id=$1 AND household_id=$2`, sourceEventID, householdID, parser); err != nil {
+		return err
+	}
+	return reviewdomain.RefreshSourceLifecycle(ctx, tx, householdID, sourceEventID)
+}
+
+// settleFreshEvidenceSources re-derives, after a side effect consumed this
+// turn's fresh evidence, every source of those documents still parked in
+// review. The shared lifecycle decides: a document whose review the side effect
+// answered settles, one that still has open work stays NEEDS_REVIEW.
+func (p *Processor) settleFreshEvidenceSources(ctx context.Context, state *agentState) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT s.id::text FROM source_event s WHERE s.household_id=$2 AND s.processing_status='NEEDS_REVIEW'
+		AND s.id IN (SELECT source_event_id FROM document WHERE id=ANY($1::uuid[]) UNION SELECT source_event_id FROM document_page WHERE document_id=ANY($1::uuid[]))
+		ORDER BY s.id`, state.FreshEvidenceDocuments, state.HouseholdID)
+	if err != nil {
+		return err
+	}
+	sources, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, source := range sources {
+		if err := finalizeAgentSource(ctx, tx, state.HouseholdID, source, "telegram-agent"); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
