@@ -107,6 +107,8 @@ test("household route exposes Telegram connection state", () => {
   const source = text("app/household/page.js");
   assert.match(source, /telegramConnected/);
   assert.match(source, /telegram-invite/);
+  // An owner created without a Telegram ID links from their own row.
+  assert.match(source, /member\.role === "OWNER" && member\.active && !member\.telegramConnected/);
 });
 
 test("shared UX feedback is accessible and motion respects user preference", () => {

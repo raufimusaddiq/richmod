@@ -264,8 +264,11 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	_, _ = tx.Exec(r.Context(), `UPDATE telegram_link_invite SET status='EXPIRED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING' AND expires_at<=now()`, householdID, memberID)
+	// Any active member without Telegram is eligible, the owner included: a
+	// household created without a Telegram ID has no other way to link its owner
+	// (ADR-059).
 	var id string
-	err = tx.QueryRow(r.Context(), `INSERT INTO telegram_link_invite(household_id,user_id,token_hash,expires_at,created_by_user_id) SELECT $1,$2,$3,$4,$5 FROM household_member hm WHERE hm.household_id=$1 AND hm.user_id=$2 AND hm.role='MEMBER' AND hm.active AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.household_id=$1 AND ti.user_id=$2 AND ti.active) RETURNING id`, householdID, memberID, digest[:], expires, p.UserID).Scan(&id)
+	err = tx.QueryRow(r.Context(), `INSERT INTO telegram_link_invite(household_id,user_id,token_hash,expires_at,created_by_user_id) SELECT $1,$2,$3,$4,$5 FROM household_member hm WHERE hm.household_id=$1 AND hm.user_id=$2 AND hm.active AND NOT EXISTS(SELECT 1 FROM telegram_identity ti WHERE ti.household_id=$1 AND ti.user_id=$2 AND ti.active) RETURNING id`, householdID, memberID, digest[:], expires, p.UserID).Scan(&id)
 	if err != nil {
 		out(w, 409, map[string]string{"error": "member is not eligible or already has a pending invite"})
 		return
