@@ -36,6 +36,10 @@ have to choose or transmit an owner's password.
    applies the same rule (`provision.BindTelegramIdentity`), which may only
    reactivate the same user's own identity. This amends ADR-035, which allowed
    a user with an inactive membership to join another household.
+   The Telegram ID is optional at creation: an owner without one links later
+   from their own row on the household page, through the same link invite
+   members use (`POST /api/v1/household/members/{id}/telegram-invite`), which
+   accepts any active member without an active identity, owner included.
 4. **Owners enroll by invite; no password passes through the API.** The console
    owner gets an unusable random password with `password_initialized_at` unset
    (login refuses such a user) and a single-use, 24-hour dashboard invite

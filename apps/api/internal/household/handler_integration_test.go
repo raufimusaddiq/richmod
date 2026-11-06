@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
+	"github.com/raufimusaddiq/richmod/apps/api/internal/telegram"
 )
 
 func integrationPool(t *testing.T) *pgxpool.Pool {
@@ -102,5 +103,45 @@ func TestOwnerCannotDeactivateCrossHouseholdMember(t *testing.T) {
 	var active bool
 	if err := pool.QueryRow(context.Background(), `SELECT active FROM household_member WHERE user_id=$1`, otherUser).Scan(&active); err != nil || !active {
 		t.Fatalf("active=%v err=%v", active, err)
+	}
+}
+
+// A household created without a Telegram ID must not strand its owner: the
+// owner links through the same one-time invite members use (ADR-059).
+func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
+	pool := integrationPool(t)
+	ctx := context.Background()
+	householdID, ownerID, owner := seedIdentity(t, pool, "OWNER")
+	handler := NewHandler(pool, "richmod_bot")
+	invite := func() *httptest.ResponseRecorder {
+		request := requestWithPrincipal(http.MethodPost, "/api/v1/household/members/"+ownerID+"/telegram-invite", nil, owner)
+		request.SetPathValue("id", ownerID)
+		response := httptest.NewRecorder()
+		handler.CreateInvite(response, request)
+		return response
+	}
+	response := invite()
+	if response.Code != http.StatusCreated {
+		t.Fatalf("owner invite status=%d body=%s", response.Code, response.Body.String())
+	}
+	var created struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.Token == "" {
+		t.Fatalf("token=%q err=%v", created.Token, err)
+	}
+	stamp := time.Now().UnixNano()
+	telegramID := stamp%8_000_000_000 + 1_000_000_000
+	linked, err := telegram.NewPostgreSQLStore(pool).Link(ctx, telegram.CaptureInput{UpdateID: stamp, TelegramUserID: telegramID}, created.Token)
+	if err != nil || !linked {
+		t.Fatalf("linked=%v err=%v", linked, err)
+	}
+	var boundUser string
+	if err = pool.QueryRow(ctx, `SELECT user_id FROM telegram_identity WHERE telegram_user_id=$1 AND household_id=$2 AND active`, telegramID, householdID).Scan(&boundUser); err != nil || boundUser != ownerID {
+		t.Fatalf("bound=%s err=%v", boundUser, err)
+	}
+	// Linked is final: the 1:1 rule still refuses a second invite.
+	if response = invite(); response.Code != http.StatusConflict {
+		t.Fatalf("second invite status=%d body=%s", response.Code, response.Body.String())
 	}
 }
