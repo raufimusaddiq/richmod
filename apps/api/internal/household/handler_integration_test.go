@@ -170,3 +170,37 @@ func TestDuplicateMemberEmailExplainsWhy(t *testing.T) {
 		t.Fatalf("other household status=%d body=%s", other.Code, other.Body.String())
 	}
 }
+
+func TestDuplicateMemberEmailDoesNotDeadlockSmallPool(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	seedPool := integrationPool(t)
+	_, _, owner := seedIdentity(t, seedPool, "OWNER")
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxConns = 1
+	small, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(small.Close)
+	handler := NewHandler(small, "richmod_bot")
+	email := fmt.Sprintf("small-%d@example.test", time.Now().UnixNano())
+	for i, want := range []int{http.StatusCreated, http.StatusConflict} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		req := requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Family", "email": email}, owner).WithContext(auth.ContextWithPrincipal(ctx, owner))
+		w := httptest.NewRecorder()
+		handler.Members(w, req)
+		cancel()
+		if w.Code != want {
+			t.Fatalf("attempt %d status=%d want %d body=%s", i, w.Code, want, w.Body.String())
+		}
+		if want == http.StatusConflict && !strings.Contains(w.Body.String(), "sudah menjadi anggota rumah tangga ini") {
+			t.Fatalf("duplicate lookup did not complete on a one-connection pool: %s", w.Body.String())
+		}
+	}
+}

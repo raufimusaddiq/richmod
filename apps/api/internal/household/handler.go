@@ -108,8 +108,14 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 		// Emails are unique across all households, so say which case this is: the
 		// person is already in this household (add nothing, share their invite), or
 		// the email belongs to an account elsewhere (use a different email).
+		// Release the failed transaction's connection before using the pool again,
+		// otherwise a small pool can deadlock on duplicate requests.
+		_ = tx.Rollback(r.Context())
 		var inThisHousehold bool
-		_ = h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM "user" u JOIN household_member hm ON hm.user_id=u.id WHERE u.email=$1 AND hm.household_id=$2)`, in.Email, householdID).Scan(&inThisHousehold)
+		if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM "user" u JOIN household_member hm ON hm.user_id=u.id WHERE u.email=$1 AND hm.household_id=$2)`, in.Email, householdID).Scan(&inThisHousehold); err != nil {
+			out(w, 500, map[string]string{"error": "unable to create member"})
+			return
+		}
 		if inThisHousehold {
 			out(w, 409, map[string]string{"error": "email sudah menjadi anggota rumah tangga ini; lihat daftar anggota untuk membuat tautan undangan"})
 			return
