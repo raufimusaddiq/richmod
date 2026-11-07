@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raufimusaddiq/richmod/apps/api/internal/auth"
 )
@@ -99,7 +100,27 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	var userID string
 	if err = tx.QueryRow(r.Context(), `INSERT INTO "user"(email,display_name,password_hash,password_initialized_at) VALUES($1,$2,$3,NULL) RETURNING id`, in.Email, in.DisplayName, passwordHash).Scan(&userID); err != nil {
-		out(w, 409, map[string]string{"error": "email already exists"})
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+			out(w, 500, map[string]string{"error": "unable to create member"})
+			return
+		}
+		// Emails are unique across all households, so say which case this is: the
+		// person is already in this household (add nothing, share their invite), or
+		// the email belongs to an account elsewhere (use a different email).
+		// Release the failed transaction's connection before using the pool again,
+		// otherwise a small pool can deadlock on duplicate requests.
+		_ = tx.Rollback(r.Context())
+		var inThisHousehold bool
+		if err := h.pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM "user" u JOIN household_member hm ON hm.user_id=u.id WHERE u.email=$1 AND hm.household_id=$2)`, in.Email, householdID).Scan(&inThisHousehold); err != nil {
+			out(w, 500, map[string]string{"error": "unable to create member"})
+			return
+		}
+		if inThisHousehold {
+			out(w, 409, map[string]string{"error": "email sudah menjadi anggota rumah tangga ini; lihat daftar anggota untuk membuat tautan undangan"})
+			return
+		}
+		out(w, 409, map[string]string{"error": "email sudah dipakai akun lain; gunakan email berbeda untuk anggota ini"})
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO household_member(household_id,user_id,role) VALUES($1,$2,'MEMBER')`, householdID, userID); err != nil {

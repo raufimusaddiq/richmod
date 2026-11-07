@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,5 +144,63 @@ func TestOwnerWithoutTelegramLinksThroughInvite(t *testing.T) {
 	// Linked is final: the 1:1 rule still refuses a second invite.
 	if response = invite(); response.Code != http.StatusConflict {
 		t.Fatalf("second invite status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestDuplicateMemberEmailExplainsWhy(t *testing.T) {
+	pool := integrationPool(t)
+	_, _, owner := seedIdentity(t, pool, "OWNER")
+	_, _, otherOwner := seedIdentity(t, pool, "OWNER")
+	handler := NewHandler(pool, "richmod_bot")
+	email := fmt.Sprintf("dup-%d@example.test", time.Now().UnixNano())
+	add := func(p auth.Principal) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		handler.Members(w, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Family", "email": email}, p))
+		return w
+	}
+	if w := add(owner); w.Code != http.StatusCreated {
+		t.Fatalf("first add status=%d body=%s", w.Code, w.Body.String())
+	}
+	same := add(owner)
+	if same.Code != http.StatusConflict || !strings.Contains(same.Body.String(), "sudah menjadi anggota rumah tangga ini") {
+		t.Fatalf("same household status=%d body=%s", same.Code, same.Body.String())
+	}
+	other := add(otherOwner)
+	if other.Code != http.StatusConflict || !strings.Contains(other.Body.String(), "dipakai akun lain") {
+		t.Fatalf("other household status=%d body=%s", other.Code, other.Body.String())
+	}
+}
+
+func TestDuplicateMemberEmailDoesNotDeadlockSmallPool(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	seedPool := integrationPool(t)
+	_, _, owner := seedIdentity(t, seedPool, "OWNER")
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxConns = 1
+	small, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(small.Close)
+	handler := NewHandler(small, "richmod_bot")
+	email := fmt.Sprintf("small-%d@example.test", time.Now().UnixNano())
+	for i, want := range []int{http.StatusCreated, http.StatusConflict} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		req := requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Family", "email": email}, owner).WithContext(auth.ContextWithPrincipal(ctx, owner))
+		w := httptest.NewRecorder()
+		handler.Members(w, req)
+		cancel()
+		if w.Code != want {
+			t.Fatalf("attempt %d status=%d want %d body=%s", i, w.Code, want, w.Body.String())
+		}
+		if want == http.StatusConflict && !strings.Contains(w.Body.String(), "sudah menjadi anggota rumah tangga ini") {
+			t.Fatalf("duplicate lookup did not complete on a one-connection pool: %s", w.Body.String())
+		}
 	}
 }
