@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import useDialogs from "../components/useDialogs";
 import { time, Badge, Empty, useDrawerA11y, useLoad, Table } from "./shared";
 
 // Server error codes from POST /api/v1/admin/households and owner-invite.
@@ -172,10 +173,12 @@ export default function Households({ setError }) {
 
 function HouseholdDetail({ id, close, setError }) {
   const [data, reload] = useLoad(`/api/v1/admin/households/${id}/overview`, setError);
+  const { confirm, dialogs } = useDialogs();
   const [ownerInvite, setOwnerInvite] = useState(null);
   const [reissuing, setReissuing] = useState(false);
   const drawer = useDrawerA11y(close);
   const pendingOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && !x.enrolled);
+  const enrolledOwner = data?.memberItems?.find((x) => x.role === "OWNER" && x.active && x.enrolled);
   // Each reissue revokes the previous link, so a double click must not
   // silently invalidate the link just shown.
   async function reissue() {
@@ -183,6 +186,21 @@ function HouseholdDetail({ id, close, setError }) {
     setReissuing(true);
     try {
       setOwnerInvite(await postProvision(`/api/v1/admin/households/${id}/owner-invite`));
+      reload();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReissuing(false);
+    }
+  }
+  // The old password keeps working until the owner opens the link; opening it
+  // replaces the password and signs the owner out everywhere.
+  async function resetOwnerPassword() {
+    if (reissuing) return;
+    if (!(await confirm(`Buat tautan atur ulang kata sandi untuk ${enrolledOwner.email}? Kata sandi lama berlaku sampai tautan dipakai.`, { confirmLabel: "Buat tautan" }))) return;
+    setReissuing(true);
+    try {
+      setOwnerInvite(await postProvision(`/api/v1/admin/households/${id}/owner-invite`, { reset: true }));
       reload();
     } catch (err) {
       setError(err.message);
@@ -199,6 +217,7 @@ function HouseholdDetail({ id, close, setError }) {
       aria-modal="true"
       aria-label="Detail household"
     >
+      {dialogs}
       <button className="secondary" onClick={close}>
         Tutup
       </button>
@@ -266,7 +285,12 @@ function HouseholdDetail({ id, close, setError }) {
               <button className="secondary" onClick={reissue} disabled={reissuing}>{reissuing ? "Membuat undangan…" : "Buat ulang undangan pemilik"}</button>
             </div>
           )}
-          {ownerInvite && <InviteLink invite={ownerInvite} title={`Undangan baru untuk ${pendingOwner?.email || "pemilik"}`} />}
+          {enrolledOwner && (
+            <div className="admin-actions">
+              <button className="secondary" onClick={resetOwnerPassword} disabled={reissuing}>{reissuing ? "Membuat tautan…" : "Atur ulang kata sandi pemilik"}</button>
+            </div>
+          )}
+          {ownerInvite && <InviteLink invite={ownerInvite} title={`${pendingOwner ? "Undangan baru" : "Tautan atur ulang kata sandi"} untuk ${(pendingOwner || enrolledOwner)?.email || "pemilik"}`} />}
           <h3>LLM terbaru</h3>
           {data.recentLLMCalls?.length ? <Table headers={["Waktu", "Task", "Status", "Latency"]}>{data.recentLLMCalls.map((x) => <tr key={x.id}><td>{time(x.createdAt)}</td><td>{x.task}</td><td><Badge value={x.status} /></td><td>{x.durationMs} ms</td></tr>)}</Table> : <Empty>Tidak ada panggilan LLM.</Empty>}
           <h3>Source gagal</h3>

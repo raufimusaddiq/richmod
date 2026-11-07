@@ -180,10 +180,13 @@ type OwnerInvite struct {
 }
 
 // IssueOwnerInvite creates a single-use dashboard invite for the active owner
-// of a household who has not enrolled yet, revoking any earlier pending one.
+// of a household, revoking any earlier pending one. An owner who has already
+// enrolled is only re-invited when reset is true (a forgotten password): the
+// caller must ask for it explicitly, and accepting the link replaces the
+// password and signs the owner out everywhere.
 // The owner row is locked first, so concurrent calls serialize and only the
 // last returned link is valid. Only the token's SHA-256 is stored.
-func IssueOwnerInvite(ctx context.Context, tx pgx.Tx, householdID, createdBy string, now time.Time) (OwnerInvite, error) {
+func IssueOwnerInvite(ctx context.Context, tx pgx.Tx, householdID, createdBy string, now time.Time, reset bool) (OwnerInvite, error) {
 	var invite OwnerInvite
 	var enrolled bool
 	err := tx.QueryRow(ctx, `SELECT hm.user_id::text,u.email,u.password_initialized_at IS NOT NULL
@@ -197,7 +200,7 @@ func IssueOwnerInvite(ctx context.Context, tx pgx.Tx, householdID, createdBy str
 	if err != nil {
 		return OwnerInvite{}, fmt.Errorf("load household owner: %w", err)
 	}
-	if enrolled {
+	if enrolled && !reset {
 		return OwnerInvite{}, ErrOwnerAlreadyActive
 	}
 	raw := make([]byte, 32)

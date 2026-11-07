@@ -178,17 +178,24 @@ func (h *Handler) CreateDashboardInvite(w http.ResponseWriter, r *http.Request) 
 	}
 	defer tx.Rollback(r.Context())
 	_, _ = tx.Exec(r.Context(), `UPDATE dashboard_account_invite SET status='EXPIRED' WHERE household_id=$1 AND user_id=$2 AND status='PENDING' AND expires_at<=now()`, householdID, memberID)
+	// The same link activates a new account or resets a forgotten password.
+	var reset bool
+	_ = tx.QueryRow(r.Context(), `SELECT password_initialized_at IS NOT NULL FROM "user" WHERE id=$1`, memberID).Scan(&reset)
+	purpose := "SETUP"
+	if reset {
+		purpose = "RESET"
+	}
 	var id string
 	err = tx.QueryRow(r.Context(), `INSERT INTO dashboard_account_invite(household_id,user_id,token_hash,status,expires_at,created_by_user_id) SELECT $1,$2,$3,'PENDING',$4,$5 FROM household_member WHERE household_id=$1 AND user_id=$2 AND role='MEMBER' AND active RETURNING id`, householdID, memberID, d[:], exp, p.UserID).Scan(&id)
 	if err != nil {
 		out(w, 409, map[string]string{"error": "member is not eligible or already has a pending invite"})
 		return
 	}
-	if audit(r, tx, householdID, p.UserID, "CREATE", "dashboard_account_invite", id, nil, map[string]any{"userId": memberID, "expiresAt": exp}) != nil || tx.Commit(r.Context()) != nil {
+	if audit(r, tx, householdID, p.UserID, "CREATE", "dashboard_account_invite", id, nil, map[string]any{"userId": memberID, "expiresAt": exp, "purpose": purpose}) != nil || tx.Commit(r.Context()) != nil {
 		out(w, 500, map[string]string{"error": "unable to create invite"})
 		return
 	}
-	out(w, 201, map[string]any{"id": id, "link": "/invite#" + token, "expiresAt": exp})
+	out(w, 201, map[string]any{"id": id, "link": "/invite#" + token, "expiresAt": exp, "purpose": purpose})
 }
 
 func (h *Handler) RevokeDashboardInvite(w http.ResponseWriter, r *http.Request) {

@@ -185,6 +185,17 @@ func (s *Service) AcceptDashboardInvite(ctx context.Context, token, password str
 	if err != nil {
 		return Principal{}, "", time.Time{}, err
 	}
+	// The same link sets up a new account and resets a forgotten password. On a
+	// reset the old password may be compromised, so end every existing session.
+	var hadPassword bool
+	if err = tx.QueryRow(ctx, `SELECT password_initialized_at IS NOT NULL FROM "user" WHERE id=$1 FOR UPDATE`, userID).Scan(&hadPassword); err != nil {
+		return Principal{}, "", time.Time{}, err
+	}
+	if hadPassword {
+		if _, err = tx.Exec(ctx, `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID); err != nil {
+			return Principal{}, "", time.Time{}, err
+		}
+	}
 	if _, err = tx.Exec(ctx, `UPDATE "user" SET password_hash=$1,password_initialized_at=now(),updated_at=now() WHERE id=$2 AND active`, hash, userID); err != nil {
 		return Principal{}, "", time.Time{}, err
 	}

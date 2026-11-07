@@ -130,7 +130,7 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	if _, _, _, err := service.AcceptDashboardInvite(ctx, strings.TrimPrefix(created.Invite.Link, "/invite#"), "a-strong-owner-password"); err == nil {
 		t.Fatal("the replaced invite still enrolled the owner")
 	}
-	principal, _, _, err := service.AcceptDashboardInvite(ctx, strings.TrimPrefix(reissued.Link, "/invite#"), "a-strong-owner-password")
+	principal, ownerSession, _, err := service.AcceptDashboardInvite(ctx, strings.TrimPrefix(reissued.Link, "/invite#"), "a-strong-owner-password")
 	if err != nil {
 		t.Fatalf("accept reissued invite: %v", err)
 	}
@@ -139,6 +139,38 @@ func TestSuperAdminCreatesHouseholdAndOwnerEnrollsByInvite(t *testing.T) {
 	}
 	if response := call(superAdmin, "/api/v1/admin/households/x/owner-invite", "", h.ReissueOwnerInvite, created.Household.ID); response.Code != http.StatusConflict {
 		t.Fatalf("reissue after enrollment: %d %s", response.Code, response.Body.String())
+	}
+
+	// A forgotten owner password is reset only by an explicit request, and
+	// accepting the link replaces the password and ends the old session.
+	if _, _, err := service.Authenticate(ctx, ownerSession); err != nil {
+		t.Fatalf("owner session before reset: %v", err)
+	}
+	resetCall := call(superAdmin, "/api/v1/admin/households/x/owner-invite", `{"reset":true}`, h.ReissueOwnerInvite, created.Household.ID)
+	if resetCall.Code != http.StatusOK {
+		t.Fatalf("reset: %d %s", resetCall.Code, resetCall.Body.String())
+	}
+	var resetInvite struct{ Link string }
+	if err := json.Unmarshal(resetCall.Body.Bytes(), &resetInvite); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := service.Login(ctx, ownerEmail, "a-strong-owner-password"); err != nil {
+		t.Fatalf("the old password must keep working until the reset link is used: %v", err)
+	}
+	if _, newSession, _, err := service.AcceptDashboardInvite(ctx, strings.TrimPrefix(resetInvite.Link, "/invite#"), "a-brand-new-owner-password"); err != nil {
+		t.Fatalf("accept reset link: %v", err)
+	} else if _, _, err := service.Authenticate(ctx, newSession); err != nil {
+		t.Fatalf("session issued by the reset: %v", err)
+	}
+	if _, _, err := service.Authenticate(ctx, ownerSession); err == nil {
+		t.Fatal("the pre-reset session survived a password reset")
+	}
+	if _, _, _, err := service.Login(ctx, ownerEmail, "a-strong-owner-password"); err == nil {
+		t.Fatal("the old password still works after a reset")
+	}
+	var resetAudits int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM platform_audit_log WHERE action='ADMIN_RESET_OWNER_PASSWORD' AND entity_id=$1::text`, created.Household.ID).Scan(&resetAudits); err != nil || resetAudits != 1 {
+		t.Fatalf("reset audits=%d err=%v", resetAudits, err)
 	}
 
 	// Refusals: an existing user is never attached, a linked Telegram ID is

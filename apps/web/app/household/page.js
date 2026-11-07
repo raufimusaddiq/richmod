@@ -47,7 +47,7 @@ export default function HouseholdPage() {
   async function createDashboardInvite(memberId) {
     setError(""); setCopied(false); const response = await fetch(`/api/v1/household/members/${memberId}/dashboard-invite`, { method: "POST" }); const body = await response.json().catch(() => ({}));
     if (!response.ok) { setError(body.error || "Undangan login belum dapat dibuat."); return false; }
-    setInvite({ kind: "dashboard", link: window.location.origin + body.link, expiresAt: body.expiresAt, memberId }); await load(); return true;
+    setInvite({ kind: "dashboard", reset: body.purpose === "RESET", link: window.location.origin + body.link, expiresAt: body.expiresAt, memberId }); await load(); return true;
   }
 
   // 404 means there was nothing pending to cancel, which is the state we want.
@@ -68,12 +68,13 @@ export default function HouseholdPage() {
     catch { linkInput.current?.select(); setError("Tautan belum bisa disalin otomatis. Tautan sudah dipilih, tekan Ctrl+C."); }
   }
 
+  // One link both activates a new account and resets a forgotten password.
   function loginInviteControls(member) {
-    if (member.passwordInitialized) return null;
     const pending = member.dashboardInviteStatus === "PENDING" && stillValid(member.dashboardInviteExpiresAt);
+    const resetting = member.passwordInitialized;
     return pending
-      ? <><button className="secondary" onClick={() => revokeInvite("dashboard", member.id)}>Batalkan undangan masuk</button><button className="secondary" onClick={() => renewInvite("dashboard", member.id)}>Buat tautan masuk baru</button></>
-      : <button className="secondary" onClick={() => createDashboardInvite(member.id)}>Undang masuk ke Richmod</button>;
+      ? <><button className="secondary" onClick={() => revokeInvite("dashboard", member.id)}>{resetting ? "Batalkan tautan atur ulang" : "Batalkan undangan masuk"}</button><button className="secondary" onClick={() => renewInvite("dashboard", member.id)}>{resetting ? "Buat tautan atur ulang baru" : "Buat tautan masuk baru"}</button></>
+      : <button className="secondary" onClick={() => createDashboardInvite(member.id)}>{resetting ? "Atur ulang kata sandi" : "Undang masuk ke Richmod"}</button>;
   }
 
   function telegramInviteControls(member) {
@@ -85,10 +86,9 @@ export default function HouseholdPage() {
   // One plain sentence per invite so an owner can see whether a link is still usable.
   function inviteState(member) {
     const notes = [];
-    if (!member.passwordInitialized) {
-      if (member.dashboardInviteStatus === "PENDING") notes.push(stillValid(member.dashboardInviteExpiresAt) ? `Undangan masuk berlaku sampai ${untilLabel(member.dashboardInviteExpiresAt)}` : "Undangan masuk sudah kedaluwarsa");
-      else notes.push("Belum membuat kata sandi");
-    }
+    const loginLabel = member.passwordInitialized ? "Tautan atur ulang kata sandi" : "Undangan masuk";
+    if (member.dashboardInviteStatus === "PENDING") notes.push(stillValid(member.dashboardInviteExpiresAt) ? `${loginLabel} berlaku sampai ${untilLabel(member.dashboardInviteExpiresAt)}` : `${loginLabel} sudah kedaluwarsa`);
+    else if (!member.passwordInitialized) notes.push("Belum membuat kata sandi");
     if (!member.telegramConnected && member.telegramInviteExpiresAt) notes.push(stillValid(member.telegramInviteExpiresAt) ? `Undangan Telegram berlaku sampai ${untilLabel(member.telegramInviteExpiresAt)}` : "Undangan Telegram sudah kedaluwarsa");
     return notes.join(" · ");
   }
@@ -106,7 +106,7 @@ export default function HouseholdPage() {
     {error && <p className="notice error">{error}</p>}
     <div className="admin-stack">
       {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2><span>Peran anggota</span></div><form className="member-form" onSubmit={addMember}><input aria-label="Nama anggota" name="displayName" placeholder="Nama anggota" maxLength="120" required /><input aria-label="Email anggota" name="email" type="email" placeholder="Email anggota" required /><button>Tambahkan</button></form></section>}
-      {invite && <section className="panel" aria-live="polite"><div><span className="eyebrow">{invite.kind === "telegram" ? "UNDANGAN TELEGRAM" : "UNDANGAN MASUK RICHMOD"}</span><h2>Berlaku sampai {untilLabel(invite.expiresAt)} · sekali pakai</h2><p>{invite.kind === "dashboard" ? "Kirim tautan ini langsung kepada anggota yang dituju. Dia membuat kata sandinya sendiri." : members.find(item => item.id === invite.memberId)?.role === "OWNER" ? "Buka tautan ini dari akun Telegram kamu sendiri." : "Kirim tautan ini langsung kepada anggota yang dituju."}</p></div><input ref={linkInput} className="invite-link" readOnly aria-label="Tautan undangan" value={invite.link} onFocus={event => event.currentTarget.select()} /><div className="invite-actions"><button onClick={copyLink}>{copied ? "Tersalin ✓" : "Salin tautan"}</button><a href={invite.link} target="_blank" rel="noreferrer">Buka tautan</a><button className="danger" onClick={() => revokeInvite(invite.kind, invite.memberId)}>Batalkan undangan</button></div><small>Tautan hanya tampil sekarang. Kalau hilang, batalkan lalu buat tautan baru.</small></section>}
+      {invite && <section className="panel" aria-live="polite"><div><span className="eyebrow">{invite.kind === "telegram" ? "UNDANGAN TELEGRAM" : invite.reset ? "ATUR ULANG KATA SANDI" : "UNDANGAN MASUK RICHMOD"}</span><h2>Berlaku sampai {untilLabel(invite.expiresAt)} · sekali pakai</h2><p>{invite.kind === "dashboard" ? invite.reset ? "Kirim tautan ini langsung kepada anggota. Setelah dipakai, kata sandi lama berhenti berlaku dan semua sesi login anggota keluar. Sebelum itu, kata sandi lama masih bisa dipakai." : "Kirim tautan ini langsung kepada anggota yang dituju. Dia membuat kata sandinya sendiri." : members.find(item => item.id === invite.memberId)?.role === "OWNER" ? "Buka tautan ini dari akun Telegram kamu sendiri." : "Kirim tautan ini langsung kepada anggota yang dituju."}</p></div><input ref={linkInput} className="invite-link" readOnly aria-label="Tautan undangan" value={invite.link} onFocus={event => event.currentTarget.select()} /><div className="invite-actions"><button onClick={copyLink}>{copied ? "Tersalin ✓" : "Salin tautan"}</button><a href={invite.link} target="_blank" rel="noreferrer">Buka tautan</a><button className="danger" onClick={() => revokeInvite(invite.kind, invite.memberId)}>Batalkan undangan</button></div><small>Tautan hanya tampil sekarang. Kalau hilang, batalkan lalu buat tautan baru.</small></section>}
       <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{members.length} akun</span></div><div className="settings-list">{members.map(member => <article key={member.id}><div><b>{member.displayName}</b><small>{member.email}</small></div><span>{roleLabel(member.role)} · {member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"} · {member.active ? "Aktif" : "Nonaktif"}{member.active && inviteState(member) && <small className="invite-state">{inviteState(member)}</small>}</span>{owner && member.role === "MEMBER" && member.active && <div className="row-actions">{loginInviteControls(member)}{!member.telegramConnected && telegramInviteControls(member)}<button className="danger" onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}{owner && member.role === "OWNER" && member.active && !member.telegramConnected && <div className="row-actions">{telegramInviteControls(member)}</div>}</article>)}</div></section>
     </div>
   </AppShell>;

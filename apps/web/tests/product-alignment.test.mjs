@@ -185,10 +185,22 @@ test("household invites are copyable, cancellable and show expiry", () => {
   // Cancel goes to the endpoint that matches the invite kind (it used to always hit the Telegram one).
   assert.match(source, /INVITE_PATH\s*=\s*\{\s*telegram: "telegram-invite", dashboard: "dashboard-invite"/);
   assert.match(source, /revokeInvite\(invite\.kind, invite\.memberId\)/);
-  // Members who already set a password are not offered a login invite again.
-  assert.match(source, /if \(member\.passwordInitialized\) return null/);
+  // Members who already set a password get a reset action, not a first-login invite.
+  assert.match(source, /resetting \? "Atur ulang kata sandi" : "Undang masuk ke Richmod"/);
   // Owners can see whether an invite is still valid, expired, or absent.
   assert.match(source, /sudah kedaluwarsa/);
   assert.match(source, /telegramInviteExpiresAt/);
   assert.match(source, /dashboardInviteExpiresAt/);
+});
+
+test("forgotten passwords are reset by an invite link, for members and owners", () => {
+  const household = text("app/household/page.js");
+  assert.match(household, /Atur ulang kata sandi/);
+  assert.match(household, /body\.purpose === "RESET"/);
+  // An enrolled member gets the reset action instead of the first-login invite.
+  assert.doesNotMatch(household, /if \(member\.passwordInitialized\) return null/);
+  const admin = text("app/admin/Households.js");
+  assert.match(admin, /reset: true/);
+  assert.match(admin, /Atur ulang kata sandi pemilik/);
+  assert.match(admin, /confirm\(/);
 });
