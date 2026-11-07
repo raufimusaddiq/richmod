@@ -116,7 +116,7 @@ export default function TransactionsPage() {
   }
 
   async function createTransaction(event) {
-    event.preventDefault(); setCreating(true); setCreateError("");
+    event.preventDefault(); const formEl = event.currentTarget; setCreating(true); setCreateError("");
     const values = Object.fromEntries(new FormData(event.currentTarget));
     if (missingWindow && !withinCycleWindow(values.transactionAt, missingWindow)) { setCreateError(`Pilih waktu di dalam siklus ${missingWindow.from} sampai ${missingWindow.to}.`); setCreating(false); return; }
     if (values.transactionAt) values.transactionAt = new Date(values.transactionAt).toISOString(); else delete values.transactionAt;
@@ -127,7 +127,7 @@ export default function TransactionsPage() {
       const response = await fetch("/api/v1/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(response.status < 500 ? body.error : "Transaksi belum dapat disimpan. Coba lagi.");
-      createDialog.current?.close(); event.currentTarget.reset(); if (missingWindow) { setMissingWindow(null); const next = new URLSearchParams(window.location.search); next.delete("record"); window.history.replaceState(window.history.state, "", `/transactions?${next}`); } setTransactionType("EXPENSE"); setTransferPurpose("INTERNAL_TRANSFER"); setCreatedId(body?.id || ""); await load();
+      createDialog.current?.close(); formEl.reset(); if (missingWindow) { setMissingWindow(null); const next = new URLSearchParams(window.location.search); next.delete("record"); window.history.replaceState(window.history.state, "", `/transactions?${next}`); } setTransactionType("EXPENSE"); setTransferPurpose("INTERNAL_TRANSFER"); setCreatedId(body?.id || ""); await load();
     } catch (err) { setCreateError(err.message || "Koneksi terputus. Coba lagi."); }
     finally { setCreating(false); }
   }

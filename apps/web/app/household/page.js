@@ -26,10 +26,10 @@ export default function HouseholdPage() {
   const owner = me?.household?.role === "OWNER";
 
   async function addMember(event) {
-    event.preventDefault(); setError(""); const form = new FormData(event.currentTarget);
+    event.preventDefault(); setError(""); const formEl = event.currentTarget; const form = new FormData(formEl);
     const response = await fetch("/api/v1/household/members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: form.get("displayName"), email: form.get("email") }) });
     if (!response.ok) { const body = await response.json().catch(() => ({})); setError(body.error || "Anggota belum dapat ditambahkan."); return; }
-    event.currentTarget.reset(); await load();
+    formEl.reset(); await load();
   }
 
   async function createInvite(memberId) {

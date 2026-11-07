@@ -168,3 +168,11 @@ test("settings sections are labelled landmarks", () => {
   assert.match(settings, /<h2 id=\{`\$\{id\}-title`\}>\{title\}<\/h2>/);
   assert.match(settings, /aria-label="Bagian pengaturan"/);
 });
+
+test("forms are reset through a captured element, never event.currentTarget after an await", () => {
+  // React clears event.currentTarget once the handler yields, so a reset after
+  // await throws and skips the refresh that follows it.
+  for (const route of ["household/page.js", "settings/page.js", "documents/page.js", "transactions/page.js"]) {
+    assert.doesNotMatch(text(`app/${route}`), /event\.currentTarget\.reset\(\)/, route);
+  }
+});
