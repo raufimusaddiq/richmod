@@ -135,7 +135,7 @@ func (h *Handler) Members(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdID string) {
-	rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.display_name,u.email,hm.role,hm.active,ti.telegram_user_id IS NOT NULL,di.status,di.expires_at FROM household_member hm JOIN "user" u ON u.id=hm.user_id LEFT JOIN telegram_identity ti ON ti.household_id=hm.household_id AND ti.user_id=u.id AND ti.active LEFT JOIN LATERAL (SELECT status,expires_at FROM dashboard_account_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) di ON true WHERE hm.household_id=$1 ORDER BY hm.created_at`, householdID)
+	rows, err := h.pool.Query(r.Context(), `SELECT u.id,u.display_name,u.email,hm.role,hm.active,ti.telegram_user_id IS NOT NULL,u.password_initialized_at IS NOT NULL,di.status,di.expires_at,tl.expires_at FROM household_member hm JOIN "user" u ON u.id=hm.user_id LEFT JOIN telegram_identity ti ON ti.household_id=hm.household_id AND ti.user_id=u.id AND ti.active LEFT JOIN LATERAL (SELECT status,expires_at FROM dashboard_account_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) di ON true LEFT JOIN LATERAL (SELECT expires_at FROM telegram_link_invite WHERE household_id=hm.household_id AND user_id=u.id AND status='PENDING' ORDER BY created_at DESC LIMIT 1) tl ON true WHERE hm.household_id=$1 ORDER BY hm.created_at`, householdID)
 	if err != nil {
 		out(w, 500, map[string]string{"error": "unable to list members"})
 		return
@@ -144,14 +144,14 @@ func (h *Handler) listMembers(w http.ResponseWriter, r *http.Request, householdI
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		var id, name, email, role string
-		var active, connected bool
+		var active, connected, passwordSet bool
 		var inviteStatus *string
-		var inviteExpires *time.Time
-		if rows.Scan(&id, &name, &email, &role, &active, &connected, &inviteStatus, &inviteExpires) != nil {
+		var inviteExpires, telegramInviteExpires *time.Time
+		if rows.Scan(&id, &name, &email, &role, &active, &connected, &passwordSet, &inviteStatus, &inviteExpires, &telegramInviteExpires) != nil {
 			out(w, 500, map[string]string{"error": "unable to list members"})
 			return
 		}
-		items = append(items, map[string]any{"id": id, "displayName": name, "email": email, "role": role, "active": active, "telegramConnected": connected, "dashboardInviteStatus": inviteStatus, "dashboardInviteExpiresAt": inviteExpires})
+		items = append(items, map[string]any{"id": id, "displayName": name, "email": email, "role": role, "active": active, "telegramConnected": connected, "passwordInitialized": passwordSet, "dashboardInviteStatus": inviteStatus, "dashboardInviteExpiresAt": inviteExpires, "telegramInviteExpiresAt": telegramInviteExpires})
 	}
 	out(w, 200, items)
 }

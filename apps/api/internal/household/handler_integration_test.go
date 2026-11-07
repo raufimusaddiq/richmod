@@ -204,3 +204,60 @@ func TestDuplicateMemberEmailDoesNotDeadlockSmallPool(t *testing.T) {
 		}
 	}
 }
+
+func TestMemberListShowsInviteState(t *testing.T) {
+	pool := integrationPool(t)
+	householdID, _, owner := seedIdentity(t, pool, "OWNER")
+	handler := NewHandler(pool, "richmod_bot")
+	email := fmt.Sprintf("invitee-%d@example.test", time.Now().UnixNano())
+	add := httptest.NewRecorder()
+	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Invitee", "email": email}, owner))
+	if add.Code != http.StatusCreated {
+		t.Fatalf("add status=%d body=%s", add.Code, add.Body.String())
+	}
+	var created struct{ ID string }
+	_ = json.Unmarshal(add.Body.Bytes(), &created)
+	listed := func() map[string]any {
+		w := httptest.NewRecorder()
+		handler.Members(w, requestWithPrincipal(http.MethodGet, "/api/v1/household/members", nil, owner))
+		var items []map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range items {
+			if item["id"] == created.ID {
+				return item
+			}
+		}
+		t.Fatal("member missing from list")
+		return nil
+	}
+	before := listed()
+	if before["passwordInitialized"] != false || before["dashboardInviteExpiresAt"] != nil || before["telegramInviteExpiresAt"] != nil {
+		t.Fatalf("fresh member state wrong: %v", before)
+	}
+	for _, path := range []string{"/api/v1/household/members/%s/dashboard-invite", "/api/v1/household/members/%s/telegram-invite"} {
+		req := requestWithPrincipal(http.MethodPost, fmt.Sprintf(path, created.ID), nil, owner)
+		req.SetPathValue("id", created.ID)
+		w := httptest.NewRecorder()
+		if strings.Contains(path, "dashboard") {
+			handler.CreateDashboardInvite(w, req)
+		} else {
+			handler.CreateInvite(w, req)
+		}
+		if w.Code != http.StatusCreated {
+			t.Fatalf("%s status=%d body=%s", path, w.Code, w.Body.String())
+		}
+	}
+	after := listed()
+	if after["dashboardInviteExpiresAt"] == nil || after["telegramInviteExpiresAt"] == nil || after["dashboardInviteStatus"] != "PENDING" {
+		t.Fatalf("pending invites not reported: %v", after)
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE "user" SET password_initialized_at=now() WHERE id=$1`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if listed()["passwordInitialized"] != true {
+		t.Fatal("passwordInitialized not reported")
+	}
+	_ = householdID
+}
