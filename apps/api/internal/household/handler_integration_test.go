@@ -261,3 +261,37 @@ func TestMemberListShowsInviteState(t *testing.T) {
 	}
 	_ = householdID
 }
+
+func TestOwnerResetsMemberPasswordWithInvite(t *testing.T) {
+	pool := integrationPool(t)
+	_, _, owner := seedIdentity(t, pool, "OWNER")
+	handler := NewHandler(pool, "richmod_bot")
+	add := httptest.NewRecorder()
+	handler.Members(add, requestWithPrincipal(http.MethodPost, "/api/v1/household/members", map[string]any{"displayName": "Lupa", "email": fmt.Sprintf("lupa-%d@example.test", time.Now().UnixNano())}, owner))
+	var created struct{ ID string }
+	_ = json.Unmarshal(add.Body.Bytes(), &created)
+	invite := func() map[string]any {
+		req := requestWithPrincipal(http.MethodPost, "/x", nil, owner)
+		req.SetPathValue("id", created.ID)
+		w := httptest.NewRecorder()
+		handler.CreateDashboardInvite(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("invite status=%d body=%s", w.Code, w.Body.String())
+		}
+		var body map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return body
+	}
+	if got := invite()["purpose"]; got != "SETUP" {
+		t.Fatalf("new member purpose=%v", got)
+	}
+	revoke := requestWithPrincipal(http.MethodDelete, "/x", nil, owner)
+	revoke.SetPathValue("id", created.ID)
+	handler.RevokeDashboardInvite(httptest.NewRecorder(), revoke)
+	if _, err := pool.Exec(context.Background(), `UPDATE "user" SET password_initialized_at=now() WHERE id=$1`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := invite()["purpose"]; got != "RESET" {
+		t.Fatalf("enrolled member purpose=%v", got)
+	}
+}

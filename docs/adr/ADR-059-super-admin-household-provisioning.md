@@ -63,6 +63,16 @@ have to choose or transmit an owner's password.
    newest link is valid, and once the owner enrolls no link can be issued
    again. Owners who enroll promptly close the window.
 
+8. **Forgotten passwords are reset by the same invite link.** There is no
+   self-service reset. An owner issues a member a reset link with the member
+   invite endpoint (the response says `purpose: RESET` when the member already
+   has a password). For an enrolled household owner, the Super Admin posts
+   `{"reset": true}` to the owner-invite endpoint; without that explicit flag an
+   enrolled owner is still refused, and the action is platform-audited as
+   `ADMIN_RESET_OWNER_PASSWORD`. Opening a reset link replaces the password and
+   revokes every existing session of that user, because the old password may be
+   compromised. Until the link is used the old password keeps working.
+
 ## Consequences
 
 - Tenant creation needs only a Super Admin session; shell access stays an

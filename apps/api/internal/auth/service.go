@@ -73,8 +73,17 @@ func (s *Service) Login(ctx context.Context, email, password string) (Principal,
 		return Principal{}, "", time.Time{}, err
 	}
 	expiresAt := s.now().Add(SessionIdleTimeout)
-	if _, err := s.pool.Exec(ctx, `INSERT INTO session (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`, userID, tokenHash, expiresAt); err != nil {
+	// Create the session only while the user still has the password hash that was
+	// just verified. FOR SHARE waits for a concurrent password reset (which holds
+	// FOR UPDATE on the row) and then re-checks the hash, so a login that verified
+	// the old password cannot outlive the reset that revoked its sessions.
+	created, err := s.pool.Exec(ctx, `INSERT INTO session (user_id, token_hash, expires_at)
+		SELECT id, $2, $3 FROM "user" WHERE id=$1 AND active AND password_hash=$4 AND password_initialized_at IS NOT NULL FOR SHARE`, userID, tokenHash, expiresAt, storedHash)
+	if err != nil {
 		return Principal{}, "", time.Time{}, fmt.Errorf("create session: %w", err)
+	}
+	if created.RowsAffected() == 0 {
+		return Principal{}, "", time.Time{}, ErrInvalidCredentials
 	}
 	return principal, token, expiresAt, nil
 }
@@ -184,6 +193,17 @@ func (s *Service) AcceptDashboardInvite(ctx context.Context, token, password str
 	hash, err := HashPassword(password)
 	if err != nil {
 		return Principal{}, "", time.Time{}, err
+	}
+	// The same link sets up a new account and resets a forgotten password. On a
+	// reset the old password may be compromised, so end every existing session.
+	var hadPassword bool
+	if err = tx.QueryRow(ctx, `SELECT password_initialized_at IS NOT NULL FROM "user" WHERE id=$1 FOR UPDATE`, userID).Scan(&hadPassword); err != nil {
+		return Principal{}, "", time.Time{}, err
+	}
+	if hadPassword {
+		if _, err = tx.Exec(ctx, `UPDATE session SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL`, userID); err != nil {
+			return Principal{}, "", time.Time{}, err
+		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE "user" SET password_hash=$1,password_initialized_at=now(),updated_at=now() WHERE id=$2 AND active`, hash, userID); err != nil {
 		return Principal{}, "", time.Time{}, err

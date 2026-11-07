@@ -68,7 +68,7 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return
 	}
-	invite, err := provision.IssueOwnerInvite(r.Context(), tx, created.ID, principal.UserID, time.Now())
+	invite, err := provision.IssueOwnerInvite(r.Context(), tx, created.ID, principal.UserID, time.Now(), false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "HOUSEHOLD_CREATE_FAILED")
 		return
@@ -91,20 +91,32 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 }
 
 // ReissueOwnerInvite replaces a household owner's invite while the owner has
-// not enrolled yet. Owners can invite members but nobody else can invite an
+// not enrolled yet, or (with reset) issues a password-reset link to an owner
+// who has. Owners can invite members but nobody else can invite an
 // owner, so without this an expired owner invite would strand the household.
 // The link is a bearer credential: until the owner enrolls, whoever holds it
 // can become that owner, which is why every reissue is platform-audited.
 func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 	principal, _ := auth.PrincipalFromContext(r.Context())
 	householdID := r.PathValue("householdId")
+	// An empty body re-invites an owner who has not enrolled. {"reset":true}
+	// is the explicit request to also replace an enrolled owner's password.
+	var in struct {
+		Reset bool `json:"reset"`
+	}
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST")
+			return
+		}
+	}
 	tx, err := h.pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "OWNER_INVITE_FAILED")
 		return
 	}
 	defer tx.Rollback(r.Context())
-	invite, err := provision.IssueOwnerInvite(r.Context(), tx, householdID, principal.UserID, time.Now())
+	invite, err := provision.IssueOwnerInvite(r.Context(), tx, householdID, principal.UserID, time.Now(), in.Reset)
 	switch {
 	case errors.Is(err, provision.ErrOwnerAlreadyActive):
 		writeError(w, http.StatusConflict, "OWNER_ALREADY_ENROLLED")
@@ -116,7 +128,11 @@ func (h *Handler) ReissueOwnerInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "OWNER_INVITE_FAILED")
 		return
 	}
-	if err := h.audit(r.Context(), tx, principal.UserID, "ADMIN_REISSUE_OWNER_INVITE", "HOUSEHOLD", householdID, map[string]any{"ownerUserId": invite.OwnerUserID, "ownerEmail": invite.OwnerEmail}, r.Header.Get("X-Request-ID")); err != nil {
+	action := "ADMIN_REISSUE_OWNER_INVITE"
+	if in.Reset {
+		action = "ADMIN_RESET_OWNER_PASSWORD"
+	}
+	if err := h.audit(r.Context(), tx, principal.UserID, action, "HOUSEHOLD", householdID, map[string]any{"ownerUserId": invite.OwnerUserID, "ownerEmail": invite.OwnerEmail}, r.Header.Get("X-Request-ID")); err != nil {
 		writeError(w, http.StatusInternalServerError, "ADMIN_AUDIT_FAILED")
 		return
 	}
