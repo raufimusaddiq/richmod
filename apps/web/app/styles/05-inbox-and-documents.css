@@ -80,3 +80,6 @@ input[type="file"]::file-selector-button:hover { background: var(--accent-soft);
 .review-history summary { cursor: pointer; font-weight: 700; }
 .review-history ul { margin: 10px 0 0; padding: 0; list-style: none; }
 .review-history li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+
+.invite-link { width: 100%; margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: var(--text-md); text-overflow: ellipsis; }
+.invite-state { display: block; }

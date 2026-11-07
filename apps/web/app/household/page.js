@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppShell from "../components/AppShell";
 import useDialogs from "../components/useDialogs";
 
 const roleLabel = (role) => ({ OWNER: "Administrator", MEMBER: "Anggota" })[role] || role;
+const untilLabel = iso => new Date(iso).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + " WIB";
+const stillValid = iso => Boolean(iso) && new Date(iso).getTime() > Date.now();
+const INVITE_PATH = { telegram: "telegram-invite", dashboard: "dashboard-invite" };
 
 export default function HouseholdPage() {
   const { confirm, dialogs } = useDialogs();
@@ -13,6 +16,8 @@ export default function HouseholdPage() {
   const [me, setMe] = useState(null);
   const [invite, setInvite] = useState(null);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const linkInput = useRef(null);
 
   async function load() {
     const [meResponse, householdResponse, membersResponse] = await Promise.all([fetch("/api/v1/auth/me"), fetch("/api/v1/household"), fetch("/api/v1/household/members")]);
@@ -33,15 +38,60 @@ export default function HouseholdPage() {
   }
 
   async function createInvite(memberId) {
-    setError(""); const response = await fetch(`/api/v1/household/members/${memberId}/telegram-invite`, { method: "POST" }); const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error || "Undangan belum dapat dibuat."); return; } setInvite({ ...body, memberId });
+    setError(""); setCopied(false); const response = await fetch(`/api/v1/household/members/${memberId}/telegram-invite`, { method: "POST" }); const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(body.error || "Undangan belum dapat dibuat."); return false; }
+    if (!body.link) { setError("Bot Telegram belum dikonfigurasi, tautan undangan belum bisa dibuat."); return false; }
+    setInvite({ kind: "telegram", link: body.link, expiresAt: body.expiresAt, memberId }); await load(); return true;
   }
 
-  async function revokeInvite(memberId) {
-    const response = await fetch(`/api/v1/household/members/${memberId}/telegram-invite`, { method: "DELETE" });
-    if (!response.ok) { setError("Undangan belum dapat dicabut."); return; } setInvite(null);
+  async function createDashboardInvite(memberId) {
+    setError(""); setCopied(false); const response = await fetch(`/api/v1/household/members/${memberId}/dashboard-invite`, { method: "POST" }); const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(body.error || "Undangan login belum dapat dibuat."); return false; }
+    setInvite({ kind: "dashboard", link: window.location.origin + body.link, expiresAt: body.expiresAt, memberId }); await load(); return true;
   }
-  async function createDashboardInvite(memberId) { const response = await fetch(`/api/v1/household/members/${memberId}/dashboard-invite`, {method:"POST"}); const body=await response.json().catch(()=>({})); if(!response.ok){setError(body.error||"Undangan login belum dapat dibuat.");return;} const link=window.location.origin+body.link; await navigator.clipboard?.writeText(link); setInvite({link,memberId,dashboard:true}); await load(); }
+
+  // 404 means there was nothing pending to cancel, which is the state we want.
+  async function revokeInvite(kind, memberId) {
+    const response = await fetch(`/api/v1/household/members/${memberId}/${INVITE_PATH[kind]}`, { method: "DELETE" });
+    if (!response.ok && response.status !== 404) { setError("Undangan belum dapat dibatalkan."); return false; }
+    setInvite(current => (current && current.memberId === memberId && current.kind === kind ? null : current)); await load(); return true;
+  }
+
+  // The link is only returned when it is created, so a new link means cancelling the pending one first.
+  async function renewInvite(kind, memberId) {
+    if (!(await revokeInvite(kind, memberId))) return;
+    await (kind === "telegram" ? createInvite(memberId) : createDashboardInvite(memberId));
+  }
+
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(invite.link); setCopied(true); }
+    catch { linkInput.current?.select(); setError("Tautan belum bisa disalin otomatis. Tautan sudah dipilih, tekan Ctrl+C."); }
+  }
+
+  function loginInviteControls(member) {
+    if (member.passwordInitialized) return null;
+    const pending = member.dashboardInviteStatus === "PENDING" && stillValid(member.dashboardInviteExpiresAt);
+    return pending
+      ? <><button className="secondary" onClick={() => revokeInvite("dashboard", member.id)}>Batalkan undangan masuk</button><button className="secondary" onClick={() => renewInvite("dashboard", member.id)}>Buat tautan masuk baru</button></>
+      : <button className="secondary" onClick={() => createDashboardInvite(member.id)}>Undang masuk ke Richmod</button>;
+  }
+
+  function telegramInviteControls(member) {
+    return stillValid(member.telegramInviteExpiresAt)
+      ? <><button className="secondary" onClick={() => revokeInvite("telegram", member.id)}>Batalkan undangan Telegram</button><button className="secondary" onClick={() => renewInvite("telegram", member.id)}>Buat tautan Telegram baru</button></>
+      : <button className="secondary" onClick={() => createInvite(member.id)}>{member.role === "OWNER" ? "Hubungkan Telegram" : "Undang Telegram"}</button>;
+  }
+
+  // One plain sentence per invite so an owner can see whether a link is still usable.
+  function inviteState(member) {
+    const notes = [];
+    if (!member.passwordInitialized) {
+      if (member.dashboardInviteStatus === "PENDING") notes.push(stillValid(member.dashboardInviteExpiresAt) ? `Undangan masuk berlaku sampai ${untilLabel(member.dashboardInviteExpiresAt)}` : "Undangan masuk sudah kedaluwarsa");
+      else notes.push("Belum membuat kata sandi");
+    }
+    if (!member.telegramConnected && member.telegramInviteExpiresAt) notes.push(stillValid(member.telegramInviteExpiresAt) ? `Undangan Telegram berlaku sampai ${untilLabel(member.telegramInviteExpiresAt)}` : "Undangan Telegram sudah kedaluwarsa");
+    return notes.join(" · ");
+  }
 
   async function deactivate(memberId) {
     if (!(await confirm("Nonaktifkan anggota ini? Riwayat transaksi tetap disimpan.", { confirmLabel: "Nonaktifkan", danger: true }))) return;
@@ -56,8 +106,8 @@ export default function HouseholdPage() {
     {error && <p className="notice error">{error}</p>}
     <div className="admin-stack">
       {owner && <section className="panel"><div className="panel-title"><h2>Tambah anggota</h2><span>Peran anggota</span></div><form className="member-form" onSubmit={addMember}><input aria-label="Nama anggota" name="displayName" placeholder="Nama anggota" maxLength="120" required /><input aria-label="Email anggota" name="email" type="email" placeholder="Email anggota" required /><button>Tambahkan</button></form></section>}
-      {invite && <section className="panel"><div><span className="eyebrow">UNDANGAN TELEGRAM</span><h2>Berlaku 15 menit dan hanya sekali pakai</h2><p>{members.find(item => item.id === invite.memberId)?.role === "OWNER" ? "Buka tautan ini dari akun Telegram kamu sendiri." : "Kirim tautan ini langsung kepada anggota yang dituju."}</p></div><div className="invite-actions"><a href={invite.link} target="_blank" rel="noreferrer">Buka undangan Telegram</a><button className="danger" onClick={() => revokeInvite(invite.memberId)}>Cabut</button></div></section>}
-      <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{members.length} akun</span></div><div className="settings-list">{members.map(member => <article key={member.id}><div><b>{member.displayName}</b><small>{member.email}</small></div><span>{roleLabel(member.role)} · {member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"} · {member.active ? "Aktif" : "Nonaktif"}</span>{owner && member.role === "MEMBER" && member.active && <div className="row-actions"><button className="secondary" onClick={() => createDashboardInvite(member.id)}>Undang masuk ke Richmod</button>{!member.telegramConnected && <button className="secondary" onClick={() => createInvite(member.id)}>Undang Telegram</button>}<button className="danger" onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}{owner && member.role === "OWNER" && member.active && !member.telegramConnected && <div className="row-actions"><button className="secondary" onClick={() => createInvite(member.id)}>Hubungkan Telegram</button></div>}</article>)}</div></section>
+      {invite && <section className="panel" aria-live="polite"><div><span className="eyebrow">{invite.kind === "telegram" ? "UNDANGAN TELEGRAM" : "UNDANGAN MASUK RICHMOD"}</span><h2>Berlaku sampai {untilLabel(invite.expiresAt)} · sekali pakai</h2><p>{invite.kind === "dashboard" ? "Kirim tautan ini langsung kepada anggota yang dituju. Dia membuat kata sandinya sendiri." : members.find(item => item.id === invite.memberId)?.role === "OWNER" ? "Buka tautan ini dari akun Telegram kamu sendiri." : "Kirim tautan ini langsung kepada anggota yang dituju."}</p></div><input ref={linkInput} className="invite-link" readOnly aria-label="Tautan undangan" value={invite.link} onFocus={event => event.currentTarget.select()} /><div className="invite-actions"><button onClick={copyLink}>{copied ? "Tersalin ✓" : "Salin tautan"}</button><a href={invite.link} target="_blank" rel="noreferrer">Buka tautan</a><button className="danger" onClick={() => revokeInvite(invite.kind, invite.memberId)}>Batalkan undangan</button></div><small>Tautan hanya tampil sekarang. Kalau hilang, batalkan lalu buat tautan baru.</small></section>}
+      <section className="panel"><div className="panel-title"><h2>Anggota</h2><span>{members.length} akun</span></div><div className="settings-list">{members.map(member => <article key={member.id}><div><b>{member.displayName}</b><small>{member.email}</small></div><span>{roleLabel(member.role)} · {member.telegramConnected ? "Telegram terhubung" : "Telegram belum terhubung"} · {member.active ? "Aktif" : "Nonaktif"}{member.active && inviteState(member) && <small className="invite-state">{inviteState(member)}</small>}</span>{owner && member.role === "MEMBER" && member.active && <div className="row-actions">{loginInviteControls(member)}{!member.telegramConnected && telegramInviteControls(member)}<button className="danger" onClick={() => deactivate(member.id)}>Nonaktifkan</button></div>}{owner && member.role === "OWNER" && member.active && !member.telegramConnected && <div className="row-actions">{telegramInviteControls(member)}</div>}</article>)}</div></section>
     </div>
   </AppShell>;
 }

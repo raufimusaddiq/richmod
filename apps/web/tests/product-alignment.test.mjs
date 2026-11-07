@@ -176,3 +176,19 @@ test("forms are reset through a captured element, never event.currentTarget afte
     assert.doesNotMatch(text(`app/${route}`), /event\.currentTarget\.reset\(\)/, route);
   }
 });
+
+test("household invites are copyable, cancellable and show expiry", () => {
+  const source = text("app/household/page.js");
+  // The link is visible and copyable, not only openable.
+  assert.match(source, /Salin tautan/);
+  assert.match(source, /navigator\.clipboard\.writeText\(invite\.link\)/);
+  // Cancel goes to the endpoint that matches the invite kind (it used to always hit the Telegram one).
+  assert.match(source, /INVITE_PATH\s*=\s*\{\s*telegram: "telegram-invite", dashboard: "dashboard-invite"/);
+  assert.match(source, /revokeInvite\(invite\.kind, invite\.memberId\)/);
+  // Members who already set a password are not offered a login invite again.
+  assert.match(source, /if \(member\.passwordInitialized\) return null/);
+  // Owners can see whether an invite is still valid, expired, or absent.
+  assert.match(source, /sudah kedaluwarsa/);
+  assert.match(source, /telegramInviteExpiresAt/);
+  assert.match(source, /dashboardInviteExpiresAt/);
+});
