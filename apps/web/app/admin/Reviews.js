@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { time, number, percent, ms, Badge, Metric, Empty, useLoad, useAdminList, Table } from "./shared";
+import { time, number, percent, ms, Badge, Metric, Empty, Pending, useLoad, useAdminList, Table } from "./shared";
 
 export default function Reviews({ setError }) {
   const [range, setRange] = useState("24h");
@@ -11,15 +11,17 @@ export default function Reviews({ setError }) {
     q: "",
     range: "24h",
   });
-  const [summary, refreshSummary] = useLoad(
+  const [summary, refreshSummary, summaryState] = useLoad(
     `/api/v1/admin/reviews/summary?range=${range}`,
     setError,
+    { keepPrevious: true },
   );
-  const [breakdown, refreshBreakdown] = useLoad(
+  const [breakdown, refreshBreakdown, breakdownState] = useLoad(
     `/api/v1/admin/reviews/breakdown?range=${range}`,
     setError,
+    { keepPrevious: true },
   );
-  const [projections, refreshProjections, more] = useAdminList(
+  const [projections, refreshProjections, more, projectionState] = useAdminList(
     "/api/v1/admin/reviews/projections",
     filters,
     setError,
@@ -29,7 +31,7 @@ export default function Reviews({ setError }) {
     refreshBreakdown();
     refreshProjections();
   };
-  if (!summary || !breakdown) return <Empty>Memuat tinjauan…</Empty>;
+  if (!summary || !breakdown) return <Pending state={summaryState.error ? summaryState : breakdownState} retry={summaryState.error ? refreshSummary : refreshBreakdown}>Memuat tinjauan…</Pending>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
@@ -227,7 +229,7 @@ export default function Reviews({ setError }) {
           )}
         </Table>
         {projections?.nextCursor && (
-          <button className="secondary admin-more" onClick={more}>
+          <button className="secondary admin-more" disabled={projectionState.more} onClick={more}>
             Muat berikutnya
           </button>
         )}

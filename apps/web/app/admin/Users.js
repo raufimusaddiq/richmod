@@ -1,12 +1,25 @@
 "use client";
 
-import { Badge, Empty, useLoad, Table } from "./shared";
+import { Badge, Pending, useLoad, Table } from "./shared";
+import { useBusyMap } from "../lib/useLoadState";
 import useDialogs from "../components/useDialogs";
+
+// Server error codes from PATCH /api/v1/admin/users/{id}.
+const userErrors = {
+  ADMIN_SELF_LOCKOUT: "Kamu tidak bisa menonaktifkan akunmu sendiri atau mencabut Super Admin dari dirimu sendiri.",
+  FINAL_SUPER_ADMIN_REQUIRED: "Harus tersisa minimal satu Super Admin aktif.",
+  USER_NOT_FOUND: "Pengguna tidak ditemukan. Muat ulang daftar.",
+  ADMIN_UPDATE_FAILED: "Perubahan gagal disimpan. Coba lagi.",
+  SUPER_ADMIN_REQUIRED: "Hanya Super Admin yang dapat mengubah pengguna.",
+};
 
 export default function Users({ setError }) {
   const { confirm, dialogs } = useDialogs();
-  const [users, refresh] = useLoad("/api/v1/admin/users", setError);
-  const mutate = async (user, patch, label) => {
+  const [users, refresh, state] = useLoad("/api/v1/admin/users", setError);
+  const { busy, run } = useBusyMap();
+  // One busy flag per user so a second click cannot race the first PATCH.
+  const mutate = (user, patch, label) => run(user.id, async () => {
+    setError("");
     if (!(await confirm(`${label} ${user.email}?`, { confirmLabel: label }))) return;
     try {
       const response = await fetch(`/api/v1/admin/users/${user.id}`, {
@@ -14,14 +27,16 @@ export default function Users({ setError }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!response.ok)
-        throw new Error("Perubahan ditolak. Periksa invariant administrator.");
-      refresh();
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(userErrors[body.error] || "Perubahan ditolak. Periksa invariant administrator.");
+      }
+      await refresh();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Koneksi terputus. Perubahan belum tersimpan.");
     }
-  };
-  if (!users) return <Empty>Memuat users…</Empty>;
+  });
+  if (!users) return <Pending state={state} retry={refresh}>Memuat users…</Pending>;
   return (
     <section className="admin-stack">
       {dialogs}
@@ -58,6 +73,7 @@ export default function Users({ setError }) {
             <td className="admin-actions">
               <button
                 className="secondary"
+                disabled={Boolean(busy[user.id])}
                 onClick={() =>
                   mutate(
                     user,
@@ -70,6 +86,7 @@ export default function Users({ setError }) {
               </button>
               <button
                 className="secondary"
+                disabled={Boolean(busy[user.id])}
                 onClick={() =>
                   mutate(
                     user,

@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { time, number, Badge, Metric, Empty, useLoad, useAdminList, Table } from "./shared";
+import { time, number, Badge, Metric, Empty, Pending, useLoad, useAdminList, Table } from "./shared";
 
 export default function LLM({ setError }) {
   const [filters, setFilters] = useState({ range: "24h", task: "", status: "" });
-  const [summary, refreshSummary] = useLoad(`/api/v1/admin/llm/summary?range=${filters.range}`, setError);
-  const [calls, refreshCalls, more] = useAdminList("/api/v1/admin/llm/calls", filters, setError);
+  const [summary, refreshSummary, summaryState] = useLoad(`/api/v1/admin/llm/summary?range=${filters.range}`, setError, { keepPrevious: true });
+  const [calls, refreshCalls, more, callsState] = useAdminList("/api/v1/admin/llm/calls", filters, setError);
   const refresh = () => { refreshSummary(); refreshCalls(); };
-  if (!summary || !calls) return <Empty>Memuat LLM…</Empty>;
+  if (!summary || !calls) return <Pending state={summaryState.error ? summaryState : callsState} retry={summaryState.error ? refreshSummary : refreshCalls}>Memuat LLM…</Pending>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
@@ -76,7 +76,7 @@ export default function LLM({ setError }) {
             </tr>
           ))}
         </Table>
-        {calls.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}
+        {calls.nextCursor && <button className="secondary admin-more" disabled={callsState.more} onClick={more}>Muat berikutnya</button>}
       </article>
       <article className="surface admin-panel">
         <div className="section-title">

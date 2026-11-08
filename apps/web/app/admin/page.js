@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { get } from "./shared";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
@@ -37,15 +37,24 @@ function AdminConsole() {
       : "overview";
   const [me, setMe] = useState(null),
     [error, setError] = useState("");
-  useEffect(() => {
+  const [meError, setMeError] = useState("");
+  const loadMe = useCallback(() => {
+    setMeError("");
     get("/api/v1/auth/me")
       .then(setMe)
-      .catch(() => {
-        location.href = "/";
+      .catch((err) => {
+        // Only a 401 means signed out; a network blip must not log the admin out.
+        if (err?.status === 401) location.href = "/";
+        else setMeError("Sesi belum dapat diperiksa. Coba lagi.");
       });
   }, []);
-  const select = (key) => router.replace(`/admin?tab=${key}`);
-  if (!me) return <main className="loading" role="status" aria-live="polite">Memuat…</main>;
+  useEffect(() => { loadMe(); }, [loadMe]);
+  useEffect(() => { setError(""); }, [tab]);
+  // A banner belongs to the tab that raised it.
+  const select = (key) => { setError(""); router.replace(`/admin?tab=${key}`); };
+  if (!me) return meError
+    ? <main className="loading" role="alert">{meError} <button className="secondary" onClick={loadMe}>Coba lagi</button></main>
+    : <main className="loading" role="status" aria-live="polite">Memuat…</main>;
   return (
     <AppShell
       user={me}
@@ -66,7 +75,7 @@ function AdminConsole() {
           </button>
         ))}
       </nav>
-      {error && <p className="notice error">{error}</p>}
+      {error && <p className="notice error" role="alert">{error}</p>}
       <AdminTab tab={tab} setError={setError} />
     </AppShell>
   );

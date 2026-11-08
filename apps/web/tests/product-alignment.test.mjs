@@ -67,7 +67,7 @@ test("transaction filters are query-backed", () => {
 
 test("ledger request failures are recoverable instead of leaving the page loading", () => {
   const source = text("app/transactions/page.js");
-  assert.match(source, /<ErrorNotice message=\{error\} retry=\{load\}\/>/);
+  assert.match(source, /<ErrorNotice message=\{error\} retry=\{\(\) => load\(\)\}\/>/);
   assert.match(text("app/components/AuthProvider.js"), /setLoaded\(true\)/);
 });
 
@@ -203,4 +203,152 @@ test("forgotten passwords are reset by an invite link, for members and owners", 
   assert.match(admin, /reset: true/);
   assert.match(admin, /Atur ulang kata sandi pemilik/);
   assert.match(admin, /confirm\(/);
+});
+
+// ---- Implicit state machines: every async surface has explicit states ----
+
+const pages = ["inbox", "transactions", "settings", "household", "documents", "wealth"];
+
+test("the shared load helper names its states and guards against stale responses", () => {
+  const hook = text("app/lib/useLoadState.js");
+  assert.match(hook, /IDLE: "idle", LOADING: "loading", REFRESHING: "refreshing", ERROR: "error", READY: "ready"/);
+  assert.match(hook, /new AbortController\(\)/);
+  assert.match(hook, /sequence\.current === id/, "a superseded run cannot set state");
+  assert.match(hook, /startingStatus\(loaded\.current\)/, "a reload is `refreshing`, not `loading`");
+  for (const state of ["closed", "loading", "error", "ready"]) assert.match(hook, new RegExp(`status: "${state}"`), `drawer state ${state}`);
+  assert.match(hook, /live\.current\.has\(key\)/, "a per-key busy map refuses a double start");
+  assert.match(hook, /finally \{[\s\S]*live\.current\.delete\(key\)/, "busy is released in finally");
+});
+
+test("pages with a reload keep rendered children mounted instead of swapping to a skeleton", () => {
+  for (const page of ["inbox", "transactions", "wealth", "documents"]) {
+    const source = text(`app/${page}/page.js`);
+    assert.match(source, /useGuardedLoad\(/, `${page} loads through the guarded hook`);
+    assert.doesNotMatch(source, /\{loading \? <Skeleton/, `${page} never swaps children for a skeleton on every reload`);
+  }
+  assert.match(text("app/inbox/page.js"), /!loader\.hasLoaded && !loader\.failed \? <Skeleton/, "skeleton only before the first load");
+});
+
+test("inbox: a 409 refresh keeps the card mounted, busy is per card, history failure is retried", () => {
+  const inbox = text("app/inbox/page.js"), cards = text("app/components/ReviewCards.js");
+  assert.match(inbox, /response\.status === 409 && result\.missingFacts\) await load\(\)/);
+  assert.match(inbox, /useBusyMap\(\)/);
+  assert.doesNotMatch(inbox, /setWorking|\[working,/, "no single `working` id");
+  assert.match(cards, /busy\[item\.id\]/);
+  assert.doesNotMatch(cards, /working === item\.id/);
+  assert.doesNotMatch(inbox, /setResolved\(response\?\.ok \? await response\.json\(\) : \[\]\)/, "a failed history fetch is not cached as []");
+  assert.match(inbox, /history\.status === "error"/);
+  assert.match(inbox, /setHistoryTick\(tick => tick \+ 1\)/, "history can be retried");
+  assert.doesNotMatch(inbox, /publishInboxCount[^\n]*\n[^\n]*!error/, "a stale action error does not freeze the badge");
+  const resolve = inbox.slice(inbox.indexOf("function resolveAction"));
+  assert.match(resolve, /setError\(""\)[\s\S]*try \{[\s\S]*catch/, "resolveAction clears the error and catches");
+});
+
+test("inbox count: a failed response keeps the last known count instead of claiming zero", () => {
+  const provider = text("app/components/InboxCountProvider.js");
+  assert.match(provider, /if \(!responses\.every\(response => response\.ok\)\) return;/);
+  assert.doesNotMatch(provider, /response\.ok \? response\.json\(\) : \[\]/);
+});
+
+test("auth: only a 401 signs the user out", () => {
+  const auth = text("app/components/AuthProvider.js");
+  assert.match(auth, /response\.status === 401/);
+  assert.doesNotMatch(auth, /catch \{[^}]*setUser\(false\)/, "a network error is not a logout");
+  assert.match(auth, /setTimeout\(\(\) => load\(attempt \+ 1\)/, "a blip retries");
+  assert.match(text("app/household/page.js"), /meResponse\.status === 401/);
+  assert.match(text("app/admin/page.js"), /err\?\.status === 401/);
+});
+
+test("admin: drawers reset per record, loads can fail visibly, lists guard load-more", () => {
+  const households = text("app/admin/Households.js"), shared = text("app/admin/shared.js");
+  assert.match(households, /<HouseholdDetail\s+key=\{selected\}/, "a household drawer remounts per household");
+  assert.match(households, /useEffect\(\(\) => \{ setCopied\(""\); \}, \[link\]\)/, "copied resets when the link changes");
+  assert.match(households, /ownerInvite\.kind === "invite" && !pendingOwner\) setOwnerInvite\(null\)/, "a spent owner link is cleared");
+  assert.match(shared, /export function Pending\(/);
+  assert.match(shared, /result\.url === url/, "useLoad never returns another url's data");
+  assert.match(shared, /moreFlight\.current/, "load-more has an in-flight guard");
+  assert.match(shared, /if \(id !== generation\.current\) return;/, "load-more from an old filter is discarded");
+  for (const file of ["Households", "Overview", "Users", "Jobs", "Logs", "Audit", "LLM", "Reviews"]) {
+    assert.match(text(`app/admin/${file}.js`), /<Pending state=/, `${file} shows load errors with retry`);
+    assert.doesNotMatch(text(`app/admin/${file}.js`), /<Empty>Memuat/, `${file} has no unconditional "Memuat…"`);
+  }
+  const page = text("app/admin/page.js");
+  assert.match(page, /const select = \(key\) => \{ setError\(""\)/);
+  assert.match(page, /useEffect\(\(\) => \{ setError\(""\); \}, \[tab\]\)/);
+  const users = text("app/admin/Users.js");
+  assert.match(users, /ADMIN_SELF_LOCKOUT/);
+  assert.match(users, /useBusyMap\(\)/);
+  assert.match(users, /disabled=\{Boolean\(busy\[user\.id\]\)\}/);
+});
+
+test("transactions: retry reloads with current filters, the drawer is aborted state, failure drops rows", () => {
+  const source = text("app/transactions/page.js");
+  assert.doesNotMatch(source, /retry=\{load\}/, "a click event is never passed as `search`");
+  assert.match(source, /useDrawerRecord\(/);
+  assert.match(source, /\{ signal \}/, "detail requests are abortable");
+  assert.doesNotMatch(source, /setDetailLoading|setDetailError/);
+  assert.match(source, /onFailure: \(\) => \{ setItems\(\[\]\)/, "no stale rows under the banner");
+});
+
+test("settings: request is try/catch/finally with per-key busy, load failures surface, toggles lock while busy", () => {
+  const source = text("app/settings/page.js");
+  const view = source.slice(0, source.indexOf("// The state model."));
+  const request = view.slice(view.indexOf("function request("), view.indexOf("async function createAccount"));
+  assert.match(request, /setError\(""\)[\s\S]*try \{[\s\S]*catch/);
+  assert.match(view, /useBusyMap\(\)/);
+  assert.doesNotMatch(view, /setWorking|working ===/);
+  assert.doesNotMatch(view, /response\.ok \? response\.json\(\) : null/, "a failed endpoint is not silently null");
+  assert.match(view, /if \(!loader\.hasLoaded\) return/, "no empty-looking settings before a successful load");
+  const toggles = [...view.matchAll(/onClick=\{\(\) => patch\(item\.id,/g)];
+  const locked = [...view.matchAll(/disabled=\{isBusy\(item\.id\)\} onClick=\{\(\) => patch\(item\.id,/g)];
+  assert.ok(toggles.length >= 6 && locked.length === toggles.length, "every toggle is disabled while busy");
+  const test_ = view.slice(view.indexOf("async function testFinancialSource"), view.indexOf("const emailIngressAction"));
+  assert.match(test_, /try \{[\s\S]*catch/);
+  assert.match(test_, /30 detik/, "the polling timeout is reported");
+  assert.match(view, /<form key=\{editingFinancialSource\.id\}/, "the provider edit form remounts per provider");
+});
+
+test("household: busy map, cleared errors, member load failures, invite expiry ticks", () => {
+  const source = text("app/household/page.js");
+  assert.match(source, /useBusyMap\(\)/);
+  assert.match(source, /membersState/, "an unloaded member list is not '0 akun'");
+  assert.match(source, /setInterval\(\(\) => setNow\(Date\.now\(\)\), TICK_MS\)/);
+  assert.doesNotMatch(source, /new Date\(iso\)\.getTime\(\) > Date\.now\(\)/, "validity is not computed at render time");
+  const deactivate = source.slice(source.indexOf("async function deactivate"), source.indexOf("if (!me)"));
+  assert.match(deactivate, /setError\(""\)/);
+  assert.match(deactivate, /current\?\.memberId === memberId \? null : current/, "deactivating closes that member's invite panel");
+  const revoke = source.slice(source.indexOf("async function cancelInvite"), source.indexOf("const revokeInvite"));
+  assert.match(revoke, /setError\(""\)[\s\S]*try \{[\s\S]*catch/);
+});
+
+test("documents: the drawer separates loading, error and ready, and upload is guarded", () => {
+  const source = text("app/documents/page.js");
+  assert.match(source, /useDrawerRecord\(/);
+  assert.match(source, /drawer\.status === "ready" && !extractions\.length/, "'still processing' only for a ready drawer");
+  assert.match(source, /onClick=\{drawer\.retry\}/);
+  const upload = source.slice(source.indexOf("async function upload"), source.indexOf("function open("));
+  assert.match(upload, /try \{[\s\S]*catch[\s\S]*finally \{ setWorking\(false\)/);
+  assert.match(source, /setInterval\(\(\) => load\(\), 5000\)/, "status is refreshed after an upload");
+});
+
+test("invite: busy flag, network error message, error cleared on edit", () => {
+  const source = text("app/invite/page.js");
+  assert.match(source, /if \(busy\) return;/);
+  assert.match(source, /try \{[\s\S]*catch \{[\s\S]*Koneksi terputus/);
+  assert.match(source, /setError\(""\)/);
+  assert.match(source, /disabled=\{busy\}/);
+});
+
+test("wealth: drawer states, guarded saves, and a failed reload drops the old figures", () => {
+  const source = text("app/wealth/page.js");
+  assert.match(source, /useDrawerRecord\(/);
+  assert.match(source, /onFailure: \(\) => setData\(empty\)/);
+  for (const name of ["saveSnapshot", "correctSnapshot"]) {
+    const body = source.slice(source.indexOf(`async function ${name}`));
+    assert.match(body.slice(0, body.indexOf("\n  }\n")), /try \{[\s\S]*catch[\s\S]*finally \{ setWorking\(false\)/, `${name} releases busy in finally`);
+  }
+});
+
+test("no state-machine page keeps the old single-string `working` or a bare loading boolean", () => {
+  for (const page of pages) assert.doesNotMatch(text(`app/${page}/page.js`).split("// The state model.")[0], /useState\(true\), \[error|const \[loading, setLoading\]/, page);
 });

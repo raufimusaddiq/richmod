@@ -43,12 +43,17 @@ export default function InboxCountProvider({ children }) {
     loading.current = true;
     try {
       const responses = await Promise.all([fetch("/api/v1/reviews"), fetch("/api/v1/integration-actions")]);
-      const items = await Promise.all(responses.map(response => response.ok ? response.json() : []));
+      // A 5xx is "unknown", not "zero": keep the last known count instead of
+      // telling the household everything is resolved.
+      if (!responses.every(response => response.ok)) return;
+      const items = await Promise.all(responses.map(response => response.json()));
+      if (!Array.isArray(items[1])) return;
       // Reviews report their needs-your-decision count (all pages, notices
       // excluded) in X-Decision-Count; a list without it counts its decisions.
-      const header = Number.parseInt(responses[0].ok ? responses[0].headers.get("X-Decision-Count") || "" : "", 10);
-      const reviews = Number.isFinite(header) ? header : (Array.isArray(items[0]) ? items[0].filter(item => item.presentation !== "NOTICE").length : 0);
-      setCount(reviews + (Array.isArray(items[1]) ? items[1].length : 0));
+      const header = Number.parseInt(responses[0].headers.get("X-Decision-Count") || "", 10);
+      const reviews = Number.isFinite(header) ? header : (Array.isArray(items[0]) ? items[0].filter(item => item.presentation !== "NOTICE").length : null);
+      if (reviews === null) return;
+      setCount(reviews + items[1].length);
       lastLoad.current = Date.now();
     } catch {
       // The badge is a convenience; the inbox page reports its own errors.

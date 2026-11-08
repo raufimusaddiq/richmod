@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { time, Badge, Empty, useAdminList, Table } from "./shared";
+import { time, Badge, Empty, Pending, useAdminList, Table } from "./shared";
 
 export default function Logs({ setError }) {
   const [filters, setFilters] = useState({ type: "", severity: "", component: "", range: "24h", q: "" });
-  const [data, refresh, more] = useAdminList("/api/v1/admin/logs", filters, setError);
-  if (!data) return <Empty>Memuat events…</Empty>;
+  const [data, refresh, more, state] = useAdminList("/api/v1/admin/logs", filters, setError);
+  if (!data) return <Pending state={state} retry={refresh}>Memuat events…</Pending>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
@@ -56,7 +56,7 @@ export default function Logs({ setError }) {
           </tr>
         )}
       </Table>
-      {data.nextCursor && <button className="secondary admin-more" onClick={more}>Muat berikutnya</button>}
+      {data.nextCursor && <button className="secondary admin-more" disabled={state.more} onClick={more}>Muat berikutnya</button>}
     </section>
   );
 }
