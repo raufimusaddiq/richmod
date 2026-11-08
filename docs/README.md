@@ -33,6 +33,7 @@ older specs.
 - [`adr/`](adr/README.md): architecture decision records, with an index. Add one before changing architecture or infrastructure.
 - [`bdr/`](bdr/): business decision records, the product decisions behind the ADRs.
 - [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md): schema reference and ERD. Schema changes update it in the same branch.
+- [`STATE_MACHINES.md`](STATE_MACHINES.md): every status machine, its legal moves, and where each rule is enforced.
 - [`RICHMOD_JEV_SYSTEM_ONE_PRD.md`](RICHMOD_JEV_SYSTEM_ONE_PRD.md): the System One (Jev) semantic decision plane.
 
 ## Product
