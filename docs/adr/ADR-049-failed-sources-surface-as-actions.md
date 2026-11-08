@@ -68,3 +68,28 @@ ID.
 - A source stuck in `RECEIVED` or `PROCESSING` with no failed job (for example, a
   job lost outright) is still counted but has no item. That is a different fault
   and is left visible on purpose.
+
+## Amendment (2026-11): job lease ownership and complete terminal hooks
+
+The job queue is a state machine (`PENDING → RUNNING → SUCCEEDED | FAILED`, back
+to `PENDING` on a retry or a deferral). Its rules are now explicit:
+
+- **A lease has an owner.** `Succeed`, `Defer` and the failure write are
+  conditional on `locked_by`. A worker that ran past its lease and lost the job
+  to a reclaim changes nothing; the run that owns the job decides its outcome.
+- **A running job renews its lease** every minute (`KeepLease`), so a slow job
+  is not reclaimed and run twice.
+- **A reclaim past the last attempt fails the job.** A worker that crashed while
+  running a job used to leave it reclaimed every five minutes with `attempts`
+  growing past `max_attempts`. A claim that hands out such a job now fails it
+  through the normal final-failure path (`LeaseExpiredError`, permanent), so the
+  hook below runs.
+- **Every job type that settles a row has a final-failure step**, in the same
+  transaction that marks the job FAILED: the document follow-up jobs
+  (`PROCESS_PAYSLIP`, `PROCESS_RECEIPT`, `PROCESS_TRANSACTION_SCREENSHOT`, whose
+  document stayed `CLASSIFIED` and source `PROCESSED` forever), `PROCESS_FINANCIAL_EMAIL`
+  (source `FAILED` plus a Tindakan item), `PROCESS_FINANCIAL_EMAIL_PREVIEW`
+  (preview `FAILED`, so it no longer blocks activating the source) and
+  `GENERATE_INSIGHT` (insight `FAILED`, so the period can be generated again).
+  A preview whose model call fails now stays `PROCESSING` while the job retries
+  instead of being marked `FAILED` and retried anyway.

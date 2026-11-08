@@ -404,7 +404,7 @@ func maintainHeartbeat(ctx context.Context, logger *slog.Logger, pool *pgxpool.P
 // there is a chat to tell, and leave a dismissable item in the Inbox. Other job
 // types have no step. A payload that cannot be decoded yields an empty ID, which
 // every step treats as a no-op.
-func terminalStep(job queue.Job, cause error, processor *telegram.Processor, bankProcessor *bankemail.Processor) func(context.Context, pgx.Tx) error {
+func terminalStep(job queue.Job, cause error, processor *telegram.Processor, bankProcessor *bankemail.Processor, financialProcessor *financialemail.Processor, documentProcessor *workerDocument.Processor, insightProcessor *workerInsight.Processor) func(context.Context, pgx.Tx) error {
 	switch job.Type {
 	case "PROCESS_TELEGRAM_TEXT":
 		id := ""
@@ -434,6 +434,34 @@ func terminalStep(job queue.Job, cause error, processor *telegram.Processor, ban
 			id = payload.SourceEventID
 		}
 		return func(ctx context.Context, tx pgx.Tx) error { return bankProcessor.TerminalFailureTx(ctx, tx, id) }
+	case "PROCESS_FINANCIAL_EMAIL":
+		id := ""
+		if payload, err := financialemail.DecodePayload(job.Payload); err == nil {
+			id = payload.SourceEventID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error { return financialProcessor.TerminalFailureTx(ctx, tx, id) }
+	case "PROCESS_FINANCIAL_EMAIL_PREVIEW":
+		id := ""
+		if payload, err := financialemail.DecodePreviewPayload(job.Payload); err == nil {
+			id = payload.PreviewID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error {
+			return financialProcessor.TerminalPreviewFailureTx(ctx, tx, id, cause)
+		}
+	case "PROCESS_PAYSLIP", "PROCESS_RECEIPT", "PROCESS_TRANSACTION_SCREENSHOT":
+		id := ""
+		if payload, err := workerDocument.DecodePayload(job.Payload); err == nil {
+			id = payload.DocumentID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error {
+			return documentProcessor.TerminalDownstreamFailureTx(ctx, tx, id)
+		}
+	case "GENERATE_INSIGHT":
+		id := ""
+		if payload, err := workerInsight.DecodePayload(job.Payload); err == nil {
+			id = payload.InsightID
+		}
+		return func(ctx context.Context, tx pgx.Tx) error { return insightProcessor.TerminalFailureTx(ctx, tx, id) }
 	}
 	return nil
 }
@@ -446,9 +474,17 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			return err
 		}
 		processed++
-		err = processJob(ctx, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, job)
+		if queue.Exhausted(job) {
+			// A crashed worker left this job RUNNING past its last attempt. It is
+			// not run again: it fails through the final-failure path.
+			err = queue.LeaseExpiredError{Attempts: job.Attempts, MaxAttempts: job.MaxAttempts}
+		} else {
+			stopLease := jobs.KeepLease(ctx, job)
+			err = processJob(ctx, processor, imageProcessor, bankProcessor, financialProcessor, documentProcessor, insightProcessor, residualProcessor, bot, job)
+			stopLease()
+		}
 		if err == nil {
-			if finishErr := jobs.Succeed(ctx, job.ID); finishErr != nil {
+			if finishErr := jobs.Succeed(ctx, job); finishErr != nil {
 				return fmt.Errorf("complete job: %w", finishErr)
 			}
 		} else if job.Type == "PROCESS_TELEGRAM_TEXT" && telegram.IsGatewayDeferral(err) {
@@ -469,7 +505,7 @@ func processAvailable(ctx context.Context, logger *slog.Logger, jobs *queue.Queu
 			// A typed message that will not be retried again must not end in
 			// silence, so the notice is queued in the same transaction that marks
 			// the job FAILED.
-			onFinal := terminalStep(job, err, processor, bankProcessor)
+			onFinal := terminalStep(job, err, processor, bankProcessor, financialProcessor, documentProcessor, insightProcessor)
 			if finishErr := jobs.FailWithHook(ctx, job, err, onFinal); finishErr != nil {
 				return fmt.Errorf("reschedule job: %w", finishErr)
 			}

@@ -25,6 +25,10 @@ type Job struct {
 	// Deferrals counts how many times the job was set aside to wait for an
 	// unavailable dependency (Defer); deferrals spend no attempts.
 	Deferrals int
+	// LockedBy is the worker that holds the job's lease. Every later write of
+	// the job's state is conditional on it, so a worker whose lease was
+	// reclaimed cannot finish, fail or defer a run that now belongs to another.
+	LockedBy string
 }
 
 type Queue struct{ pool *pgxpool.Pool }
@@ -56,6 +60,7 @@ func claimIn(ctx context.Context, tx pgx.Tx, workerID, lane string) (Job, bool, 
 	if err != nil {
 		return Job{}, false, fmt.Errorf("select job: %w", err)
 	}
+	job.LockedBy = workerID
 	if _, err := tx.Exec(ctx, `UPDATE job SET status='RUNNING',attempts=$2,locked_at=now(),locked_by=$3,started_at=now(),finished_at=NULL,updated_at=now() WHERE id=$1`, job.ID, job.Attempts, workerID); err != nil {
 		return Job{}, false, fmt.Errorf("lock job: %w", err)
 	}
@@ -141,14 +146,68 @@ func (q *Queue) Defer(ctx context.Context, job Job, reason error) error {
 	defer cancel()
 	_, err := q.pool.Exec(ctx, `UPDATE job SET status='PENDING',attempts=GREATEST(attempts-1,0),deferrals=deferrals+1,
 		run_after=now()+$2*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$3,updated_at=now()
-		WHERE id=$1 AND status='RUNNING'`, job.ID, DeferralDelay(job.Deferrals).Seconds(), truncate("DEFERRED: "+reason.Error(), 1000))
+		WHERE id=$1 AND status='RUNNING' AND locked_by=$4`, job.ID, DeferralDelay(job.Deferrals).Seconds(), truncate("DEFERRED: "+reason.Error(), 1000), job.LockedBy)
 	return err
 }
 
-func (q *Queue) Succeed(ctx context.Context, jobID string) error {
-	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING'`, jobID)
+// Succeed marks the job done, but only for the worker that still holds its
+// lease. A worker that ran past the lease and lost the job to a reclaim changes
+// nothing: the run that now owns the job decides its outcome.
+func (q *Queue) Succeed(ctx context.Context, job Job) error {
+	_, err := q.pool.Exec(ctx, `UPDATE job SET status='SUCCEEDED',locked_at=NULL,locked_by=NULL,last_error=NULL,finished_at=now(),updated_at=now() WHERE id=$1 AND status='RUNNING' AND locked_by=$2`, job.ID, job.LockedBy)
 	return err
 }
+
+// leaseRenewal is how often a running job extends its lease; it must stay well
+// under the five-minute stale-lock window the claim uses.
+const leaseRenewal = time.Minute
+
+// KeepLease extends the job's lease while it runs, so a slow job (an unbounded
+// Telegram send, a long model call) is not reclaimed and run twice. The
+// returned stop function must be called when the job's processing ends.
+func (q *Queue) KeepLease(ctx context.Context, job Job) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(leaseRenewal)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				renew, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_, err := q.pool.Exec(renew, `UPDATE job SET locked_at=now() WHERE id=$1 AND status='RUNNING' AND locked_by=$2`, job.ID, job.LockedBy)
+				cancel()
+				if err != nil {
+					slog.Default().Warn("job lease renewal failed", "job_id", job.ID, "error", err)
+				}
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
+}
+
+// LeaseExpiredError marks a job that was reclaimed after its lease lapsed once
+// it had already used every attempt (a worker that crashed while running it).
+// It is permanent, so the job fails through the normal final-failure path and
+// its owner is told, instead of being reclaimed forever.
+type LeaseExpiredError struct{ Attempts, MaxAttempts int }
+
+func (e LeaseExpiredError) Error() string {
+	return fmt.Sprintf("job lease expired after %d of %d attempts", e.Attempts-1, e.MaxAttempts)
+}
+func (LeaseExpiredError) Permanent() bool { return true }
+
+// Exhausted reports whether a claim handed out a job that had already spent
+// all its attempts (a stale RUNNING lease reclaimed once more).
+func Exhausted(job Job) bool { return job.Attempts > job.MaxAttempts }
 
 // Final reports whether a failed attempt is the job's last: it either used its
 // attempts or failed with an error that must not be retried.
@@ -191,7 +250,7 @@ func (q *Queue) failTx(ctx context.Context, job Job, processErr error, onFinal f
 		return err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `UPDATE job SET status=$2,run_after=now()+$3*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$4,finished_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND status='RUNNING'`, job.ID, status, delaySeconds, truncate(processErr.Error(), 1000))
+	tag, err := tx.Exec(ctx, `UPDATE job SET status=$2,run_after=now()+$3*interval '1 second',locked_at=NULL,locked_by=NULL,last_error=$4,finished_at=CASE WHEN $2='FAILED' THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND status='RUNNING' AND locked_by=$5`, job.ID, status, delaySeconds, truncate(processErr.Error(), 1000), job.LockedBy)
 	if err != nil {
 		return err
 	}
