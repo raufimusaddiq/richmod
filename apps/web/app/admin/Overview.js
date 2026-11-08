@@ -1,14 +1,14 @@
 "use client";
 
-import { time, number, percent, Badge, Metric, Empty, useLoad, Table } from "./shared";
+import { time, number, percent, Badge, Metric, Empty, Pending, useLoad, Table } from "./shared";
 
 export default function Overview({ setError }) {
-  const [data, refresh] = useLoad("/api/v1/admin/overview", setError);
+  const [data, refresh, state] = useLoad("/api/v1/admin/overview", setError);
   const [reviewHealth] = useLoad(
     "/api/v1/admin/reviews/summary?range=24h",
     setError,
   );
-  if (!data) return <Empty>Memuat ringkasan…</Empty>;
+  if (!data) return <Pending state={state} retry={refresh}>Memuat ringkasan…</Pending>;
   return (
     <section className="admin-stack">
       <div className="admin-section-head">
