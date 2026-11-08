@@ -216,6 +216,10 @@ func (p *Processor) agentResolvePendingAction(ctx context.Context, state *agentS
 			status = "REFUSED"
 			result.Status = "SOURCE_EVIDENCE_FIXES_AMOUNT"
 		}
+		if outcome.Voided {
+			status = "REFUSED"
+			result.Status = "TRANSACTION_VOIDED"
+		}
 	} else if _, err = tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID); err != nil {
 		return result, true, err
 	}
@@ -239,6 +243,9 @@ type correctionOutcome struct {
 	// Refused means the staged amount/merchant change no longer applies: the
 	// transaction gained source evidence after it was staged.
 	Refused bool
+	// Voided means the transaction was voided after the correction was staged,
+	// so nothing is edited: a voided row is no longer the household's to change.
+	Voided bool
 	// ProposedAt is the new transaction time, when the correction moved it.
 	ProposedAt *time.Time
 }
@@ -260,6 +267,11 @@ func applyPendingCorrectionTx(ctx context.Context, tx pgx.Tx, householdID, actio
 		FROM telegram_pending_action a JOIN transaction t ON t.id=a.transaction_id AND t.household_id=a.household_id
 		WHERE a.id=$1 AND a.household_id=$2 FOR UPDATE OF a,t`, actionID, householdID).Scan(&transactionID, &proposedAt, &proposedCategoryID, &proposedDescription, &proposedAmount, &proposedMerchant,
 		&txStatus, &beforeAt, &beforeAmount, &beforeMerchant, &beforeCategory, &beforeDescription); err != nil {
+		return outcome, err
+	}
+	if txStatus == "VOIDED" {
+		outcome.Voided = true
+		_, err := tx.Exec(ctx, `UPDATE telegram_pending_action SET status='CANCELLED',resolved_at=now() WHERE id=$1`, actionID)
 		return outcome, err
 	}
 	if proposedAmount != nil || proposedMerchant != nil {
