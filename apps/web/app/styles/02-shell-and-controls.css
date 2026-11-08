@@ -64,7 +64,7 @@ label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; color: v
 
 /* Disclosures: a quiet outlined chip with a +/− badge, never the browser's
    triangle. Section-sized disclosures (.report-disclosure) keep their own +/− heading. */
-details:not(.report-disclosure) > summary { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-muted); color: var(--ink-soft); font-size: var(--text-xs); font-weight: var(--weight-semibold); list-style: none; cursor: pointer; touch-action: manipulation; }
+details:not(.report-disclosure) > summary { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-muted); color: var(--ink-soft); font-size: var(--text-xs); font-weight: var(--weight-semibold); list-style: none; cursor: pointer; touch-action: manipulation; }
 details:not(.report-disclosure) > summary::-webkit-details-marker { display: none; }
 details:not(.report-disclosure) > summary::marker { content: ""; }
 details:not(.report-disclosure) > summary::before { content: "+"; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--surface-strong); border: 1px solid var(--line); color: var(--accent); font-size: 14px; line-height: 1; }
