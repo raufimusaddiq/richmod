@@ -168,7 +168,7 @@ func TestDeadButtonTapIsFinalizedAnnouncedAndRecorded(t *testing.T) {
 	jobs := queue.New(f.pool)
 	event := f.callbackEvent(41, true)
 	payload, _ := json.Marshal(map[string]string{"source_event_id": event, "callback_id": "cb"})
-	job := queue.Job{Type: "PROCESS_TELEGRAM_CALLBACK", Payload: payload, Attempts: 5, MaxAttempts: 5}
+	job := queue.Job{LockedBy: "test", Type: "PROCESS_TELEGRAM_CALLBACK", Payload: payload, Attempts: 5, MaxAttempts: 5}
 	if err := f.pool.QueryRow(f.ctx, `INSERT INTO job(type,payload_json,status,attempts,max_attempts,locked_at,locked_by) VALUES('PROCESS_TELEGRAM_CALLBACK',$1::jsonb,'RUNNING',5,5,now(),'test') RETURNING id::text`, string(payload)).Scan(&job.ID); err != nil {
 		t.Fatal(err)
 	}
