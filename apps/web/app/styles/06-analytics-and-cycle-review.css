@@ -26,8 +26,6 @@
 .cycle-review .review-section > .section-title { flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
 .review-explainer { color: var(--muted); font-size: var(--text-xs); }
 .cycle-review .section-title > .review-explainer { max-width: 78ch; margin-top: 6px; }
-.review-explainer > summary { width: max-content; min-height: 44px; padding-block: 12px; cursor: pointer; color: var(--ink-soft); font-weight: var(--weight-semibold); text-underline-offset: 3px; }
-.review-explainer > summary:hover { color: var(--accent); text-decoration: underline; }
 .review-explainer > p { max-width: 82ch; margin: 0 0 12px; line-height: 1.6; }
 .cycle-footnote { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; margin-top: 14px; color: var(--muted); font-size: var(--text-xs); }
 .cycle-footnote strong { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -66,7 +64,6 @@
 .change-track { display: block; width: 100%; height: 4px; margin-top: 7px; border-radius: 999px; background: var(--surface-muted); }
 .change-track i { display: block; height: 100%; border-radius: 999px; background: var(--ink-soft); }
 .review-daily { margin-top: 18px; border-top: 1px solid var(--line); }
-.review-daily summary { padding: 13px 2px; color: var(--ink-soft); font-size: 12px; font-weight: var(--weight-semibold); cursor: pointer; }
 .driver-selector { max-width: 320px; margin-bottom: 4px; }
 .category-evidence > h3 { margin: 18px 0 0; font-size: var(--text-lg); }
 .review-quality { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--line); overflow: hidden; }

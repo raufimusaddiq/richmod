@@ -77,7 +77,6 @@ input[type="file"]::file-selector-button:hover { background: var(--accent-soft);
 .review-card .review-explain { margin: 6px 0 0; color: var(--muted); font-size: var(--text-xs); }
 .date-choices { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
 .review-history { margin-top: 24px; color: var(--muted); font-size: var(--text-sm); }
-.review-history summary { cursor: pointer; font-weight: 700; }
 .history-list { margin: 10px 0 0; padding: 0; list-style: none; }
 .history-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .history-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
