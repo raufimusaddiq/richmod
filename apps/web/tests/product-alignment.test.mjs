@@ -328,7 +328,12 @@ test("documents: the drawer separates loading, error and ready, and upload is gu
   assert.match(source, /onClick=\{drawer\.retry\}/);
   const upload = source.slice(source.indexOf("async function upload"), source.indexOf("function open("));
   assert.match(upload, /try \{[\s\S]*catch[\s\S]*finally \{ setWorking\(false\)/);
-  assert.match(source, /setInterval\(\(\) => load\(\), 5000\)/, "status is refreshed after an upload");
+  assert.doesNotMatch(source, /setInterval/, "polling is a self-rescheduling timeout, never an interval");
+  assert.match(source, /loader\.status !== LOAD\.READY\) return undefined/, "no tick is armed while a request is in flight or after a failure");
+  assert.match(source, /polls\.current >= MAX_POLLS/, "polling is capped");
+  assert.match(source, /Muat ulang/, "a stopped poll offers a manual reload");
+  assert.match(source, /setProcessing\(next\.some/, "processing comes from the last successful response");
+  assert.doesNotMatch(source, /const processing = items\.some/);
 });
 
 test("invite: busy flag, network error message, error cleared on edit", () => {
